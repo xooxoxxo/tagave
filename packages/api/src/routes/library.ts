@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and } from 'drizzle-orm';
-import { v7 } from 'uuidv7';
+import { uuidv7 } from 'uuidv7';
 import path from 'path';
 import fs from 'fs/promises';
 import { makeDb, libraries, scanRoots, jobRuns } from '@liner/db';
@@ -132,7 +132,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw err;
     }
 
-    const scanRootId = v7();
+    const scanRootId = uuidv7();
     const root = {
       id: scanRootId,
       libraryId,
@@ -217,6 +217,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         .where(eq(scanRoots.id, scanRootId));
 
       const sr = updated[0];
+      if (!sr) {
+        // Invariant: scan root should exist since we just updated it
+        throw new ApiError(404, 'Not Found', 'Scan root not found');
+      }
       reply.status(200).send(
         scanRootSchema.parse({
           id: sr.id,
@@ -319,7 +323,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       }
 
       // Enqueue scan job
-      const jobId = v7();
+      const jobId = uuidv7();
       const job = {
         id: jobId,
         libraryId,

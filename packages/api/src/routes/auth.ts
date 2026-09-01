@@ -1,21 +1,25 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { hash, verify } from 'argon2';
-import { v7 } from 'uuidv7';
+import { uuidv7 } from 'uuidv7';
+import type { SQL } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { makeDb, users, libraries } from '@liner/db';
 import { setupRequestSchema, loginRequestSchema, sessionUserSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { createSession, invalidateSession } from '../middleware/auth.js';
 
+function isSecureConnection(request: FastifyRequest): boolean {
+  return (
+    request.protocol === 'https' ||
+    request.headers['x-forwarded-proto']?.includes('https') === true
+  );
+}
+
 export async function createAuthRoutes(fastify: FastifyInstance) {
   // Setup endpoint (first-run account creation)
   fastify.post('/setup', async (request: FastifyRequest, reply: FastifyReply) => {
     // Check if HTTPS or ALLOW_INSECURE_HTTP
-    if (
-      !request.secure &&
-      !request.headers['x-forwarded-proto']?.includes('https') &&
-      process.env.ALLOW_INSECURE_HTTP !== 'true'
-    ) {
+    if (!isSecureConnection(request) && process.env.ALLOW_INSECURE_HTTP !== 'true') {
       throw new ApiError(
         400,
         'Insecure Connection',
@@ -39,7 +43,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     const passwordHash = await hash(body.password);
 
     // Create user
-    const userId = v7();
+    const userId = uuidv7();
     const user = {
       id: userId,
       email: body.email,
@@ -52,7 +56,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     await db.insert(users).values(user);
 
     // Create default library
-    const libraryId = v7();
+    const libraryId = uuidv7();
     const library = {
       id: libraryId,
       ownerUserId: userId,
@@ -74,21 +78,18 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
       createdAt: new Date().toISOString(),
     });
 
-    const sessionId = createSession(sessionUser);
+    const sessionId = await createSession(userId);
 
     reply
       .setCookie('sessionId', sessionId, {
         httpOnly: true,
-        secure: request.secure || request.headers['x-forwarded-proto']?.includes('https'),
+        secure: isSecureConnection(request),
         sameSite: 'strict',
         path: '/',
         maxAge: 30 * 24 * 60 * 60, // 30 days
       })
       .status(201)
-      .send({
-        user: sessionUser,
-        sessionId,
-      });
+      .send({ user: sessionUser });
   });
 
   // Login endpoint
@@ -105,6 +106,10 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     }
 
     const user = userRecords[0];
+    if (!user) {
+      // Invariant: this should never happen since we checked userRecords.length > 0 above
+      throw new ApiError(401, 'Unauthorized', 'Invalid email or password', '/api/v1/auth/login');
+    }
 
     // Verify password
     const passwordMatch = await verify(user.passwordHash, body.password);
@@ -121,21 +126,18 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
       createdAt: new Date().toISOString(),
     });
 
-    const sessionId = createSession(sessionUser);
+    const sessionId = await createSession(user.id);
 
     reply
       .setCookie('sessionId', sessionId, {
         httpOnly: true,
-        secure: request.secure || request.headers['x-forwarded-proto']?.includes('https'),
+        secure: isSecureConnection(request),
         sameSite: 'strict',
         path: '/',
         maxAge: 30 * 24 * 60 * 60,
       })
       .status(200)
-      .send({
-        user: sessionUser,
-        sessionId,
-      });
+      .send({ user: sessionUser });
   });
 
   // Logout endpoint
@@ -143,7 +145,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     const sessionCookie = request.cookies.sessionId;
 
     if (sessionCookie) {
-      invalidateSession(sessionCookie);
+      await invalidateSession(sessionCookie);
     }
 
     reply.clearCookie('sessionId', { path: '/' }).status(200).send({ success: true });

@@ -100,6 +100,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       }
 
       const album = albums[0];
+      if (!album) {
+        // Invariant: this should never happen since we checked albums.length > 0 above
+        throw new ApiError(404, 'Not Found', 'Album not found');
+      }
 
       // Get files in album
       const files = await db

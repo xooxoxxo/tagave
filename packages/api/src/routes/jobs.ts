@@ -96,6 +96,10 @@ export async function createJobRoutes(fastify: FastifyInstance) {
       }
 
       const job = jobs[0];
+      if (!job) {
+        // Invariant: this should never happen since we checked jobs.length > 0 above
+        throw new ApiError(404, 'Not Found', 'Job not found');
+      }
       reply.status(200).send({
         id: job.id,
         type: job.type,
@@ -208,6 +212,10 @@ export async function createJobRoutes(fastify: FastifyInstance) {
       }
 
       const job = jobs[0];
+      if (!job) {
+        // Invariant: this should never happen since we checked jobs.length > 0 above
+        throw new ApiError(404, 'Not Found', 'Job not found');
+      }
 
       if (job.state === 'finished' || job.state === 'failed') {
         throw new ApiError(

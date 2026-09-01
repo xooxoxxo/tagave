@@ -13,31 +13,30 @@ import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createJobRoutes } from './routes/jobs.js';
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize logger
-const loggerConfig: Parameters<typeof pino>[0] = {
+const loggerConfig = {
   level: process.env.LOG_LEVEL || 'info',
-};
-
-if (process.env.NODE_ENV !== 'production') {
-  loggerConfig.transport = {
-    target: 'pino-pretty',
-    options: {
-      colorize: true,
+  ...(process.env.NODE_ENV !== 'production' && {
+    transport: {
+      target: 'pino-pretty',
+      options: {
+        colorize: true,
+      },
     },
-  };
-}
+  }),
+};
 
 const logger = pino(loggerConfig);
 
 // Create Fastify app
 const app = Fastify({
-  logger: process.env.NODE_ENV !== 'production' ? loggerConfig : false,
+  logger: process.env.NODE_ENV !== 'production' ? true : false,
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
 });
@@ -49,10 +48,10 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-let db: any;
+let db: Awaited<ReturnType<typeof makeDb>>;
 try {
-  const dbModule = await makeDb(databaseUrl);
-  db = dbModule;
+  db = await makeDb(databaseUrl);
+  initAuth(db.db);
   logger.info('Database initialized successfully');
 } catch (err) {
   logger.error({ err }, 'Failed to initialize database');
