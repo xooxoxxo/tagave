@@ -43,9 +43,9 @@ async function main() {
 
   await boss.work<ScanParseJobData>(
     'scan.parse',
-    { batchSize: 1, pollingIntervalSeconds: 1 },
+    { batchSize: 4, pollingIntervalSeconds: 1 },
     async (jobs) => {
-      for (const job of jobs) await scanParseJob(ctx, job.data);
+      await Promise.all(jobs.map((job) => scanParseJob(ctx, job.data)));
     },
   );
 
