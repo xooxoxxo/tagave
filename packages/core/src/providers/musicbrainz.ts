@@ -20,19 +20,19 @@ const MB_BASE_URL = 'https://musicbrainz.org/ws/2';
 const ArtistSchema = z.object({
   id: z.string(),
   name: z.string(),
-  'sort-name': z.string().optional(),
+  'sort-name': z.string().nullish(),
 });
 
 const RecordingSchema = z.object({
   id: z.string(),
   title: z.string(),
-  length: z.number().optional(),
+  length: z.number().nullish(),
   isrcs: z.array(z.string()).optional(),
   'artist-credit': z
     .array(
       z.object({
         artist: ArtistSchema,
-        name: z.string().optional(),
+        name: z.string().nullish(),
       })
     )
     .optional(),
@@ -41,58 +41,58 @@ const RecordingSchema = z.object({
 const NumStr = z.union([z.string(), z.number()]).transform((v) => String(v));
 
 const TrackSchema = z.object({
-  id: z.string().optional(),
+  id: z.string().nullish(),
   title: z.string(),
-  number: NumStr.optional(),
-  position: NumStr.optional(),
-  length: z.number().optional(),
+  number: NumStr.nullish(),
+  position: NumStr.nullish(),
+  length: z.number().nullish(),
   recording: RecordingSchema.optional(),
   'artist-credit': z
     .array(
       z.object({
         artist: ArtistSchema,
-        name: z.string().optional(),
+        name: z.string().nullish(),
       })
     )
     .optional(),
 });
 
 const MediumSchema = z.object({
-  position: NumStr.optional(),
-  format: z.string().optional(),
-  'track-count': z.number().optional(),
+  position: NumStr.nullish(),
+  format: z.string().nullish(),
+  'track-count': z.number().nullish(),
   tracks: z.array(TrackSchema).optional(),
 });
 
 const LabelSchema = z.object({
-  id: z.string().optional(),
+  id: z.string().nullish(),
   name: z.string(),
-  'catalog-number': z.string().optional(),
+  'catalog-number': z.string().nullish(),
 });
 
 const ReleaseGroupSchema = z.object({
   id: z.string(),
   title: z.string(),
-  'primary-type': z.string().optional(),
+  'primary-type': z.string().nullish(),
   'secondary-types': z.array(z.string()).optional(),
-  'first-release-date': z.string().optional(),
+  'first-release-date': z.string().nullish(),
 });
 
 const ReleaseSchema = z.object({
   id: z.string(),
   title: z.string(),
-  status: z.string().optional(),
-  date: z.string().optional(),
-  country: z.string().optional(),
-  barcode: z.string().optional(),
-  'track-count': z.number().optional(),
+  status: z.string().nullish(),
+  date: z.string().nullish(),
+  country: z.string().nullish(),
+  barcode: z.string().nullish(),
+  'track-count': z.number().nullish(),
   'release-group': ReleaseGroupSchema.optional(),
   media: z.array(MediumSchema).optional(),
   'label-info': z
     .array(
       z.object({
         label: LabelSchema,
-        'catalog-number': z.string().optional(),
+        'catalog-number': z.string().nullish(),
       })
     )
     .optional(),
@@ -100,7 +100,7 @@ const ReleaseSchema = z.object({
     .array(
       z.object({
         artist: ArtistSchema,
-        name: z.string().optional(),
+        name: z.string().nullish(),
       })
     )
     .optional(),
@@ -108,15 +108,15 @@ const ReleaseSchema = z.object({
 
 const SearchResultSchema = z.object({
   releases: z.array(ReleaseSchema).optional(),
-  'release-offset': z.number().optional(),
-  'release-count': z.number().optional(),
+  'release-offset': z.number().nullish(),
+  'release-count': z.number().nullish(),
 });
 
 /**
  * Extract artist credit string from artist credit array.
  */
 function formatArtistCredit(
-  credits?: Array<{ artist: { name: string }; name?: string | undefined }>
+  credits?: Array<{ artist: { name: string }; name?: string | null | undefined }> | null
 ): string[] {
   if (!credits) return [];
   return credits.map((c) => c.name || c.artist.name);
