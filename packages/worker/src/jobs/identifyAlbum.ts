@@ -22,21 +22,27 @@ const MB_INTERVAL_MS = 1100;
 const MB_503_COOLDOWN_MS = 60_000;
 function paced<T>(fn: () => Promise<T>): Promise<T> {
   const run = mbChain.then(async () => {
-    const coolWait = mbCooldownUntil - Date.now();
-    if (coolWait > 0) await new Promise((r) => setTimeout(r, coolWait));
-    const started = Date.now();
-    try {
-      return await fn();
-    } catch (err) {
-      // MB 503s every request while over the limit; hammering it during the
-      // penalty window extends it (spec §10.2.2). Hold the whole chain.
-      if (/503|rate limit/i.test((err as Error).message)) {
-        mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS;
+    // Up to 3 attempts; a 503 sets a shared cooldown the whole chain honours
+    // (spec §10.2.2 backoff — MB 503s are often transient load, and hammering
+    // during a penalty window extends it).
+    for (let attempt = 1; ; attempt++) {
+      const coolWait = mbCooldownUntil - Date.now();
+      if (coolWait > 0) await new Promise((r) => setTimeout(r, coolWait));
+      const started = Date.now();
+      try {
+        return await fn();
+      } catch (err) {
+        const rateLimited = /503|rate limit/i.test((err as Error).message);
+        if (rateLimited && attempt < 3) {
+          mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS * attempt;
+          continue;
+        }
+        if (rateLimited) mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS;
+        throw err;
+      } finally {
+        const wait = MB_INTERVAL_MS - (Date.now() - started);
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
       }
-      throw err;
-    } finally {
-      const wait = MB_INTERVAL_MS - (Date.now() - started);
-      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     }
   });
   mbChain = run.then(() => undefined, () => undefined);
@@ -136,12 +142,18 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       if (rel) fetched.push(rel);
     }
     if (fetched.length === 0) {
-      const found = await paced(() => p.searchReleases({
+      // Cascade: exact artist phrase often misses (credit variations), so a
+      // title-only pass follows and the scorer judges artist distance.
+      let found = await paced(() => p.searchReleases({
         albumTitle: album.titleGuess as string,
         artistName: album.artistGuess as string,
-        trackCount: tracks.length,
         ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
       }, ctxCall));
+      if (found.length === 0) {
+        found = await paced(() => p.searchReleases({
+          albumTitle: album.titleGuess as string,
+        }, ctxCall));
+      }
       // Fetch full tracklists for the top few candidates whose track counts
       // are not impossible (spec §10.3 budget: cap lookups per album).
       const plausible = found
