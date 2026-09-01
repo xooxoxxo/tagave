@@ -17,12 +17,23 @@ export interface IdentifyAlbumJobData {
 /** MusicBrainz allows ~1 req/s. A module-level pacer serialises every MB call
  * this worker makes, regardless of job concurrency. */
 let mbChain: Promise<void> = Promise.resolve();
+let mbCooldownUntil = 0;
 const MB_INTERVAL_MS = 1100;
+const MB_503_COOLDOWN_MS = 60_000;
 function paced<T>(fn: () => Promise<T>): Promise<T> {
   const run = mbChain.then(async () => {
+    const coolWait = mbCooldownUntil - Date.now();
+    if (coolWait > 0) await new Promise((r) => setTimeout(r, coolWait));
     const started = Date.now();
     try {
       return await fn();
+    } catch (err) {
+      // MB 503s every request while over the limit; hammering it during the
+      // penalty window extends it (spec §10.2.2). Hold the whole chain.
+      if (/503|rate limit/i.test((err as Error).message)) {
+        mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS;
+      }
+      throw err;
     } finally {
       const wait = MB_INTERVAL_MS - (Date.now() - started);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait));

@@ -38,11 +38,13 @@ const RecordingSchema = z.object({
     .optional(),
 });
 
+const NumStr = z.union([z.string(), z.number()]).transform((v) => String(v));
+
 const TrackSchema = z.object({
   id: z.string().optional(),
   title: z.string(),
-  number: z.string(),
-  position: z.string(),
+  number: NumStr.optional(),
+  position: NumStr.optional(),
   length: z.number().optional(),
   recording: RecordingSchema.optional(),
   'artist-credit': z
@@ -56,7 +58,7 @@ const TrackSchema = z.object({
 });
 
 const MediumSchema = z.object({
-  position: z.string(),
+  position: NumStr.optional(),
   format: z.string().optional(),
   'track-count': z.number().optional(),
   tracks: z.array(TrackSchema).optional(),
@@ -133,8 +135,8 @@ function mbTrackToCanonical(
   return {
     title: mbTrack.title,
     artists: artists.length > 0 ? artists : [mbTrack.title],
-    duration: (mbTrack.length || recording?.length || 0) * 1000, // ms
-    position: parseInt(mbTrack.position || mbTrack.number, 10),
+    duration: mbTrack.length || recording?.length || 0, // MB lengths are already milliseconds
+    position: parseInt(mbTrack.position ?? mbTrack.number ?? '0', 10),
     mediumNumber,
     recordingId: recording?.id,
     isrc: recording?.isrcs?.[0],
@@ -152,7 +154,7 @@ function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): Canonic
   const tracks: CanonicalTrack[] = [];
   if (mbRelease.media) {
     for (const medium of mbRelease.media) {
-      const mediumNum = parseInt(medium.position, 10);
+      const mediumNum = parseInt(medium.position ?? '1', 10);
       if (medium.tracks) {
         for (const track of medium.tracks) {
           tracks.push(mbTrackToCanonical(track, mediumNum));
