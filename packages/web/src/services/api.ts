@@ -33,19 +33,9 @@ class ApiClient {
       credentials: 'include', // Include httpOnly cookies
     });
 
-    if (response.status === 401) {
-      // Check if this is a /auth/me call - if so, might indicate no setup yet
-      if (path === '/auth/me') {
-        // Try to determine if setup is needed by checking if there's a library
-        // For now, redirect to login and let the login page handle it
-        window.location.href = '/login';
-      } else {
-        // Regular 401 - session expired
-        window.location.href = '/login';
-      }
-      throw new Error('Redirecting to login');
-    }
-
+    // 401 is thrown as a typed error; routing decisions belong to the React
+    // layer (App.tsx), never here — a hard redirect from the client caused an
+    // infinite reload loop on /login.
     if (!response.ok) {
       const error: ApiError = await response.json().catch(() => ({
         status: response.status,

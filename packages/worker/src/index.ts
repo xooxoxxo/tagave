@@ -5,6 +5,8 @@ import type { WorkerContext } from './lib/context.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
+import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
+import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -15,7 +17,7 @@ if (!databaseUrl) {
 }
 
 const M1_PLACEHOLDER_QUEUES = [
-  'identify.album', 'enrich.release', 'enrich.artist', 'art.fetch',
+  'enrich.release', 'enrich.artist', 'art.fetch',
   'tags.preview', 'tags.apply', 'tags.revert',
   'gaps.recompute', 'artist.refresh', 'reviews.fetch', 'collection.sync',
 ];
@@ -31,17 +33,22 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.parse', 'cluster.dir', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
-  await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
+  // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
+  // process works — lets an identify-only worker run beside the file worker.
+  const only = process.env.LINER_QUEUES ? new Set(process.env.LINER_QUEUES.split(',').map((q) => q.trim())) : null;
+  const wants = (q: string) => !only || only.has(q);
+
+  if (wants('scan.root')) await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) {
       logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
       await scanRootJob(ctx, job.data);
     }
   });
 
-  await boss.work<ScanParseJobData>(
+  if (wants('scan.parse')) await boss.work<ScanParseJobData>(
     'scan.parse',
     { batchSize: 4, pollingIntervalSeconds: 1 },
     async (jobs) => {
@@ -49,8 +56,16 @@ async function main() {
     },
   );
 
-  await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 1 }, async (jobs) => {
+  if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await clusterDirJob(ctx, job.data);
+  });
+
+  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await identifyAlbumJob(ctx, job.data);
+  });
+
+  if (wants('identify.sweep')) await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await identifySweepJob(ctx, job.data);
   });
 
   for (const q of M1_PLACEHOLDER_QUEUES) {
