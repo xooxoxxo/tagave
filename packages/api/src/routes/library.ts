@@ -4,6 +4,7 @@ import { uuidv7 } from 'uuidv7';
 import path from 'path';
 import fs from 'fs/promises';
 import { makeDb, libraries, scanRoots, jobRuns } from '@liner/db';
+import PgBoss from 'pg-boss';
 import {
   createScanRootSchema,
   patchScanRootSchema,
@@ -11,6 +12,15 @@ import {
   librarySchema,
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
+
+let bossSingleton: PgBoss | null = null;
+async function getBoss(): Promise<PgBoss> {
+  if (!bossSingleton) {
+    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
+    await bossSingleton.start();
+  }
+  return bossSingleton;
+}
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Get all libraries for the authenticated user
@@ -335,7 +345,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         subjectType: 'scan_root',
         subjectId: scanRootId,
         state: 'created',
-        progress: JSON.stringify({ done: 0, total: 0 }),
+        progress: { done: 0, total: 0 },
         startedAt: null as any,
         finishedAt: null as any,
         error: null,
@@ -343,6 +353,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       };
 
       await db.insert(jobRuns).values(job);
+
+      const boss = await getBoss();
+      await boss.createQueue('scan.root');
+      await boss.send('scan.root', { scanRootId }, { singletonKey: `scan:${scanRootId}` });
 
       reply.status(202).send({
         id: jobId,

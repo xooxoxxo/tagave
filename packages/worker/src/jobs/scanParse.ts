@@ -72,7 +72,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
       const fmt = meta.format;
       // Full snapshot: common (decoded) + native frames per tag type. Strip
       // picture data — binary buffers do not belong in jsonb.
-      const common = { ...meta.common } as Record<string, unknown>;
+      const common = safeJson({ ...meta.common }) as Record<string, unknown>;
       delete common['picture'];
       const native: Record<string, { id: string; value: unknown }[]> = {};
       for (const [tagType, frames] of Object.entries(meta.native)) {
@@ -136,7 +136,9 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
 /** jsonb-safe conversion for native frame values (Buffers → summaries). */
 function safeJson(v: unknown): unknown {
   if (v === null || v === undefined) return v ?? null;
-  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') return v;
+  // Postgres jsonb cannot store \u0000 inside strings; old rips carry them.
+  if (typeof v === 'string') return v.replaceAll('\u0000', '');
+  if (typeof v === 'number' || typeof v === 'boolean') return v;
   if (Buffer.isBuffer(v) || v instanceof Uint8Array) return `<binary ${v.length}B>`;
   if (Array.isArray(v)) return v.map(safeJson);
   if (typeof v === 'object') {

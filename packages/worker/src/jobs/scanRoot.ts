@@ -112,14 +112,14 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
       relPath: f.relPath,
       sizeBytes: f.sizeBytes,
       mtime: f.mtime,
-      status: 'pending',
+      status: 'present',
     }));
     const inserted = await ctx.db
       .insert(audioFiles)
       .values(rows)
       .onConflictDoUpdate({
         target: [audioFiles.scanRootId, audioFiles.relPath],
-        set: { status: 'pending', lastSeenAt: new Date() },
+        set: { status: 'present', lastSeenAt: new Date() },
       })
       .returning({ id: audioFiles.id });
     changedIds.push(...inserted.map((r) => r.id));
@@ -173,7 +173,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
             stats.changed += 1;
             await ctx.db
               .update(audioFiles)
-              .set({ sizeBytes: st.size, mtime: mtimeS, status: 'pending', lastSeenAt: new Date() })
+              .set({ sizeBytes: st.size, mtime: mtimeS, status: 'present', lastSeenAt: new Date() })
               .where(eq(audioFiles.id, prior.id));
             changedIds.push(prior.id);
           } else {
