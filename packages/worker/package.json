@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run || true",
+    "test": "vitest run",
     "test:watch": "vitest",
     "dev": "node --watch --loader tsx dist/index.js"
   },

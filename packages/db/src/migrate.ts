@@ -3,69 +3,58 @@ import path from 'path';
 import postgres from 'postgres';
 import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Load environment variables from .env file if running from root
-let DATABASE_URL = process.env.DATABASE_URL;
-
-if (!DATABASE_URL) {
-  try {
-    // Try multiple locations for .env file
-    const possiblePaths = [
-      path.join(process.cwd(), '.env'),
-      path.join(__dirname, '../../.env'),
-      path.join(__dirname, '../../../.env'),
-    ];
-
-    for (const envPath of possiblePaths) {
-      try {
-        const envContent = await fs.readFile(envPath, 'utf-8');
-        const lines = envContent.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('DATABASE_URL=')) {
-            DATABASE_URL = line.split('=')[1]?.trim();
-            break;
-          }
-        }
-        if (DATABASE_URL) break;
-      } catch (error) {
-        // Continue to next path
-      }
-    }
-  } catch (error) {
-    // Silently ignore if .env doesn't exist
-  }
-}
-
+const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) {
   throw new Error('DATABASE_URL environment variable is required');
 }
 
-const sql = postgres(DATABASE_URL);
+const sql = postgres(DATABASE_URL, { max: 1 });
 
 async function migrate() {
-  console.log('Starting database migration...');
+  await sql`
+    create table if not exists _migrations (
+      name text primary key,
+      applied_at timestamptz not null default now()
+    )`;
 
-  try {
-    // Read the migration file
-    const migrationsDir = path.join(__dirname, '../migrations');
-    const migrationFile = path.join(migrationsDir, '0000_init.sql');
-    const migrationSQL = await fs.readFile(migrationFile, 'utf-8');
+  const applied = new Set(
+    (await sql`select name from _migrations`).map((r) => r['name'] as string),
+  );
 
-    // Execute the migration
-    await sql.unsafe(migrationSQL);
-
-    console.log('Migration completed successfully');
-  } catch (error) {
-    console.error('Migration failed:', error);
-    throw error;
-  } finally {
-    await sql.end();
+  // Baseline: a database created before the ledger existed already has the
+  // 0000 schema; record it instead of re-running it.
+  if (!applied.has('0000_init.sql')) {
+    const t = await sql`select to_regclass('public.users') as t`;
+    if (t[0]?.['t']) {
+      await sql`insert into _migrations (name) values ('0000_init.sql')`;
+      applied.add('0000_init.sql');
+      console.log('baselined existing schema as 0000_init.sql');
+    }
   }
+
+  const migrationsDir = path.join(__dirname, '../migrations');
+  const files = (await fs.readdir(migrationsDir))
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+
+  for (const file of files) {
+    if (applied.has(file)) continue;
+    const body = await fs.readFile(path.join(migrationsDir, file), 'utf-8');
+    console.log(`applying ${file}...`);
+    await sql.begin(async (tx) => {
+      await tx.unsafe(body);
+      await tx`insert into _migrations (name) values (${file})`;
+    });
+    console.log(`applied ${file}`);
+  }
+
+  console.log('migrations up to date');
 }
 
-migrate().catch((err) => {
-  console.error('Fatal error:', err);
-  process.exit(1);
-});
+try {
+  await migrate();
+} finally {
+  await sql.end();
+}

@@ -32,7 +32,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
           id: lib.id,
           ownerUserId: lib.ownerUserId,
           name: lib.name,
-          settings: lib.settings ? JSON.parse(lib.settings as string) : {},
+          settings:
+            typeof lib.settings === 'string'
+              ? JSON.parse(lib.settings)
+              : (lib.settings ?? {}),
           createdAt: lib.createdAt.toISOString(),
           updatedAt: lib.createdAt.toISOString(),
         })

@@ -1,4 +1,5 @@
 import {
+  bigint,
   boolean,
   date,
   integer,
@@ -131,8 +132,8 @@ export const audioFiles = pgTable(
       .notNull()
       .references(() => scanRoots.id, { onDelete: 'cascade' }),
     relPath: varchar('rel_path', { length: 2048 }).notNull(),
-    sizeBytes: integer('size_bytes'),
-    mtime: integer(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    mtime: bigint({ mode: 'number' }),
     inode: varchar({ length: 100 }),
     container: varchar({ length: 20 }),
     codec: varchar({ length: 50 }),
@@ -178,8 +179,8 @@ export const sidecarFiles = pgTable(
       .references(() => scanRoots.id, { onDelete: 'cascade' }),
     relPath: varchar('rel_path', { length: 2048 }).notNull(),
     kind: varchar({ length: 20 }).notNull(),
-    sizeBytes: integer('size_bytes'),
-    mtime: integer(),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    mtime: bigint({ mode: 'number' }),
   },
   (table) => ({
     libraryIdx: index('idx_sidecar_files_library').on(table.libraryId),

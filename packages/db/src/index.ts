@@ -13,7 +13,9 @@ export const MIGRATIONS_DIR = path.join(__dirname, '../migrations');
 
 export async function makeDb(databaseUrl: string) {
   const client = postgres(databaseUrl);
-  const db = drizzle(client, { schema });
+  // Implicitly-named columns must map to the snake_case identifiers the SQL
+  // migrations created (users.displayName -> display_name, ...).
+  const db = drizzle(client, { schema, casing: 'snake_case' });
 
   return {
     db,

@@ -61,9 +61,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
       id: libraryId,
       ownerUserId: userId,
       name: 'My Music Library',
-      settings: JSON.stringify({
-        contactString: body.contactString,
-      }),
+      settings: { contactString: body.contactString },
       createdAt: new Date(),
     };
 

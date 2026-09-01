@@ -1,11 +1,12 @@
 import PgBoss from 'pg-boss';
-import postgres from 'postgres';
 import pino from 'pino';
-import type { Logger } from 'pino';
+import { makeDb } from '@liner/db';
+import type { WorkerContext } from './lib/context.js';
+import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
+import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
+import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 
-const logger = pino({
-  level: process.env.LOG_LEVEL || 'info',
-});
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -13,137 +14,97 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
-let worker: PgBoss | null = null;
-let db: any = null;
-let workerId: string = '';
+const M1_PLACEHOLDER_QUEUES = [
+  'identify.album', 'enrich.release', 'enrich.artist', 'art.fetch',
+  'tags.preview', 'tags.apply', 'tags.revert',
+  'gaps.recompute', 'artist.refresh', 'reviews.fetch', 'collection.sync',
+];
 
-/**
- * Initialize the worker with pg-boss and database connection.
- * Registers all job handlers.
- */
-async function initializeWorker() {
-  const sql = postgres(databaseUrl as string);
-
-  // db initialization (simplified - full implementation in M0)
-  db = sql;
-
-  // pg-boss connects directly to postgres
-  worker = new PgBoss(databaseUrl as string);
-
-  workerId = `worker-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-  // Handle worker events
-  worker.on('error', (error: Error) => {
-    logger.error({ err: error }, 'pg-boss error');
-  });
-
-  worker.on('stopped', () => {
-    logger.info('Worker stopped');
-  });
-
-  // Connect and start
-  await worker.start();
-  logger.info({ workerId }, 'Worker connected to pg-boss');
-
-  // Register job handlers
-  // Scan jobs (M0)
-  await worker.work('scan.root', async (job: any) => {
-    logger.info({ jobId: job.id }, 'Processing scan.root job');
-  });
-
-  await worker.work('scan.parse', async (job: any) => {
-    logger.info({ jobId: job.id }, 'Processing scan.parse job');
-  });
-
-  await worker.work('cluster.dir', async (job: any) => {
-    logger.info({ jobId: job.id }, 'Processing cluster.dir job');
-  });
-
-  await worker.work('job.progress', async (job: any) => {
-    logger.info({ jobId: job.id }, 'Processing job.progress job');
-  });
-
-  // Placeholder handlers for M1+ (to be implemented)
-  const m1JobTypes = [
-    'identify.album',
-    'enrich.release',
-    'enrich.artist',
-    'art.fetch',
-    'tags.preview',
-    'tags.apply',
-    'tags.revert',
-    'gaps.recompute',
-    'artist.refresh',
-    'reviews.fetch',
-    'collection.sync',
-  ];
-
-  for (const jobType of m1JobTypes) {
-    await worker.work(jobType, async (job: any) => {
-      logger.info({ jobId: job.id, jobType }, `${jobType} not yet implemented`);
-    });
-  }
-
-  logger.info('All job handlers registered');
-}
-
-/**
- * Start the worker heartbeat: log that worker is alive.
- */
-async function startHeartbeat() {
-  const heartbeatInterval = setInterval(async () => {
-    try {
-      logger.debug({ workerId }, 'Worker heartbeat');
-    } catch (err) {
-      logger.error({ err }, 'Heartbeat update failed');
-    }
-  }, 30000); // Every 30 seconds
-
-  return heartbeatInterval;
-}
-
-/**
- * Graceful shutdown: stop accepting new jobs, finish in-flight ones,
- * disconnect pg-boss and database.
- */
-async function shutdown() {
-  logger.info('Shutting down worker...');
-
-  if (worker) {
-    try {
-      await worker.stop({ graceful: true, timeout: 30000 });
-      logger.info('Worker stopped gracefully');
-    } catch (err) {
-      logger.error({ err }, 'Error stopping worker');
-    }
-  }
-
-  process.exit(0);
-}
-
-// Handle signals
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-// Main startup
 async function main() {
-  try {
-    await initializeWorker();
-    await startHeartbeat();
+  const { db, client } = await makeDb(databaseUrl as string);
+  const boss = new PgBoss(databaseUrl as string);
+  boss.on('error', (error: Error) => logger.error({ err: error }, 'pg-boss error'));
+  await boss.start();
 
-    logger.info({ workerId }, 'Worker started and ready to process jobs');
+  const ctx: WorkerContext = { db, sql: client, boss, logger };
+  const workerId = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
+  logger.info({ workerId }, 'worker connected');
 
-    // Keep the process alive
-    await new Promise(() => {
-      // This never resolves; the process is kept alive by signal handlers
+  // Queues must exist before work() in pg-boss v10+.
+  const queues = ['scan.root', 'scan.parse', 'cluster.dir', ...M1_PLACEHOLDER_QUEUES];
+  for (const q of queues) await boss.createQueue(q);
+
+  await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) {
+      logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
+      await scanRootJob(ctx, job.data);
+    }
+  });
+
+  await boss.work<ScanParseJobData>(
+    'scan.parse',
+    { batchSize: 1, pollingIntervalSeconds: 1 },
+    async (jobs) => {
+      for (const job of jobs) await scanParseJob(ctx, job.data);
+    },
+  );
+
+  await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await clusterDirJob(ctx, job.data);
+  });
+
+  for (const q of M1_PLACEHOLDER_QUEUES) {
+    await boss.work(q, async (jobs) => {
+      for (const job of jobs) logger.info({ jobId: job.id, queue: q }, 'queue not implemented yet (M1+)');
     });
-  } catch (err) {
-    logger.error({ err }, 'Failed to start worker');
-    process.exit(1);
   }
+  logger.info({ queues: queues.length }, 'job handlers registered');
+
+  // Heartbeat: the API's /health reads the freshest worker.heartbeat row.
+  const heartbeat = setInterval(() => {
+    void (async () => {
+      try {
+        await ctx.sql`
+          insert into job_runs (id, library_id, type, state, progress, created_at)
+          select gen_random_uuid(), l.id, 'worker.heartbeat', 'completed',
+                 ${JSON.stringify({ workerId, at: new Date().toISOString() })}::jsonb, now()
+          from libraries l limit 1
+          on conflict do nothing`;
+        await ctx.sql`
+          delete from job_runs
+          where type = 'worker.heartbeat'
+            and created_at < now() - interval '10 minutes'`;
+      } catch (err) {
+        logger.warn({ err: (err as Error).message }, 'heartbeat failed');
+      }
+    })();
+  }, 30_000);
+
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info('shutting down...');
+    clearInterval(heartbeat);
+    try {
+      await boss.stop({ graceful: true, timeout: 30_000 });
+    } catch (err) {
+      logger.error({ err }, 'error stopping pg-boss');
+    }
+    try {
+      await client.end({ timeout: 5 });
+    } catch {
+      /* closing */
+    }
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown());
+  process.on('SIGINT', () => void shutdown());
+
+  logger.info({ workerId }, 'worker ready');
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'Unexpected error in worker main');
+  logger.error({ err }, 'worker failed to start');
   process.exit(1);
 });

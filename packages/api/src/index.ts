@@ -103,6 +103,8 @@ await app.register(fastifySwaggerUI, {
   routePrefix: '/api/v1/docs',
 });
 
+app.get('/api/v1/openapi.json', async () => app.swagger());
+
 // Static file serving (web frontend)
 const webDistPath = path.join(__dirname, '../../web/dist');
 try {
@@ -114,11 +116,10 @@ try {
   logger.warn({ err }, 'Web frontend not found; running API-only mode');
 }
 
-// Error handling middleware (first)
-app.register(errorHandler);
-
-// Authentication middleware
-app.register(authMiddleware);
+// Error handler and auth hook must live on the ROOT instance — registering
+// them as plugins would encapsulate them away from sibling route plugins.
+await errorHandler(app);
+await authMiddleware(app);
 
 // Health check endpoint (no auth required)
 app.register(createHealthRoutes, { prefix: '/api/v1' });
