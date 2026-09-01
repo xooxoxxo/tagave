@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "incremental": true
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../db" },
+    { "path": "../core" },
+    { "path": "../shared" }
+  ]
+}

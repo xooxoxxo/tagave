@@ -1,0 +1,34 @@
+{
+  "name": "@liner/worker",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Liner music archive worker: scanning, clustering, matching, enrichment, tag writing",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run || true",
+    "test:watch": "vitest",
+    "dev": "node --watch --loader tsx dist/index.js"
+  },
+  "dependencies": {
+    "@liner/core": "workspace:*",
+    "@liner/db": "workspace:*",
+    "@liner/shared": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "music-metadata": "^8.1.6",
+    "pg-boss": "^11.1.1",
+    "pino": "^9.5.0",
+    "pino-pretty": "^10.3.1",
+    "postgres": "^3.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.2"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

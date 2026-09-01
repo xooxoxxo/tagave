@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "exactOptionalPropertyTypes": false,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true,
+    "noEmit": false
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../db" },
+    { "path": "../core" },
+    { "path": "../shared" }
+  ]
+}
