@@ -263,6 +263,15 @@ async function contactString(ctx: WorkerContext, libraryId: string): Promise<str
   return rows[0]?.c ?? null;
 }
 
+/** MB dates arrive as YYYY, YYYY-MM, or YYYY-MM-DD; Postgres date wants full. */
+function normDate(d: string | undefined): string | null {
+  if (!d) return null;
+  if (/^\d{4}$/.test(d)) return `${d}-01-01`;
+  if (/^\d{4}-\d{2}$/.test(d)) return `${d}-01`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  return null;
+}
+
 /** Minimal ENR-1: release group + release + canonical tracks. Returns the
  * releases.id (db uuid) for the MB release. */
 async function upsertCanonical(
@@ -287,7 +296,7 @@ async function upsertCanonical(
       mbid: r.id,
       title: r.title,
       status: r.status ?? null,
-      date: r.date ?? (r.year ? `${r.year}-01-01` : null),
+      date: normDate(r.date) ?? (r.year ? `${r.year}-01-01` : null),
       country: r.country && r.country.length === 2 ? r.country : null,
       barcode: r.barcode ?? null,
       labels: r.label ? [{ name: r.label }] : [],
