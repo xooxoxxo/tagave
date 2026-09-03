@@ -11,8 +11,10 @@ const AUTH_QUERY_KEY = ['auth', 'me'];
 export function useMe() {
   return useQuery({
     queryKey: AUTH_QUERY_KEY,
-    queryFn: () => api.get<{ user: SessionUser }>('/auth/me'),
-    select: (data) => data?.user,
+    queryFn: async () => {
+      const response = await api.get<{ user: SessionUser }>('/auth/me');
+      return response.user;
+    },
     staleTime: 1000 * 60 * 60, // 1 hour
     retry: (failureCount, error: any) => {
       // Don't retry on 401 (not logged in)

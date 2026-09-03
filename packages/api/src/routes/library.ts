@@ -3,7 +3,8 @@ import { eq, and } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import path from 'path';
 import fs from 'fs/promises';
-import { makeDb, libraries, scanRoots, jobRuns } from '@liner/db';
+import { libraries, scanRoots, jobRuns } from '@liner/db';
+import { getDb } from '../db.js';
 import PgBoss from 'pg-boss';
 import {
   createScanRootSchema,
@@ -29,7 +30,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw new ApiError(401, 'Unauthorized', 'Authentication required');
     }
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     const userLibraries = await db
       .select()
@@ -60,7 +61,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Verify library ownership
     const lib = await db
@@ -107,7 +108,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const body = createScanRootSchema.parse(request.body);
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Verify library ownership
     const lib = await db
@@ -190,7 +191,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       };
       const body = patchScanRootSchema.parse(request.body);
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -265,7 +266,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         scanRootId: string;
       };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -310,7 +311,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         scanRootId: string;
       };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify ownership
       const lib = await db

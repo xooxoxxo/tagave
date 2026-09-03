@@ -1,34 +1,19 @@
 /**
- * Current library selection state management using zustand
- * In v1 there is one library per user, but this abstracts the pattern for P2 multi-library support
+ * Current library selection - in v1 there is one library per user
  */
 
-import { create } from 'zustand';
 import { useMe } from './useAuth';
-
-interface CurrentLibraryStore {
-  libraryId: string | null;
-  setLibraryId: (id: string) => void;
-}
-
-const useCurrentLibraryStore = create<CurrentLibraryStore>((set) => ({
-  libraryId: null,
-  setLibraryId: (id: string) => set({ libraryId: id }),
-}));
+import { useLibraries } from './useLibrary';
 
 /**
- * Get the current library ID, auto-populating from the user's first (only) library
+ * Get the current library ID (auto-selected as the first available library since v1 has only one per user)
  */
 export function useCurrentLibrary() {
   const { data: user, isLoading: userLoading } = useMe();
   const { data: libraries, isLoading: librariesLoading } = useLibraries();
-  const libraryId = useCurrentLibraryStore((state) => state.libraryId);
-  const setLibraryId = useCurrentLibraryStore((state) => state.setLibraryId);
 
-  // Auto-set from first available library if not already set
-  if (user && !libraryId && libraries && libraries.length > 0) {
-    setLibraryId(libraries[0].id);
-  }
+  // In v1, return the first (only) library ID when available
+  const libraryId = libraries?.[0]?.id;
 
   return {
     libraryId: libraryId || undefined,

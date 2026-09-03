@@ -15,7 +15,10 @@ const SCAN_ROOTS_QUERY_KEY = ['scan-roots'];
 export function useLibraries() {
   return useQuery({
     queryKey: LIBRARIES_QUERY_KEY,
-    queryFn: () => api.get<Library[]>('/libraries'),
+    queryFn: async () => {
+      const response = await api.get<{ data: Library[] }>('/libraries');
+      return response.data;
+    },
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }

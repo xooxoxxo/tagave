@@ -3,7 +3,8 @@ import { hash, verify } from 'argon2';
 import { uuidv7 } from 'uuidv7';
 import type { SQL } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
-import { makeDb, users, libraries } from '@liner/db';
+import { users, libraries } from '@liner/db';
+import { getDb } from '../db.js';
 import { setupRequestSchema, loginRequestSchema, sessionUserSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { createSession, invalidateSession } from '../middleware/auth.js';
@@ -31,7 +32,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     // Validate request
     const body = setupRequestSchema.parse(request.body);
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Check if user already exists
     const existingUsers = await db.select().from(users);
@@ -94,7 +95,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
   fastify.post('/login', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = loginRequestSchema.parse(request.body);
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Find user
     const userRecords = await db.select().from(users).where(eq(users.email, body.email));

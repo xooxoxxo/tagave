@@ -50,7 +50,8 @@ if (!databaseUrl) {
 
 let db: Awaited<ReturnType<typeof makeDb>>;
 try {
-  db = await makeDb(databaseUrl);
+  const { initDb } = await import('./db.js');
+  db = await initDb(databaseUrl);
   initAuth(db.db);
   logger.info('Database initialized successfully');
 } catch (err) {

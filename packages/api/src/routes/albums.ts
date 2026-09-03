@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, like } from 'drizzle-orm';
-import { makeDb, libraries, localAlbums, audioFiles } from '@liner/db';
+import { libraries, localAlbums, audioFiles } from '@liner/db';
+import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 export async function createAlbumRoutes(fastify: FastifyInstance) {
@@ -16,7 +17,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       string
     >;
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Verify library ownership
     const lib = await db
@@ -73,7 +74,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
       const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -154,7 +155,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       throw new ApiError(400, 'Bad Request', 'Search query required');
     }
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Get user's libraries
     const userLibraries = await db

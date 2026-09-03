@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and } from 'drizzle-orm';
-import { makeDb, libraries, jobRuns } from '@liner/db';
+import { libraries, jobRuns } from '@liner/db';
+import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 export async function createJobRoutes(fastify: FastifyInstance) {
@@ -13,7 +14,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const { status, limit = '50', offset = '0' } = request.query as Record<string, string>;
 
-    const { db } = await makeDb(process.env.DATABASE_URL!);
+    const db = getDb();
 
     // Verify library ownership
     const lib = await db
@@ -69,7 +70,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
       const { libraryId, jobId } = request.params as { libraryId: string; jobId: string };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -123,7 +124,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
       const { libraryId } = request.params as { libraryId: string };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -185,7 +186,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
       const { libraryId, jobId } = request.params as { libraryId: string; jobId: string };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db
@@ -245,7 +246,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
       const { libraryId, jobId } = request.params as { libraryId: string; jobId: string };
 
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
 
       // Verify library ownership
       const lib = await db

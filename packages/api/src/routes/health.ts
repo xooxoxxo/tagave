@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { makeDb, users } from '@liner/db';
+import { users } from '@liner/db';
+import { getDb } from '../db.js';
 
 export async function createHealthRoutes(fastify: FastifyInstance) {
   // Health check endpoint
@@ -11,7 +12,7 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
 
     try {
       // Check database connectivity
-      const { db } = await makeDb(process.env.DATABASE_URL!);
+      const db = getDb();
       await db.select().from(users).limit(1);
       health.database = 'ok';
     } catch (err) {
