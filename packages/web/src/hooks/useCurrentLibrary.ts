@@ -21,17 +21,17 @@ const useCurrentLibraryStore = create<CurrentLibraryStore>((set) => ({
  */
 export function useCurrentLibrary() {
   const { data: user, isLoading: userLoading } = useMe();
+  const { data: libraries, isLoading: librariesLoading } = useLibraries();
   const libraryId = useCurrentLibraryStore((state) => state.libraryId);
   const setLibraryId = useCurrentLibraryStore((state) => state.setLibraryId);
 
-  // Auto-set from user data if available and not already set
-  if (user && !libraryId && 'defaultLibraryId' in user) {
-    const userId = (user as any).defaultLibraryId;
-    if (userId) setLibraryId(userId);
+  // Auto-set from first available library if not already set
+  if (user && !libraryId && libraries && libraries.length > 0) {
+    setLibraryId(libraries[0].id);
   }
 
   return {
     libraryId: libraryId || undefined,
-    isLoading: userLoading,
+    isLoading: userLoading || librariesLoading,
   };
 }

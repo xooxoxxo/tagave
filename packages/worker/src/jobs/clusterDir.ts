@@ -104,9 +104,13 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     .where(inArray(clusterOverrides.audioFileId, inScope.map((f) => f.id)));
   const pinned = new Map(overrides.map((o) => [o.audioFileId, o.localAlbumId]));
 
-  // Group by (albumKey, artistKey); no album tag → loose bucket.
+  // Group by album tag first; the artist identity of a cluster is decided
+  // per album AFTER seeing every member, so VA compilations (per-track
+  // artists, no albumartist) stay one cluster instead of one per artist —
+  // same >3-distinct-artists rule the 2026-08 archive cleanup validated on
+  // this collection (M0 decisions doc).
   interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string> }
-  const groups = new Map<string, Group>();
+  const byAlbum = new Map<string, FileRow[]>();
   const loose: FileRow[] = [];
   for (const f of inScope) {
     if (pinned.has(f.id)) continue;
@@ -115,15 +119,41 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       continue;
     }
     const albumKey = normKey(f.tags.album);
-    const artistKey = normKey(f.tags.albumartist ?? f.tags.artist ?? '');
-    const key = albumKey + '\n' + artistKey;
-    let g = groups.get(key);
-    if (!g) {
-      g = { albumKey, artistKey, files: [], dirs: new Set() };
-      groups.set(key, g);
+    const arr = byAlbum.get(albumKey);
+    if (arr) arr.push(f);
+    else byAlbum.set(albumKey, [f]);
+  }
+  const groups = new Map<string, Group>();
+  for (const [albumKey, files] of byAlbum) {
+    const albumartists = new Set(files.map((f) => f.tags.albumartist).filter(Boolean).map((a) => normKey(a as string)));
+    const artists = new Set(files.map((f) => f.tags.artist).filter(Boolean).map((a) => normKey(a as string)));
+    const assign = (artistKey: string, fs: FileRow[]) => {
+      const key = albumKey + '\n' + artistKey;
+      let g = groups.get(key);
+      if (!g) {
+        g = { albumKey, artistKey, files: [], dirs: new Set() };
+        groups.set(key, g);
+      }
+      for (const f of fs) {
+        g.files.push(f);
+        g.dirs.add(relDirname(f.relPath));
+      }
+    };
+    if (albumartists.size > 0) {
+      // Albumartist is authoritative when present; files without it join the
+      // sole albumartist cluster rather than splintering.
+      if (albumartists.size === 1) {
+        assign([...albumartists][0] as string, files);
+      } else {
+        for (const f of files) {
+          assign(normKey(f.tags.albumartist ?? f.tags.artist ?? ''), [f]);
+        }
+      }
+    } else if (artists.size > 3) {
+      assign('various artists', files);
+    } else {
+      for (const f of files) assign(normKey(f.tags.artist ?? ''), [f]);
     }
-    g.files.push(f);
-    g.dirs.add(relDirname(f.relPath));
   }
 
   for (const g of groups.values()) {
@@ -143,7 +173,9 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
 
     const albumValues = {
       titleGuess: sample.tags.album,
-      artistGuess: sample.tags.albumartist ?? sample.tags.artist ?? null,
+      artistGuess: g.artistKey === 'various artists' && !sample.tags.albumartist
+        ? 'Various Artists'
+        : sample.tags.albumartist ?? sample.tags.artist ?? null,
       yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
         ?? extractYear(relBasename(dirPaths[0] ?? '')) ?? null,
       dirPaths,
@@ -186,6 +218,15 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     const f = inScope.find((x) => x.id === fileId);
     if (f) await replaceTracks(ctx, albumId ?? null, [f]);
   }
+
+  // Clusters in scope that lost every track to regrouping are dead weight;
+  // only untouched states are safe to reap.
+  await ctx.sql`
+    delete from local_albums la
+    where la.library_id = ${data.libraryId}
+      and la.state in ('pending', 'unidentified')
+      and ${scope === '' ? ctx.sql`true` : ctx.sql`la.dir_paths && ARRAY[${scope}]::text[]`}
+      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)`;
 
   ctx.logger.debug(
     { scope, groups: groups.size, loose: loose.length, pinned: pinned.size },

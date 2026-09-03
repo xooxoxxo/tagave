@@ -5,11 +5,20 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
-import { ScanRoot } from '@liner/shared';
+import { ScanRoot, Library } from '@liner/shared';
 
 const LIBRARY_QUERY_KEY = ['library'];
+const LIBRARIES_QUERY_KEY = ['libraries'];
 const ALBUMS_QUERY_KEY = ['albums'];
 const SCAN_ROOTS_QUERY_KEY = ['scan-roots'];
+
+export function useLibraries() {
+  return useQuery({
+    queryKey: LIBRARIES_QUERY_KEY,
+    queryFn: () => api.get<Library[]>('/libraries'),
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
 
 export function useLibrary(libraryId?: string) {
   return useQuery({
