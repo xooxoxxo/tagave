@@ -39,28 +39,28 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       .limit(Math.min(parseInt(limit, 10), 500))
       .offset(parseInt(offset, 10));
 
-    const totalResult = await db
-      .select()
-      .from(localAlbums)
-      .where(eq(localAlbums.libraryId, libraryId));
-
+    const limitN = parseInt(limit, 10);
+    const offsetN = parseInt(offset, 10);
+    // Shared contract (spec §13): cursor envelope { items, nextCursor }.
+    // Cursor is the next offset until true keyset pagination lands.
     reply.status(200).send({
-      data: albums.map((album) => ({
+      items: albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
-        folderPaths: album.dirPaths,
-        albumArtist: album.artistGuess,
-        albumTitle: album.titleGuess,
-        trackCount: album.trackCount,
-        year: album.yearGuess,
+        localAlbumId: album.id,
+        title: album.titleGuess ?? 'Unknown Album',
+        artistCredit: album.artistGuess ?? 'Unknown Artist',
+        ...(album.yearGuess ? { year: album.yearGuess } : {}),
+        formats: album.formats ?? [],
         state: album.state,
+        trackCount: album.trackCount ?? 0,
+        totalDurationMs: album.totalDurationMs ?? 0,
+        coverUrl: null,
+        ...(album.releaseId ? { releaseId: album.releaseId } : {}),
+        ...(album.releaseGroupId ? { releaseGroupId: album.releaseGroupId } : {}),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
       })),
-      pagination: {
-        limit: parseInt(limit, 10),
-        offset: parseInt(offset, 10),
-        total: totalResult.length,
-      },
+      nextCursor: albums.length === limitN ? String(offsetN + limitN) : null,
     });
   });
 

@@ -3,6 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { AlbumSummary } from '@liner/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
 import { ScanRoot, Library } from '@liner/shared';
@@ -51,7 +52,7 @@ export function useAlbums(libraryId: string | undefined, options: AlbumsFilterOp
       if (options.search) params.set('q', options.search);
       if (options.sort) params.set('sort', options.sort);
       if (options.order) params.set('order', options.order);
-      return api.get<PaginatedResponse<LocalAlbum>>(`/libraries/${libraryId}/albums?${params}`);
+      return api.get<{ items: AlbumSummary[]; nextCursor: string | null }>(`/libraries/${libraryId}/albums?${params}`);
     },
     enabled: !!libraryId,
     staleTime: 1000 * 60 * 2, // 2 minutes

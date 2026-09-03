@@ -88,16 +88,16 @@ export function AlbumsPage() {
                   <div className={styles.albumCover}>
                     {/* TODO: M1+ show actual cover art */}
                     <div className={styles.coverPlaceholder}>
-                      <span className={styles.fileCount}>{album.fileCount}</span>
+                      <span className={styles.fileCount}>{album.trackCount}</span>
                     </div>
                   </div>
                   <div className={styles.albumInfo}>
-                    <h3 className={styles.albumTitle}>{album.observedAlbum || 'Unknown Album'}</h3>
+                    <h3 className={styles.albumTitle}>{album.title}</h3>
                     <p className={styles.albumArtist}>
-                      {album.observedAlbumArtist || album.observedArtist || 'Unknown Artist'}
+                      {album.artistCredit}
                     </p>
                     <p className={styles.albumStats}>
-                      {album.fileCount} tracks • {Math.round(album.totalDuration / 60)} min
+                      {album.trackCount} tracks
                     </p>
                   </div>
                 </div>
@@ -106,7 +106,7 @@ export function AlbumsPage() {
           </div>
 
           {/* Pagination */}
-          {albumsPage.total > limit && (
+          {(albumsPage.nextCursor || offset > 0) && (
             <div className={styles.pagination}>
               <button
                 onClick={() => setOffset(Math.max(0, offset - limit))}
@@ -115,11 +115,11 @@ export function AlbumsPage() {
                 Previous
               </button>
               <span className={styles.paginationInfo}>
-                {offset + 1}–{Math.min(offset + limit, albumsPage.total)} of {albumsPage.total}
+                {offset + 1}–{offset + albumsPage.items.length}
               </span>
               <button
                 onClick={() => setOffset(offset + limit)}
-                disabled={offset + limit >= albumsPage.total}
+                disabled={!albumsPage.nextCursor}
               >
                 Next
               </button>

@@ -13,7 +13,7 @@ export const scanRootSchema = z.object({
   enabled: z.boolean().describe('Whether scans will visit this root'),
   pollIntervalS: z.number().int().positive().describe('Polling interval in seconds (default 6 hours = 21600)'),
   lastScanAt: z.string().datetime().optional().describe('ISO 8601 timestamp of the last completed scan'),
-  lastStatus: z.enum(['idle', 'scanning', 'error']).optional().describe('Status of the last scan'),
+  lastStatus: z.string().optional().describe('Status of the last scan'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();
