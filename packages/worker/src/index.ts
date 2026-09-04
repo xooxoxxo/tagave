@@ -56,8 +56,8 @@ async function main() {
     },
   );
 
-  if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await clusterDirJob(ctx, job.data);
+  if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
+    await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
   });
 
   if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1 }, async (jobs) => {
