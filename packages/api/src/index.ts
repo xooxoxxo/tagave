@@ -15,6 +15,7 @@ import { createAlbumRoutes } from './routes/albums.js';
 import { createJobRoutes } from './routes/jobs.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createImageRoutes } from './routes/images.js';
+import { createSearchRoutes } from './routes/search.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -172,6 +173,9 @@ app.register(async (instance) => {
 
   // Image serving
   instance.register(createImageRoutes, { prefix: '/api/v1' });
+
+  // Search (BRW-4)
+  instance.register(createSearchRoutes, { prefix: '/api/v1' });
 });
 
 // Start server

@@ -1,0 +1,78 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  z-index: 100;
+}
+
+.modal {
+  width: min(640px, 92vw);
+  max-height: 65vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.input {
+  padding: 0.9rem 1.1rem;
+  font-size: var(--font-size-lg);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.results {
+  overflow-y: auto;
+  padding: 0.4rem 0;
+}
+
+.sectionLabel {
+  padding: 0.45rem 1.1rem 0.2rem;
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+}
+
+.row,
+.rowSelected {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 1.1rem;
+  cursor: pointer;
+}
+
+.rowSelected {
+  background: var(--bg-tertiary);
+}
+
+.primary {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty {
+  padding: 1.2rem 1.1rem;
+  color: var(--text-secondary);
+}

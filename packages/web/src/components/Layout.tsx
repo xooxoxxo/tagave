@@ -2,13 +2,27 @@
  * Main application layout with navigation
  */
 
+import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from '@tanstack/react-router';
 import { useMe } from '../hooks';
+import { SearchModal } from './SearchModal';
 import styles from './Layout.module.css';
 
 export function Layout() {
   const { data: user } = useMe();
   const location = useLocation();
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchOpen((o) => !o);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   if (!user) {
     // Not authenticated - no nav
@@ -25,6 +39,10 @@ export function Layout() {
             Liner
           </Link>
         </div>
+
+        <button className={styles.searchButton} onClick={() => setSearchOpen(true)}>
+          Search <kbd className={styles.kbd}>⌘K</kbd>
+        </button>
 
         <div className={styles.navLinks}>
           <Link
@@ -81,6 +99,7 @@ export function Layout() {
 
       <main className={styles.main}>
         <Outlet />
+      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
       </main>
     </div>
   );
