@@ -9,6 +9,7 @@ import {
   ArtistsPage,
   QueuePage,
   AlbumDetailPage,
+  AttentionPage,
   SettingsScanRootsPage,
   JobsPage,
 } from './pages';
@@ -64,6 +65,12 @@ const queueRoute = new Route({
   component: QueuePage,
 });
 
+const attentionRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/attention',
+  component: AttentionPage,
+});
+
 const albumDetailRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums/$albumId',
@@ -102,6 +109,7 @@ const routeTree = rootRoute.addChildren([
     albumsRoute,
     artistsRoute,
     queueRoute,
+    attentionRoute,
     albumDetailRoute,
     settingsScanRootsRoute,
     jobsRoute,

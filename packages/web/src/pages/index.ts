@@ -5,5 +5,6 @@ export { AlbumsPage } from './AlbumsPage';
 export { ArtistsPage } from './ArtistsPage';
 export { QueuePage } from './QueuePage';
 export { AlbumDetailPage } from './AlbumDetailPage';
+export { AttentionPage } from './AttentionPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
 export { JobsPage } from './JobsPage';

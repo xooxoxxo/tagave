@@ -52,6 +52,12 @@ export function Layout() {
             Queue
           </Link>
           <Link
+            to="/attention"
+            className={isActive('/attention') ? styles.navLinkActive : styles.navLink}
+          >
+            Attention
+          </Link>
+          <Link
             to="/settings/scan-roots"
             className={isActive('/settings/scan-roots') ? styles.navLinkActive : styles.navLink}
           >

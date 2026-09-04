@@ -1,0 +1,142 @@
+import { sql as dsql } from 'drizzle-orm';
+import type { WorkerContext } from '../lib/context.js';
+import { reportProgress } from './progress.js';
+
+export interface GapsRecomputeJobData {
+  libraryId: string;
+}
+
+/**
+ * spec GAP-1/4/5. Recomputes gap rows set-based in SQL; the natural key
+ * (library, kind, subject_type, subject_id) lets each run upsert while
+ * dismissed rows keep their state. Gaps whose condition no longer holds are
+ * marked resolved.
+ */
+export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJobData): Promise<void> {
+  const lib = data.libraryId;
+  const started = Date.now();
+
+  // --- GAP-1: incomplete albums (matched, fewer local tracks than canonical)
+  await ctx.sql`
+    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
+    select ${lib}, 'incomplete_album', 'local_album', la.id,
+           jsonb_build_object(
+             'have', la.track_count,
+             'want', r.track_count,
+             'missing', missing.tracks
+           ),
+           'open'
+    from local_albums la
+    join releases r on r.id = la.release_id
+    join lateral (
+      select jsonb_agg(jsonb_build_object(
+               'disc', ct.medium_no, 'position', ct.position,
+               'title', ct.title, 'lengthMs', ct.length_ms)
+             order by ct.medium_no, ct.position) as tracks
+      from canonical_tracks ct
+      where ct.release_id = r.id
+        and not ct.is_data_track and not ct.is_video
+        and not exists (
+          select 1 from local_tracks lt
+          where lt.local_album_id = la.id
+            and coalesce(lt.disc_no, 1) = coalesce(ct.medium_no, 1)
+            and lt.track_no = ct.position)
+    ) missing on true
+    where la.library_id = ${lib}
+      and la.state = 'matched'
+      and r.track_count is not null
+      and la.track_count < r.track_count
+    on conflict (library_id, kind, subject_type, subject_id)
+    do update set details = excluded.details,
+                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
+                  resolved_at = null`;
+
+  // resolve incomplete gaps that no longer hold
+  await ctx.sql`
+    update gaps g set state = 'resolved', resolved_at = now()
+    where g.library_id = ${lib} and g.kind = 'incomplete_album' and g.state != 'resolved'
+      and not exists (
+        select 1 from local_albums la
+        join releases r on r.id = la.release_id
+        where la.id = g.subject_id and la.state = 'matched'
+          and r.track_count is not null and la.track_count < r.track_count)`;
+
+  // --- GAP-4: duplicates (several local albums on one release group)
+  await ctx.sql`
+    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
+    select ${lib}, 'duplicate', 'release_group', d.release_group_id,
+           jsonb_build_object('albumIds', d.ids, 'count', d.n), 'open'
+    from (
+      select release_group_id, count(*) as n, jsonb_agg(id) as ids
+      from local_albums
+      where library_id = ${lib} and release_group_id is not null and state != 'ignored'
+      group by release_group_id having count(*) > 1
+    ) d
+    on conflict (library_id, kind, subject_type, subject_id)
+    do update set details = excluded.details,
+                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
+                  resolved_at = null`;
+  await ctx.sql`
+    update gaps g set state = 'resolved', resolved_at = now()
+    where g.library_id = ${lib} and g.kind = 'duplicate' and g.state != 'resolved'
+      and (select count(*) from local_albums la
+           where la.library_id = ${lib} and la.release_group_id = g.subject_id
+             and la.state != 'ignored') < 2`;
+
+  // --- GAP-5: quality flags per album, one row per (album, flag) family in details
+  await ctx.sql`
+    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
+    select ${lib}, 'quality', 'local_album', q.id,
+           jsonb_build_object('flags', q.flags), 'open'
+    from (
+      select la.id,
+             jsonb_strip_nulls(jsonb_build_object(
+               'noCover', case when i.id is null then true else null end,
+               'parseErrors', nullif(err.n, 0),
+               'mixedLossless', case when losslessness.kinds = 2 then true else null end,
+               'lowBitrate', nullif(lowbr.n, 0)
+             )) as flags
+      from local_albums la
+      left join images i on i.local_album_id = la.id and i.kind = 'front'
+      join lateral (
+        select count(*) filter (where af.status = 'error') as n
+        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        where lt.local_album_id = la.id) err on true
+      join lateral (
+        select count(distinct af.lossless) as kinds
+        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        where lt.local_album_id = la.id and af.lossless is not null) losslessness on true
+      join lateral (
+        select count(*) filter (where af.lossless = false and af.bitrate_kbps < 192) as n
+        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        where lt.local_album_id = la.id) lowbr on true
+      where la.library_id = ${lib} and la.state not in ('ignored')
+    ) q
+    where q.flags != '{}'::jsonb
+    on conflict (library_id, kind, subject_type, subject_id)
+    do update set details = excluded.details,
+                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
+                  resolved_at = null`;
+  await ctx.sql`
+    update gaps g set state = 'resolved', resolved_at = now()
+    where g.library_id = ${lib} and g.kind = 'quality' and g.state != 'resolved'
+      and not exists (
+        select 1 from local_albums la
+        left join images i on i.local_album_id = la.id and i.kind = 'front'
+        where la.id = g.subject_id and la.state != 'ignored'
+          and (i.id is null
+               or exists (select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+                          where lt.local_album_id = la.id and af.status = 'error')))`;
+
+  const counts = await ctx.sql`
+    select kind, count(*) filter (where state = 'open') as open
+    from gaps where library_id = ${lib} group by kind` as unknown as { kind: string; open: string }[];
+
+  await reportProgress(ctx, null, {
+    libraryId: lib,
+    type: 'gaps.recompute',
+    state: 'completed',
+    message: counts.map((c) => `${c.kind}:${c.open}`).join(' '),
+  });
+  ctx.logger.info({ libraryId: lib, counts, elapsedMs: Date.now() - started }, 'gaps recomputed');
+}

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import {
-  albumMatches, canonicalTracks, libraries, localAlbums, localTracks,
+  albumMatches, canonicalTracks, gaps, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
 } from '@liner/db';
 import { getDb } from '../db.js';
@@ -213,6 +213,73 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       .update(matchCandidates)
       .set({ excluded: true })
       .where(and(eq(matchCandidates.id, candidateId), eq(matchCandidates.localAlbumId, albumId)));
+    reply.send({ ok: true });
+  });
+
+
+  /** Needs Attention: open gaps grouped by kind (spec GAP-1/4/5, §14.2). */
+  fastify.get('/libraries/:libraryId/gaps', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const { kind, state = 'open', limit = '100', offset = '0' } = request.query as Record<string, string>;
+    await assertLibrary(request.user.id, libraryId);
+    const db = getDb();
+    const limitN = Math.min(parseInt(limit, 10) || 100, 500);
+    const offsetN = parseInt(offset, 10) || 0;
+
+    const rows = await db.execute(sql`
+      select g.*, la.title_guess as album_title, la.artist_guess as album_artist,
+             rg.title as rg_title
+      from gaps g
+      left join local_albums la on g.subject_type = 'local_album' and la.id = g.subject_id
+      left join release_groups rg on g.subject_type = 'release_group' and rg.id = g.subject_id
+      where g.library_id = ${libraryId}
+        and g.state = ${state}
+        ${kind ? sql`and g.kind = ${kind}` : sql``}
+      order by g.first_seen_at desc
+      limit ${limitN + 1} offset ${offsetN}`) as unknown as Record<string, unknown>[];
+
+    const counts = await db.execute(sql`
+      select kind, count(*)::int as n from gaps
+      where library_id = ${libraryId} and state = 'open' group by kind`) as unknown as { kind: string; n: number }[];
+
+    reply.send({
+      counts: Object.fromEntries(counts.map((c) => [c.kind, c.n])),
+      items: rows.slice(0, limitN).map((g) => ({
+        id: g['id'],
+        kind: g['kind'],
+        subjectType: g['subject_type'],
+        subjectId: g['subject_id'],
+        subjectTitle: g['album_title'] ?? g['rg_title'] ?? null,
+        subjectArtist: g['album_artist'] ?? null,
+        details: g['details'],
+        state: g['state'],
+        firstSeenAt: g['first_seen_at'],
+      })),
+      nextCursor: rows.length > limitN ? String(offsetN + limitN) : null,
+    });
+  });
+
+  fastify.post('/gaps/:gapId/dismiss', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { gapId } = request.params as { gapId: string };
+    const { reason = 'not_interested' } = (request.body ?? {}) as { reason?: string };
+    const db = getDb();
+    const rows = await db.select({ libraryId: gaps.libraryId }).from(gaps).where(eq(gaps.id, gapId)).limit(1);
+    if (!rows[0]) throw new ApiError(404, 'Not Found', 'Gap not found');
+    await assertLibrary(request.user.id, rows[0].libraryId);
+    await db.update(gaps).set({ state: 'dismissed', dismissReason: reason }).where(eq(gaps.id, gapId));
+    reply.send({ ok: true });
+  });
+
+  fastify.post('/gaps/:gapId/reopen', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { gapId } = request.params as { gapId: string };
+    const db = getDb();
+    const rows = await db.select({ libraryId: gaps.libraryId }).from(gaps).where(eq(gaps.id, gapId)).limit(1);
+    if (!rows[0]) throw new ApiError(404, 'Not Found', 'Gap not found');
+    await assertLibrary(request.user.id, rows[0].libraryId);
+    await db.update(gaps).set({ state: 'open', dismissReason: null }).where(eq(gaps.id, gapId));
     reply.send({ ok: true });
   });
 }

@@ -8,6 +8,7 @@ import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
+import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -20,7 +21,7 @@ if (!databaseUrl) {
 const M1_PLACEHOLDER_QUEUES = [
   'enrich.release', 'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
-  'gaps.recompute', 'artist.refresh', 'reviews.fetch', 'collection.sync',
+  'artist.refresh', 'reviews.fetch', 'collection.sync',
 ];
 
 async function main() {
@@ -34,7 +35,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'art.fetch', 'art.sweep', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -76,6 +77,15 @@ async function main() {
   if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await artSweepJob(ctx, job.data);
   });
+
+  if (wants('gaps.recompute')) {
+    await boss.work<GapsRecomputeJobData>('gaps.recompute', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await gapsRecomputeJob(ctx, job.data);
+    });
+    // nightly at 03:15 (spec: nightly + after identification batches)
+    await boss.schedule('gaps.recompute', '15 3 * * *',
+      { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
+  }
 
   for (const q of M1_PLACEHOLDER_QUEUES) {
     await boss.work(q, async (jobs) => {
