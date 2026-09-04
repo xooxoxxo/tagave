@@ -7,7 +7,7 @@ import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { makeDb } from '@liner/db';
+import { makeDb, runMigrations } from '@liner/db';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
@@ -52,6 +52,7 @@ if (!databaseUrl) {
 
 let db: Awaited<ReturnType<typeof makeDb>>;
 try {
+  await runMigrations(databaseUrl);
   const { initDb } = await import('./db.js');
   db = await initDb(databaseUrl);
   initAuth(db.db);

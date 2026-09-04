@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 export { schema };
+export { runMigrations } from './migrations-lib.js';
 export * from './schema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

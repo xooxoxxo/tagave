@@ -95,7 +95,9 @@ export function LoginPage() {
         </form>
 
         <div className={styles.footer}>
-          <p>First time here? Run the setup from the command line or container initialization.</p>
+          <p>
+            First time here? <a href="/setup">Create the owner account</a>.
+          </p>
         </div>
       </div>
     </div>
