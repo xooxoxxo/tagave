@@ -8,6 +8,7 @@ import {
   AlbumsPage,
   ArtistsPage,
   QueuePage,
+  AlbumDetailPage,
   SettingsScanRootsPage,
   JobsPage,
 } from './pages';
@@ -66,7 +67,7 @@ const queueRoute = new Route({
 const albumDetailRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums/$albumId',
-  component: () => <div>Album Detail - M1+</div>, // Placeholder for M1
+  component: AlbumDetailPage,
 });
 
 const settingsScanRootsRoute = new Route({

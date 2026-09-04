@@ -1,6 +1,20 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
-import { libraries, localAlbums, audioFiles } from '@liner/db';
+import {
+  albumMatches, audioFiles, canonicalTracks, images, libraries, localAlbums,
+  localTracks, releaseGroups, releases,
+} from '@liner/db';
+import PgBoss from 'pg-boss';
+
+let bossSingleton: PgBoss | null = null;
+async function getBossForAlbums(): Promise<PgBoss> {
+  if (!bossSingleton) {
+    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
+    await bossSingleton.start();
+    await bossSingleton.createQueue('identify.album');
+  }
+  return bossSingleton;
+}
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -121,40 +135,155 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Album not found');
       }
 
-      // Get files in album
-      const files = await db
-        .select()
-        .from(audioFiles)
-        .where(eq(audioFiles.libraryId, libraryId));
+      const trackRows = await db
+        .select({
+          id: localTracks.id,
+          discNo: localTracks.discNo,
+          trackNo: localTracks.trackNo,
+          title: localTracks.titleGuess,
+          artist: localTracks.artistGuess,
+          durationMs: localTracks.durationMs,
+          fileId: audioFiles.id,
+          relPath: audioFiles.relPath,
+          container: audioFiles.container,
+          codec: audioFiles.codec,
+          lossless: audioFiles.lossless,
+          bitrateKbps: audioFiles.bitrateKbps,
+          sampleRate: audioFiles.sampleRate,
+          bitDepth: audioFiles.bitDepth,
+          sizeBytes: audioFiles.sizeBytes,
+          fileStatus: audioFiles.status,
+          hasEmbeddedArt: audioFiles.hasEmbeddedArt,
+        })
+        .from(localTracks)
+        .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+        .where(eq(localTracks.localAlbumId, albumId));
 
-      // Filter files belonging to this album's directories
-      const albumFiles = files.filter((f) =>
-        album.dirPaths?.some((dir) => f.relPath?.startsWith(dir))
-      );
+      let release: Record<string, unknown> | null = null;
+      let canonicalTrackRows: Record<string, unknown>[] = [];
+      if (album.releaseId) {
+        const relRows = await db
+          .select()
+          .from(releases)
+          .where(eq(releases.id, album.releaseId))
+          .limit(1);
+        const rel = relRows[0];
+        if (rel) {
+          const rgRows = await db
+            .select()
+            .from(releaseGroups)
+            .where(eq(releaseGroups.id, rel.releaseGroupId))
+            .limit(1);
+          release = {
+            id: rel.id,
+            mbid: rel.mbid,
+            title: rel.title,
+            date: rel.date,
+            country: rel.country,
+            status: rel.status,
+            barcode: rel.barcode,
+            labels: rel.labels,
+            trackCount: rel.trackCount,
+            artistCredit: rgRows[0]?.artistCredit ?? null,
+            releaseGroupMbid: rgRows[0]?.mbid ?? null,
+            source: rel.sourceOfTruth,
+            fetchedAt: rel.fetchedAt?.toISOString() ?? null,
+          };
+          canonicalTrackRows = (await db
+            .select()
+            .from(canonicalTracks)
+            .where(eq(canonicalTracks.releaseId, rel.id))) as unknown as Record<string, unknown>[];
+        }
+      }
+
+      const matchRows = await db
+        .select()
+        .from(albumMatches)
+        .where(eq(albumMatches.localAlbumId, albumId));
+      const liveMatch = matchRows.find((m) => m.status === 'auto' || m.status === 'confirmed');
+
+      const art = await db
+        .select({ id: images.id, origin: images.origin, license: images.licenseNote })
+        .from(images)
+        .where(and(eq(images.localAlbumId, albumId), eq(images.kind, 'front')))
+        .limit(1);
 
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
-        folderPaths: album.dirPaths,
-        albumArtist: album.artistGuess,
-        albumTitle: album.titleGuess,
-        trackCount: album.trackCount,
+        title: album.titleGuess,
+        artistCredit: album.artistGuess,
         year: album.yearGuess,
         state: album.state,
-        releaseId: album.releaseId,
-        releaseGroupId: album.releaseGroupId,
-        files: albumFiles.map((f) => ({
-          id: f.id,
-          path: f.relPath,
-          container: f.container,
-          codec: f.codec,
-          duration: f.durationMs,
-          bitrate: f.bitrateKbps,
-          sampleRate: f.sampleRate,
-          lossless: f.lossless,
-        })),
+        dirPaths: album.dirPaths,
+        formats: album.formats,
+        discCount: album.discCount,
+        trackCount: album.trackCount,
+        totalDurationMs: album.totalDurationMs,
+        coverUrl: art[0] ? `/api/v1/images/album/${album.id}` : null,
+        coverOrigin: art[0]?.origin ?? null,
+        release,
+        match: liveMatch
+          ? {
+              status: liveMatch.status,
+              decidedBy: liveMatch.decidedBy,
+              distance: Number(liveMatch.distance),
+              decidedAt: liveMatch.decidedAt?.toISOString() ?? null,
+              reason: liveMatch.reason,
+            }
+          : null,
+        tracks: trackRows
+          .sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0))
+          .map((t) => {
+            const canon = canonicalTrackRows.find(
+              (c) => (c['mediumNo'] ?? 1) === (t.discNo ?? 1) && c['position'] === t.trackNo,
+            );
+            return {
+              id: t.id,
+              discNo: t.discNo,
+              trackNo: t.trackNo,
+              title: t.title,
+              artist: t.artist,
+              durationMs: t.durationMs,
+              canonicalTitle: (canon?.['title'] as string) ?? null,
+              canonicalDurationMs: (canon?.['lengthMs'] as number) ?? null,
+              file: {
+                id: t.fileId,
+                relPath: t.relPath,
+                container: t.container,
+                codec: t.codec,
+                lossless: t.lossless,
+                bitrateKbps: t.bitrateKbps,
+                sampleRate: t.sampleRate,
+                bitDepth: t.bitDepth,
+                sizeBytes: t.sizeBytes,
+                status: t.fileStatus,
+                hasEmbeddedArt: t.hasEmbeddedArt,
+              },
+            };
+          }),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
       });
+    }
+  );
+
+  // Re-run identification for one album (spec IDN-6)
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/identify',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const boss = await getBossForAlbums();
+      await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
+        singletonKey: `identify:${albumId}`,
+      });
+      reply.status(202).send({ ok: true });
     }
   );
 

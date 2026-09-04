@@ -1,0 +1,157 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  padding: var(--space-lg);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.header {
+  display: flex;
+  gap: var(--space-xl);
+  align-items: flex-start;
+}
+
+.coverBox {
+  flex-shrink: 0;
+  width: 220px;
+}
+
+.cover {
+  width: 220px;
+  height: 220px;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+
+.coverPlaceholder {
+  width: 220px;
+  height: 220px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.5rem;
+  color: var(--text-tertiary);
+}
+
+.headInfo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  margin: 0;
+  font-weight: 700;
+}
+
+.artist {
+  font-size: var(--font-size-lg);
+  color: var(--text-secondary);
+}
+
+.metaRow {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.badgeRow {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.stateBadge,
+.state_matched,
+.state_needs_review,
+.state_pending,
+.state_unidentified,
+.state_as_is,
+.state_ignored {
+  font-size: var(--font-size-sm);
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.state_matched { background: rgba(22, 163, 74, 0.15); color: var(--success); }
+.state_needs_review { background: rgba(234, 140, 85, 0.15); color: var(--warning); }
+.state_unidentified { background: rgba(220, 38, 38, 0.12); color: var(--error); }
+
+.provenance {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.mbLink {
+  color: var(--accent);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.dirPath {
+  font-family: ui-monospace, monospace;
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.actions button {
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.trackTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.trackTable th {
+  text-align: left;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.trackTable td {
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.durDrift {
+  color: var(--warning);
+  font-variant-numeric: tabular-nums;
+}
+
+.canonTitle {
+  color: var(--accent);
+}
+
+.fileCell {
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.trackError td {
+  color: var(--error);
+}
