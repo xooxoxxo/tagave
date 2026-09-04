@@ -209,3 +209,36 @@
   object-fit: cover;
   display: block;
 }
+
+.select {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.attentionDot {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e5484d;
+  z-index: 1;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+.trackBadge {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #f5c518;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  z-index: 1;
+}

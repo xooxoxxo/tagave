@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
-  albumMatches, audioFiles, canonicalTracks, images, libraries, localAlbums,
+  albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, releaseGroups, releases,
 } from '@liner/db';
 import PgBoss from 'pg-boss';
@@ -26,7 +26,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { limit = '50', offset = '0', sort = 'added_date', filter, artist, search } =
+    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search } =
       request.query as Record<string, string>;
 
     const db = getDb();
@@ -51,11 +51,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         sql`(title_guess ilike ${'%' + search + '%'} or artist_guess ilike ${'%' + search + '%'})`,
       );
     }
+    if (filter && filter !== 'all') conds.push(eq(localAlbums.state, filter));
+    const orderings: Record<string, ReturnType<typeof sql>> = {
+      artist: sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`,
+      title: sql`lower(coalesce(title_guess, '')), lower(coalesce(artist_guess, ''))`,
+      year: sql`year_guess desc nulls last, lower(coalesce(artist_guess, ''))`,
+      added_date: sql`created_at desc`,
+    };
     const albums = await db
       .select()
       .from(localAlbums)
       .where(and(...conds))
-      .orderBy(sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`)
+      .orderBy(orderings[sort] ?? orderings['artist']!)
       .limit(Math.min(parseInt(limit, 10), 500))
       .offset(parseInt(offset, 10));
 
@@ -72,6 +79,24 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               .where(and(eq(images.kind, 'front'), inArray(images.localAlbumId, albums.map((a) => a.id))))
           : [];
         const withArt = new Set(artRows.map((r) => r.localAlbumId));
+        // canonical track counts + open attention gaps for n/N badges (XO-311)
+        const relIds = [...new Set(albums.map((a) => a.releaseId).filter((x): x is string => !!x))];
+        const relRows = relIds.length
+          ? await db.select({ id: releases.id, trackCount: releases.trackCount }).from(releases).where(inArray(releases.id, relIds))
+          : [];
+        const canonCount = new Map(relRows.map((r) => [r.id, r.trackCount]));
+        const subjectIds = [...new Set(albums.flatMap((a) => [a.id, a.releaseGroupId]).filter((x): x is string => !!x))];
+        const gapRows = subjectIds.length
+          ? await db
+              .select({ subjectId: gaps.subjectId })
+              .from(gaps)
+              .where(and(
+                eq(gaps.state, 'open'),
+                inArray(gaps.kind, ['incomplete_album', 'duplicate']),
+                inArray(gaps.subjectId, subjectIds),
+              ))
+          : [];
+        const flagged = new Set(gapRows.map((g) => g.subjectId));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
@@ -82,6 +107,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         formats: album.formats ?? [],
         state: album.state,
         trackCount: album.trackCount ?? 0,
+        canonicalTrackCount: (album.releaseId && canonCount.get(album.releaseId)) || null,
+        needsAttention: flagged.has(album.id) || (!!album.releaseGroupId && flagged.has(album.releaseGroupId)),
         totalDurationMs: album.totalDurationMs ?? 0,
         coverUrl: withArt.has(album.id) ? `/api/v1/images/album/${album.id}` : null,
         ...(album.releaseId ? { releaseId: album.releaseId } : {}),

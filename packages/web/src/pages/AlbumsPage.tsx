@@ -17,14 +17,16 @@ export function AlbumsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
+  const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'added_date'>('artist');
+  const [stateFilter, setStateFilter] = useState('all');
 
   const filterOptions: AlbumsFilterOptions = {
     offset,
     limit,
     ...(searchQuery && { search: searchQuery }),
     ...(artistFilter && { artist: artistFilter }),
-    sort: 'added',
-    order: 'desc',
+    ...(stateFilter !== 'all' && { filter: stateFilter }),
+    sort,
   };
 
   const { data: albumsPage, isLoading, error } = useAlbums(libraryId, filterOptions);
@@ -53,6 +55,27 @@ export function AlbumsPage() {
           value={searchQuery}
           onChange={handleSearch}
         />
+        <select
+          className={styles.select}
+          value={sort}
+          onChange={(e) => { setSort(e.target.value as typeof sort); setOffset(0); }}
+        >
+          <option value="artist">Artist A–Z</option>
+          <option value="title">Title A–Z</option>
+          <option value="year">Year, newest</option>
+          <option value="added_date">Recently added</option>
+        </select>
+        <select
+          className={styles.select}
+          value={stateFilter}
+          onChange={(e) => { setStateFilter(e.target.value); setOffset(0); }}
+        >
+          <option value="all">All states</option>
+          <option value="matched">Matched</option>
+          <option value="needs_review">Needs review</option>
+          <option value="unidentified">Unidentified</option>
+          <option value="as_is">Kept as-is</option>
+        </select>
       </header>
 
       {isLoading && <div className={styles.loading}>Loading albums...</div>}
@@ -88,6 +111,15 @@ export function AlbumsPage() {
                   }}
                 >
                   <div className={styles.albumCover}>
+                    {album.needsAttention && (
+                      <span className={styles.attentionDot} title="Needs attention" />
+                    )}
+                    {album.canonicalTrackCount != null &&
+                      album.trackCount < album.canonicalTrackCount && (
+                        <span className={styles.trackBadge}>
+                          {album.trackCount}/{album.canonicalTrackCount}
+                        </span>
+                      )}
                     {album.coverUrl ? (
                       <img
                         className={styles.coverImg}

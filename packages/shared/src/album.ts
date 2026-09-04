@@ -58,7 +58,9 @@ export const albumSummarySchema = z.object({
   isMixed: z.boolean().optional().describe('True if mixed lossless/lossy'),
   state: albumStateSchema.describe('Identification state'),
   trackCount: z.number().int().nonnegative().describe('Number of local files'),
-  canonicalTrackCount: z.number().int().nonnegative().optional().describe('Tracks on the matched release'),
+  needsAttention: z.boolean().optional()
+    .describe('Album has an open incomplete/duplicate gap (XO-300)'),
+  canonicalTrackCount: z.number().int().nonnegative().nullish().describe('Tracks on the matched release'),
   coverUrl: z.string().url().nullable().optional().describe('Cover art URL (300px thumbnail)'),
   hasReview: z.boolean().optional().describe('Owner has written a review'),
   isPhysicallyOwned: z.boolean().optional().describe('In the Discogs collection'),
