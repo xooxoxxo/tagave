@@ -7,6 +7,7 @@ import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
+import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -17,7 +18,7 @@ if (!databaseUrl) {
 }
 
 const M1_PLACEHOLDER_QUEUES = [
-  'enrich.release', 'enrich.artist', 'art.fetch',
+  'enrich.release', 'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
   'gaps.recompute', 'artist.refresh', 'reviews.fetch', 'collection.sync',
 ];
@@ -33,7 +34,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'art.fetch', 'art.sweep', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -66,6 +67,14 @@ async function main() {
 
   if (wants('identify.sweep')) await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await identifySweepJob(ctx, job.data);
+  });
+
+  if (wants('art.fetch')) await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
+    await Promise.all(jobs.map((job) => artFetchJob(ctx, job.data)));
+  });
+
+  if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await artSweepJob(ctx, job.data);
   });
 
   for (const q of M1_PLACEHOLDER_QUEUES) {

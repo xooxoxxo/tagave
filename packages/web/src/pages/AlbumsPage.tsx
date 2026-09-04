@@ -88,10 +88,18 @@ export function AlbumsPage() {
                   }}
                 >
                   <div className={styles.albumCover}>
-                    {/* TODO: M1+ show actual cover art */}
-                    <div className={styles.coverPlaceholder}>
-                      <span className={styles.fileCount}>{album.trackCount}</span>
-                    </div>
+                    {album.coverUrl ? (
+                      <img
+                        className={styles.coverImg}
+                        src={album.coverUrl}
+                        alt=""
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className={styles.coverPlaceholder}>
+                        <span className={styles.fileCount}>{album.trackCount}</span>
+                      </div>
+                    )}
                   </div>
                   <div className={styles.albumInfo}>
                     <h3 className={styles.albumTitle}>{album.title}</h3>

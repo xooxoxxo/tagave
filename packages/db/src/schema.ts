@@ -1,5 +1,6 @@
 import {
   bigint,
+  customType,
   boolean,
   date,
   integer,
@@ -543,6 +544,8 @@ export const images = pgTable(
     width: integer(),
     height: integer(),
     bytes: text(),
+    thumbBytes: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('thumb_bytes'),
+    localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'cascade' }),
     licenseNote: text('license_note').notNull(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

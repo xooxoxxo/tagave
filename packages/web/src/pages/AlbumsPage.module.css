@@ -202,3 +202,10 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.coverImg {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  display: block;
+}

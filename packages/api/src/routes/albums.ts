@@ -50,7 +50,15 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     // Shared contract (spec §13): cursor envelope { items, nextCursor }.
     // Cursor is the next offset until true keyset pagination lands.
     reply.status(200).send({
-      items: albums.map((album) => ({
+      items: await (async () => {
+        const withArt = new Set(
+          (
+            await db.execute(
+              sql`select local_album_id from images where kind = 'front' and local_album_id = any(${albums.map((a) => a.id)})`,
+            ) as unknown as { local_album_id: string }[]
+          ).map((r) => r.local_album_id),
+        );
+        return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
         localAlbumId: album.id,
@@ -61,11 +69,12 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         state: album.state,
         trackCount: album.trackCount ?? 0,
         totalDurationMs: album.totalDurationMs ?? 0,
-        coverUrl: null,
+        coverUrl: withArt.has(album.id) ? `/api/v1/images/album/${album.id}` : null,
         ...(album.releaseId ? { releaseId: album.releaseId } : {}),
         ...(album.releaseGroupId ? { releaseGroupId: album.releaseGroupId } : {}),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
-      })),
+        }));
+      })(),
       nextCursor: albums.length === limitN ? String(offsetN + limitN) : null,
     });
   });
