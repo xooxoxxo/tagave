@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=linux/amd64 node:24-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /app
 
@@ -7,7 +7,7 @@ WORKDIR /app
 RUN npm install -g pnpm@10.30.1
 
 # Copy workspace files
-COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages ./packages
 
 # Install dependencies
@@ -17,7 +17,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm -r build
 
 # Runtime stage
-FROM --platform=linux/amd64 node:24-slim
+FROM node:24-slim
 
 WORKDIR /app
 
