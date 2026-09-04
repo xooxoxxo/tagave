@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, images, libraries, localAlbums,
   localTracks, releaseGroups, releases,
@@ -65,13 +65,13 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     // Cursor is the next offset until true keyset pagination lands.
     reply.status(200).send({
       items: await (async () => {
-        const withArt = new Set(
-          (
-            await db.execute(
-              sql`select local_album_id from images where kind = 'front' and local_album_id = any(${albums.map((a) => a.id)})`,
-            ) as unknown as { local_album_id: string }[]
-          ).map((r) => r.local_album_id),
-        );
+        const artRows = albums.length
+          ? await db
+              .select({ localAlbumId: images.localAlbumId })
+              .from(images)
+              .where(and(eq(images.kind, 'front'), inArray(images.localAlbumId, albums.map((a) => a.id))))
+          : [];
+        const withArt = new Set(artRows.map((r) => r.localAlbumId));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,

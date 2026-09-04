@@ -38,7 +38,7 @@ const logger = pino(loggerConfig);
 
 // Create Fastify app
 const app = Fastify({
-  logger: process.env.NODE_ENV !== 'production' ? true : false,
+  logger: true,
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
 });
@@ -119,6 +119,15 @@ try {
 } catch (err) {
   logger.warn({ err }, 'Web frontend not found; running API-only mode');
 }
+
+// SPA history-mode fallback: deep links (/albums, /queue) must serve the
+// app shell; only /api gets JSON 404s.
+app.setNotFoundHandler(async (request, reply) => {
+  if (request.method === 'GET' && !request.url.startsWith('/api/')) {
+    return reply.sendFile('index.html', webDistPath);
+  }
+  return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
+});
 
 // Error handler and auth hook must live on the ROOT instance — registering
 // them as plugins would encapsulate them away from sibling route plugins.
