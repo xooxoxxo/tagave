@@ -1,0 +1,21 @@
+{
+  "head" : {
+    "vars" : [ "item", "master", "enwiki" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "item" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q918304"
+      },
+      "master" : {
+        "type" : "literal",
+        "value" : "96568"
+      },
+      "enwiki" : {
+        "type" : "uri",
+        "value" : "https://en.wikipedia.org/wiki/Whenever_You_Need_Somebody"
+      }
+    } ]
+  }
+}

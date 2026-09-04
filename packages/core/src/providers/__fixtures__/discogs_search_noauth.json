@@ -1,0 +1,536 @@
+{
+ "pagination": {
+  "page": 1,
+  "pages": 4,
+  "per_page": 50,
+  "items": 174,
+  "urls": {
+   "last": "https://api.discogs.com/database/search?artist=Rick+Astley&release_title=Whenever+You+Need+Somebody&type=release&page=4&per_page=50",
+   "next": "https://api.discogs.com/database/search?artist=Rick+Astley&release_title=Whenever+You+Need+Somebody&type=release&page=2&per_page=50"
+  }
+ },
+ "results": [
+  {
+   "country": "UK & Europe",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "format": [
+    "CD",
+    "Album",
+    "Reissue"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 1212064,
+   "label": [
+    "RCA",
+    "PWL Records",
+    "Bertelsmann Music Group"
+   ],
+   "type": "release",
+   "barcode": [
+    "0 035627 515026",
+    "C-0113/ ND75150 N",
+    "LC 0316",
+    "GEMA | BIEM",
+    "QK",
+    "BM720",
+    "QM"
+   ],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/1212064-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "ND 75150",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/1212064",
+   "community": {
+    "want": 69,
+    "have": 413
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "CD",
+     "qty": "1",
+     "descriptions": [
+      "Album",
+      "Reissue"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Mexico",
+   "year": "1988",
+   "format": [
+    "Vinyl",
+    "LP",
+    "Album"
+   ],
+   "label": [
+    "RCA Victor",
+    "RCA/Ariola Internacional, S. De R.L. De C.V",
+    "Bertelsmann De Mexico, S.A.",
+    "Pete Waterman Ltd.",
+    "BMG Records (UK) Ltd."
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 2441237,
+   "barcode": [
+    "LAE-756-A SP-1 27-I-88 R",
+    "LAE-756-B SP-1 27-I-88 R"
+   ],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/2441237-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "LAE-756",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/2441237",
+   "community": {
+    "want": 111,
+    "have": 236
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Vinyl",
+     "qty": "1",
+     "descriptions": [
+      "LP",
+      "Album"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "UK",
+   "year": "2022",
+   "format": [
+    "CD",
+    "Album",
+    "Deluxe Edition",
+    "Reissue",
+    "Remastered",
+    "CD",
+    "Single",
+    "Limited Edition"
+   ],
+   "label": [
+    "BMG",
+    "PWL Records",
+    "BMG Rights Management (UK) Limited",
+    "BMG Rights Management (UK) Limited",
+    "Abbey Road Studios",
+    "BMG",
+    "PWL Records"
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 23290577,
+   "barcode": [
+    "4 050538 793819 >",
+    "4050538793819",
+    "LC 19813",
+    "BIEM / GEMA",
+    "Sonopress 58158317/BMGCAT730DCD-CD1 21",
+    "IFPI LB47",
+    "IFPI 0767",
+    "Sonopress 58158320/BMGCAT730DCD-CD2 22",
+    "IFPI LP 73",
+    "IFPI 0717",
+    "7061-CD-176-A",
+    "IFPI6Y18"
+   ],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/23290577-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "BMGCAT730DCD",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/23290577",
+   "community": {
+    "want": 64,
+    "have": 223
+   },
+   "format_quantity": 3,
+   "formats": [
+    {
+     "name": "CD",
+     "qty": "2",
+     "descriptions": [
+      "Album",
+      "Deluxe Edition",
+      "Reissue",
+      "Remastered"
+     ]
+    },
+    {
+     "name": "CD",
+     "qty": "1",
+     "descriptions": [
+      "Single",
+      "Limited Edition"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "UK & Europe",
+   "year": "1987",
+   "format": [
+    "Cassette",
+    "Album"
+   ],
+   "label": [
+    "RCA"
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 7047032,
+   "barcode": [
+    "00356271152948",
+    "BIEM  GEMA",
+    "LC0316"
+   ],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/7047032-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "PK 71529",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/7047032",
+   "community": {
+    "want": 62,
+    "have": 31
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Cassette",
+     "qty": "1",
+     "text": "Grey Shell",
+     "descriptions": [
+      "Album"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "US",
+   "year": "1988",
+   "format": [
+    "CD",
+    "Album",
+    "Repress"
+   ],
+   "label": [
+    "RCA",
+    "RCA Corporation",
+    "BMG Music",
+    "BMG Music",
+    "Pete Waterman Ltd.",
+    "BMG Records (UK) Ltd.",
+    "PWL Studios",
+    "PWL Studios",
+    "Terrace Music",
+    "Chappell & Co., Inc.",
+    "Intersong USA, Inc.",
+    "Denon Digital Industries"
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop",
+    "Dance-pop"
+   ],
+   "id": 18219724,
+   "barcode": [
+    "7863-56822-2",
+    "68222R 7/88 1DA1",
+    "ASCAP"
+   ],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/18219724-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "6822-2-R",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/18219724",
+   "community": {
+    "want": 32,
+    "have": 30
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "CD",
+     "qty": "1",
+     "descriptions": [
+      "Album",
+      "Repress"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Ecuador",
+   "year": "1988",
+   "format": [
+    "Vinyl",
+    "LP",
+    "Album",
+    "Promo"
+   ],
+   "label": [
+    "RCA",
+    "Emporio Musical S.A.",
+    "Coprodisa",
+    "Ifesa",
+    "Cromos S.A.",
+    "BMG Records (UK) Ltd."
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 12119555,
+   "barcode": [],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/12119555-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "923-1142",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/12119555",
+   "community": {
+    "want": 80,
+    "have": 6
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Vinyl",
+     "qty": "1",
+     "descriptions": [
+      "LP",
+      "Album",
+      "Promo"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Thailand",
+   "year": "1988",
+   "format": [
+    "Cassette",
+    "Album"
+   ],
+   "label": [
+    "RCA",
+    "CBS Music Company Ltd., Thailand",
+    "CBS Music Company Ltd., Thailand",
+    "Pacific Music Thailand Co. Ltd"
+   ],
+   "type": "release",
+   "genre": [
+    "Pop"
+   ],
+   "style": [],
+   "id": 10985527,
+   "barcode": [],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/10985527-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "PK 71529",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/10985527",
+   "community": {
+    "want": 40,
+    "have": 3
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Cassette",
+     "qty": "1",
+     "descriptions": [
+      "Album"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Poland",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "format": [
+    "Cassette",
+    "Album",
+    "Unofficial Release"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 5009192,
+   "label": [
+    "Starling"
+   ],
+   "type": "release",
+   "barcode": [],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/5009192-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "S041",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/5009192",
+   "community": {
+    "want": 53,
+    "have": 2
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Cassette",
+     "qty": "1",
+     "descriptions": [
+      "Album",
+      "Unofficial Release"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Indonesia",
+   "year": "1987",
+   "format": [
+    "Cassette",
+    "Album",
+    "Unofficial Release"
+   ],
+   "label": [
+    "Golden Lion Record"
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop",
+    "Disco"
+   ],
+   "id": 7255245,
+   "barcode": [],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/7255245-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "G-6538",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/7255245",
+   "community": {
+    "want": 49,
+    "have": 2
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Cassette",
+     "qty": "1",
+     "descriptions": [
+      "Album",
+      "Unofficial Release"
+     ]
+    }
+   ]
+  },
+  {
+   "country": "Philippines",
+   "year": "1987",
+   "format": [
+    "Cassette",
+    "Album"
+   ],
+   "label": [
+    "RCA"
+   ],
+   "type": "release",
+   "genre": [
+    "Electronic",
+    "Pop"
+   ],
+   "style": [
+    "Synth-pop"
+   ],
+   "id": 37454742,
+   "barcode": [],
+   "master_id": 96568,
+   "master_url": "https://api.discogs.com/masters/96568",
+   "uri": "/release/37454742-Rick-Astley-Whenever-You-Need-Somebody",
+   "catno": "PL71529",
+   "title": "Rick Astley - Whenever You Need Somebody",
+   "thumb": "",
+   "cover_image": "",
+   "resource_url": "https://api.discogs.com/releases/37454742",
+   "community": {
+    "want": 2,
+    "have": 0
+   },
+   "format_quantity": 1,
+   "formats": [
+    {
+     "name": "Cassette",
+     "qty": "1",
+     "descriptions": [
+      "Album"
+     ]
+    }
+   ]
+  }
+ ]
+}
