@@ -1,0 +1,212 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-lg);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  margin: 0;
+  font-weight: 600;
+}
+
+.counter {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.keysHint {
+  margin-left: auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.helpBox {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.emptyState {
+  padding: var(--space-2xl);
+  color: var(--text-secondary);
+}
+
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.2fr);
+  gap: var(--space-lg);
+}
+
+.localPane,
+.candidatesPane {
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+}
+
+.paneTitle {
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin: 0 0 var(--space-md);
+}
+
+.albumHead {
+  margin-bottom: var(--space-md);
+}
+
+.albumName {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.albumArtist {
+  color: var(--text-secondary);
+}
+
+.dirPath {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  font-family: ui-monospace, monospace;
+  overflow-wrap: anywhere;
+  margin-top: var(--space-xs);
+}
+
+.badges {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-xs);
+}
+
+.trackList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trackRow {
+  display: flex;
+  gap: var(--space-md);
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+
+.trackNo {
+  width: 2ch;
+  color: var(--text-tertiary);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.trackTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackDur {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.candidate,
+.candidateSelected {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  cursor: pointer;
+}
+
+.candidateSelected {
+  border-color: var(--accent);
+  background: var(--bg-tertiary);
+}
+
+.candHead {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-md);
+  font-weight: 600;
+}
+
+.candDistance {
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.candMeta {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-xs);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.chipGood,
+.chipNear,
+.chipBad {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.chipGood { background: rgba(22, 163, 74, 0.15); color: var(--success); }
+.chipNear { background: rgba(234, 140, 85, 0.15); color: var(--warning); }
+.chipBad  { background: rgba(220, 38, 38, 0.15); color: var(--error); }
+
+.noCandidates {
+  color: var(--text-secondary);
+  padding: var(--space-md) 0;
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.actions button {
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.actions button:first-child {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

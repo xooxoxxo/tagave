@@ -46,6 +46,12 @@ export function Layout() {
             Artists
           </Link>
           <Link
+            to="/queue"
+            className={isActive('/queue') ? styles.navLinkActive : styles.navLink}
+          >
+            Queue
+          </Link>
+          <Link
             to="/settings/scan-roots"
             className={isActive('/settings/scan-roots') ? styles.navLinkActive : styles.navLink}
           >

@@ -13,6 +13,7 @@ import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createJobRoutes } from './routes/jobs.js';
+import { createQueueRoutes } from './routes/queue.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -154,6 +155,9 @@ app.register(async (instance) => {
 
   // Job routes
   instance.register(createJobRoutes, { prefix: '/api/v1' });
+
+  // Review queue routes
+  instance.register(createQueueRoutes, { prefix: '/api/v1' });
 });
 
 // Start server
