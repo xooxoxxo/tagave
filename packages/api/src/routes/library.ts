@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import path from 'path';
 import fs from 'fs/promises';
@@ -24,6 +24,85 @@ async function getBoss(): Promise<PgBoss> {
 }
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
+  // Library stats for the dashboard (spec LIB-7 / §14.2)
+  fastify.get('/:libraryId/stats', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+    const lib = await db.select().from(libraries)
+      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+    const [albumStats] = await db.execute(sql`
+      select count(*)::int as albums,
+             coalesce(sum(track_count), 0)::int as album_tracks,
+             count(*) filter (where state = 'matched')::int as matched,
+             count(*) filter (where state = 'needs_review')::int as needs_review,
+             count(*) filter (where state = 'pending')::int as pending,
+             count(*) filter (where state = 'unidentified')::int as unidentified
+      from local_albums where library_id = ${libraryId}`) as unknown as [Record<string, number>];
+    const [fileStats] = await db.execute(sql`
+      select count(*)::int as files,
+             coalesce(sum(size_bytes), 0)::bigint as bytes,
+             coalesce(sum(duration_ms), 0)::bigint as duration_ms,
+             count(*) filter (where lossless)::int as lossless
+      from audio_files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
+
+    reply.send({
+      albums: albumStats?.['albums'] ?? 0,
+      tracks: Number(fileStats?.['files'] ?? 0),
+      hours: Math.round(Number(fileStats?.['duration_ms'] ?? 0) / 3600000),
+      storageBytes: Number(fileStats?.['bytes'] ?? 0),
+      losslessShare: Number(fileStats?.['files'])
+        ? Number(fileStats?.['lossless'] ?? 0) / Number(fileStats['files']) : 0,
+      states: {
+        matched: albumStats?.['matched'] ?? 0,
+        needsReview: albumStats?.['needs_review'] ?? 0,
+        pending: albumStats?.['pending'] ?? 0,
+        unidentified: albumStats?.['unidentified'] ?? 0,
+      },
+    });
+  });
+
+  // Artists derived from local clusters (M0 grade; canonical artists in M1)
+  fastify.get('/:libraryId/artists', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const { search = '', limit = '100', offset = '0' } = request.query as Record<string, string>;
+    const db = getDb();
+    const lib = await db.select().from(libraries)
+      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+    const limitN = Math.min(parseInt(limit, 10) || 100, 500);
+    const offsetN = parseInt(offset, 10) || 0;
+    const rows = await db.execute(sql`
+      select artist_guess as name,
+             count(*)::int as album_count,
+             coalesce(sum(track_count), 0)::int as track_count,
+             min(year_guess)::int as year_from,
+             max(year_guess)::int as year_to
+      from local_albums
+      where library_id = ${libraryId}
+        and artist_guess is not null
+        ${search ? sql`and artist_guess ilike ${'%' + search + '%'}` : sql``}
+      group by artist_guess
+      order by lower(artist_guess)
+      limit ${limitN + 1} offset ${offsetN}`) as unknown as Record<string, unknown>[];
+
+    const items = rows.slice(0, limitN).map((r) => ({
+      name: r['name'],
+      albumCount: r['album_count'],
+      trackCount: r['track_count'],
+      yearFrom: r['year_from'],
+      yearTo: r['year_to'],
+    }));
+    reply.send({
+      items,
+      nextCursor: rows.length > limitN ? String(offsetN + limitN) : null,
+    });
+  });
+
   // Get all libraries for the authenticated user
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {

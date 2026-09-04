@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, like } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { libraries, localAlbums, audioFiles } from '@liner/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -12,10 +12,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { limit = '50', offset = '0', sort = 'added_date', filter } = request.query as Record<
-      string,
-      string
-    >;
+    const { limit = '50', offset = '0', sort = 'added_date', filter, artist, search } =
+      request.query as Record<string, string>;
 
     const db = getDb();
 
@@ -32,10 +30,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     // Query local albums
+    const conds = [eq(localAlbums.libraryId, libraryId)];
+    if (artist) conds.push(eq(localAlbums.artistGuess, artist));
+    if (search) {
+      conds.push(
+        sql`(title_guess ilike ${'%' + search + '%'} or artist_guess ilike ${'%' + search + '%'})`,
+      );
+    }
     const albums = await db
       .select()
       .from(localAlbums)
-      .where(eq(localAlbums.libraryId, libraryId))
+      .where(and(...conds))
+      .orderBy(sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`)
       .limit(Math.min(parseInt(limit, 10), 500))
       .offset(parseInt(offset, 10));
 

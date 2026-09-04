@@ -6,6 +6,7 @@ import {
   LoginPage,
   DashboardPage,
   AlbumsPage,
+  ArtistsPage,
   SettingsScanRootsPage,
   JobsPage,
 } from './pages';
@@ -49,6 +50,12 @@ const albumsRoute = new Route({
   component: AlbumsPage,
 });
 
+const artistsRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/artists',
+  component: ArtistsPage,
+});
+
 const albumDetailRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums/$albumId',
@@ -85,6 +92,7 @@ const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
     albumsRoute,
+    artistsRoute,
     albumDetailRoute,
     settingsScanRootsRoute,
     jobsRoute,

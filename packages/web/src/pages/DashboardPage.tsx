@@ -3,12 +3,33 @@
  * M0: Basic stats and scan status
  */
 
+import { useQuery } from '@tanstack/react-query';
 import { useCurrentLibrary, useScanRoots } from '../hooks';
+import { api } from '../services/api';
+
+interface LibraryStats {
+  albums: number;
+  tracks: number;
+  hours: number;
+  storageBytes: number;
+  losslessShare: number;
+  states: { matched: number; needsReview: number; pending: number; unidentified: number };
+}
+
+function useLibraryStats(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['library-stats', libraryId],
+    queryFn: () => api.get<LibraryStats>(`/libraries/${libraryId}/stats`),
+    enabled: !!libraryId,
+    refetchInterval: 30_000,
+  });
+}
 import styles from './DashboardPage.module.css';
 
 export function DashboardPage() {
   const { libraryId } = useCurrentLibrary();
   const { data: scanRoots, isLoading, error } = useScanRoots(libraryId);
+  const { data: stats } = useLibraryStats(libraryId);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading library...</div>;
@@ -26,9 +47,8 @@ export function DashboardPage() {
     );
   }
 
-  // Calculate aggregated stats from scan roots
-  const totalAlbums = scanRoots?.reduce((sum, root) => sum + (root.albumsFound || 0), 0) || 0;
-  const totalTracks = scanRoots?.reduce((sum, root) => sum + (root.tracksFound || 0), 0) || 0;
+  const totalAlbums = stats?.albums ?? 0;
+  const totalTracks = stats?.tracks ?? 0;
   const isScanning = scanRoots?.some((root) => root.lastStatus === 'scanning');
 
   return (

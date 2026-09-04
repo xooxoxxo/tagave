@@ -40,6 +40,12 @@ export function Layout() {
             Albums
           </Link>
           <Link
+            to="/artists"
+            className={isActive('/artists') ? styles.navLinkActive : styles.navLink}
+          >
+            Artists
+          </Link>
+          <Link
             to="/settings/scan-roots"
             className={isActive('/settings/scan-roots') ? styles.navLinkActive : styles.navLink}
           >

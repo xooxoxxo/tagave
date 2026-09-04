@@ -34,6 +34,7 @@ export function useLibrary(libraryId?: string) {
 }
 
 export interface AlbumsFilterOptions {
+  artist?: string | undefined;
   offset?: number;
   limit?: number;
   search?: string;
@@ -49,7 +50,8 @@ export function useAlbums(libraryId: string | undefined, options: AlbumsFilterOp
       const params = new URLSearchParams();
       if (options.offset !== undefined) params.set('offset', String(options.offset));
       if (options.limit !== undefined) params.set('limit', String(options.limit));
-      if (options.search) params.set('q', options.search);
+      if (options.search) params.set('search', options.search);
+      if (options.artist) params.set('artist', options.artist);
       if (options.sort) params.set('sort', options.sort);
       if (options.order) params.set('order', options.order);
       return api.get<{ items: AlbumSummary[]; nextCursor: string | null }>(`/libraries/${libraryId}/albums?${params}`);

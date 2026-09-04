@@ -10,6 +10,7 @@ import { AlbumsFilterOptions } from '../hooks/useLibrary';
 import styles from './AlbumsPage.module.css';
 
 export function AlbumsPage() {
+  const artistFilter = new URLSearchParams(window.location.search).get('artist') ?? undefined;
   const navigate = useNavigate();
   const { libraryId } = useCurrentLibrary();
 
@@ -21,6 +22,7 @@ export function AlbumsPage() {
     offset,
     limit,
     ...(searchQuery && { search: searchQuery }),
+    ...(artistFilter && { artist: artistFilter }),
     sort: 'added',
     order: 'desc',
   };
