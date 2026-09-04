@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
-  localTracks, releaseGroups, releases,
+  localTracks, matchCandidates, releaseGroups, releases,
 } from '@liner/db';
 import PgBoss from 'pg-boss';
 
@@ -235,6 +235,67 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .where(and(eq(images.localAlbumId, albumId), eq(images.kind, 'front')))
         .limit(1);
 
+      // Everything the album page needs to act without leaving (XO-311):
+      // open/dismissed gaps, scored candidates, sibling copies of the same RG.
+      const gapSubjects = album.releaseGroupId ? [albumId, album.releaseGroupId] : [albumId];
+      const gapRows = await db
+        .select()
+        .from(gaps)
+        .where(and(inArray(gaps.subjectId, gapSubjects), inArray(gaps.state, ['open', 'dismissed'])));
+
+      const candRows = await db
+        .select({
+          id: matchCandidates.id,
+          distance: matchCandidates.distance,
+          breakdown: matchCandidates.breakdown,
+          source: matchCandidates.source,
+          excluded: matchCandidates.excluded,
+          releaseId: releases.id,
+          releaseMbid: releases.mbid,
+          releaseTitle: releases.title,
+          releaseDate: releases.date,
+          releaseCountry: releases.country,
+          releaseStatus: releases.status,
+          releaseTrackCount: releases.trackCount,
+          releaseLabels: releases.labels,
+          rgArtistCredit: releaseGroups.artistCredit,
+        })
+        .from(matchCandidates)
+        .innerJoin(releases, eq(releases.id, matchCandidates.releaseId))
+        .innerJoin(releaseGroups, eq(releaseGroups.id, releases.releaseGroupId))
+        .where(eq(matchCandidates.localAlbumId, albumId))
+        .orderBy(sql`distance asc`);
+
+      const duplicateRows = album.releaseGroupId
+        ? await db
+            .select({
+              id: localAlbums.id,
+              title: localAlbums.titleGuess,
+              artist: localAlbums.artistGuess,
+              trackCount: localAlbums.trackCount,
+              formats: localAlbums.formats,
+              state: localAlbums.state,
+              dirPaths: localAlbums.dirPaths,
+            })
+            .from(localAlbums)
+            .where(and(
+              eq(localAlbums.releaseGroupId, album.releaseGroupId),
+              sql`${localAlbums.id} != ${albumId}`,
+            ))
+        : [];
+
+      const missingTracks = canonicalTrackRows
+        .filter((c) => !c['isDataTrack'] && !c['isVideo'])
+        .filter((c) => !trackRows.some(
+          (t) => (t.discNo ?? 1) === ((c['mediumNo'] as number | null) ?? 1) && t.trackNo === c['position'],
+        ))
+        .map((c) => ({
+          disc: c['mediumNo'] ?? 1,
+          position: c['position'],
+          title: c['title'],
+          lengthMs: c['lengthMs'] ?? null,
+        }));
+
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
@@ -290,7 +351,52 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             };
           }),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
+        missingTracks,
+        gaps: gapRows.map((g) => ({
+          id: g.id,
+          kind: g.kind,
+          state: g.state,
+          dismissReason: g.dismissReason,
+          details: g.details,
+        })),
+        candidates: candRows.map((c) => ({
+          id: c.id,
+          releaseId: c.releaseId,
+          releaseMbid: c.releaseMbid,
+          title: c.releaseTitle,
+          artistCredit: Array.isArray(c.rgArtistCredit)
+            ? (c.rgArtistCredit as string[]).join(', ')
+            : String(c.rgArtistCredit ?? ''),
+          date: c.releaseDate,
+          country: c.releaseCountry,
+          status: c.releaseStatus,
+          trackCount: c.releaseTrackCount,
+          labels: c.releaseLabels,
+          distance: Number(c.distance),
+          breakdown: c.breakdown,
+          source: c.source,
+          excluded: c.excluded,
+        })),
+        duplicates: duplicateRows,
       });
+    }
+  );
+
+  // Re-fetch cover art for one album
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/fetch-art',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const boss = await getBossForAlbums();
+      await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
+      reply.status(202).send({ ok: true });
     }
   );
 

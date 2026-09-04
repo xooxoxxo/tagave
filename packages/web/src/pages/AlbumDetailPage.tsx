@@ -1,9 +1,12 @@
 /**
- * Album detail (spec BRW-2, M1 slice): cover, canonical vs local metadata,
- * tracklist with duration comparison, file facts, match provenance.
+ * Album detail (spec BRW-2): cover, canonical vs local metadata, tracklist
+ * with duration comparison, file facts, match provenance — plus everything
+ * needed to act without leaving: gaps with dismiss, missing tracks,
+ * candidate accept/exclude, duplicate copies, art refetch, as-is/ignore.
  */
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from '@tanstack/react-router';
+import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
 import styles from './AlbumDetailPage.module.css';
@@ -26,6 +29,26 @@ interface DetailTrack {
     sizeBytes: number | null;
     status: string;
   };
+}
+interface Candidate {
+  id: string;
+  releaseMbid: string | null;
+  title: string;
+  artistCredit: string;
+  date: string | null;
+  country: string | null;
+  status: string | null;
+  trackCount: number | null;
+  distance: number;
+  source: string;
+  excluded: boolean;
+}
+interface Gap {
+  id: string;
+  kind: string;
+  state: string;
+  dismissReason: string | null;
+  details: Record<string, unknown>;
 }
 interface AlbumDetail {
   id: string;
@@ -59,6 +82,18 @@ interface AlbumDetail {
     reason: string | null;
   } | null;
   tracks: DetailTrack[];
+  missingTracks: { disc: number; position: number; title: string; lengthMs: number | null }[];
+  gaps: Gap[];
+  candidates: Candidate[];
+  duplicates: {
+    id: string;
+    title: string | null;
+    artist: string | null;
+    trackCount: number | null;
+    formats: string[] | null;
+    state: string;
+    dirPaths: string[] | null;
+  }[];
 }
 
 function dur(ms: number | null | undefined): string {
@@ -79,10 +114,24 @@ const STATE_LABEL: Record<string, string> = {
   ignored: 'Ignored',
 };
 
+const GAP_LABEL: Record<string, string> = {
+  incomplete_album: 'Incomplete',
+  duplicate: 'Duplicate',
+  quality: 'Quality',
+  missing_album: 'Missing album',
+};
+
 export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
+  const [showExcluded, setShowExcluded] = useState(false);
+
+  const refresh = (delayMs = 0) =>
+    setTimeout(() => {
+      queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+      queryClient.invalidateQueries({ queryKey: ['albums'] });
+    }, delayMs);
 
   const { data: album, isLoading } = useQuery({
     queryKey: ['album', albumId],
@@ -92,9 +141,36 @@ export function AlbumDetailPage() {
 
   const reidentify = useMutation({
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify`),
-    onSuccess: () => {
-      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['album', albumId] }), 4000);
-    },
+    onSuccess: () => refresh(4000),
+  });
+  const fetchArt = useMutation({
+    mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/fetch-art`),
+    onSuccess: () => refresh(5000),
+  });
+  const keepAsIs = useMutation({
+    mutationFn: () => api.post(`/albums/${albumId}/as-is`),
+    onSuccess: () => refresh(),
+  });
+  const ignore = useMutation({
+    mutationFn: () => api.post(`/albums/${albumId}/ignore`),
+    onSuccess: () => refresh(),
+  });
+  const acceptCandidate = useMutation({
+    mutationFn: (candidateId: string) => api.post(`/albums/${albumId}/match`, { candidateId }),
+    onSuccess: () => refresh(),
+  });
+  const excludeCandidate = useMutation({
+    mutationFn: (candidateId: string) => api.post(`/albums/${albumId}/exclude-candidate`, { candidateId }),
+    onSuccess: () => refresh(),
+  });
+  const dismissGap = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      api.post(`/gaps/${id}/dismiss`, { reason }),
+    onSuccess: () => refresh(),
+  });
+  const reopenGap = useMutation({
+    mutationFn: (id: string) => api.post(`/gaps/${id}/reopen`),
+    onSuccess: () => refresh(),
   });
 
   if (isLoading || !album) return <div className={styles.container}>Loading album...</div>;
@@ -103,6 +179,24 @@ export function AlbumDetailPage() {
     t.canonicalDurationMs && t.durationMs
       ? Math.abs(t.canonicalDurationMs - t.durationMs) > 5000
       : false;
+
+  const openGaps = album.gaps.filter((g) => g.state === 'open');
+  const dismissedGaps = album.gaps.filter((g) => g.state === 'dismissed');
+  const visibleCandidates = album.candidates.filter((c) => showExcluded || !c.excluded);
+  const excludedCount = album.candidates.filter((c) => c.excluded).length;
+  const qualityFlags = (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags ?? {};
+
+  const describeGap = (g: Gap): string => {
+    if (g.kind === 'incomplete_album') {
+      const d = g.details as { have?: number; want?: number };
+      return `${d.have}/${d.want} tracks`;
+    }
+    if (g.kind === 'duplicate') return `${(g.details as { count?: number }).count} copies of this release group`;
+    if (g.kind === 'quality') {
+      return Object.entries(qualityFlags).map(([k, v]) => (v === true ? k : `${k}: ${v}`)).join(' · ');
+    }
+    return '';
+  };
 
   return (
     <div className={styles.container}>
@@ -135,6 +229,11 @@ export function AlbumDetailPage() {
             <span className={styles[`state_${album.state}`] ?? styles.stateBadge}>
               {STATE_LABEL[album.state] ?? album.state}
             </span>
+            {openGaps.map((g) => (
+              <span key={g.id} className={styles.gapBadge} title={describeGap(g)}>
+                {GAP_LABEL[g.kind] ?? g.kind}
+              </span>
+            ))}
             {album.match && (
               <span className={styles.provenance} title={album.match.reason ?? ''}>
                 {album.match.decidedBy === 'system' ? 'auto' : 'you'} · distance{' '}
@@ -159,9 +258,163 @@ export function AlbumDetailPage() {
             <button onClick={() => reidentify.mutate()} disabled={reidentify.isPending}>
               {reidentify.isPending ? 'Queued...' : 'Re-identify'}
             </button>
+            <button onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
+              {fetchArt.isPending ? 'Queued...' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
+            </button>
+            {album.state !== 'as_is' && (
+              <button onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending}>
+                Keep as-is
+              </button>
+            )}
+            {album.state !== 'ignored' && (
+              <button onClick={() => ignore.mutate()} disabled={ignore.isPending}>
+                Ignore
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {openGaps.length > 0 && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Needs attention</h2>
+          {openGaps.map((g) => (
+            <div key={g.id} className={styles.gapRow}>
+              <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+              <span className={styles.gapDetail}>{describeGap(g)}</span>
+              <span className={styles.gapActions}>
+                <button onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })}>
+                  Dismiss
+                </button>
+                <button
+                  title="The data is wrong (feeds the false-positive metric)"
+                  onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
+                >
+                  Wrong
+                </button>
+              </span>
+            </div>
+          ))}
+          {dismissedGaps.map((g) => (
+            <div key={g.id} className={styles.gapRowDismissed}>
+              <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+              <span className={styles.gapDetail}>
+                dismissed ({g.dismissReason ?? 'no reason'})
+              </span>
+              <span className={styles.gapActions}>
+                <button onClick={() => reopenGap.mutate(g.id)}>Reopen</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {album.missingTracks.length > 0 && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>
+            Missing tracks ({album.missingTracks.length})
+          </h2>
+          <table className={styles.missingTable}>
+            <tbody>
+              {album.missingTracks.map((m, i) => (
+                <tr key={i}>
+                  <td className={styles.num}>
+                    {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
+                    {m.position}
+                  </td>
+                  <td>{m.title}</td>
+                  <td className={styles.num}>{dur(m.lengthMs)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {album.duplicates.length > 0 && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Other copies ({album.duplicates.length})</h2>
+          {album.duplicates.map((d) => (
+            <div key={d.id} className={styles.dupRow}>
+              <Link to="/albums/$albumId" params={{ albumId: d.id } as never} className={styles.dupLink}>
+                {d.title ?? 'Untitled'}
+              </Link>
+              <span className={styles.gapDetail}>
+                {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state]
+                  .filter(Boolean).join(' · ')}
+              </span>
+              <span className={styles.dupPath}>{d.dirPaths?.[0]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {album.candidates.length > 0 && album.state !== 'matched' && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>
+            Match candidates ({visibleCandidates.length})
+            {excludedCount > 0 && (
+              <button className={styles.linkButton} onClick={() => setShowExcluded((s) => !s)}>
+                {showExcluded ? 'hide' : 'show'} {excludedCount} excluded
+              </button>
+            )}
+          </h2>
+          <table className={styles.candTable}>
+            <thead>
+              <tr>
+                <th>Distance</th>
+                <th>Release</th>
+                <th>Date</th>
+                <th>Country</th>
+                <th>Tracks</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleCandidates.map((c) => (
+                <tr key={c.id} className={c.excluded ? styles.candExcluded : ''}>
+                  <td className={styles.num}>{c.distance.toFixed(4)}</td>
+                  <td>
+                    {c.title}
+                    <span className={styles.gapDetail}> — {c.artistCredit}</span>
+                    {c.releaseMbid && (
+                      <a
+                        className={styles.mbLink}
+                        href={`https://musicbrainz.org/release/${c.releaseMbid}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {' '}↗
+                      </a>
+                    )}
+                  </td>
+                  <td>{c.date ?? '–'}</td>
+                  <td>{c.country ?? '–'}</td>
+                  <td className={styles.num}>{c.trackCount ?? '–'}</td>
+                  <td className={styles.gapActions}>
+                    {!c.excluded && (
+                      <>
+                        <button
+                          onClick={() => acceptCandidate.mutate(c.id)}
+                          disabled={acceptCandidate.isPending}
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => excludeCandidate.mutate(c.id)}
+                          disabled={excludeCandidate.isPending}
+                        >
+                          Exclude
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <table className={styles.trackTable}>
         <thead>
