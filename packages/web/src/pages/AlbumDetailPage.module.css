@@ -268,3 +268,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.mbidRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+
+.mbidInput {
+  flex: 1;
+  max-width: 34rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.mbidError {
+  color: #ff8589;
+  font-size: var(--font-size-xs);
+}
+
+.mbidOk {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}

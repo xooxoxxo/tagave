@@ -12,6 +12,9 @@ export interface IdentifyAlbumJobData {
   localAlbumId: string;
   /** re-run even when state is not pending/unidentified */
   force?: boolean;
+  /** IDN-6 manual entry: match this MB release MBID, bypassing search and
+   * thresholds; decided_by=user */
+  pinnedMbid?: string;
 }
 
 /** MusicBrainz allows ~1 req/s. A module-level pacer serialises every MB call
@@ -87,8 +90,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     .limit(1);
   const album = albumRows[0];
   if (!album) return;
-  if (!data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
-  if (!album.titleGuess || !album.artistGuess) {
+  if (!data.pinnedMbid && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
+  if (!data.pinnedMbid && (!album.titleGuess || !album.artistGuess)) {
     await ctx.db.update(localAlbums)
       .set({ state: 'unidentified', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
@@ -115,8 +118,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   }
 
   const local = {
-    artist: album.artistGuess,
-    title: album.titleGuess,
+    artist: album.artistGuess ?? '',
+    title: album.titleGuess ?? '',
     tracks: tracks
       .sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0))
       .map((t, i) => ({
@@ -134,14 +137,22 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   const p = provider(contact);
   const ctxCall = { priority: 'background' as const };
 
-  // Candidate generation (IDN-1): embedded MBID first, then search.
+  // Candidate generation (IDN-1): pinned MBID (IDN-6) short-circuits, then
+  // embedded MBID, then search.
   const fetched: Awaited<ReturnType<typeof p.getRelease>>[] = [];
   try {
-    if (embedded.albumMbid) {
+    if (data.pinnedMbid) {
+      const rel = await paced(() => p.getRelease(data.pinnedMbid as string, ctxCall));
+      if (!rel) {
+        ctx.logger.warn({ album: album.titleGuess, mbid: data.pinnedMbid }, 'identify: pinned MBID not found');
+        return; // bad user input; leave state untouched
+      }
+      fetched.push(rel);
+    } else if (embedded.albumMbid) {
       const rel = await paced(() => p.getRelease(embedded.albumMbid as string, ctxCall));
       if (rel) fetched.push(rel);
     }
-    if (fetched.length === 0) {
+    if (fetched.length === 0 && !data.pinnedMbid) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
       let found = await paced(() => p.searchReleases({
@@ -213,8 +224,40 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       releaseId: relDb,
       distance: s.distance.toFixed(4),
       breakdown: s.breakdown,
-      source: embedded.albumMbid ? 'mbid' : 'mb_search',
+      source: data.pinnedMbid ? 'user_mbid' : embedded.albumMbid ? 'mbid' : 'mb_search',
     });
+  }
+
+  // IDN-6: a pinned MBID is the owner's decision — match it outright, with
+  // the computed distance kept for provenance.
+  if (data.pinnedMbid) {
+    const pinned = scored[0];
+    const pinnedDb = pinned ? releaseDbIds.get(pinned.id) : undefined;
+    if (!pinned || !pinnedDb) return;
+    await ctx.sql`
+      update album_matches set status = 'rejected', reason = 'superseded by manual MBID entry'
+      where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
+    await ctx.db.insert(albumMatches).values({
+      libraryId: album.libraryId,
+      localAlbumId: album.id,
+      releaseId: pinnedDb,
+      distance: pinned.distance.toFixed(4),
+      status: 'confirmed',
+      decidedBy: 'user',
+      reason: 'manual MBID entry (IDN-6)',
+    });
+    const rgRow = await ctx.db
+      .select({ rgId: releases.releaseGroupId })
+      .from(releases).where(eq(releases.id, pinnedDb)).limit(1);
+    await ctx.db.update(localAlbums)
+      .set({
+        state: 'matched',
+        releaseId: pinnedDb,
+        releaseGroupId: rgRow[0]?.rgId ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(localAlbums.id, album.id));
+    return;
   }
 
   // Decide (IDN-3).

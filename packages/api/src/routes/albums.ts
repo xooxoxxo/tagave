@@ -400,6 +400,32 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // IDN-6 manual entry: paste an MB release URL or MBID, match it outright.
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/match-mbid',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const { input } = (request.body ?? {}) as { input?: string };
+      const mbid = input?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
+      if (!mbid) throw new ApiError(400, 'Bad Request', 'No MBID found in input — paste a MusicBrainz release URL or MBID');
+      if (input && /musicbrainz\.org\/(?!release\/)[a-z-]+\//i.test(input)) {
+        throw new ApiError(400, 'Bad Request', 'That is not a release URL — use the release page (musicbrainz.org/release/...), not artist or release-group');
+      }
+      const db = getDb();
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const boss = await getBossForAlbums();
+      await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
+        singletonKey: `identify:${albumId}`,
+      });
+      reply.status(202).send({ ok: true, mbid });
+    }
+  );
+
   // Re-run identification for one album (spec IDN-6)
   fastify.post(
     '/libraries/:libraryId/albums/:albumId/identify',

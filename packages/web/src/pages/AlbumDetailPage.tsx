@@ -126,6 +126,7 @@ export function AlbumDetailPage() {
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
   const [showExcluded, setShowExcluded] = useState(false);
+  const [mbidInput, setMbidInput] = useState('');
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
@@ -163,6 +164,17 @@ export function AlbumDetailPage() {
     mutationFn: (candidateId: string) => api.post(`/albums/${albumId}/exclude-candidate`, { candidateId }),
     onSuccess: () => refresh(),
   });
+  const matchMbid = useMutation({
+    mutationFn: () =>
+      api.post<{ ok: boolean }>(`/libraries/${libraryId}/albums/${albumId}/match-mbid`, {
+        input: mbidInput,
+      }),
+    onSuccess: () => {
+      setMbidInput('');
+      refresh(6000);
+    },
+  });
+
   const dismissGap = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/gaps/${id}/dismiss`, { reason }),
@@ -271,6 +283,30 @@ export function AlbumDetailPage() {
                 Ignore
               </button>
             )}
+          </div>
+          <div className={styles.mbidRow}>
+            <input
+              className={styles.mbidInput}
+              placeholder="Paste MusicBrainz release URL or MBID to match manually"
+              value={mbidInput}
+              onChange={(e) => setMbidInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && mbidInput.trim()) matchMbid.mutate();
+              }}
+            />
+            <button
+              onClick={() => matchMbid.mutate()}
+              disabled={!mbidInput.trim() || matchMbid.isPending}
+            >
+              {matchMbid.isPending ? 'Matching...' : 'Match'}
+            </button>
+            {matchMbid.isError && (
+              <span className={styles.mbidError}>
+                {(matchMbid.error as { detail?: string; message?: string })?.detail ??
+                  (matchMbid.error as Error)?.message ?? 'Failed'}
+              </span>
+            )}
+            {matchMbid.isSuccess && <span className={styles.mbidOk}>Queued — updates in a few seconds</span>}
           </div>
         </div>
       </div>
