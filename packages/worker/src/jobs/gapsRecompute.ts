@@ -84,6 +84,13 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
              and la.state != 'ignored') < 2`;
 
   // --- GAP-5: quality flags per album, one row per (album, flag) family in details
+  // Mark-and-sweep: pre-mark every live quality row, let the upsert clear the
+  // mark on rows still flagged, then resolve whatever stayed marked. (A
+  // condition-recheck here would have to mirror every flag; a stale mirror
+  // wrongly resolved lowBitrate-only rows on the first run.)
+  await ctx.sql`
+    update gaps set resolved_at = now()
+    where library_id = ${lib} and kind = 'quality' and state != 'resolved'`;
   await ctx.sql`
     insert into gaps (library_id, kind, subject_type, subject_id, details, state)
     select ${lib}, 'quality', 'local_album', q.id,
@@ -118,15 +125,9 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
                   state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
                   resolved_at = null`;
   await ctx.sql`
-    update gaps g set state = 'resolved', resolved_at = now()
-    where g.library_id = ${lib} and g.kind = 'quality' and g.state != 'resolved'
-      and not exists (
-        select 1 from local_albums la
-        left join images i on i.local_album_id = la.id and i.kind = 'front'
-        where la.id = g.subject_id and la.state != 'ignored'
-          and (i.id is null
-               or exists (select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
-                          where lt.local_album_id = la.id and af.status = 'error')))`;
+    update gaps set state = 'resolved'
+    where library_id = ${lib} and kind = 'quality' and state != 'resolved'
+      and resolved_at is not null`;
 
   const counts = await ctx.sql`
     select kind, count(*) filter (where state = 'open') as open
