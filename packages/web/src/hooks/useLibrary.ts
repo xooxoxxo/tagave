@@ -72,7 +72,10 @@ export function useAlbum(libraryId: string | undefined, albumId: string | undefi
 export function useScanRoots(libraryId: string | undefined) {
   return useQuery({
     queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId],
-    queryFn: () => api.get<ScanRootWithStatus[]>(`/libraries/${libraryId}/scan-roots`),
+    queryFn: () =>
+      api
+        .get<{ data: ScanRootWithStatus[] }>(`/libraries/${libraryId}/scan-roots`)
+        .then((r) => r.data),
     enabled: !!libraryId,
     staleTime: 1000 * 30, // 30 seconds
     refetchInterval: 1000 * 10, // Poll every 10 seconds for scan status
