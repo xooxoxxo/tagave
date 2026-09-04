@@ -78,6 +78,15 @@ const ReleaseGroupSchema = z.object({
   'first-release-date': z.string().nullish(),
 });
 
+const RelationSchema = z.object({
+  type: z.string().nullish(),
+  'target-type': z.string().nullish(),
+  url: z.object({
+    resource: z.string().nullish(),
+    id: z.string().nullish(),
+  }).nullish(),
+});
+
 const ReleaseSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -106,6 +115,7 @@ const ReleaseSchema = z.object({
       })
     )
     .optional(),
+  relations: z.array(RelationSchema).optional(),
 });
 
 const SearchResultSchema = z.object({
@@ -146,6 +156,76 @@ function mbTrackToCanonical(
 }
 
 /**
+ * Extract URL relations from relations array.
+ */
+export function extractUrlRelations(
+  relations?: Array<{ type?: string | null | undefined; 'target-type'?: string | null | undefined; url?: { resource?: string | null | undefined } | null | undefined }>
+): Array<{ type: string; url: string }> {
+  const urlRels: Array<{ type: string; url: string }> = [];
+
+  if (!relations) return urlRels;
+
+  for (const rel of relations) {
+    if (rel['target-type'] === 'url' && rel.url?.resource) {
+      const type = rel.type || 'unknown';
+      urlRels.push({
+        type,
+        url: rel.url.resource,
+      });
+    }
+  }
+
+  return urlRels;
+}
+
+/**
+ * Extract Discogs IDs from URL relations.
+ */
+export function discogsIdsFromUrlRelations(
+  rels?: Array<{ type: string; url: string }>
+): { releaseId?: number; masterId?: number } {
+  const result: { releaseId?: number; masterId?: number } = {};
+
+  if (!rels) return result;
+
+  for (const rel of rels) {
+    if (rel.type === 'discogs') {
+      // https://www.discogs.com/release/1671391 or /master/96568
+      const releaseMatch = rel.url.match(/\/release\/(\d+)/);
+      if (releaseMatch) {
+        result.releaseId = parseInt(releaseMatch[1]!, 10);
+        continue;
+      }
+      const masterMatch = rel.url.match(/\/master\/(\d+)/);
+      if (masterMatch) {
+        result.masterId = parseInt(masterMatch[1]!, 10);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Extract Wikidata QID from URL relations.
+ */
+export function wikidataQidFromUrlRelations(
+  rels?: Array<{ type: string; url: string }>
+): string | undefined {
+  if (!rels) return undefined;
+
+  for (const rel of rels) {
+    if (rel.type === 'wikidata' && rel.url && typeof rel.url === 'string') {
+      // https://www.wikidata.org/wiki/Q918304 → Q918304
+      const match = rel.url.match(/\/wiki\/(Q\d+)/);
+      if (match) return match[1];
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Convert MusicBrainz release to canonical format.
  */
 function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): CanonicalRelease {
@@ -176,6 +256,9 @@ function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): Canonic
     }
   }
 
+  // Extract URL relations
+  const urlRelations = extractUrlRelations(mbRelease.relations);
+
   return {
     id: mbRelease.id,
     releaseGroupId: rg?.id || mbRelease.id,
@@ -192,6 +275,7 @@ function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): Canonic
     label,
     source: 'musicbrainz',
     sourceId: mbRelease.id,
+    urlRelations: urlRelations.length > 0 ? urlRelations : undefined,
   };
 }
 
@@ -275,7 +359,7 @@ export class MusicBrainzProvider implements MetadataProvider {
   async getRelease(id: string, ctx: CallContext): Promise<CanonicalRelease> {
     const url = new URL(`${MB_BASE_URL}/release/${id}`, 'https://musicbrainz.org');
     url.searchParams.set('fmt', 'json');
-    url.searchParams.set('inc', 'recordings+artist-credits+labels+media+release-groups');
+    url.searchParams.set('inc', 'recordings+artist-credits+labels+media+release-groups+url-rels');
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -332,6 +416,91 @@ export class MusicBrainzProvider implements MetadataProvider {
       source: 'musicbrainz',
       sourceId: rg.id,
     };
+  }
+
+  /**
+   * Get URL relations for a release group.
+   */
+  async getReleaseGroupUrlRelations(
+    rgMbid: string,
+    ctx: CallContext
+  ): Promise<Array<{ type: string; url: string }>> {
+    const url = new URL(`${MB_BASE_URL}/release-group/${rgMbid}`, 'https://musicbrainz.org');
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'url-rels');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const rgData = z.object({
+      relations: z.array(RelationSchema).optional(),
+    }).parse(data);
+
+    return extractUrlRelations(rgData.relations);
+  }
+
+  /**
+   * Look up a URL to find related releases and release groups.
+   */
+  async lookupUrl(
+    resource: string,
+    ctx: CallContext
+  ): Promise<{ releaseMbids: string[]; releaseGroupMbids: string[] }> {
+    const url = new URL(`${MB_BASE_URL}/url`, 'https://musicbrainz.org');
+    url.searchParams.set('resource', resource);
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'release-rels+release-group-rels');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 404) {
+      return { releaseMbids: [], releaseGroupMbids: [] };
+    }
+
+    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (!response.ok) {
+      throw new Error(`Failed to look up URL ${resource}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const urlData = z.object({
+      relations: z.array(z.object({
+        type: z.string().nullish(),
+        'target-type': z.string().nullish(),
+        release: z.object({ id: z.string() }).nullish(),
+        'release-group': z.object({ id: z.string() }).nullish(),
+      })).nullish(),
+    }).parse(data);
+
+    const releaseMbids: string[] = [];
+    const releaseGroupMbids: string[] = [];
+
+    if (urlData.relations) {
+      for (const rel of urlData.relations) {
+        if (rel['target-type'] === 'release' && rel.release?.id) {
+          releaseMbids.push(rel.release.id);
+        } else if (rel['target-type'] === 'release-group' && rel['release-group']?.id) {
+          releaseGroupMbids.push(rel['release-group'].id);
+        }
+      }
+    }
+
+    return { releaseMbids, releaseGroupMbids };
   }
 
   /**

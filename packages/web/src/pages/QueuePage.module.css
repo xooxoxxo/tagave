@@ -210,3 +210,25 @@
   opacity: 0.4;
   cursor: default;
 }
+
+
+.candProvider {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-right: 0.5rem;
+}
+
+.candLink {
+  color: var(--accent-color);
+  text-decoration: none;
+  margin: 0 0.25rem;
+}
+
+.candLink:hover {
+  text-decoration: underline;
+}

@@ -56,6 +56,7 @@ export const providerState = pgTable('provider_state', {
   circuitOpenUntil: timestamp('circuit_open_until', { withTimezone: true }),
   last429At: timestamp('last_429_at', { withTimezone: true }),
   lastError: text('last_error'),
+  nextSlotAt: timestamp('next_slot_at', { withTimezone: true }),
 });
 
 export const jobRuns = pgTable(
@@ -290,12 +291,17 @@ export const artists = pgTable(
   })
 );
 
+// Synthetic RG limitation (XO-302): if Discogs later assigns a master to a masterless release,
+// the synthetic RG (identified by discogs_release_id) is not migrated automatically;
+// on-demand refresh only.
 export const releaseGroups = pgTable(
   'release_groups',
   {
     id: uuid().primaryKey().defaultRandom(),
-    mbid: varchar({ length: 36 }).notNull().unique(),
+    mbid: varchar({ length: 36 }).unique(),
     discogsmasterId: integer('discogs_master_id').unique(),
+    // Synthetic RG for Discogs-only release (no master).
+    discogsReleaseId: integer('discogs_release_id').unique(),
     title: varchar({ length: 255 }).notNull(),
     primaryType: varchar('primary_type', { length: 50 }),
     secondaryTypes: text('secondary_types').array().default(sql`'{}'`),
@@ -305,6 +311,11 @@ export const releaseGroups = pgTable(
   },
   (table) => ({
     mbidIdx: index('idx_release_groups_mbid').on(table.mbid),
+    discogsIdx: index('idx_release_groups_discogs_master_id').on(table.discogsmasterId),
+    identityCheck: check(
+      'release_groups_identity',
+      sql`mbid IS NOT NULL OR discogs_master_id IS NOT NULL OR discogs_release_id IS NOT NULL`
+    ),
   })
 );
 
@@ -327,11 +338,13 @@ export const releases = pgTable(
     trackCount: integer('track_count'),
     packaging: varchar({ length: 50 }),
     sourceOfTruth: varchar('source_of_truth', { length: 20 }).default('musicbrainz'),
+    bridgeAttemptedAt: timestamp('bridge_attempted_at', { withTimezone: true }),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
   },
   (table) => ({
     releaseGroupIdx: index('idx_releases_release_group').on(table.releaseGroupId),
     mbidIdx: index('idx_releases_mbid').on(table.mbid),
+    discogsReleaseIdx: index('idx_releases_discogs_release_id').on(table.discogsReleaseId),
   })
 );
 
@@ -401,6 +414,8 @@ export const entityTags = pgTable(
   },
   (table) => ({
     entityIdx: index('idx_entity_tags_entity').on(table.entityType, table.entityId),
+    // Note: actual UNIQUE constraint in SQL is (entity_type, entity_id, kind, source, lower(tag))
+    // for case-insensitive uniqueness; drizzle schema defines plain columns only.
   })
 );
 
@@ -437,6 +452,12 @@ export const imageSources = pgTable(
   },
   (table) => ({
     entityIdx: index('idx_image_sources_entity').on(table.entityType, table.entityId),
+    naturalIdx: uniqueIndex('uq_image_sources_natural').on(
+      table.entityType,
+      table.entityId,
+      table.provider,
+      table.kind
+    ),
   })
 );
 
@@ -453,8 +474,9 @@ export const externalIds = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    pk: primaryKey({ columns: [table.provider, table.externalId, table.entityType] }),
+    pk: primaryKey({ columns: [table.provider, table.externalId, table.entityType, table.entityId] }),
     entityIdx: index('idx_external_ids_entity').on(table.entityType, table.entityId),
+    entityProviderIdx: index('idx_external_ids_entity_provider').on(table.entityType, table.entityId, table.provider),
   })
 );
 

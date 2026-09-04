@@ -20,6 +20,7 @@ interface QueueCandidate {
   id: string;
   releaseId: string;
   releaseMbid: string | null;
+  discogsReleaseId: number | null;
   title: string;
   artistCredit: string;
   date: string | null;
@@ -29,6 +30,8 @@ interface QueueCandidate {
   distance: number;
   breakdown: Record<string, number>;
   source: string;
+  provider: string;
+  rgMbid: string | null;
 }
 interface QueueItem {
   id: string;
@@ -184,7 +187,30 @@ export function QueuePage() {
                 onClick={() => setCandIdx(i)}
               >
                 <div className={styles.candHead}>
+                  <span className={styles.candProvider}>{c.provider === 'discogs' ? 'Discogs' : 'MB'}</span>
                   <span className={styles.candTitle}>{c.artistCredit} — {c.title}</span>
+                  {c.releaseMbid && (
+                    <a
+                      href={`https://musicbrainz.org/release/${c.releaseMbid}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={styles.candLink}
+                      title="MusicBrainz"
+                    >
+                      ↗
+                    </a>
+                  )}
+                  {c.discogsReleaseId && (
+                    <a
+                      href={`https://www.discogs.com/release/${c.discogsReleaseId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={styles.candLink}
+                      title="Discogs"
+                    >
+                      🔗
+                    </a>
+                  )}
                   <span className={styles.candDistance}>{c.distance.toFixed(4)}</span>
                 </div>
                 <div className={styles.candMeta}>

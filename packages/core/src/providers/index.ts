@@ -21,8 +21,22 @@ export type {
   TagWriter,
   RateLimitConfig,
   ProviderRateLimitState,
+  DiscogsMaster,
+  RateLimitInfo,
 } from './types.js';
 
-export { MusicBrainzProvider } from './musicbrainz.js';
-export { DiscogsProvider } from './discogs.js';
+export { MusicBrainzProvider, extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations } from './musicbrainz.js';
+export {
+  DiscogsProvider,
+  parseDiscogsDuration,
+  parseDiscogsPosition,
+  discogsCountryToIso,
+  discogsBarcodeFromIdentifiers,
+  discogsBarcodesFromSearchHit,
+  mapDiscogsRelease,
+  mapDiscogsSearchHit,
+  parseDiscogsRef,
+} from './discogs.js';
+export { WikidataClient, parseWikidataBindings } from './wikidata.js';
+export { fuzzyBridgeScore, chooseBestSearchHit, FUZZY_BRIDGE_ACCEPT } from './bridge.js';
 export { ProviderGateway } from './gateway.js';

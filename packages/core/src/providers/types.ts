@@ -55,6 +55,13 @@ export interface CanonicalRelease {
   label?: string | undefined;
   source: 'musicbrainz' | 'discogs';
   sourceId?: string | undefined; // e.g., Discogs release or master ID
+  discogsMasterId?: string | undefined;
+  genres?: string[] | undefined;
+  styles?: string[] | undefined;
+  images?: Array<{ url: string; width?: number | undefined; height?: number | undefined; primary: boolean }> | undefined;
+  mediaList?: Array<{ position: number; format: string; trackCount: number }> | undefined;
+  urlRelations?: Array<{ type: string; url: string }> | undefined;
+  labels?: Array<{ name: string; catalogNumber?: string | undefined }> | undefined;
 }
 
 /**
@@ -70,6 +77,29 @@ export interface CanonicalTrack {
   isrc?: string | undefined;
   isDataTrack?: boolean | undefined;
   isVideoTrack?: boolean | undefined;
+}
+
+/**
+ * Discogs master release metadata.
+ */
+export interface DiscogsMaster {
+  id: number;
+  title: string;
+  year?: number | undefined;
+  mainReleaseId?: number | undefined;
+  artists: string[];
+  genres?: string[] | undefined;
+  styles?: string[] | undefined;
+  images?: Array<{ url: string; width?: number | undefined; height?: number | undefined; primary: boolean }> | undefined;
+}
+
+/**
+ * Rate limit information from provider.
+ */
+export interface RateLimitInfo {
+  limit: number;
+  used: number;
+  remaining: number;
 }
 
 /**

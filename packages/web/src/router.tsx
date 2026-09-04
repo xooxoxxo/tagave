@@ -11,6 +11,7 @@ import {
   AlbumDetailPage,
   AttentionPage,
   SettingsScanRootsPage,
+  SettingsProvidersPage,
   JobsPage,
 } from './pages';
 import { useMe } from './hooks';
@@ -83,6 +84,12 @@ const settingsScanRootsRoute = new Route({
   component: SettingsScanRootsPage,
 });
 
+const settingsProvidersRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/providers',
+  component: SettingsProvidersPage,
+});
+
 const jobsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
@@ -112,6 +119,7 @@ const routeTree = rootRoute.addChildren([
     attentionRoute,
     albumDetailRoute,
     settingsScanRootsRoute,
+    settingsProvidersRoute,
     jobsRoute,
     logoutRoute,
   ]),

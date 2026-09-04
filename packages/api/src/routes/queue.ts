@@ -1,11 +1,22 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import PgBoss from 'pg-boss';
 import {
   albumMatches, canonicalTracks, gaps, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
 } from '@liner/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
+
+let bossSingleton: PgBoss | null = null;
+async function getBoss(): Promise<PgBoss> {
+  if (!bossSingleton) {
+    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
+    await bossSingleton.start();
+    await bossSingleton.createQueue('enrich.release');
+  }
+  return bossSingleton;
+}
 
 async function assertLibrary(userId: string, libraryId: string) {
   const db = getDb();
@@ -74,12 +85,14 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
         excluded: matchCandidates.excluded,
         releaseId: releases.id,
         releaseMbid: releases.mbid,
+        discogsReleaseId: releases.discogsReleaseId,
         releaseTitle: releases.title,
         releaseDate: releases.date,
         releaseCountry: releases.country,
         releaseStatus: releases.status,
         releaseTrackCount: releases.trackCount,
         releaseLabels: releases.labels,
+        sourceOfTruth: releases.sourceOfTruth,
         rgMbid: releaseGroups.mbid,
         rgArtistCredit: releaseGroups.artistCredit,
       })
@@ -113,7 +126,8 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
         .map((c) => ({
           id: c.id,
           releaseId: c.releaseId,
-          releaseMbid: c.releaseMbid,
+          releaseMbid: c.releaseMbid ?? null,
+          discogsReleaseId: c.discogsReleaseId ?? null,
           title: c.releaseTitle,
           artistCredit: Array.isArray(c.rgArtistCredit) ? (c.rgArtistCredit as string[]).join(', ') : String(c.rgArtistCredit ?? ''),
           date: c.releaseDate,
@@ -124,6 +138,8 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
           distance: Number(c.distance),
           breakdown: c.breakdown,
           source: c.source,
+          provider: c.sourceOfTruth,
+          rgMbid: c.rgMbid ?? null,
         })),
     }));
 
@@ -175,6 +191,8 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
         updatedAt: new Date(),
       })
       .where(eq(localAlbums.id, albumId));
+    const boss = await getBoss();
+    await boss.send('enrich.release', { releaseId: cand.releaseId }, { singletonKey: `enrich:${cand.releaseId}` });
     reply.send({ ok: true, state: 'matched' });
   });
 

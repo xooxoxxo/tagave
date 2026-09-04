@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AlbumSummary } from '@liner/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
-import { ScanRoot, Library } from '@liner/shared';
+import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings } from '@liner/shared';
 
 const LIBRARY_QUERY_KEY = ['library'];
 const LIBRARIES_QUERY_KEY = ['libraries'];
@@ -128,6 +128,40 @@ export function useStartScan(libraryId: string | undefined, rootId: string | und
     mutationFn: () => api.post(`/libraries/${libraryId}/scan-roots/${rootId}/scan`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
+      queryClient.invalidateQueries({ queryKey: [...ALBUMS_QUERY_KEY, libraryId] });
+    },
+  });
+}
+
+const LIBRARY_SETTINGS_QUERY_KEY = ['library-settings'];
+
+export function useLibrarySettings(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: [...LIBRARY_SETTINGS_QUERY_KEY, libraryId],
+    queryFn: () => api.get<LibrarySettingsView>(`/libraries/${libraryId}/settings`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 60, // 1 minute
+  });
+}
+
+export function useUpdateLibrarySettings(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: PatchLibrarySettings) =>
+      api.patch<LibrarySettingsView>(`/libraries/${libraryId}/settings`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...LIBRARY_SETTINGS_QUERY_KEY, libraryId] });
+    },
+  });
+}
+
+export function useEnrichSweep(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post(`/libraries/${libraryId}/enrich-sweep`),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...ALBUMS_QUERY_KEY, libraryId] });
     },
   });

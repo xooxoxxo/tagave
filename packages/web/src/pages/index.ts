@@ -7,4 +7,5 @@ export { QueuePage } from './QueuePage';
 export { AlbumDetailPage } from './AlbumDetailPage';
 export { AttentionPage } from './AttentionPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
+export { SettingsProvidersPage } from './SettingsProvidersPage';
 export { JobsPage } from './JobsPage';

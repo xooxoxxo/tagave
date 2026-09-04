@@ -31,6 +31,10 @@ export {
   type Library,
   scanStatsSchema,
   type ScanStats,
+  librarySettingsViewSchema,
+  type LibrarySettingsView,
+  patchLibrarySettingsSchema,
+  type PatchLibrarySettings,
 } from './library.js';
 
 // Album data

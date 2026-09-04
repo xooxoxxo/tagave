@@ -5,6 +5,7 @@
 
 import { useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan } from '../hooks';
+import { SettingsNav } from '../components/SettingsNav';
 import { ScanRoot } from '@liner/shared';
 import styles from './SettingsScanRootsPage.module.css';
 
@@ -97,11 +98,15 @@ export function SettingsScanRootsPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Scan Roots</h1>
-        <p className={styles.subtitle}>Manage the folders Liner indexes for music files</p>
+        <h1 className={styles.title}>Settings</h1>
       </header>
+      <SettingsNav />
 
-      {/* Add form */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Scan Roots</h2>
+        <p className={styles.subtitle}>Manage the folders Liner indexes for music files</p>
+
+        {/* Add form */}
       {!showAddForm ? (
         <button className={styles.addButton} onClick={() => setShowAddForm(true)}>
           + Add Scan Root
@@ -240,6 +245,7 @@ export function SettingsScanRootsPage() {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

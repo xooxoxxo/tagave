@@ -1,12 +1,17 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
-  albumMatches, audioFiles, canonicalTracks, localAlbums, localTracks,
-  matchCandidates, releaseGroups, releases,
+  albumMatches, audioFiles, localAlbums, localTracks, matchCandidates, releases,
 } from '@liner/db';
 import {
-  MusicBrainzProvider, scoreCandidates, MATCHING_THRESHOLDS,
+  scoreCandidates, MATCHING_THRESHOLDS, discogsIdsFromUrlRelations,
+  type CanonicalRelease, type ReleaseQuery,
 } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
+import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
+import {
+  libraryProviderSettings, getProviders, discogsCall, mbCall, type Providers,
+} from '../lib/providers.js';
+import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 
 export interface IdentifyAlbumJobData {
   localAlbumId: string;
@@ -15,50 +20,15 @@ export interface IdentifyAlbumJobData {
   /** IDN-6 manual entry: match this MB release MBID, bypassing search and
    * thresholds; decided_by=user */
   pinnedMbid?: string;
+  /** IDN-6 manual entry: Discogs release or master (master → its main
+   * release), same semantics as pinnedMbid */
+  pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
 }
 
-/** MusicBrainz allows ~1 req/s. A module-level pacer serialises every MB call
- * this worker makes, regardless of job concurrency. */
-let mbChain: Promise<void> = Promise.resolve();
-let mbCooldownUntil = 0;
-const MB_INTERVAL_MS = 1100;
-const MB_503_COOLDOWN_MS = 60_000;
-function paced<T>(fn: () => Promise<T>): Promise<T> {
-  const run = mbChain.then(async () => {
-    // Up to 3 attempts; a 503 sets a shared cooldown the whole chain honours
-    // (spec §10.2.2 backoff — MB 503s are often transient load, and hammering
-    // during a penalty window extends it).
-    for (let attempt = 1; ; attempt++) {
-      const coolWait = mbCooldownUntil - Date.now();
-      if (coolWait > 0) await new Promise((r) => setTimeout(r, coolWait));
-      const started = Date.now();
-      try {
-        return await fn();
-      } catch (err) {
-        const rateLimited = /503|rate limit/i.test((err as Error).message);
-        if (rateLimited && attempt < 3) {
-          mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS * attempt;
-          continue;
-        }
-        if (rateLimited) mbCooldownUntil = Date.now() + MB_503_COOLDOWN_MS;
-        throw err;
-      } finally {
-        const wait = MB_INTERVAL_MS - (Date.now() - started);
-        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-      }
-    }
-  });
-  mbChain = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-let mb: MusicBrainzProvider | null = null;
-function provider(contact: string): MusicBrainzProvider {
-  if (!mb) mb = new MusicBrainzProvider(`Liner/0.1 (+${contact})`);
-  return mb;
-}
-
+/** spec §10.3 budget: MB lookups per album; Discogs is consulted only when
+ * MB did not produce a strong candidate, and then fetches at most two. */
 const MAX_LOOKUPS_PER_ALBUM = 3;
+const MAX_DISCOGS_FETCHES = 2;
 
 interface EmbeddedIds {
   albumMbid?: string;
@@ -82,6 +52,63 @@ function embeddedIdsOf(tagsRaw: unknown): EmbeddedIds {
   return out;
 }
 
+const bg = { priority: 'background' as const };
+
+// Cache OUTSIDE, pace INSIDE: a provider_cache hit must not spend a slot.
+export function mbRelease(ctx: WorkerContext, p: Providers, mbid: string): Promise<CanonicalRelease> {
+  return cached(ctx.sql, 'musicbrainz', cacheKey('release', mbid), TTLs.mbRelease,
+    () => mbCall(ctx, () => p.mb.getRelease(mbid, bg)));
+}
+function mbSearch(ctx: WorkerContext, p: Providers, q: ReleaseQuery) {
+  return cached(ctx.sql, 'musicbrainz', cacheKey('search', JSON.stringify(q)), TTLs.discogsSearch,
+    () => mbCall(ctx, () => p.mb.searchReleases(q, bg)));
+}
+export function discogsRelease(ctx: WorkerContext, p: Providers, id: number | string): Promise<CanonicalRelease> {
+  return cached(ctx.sql, 'discogs', cacheKey('release', id), TTLs.discogsEntity,
+    () => discogsCall(ctx, p, () => p.discogs.getRelease(String(id), bg)), { strip: stripDiscogs });
+}
+export function discogsMaster(ctx: WorkerContext, p: Providers, id: number | string) {
+  return cached(ctx.sql, 'discogs', cacheKey('master', id), TTLs.discogsEntity,
+    () => discogsCall(ctx, p, () => p.discogs.getMaster(String(id), bg)), { strip: stripDiscogs });
+}
+export function discogsSearch(ctx: WorkerContext, p: Providers, q: ReleaseQuery) {
+  return cached(ctx.sql, 'discogs', cacheKey('search', JSON.stringify(q)), TTLs.discogsSearch,
+    () => discogsCall(ctx, p, () => p.discogs.searchReleases(q, bg)), { strip: stripDiscogs });
+}
+
+/** Persist a fetched release and, when it is a Discogs release or an MB
+ * release whose url-rels name a Discogs release, the bridge sidecars
+ * (external_ids, id columns, genres/styles, primary image). */
+export async function persistFetched(ctx: WorkerContext, r: CanonicalRelease): Promise<{ releaseId: string; releaseGroupId: string }> {
+  const ids = await upsertCanonical(ctx, r);
+  if (r.source === 'discogs') {
+    const primary = r.images?.find((i) => i.primary) ?? r.images?.[0];
+    await upsertDiscogsSidecars(ctx, {
+      ...ids,
+      discogsReleaseId: Number(r.id),
+      ...(r.discogsMasterId ? { discogsMasterId: Number(r.discogsMasterId) } : {}),
+      ...(r.genres ? { genres: r.genres } : {}),
+      ...(r.styles ? { styles: r.styles } : {}),
+      ...(primary ? { primaryImage: primary } : {}),
+      confidence: 1,
+      source: 'provider',
+    });
+  } else {
+    const rel = discogsIdsFromUrlRelations(r.urlRelations);
+    if (rel.releaseId || rel.masterId) {
+      // ENR-1 bridge step 1 at zero cost; enrich.release fills genres/images.
+      await upsertDiscogsSidecars(ctx, {
+        ...ids,
+        ...(rel.releaseId ? { discogsReleaseId: rel.releaseId } : {}),
+        ...(rel.masterId ? { discogsMasterId: rel.masterId } : {}),
+        confidence: 1,
+        source: 'provider_relationship',
+      });
+    }
+  }
+  return ids;
+}
+
 export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<void> {
   const albumRows = await ctx.db
     .select()
@@ -90,16 +117,17 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     .limit(1);
   const album = albumRows[0];
   if (!album) return;
-  if (!data.pinnedMbid && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
-  if (!data.pinnedMbid && (!album.titleGuess || !album.artistGuess)) {
+  const pinned = !!(data.pinnedMbid || data.pinnedDiscogs);
+  if (!pinned && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
+  if (!pinned && (!album.titleGuess || !album.artistGuess)) {
     await ctx.db.update(localAlbums)
       .set({ state: 'unidentified', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
     return;
   }
 
-  const contact = await contactString(ctx, album.libraryId);
-  if (!contact) throw new Error('no contact string configured (PLT-4); refusing MusicBrainz calls');
+  const settings = await libraryProviderSettings(ctx, album.libraryId);
+  const p = getProviders(settings); // throws without a contact string (PLT-4)
 
   const tracks = await ctx.db
     .select()
@@ -107,7 +135,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     .where(eq(localTracks.localAlbumId, album.id));
   if (tracks.length === 0) return;
 
-  // Embedded IDs from the first track's file tags (IDN-1a).
+  // Embedded IDs from the first tracks' file tags (IDN-1a).
   const fileRows = await ctx.db
     .select({ tagsRaw: audioFiles.tagsRaw })
     .from(audioFiles)
@@ -125,7 +153,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       .map((t, i) => ({
         title: t.titleGuess ?? '',
         ...(t.artistGuess ? { artist: t.artistGuess } : {}),
-        duration: (t.durationMs ?? 0) / 1000,
+        duration: (t.durationMs ?? 0) / 1000, // core/matching works in seconds
         index: i,
       })),
     ...(album.yearGuess ? { year: album.yearGuess } : {}),
@@ -134,36 +162,57 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
   };
 
-  const p = provider(contact);
-  const ctxCall = { priority: 'background' as const };
+  // core/matching input: seconds + 0-based indices; provider tracks are ms.
+  const toScorable = (r: CanonicalRelease) => ({
+    id: r.id,
+    releaseGroupId: r.releaseGroupId,
+    title: r.title,
+    artists: r.artists,
+    tracks: (r.tracks ?? []).map((t, i) => ({
+      title: t.title,
+      ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
+      duration: (t.duration ?? 0) / 1000,
+      index: i,
+      ...(t.recordingId ? { recordingId: t.recordingId } : {}),
+    })),
+    ...(r.year ? { year: r.year } : {}),
+    ...(r.country ? { country: r.country } : {}),
+    ...(r.barcode ? { barcode: r.barcode } : {}),
+    ...(r.label ? { label: r.label } : {}),
+    source: r.source,
+  });
 
-  // Candidate generation (IDN-1): pinned MBID (IDN-6) short-circuits, then
-  // embedded MBID, then search.
-  const fetched: Awaited<ReturnType<typeof p.getRelease>>[] = [];
+  // Candidate generation (IDN-1): pinned (IDN-6) short-circuits, then
+  // embedded MBID, then MB search cascade, then Discogs (IDN-1c).
+  const fetched: CanonicalRelease[] = [];
   try {
     if (data.pinnedMbid) {
-      const rel = await paced(() => p.getRelease(data.pinnedMbid as string, ctxCall));
-      if (!rel) {
-        ctx.logger.warn({ album: album.titleGuess, mbid: data.pinnedMbid }, 'identify: pinned MBID not found');
-        return; // bad user input; leave state untouched
+      fetched.push(await mbRelease(ctx, p, data.pinnedMbid));
+    } else if (data.pinnedDiscogs) {
+      let releaseId: number | undefined = data.pinnedDiscogs.id;
+      if (data.pinnedDiscogs.kind === 'master') {
+        const master = await discogsMaster(ctx, p, data.pinnedDiscogs.id);
+        releaseId = master.mainReleaseId;
+        if (!releaseId) {
+          ctx.logger.warn({ album: album.titleGuess, masterId: data.pinnedDiscogs.id }, 'identify: pinned master has no main release');
+          return;
+        }
       }
-      fetched.push(rel);
+      fetched.push(await discogsRelease(ctx, p, releaseId));
     } else if (embedded.albumMbid) {
-      const rel = await paced(() => p.getRelease(embedded.albumMbid as string, ctxCall));
-      if (rel) fetched.push(rel);
+      fetched.push(await mbRelease(ctx, p, embedded.albumMbid));
     }
-    if (fetched.length === 0 && !data.pinnedMbid) {
+
+    if (fetched.length === 0 && !pinned) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
-      let found = await paced(() => p.searchReleases({
+      let found = await mbSearch(ctx, p, {
         albumTitle: album.titleGuess as string,
         artistName: album.artistGuess as string,
         ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
-      }, ctxCall));
+      });
       if (found.length === 0) {
-        found = await paced(() => p.searchReleases({
-          albumTitle: album.titleGuess as string,
-        }, ctxCall));
+        found = await mbSearch(ctx, p, { albumTitle: album.titleGuess as string });
       }
       // Fetch full tracklists for the top few candidates whose track counts
       // are not impossible (spec §10.3 budget: cap lookups per album).
@@ -171,13 +220,37 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
         .filter((c) => !c.release.tracks?.length || Math.abs(c.release.tracks.length - tracks.length) <= 5)
         .slice(0, MAX_LOOKUPS_PER_ALBUM);
       for (const cand of plausible) {
-        const rel = await paced(() => p.getRelease(cand.release.id, ctxCall));
-        if (rel) fetched.push(rel);
+        fetched.push(await mbRelease(ctx, p, cand.release.id));
       }
     }
   } catch (err) {
+    const status = (err as { status?: number }).status;
+    if (pinned && status === 404) {
+      ctx.logger.warn({ album: album.titleGuess, pinned: data.pinnedMbid ?? data.pinnedDiscogs }, 'identify: pinned id not found');
+      return; // bad user input; leave state untouched
+    }
     ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: provider error');
     throw err; // pg-boss retry with backoff
+  }
+
+  // IDN-1c: Discogs when MB found nothing or nothing strong. Discogs errors
+  // never fail the job — MB candidates are still decided below.
+  if (!pinned) {
+    const mbBest = fetched.length ? scoreCandidates(local, fetched.map(toScorable))[0] : undefined;
+    if (!mbBest || mbBest.distance > MATCHING_THRESHOLDS.strong) {
+      try {
+        const hits = await discogsSearch(ctx, p, {
+          albumTitle: album.titleGuess as string,
+          artistName: album.artistGuess as string,
+          ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
+        });
+        for (const cand of hits.slice(0, MAX_DISCOGS_FETCHES)) {
+          fetched.push(await discogsRelease(ctx, p, cand.release.id));
+        }
+      } catch (err) {
+        ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: Discogs error (continuing with MB)');
+      }
+    }
   }
 
   if (fetched.length === 0) {
@@ -187,76 +260,64 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     return;
   }
 
-  // Score (IDN-2). Core expects seconds and 0-based indices.
-  const scored = scoreCandidates(
-    local,
-    fetched.map((r) => ({
-      id: r.id,
-      releaseGroupId: r.releaseGroupId,
-      title: r.title,
-      artists: r.artists,
-      tracks: (r.tracks ?? []).map((t, i) => ({
-        title: t.title,
-        ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
-        duration: (t.duration ?? 0) / 1000,
-        index: i,
-        ...(t.recordingId ? { recordingId: t.recordingId } : {}),
-      })),
-      ...(r.year ? { year: r.year } : {}),
-      ...(r.country ? { country: r.country } : {}),
-      ...(r.barcode ? { barcode: r.barcode } : {}),
-      ...(r.label ? { label: r.label } : {}),
-      source: 'musicbrainz' as const,
-    })),
-  );
+  // Score (IDN-2).
+  const scored = scoreCandidates(local, fetched.map(toScorable));
 
   // Persist canonical entities + candidates.
   const releaseDbIds = new Map<string, string>();
   for (const r of fetched) {
-    releaseDbIds.set(r.id, await upsertCanonical(ctx, r));
+    releaseDbIds.set(r.id, (await persistFetched(ctx, r)).releaseId);
   }
   await ctx.db.delete(matchCandidates).where(eq(matchCandidates.localAlbumId, album.id));
   for (const s of scored) {
     const relDb = releaseDbIds.get(s.id);
     if (!relDb) continue;
+    const source = data.pinnedMbid ? 'user_mbid'
+      : data.pinnedDiscogs ? 'user_discogs'
+      : s.source === 'discogs' ? 'discogs_search'
+      : embedded.albumMbid ? 'mbid' : 'mb_search';
     await ctx.db.insert(matchCandidates).values({
       localAlbumId: album.id,
       releaseId: relDb,
       distance: s.distance.toFixed(4),
       breakdown: s.breakdown,
-      source: data.pinnedMbid ? 'user_mbid' : embedded.albumMbid ? 'mbid' : 'mb_search',
+      source,
     });
   }
 
-  // IDN-6: a pinned MBID is the owner's decision — match it outright, with
-  // the computed distance kept for provenance.
-  if (data.pinnedMbid) {
-    const pinned = scored[0];
-    const pinnedDb = pinned ? releaseDbIds.get(pinned.id) : undefined;
-    if (!pinned || !pinnedDb) return;
-    await ctx.sql`
-      update album_matches set status = 'rejected', reason = 'superseded by manual MBID entry'
-      where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
+  const goLive = async (releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user', distance: number, reason: string) => {
+    if (status === 'confirmed') {
+      await ctx.sql`
+        update album_matches set status = 'rejected', reason = 'superseded by manual entry'
+        where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
+    }
     await ctx.db.insert(albumMatches).values({
       libraryId: album.libraryId,
       localAlbumId: album.id,
-      releaseId: pinnedDb,
-      distance: pinned.distance.toFixed(4),
-      status: 'confirmed',
-      decidedBy: 'user',
-      reason: 'manual MBID entry (IDN-6)',
+      releaseId: releaseDb,
+      distance: distance.toFixed(4),
+      status,
+      decidedBy,
+      reason,
     });
     const rgRow = await ctx.db
       .select({ rgId: releases.releaseGroupId })
-      .from(releases).where(eq(releases.id, pinnedDb)).limit(1);
+      .from(releases).where(eq(releases.id, releaseDb)).limit(1);
     await ctx.db.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: pinnedDb,
-        releaseGroupId: rgRow[0]?.rgId ?? null,
-        updatedAt: new Date(),
-      })
+      .set({ state: 'matched', releaseId: releaseDb, releaseGroupId: rgRow[0]?.rgId ?? null, updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
+    // ENR-1: bridge + enrich the release of record.
+    await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
+  };
+
+  // IDN-6: a pinned entry is the owner's decision — match it outright, with
+  // the computed distance kept for provenance.
+  if (pinned) {
+    const top = scored[0];
+    const topDb = top ? releaseDbIds.get(top.id) : undefined;
+    if (!top || !topDb) return;
+    await goLive(topDb, 'confirmed', 'user', top.distance,
+      data.pinnedMbid ? 'manual MBID entry (IDN-6)' : 'manual Discogs entry (IDN-6)');
     return;
   }
 
@@ -269,26 +330,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   const trackParity = best ? (best.tracks?.length ?? 0) === local.tracks.length : false;
 
   if (best && bestDb && best.distance <= MATCHING_THRESHOLDS.strong && trackParity && !gapDemoted) {
-    await ctx.db.insert(albumMatches).values({
-      libraryId: album.libraryId,
-      localAlbumId: album.id,
-      releaseId: bestDb,
-      distance: best.distance.toFixed(4),
-      status: 'auto',
-      decidedBy: 'system',
-      reason: `auto-accept: distance ${best.distance.toFixed(4)}`,
-    });
-    const rgRow = await ctx.db
-      .select({ rgId: releases.releaseGroupId })
-      .from(releases).where(eq(releases.id, bestDb)).limit(1);
-    await ctx.db.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: bestDb,
-        releaseGroupId: rgRow[0]?.rgId ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(localAlbums.id, album.id));
+    ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
+    await goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`);
   } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
     await ctx.db.update(localAlbums)
       .set({ state: 'needs_review', updatedAt: new Date() })
@@ -298,72 +341,4 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       .set({ state: 'unidentified', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
   }
-}
-
-async function contactString(ctx: WorkerContext, libraryId: string): Promise<string | null> {
-  const rows = await ctx.sql`
-    select settings->>'contactString' as c from libraries where id = ${libraryId}` as unknown as { c: string | null }[];
-  return rows[0]?.c ?? null;
-}
-
-/** MB dates arrive as YYYY, YYYY-MM, or YYYY-MM-DD; Postgres date wants full. */
-function normDate(d: string | undefined): string | null {
-  if (!d) return null;
-  if (/^\d{4}$/.test(d)) return `${d}-01-01`;
-  if (/^\d{4}-\d{2}$/.test(d)) return `${d}-01`;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-  return null;
-}
-
-/** Minimal ENR-1: release group + release + canonical tracks. Returns the
- * releases.id (db uuid) for the MB release. */
-async function upsertCanonical(
-  ctx: WorkerContext,
-  r: { id: string; releaseGroupId: string; title: string; artists: string[]; tracks?: { title: string; artists: string[]; duration: number; position: number; mediumNumber: number; recordingId?: string | undefined }[] | undefined; year?: number | undefined; date?: string | undefined; country?: string | undefined; barcode?: string | undefined; status?: string | undefined; label?: string | undefined },
-): Promise<string> {
-  const rgIns = await ctx.db.insert(releaseGroups)
-    .values({
-      mbid: r.releaseGroupId,
-      title: r.title,
-      artistCredit: r.artists,
-      fetchedAt: new Date(),
-    })
-    .onConflictDoUpdate({ target: releaseGroups.mbid, set: { fetchedAt: new Date() } })
-    .returning({ id: releaseGroups.id });
-  const rgId = rgIns[0]?.id;
-  if (!rgId) throw new Error('release_groups upsert returned no row');
-
-  const relIns = await ctx.db.insert(releases)
-    .values({
-      releaseGroupId: rgId,
-      mbid: r.id,
-      title: r.title,
-      status: r.status ?? null,
-      date: normDate(r.date) ?? (r.year ? `${r.year}-01-01` : null),
-      country: r.country && r.country.length === 2 ? r.country : null,
-      barcode: r.barcode ?? null,
-      labels: r.label ? [{ name: r.label }] : [],
-      trackCount: r.tracks?.length ?? null,
-      sourceOfTruth: 'musicbrainz',
-      fetchedAt: new Date(),
-    })
-    .onConflictDoUpdate({ target: releases.mbid, set: { fetchedAt: new Date() } })
-    .returning({ id: releases.id });
-  const relId = relIns[0]?.id;
-  if (!relId) throw new Error('releases upsert returned no row');
-
-  if (r.tracks && r.tracks.length > 0) {
-    await ctx.db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, relId));
-    await ctx.db.insert(canonicalTracks).values(
-      r.tracks.map((t) => ({
-        releaseId: relId,
-        mediumNo: t.mediumNumber,
-        position: t.position,
-        title: t.title.slice(0, 255),
-        artistCredit: t.artists,
-        lengthMs: Math.round(t.duration || 0),
-      })),
-    );
-  }
-  return relId;
 }

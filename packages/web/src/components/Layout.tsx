@@ -77,7 +77,7 @@ export function Layout() {
           </Link>
           <Link
             to="/settings/scan-roots"
-            className={isActive('/settings/scan-roots') ? styles.navLinkActive : styles.navLink}
+            className={location.pathname.startsWith('/settings') ? styles.navLinkActive : styles.navLink}
           >
             Settings
           </Link>
@@ -97,10 +97,18 @@ export function Layout() {
         </div>
       </nav>
 
-      <main className={styles.main}>
-        <Outlet />
-      {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
-      </main>
+      <div className={styles.contentWrapper}>
+        <main className={styles.main}>
+          <Outlet />
+        {searchOpen && <SearchModal onClose={() => setSearchOpen(false)} />}
+        </main>
+
+        <footer className={styles.footer}>
+          <span className={styles.footerText}>
+            This application uses Discogs' API but is not affiliated with, sponsored or endorsed by Discogs. 'Discogs' is a trademark of Zink Media, LLC.
+          </span>
+        </footer>
+      </div>
     </div>
   );
 }

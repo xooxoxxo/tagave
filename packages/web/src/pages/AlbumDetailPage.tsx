@@ -33,6 +33,7 @@ interface DetailTrack {
 interface Candidate {
   id: string;
   releaseMbid: string | null;
+  discogsReleaseId: number | null;
   title: string;
   artistCredit: string;
   date: string | null;
@@ -41,6 +42,8 @@ interface Candidate {
   trackCount: number | null;
   distance: number;
   source: string;
+  provider: string;
+  rgMbid: string | null;
   excluded: boolean;
 }
 interface Gap {
@@ -72,6 +75,12 @@ interface AlbumDetail {
     labels: { name: string; catno?: string }[] | null;
     trackCount: number | null;
     artistCredit: string[] | string | null;
+    discogsReleaseId: number | null;
+    discogsMasterId: number | null;
+    sourceOfTruth: string;
+    externalLinks: Array<{ title: string; url: string; source: string }>;
+    genres?: string[];
+    styles?: string[];
     fetchedAt: string | null;
   } | null;
   match: {
@@ -264,8 +273,41 @@ export function AlbumDetailPage() {
                 MusicBrainz ↗
               </a>
             )}
+            {album.release?.discogsReleaseId && (
+              <a
+                className={styles.mbLink}
+                href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Discogs ↗
+              </a>
+            )}
+            {album.release?.discogsMasterId && (
+              <a
+                className={styles.mbLink}
+                href={`https://www.discogs.com/master/${album.release.discogsMasterId}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Master ↗
+              </a>
+            )}
+            {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
+              <span className={styles.provenance}>Discogs-only</span>
+            )}
           </div>
           <div className={styles.dirPath}>{album.dirPaths?.[0]}</div>
+          {((album.release?.genres?.length ?? 0) + (album.release?.styles?.length ?? 0)) > 0 && (
+            <div className={styles.badgeRow} title="Genres and styles (Discogs, CC0)">
+              {album.release?.genres?.map((g) => (
+                <span key={`g-${g}`} className={styles.provenance}>{g}</span>
+              ))}
+              {album.release?.styles?.map((st) => (
+                <span key={`s-${st}`} className={styles.gapBadge}>{st}</span>
+              ))}
+            </div>
+          )}
           <div className={styles.actions}>
             <button onClick={() => reidentify.mutate()} disabled={reidentify.isPending}>
               {reidentify.isPending ? 'Queued...' : 'Re-identify'}
@@ -287,7 +329,7 @@ export function AlbumDetailPage() {
           <div className={styles.mbidRow}>
             <input
               className={styles.mbidInput}
-              placeholder="Paste MusicBrainz release URL or MBID to match manually"
+              placeholder="Paste a MusicBrainz or Discogs release URL / ID to match manually"
               value={mbidInput}
               onChange={(e) => setMbidInput(e.target.value)}
               onKeyDown={(e) => {
@@ -411,6 +453,9 @@ export function AlbumDetailPage() {
                 <tr key={c.id} className={c.excluded ? styles.candExcluded : ''}>
                   <td className={styles.num}>{c.distance.toFixed(4)}</td>
                   <td>
+                    <span className={styles.provenance} title={`Provider: ${c.provider}`}>
+                      {c.provider === 'discogs' ? 'Discogs' : 'MB'}
+                    </span>
                     {c.title}
                     <span className={styles.gapDetail}> — {c.artistCredit}</span>
                     {c.releaseMbid && (
@@ -421,6 +466,16 @@ export function AlbumDetailPage() {
                         rel="noreferrer"
                       >
                         {' '}↗
+                      </a>
+                    )}
+                    {c.discogsReleaseId && (
+                      <a
+                        className={styles.mbLink}
+                        href={`https://www.discogs.com/release/${c.discogsReleaseId}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {' '}🔗
                       </a>
                     )}
                   </td>
@@ -496,6 +551,17 @@ export function AlbumDetailPage() {
           ))}
         </tbody>
       </table>
+
+      {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some(c => c.discogsReleaseId)) && (
+        <div className={styles.attribution}>
+          <span>
+            Data provided by{' '}
+            <a href="https://www.discogs.com" target="_blank" rel="noreferrer">
+              Discogs
+            </a>
+          </span>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,9 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
-  localTracks, matchCandidates, releaseGroups, releases,
+  localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags,
 } from '@liner/db';
 import PgBoss from 'pg-boss';
+import { parseDiscogsRef } from '@liner/core';
 
 let bossSingleton: PgBoss | null = null;
 async function getBossForAlbums(): Promise<PgBoss> {
@@ -201,9 +202,103 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             .from(releaseGroups)
             .where(eq(releaseGroups.id, rel.releaseGroupId))
             .limit(1);
+
+          // Collect external links from release.mbid, rg.mbid, discogs ids, and external_ids
+          const externalLinks: Array<{ title: string; url: string; source: string }> = [];
+
+          // Add MusicBrainz release link
+          if (rel.mbid) {
+            externalLinks.push({
+              title: 'MusicBrainz Release',
+              url: `https://musicbrainz.org/release/${rel.mbid}`,
+              source: 'musicbrainz',
+            });
+          }
+
+          // Add MusicBrainz release group link
+          if (rgRows[0]?.mbid) {
+            externalLinks.push({
+              title: 'MusicBrainz Release Group',
+              url: `https://musicbrainz.org/release-group/${rgRows[0].mbid}`,
+              source: 'musicbrainz',
+            });
+          }
+
+          // Add Discogs release link
+          if (rel.discogsReleaseId) {
+            externalLinks.push({
+              title: 'Discogs Release',
+              url: `https://www.discogs.com/release/${rel.discogsReleaseId}`,
+              source: 'discogs',
+            });
+          }
+
+          // Add Discogs master link
+          if (rgRows[0]?.discogsmasterId) {
+            externalLinks.push({
+              title: 'Discogs Master',
+              url: `https://www.discogs.com/master/${rgRows[0].discogsmasterId}`,
+              source: 'discogs',
+            });
+          }
+
+          // Add external_ids rows with provider in ('wikidata', 'wikipedia')
+          const extIdRows = await db
+            .select()
+            .from(externalIds)
+            .where(
+              and(
+                inArray(externalIds.provider, ['wikidata', 'wikipedia']),
+                eq(externalIds.entityType, 'release'),
+                eq(externalIds.entityId, rel.id)
+              )
+            );
+          extIdRows.forEach((row) => {
+            if (row.url) {
+              externalLinks.push({
+                title: row.provider === 'wikidata' ? 'Wikidata' : 'Wikipedia',
+                url: row.url,
+                source: row.provider,
+              });
+            }
+          });
+
+          // Also check for release_group external_ids
+          if (rgRows[0]) {
+            const rgExtIdRows = await db
+              .select()
+              .from(externalIds)
+              .where(
+                and(
+                  inArray(externalIds.provider, ['wikidata', 'wikipedia']),
+                  eq(externalIds.entityType, 'release_group'),
+                  eq(externalIds.entityId, rgRows[0].id)
+                )
+              );
+            rgExtIdRows.forEach((row) => {
+              if (row.url) {
+                externalLinks.push({
+                  title: row.provider === 'wikidata' ? 'Wikidata' : 'Wikipedia',
+                  url: row.url,
+                  source: row.provider,
+                });
+              }
+            });
+          }
+
+          const tagRows = await db
+            .select({ tag: entityTags.tag, kind: entityTags.kind, entityId: entityTags.entityId })
+            .from(entityTags)
+            .where(and(
+              inArray(entityTags.entityId, rgRows[0] ? [rel.id, rgRows[0].id] : [rel.id]),
+              inArray(entityTags.kind, ['genre', 'style']),
+            ));
+          const uniq = (kind: string) => [...new Set(tagRows.filter((t) => t.kind === kind).map((t) => t.tag))];
           release = {
             id: rel.id,
-            mbid: rel.mbid,
+            mbid: rel.mbid ?? null,
+            genres: uniq('genre'),
+            styles: uniq('style'),
             title: rel.title,
             date: rel.date,
             country: rel.country,
@@ -213,7 +308,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             trackCount: rel.trackCount,
             artistCredit: rgRows[0]?.artistCredit ?? null,
             releaseGroupMbid: rgRows[0]?.mbid ?? null,
-            source: rel.sourceOfTruth,
+            discogsReleaseId: rel.discogsReleaseId ?? null,
+            discogsMasterId: rgRows[0]?.discogsmasterId ?? null,
+            sourceOfTruth: rel.sourceOfTruth,
+            externalLinks,
             fetchedAt: rel.fetchedAt?.toISOString() ?? null,
           };
           canonicalTrackRows = (await db
@@ -252,13 +350,16 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           excluded: matchCandidates.excluded,
           releaseId: releases.id,
           releaseMbid: releases.mbid,
+          discogsReleaseId: releases.discogsReleaseId,
           releaseTitle: releases.title,
           releaseDate: releases.date,
           releaseCountry: releases.country,
           releaseStatus: releases.status,
           releaseTrackCount: releases.trackCount,
           releaseLabels: releases.labels,
+          sourceOfTruth: releases.sourceOfTruth,
           rgArtistCredit: releaseGroups.artistCredit,
+          rgMbid: releaseGroups.mbid,
         })
         .from(matchCandidates)
         .innerJoin(releases, eq(releases.id, matchCandidates.releaseId))
@@ -362,7 +463,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         candidates: candRows.map((c) => ({
           id: c.id,
           releaseId: c.releaseId,
-          releaseMbid: c.releaseMbid,
+          releaseMbid: c.releaseMbid ?? null,
+          discogsReleaseId: c.discogsReleaseId ?? null,
           title: c.releaseTitle,
           artistCredit: Array.isArray(c.rgArtistCredit)
             ? (c.rgArtistCredit as string[]).join(', ')
@@ -375,6 +477,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           distance: Number(c.distance),
           breakdown: c.breakdown,
           source: c.source,
+          provider: c.sourceOfTruth,
+          rgMbid: c.rgMbid ?? null,
           excluded: c.excluded,
         })),
         duplicates: duplicateRows,
@@ -400,29 +504,54 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // IDN-6 manual entry: paste an MB release URL or MBID, match it outright.
+  // IDN-6 manual entry: paste an MB release URL / MBID or Discogs URL / ID, match it outright.
   fastify.post(
     '/libraries/:libraryId/albums/:albumId/match-mbid',
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
       const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
       const { input } = (request.body ?? {}) as { input?: string };
+
+      // Try MBID first
       const mbid = input?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
-      if (!mbid) throw new ApiError(400, 'Bad Request', 'No MBID found in input — paste a MusicBrainz release URL or MBID');
-      if (input && /musicbrainz\.org\/(?!release\/)[a-z-]+\//i.test(input)) {
-        throw new ApiError(400, 'Bad Request', 'That is not a release URL — use the release page (musicbrainz.org/release/...), not artist or release-group');
+      if (mbid) {
+        // Check for non-release MB URLs
+        if (input && /musicbrainz\.org\/(?!release\/)[a-z-]+\//i.test(input)) {
+          throw new ApiError(400, 'Bad Request', 'That is not a release URL — use the release page (musicbrainz.org/release/...), not artist or release-group');
+        }
+        const db = getDb();
+        const lib = await db
+          .select()
+          .from(libraries)
+          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+        const boss = await getBossForAlbums();
+        await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
+          singletonKey: `identify:${albumId}`,
+        });
+        reply.status(202).send({ ok: true, mbid });
+        return;
       }
-      const db = getDb();
-      const lib = await db
-        .select()
-        .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
-      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-      const boss = await getBossForAlbums();
-      await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
-        singletonKey: `identify:${albumId}`,
-      });
-      reply.status(202).send({ ok: true, mbid });
+
+      // Try Discogs
+      const discogsRef = parseDiscogsRef(input || '');
+      if (discogsRef) {
+        const db = getDb();
+        const lib = await db
+          .select()
+          .from(libraries)
+          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+        const boss = await getBossForAlbums();
+        await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedDiscogs: discogsRef }, {
+          singletonKey: `identify:${albumId}`,
+        });
+        reply.status(202).send({ ok: true, discogs: discogsRef });
+        return;
+      }
+
+      // Neither worked
+      throw new ApiError(400, 'Bad Request', 'No MusicBrainz MBID or Discogs URL / ID found in input — paste a MusicBrainz release URL / MBID or a Discogs release / master URL / ID');
     }
   );
 

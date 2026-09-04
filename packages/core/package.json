@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run || true",
+    "test": "vitest run",
     "test:watch": "vitest"
   },
   "dependencies": {

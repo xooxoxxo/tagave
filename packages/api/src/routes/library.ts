@@ -11,6 +11,8 @@ import {
   patchScanRootSchema,
   scanRootSchema,
   librarySchema,
+  librarySettingsViewSchema,
+  patchLibrarySettingsSchema,
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -24,6 +26,147 @@ async function getBoss(): Promise<PgBoss> {
 }
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
+  // Get library settings (spec PLT-4)
+  fastify.get('/:libraryId/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) {
+      throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    }
+
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+
+    // Verify library ownership
+    const lib = await db
+      .select()
+      .from(libraries)
+      .where(
+        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+      );
+
+    if (lib.length === 0) {
+      throw new ApiError(404, 'Not Found', 'Library not found');
+    }
+
+    const libSettings = lib[0];
+    const settings = typeof libSettings?.settings === 'string'
+      ? JSON.parse(libSettings.settings)
+      : (libSettings?.settings ?? {});
+
+    const contactString = (settings as Record<string, any>)['contactString'] ?? null;
+    const discogsToken = (settings as Record<string, any>)['discogsToken'];
+    const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
+      ? discogsToken.slice(-4)
+      : null;
+
+    reply.status(200).send(
+      librarySettingsViewSchema.parse({
+        contactString,
+        discogsTokenSet: !!discogsToken,
+        discogsTokenHint,
+      })
+    );
+  });
+
+  // Update library settings (spec PLT-4)
+  fastify.patch('/:libraryId/settings', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) {
+      throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    }
+
+    const { libraryId } = request.params as { libraryId: string };
+    const body = patchLibrarySettingsSchema.parse(request.body);
+
+    const db = getDb();
+
+    // Verify library ownership
+    const lib = await db
+      .select()
+      .from(libraries)
+      .where(
+        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+      );
+
+    if (lib.length === 0) {
+      throw new ApiError(404, 'Not Found', 'Library not found');
+    }
+
+    // Build the update object
+    const updates: Record<string, unknown> = {};
+    if (body.contactString !== undefined) {
+      updates.contactString = body.contactString;
+    }
+    if (body.discogsToken !== undefined) {
+      updates.discogsToken = body.discogsToken;
+    }
+
+    // Merge into existing settings using SQL to handle jsonb operations
+    const libSettings = lib[0];
+    const currentSettings = typeof libSettings?.settings === 'string'
+      ? JSON.parse(libSettings.settings)
+      : (libSettings?.settings ?? {});
+
+    const mergedSettings: Record<string, unknown> = { ...currentSettings };
+
+    if (body.contactString !== undefined) {
+      mergedSettings.contactString = body.contactString;
+    }
+    if (body.discogsToken !== undefined) {
+      if (body.discogsToken === null) {
+        // Delete the key
+        delete mergedSettings.discogsToken;
+      } else {
+        mergedSettings.discogsToken = body.discogsToken;
+      }
+    }
+
+    await db.update(libraries)
+      .set({ settings: mergedSettings })
+      .where(eq(libraries.id, libraryId));
+
+    // Return the view
+    const contactString = (mergedSettings as Record<string, any>)['contactString'] ?? null;
+    const discogsToken = (mergedSettings as Record<string, any>)['discogsToken'];
+    const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
+      ? discogsToken.slice(-4)
+      : null;
+
+    reply.status(200).send(
+      librarySettingsViewSchema.parse({
+        contactString,
+        discogsTokenSet: !!discogsToken,
+        discogsTokenHint,
+      })
+    );
+  });
+
+  // Enrich Discogs sweep (spec §12.4)
+  fastify.post('/:libraryId/enrich-sweep', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) {
+      throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    }
+
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+
+    // Verify library ownership
+    const lib = await db
+      .select()
+      .from(libraries)
+      .where(
+        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+      );
+
+    if (lib.length === 0) {
+      throw new ApiError(404, 'Not Found', 'Library not found');
+    }
+
+    const boss = await getBoss();
+    await boss.createQueue('enrich.sweep');
+    await boss.send('enrich.sweep', { libraryId }, { singletonKey: `enrich-sweep:${libraryId}` });
+
+    reply.status(202).send({ ok: true });
+  });
+
   // Library stats for the dashboard (spec LIB-7 / §14.2)
   fastify.get('/:libraryId/stats', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');

@@ -45,7 +45,23 @@ export type { CanonicalTrack as MatchingCanonicalTrack, ReleaseCandidate as Matc
 export {
   MusicBrainzProvider,
   DiscogsProvider,
+  WikidataClient,
   ProviderGateway,
+  parseDiscogsDuration,
+  parseDiscogsPosition,
+  discogsCountryToIso,
+  discogsBarcodeFromIdentifiers,
+  discogsBarcodesFromSearchHit,
+  mapDiscogsRelease,
+  mapDiscogsSearchHit,
+  parseDiscogsRef,
+  extractUrlRelations,
+  discogsIdsFromUrlRelations,
+  wikidataQidFromUrlRelations,
+  parseWikidataBindings,
+  fuzzyBridgeScore,
+  chooseBestSearchHit,
+  FUZZY_BRIDGE_ACCEPT,
 } from './providers/index.js';
 
 export type {
@@ -68,6 +84,8 @@ export type {
   TagWriter,
   RateLimitConfig,
   ProviderRateLimitState,
+  DiscogsMaster,
+  RateLimitInfo,
 } from './providers/index.js';
 
 // Tag mapping

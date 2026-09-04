@@ -76,3 +76,26 @@ export const scanStatsSchema = z.object({
 }).strict();
 
 export type ScanStats = z.infer<typeof scanStatsSchema>;
+
+/**
+ * Library settings view per PLT-4 (token configuration)
+ * Returned by GET /libraries/:id/settings
+ */
+export const librarySettingsViewSchema = z.object({
+  contactString: z.string().nullable().describe('Contact info for Discogs requests'),
+  discogsTokenSet: z.boolean().describe('Whether a Discogs token is configured'),
+  discogsTokenHint: z.string().nullable().describe('Last 4 characters of the Discogs token for hint purposes'),
+}).strict();
+
+export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
+
+/**
+ * Library settings patch request per PLT-4
+ * Body for PATCH /libraries/:id/settings
+ */
+export const patchLibrarySettingsSchema = z.object({
+  contactString: z.string().min(3).optional().describe('Contact info for Discogs requests'),
+  discogsToken: z.union([z.string().min(10), z.null()]).optional().describe('Discogs API token (null to clear)'),
+}).strict();
+
+export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;
