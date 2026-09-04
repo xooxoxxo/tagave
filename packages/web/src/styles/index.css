@@ -115,6 +115,13 @@ body {
   display: flex;
 }
 
+/* Every top-level page fills the root flex row; without this, any page
+ * container without an explicit width shrinks to fit its content. */
+#root > * {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Typography baseline */
 h1,
 h2,
