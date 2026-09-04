@@ -102,7 +102,12 @@ const SearchHitSchema = z.object({
   resource_url: z.string(),
   uri: z.string().nullish(),
   master_id: z.number().nullish(),
-  year: z.number().nullish(),
+  // Live search payloads send year as a string ("1987"); releases send a number.
+  year: z.union([z.number(), z.string()]).nullish().transform((v) => {
+    if (v == null) return undefined;
+    const n = typeof v === 'number' ? v : parseInt(v, 10);
+    return Number.isFinite(n) && n > 0 ? n : undefined;
+  }),
   country: z.string().nullish(),
   format: z.array(z.string()).nullish(),
   label: z.array(z.string()).nullish(),

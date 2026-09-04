@@ -282,3 +282,16 @@ describe('DiscogsProvider', () => {
     }
   });
 });
+
+describe('search hit year as string (live payload shape)', () => {
+  it('coerces "1987" to 1987 and drops junk', async () => {
+    const fx = JSON.parse(readFileSync(new URL('./__fixtures__/discogs_search_noauth.json', import.meta.url), 'utf8'));
+    fx.results[0].year = '1987';
+    fx.results[1].year = 'n/a';
+    const fetchImpl = (async () => new Response(JSON.stringify(fx), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const p = new DiscogsProvider({ userAgent: 'test', fetchImpl });
+    const hits = await p.searchReleases({ albumTitle: 'Whenever You Need Somebody', artistName: 'Rick Astley' }, { priority: 'background' });
+    expect(hits[0]!.release.year).toBe(1987);
+    expect(hits[1]!.release.year).toBeUndefined();
+  });
+});
