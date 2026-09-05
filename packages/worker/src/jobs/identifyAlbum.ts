@@ -5,6 +5,7 @@ import {
 import {
   scoreCandidates, MATCHING_THRESHOLDS, discogsIdsFromUrlRelations,
   type CanonicalRelease, type ReleaseQuery,
+  pickByChipRule, chipCounts,
 } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -333,6 +334,36 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
     await goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`);
   } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
+    // Owner chip rule (2026-09-05): no reds + ≥3 greens auto-accepts even in
+    // the review band; fewest yellows wins. Mirrors hand-review outcomes.
+    const inBand = scored.filter((c) => c.distance <= MATCHING_THRESHOLDS.medium);
+    const pick = pickByChipRule(inBand.map((c) => ({ breakdown: c.breakdown, distance: c.distance })));
+    const chosen = pick >= 0 ? inBand[pick] : undefined;
+    const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
+    if (chosen && chosenDb) {
+      const cc = chipCounts(chosen.breakdown);
+      await ctx.db.insert(albumMatches).values({
+        libraryId: album.libraryId,
+        localAlbumId: album.id,
+        releaseId: chosenDb,
+        distance: chosen.distance.toFixed(4),
+        status: 'auto',
+        decidedBy: 'system',
+        reason: `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
+      });
+      const rgRow2 = await ctx.db
+        .select({ rgId: releases.releaseGroupId })
+        .from(releases).where(eq(releases.id, chosenDb)).limit(1);
+      await ctx.db.update(localAlbums)
+        .set({
+          state: 'matched',
+          releaseId: chosenDb,
+          releaseGroupId: rgRow2[0]?.rgId ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(localAlbums.id, album.id));
+      return;
+    }
     await ctx.db.update(localAlbums)
       .set({ state: 'needs_review', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));

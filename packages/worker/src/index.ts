@@ -11,6 +11,7 @@ import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichReleas
 import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
+import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -37,7 +38,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -86,6 +87,10 @@ async function main() {
 
   if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await artSweepJob(ctx, job.data);
+  });
+
+  if (wants('queue.autoaccept')) await boss.work<QueueAutoAcceptJobData>('queue.autoaccept', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await queueAutoAcceptJob(ctx, job.data);
   });
 
   if (wants('gaps.recompute')) {

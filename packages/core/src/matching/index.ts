@@ -23,5 +23,8 @@ export {
   MATCHING_THRESHOLDS,
 } from './types.js';
 
+export { chipCounts, pickByChipRule } from './chipRule.js';
+export type { ChipCounts } from './chipRule.js';
+
 export { hungarianAlgorithm } from './hungarian.js';
 export type { Assignment } from './hungarian.js';

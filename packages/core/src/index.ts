@@ -27,6 +27,8 @@ export {
   DEFAULT_WEIGHTS,
   MATCHING_THRESHOLDS,
   hungarianAlgorithm,
+  chipCounts,
+  pickByChipRule,
 } from './matching/index.js';
 
 export type {
