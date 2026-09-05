@@ -84,7 +84,12 @@ export function useScanRoots(libraryId: string | undefined) {
         .then((r) => r.data),
     enabled: !!libraryId,
     staleTime: 1000 * 30, // 30 seconds
-    refetchInterval: 1000 * 10, // Poll every 10 seconds for scan status
+    refetchInterval: (query) => {
+      const hasPending = (query.state.data as ScanRootWithStatus[] | undefined)?.some(
+        (r) => r.validationStatus === 'pending'
+      );
+      return hasPending ? 1000 * 3 : false; // Poll every 3s while pending, stop when all validated
+    },
   });
 }
 

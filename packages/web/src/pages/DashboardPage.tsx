@@ -4,6 +4,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { useCurrentLibrary, useScanRoots } from '../hooks';
 import { api } from '../services/api';
 
@@ -144,7 +145,10 @@ export function DashboardPage() {
       {!scanRoots || scanRoots.length === 0 && (
         <section className={styles.emptyState}>
           <h2>No scan roots configured</h2>
-          <p>Add a scan root in Settings to start indexing your music library.</p>
+          <p>Complete the setup checklist to start indexing your music library.</p>
+          <Link to="/onboarding" className={styles.emptyStateLink}>
+            Open the setup checklist
+          </Link>
         </section>
       )}
     </div>

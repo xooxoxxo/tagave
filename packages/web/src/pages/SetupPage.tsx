@@ -74,7 +74,7 @@ export function SetupPage() {
 
     setupMutation.mutate(formData as SetupRequest, {
       onSuccess: () => {
-        navigate({ to: '/' });
+        navigate({ to: '/onboarding' });
       },
     });
   };

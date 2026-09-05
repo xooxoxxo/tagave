@@ -55,12 +55,20 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
       ? discogsToken.slice(-4)
       : null;
+    const acoustidKey = (settings as Record<string, any>)['acoustidKey'];
+    const acoustidKeyHint = acoustidKey && typeof acoustidKey === 'string'
+      ? acoustidKey.slice(-4)
+      : null;
+    const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
         contactString,
         discogsTokenSet: !!discogsToken,
         discogsTokenHint,
+        acoustidKeySet: !!acoustidKey,
+        acoustidKeyHint,
+        onboardingCompletedAt,
       })
     );
   });
@@ -96,6 +104,12 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     if (body.discogsToken !== undefined) {
       updates.discogsToken = body.discogsToken;
     }
+    if (body.acoustidKey !== undefined) {
+      updates.acoustidKey = body.acoustidKey;
+    }
+    if (body.onboardingCompletedAt !== undefined) {
+      updates.onboardingCompletedAt = body.onboardingCompletedAt;
+    }
 
     // Merge into existing settings using SQL to handle jsonb operations
     const libSettings = lib[0];
@@ -116,6 +130,17 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         mergedSettings.discogsToken = body.discogsToken;
       }
     }
+    if (body.acoustidKey !== undefined) {
+      if (body.acoustidKey === null) {
+        // Delete the key
+        delete mergedSettings.acoustidKey;
+      } else {
+        mergedSettings.acoustidKey = body.acoustidKey;
+      }
+    }
+    if (body.onboardingCompletedAt !== undefined) {
+      mergedSettings.onboardingCompletedAt = body.onboardingCompletedAt;
+    }
 
     await db.update(libraries)
       .set({ settings: mergedSettings })
@@ -127,12 +152,20 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
       ? discogsToken.slice(-4)
       : null;
+    const acoustidKey = (mergedSettings as Record<string, any>)['acoustidKey'];
+    const acoustidKeyHint = acoustidKey && typeof acoustidKey === 'string'
+      ? acoustidKey.slice(-4)
+      : null;
+    const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
         contactString,
         discogsTokenSet: !!discogsToken,
         discogsTokenHint,
+        acoustidKeySet: !!acoustidKey,
+        acoustidKeyHint,
+        onboardingCompletedAt,
       })
     );
   });

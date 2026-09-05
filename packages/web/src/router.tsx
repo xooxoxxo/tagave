@@ -5,6 +5,7 @@ import {
   SetupPage,
   LoginPage,
   DashboardPage,
+  OnboardingPage,
   AlbumsPage,
   ArtistsPage,
   QueuePage,
@@ -46,6 +47,12 @@ const dashboardRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/',
   component: DashboardPage,
+});
+
+const onboardingRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/onboarding',
+  component: OnboardingPage,
 });
 
 const albumsRoute = new Route({
@@ -113,6 +120,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   layoutRoute.addChildren([
     dashboardRoute,
+    onboardingRoute,
     albumsRoute,
     artistsRoute,
     queueRoute,

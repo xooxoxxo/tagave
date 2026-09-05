@@ -89,6 +89,9 @@ export const librarySettingsViewSchema = z.object({
   contactString: z.string().nullable().describe('Contact info for Discogs requests'),
   discogsTokenSet: z.boolean().describe('Whether a Discogs token is configured'),
   discogsTokenHint: z.string().nullable().describe('Last 4 characters of the Discogs token for hint purposes'),
+  acoustidKeySet: z.boolean().describe('Whether an AcoustID key is configured'),
+  acoustidKeyHint: z.string().nullable().describe('Last 4 characters of the AcoustID key for hint purposes'),
+  onboardingCompletedAt: z.string().datetime().nullable().describe('ISO 8601 timestamp when onboarding was completed'),
 }).strict();
 
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
@@ -100,6 +103,8 @@ export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
 export const patchLibrarySettingsSchema = z.object({
   contactString: z.string().min(3).optional().describe('Contact info for Discogs requests'),
   discogsToken: z.union([z.string().min(10), z.null()]).optional().describe('Discogs API token (null to clear)'),
+  acoustidKey: z.union([z.string().min(8), z.null()]).optional().describe('AcoustID key (null to clear)'),
+  onboardingCompletedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp when onboarding was completed'),
 }).strict();
 
 export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;

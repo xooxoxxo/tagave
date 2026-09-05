@@ -15,7 +15,9 @@ export function SettingsProvidersPage() {
 
   const [contactString, setContactString] = useState('');
   const [discogsToken, setDiscogsToken] = useState('');
+  const [acoustidKey, setAcoustidKey] = useState('');
   const [showTokenConfig, setShowTokenConfig] = useState(false);
+  const [showAcoustidConfig, setShowAcoustidConfig] = useState(false);
   // settings arrive after the first render; seed the field once they do
   useEffect(() => {
     setContactString(settings?.contactString ?? '');
@@ -31,14 +33,22 @@ export function SettingsProvidersPage() {
     if (discogsToken) {
       update.discogsToken = discogsToken;
     }
+    if (acoustidKey) {
+      update.acoustidKey = acoustidKey;
+    }
     if (Object.keys(update).length > 0) {
       await updateSettings.mutateAsync(update);
       setDiscogsToken('');
+      setAcoustidKey('');
     }
   };
 
   const handleClearToken = async () => {
     await updateSettings.mutateAsync({ discogsToken: null });
+  };
+
+  const handleClearAcoustidKey = async () => {
+    await updateSettings.mutateAsync({ acoustidKey: null });
   };
 
   return (
@@ -106,10 +116,48 @@ export function SettingsProvidersPage() {
           )}
         </div>
 
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>AcoustID Key</label>
+          <p className={styles.hint}>
+            Fingerprint-based identification of untagged files using the AcoustID service.
+            <strong> Coming in a later milestone</strong> — the key is stored now for future use.
+          </p>
+          {settings?.acoustidKeySet ? (
+            <div className={styles.tokenConfigured}>
+              <span className={styles.tokenHint}>
+                Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
+              </span>
+              <button
+                onClick={handleClearAcoustidKey}
+                disabled={updateSettings.isPending}
+                className={styles.clearButton}
+              >
+                {updateSettings.isPending ? 'Clearing...' : 'Clear'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
+              className={styles.configButton}
+            >
+              {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
+            </button>
+          )}
+          {showAcoustidConfig && (
+            <input
+              type="password"
+              className={styles.input}
+              placeholder="Paste your AcoustID API key"
+              value={acoustidKey}
+              onChange={(e) => setAcoustidKey(e.target.value)}
+            />
+          )}
+        </div>
+
         <div className={styles.actions}>
           <button
             onClick={handleSave}
-            disabled={(!discogsToken && contactString === settings?.contactString) || updateSettings.isPending}
+            disabled={(!discogsToken && !acoustidKey && contactString === settings?.contactString) || updateSettings.isPending}
             className={styles.button}
           >
             {updateSettings.isPending ? 'Saving...' : 'Save Settings'}

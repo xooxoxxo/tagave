@@ -7,6 +7,9 @@ import styles from './SettingsNav.module.css';
 export function SettingsNav() {
   return (
     <div className={styles.nav}>
+      <Link to="/onboarding" className={styles.link} activeProps={{ className: styles.active }}>
+        Setup checklist
+      </Link>
       <Link to="/settings/scan-roots" className={styles.link} activeProps={{ className: styles.active }}>
         Scan roots
       </Link>
