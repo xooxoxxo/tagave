@@ -54,7 +54,7 @@ deploy_workers() {
   remote_lock "$WORKER_HOST"; trap 'remote_unlock "$WORKER_HOST"; rm -rf "$LOCK"' EXIT
   rsync -az "${EXCLUDES[@]}" --exclude dist packages/shared packages/core packages/db packages/worker "$WORKER_HOST:$WORKER_DIR/packages/"
   rsync -az package.json pnpm-workspace.yaml tsconfig.base.json pnpm-lock.yaml "$WORKER_HOST:$WORKER_DIR/"
-  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
+  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/doctor --filter @liner/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
   # migrations before the workers restart (the app applies them on boot too; this is idempotent)
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && DATABASE_URL='$WORKER_DATABASE_URL' node -e \"import('$WORKER_DIR/packages/db/dist/migrations-lib.js').then(m=>m.runMigrations(process.env.DATABASE_URL))\" 2>&1 | grep -E 'applying|rror' || true"
   ssh "$WORKER_HOST" "$WORKER_RESTART_CMD"

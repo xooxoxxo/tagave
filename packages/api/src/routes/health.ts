@@ -1,39 +1,75 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { users } from '@liner/db';
+import { runDoctor } from '@liner/doctor';
 import { getDb } from '../db.js';
 
 export async function createHealthRoutes(fastify: FastifyInstance) {
   // Health check endpoint
   fastify.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
-    const health: any = {
-      status: 'ok',
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      // Check database connectivity
-      const db = getDb();
-      await db.select().from(users).limit(1);
-      health.database = 'ok';
-    } catch (err) {
-      health.database = 'error';
-      health.error = (err as any).message;
-      return reply.status(503).send(health);
+    const databaseUrl = process.env.DATABASE_URL;
+    if (!databaseUrl) {
+      return reply.status(503).send({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        database: 'error',
+        error: 'DATABASE_URL not set',
+      });
     }
 
-    // Check cache directory writability
-    health.cacheDir = 'ok';
+    try {
+      const result = await runDoctor({
+        databaseUrl,
+        ...(process.env.CACHE_DIR ? { cacheDir: process.env.CACHE_DIR } : {}),
+        expectWorkers: 2,
+        offline: false,
+      });
 
-    // Check worker heartbeat (if applicable)
-    health.workerHeartbeat = 'ok';
+      // Extract individual check results
+      const checkMap = new Map(result.checks.map((c) => [c.id, c]));
 
-    reply.status(200).send(health);
+      const database = checkMap.get('database')?.status === 'pass' ? 'ok' : 'error';
+      const migrations = checkMap.get('migrations')?.status === 'pass' ? 'ok' : 'error';
+      const cacheDir = checkMap.get('cacheDir')?.status === 'pass' ? 'ok' : 'error';
+      const workerHeartbeat =
+        checkMap.get('workerHeartbeat')?.status === 'pass'
+          ? 'ok'
+          : checkMap.get('workerHeartbeat')?.status === 'warn'
+            ? 'warn'
+            : 'error';
+
+      const health: any = {
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        database,
+        cacheDir,
+        workerHeartbeat,
+        checks: result.checks.map((c) => ({
+          id: c.id,
+          title: c.title,
+          status: c.status,
+          detail: c.detail,
+        })),
+      };
+
+      // Fail (503) if database or migrations are down
+      if (database === 'error' || migrations === 'error') {
+        return reply.status(503).send(health);
+      }
+
+      reply.status(200).send(health);
+    } catch (err) {
+      return reply.status(503).send({
+        status: 'error',
+        timestamp: new Date().toISOString(),
+        database: 'error',
+        error: (err as any).message,
+      });
+    }
   });
 
   // Version endpoint
   fastify.get('/version', async (request: FastifyRequest, reply: FastifyReply) => {
     reply.status(200).send({
-      version: '1.0.0',
+      version: '0.1.0',
       nodeVersion: process.version,
       environment: process.env.NODE_ENV || 'development',
     });

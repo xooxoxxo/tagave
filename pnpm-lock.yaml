@@ -31,6 +31,9 @@ importers:
       '@liner/db':
         specifier: workspace:*
         version: link:../db
+      '@liner/doctor':
+        specifier: workspace:*
+        version: link:../doctor
       '@liner/shared':
         specifier: workspace:*
         version: link:../shared
@@ -115,6 +118,31 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+
+  packages/doctor:
+    dependencies:
+      '@liner/core':
+        specifier: workspace:*
+        version: link:../core
+      '@liner/db':
+        specifier: workspace:*
+        version: link:../db
+      postgres:
+        specifier: ^3.4.4
+        version: 3.4.9
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.9.0
+        version: 22.20.1
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.2
+        version: 2.1.9(@types/node@22.20.1)
 
   packages/shared:
     dependencies:

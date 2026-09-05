@@ -9,6 +9,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "dev": "pnpm --parallel --filter @liner/api --filter @liner/web --filter @liner/worker dev",
-    "db:migrate": "pnpm --filter @liner/db migrate"
+    "db:migrate": "pnpm --filter @liner/db migrate",
+    "doctor": "node packages/doctor/dist/cli.js doctor"
   }
 }
