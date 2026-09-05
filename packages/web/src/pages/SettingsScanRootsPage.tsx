@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan } from '../hooks';
+import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
 import { SettingsNav } from '../components/SettingsNav';
 import { ScanRoot } from '@liner/shared';
 import styles from './SettingsScanRootsPage.module.css';
@@ -13,11 +13,13 @@ export function SettingsScanRootsPage() {
   const { libraryId } = useCurrentLibrary();
   const { data: scanRoots = [], isLoading } = useScanRoots(libraryId);
   const createMutation = useCreateScanRoot(libraryId);
-  const updateMutation = useUpdateScanRoot(libraryId, undefined);
-  const deleteMutation = useDeleteScanRoot(libraryId, undefined);
-  const startScanMutation = useStartScan(libraryId, undefined);
+  const updateMutation = useUpdateScanRoot(libraryId);
+  const deleteMutation = useDeleteScanRoot(libraryId);
+  const startScanMutation = useStartScan(libraryId);
+  const validateMutation = useValidateScanRoot(libraryId);
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [pendingRootIds, setPendingRootIds] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState({
     path: '',
     displayName: '',
@@ -25,6 +27,13 @@ export function SettingsScanRootsPage() {
     pollIntervalS: 21600, // 6 hours
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const isPending = (rootId: string) => pendingRootIds.has(rootId);
+
+  const withPending = (rootId: string, fn: () => void) => {
+    setPendingRootIds((prev) => new Set(prev).add(rootId));
+    fn();
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
@@ -77,18 +86,37 @@ export function SettingsScanRootsPage() {
     );
   };
 
+  const clearPending = (rootId: string) => () =>
+    setPendingRootIds((prev) => {
+      const next = new Set(prev);
+      next.delete(rootId);
+      return next;
+    });
+
   const handleToggleEnabled = (root: ScanRoot) => {
-    updateMutation.mutate({ enabled: !root.enabled });
+    withPending(root.id, () => {
+      updateMutation.mutate({ rootId: root.id, data: { enabled: !root.enabled } }, { onSettled: clearPending(root.id) });
+    });
   };
 
   const handleDelete = (rootId: string) => {
     if (confirm('Delete this scan root? Files will not be removed.')) {
-      deleteMutation.mutate();
+      withPending(rootId, () => {
+        deleteMutation.mutate(rootId, { onSettled: clearPending(rootId) });
+      });
     }
   };
 
   const handleStartScan = (rootId: string) => {
-    startScanMutation.mutate();
+    withPending(rootId, () => {
+      startScanMutation.mutate(rootId, { onSettled: clearPending(rootId) });
+    });
+  };
+
+  const handleValidate = (rootId: string) => {
+    withPending(rootId, () => {
+      validateMutation.mutate(rootId, { onSettled: clearPending(rootId) });
+    });
   };
 
   if (!libraryId) {
@@ -188,6 +216,11 @@ export function SettingsScanRootsPage() {
         </form>
       )}
 
+      <p className={styles.helpText}>
+        The path must exist on the worker host (where the music is mounted), not on the web app host.
+        The worker validates it within a few seconds.
+      </p>
+
       {/* Roots list */}
       {isLoading ? (
         <div className={styles.loading}>Loading scan roots...</div>
@@ -205,6 +238,39 @@ export function SettingsScanRootsPage() {
                   <p className={styles.rootPath}>{root.path}</p>
                 </div>
                 <div className={styles.rootMeta}>
+                  {root.validationStatus === 'pending' && (
+                    <span className={`${styles.badge} ${styles.validationPending}`} title="Waiting for worker validation">
+                      Pending validation
+                    </span>
+                  )}
+                  {root.validationStatus === 'ok' && (
+                    <span
+                      className={`${styles.badge} ${styles.validationOk}`}
+                      title={root.probeWritable === false ? 'Mounted read-only' : 'Path validated'}
+                    >
+                      {root.probeWritable === false ? 'Read-only mount' : 'OK'}
+                    </span>
+                  )}
+                  {root.validationStatus === 'missing' && (
+                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path does not exist'}>
+                      Missing
+                    </span>
+                  )}
+                  {root.validationStatus === 'not_directory' && (
+                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path is not a directory'}>
+                      Not a directory
+                    </span>
+                  )}
+                  {root.validationStatus === 'unreadable' && (
+                    <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path is not readable'}>
+                      Unreadable
+                    </span>
+                  )}
+                  {root.validatedAt && (
+                    <span className={styles.badge} title={new Date(root.validatedAt).toLocaleString()}>
+                      {new Date(root.validatedAt).toLocaleDateString()}
+                    </span>
+                  )}
                   <span className={styles.badge}>{root.writable ? 'Writable' : 'Read-only'}</span>
                   <span className={styles.badge}>{root.enabled ? 'Enabled' : 'Disabled'}</span>
                 </div>
@@ -222,23 +288,33 @@ export function SettingsScanRootsPage() {
                 <button
                   onClick={() => handleToggleEnabled(root)}
                   className={root.enabled ? 'secondary' : ''}
-                  disabled={updateMutation.isPending}
+                  disabled={isPending(root.id)}
                 >
-                  {root.enabled ? 'Disable' : 'Enable'}
+                  {isPending(root.id) ? (root.enabled ? 'Disabling...' : 'Enabling...') : (root.enabled ? 'Disable' : 'Enable')}
                 </button>
+                {root.validationStatus !== 'ok' && (
+                  <button
+                    onClick={() => handleValidate(root.id)}
+                    className="secondary"
+                    disabled={isPending(root.id)}
+                  >
+                    {isPending(root.id) ? 'Checking...' : 'Re-check'}
+                  </button>
+                )}
                 <button
                   onClick={() => handleStartScan(root.id)}
                   className="secondary"
-                  disabled={startScanMutation.isPending || root.lastStatus === 'scanning'}
+                  disabled={isPending(root.id) || root.lastStatus === 'scanning' || root.validationStatus !== 'ok'}
+                  title={root.validationStatus !== 'ok' ? 'Path must be validated first' : ''}
                 >
-                  {root.lastStatus === 'scanning' ? 'Scanning...' : 'Scan Now'}
+                  {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan Now'}
                 </button>
                 <button
                   onClick={() => handleDelete(root.id)}
                   className="secondary"
-                  disabled={deleteMutation.isPending}
+                  disabled={isPending(root.id)}
                 >
-                  Delete
+                  {isPending(root.id) ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
             </div>

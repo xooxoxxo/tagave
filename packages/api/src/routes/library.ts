@@ -1,8 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
-import path from 'path';
-import fs from 'fs/promises';
 import { libraries, scanRoots, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
 import PgBoss from 'pg-boss';
@@ -312,6 +310,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
           writable: sr.writable,
           enabled: sr.enabled,
           pollIntervalS: sr.pollIntervalS,
+          validationStatus: sr.validationStatus,
+          validationMessage: sr.validationMessage,
+          validatedAt: sr.validatedAt?.toISOString(),
+          probeWritable: sr.probeWritable,
           lastScanAt: sr.lastScanAt?.toISOString(),
           lastStatus: sr.lastStatus,
           createdAt: sr.createdAt.toISOString(),
@@ -344,45 +346,31 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw new ApiError(404, 'Not Found', 'Library not found');
     }
 
-    // Validate path exists and is readable
-    let isReadOnly = false;
-    try {
-      const pathStats = await fs.stat(body.path);
-      if (!pathStats.isDirectory()) {
-        throw new ApiError(400, 'Bad Request', 'Scan root path must be a directory');
-      }
-
-      // Check if path is writable
-      try {
-        await fs.access(body.path, fs.constants.W_OK);
-      } catch {
-        isReadOnly = true;
-      }
-    } catch (err) {
-      if ((err as any).code === 'ENOENT') {
-        throw new ApiError(400, 'Bad Request', `Path does not exist: ${body.path}`);
-      }
-      if ((err as any).code === 'EACCES') {
-        throw new ApiError(400, 'Bad Request', `Path is not readable: ${body.path}`);
-      }
-      throw err;
-    }
-
+    // LIB-1: validation is the worker's job, not the API host
     const scanRootId = uuidv7();
     const root = {
       id: scanRootId,
       libraryId,
       path: body.path,
       displayName: body.displayName,
-      writable: !isReadOnly,
-      enabled: true,
-      pollIntervalS: body.pollIntervalS || 21600,
+      writable: body.writable ?? true, // Owner's intent; worker validates actual ability
+      enabled: body.enabled ?? true,
+      pollIntervalS: body.pollIntervalS ?? 21600,
+      validationStatus: 'pending',
+      validationMessage: null,
+      validatedAt: null,
+      probeWritable: null,
       lastScanAt: null as any,
       lastStatus: null,
       createdAt: new Date(),
     };
 
     await db.insert(scanRoots).values(root);
+
+    // Enqueue validation job
+    const boss = await getBoss();
+    await boss.createQueue('roots.validate');
+    await boss.send('roots.validate', { scanRootId }, { singletonKey: `roots.validate:${scanRootId}` });
 
     reply.status(201).send(
       scanRootSchema.parse({
@@ -393,6 +381,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         writable: root.writable,
         enabled: root.enabled,
         pollIntervalS: root.pollIntervalS,
+        validationStatus: root.validationStatus,
+        validationMessage: root.validationMessage,
+        validatedAt: root.validatedAt,
+        probeWritable: root.probeWritable,
         createdAt: root.createdAt.toISOString(),
         updatedAt: root.createdAt.toISOString(),
       })
@@ -466,6 +458,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
           writable: sr.writable,
           enabled: sr.enabled,
           pollIntervalS: sr.pollIntervalS,
+          validationStatus: sr.validationStatus,
+          validationMessage: sr.validationMessage,
+          validatedAt: sr.validatedAt?.toISOString(),
+          probeWritable: sr.probeWritable,
           lastScanAt: sr.lastScanAt?.toISOString(),
           lastStatus: sr.lastStatus,
           createdAt: sr.createdAt.toISOString(),
@@ -520,6 +516,53 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     }
   );
 
+  // Trigger validation for a scan root (re-check path on worker)
+  fastify.post(
+    '/:libraryId/scan-roots/:scanRootId/validate',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, scanRootId } = request.params as {
+        libraryId: string;
+        scanRootId: string;
+      };
+
+      const db = getDb();
+
+      // Verify ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      const root = await db
+        .select()
+        .from(scanRoots)
+        .where(
+          and(eq(scanRoots.id, scanRootId), eq(scanRoots.libraryId, libraryId))
+        );
+
+      if (root.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Scan root not found');
+      }
+
+      // Enqueue validation job
+      const boss = await getBoss();
+      await boss.createQueue('roots.validate');
+      await boss.send('roots.validate', { scanRootId }, { singletonKey: `roots.validate:${scanRootId}` });
+
+      reply.status(202).send({ ok: true });
+    }
+  );
+
   // Trigger scan for a root
   fastify.post(
     '/:libraryId/scan-roots/:scanRootId/scan',
@@ -556,6 +599,11 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
 
       if (root.length === 0) {
         throw new ApiError(404, 'Not Found', 'Scan root not found');
+      }
+
+      // LIB-1: check validation status before scanning (spec §24)
+      if (root[0]!.validationStatus !== 'ok') {
+        throw new ApiError(409, 'Conflict', `Scan root has not been validated by the worker yet (status: ${root[0]!.validationStatus})`);
       }
 
       // Enqueue scan job

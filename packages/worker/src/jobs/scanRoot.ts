@@ -7,6 +7,7 @@ import {
   isAudioFile, sidecarKind, storagePath, extOf,
 } from '../lib/helpers.js';
 import { reportProgress } from './progress.js';
+import { probeRoot } from './rootsValidate.js';
 
 export interface ScanRootJobData {
   scanRootId: string;
@@ -74,12 +75,18 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     });
   };
 
-  // LIB-5: an unreadable root aborts before anything is marked missing.
-  try {
-    const d = await opendir(root.path);
-    await d.close();
-  } catch (err) {
-    await fail('aborted', `root unreadable: ${(err as Error).message}`);
+  // LIB-1/LIB-5: probe the root on this host, stamp the validation columns,
+  // and abort before anything is marked missing when it is not readable.
+  const { status, message: validationMessage, probeWritable } = await probeRoot(root.path, root.writable);
+  await ctx.db
+    .update(scanRoots)
+    .set({ validationStatus: status, validationMessage, validatedAt: new Date(), probeWritable })
+    .where(eq(scanRoots.id, root.id));
+
+  // Abort if root is not ok (spec LIB-5)
+  if (status !== 'ok') {
+    const errorMsg = validationMessage ?? status;
+    await fail('aborted', `root ${status}: ${errorMsg}`);
     return;
   }
 

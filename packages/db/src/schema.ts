@@ -98,10 +98,15 @@ export const scanRoots = pgTable(
     pollIntervalS: integer('poll_interval_s').notNull().default(21600),
     lastScanAt: timestamp('last_scan_at', { withTimezone: true }),
     lastStatus: varchar('last_status', { length: 50 }),
+    validationStatus: varchar('validation_status', { length: 20 }).notNull().default('pending'),
+    validationMessage: varchar('validation_message'),
+    validatedAt: timestamp('validated_at', { withTimezone: true }),
+    probeWritable: boolean('probe_writable'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_scan_roots_library').on(table.libraryId),
+    validationStatusCheck: check('validation_status_check', sql`validation_status in ('pending','ok','missing','not_directory','unreadable')`),
   })
 );
 

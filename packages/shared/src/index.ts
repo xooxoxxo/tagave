@@ -27,6 +27,10 @@ export {
 export {
   scanRootSchema,
   type ScanRoot,
+  createScanRootSchema,
+  type CreateScanRootRequest,
+  patchScanRootSchema,
+  type PatchScanRootRequest,
   librarySchema,
   type Library,
   scanStatsSchema,

@@ -3,6 +3,7 @@ import pino from 'pino';
 import { makeDb } from '@liner/db';
 import type { WorkerContext } from './lib/context.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
+import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
@@ -38,7 +39,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -46,12 +47,26 @@ async function main() {
   const only = process.env.LINER_QUEUES ? new Set(process.env.LINER_QUEUES.split(',').map((q) => q.trim())) : null;
   const wants = (q: string) => !only || only.has(q);
 
-  if (wants('scan.root')) await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) {
-      logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
-      await scanRootJob(ctx, job.data);
-    }
-  });
+  if (wants('scan.root')) {
+    await boss.work<ScanRootJobData>('scan.root', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, data: job.data }, 'scan.root start');
+        await scanRootJob(ctx, job.data);
+      }
+    });
+
+    await boss.work<RootsValidateJobData>('roots.validate', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, data: job.data }, 'roots.validate start');
+        await rootsValidateJob(ctx, job.data);
+      }
+    });
+
+    // Boot enqueue validation of all roots (spec LIB-1)
+    await boss.send('roots.validate', {}, { singletonKey: 'roots.validate:all' });
+    // Every 10 minutes validate all roots (spec LIB-1)
+    await boss.schedule('roots.validate', '*/10 * * * *', {}, {});
+  }
 
   if (wants('scan.parse')) await boss.work<ScanParseJobData>(
     'scan.parse',

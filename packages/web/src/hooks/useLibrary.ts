@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { AlbumSummary } from '@liner/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
-import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings } from '@liner/shared';
+import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@liner/shared';
 
 const LIBRARY_QUERY_KEY = ['library'];
 const LIBRARIES_QUERY_KEY = ['libraries'];
@@ -92,7 +92,7 @@ export function useCreateScanRoot(libraryId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: Omit<ScanRoot, 'id' | 'libraryId' | 'createdAt' | 'updatedAt'>) =>
+    mutationFn: (data: CreateScanRootRequest) =>
       api.post<ScanRoot>(`/libraries/${libraryId}/scan-roots`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
@@ -100,11 +100,12 @@ export function useCreateScanRoot(libraryId: string | undefined) {
   });
 }
 
-export function useUpdateScanRoot(libraryId: string | undefined, rootId: string | undefined) {
+// Root id is the mutation variable, so one hook instance at the top of a
+// page serves every row (hooks must not be created inside handlers).
+export function useUpdateScanRoot(libraryId: string | undefined) {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: (data: Partial<ScanRoot>) =>
+    mutationFn: ({ rootId, data }: { rootId: string; data: Partial<ScanRoot> }) =>
       api.patch<ScanRoot>(`/libraries/${libraryId}/scan-roots/${rootId}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
@@ -112,25 +113,33 @@ export function useUpdateScanRoot(libraryId: string | undefined, rootId: string 
   });
 }
 
-export function useDeleteScanRoot(libraryId: string | undefined, rootId: string | undefined) {
+export function useDeleteScanRoot(libraryId: string | undefined) {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: () => api.delete(`/libraries/${libraryId}/scan-roots/${rootId}`),
+    mutationFn: (rootId: string) => api.delete(`/libraries/${libraryId}/scan-roots/${rootId}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
     },
   });
 }
 
-export function useStartScan(libraryId: string | undefined, rootId: string | undefined) {
+export function useStartScan(libraryId: string | undefined) {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: () => api.post(`/libraries/${libraryId}/scan-roots/${rootId}/scan`),
+    mutationFn: (rootId: string) => api.post(`/libraries/${libraryId}/scan-roots/${rootId}/scan`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
       queryClient.invalidateQueries({ queryKey: [...ALBUMS_QUERY_KEY, libraryId] });
+    },
+  });
+}
+
+export function useValidateScanRoot(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rootId: string) => api.post(`/libraries/${libraryId}/scan-roots/${rootId}/validate`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...SCAN_ROOTS_QUERY_KEY, libraryId] });
     },
   });
 }
