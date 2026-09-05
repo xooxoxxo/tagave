@@ -394,6 +394,27 @@ export async function checkCacheDir(cacheDir?: string): Promise<Check> {
 }
 
 // Check 7: Provider connectivity
+/**
+ * Every process on this network shares one MusicBrainz / Discogs budget
+ * through provider_state (see the worker's pacer). A diagnostic request
+ * that skips the queue would race the identify worker and read as a 503.
+ */
+async function claimProviderSlot(sql: postgres.Sql, provider: string, intervalMs: number): Promise<void> {
+  const secs = intervalMs / 1000;
+  const rows = await sql`
+    insert into provider_state (provider, window_started_at, requests_used, next_slot_at)
+    values (${provider}, now(), 1, now() + make_interval(secs => ${secs}))
+    on conflict (provider) do update set
+      next_slot_at = greatest(
+        coalesce(provider_state.next_slot_at, now()), now(),
+        coalesce(provider_state.circuit_open_until, now())
+      ) + make_interval(secs => ${secs}),
+      requests_used = coalesce(provider_state.requests_used, 0) + 1
+    returning extract(epoch from (next_slot_at - make_interval(secs => ${secs}) - now())) * 1000 as wait_ms`;
+  const waitMs = Math.max(0, Math.round(Number(rows[0]?.['wait_ms'] ?? 0)));
+  if (waitMs > 0) await new Promise((r) => setTimeout(r, Math.min(waitMs, 120_000)));
+}
+
 export async function checkProviders(
   databaseUrl: string,
   offline: boolean = false,
@@ -428,8 +449,10 @@ export async function checkProviders(
 
       const checks: { name: string; status: CheckStatus; detail: string }[] = [];
 
-      // MusicBrainz
+      // MusicBrainz — UA format per their policy: App/version (contact)
+      const userAgent = contactString ? `Liner-doctor/0.1 (+${contactString})` : 'Liner-doctor/0.1';
       try {
+        await claimProviderSlot(sql, 'musicbrainz', 1100);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -437,7 +460,7 @@ export async function checkProviders(
           'https://musicbrainz.org/ws/2/release-group/082c6aff-a7cc-36e0-a960-35a578ecd937?fmt=json',
           {
             headers: {
-              'User-Agent': contactString || 'liner-doctor/0.1.0',
+              'User-Agent': userAgent,
               Accept: 'application/json',
             },
             signal: controller.signal,
@@ -465,6 +488,7 @@ export async function checkProviders(
 
       // Discogs
       try {
+        await claimProviderSlot(sql, 'discogs', discogsToken ? 1091 : 2400);
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -477,7 +501,7 @@ export async function checkProviders(
 
         const dcResponse = await fetch(discogsUrl.toString(), {
           headers: {
-            'User-Agent': contactString || 'liner-doctor/0.1.0',
+            'User-Agent': userAgent,
           },
           signal: controller.signal,
         });
