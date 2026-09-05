@@ -54,8 +54,11 @@ deploy_workers() {
   remote_lock "$WORKER_HOST"; trap 'remote_unlock "$WORKER_HOST"; rm -rf "$LOCK"' EXIT
   rsync -az "${EXCLUDES[@]}" --exclude dist packages/shared packages/core packages/db packages/worker packages/doctor "$WORKER_HOST:$WORKER_DIR/packages/"
   rsync -az package.json pnpm-workspace.yaml tsconfig.base.json pnpm-lock.yaml "$WORKER_HOST:$WORKER_DIR/"
-  # new workspace packages need their links + deps; frozen so the host never drifts from the lockfile
-  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && pnpm install --frozen-lockfile --prefer-offline 2>&1 | tail -2"
+  # every manifest must be present for the frozen lockfile to validate, even
+  # for packages the worker host never builds (api, web); deps are installed
+  # only for the worker-side packages to spare the host's disk
+  for m in packages/*/package.json; do rsync -az "$m" "$WORKER_HOST:$WORKER_DIR/$m"; done
+  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && pnpm install --frozen-lockfile --prefer-offline --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/doctor --filter @liner/worker 2>&1 | tail -2"
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/doctor --filter @liner/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
   # migrations before the workers restart (the app applies them on boot too; this is idempotent)
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && DATABASE_URL='$WORKER_DATABASE_URL' node -e \"import('$WORKER_DIR/packages/db/dist/migrations-lib.js').then(m=>m.runMigrations(process.env.DATABASE_URL))\" 2>&1 | grep -E 'applying|rror' || true"
