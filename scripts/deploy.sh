@@ -30,6 +30,8 @@ echo "$$ $(date +%FT%T) $USER" > "$LOCK/owner"
 trap 'rm -rf "$LOCK"' EXIT
 
 remote_lock() {  # $1 host
+  ssh -o BatchMode=yes -o ConnectTimeout=10 "$1" true 2>/dev/null \
+    || { echo "ssh to $1 failed — key agent locked or host down; nothing deployed there"; exit 6; }
   ssh "$1" 'mkdir /tmp/liner-deploy.lock 2>/dev/null && echo "'"$COMMIT $(date +%FT%T)"'" > /tmp/liner-deploy.lock/owner' \
     || { echo "remote deploy lock held on $1: $(ssh "$1" cat /tmp/liner-deploy.lock/owner 2>/dev/null)"; exit 5; }
 }
