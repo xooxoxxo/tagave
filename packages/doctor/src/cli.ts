@@ -59,7 +59,7 @@ async function main() {
       const next = args[i + 1];
       if (next) {
         const parsed = parseInt(next, 10);
-        if (!isNaN(parsed)) {
+        if (Number.isInteger(parsed) && parsed >= 0) {
           expectWorkers = parsed;
           i++;
         }

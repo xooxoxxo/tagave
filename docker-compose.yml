@@ -44,7 +44,7 @@ services:
     volumes:
       - cache:/cache
       # music mounts are declared here and registered as scan roots in the UI
-      # - /Volumes/music:/music:ro
+      # - /path/to/music:/music:ro
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,12 +4,12 @@ services:
     command: postgres -c max_connections=300
     environment:
       POSTGRES_USER: liner
-      POSTGRES_PASSWORD: liner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-liner}
       POSTGRES_DB: liner
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U liner"]
@@ -22,7 +22,7 @@ services:
       context: .
       dockerfile: docker/app.Dockerfile
     environment:
-      DATABASE_URL: postgres://liner:liner@postgres:5432/liner
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
@@ -30,11 +30,32 @@ services:
     volumes:
       - cache:/cache
     ports:
-      - "3100:3000"
+      - "${LINER_PORT:-3100}:3000"
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Worker service (optional, untested in this repo)
+  # Uncomment and configure if running workers in the same compose stack.
+  # For production, prefer running workers on a separate host with direct
+  # filesystem access to the music library.
+  #
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/worker.Dockerfile
+  #   environment:
+  #     DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+  #     CACHE_DIR: /cache
+  #   volumes:
+  #     - cache:/cache
+  #     # Bind the music library read-only to the worker container
+  #     - ${MUSIC_DIR:-/mnt/music}:/music:ro
+  #   restart: unless-stopped
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
 
 volumes:
   pgdata:

@@ -9,37 +9,82 @@ Not a player. Navidrome/Plexamp/Roon play; Liner knows.
 
 ## Quick start
 
-```sh
-cp .env.example .env   # set APP_SECRET
-docker compose up
-```
+**Prerequisites:** Docker and Docker Compose v2.
 
-Open http://localhost:3000 and follow first-run setup.
+### 1. Generate your app secret
 
-## Health
-
-Run diagnostics to verify the system is configured correctly:
+Generate a 32-byte random secret (required for session encryption):
 
 ```sh
-# In the app container
-docker compose exec app node packages/doctor/dist/cli.js doctor
-
-# On the worker host
-pnpm doctor
+openssl rand -hex 32
 ```
 
-Each check reports one of: **pass** (ok), **warn** (degraded but operational), **fail** (broken), or **skip** (not applicable).
+### 2. Create `.env` from the example
 
-| Check | What it verifies |
-|---|---|
-| `database` | Postgres is reachable and running the correct schema version |
-| `migrations` | All pending migrations have been applied |
-| `contactString` | Contact string is set in library settings (required for external API calls) |
-| `workerHeartbeat` | Worker processes are running and reporting status (expect 2: file scanner + identifier) |
-| `scanRoots` | Configured music directories are readable and mounted, with fresh validation |
-| `cacheDir` | Cache directory is writable for thumbnails and converted audio |
-| `providers` | MusicBrainz and Discogs APIs are reachable; AcoustID/Wikidata checked if configured |
-| `appSecret` | App secret is set and long enough (>= 32 chars, app host only) |
+```sh
+cp .env.example .env
+```
+
+Then edit `.env` and paste the generated secret as `APP_SECRET`.
+
+### 3. Start the stack
+
+```sh
+docker compose -f docker-compose.prod.yml up -d
+```
+
+The app listens on `http://localhost:3100` (port configurable via `LINER_PORT` env var).
+Postgres listens on `5432` (configurable via `POSTGRES_PORT`).
+
+### 4. First-run setup
+
+1. Open http://localhost:3100
+2. Click **Setup** to create the library owner account (email, password, display name)
+3. Enter a **contact string** (e.g., `name@example.com`; required for external API lookups)
+4. Add a **scan root** — the path to your music library on the worker host
+5. (Optional) Add a Discogs token for cover images and higher rate limits (25→55 requests/min)
+6. Start your first scan
+
+### 5. Connect your music
+
+The app validates scan roots against the **worker** — the background service that handles file scanning, identification, and tag writing.
+
+**Option A: Worker as a Compose service** (untested in this repo)
+```yaml
+# Uncomment the worker block in docker-compose.prod.yml and bind your music:
+volumes:
+  - /path/to/music:/music:ro
+```
+Then update settings to use `/music` as the scan root. Restart with `docker compose -f docker-compose.prod.yml up -d`.
+
+**Option B: Worker on the host** (see `scripts/deploy.sh`)
+Run `pnpm -r build && node packages/worker/dist/index.js` on a machine with access to your music library. The worker connects to the same Postgres database.
+
+The first scan will fail until a worker is listening (the API returns `409 Conflict` and marks the root `pending`).
+
+### 6. Health check
+
+Verify all systems are configured:
+
+```sh
+docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js doctor
+```
+
+Or on the worker host: `pnpm doctor`.
+
+### Data & backups
+
+- **Database:** pgdata volume (docker-compose.prod.yml)
+- **Cache:** cache volume (thumbnails, converted audio)
+- **Backup database:** `docker compose -f docker-compose.prod.yml exec postgres pg_dump -U liner liner | gzip > liner-backup-$(date +%s).sql.gz`
+
+### Behind a reverse proxy
+
+If you proxy the app (nginx, Caddy, etc.):
+- Set `PUBLIC_URL=https://your-domain.com` in `.env`
+- Keep `ALLOW_INSECURE_HTTP=false` (default) so cookies use `secure` flag
+- The app will serve the correct CORS origins and redirect URIs
+
 
 ## Development
 
@@ -60,5 +105,6 @@ pnpm dev
 | `packages/api` | Fastify API (`/api/v1`, OpenAPI 3.1) + serves the web build |
 | `packages/worker` | scanner, clusterer, matcher, enricher, tag writer (pg-boss jobs) |
 | `packages/web` | React SPA |
+| `packages/doctor` | Health and configuration diagnostics |
 
 Planning documents live outside this repo.

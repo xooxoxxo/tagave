@@ -196,6 +196,15 @@ export async function checkWorkerHeartbeat(
       const workerIds = new Set(result.map((r) => r['worker_id'] as string).filter(Boolean));
       const liveWorkers = workerIds.size;
 
+      if (expectWorkers === 0) {
+        return {
+          id: 'workerHeartbeat',
+          title: 'Worker Heartbeat',
+          status: liveWorkers === 0 ? 'skip' : 'pass',
+          detail: liveWorkers === 0 ? 'no workers expected (--expect-workers 0)' : `${liveWorkers} live worker(s)`,
+          durationMs: Date.now() - start,
+        };
+      }
       if (liveWorkers === 0) {
         return {
           id: 'workerHeartbeat',
