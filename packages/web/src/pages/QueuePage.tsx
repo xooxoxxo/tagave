@@ -62,13 +62,14 @@ export function QueuePage() {
   const { data, isLoading } = useQuery({
     queryKey: ['queue', libraryId],
     queryFn: () =>
-      api.get<{ items: QueueItem[]; nextCursor: string | null }>(
+      api.get<{ items: QueueItem[]; nextCursor: string | null; total?: number }>(
         `/libraries/${libraryId}/queue?limit=50`,
       ),
     enabled: !!libraryId,
   });
 
   const items = data?.items ?? [];
+  const totalLeft = data?.total ?? items.length;
   const item = items[itemIdx];
   const candidate = item?.candidates[candIdx];
 
@@ -138,7 +139,7 @@ export function QueuePage() {
     <div className={styles.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>Review Queue</h1>
-        <span className={styles.counter}>{itemIdx + 1} / {items.length}</span>
+        <span className={styles.counter}>{totalLeft} left{items.length < totalLeft ? ` · viewing ${itemIdx + 1}/${items.length}` : ` · on ${itemIdx + 1}`}</span>
         <span className={styles.keysHint}>
           n/p albums · ↑↓ candidates · Enter accept · a as-is · x ignore · e exclude · ?
         </span>
