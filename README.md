@@ -85,6 +85,42 @@ If you proxy the app (nginx, Caddy, etc.):
 - Keep `ALLOW_INSECURE_HTTP=false` (default) so cookies use `secure` flag
 - The app will serve the correct CORS origins and redirect URIs
 
+## Security
+
+### APP_SECRET
+
+`APP_SECRET` is a required 32+ byte random value used for:
+- **Credential encryption:** Discogs tokens, AcoustID keys stored in the database are encrypted with AES-256-GCM using a key derived from `APP_SECRET`
+- **Session signing:** (future) session tokens will be signed with `APP_SECRET`
+
+**Generation:**
+```sh
+openssl rand -hex 32  # 64 hex characters = 32 bytes
+```
+
+**Rotation:**
+When you need to rotate the secret (e.g., after a compromise):
+1. Generate a new secret: `openssl rand -hex 32`
+2. Set it as `APP_SECRET` and keep the old one in `LINER_OLD_APP_SECRET`
+3. Run the reseal command:
+   ```sh
+   LINER_OLD_APP_SECRET=<old_secret> APP_SECRET=<new_secret> \
+   node packages/doctor/dist/cli.js reseal
+   ```
+   Or in Docker: `docker compose exec app node packages/doctor/dist/cli.js reseal`
+4. Update your `.env` to remove `LINER_OLD_APP_SECRET` and keep only the new `APP_SECRET`
+
+### Backup security
+
+- **Database backups:** include encrypted credential material (safe without `APP_SECRET`)
+- **Cache volume:** thumbnails and converted audio; not sensitive
+- **Ensure `APP_SECRET` is backed up separately** in your secret store (e.g., HashiCorp Vault, AWS Secrets Manager, `.env.backup`)
+
+### TLS/HTTPS
+
+- In production, always use TLS (reverse proxy with HTTPS)
+- Development: set `ALLOW_INSECURE_HTTP=true` to allow HTTP (cookies will not have `secure` flag)
+
 
 ## Development
 

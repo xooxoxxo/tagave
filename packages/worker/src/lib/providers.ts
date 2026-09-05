@@ -3,7 +3,7 @@
  * uses. Instances are memoised per (contact, token); the pacer state lives in
  * provider_state (see pacer.ts) so all processes share one budget.
  */
-import { MusicBrainzProvider, DiscogsProvider, WikidataClient } from '@liner/core';
+import { MusicBrainzProvider, DiscogsProvider, WikidataClient, openSecret, isSealed } from '@liner/core';
 import type { WorkerContext } from './context.js';
 import { PROVIDER_INTERVALS, openCooldown, paced } from './pacer.js';
 
@@ -20,6 +20,13 @@ export interface Providers {
 
 const memo = new Map<string, Providers>();
 
+const warned = new Set<string>();
+function warnOnce(ctx: WorkerContext, msg: string): void {
+  if (warned.has(msg)) return;
+  warned.add(msg);
+  ctx.logger.warn(msg);
+}
+
 /** libraries.settings jsonb → the two keys the providers need. */
 export async function libraryProviderSettings(ctx: WorkerContext, libraryId: string): Promise<LibraryProviderSettings> {
   const rows = await ctx.sql`
@@ -27,7 +34,26 @@ export async function libraryProviderSettings(ctx: WorkerContext, libraryId: str
     from libraries where id = ${libraryId}` as unknown as Array<{ contact: string | null; token: string | null }>;
   const out: LibraryProviderSettings = {};
   if (rows[0]?.contact) out.contactString = rows[0].contact;
-  if (rows[0]?.token) out.discogsToken = rows[0].token;
+
+  // Sealed credentials (PLT-5) open with this host's APP_SECRET; without it
+  // Discogs simply runs unauthenticated — warned once, never a crash.
+  if (rows[0]?.token) {
+    const token = rows[0].token;
+    if (isSealed(token)) {
+      const appSecret = process.env.APP_SECRET;
+      if (!appSecret) {
+        warnOnce(ctx, 'APP_SECRET missing on this host; sealed credentials unusable — Discogs runs unauthenticated');
+      } else {
+        try {
+          out.discogsToken = openSecret(token, appSecret);
+        } catch {
+          warnOnce(ctx, `sealed discogsToken for library ${libraryId} does not open with this host's APP_SECRET — Discogs runs unauthenticated`);
+        }
+      }
+    } else {
+      out.discogsToken = token; // legacy plaintext row (sealed by the api on its next boot)
+    }
+  }
   return out;
 }
 

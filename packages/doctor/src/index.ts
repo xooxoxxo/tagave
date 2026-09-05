@@ -44,7 +44,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   checks.push(await checkScanRoots(databaseUrl));
   checks.push(await checkCacheDir(cacheDir));
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs));
-  checks.push(await checkAppSecret());
+  checks.push(await checkAppSecret(databaseUrl));
 
   // Determine if all checks passed (warnings are not failures)
   const ok = checks.every((c) => c.status !== 'fail');

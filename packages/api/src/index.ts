@@ -44,6 +44,25 @@ const app = Fastify({
   requestIdLogLabel: 'requestId',
 });
 
+// Validate APP_SECRET (required for credential encryption)
+const appSecret = process.env.APP_SECRET;
+if (!appSecret) {
+  logger.error('APP_SECRET environment variable is required (see .env.example)');
+  process.exit(1);
+}
+
+// APP_SECRET length: refuse anything under 32 characters; a hex-only value
+// under 64 characters carries fewer than 32 bytes of entropy, which is a
+// warning (existing installs keep booting) with the rotation path spelled out.
+const isHex = /^[0-9a-fA-F]+$/.test(appSecret);
+if (appSecret.length < 32) {
+  logger.error(`APP_SECRET too short: ${appSecret.length} < 32 characters. Generate with: openssl rand -hex 32`);
+  process.exit(1);
+}
+if (isHex && appSecret.length < 64) {
+  logger.warn(`APP_SECRET is ${appSecret.length} hex characters (< 32 bytes); rotate with \`openssl rand -hex 32\` + \`liner-doctor reseal\` (README › Security)`);
+}
+
 // Initialize database
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -58,6 +77,55 @@ try {
   db = await initDb(databaseUrl);
   initAuth(db.db);
   logger.info('Database initialized successfully');
+
+  // One-time boot migration: seal plaintext credentials (PLT-5)
+  try {
+    const { sealSecret, isSealed } = await import('@liner/core');
+    const libraries = await db.client`
+      select id, settings from libraries
+      where settings->>'discogsToken' is not null
+         or settings->>'acoustidKey' is not null
+    ` as unknown as Array<{ id: string; settings: Record<string, any> }>;
+
+    let sealed = 0;
+    for (const lib of libraries) {
+      const settings = typeof lib.settings === 'string'
+        ? JSON.parse(lib.settings)
+        : lib.settings;
+
+      let needsUpdate = false;
+
+      // Seal discogsToken if present and not already sealed
+      if (settings.discogsToken && typeof settings.discogsToken === 'string' && !isSealed(settings.discogsToken)) {
+        const hint = settings.discogsToken.slice(-4);
+        settings.discogsToken = sealSecret(settings.discogsToken, appSecret);
+        settings.discogsTokenHint = hint;
+        needsUpdate = true;
+      }
+
+      // Seal acoustidKey if present and not already sealed
+      if (settings.acoustidKey && typeof settings.acoustidKey === 'string' && !isSealed(settings.acoustidKey)) {
+        const hint = settings.acoustidKey.slice(-4);
+        settings.acoustidKey = sealSecret(settings.acoustidKey, appSecret);
+        settings.acoustidKeyHint = hint;
+        needsUpdate = true;
+      }
+
+      if (needsUpdate) {
+        await db.client`
+          update libraries set settings = ${JSON.stringify(settings)}
+          where id = ${lib.id}
+        `;
+        sealed++;
+      }
+    }
+
+    if (sealed > 0) {
+      logger.info(`Sealed ${sealed} library credential(s) during boot migration`);
+    }
+  } catch (migrationErr) {
+    logger.error({ err: migrationErr }, 'Boot migration failed (non-fatal)');
+  }
 } catch (err) {
   logger.error({ err }, 'Failed to initialize database');
   process.exit(1);

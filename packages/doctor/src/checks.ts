@@ -607,11 +607,40 @@ export async function checkProviders(
 }
 
 // Check 8: App secret (only on app host where APP_SECRET is set)
-export async function checkAppSecret(): Promise<Check> {
+export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
   const start = Date.now();
   const secret = process.env.APP_SECRET;
 
   if (!secret) {
+    // On a worker host without APP_SECRET, check if there are sealed credentials
+    if (databaseUrl) {
+      try {
+        const sql = postgres(databaseUrl, { max: 1 });
+        try {
+          const result = await sql`
+            select count(*) as sealed_count
+            from libraries
+            where settings->>'discogsToken' like 'enc:%'
+               or settings->>'acoustidKey' like 'enc:%'
+          `;
+          const sealedCount = Number(result[0]?.['sealed_count'] ?? 0);
+          if (sealedCount > 0) {
+            return {
+              id: 'appSecret',
+              title: 'App Secret',
+              status: 'warn',
+              detail: `Worker host with ${sealedCount} sealed credential(s) but APP_SECRET not set`,
+              durationMs: Date.now() - start,
+            };
+          }
+        } finally {
+          await sql.end();
+        }
+      } catch (err) {
+        // Ignore DB errors; just skip the check
+      }
+    }
+
     return {
       id: 'appSecret',
       title: 'App Secret',
@@ -621,12 +650,24 @@ export async function checkAppSecret(): Promise<Check> {
     };
   }
 
-  if (secret.length >= 32) {
+  // Same rule as the api boot: under 32 characters fails; a hex-only value
+  // under 64 characters (< 32 bytes of entropy) warns and names the rotation path.
+  const isHex = /^[0-9a-fA-F]+$/.test(secret);
+  if (secret.length < 32) {
     return {
       id: 'appSecret',
       title: 'App Secret',
-      status: 'pass',
-      detail: `Set, length ${secret.length}`,
+      status: 'fail',
+      detail: `Too short: ${secret.length} < 32 characters (openssl rand -hex 32)`,
+      durationMs: Date.now() - start,
+    };
+  }
+  if (isHex && secret.length < 64) {
+    return {
+      id: 'appSecret',
+      title: 'App Secret',
+      status: 'warn',
+      detail: `${secret.length} hex characters (< 32 bytes of entropy); rotate via liner-doctor reseal`,
       durationMs: Date.now() - start,
     };
   }
@@ -634,8 +675,8 @@ export async function checkAppSecret(): Promise<Check> {
   return {
     id: 'appSecret',
     title: 'App Secret',
-    status: 'fail',
-    detail: `Too short: ${secret.length} < 32`,
+    status: 'pass',
+    detail: `Set, length ${secret.length}`,
     durationMs: Date.now() - start,
   };
 }

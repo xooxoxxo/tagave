@@ -45,6 +45,30 @@ function formatCheckLine(check: Check): string {
 async function main() {
   // Parse arguments
   const args = process.argv.slice(2);
+  const command = args[0];
+
+  // Check for DATABASE_URL
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    console.error(colorize('ERROR: DATABASE_URL environment variable not set', 'red'));
+    process.exit(1);
+  }
+
+  // Handle reseal subcommand
+  if (command === 'reseal') {
+    const { resealCredentials } = await import('./reseal.js');
+    try {
+      await resealCredentials(databaseUrl);
+      console.log(colorize('Credentials re-sealed successfully', 'green'));
+      process.exit(0);
+    } catch (err) {
+      const message = (err as Error).message || String(err);
+      console.error(colorize(`FATAL: ${message}`, 'red'));
+      process.exit(1);
+    }
+  }
+
+  // Default: run doctor checks
   let json = false;
   let offline = false;
   let expectWorkers = 2;
@@ -65,13 +89,6 @@ async function main() {
         }
       }
     }
-  }
-
-  // Check for DATABASE_URL
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    console.error(colorize('ERROR: DATABASE_URL environment variable not set', 'red'));
-    process.exit(1);
   }
 
   // Get CACHE_DIR

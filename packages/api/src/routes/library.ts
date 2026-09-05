@@ -4,6 +4,7 @@ import { uuidv7 } from 'uuidv7';
 import { libraries, scanRoots, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
 import PgBoss from 'pg-boss';
+import { sealSecret, computeHint } from '@liner/core';
 import {
   createScanRootSchema,
   patchScanRootSchema,
@@ -51,22 +52,16 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       : (libSettings?.settings ?? {});
 
     const contactString = (settings as Record<string, any>)['contactString'] ?? null;
-    const discogsToken = (settings as Record<string, any>)['discogsToken'];
-    const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
-      ? discogsToken.slice(-4)
-      : null;
-    const acoustidKey = (settings as Record<string, any>)['acoustidKey'];
-    const acoustidKeyHint = acoustidKey && typeof acoustidKey === 'string'
-      ? acoustidKey.slice(-4)
-      : null;
+    const discogsTokenHint = (settings as Record<string, any>)['discogsTokenHint'] ?? null;
+    const acoustidKeyHint = (settings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
         contactString,
-        discogsTokenSet: !!discogsToken,
+        discogsTokenSet: discogsTokenHint !== null,
         discogsTokenHint,
-        acoustidKeySet: !!acoustidKey,
+        acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
         onboardingCompletedAt,
       })
@@ -83,6 +78,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const body = patchLibrarySettingsSchema.parse(request.body);
 
     const db = getDb();
+    const appSecret = process.env.APP_SECRET;
 
     // Verify library ownership
     const lib = await db
@@ -96,22 +92,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw new ApiError(404, 'Not Found', 'Library not found');
     }
 
-    // Build the update object
-    const updates: Record<string, unknown> = {};
-    if (body.contactString !== undefined) {
-      updates.contactString = body.contactString;
-    }
-    if (body.discogsToken !== undefined) {
-      updates.discogsToken = body.discogsToken;
-    }
-    if (body.acoustidKey !== undefined) {
-      updates.acoustidKey = body.acoustidKey;
-    }
-    if (body.onboardingCompletedAt !== undefined) {
-      updates.onboardingCompletedAt = body.onboardingCompletedAt;
-    }
-
-    // Merge into existing settings using SQL to handle jsonb operations
+    // Merge into existing settings
     const libSettings = lib[0];
     const currentSettings = typeof libSettings?.settings === 'string'
       ? JSON.parse(libSettings.settings)
@@ -122,22 +103,42 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     if (body.contactString !== undefined) {
       mergedSettings.contactString = body.contactString;
     }
+
+    // Seal credentials before storing (PLT-5)
     if (body.discogsToken !== undefined) {
       if (body.discogsToken === null) {
-        // Delete the key
         delete mergedSettings.discogsToken;
+        delete mergedSettings.discogsTokenHint;
       } else {
-        mergedSettings.discogsToken = body.discogsToken;
+        // Compute hint from plaintext before sealing
+        const hint = computeHint(body.discogsToken);
+        mergedSettings.discogsTokenHint = hint;
+        if (appSecret) {
+          mergedSettings.discogsToken = sealSecret(body.discogsToken, appSecret);
+        } else {
+          // Fallback: store plaintext (migration will seal later)
+          mergedSettings.discogsToken = body.discogsToken;
+        }
       }
     }
+
     if (body.acoustidKey !== undefined) {
       if (body.acoustidKey === null) {
-        // Delete the key
         delete mergedSettings.acoustidKey;
+        delete mergedSettings.acoustidKeyHint;
       } else {
-        mergedSettings.acoustidKey = body.acoustidKey;
+        // Compute hint from plaintext before sealing
+        const hint = computeHint(body.acoustidKey);
+        mergedSettings.acoustidKeyHint = hint;
+        if (appSecret) {
+          mergedSettings.acoustidKey = sealSecret(body.acoustidKey, appSecret);
+        } else {
+          // Fallback: store plaintext (migration will seal later)
+          mergedSettings.acoustidKey = body.acoustidKey;
+        }
       }
     }
+
     if (body.onboardingCompletedAt !== undefined) {
       mergedSettings.onboardingCompletedAt = body.onboardingCompletedAt;
     }
@@ -148,22 +149,16 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
 
     // Return the view
     const contactString = (mergedSettings as Record<string, any>)['contactString'] ?? null;
-    const discogsToken = (mergedSettings as Record<string, any>)['discogsToken'];
-    const discogsTokenHint = discogsToken && typeof discogsToken === 'string'
-      ? discogsToken.slice(-4)
-      : null;
-    const acoustidKey = (mergedSettings as Record<string, any>)['acoustidKey'];
-    const acoustidKeyHint = acoustidKey && typeof acoustidKey === 'string'
-      ? acoustidKey.slice(-4)
-      : null;
+    const discogsTokenHint = (mergedSettings as Record<string, any>)['discogsTokenHint'] ?? null;
+    const acoustidKeyHint = (mergedSettings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
         contactString,
-        discogsTokenSet: !!discogsToken,
+        discogsTokenSet: discogsTokenHint !== null,
         discogsTokenHint,
-        acoustidKeySet: !!acoustidKey,
+        acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
         onboardingCompletedAt,
       })

@@ -107,3 +107,6 @@ export type { FormatTagMapping, TagSet } from './tags/index.js';
 export { decodeCueBytes, parseCueSheet, virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from './cue/index.js';
 
 export type { CueSheet, CueFile, CueTrack, VirtualTrack, CueCandidate } from './cue/index.js';
+
+// Credential encryption
+export { sealSecret, openSecret, isSealed, computeHint } from './crypto/secretbox.js';
