@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { useCurrentLibrary } from '../hooks';
+import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition } from '../hooks';
 import { api } from '../services/api';
 import styles from './AlbumDetailPage.module.css';
 
@@ -93,6 +93,26 @@ interface AlbumDetail {
     distance: number;
     decidedAt: string | null;
     reason: string | null;
+    releaseGroupOnly?: boolean;
+  } | null;
+  editions?: {
+    fetchedAt: string | null;
+    releaseGroupMbid: string;
+    editions: Array<{
+      releaseId: string;
+      mbid: string;
+      title: string;
+      status?: string | null;
+      date?: string | null;
+      country?: string | null;
+      barcode?: string | null;
+      packaging?: string | null;
+      labels: Array<{ name: string; catalogNumber?: string | null }>;
+      media: Array<Record<string, unknown>>;
+      trackCount: number;
+      owned: boolean;
+      ownedByOtherAlbums: number;
+    }>;
   } | null;
   tracks: DetailTrack[];
   missingTracks: { disc: number; position: number; title: string; lengthMs: number | null }[];
@@ -153,6 +173,11 @@ export function AlbumDetailPage() {
     enabled: !!libraryId && !!albumId,
   });
 
+  const { data: editions } = useAlbumEditions(libraryId, albumId);
+  const refreshEditions = useRefreshEditions(libraryId);
+  const matchAnyEdition = useMatchAnyEdition(libraryId);
+  const clearAnyEdition = useClearAnyEdition(libraryId);
+
   const reidentify = useMutation({
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify`),
     onSuccess: () => refresh(4000),
@@ -186,6 +211,12 @@ export function AlbumDetailPage() {
       setMbidInput('');
       refresh(6000);
     },
+  });
+
+  const switchEdition = useMutation({
+    mutationFn: (mbid: string) =>
+      api.post(`/libraries/${libraryId}/albums/${albumId}/match-mbid`, { input: mbid }),
+    onSuccess: () => refresh(6000),
   });
 
   const dismissGap = useMutation({
@@ -259,6 +290,11 @@ export function AlbumDetailPage() {
                 {GAP_LABEL[g.kind] ?? g.kind}
               </span>
             ))}
+            {album.match?.releaseGroupOnly && (
+              <span className={styles.provenance} style={{ backgroundColor: 'rgba(156, 39, 176, 0.2)', cursor: 'pointer' }} title="Any edition mode" onClick={() => clearAnyEdition.mutate(albumId)}>
+                any edition ✕
+              </span>
+            )}
             {album.match && (
               <span className={styles.provenance} title={album.match.reason ?? ''}>
                 {album.match.decidedBy === 'system' ? 'auto' : 'you'} · distance{' '}
@@ -559,6 +595,100 @@ export function AlbumDetailPage() {
           ))}
         </tbody>
       </table>
+
+      {editions && editions.editions.length > 0 && (
+        <div className={styles.section}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 className={styles.sectionTitle}>Editions ({editions.editions.length})</h2>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {album.match?.releaseGroupOnly && (
+                <span className={styles.provenance} style={{ fontSize: '0.9em' }}>any edition</span>
+              )}
+              {!editions.fetchedAt && (
+                <span style={{ fontSize: '0.9em', color: '#999' }}>Fetching editions from MusicBrainz…</span>
+              )}
+              {editions.fetchedAt && (
+                <button
+                  className={styles.linkButton}
+                  onClick={() => refreshEditions.mutate(albumId)}
+                  disabled={refreshEditions.isPending}
+                  style={{ fontSize: '0.9em' }}
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+          </div>
+          <table className={styles.candTable} style={{ marginTop: '12px' }}>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Country</th>
+                <th>Label / Catno</th>
+                <th>Format</th>
+                <th>Tracks</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {editions.editions.map((e) => (
+                <tr key={e.releaseId} className={e.owned ? styles.candExcluded : ''} style={e.owned ? { backgroundColor: 'rgba(76, 175, 80, 0.1)' } : {}}>
+                  <td>{e.date ?? '–'}</td>
+                  <td>{e.country ?? '–'}</td>
+                  <td>
+                    {e.labels.map((l) => (
+                      <span key={l.name}>
+                        {l.name}
+                        {l.catalogNumber && ` / ${l.catalogNumber}`}
+                      </span>
+                    )).length > 0
+                      ? e.labels.map((l) => (
+                        <span key={l.name} style={{ display: 'block', fontSize: '0.9em' }}>
+                          {l.name}
+                          {l.catalogNumber && ` / ${l.catalogNumber}`}
+                        </span>
+                      ))
+                      : '–'}
+                  </td>
+                  <td>
+                    {e.media.map((m, i) => (
+                      <span key={i} style={{ display: 'block', fontSize: '0.9em' }}>
+                        {(m as any).format}
+                        {(m as any).trackCount ? ` × ${(m as any).trackCount}` : ''}
+                      </span>
+                    ))}
+                  </td>
+                  <td className={styles.num}>{e.trackCount}</td>
+                  <td className={styles.gapActions}>
+                    {e.owned ? (
+                      <span style={{ fontSize: '0.9em', color: '#666' }}>This copy</span>
+                    ) : (
+                      <button
+                        onClick={() => switchEdition.mutate(e.mbid)}
+                        disabled={switchEdition.isPending}
+                        style={{ fontSize: '0.9em' }}
+                      >
+                        {switchEdition.isPending ? 'Queued' : 'Use this edition'}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {album.match && (
+            <div style={{ marginTop: '12px' }}>
+              <button
+                onClick={() => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId))}
+                disabled={matchAnyEdition.isPending || clearAnyEdition.isPending}
+                className={styles.linkButton}
+              >
+                {album.match.releaseGroupOnly ? 'Clear' : 'Mark'} any edition
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some(c => c.discogsReleaseId)) && (
         <div className={styles.attribution}>

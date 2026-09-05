@@ -317,6 +317,7 @@ export const releaseGroups = pgTable(
     firstReleaseDate: date('first_release_date'),
     artistCredit: jsonb('artist_credit'),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
+    editionsFetchedAt: timestamp('editions_fetched_at', { withTimezone: true }),
   },
   (table) => ({
     mbidIdx: index('idx_release_groups_mbid').on(table.mbid),

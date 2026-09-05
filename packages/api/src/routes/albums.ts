@@ -367,6 +367,68 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .where(eq(albumMatches.localAlbumId, albumId));
       const liveMatch = matchRows.find((m) => m.status === 'auto' || m.status === 'confirmed');
 
+      // Get editions if matched and release group has an mbid
+      let editions = null;
+      if (album.releaseGroupId && liveMatch) {
+        const rgRow = await db
+          .select()
+          .from(releaseGroups)
+          .where(eq(releaseGroups.id, album.releaseGroupId))
+          .limit(1);
+        if (rgRow[0]?.mbid) {
+          const editionRows = await db
+            .select({
+              id: releases.id,
+              mbid: releases.mbid,
+              title: releases.title,
+              status: releases.status,
+              date: releases.date,
+              country: releases.country,
+              barcode: releases.barcode,
+              packaging: releases.packaging,
+              labels: releases.labels,
+              media: releases.media,
+              trackCount: releases.trackCount,
+            })
+            .from(releases)
+            .where(eq(releases.releaseGroupId, album.releaseGroupId))
+            .orderBy(releases.date);
+
+          // Count other local_albums with each release (spec ENR-1)
+          const otherAlbumCounts = new Map<string, number>();
+          if (editionRows.length > 0) {
+            const countRows = await db.execute(sql`
+              select release_id, count(*)::int as cnt from local_albums
+              where release_id in ${sql`(${sql.join(editionRows.map((e) => sql`${e.id}`), sql`, `)})`}
+                and library_id = ${libraryId}
+                and id != ${albumId}
+              group by release_id
+            `) as unknown as Array<{ release_id: string; cnt: number }>;
+            countRows.forEach((row) => otherAlbumCounts.set(row.release_id, row.cnt));
+          }
+
+          editions = {
+            fetchedAt: rgRow[0].editionsFetchedAt?.toISOString() ?? null,
+            releaseGroupMbid: rgRow[0].mbid,
+            editions: editionRows.map((e) => ({
+              releaseId: e.id,
+              mbid: e.mbid,
+              title: e.title,
+              ...(e.status ? { status: e.status } : {}),
+              ...(e.date ? { date: e.date } : {}),
+              ...(e.country ? { country: e.country } : {}),
+              ...(e.barcode ? { barcode: e.barcode } : {}),
+              ...(e.packaging ? { packaging: e.packaging } : {}),
+              labels: e.labels || [],
+              media: e.media || [],
+              trackCount: e.trackCount ?? 0,
+              owned: e.id === album.releaseId,
+              ownedByOtherAlbums: otherAlbumCounts.get(e.id) ?? 0,
+            })),
+          };
+        }
+      }
+
       const art = await db
         .select({ id: images.id, origin: images.origin, license: images.licenseNote })
         .from(images)
@@ -464,8 +526,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               distance: Number(liveMatch.distance),
               decidedAt: liveMatch.decidedAt?.toISOString() ?? null,
               reason: liveMatch.reason,
+              releaseGroupOnly: liveMatch.releaseGroupOnly,
             }
           : null,
+        editions,
         tracks: trackRows
           .sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0))
           .map((t) => {
@@ -619,6 +683,237 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         singletonKey: `identify:${albumId}`,
       });
       reply.status(202).send({ ok: true });
+    }
+  );
+
+  // BRW-2: Get editions for an album (on-demand fetch with polling)
+  fastify.get(
+    '/libraries/:libraryId/albums/:albumId/editions',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      const albums = await db
+        .select()
+        .from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)))
+        .limit(1);
+      if (albums.length === 0) throw new ApiError(404, 'Not Found', 'Album not found');
+      const album = albums[0]!;
+
+      if (!album.releaseGroupId) {
+        throw new ApiError(400, 'Bad Request', 'Album has no matched release group');
+      }
+
+      const rgRows = await db
+        .select()
+        .from(releaseGroups)
+        .where(eq(releaseGroups.id, album.releaseGroupId))
+        .limit(1);
+      if (!rgRows[0]) throw new ApiError(404, 'Not Found', 'Release group not found');
+      const rg = rgRows[0]!;
+
+      if (!rg.mbid) {
+        throw new ApiError(400, 'Bad Request', 'Release group has no MusicBrainz ID');
+      }
+
+      // If editions not recently fetched, enqueue fetch (client polls while null)
+      if (!rg.editionsFetchedAt || new Date().getTime() - rg.editionsFetchedAt.getTime() > 30 * 24 * 3600 * 1000) {
+        const boss = await getBossForAlbums();
+        await boss.send('editions.fetch', { releaseGroupId: album.releaseGroupId }, { singletonKey: `editions:${rg.id}` });
+      }
+
+      const editionRows = await db
+        .select({
+          id: releases.id,
+          mbid: releases.mbid,
+          title: releases.title,
+          status: releases.status,
+          date: releases.date,
+          country: releases.country,
+          barcode: releases.barcode,
+          packaging: releases.packaging,
+          labels: releases.labels,
+          media: releases.media,
+          trackCount: releases.trackCount,
+        })
+        .from(releases)
+        .where(eq(releases.releaseGroupId, album.releaseGroupId))
+        .orderBy(releases.date);
+
+      // Count other local_albums with each release
+      const otherAlbumCounts = new Map<string, number>();
+      if (editionRows.length > 0) {
+        const countRows = await db.execute(sql`
+          select release_id, count(*)::int as cnt from local_albums
+          where release_id in ${sql`(${sql.join(editionRows.map((e) => sql`${e.id}`), sql`, `)})`}
+            and library_id = ${libraryId}
+            and id != ${albumId}
+          group by release_id
+        `) as unknown as Array<{ release_id: string; cnt: number }>;
+        countRows.forEach((row) => otherAlbumCounts.set(row.release_id, row.cnt));
+      }
+
+      reply.status(200).send({
+        fetchedAt: rg.editionsFetchedAt?.toISOString() ?? null,
+        releaseGroupMbid: rg.mbid,
+        editions: editionRows.map((e) => ({
+          releaseId: e.id,
+          mbid: e.mbid,
+          title: e.title,
+          ...(e.status ? { status: e.status } : {}),
+          ...(e.date ? { date: e.date } : {}),
+          ...(e.country ? { country: e.country } : {}),
+          ...(e.barcode ? { barcode: e.barcode } : {}),
+          ...(e.packaging ? { packaging: e.packaging } : {}),
+          labels: e.labels || [],
+          media: e.media || [],
+          trackCount: e.trackCount ?? 0,
+          owned: e.id === album.releaseId,
+          ownedByOtherAlbums: otherAlbumCounts.get(e.id) ?? 0,
+        })),
+      });
+    }
+  );
+
+  // BRW-2: Refresh editions (force re-fetch)
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/editions/refresh',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      const albums = await db
+        .select()
+        .from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)))
+        .limit(1);
+      if (albums.length === 0) throw new ApiError(404, 'Not Found', 'Album not found');
+      const album = albums[0]!;
+
+      if (!album.releaseGroupId) {
+        throw new ApiError(400, 'Bad Request', 'Album has no matched release group');
+      }
+
+      const boss = await getBossForAlbums();
+      await boss.send(
+        'editions.fetch',
+        { releaseGroupId: album.releaseGroupId, force: true },
+        { singletonKey: `editions:${album.releaseGroupId}` }
+      );
+      reply.status(202).send({ ok: true });
+    }
+  );
+
+  // IDN-3: Match at release-group level (owner chooses "any edition")
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/match-any-edition',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      // Verify album belongs to the specified library
+      const albums = await db
+        .select()
+        .from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)))
+        .limit(1);
+      if (albums.length === 0) throw new ApiError(404, 'Not Found', 'Album not found');
+
+      const matches = await db
+        .select()
+        .from(albumMatches)
+        .where(
+          and(
+            eq(albumMatches.localAlbumId, albumId),
+            sql`status in ('auto', 'confirmed')`
+          )
+        )
+        .limit(1);
+      if (matches.length === 0) throw new ApiError(404, 'Not Found', 'No live match');
+
+      const match = matches[0]!;
+      await db
+        .update(albumMatches)
+        .set({
+          releaseGroupOnly: true,
+          reason: (match.reason ? `${match.reason}; ` : '') + 'any edition (owner)',
+          decidedBy: 'user',
+        })
+        .where(eq(albumMatches.id, match.id));
+
+      reply.status(200).send({ ok: true });
+    }
+  );
+
+  // IDN-3: Clear "any edition" flag
+  fastify.delete(
+    '/libraries/:libraryId/albums/:albumId/match-any-edition',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      // Verify album belongs to the specified library
+      const albums = await db
+        .select()
+        .from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)))
+        .limit(1);
+      if (albums.length === 0) throw new ApiError(404, 'Not Found', 'Album not found');
+
+      const matches = await db
+        .select()
+        .from(albumMatches)
+        .where(
+          and(
+            eq(albumMatches.localAlbumId, albumId),
+            sql`status in ('auto', 'confirmed')`
+          )
+        )
+        .limit(1);
+      if (matches.length === 0) throw new ApiError(404, 'Not Found', 'No live match');
+
+      const match = matches[0]!;
+      const newReason = match.reason
+        ? match.reason.replace(/;\s*any edition \(owner\)$/, '')
+        : null;
+      await db
+        .update(albumMatches)
+        .set({
+          releaseGroupOnly: false,
+          reason: newReason,
+        })
+        .where(eq(albumMatches.id, match.id));
+
+      reply.status(200).send({ ok: true });
     }
   );
 

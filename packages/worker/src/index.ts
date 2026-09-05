@@ -10,6 +10,7 @@ import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbu
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
 import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
+import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetch.js';
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
@@ -39,7 +40,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -88,9 +89,15 @@ async function main() {
     for (const job of jobs) await identifySweepJob(ctx, job.data);
   });
 
-  if (wants('enrich.release')) await boss.work<EnrichReleaseJobData>('enrich.release', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await enrichReleaseJob(ctx, job.data);
-  });
+  if (wants('enrich.release')) {
+    await boss.work<EnrichReleaseJobData>('enrich.release', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await enrichReleaseJob(ctx, job.data);
+    });
+
+    await boss.work<EditionsFetchJobData>('editions.fetch', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await editionsFetchJob(ctx, job.data);
+    });
+  }
 
   if (wants('enrich.sweep')) await boss.work<EnrichSweepJobData>('enrich.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await enrichSweepJob(ctx, job.data);

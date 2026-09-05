@@ -88,6 +88,7 @@ export type {
   ProviderRateLimitState,
   DiscogsMaster,
   RateLimitInfo,
+  Edition,
 } from './providers/index.js';
 
 // Tag mapping

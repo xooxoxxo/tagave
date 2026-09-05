@@ -12,6 +12,23 @@ import type {
   CallContext,
 } from './types.js';
 
+/**
+ * Edition: a release in a release group, without track detail.
+ */
+export type Edition = {
+  mbid: string;
+  title: string;
+  disambiguation?: string | null;
+  status?: string | null;
+  date?: string | null;
+  country?: string | null;
+  barcode?: string | null;
+  packaging?: string | null;
+  labels: Array<{ name: string; catalogNumber?: string | null }>;
+  media: Array<{ position: number; format?: string | null; trackCount?: number | null }>;
+  trackCount?: number | null;
+};
+
 const MB_BASE_URL = 'https://musicbrainz.org/ws/2';
 
 /**
@@ -76,6 +93,42 @@ const ReleaseGroupSchema = z.object({
   'primary-type': z.string().nullish(),
   'secondary-types': z.array(z.string()).optional(),
   'first-release-date': z.string().nullish(),
+});
+
+/**
+ * Minimal release schema for editions list (no tracks).
+ */
+const ReleaseMinimalSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  disambiguation: z.string().nullish(),
+  status: z.string().nullish(),
+  date: z.string().nullish(),
+  country: z.string().nullish(),
+  barcode: z.string().nullish(),
+  packaging: z.string().nullish(),
+  'track-count': z.number().nullish(),
+  media: z.array(MediumSchema).optional(),
+  'label-info': z
+    .array(
+      z.object({
+        label: LabelSchema.nullish(),
+        'catalog-number': z.string().nullish(),
+      })
+    )
+    .optional(),
+});
+
+/**
+ * Release group with releases (for editions list).
+ */
+const ReleaseGroupWithReleasesSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  'primary-type': z.string().nullish(),
+  'secondary-types': z.array(z.string()).optional(),
+  'first-release-date': z.string().nullish(),
+  releases: z.array(ReleaseMinimalSchema).optional(),
 });
 
 const RelationSchema = z.object({
@@ -571,5 +624,85 @@ export class MusicBrainzProvider implements MetadataProvider {
         sourceId: rg.id,
       };
     });
+  }
+
+  /**
+   * Get release group editions (all releases in the group without track detail).
+   * Returns the release group metadata and the list of editions.
+   */
+  async getReleaseGroupEditions(
+    rgMbid: string,
+    ctx: CallContext
+  ): Promise<{ releaseGroup: { mbid: string; title: string; primaryType?: string | null; secondaryTypes?: string[]; firstReleaseDate?: string | null }; editions: Edition[] }> {
+    const url = new URL(`${MB_BASE_URL}/release-group/${rgMbid}`, 'https://musicbrainz.org');
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'releases+media+labels+artist-credits');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    const rgData = ReleaseGroupWithReleasesSchema.parse(data);
+
+    const editions: Edition[] = (rgData.releases || []).map((rel) => {
+      // Build labels array from label-info
+      const labels: Array<{ name: string; catalogNumber?: string | null }> = [];
+      if (rel['label-info']) {
+        for (const info of rel['label-info']) {
+          if (info.label?.name) {
+            labels.push({
+              name: info.label.name,
+              ...(info['catalog-number'] ? { catalogNumber: info['catalog-number'] } : {}),
+            });
+          }
+        }
+      }
+
+      // Build media array
+      const media: Array<{ position: number; format?: string | null; trackCount?: number | null }> = [];
+      if (rel.media) {
+        for (const m of rel.media) {
+          media.push({
+            position: parseInt(m.position ?? '0', 10),
+            ...(m.format ? { format: m.format } : {}),
+            ...(m['track-count'] ? { trackCount: m['track-count'] } : {}),
+          });
+        }
+      }
+
+      return {
+        mbid: rel.id,
+        title: rel.title,
+        ...(rel.disambiguation ? { disambiguation: rel.disambiguation } : {}),
+        ...(rel.status ? { status: rel.status } : {}),
+        ...(rel.date ? { date: rel.date } : {}),
+        ...(rel.country ? { country: rel.country } : {}),
+        ...(rel.barcode ? { barcode: rel.barcode } : {}),
+        ...(rel.packaging ? { packaging: rel.packaging } : {}),
+        labels,
+        media,
+        ...(rel['track-count'] ? { trackCount: rel['track-count'] } : {}),
+      };
+    });
+
+    return {
+      releaseGroup: {
+        mbid: rgData.id,
+        title: rgData.title,
+        ...(rgData['primary-type'] ? { primaryType: rgData['primary-type'] } : {}),
+        ...(rgData['secondary-types'] ? { secondaryTypes: rgData['secondary-types'] } : {}),
+        ...(rgData['first-release-date'] ? { firstReleaseDate: rgData['first-release-date'] } : {}),
+      },
+      editions,
+    };
   }
 }

@@ -182,3 +182,74 @@ export function useEnrichSweep(libraryId: string | undefined) {
     },
   });
 }
+
+export interface Edition {
+  releaseId: string;
+  mbid: string;
+  title: string;
+  disambiguation?: string;
+  status?: string | null;
+  date?: string | null;
+  country?: string | null;
+  barcode?: string | null;
+  packaging?: string | null;
+  labels: Array<{ name: string; catalogNumber?: string | null }>;
+  media: Array<{ position?: string | number | null; format?: string | null; trackCount?: number | null }>;
+  trackCount: number;
+  owned: boolean;
+  ownedByOtherAlbums: number;
+}
+
+export interface EditionsData {
+  fetchedAt: string | null;
+  releaseGroupMbid: string;
+  editions: Edition[];
+}
+
+export function useAlbumEditions(libraryId: string | undefined, albumId: string | undefined) {
+  return useQuery({
+    queryKey: [...ALBUMS_QUERY_KEY, libraryId, 'editions', albumId],
+    queryFn: () => api.get<EditionsData>(`/libraries/${libraryId}/albums/${albumId}/editions`),
+    enabled: !!libraryId && !!albumId,
+    refetchInterval: (query) => {
+      const data = query.state.data as EditionsData | undefined;
+      return data?.fetchedAt ? false : 3000; // Poll every 3s while null
+    },
+  });
+}
+
+export function useRefreshEditions(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (albumId: string) =>
+      api.post(`/libraries/${libraryId}/albums/${albumId}/editions/refresh`),
+    onSuccess: (_, albumId) => {
+      queryClient.invalidateQueries({ queryKey: [...ALBUMS_QUERY_KEY, libraryId, 'editions', albumId] });
+    },
+  });
+}
+
+export function useMatchAnyEdition(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (albumId: string) =>
+      api.post(`/libraries/${libraryId}/albums/${albumId}/match-any-edition`),
+    onSuccess: (_, albumId) => {
+      queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+    },
+  });
+}
+
+export function useClearAnyEdition(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (albumId: string) =>
+      api.delete(`/libraries/${libraryId}/albums/${albumId}/match-any-edition`),
+    onSuccess: (_, albumId) => {
+      queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+    },
+  });
+}

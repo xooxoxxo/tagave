@@ -26,6 +26,7 @@ export type {
 } from './types.js';
 
 export { MusicBrainzProvider, extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations } from './musicbrainz.js';
+export type { Edition } from './musicbrainz.js';
 export {
   DiscogsProvider,
   parseDiscogsDuration,
