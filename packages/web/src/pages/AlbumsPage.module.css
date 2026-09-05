@@ -242,3 +242,7 @@
   font-variant-numeric: tabular-nums;
   z-index: 1;
 }
+
+.kindTag {
+  color: var(--text-tertiary);
+}

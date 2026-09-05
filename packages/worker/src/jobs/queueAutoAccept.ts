@@ -30,12 +30,15 @@ export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcce
     const inBand = cands
       .map((c) => ({ ...c, dist: Number(c.distance) }))
       .filter((c) => c.dist <= MATCHING_THRESHOLDS.medium);
+    if (inBand.length === 0) continue;
     const pick = pickByChipRule(
       inBand.map((c) => ({ breakdown: c.breakdown as Record<string, unknown>, distance: c.dist })),
     );
-    if (pick < 0) continue;
-    const chosen = inBand[pick]!;
+    // Chip-rule winner when there is one; otherwise the owner's standing
+    // policy: take the best candidate in the band (2026-09-05).
+    const chosen = pick >= 0 ? inBand[pick]! : [...inBand].sort((a, b) => a.dist - b.dist)[0]!;
     const cc = chipCounts(chosen.breakdown as Record<string, unknown>);
+    const kind = pick >= 0 ? 'chip-rule auto-accept (queue sweep)' : 'first-candidate auto-accept (queue sweep)';
 
     await ctx.sql`
       update album_matches set status = 'rejected', reason = 'superseded by chip-rule auto-accept'
@@ -47,7 +50,7 @@ export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcce
       distance: chosen.dist.toFixed(4),
       status: 'auto',
       decidedBy: 'system',
-      reason: `chip-rule auto-accept (queue sweep): ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.dist.toFixed(4)})`,
+      reason: `${kind}: ${cc.greens} green, ${cc.yellows} yellow, ${cc.reds} red (distance ${chosen.dist.toFixed(4)})`,
     });
     const rgRow = await ctx.db
       .select({ rgId: releases.releaseGroupId })

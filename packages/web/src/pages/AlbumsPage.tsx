@@ -19,6 +19,7 @@ export function AlbumsPage() {
   const [limit] = useState(50);
   const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'added_date'>('artist');
   const [stateFilter, setStateFilter] = useState('all');
+  const [decided, setDecided] = useState('all');
 
   const filterOptions: AlbumsFilterOptions = {
     offset,
@@ -26,6 +27,7 @@ export function AlbumsPage() {
     ...(searchQuery && { search: searchQuery }),
     ...(artistFilter && { artist: artistFilter }),
     ...(stateFilter !== 'all' && { filter: stateFilter }),
+    ...(decided !== 'all' && { decided }),
     sort,
   };
 
@@ -75,6 +77,19 @@ export function AlbumsPage() {
           <option value="needs_review">Needs review</option>
           <option value="unidentified">Unidentified</option>
           <option value="as_is">Kept as-is</option>
+        </select>
+        <select
+          className={styles.select}
+          value={decided}
+          onChange={(e) => { setDecided(e.target.value); setOffset(0); }}
+          title="How the match was decided"
+        >
+          <option value="all">Any match kind</option>
+          <option value="auto_strong">Auto (strong)</option>
+          <option value="chip_rule">Auto (chip rule)</option>
+          <option value="first_candidate">Auto (first candidate)</option>
+          <option value="by_me">Accepted by me</option>
+          <option value="manual_mbid">Manual MBID</option>
         </select>
       </header>
 
@@ -140,6 +155,11 @@ export function AlbumsPage() {
                     </p>
                     <p className={styles.albumStats}>
                       {album.trackCount} tracks
+                      {album.matchKind && album.matchKind !== 'auto_strong' && (
+                        <span className={styles.kindTag}>
+                          {{ chip_rule: ' · chips', first_candidate: ' · 1st cand', by_me: ' · me', manual_mbid: ' · mbid' }[album.matchKind] ?? ''}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>

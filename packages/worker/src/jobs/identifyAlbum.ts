@@ -364,6 +364,33 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
         .where(eq(localAlbums.id, album.id));
       return;
     }
+    // Owner policy (2026-09-05): the top candidate in the band is what the
+    // owner accepts by hand anyway — take it; mismatches surface via gaps
+    // and the grid's match-kind filter instead of the queue.
+    if (best && bestDb) {
+      const cc2 = chipCounts(best.breakdown);
+      await ctx.db.insert(albumMatches).values({
+        libraryId: album.libraryId,
+        localAlbumId: album.id,
+        releaseId: bestDb,
+        distance: best.distance.toFixed(4),
+        status: 'auto',
+        decidedBy: 'system',
+        reason: `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`,
+      });
+      const rgRow3 = await ctx.db
+        .select({ rgId: releases.releaseGroupId })
+        .from(releases).where(eq(releases.id, bestDb)).limit(1);
+      await ctx.db.update(localAlbums)
+        .set({
+          state: 'matched',
+          releaseId: bestDb,
+          releaseGroupId: rgRow3[0]?.rgId ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(localAlbums.id, album.id));
+      return;
+    }
     await ctx.db.update(localAlbums)
       .set({ state: 'needs_review', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));

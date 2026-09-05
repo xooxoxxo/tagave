@@ -40,6 +40,7 @@ export interface AlbumsFilterOptions {
   search?: string;
   sort?: 'added_date' | 'added' | 'title' | 'artist' | 'year' | 'rating' | 'listened';
   filter?: string;
+  decided?: string;
   order?: 'asc' | 'desc';
   // M1+: will add filter support for identification state, format, etc
 }
@@ -55,6 +56,7 @@ export function useAlbums(libraryId: string | undefined, options: AlbumsFilterOp
       if (options.artist) params.set('artist', options.artist);
       if (options.sort) params.set('sort', options.sort);
       if (options.filter) params.set('filter', options.filter);
+      if (options.decided) params.set('decided', options.decided);
       if (options.order) params.set('order', options.order);
       return api.get<{ items: AlbumSummary[]; nextCursor: string | null }>(`/libraries/${libraryId}/albums?${params}`);
     },

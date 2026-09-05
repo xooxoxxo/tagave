@@ -27,7 +27,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search } =
+    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search, decided } =
       request.query as Record<string, string>;
 
     const db = getDb();
@@ -53,6 +53,23 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       );
     }
     if (filter && filter !== 'all') conds.push(eq(localAlbums.state, filter));
+    // Match provenance filter: how the live match was decided (owner audits
+    // auto-accepts here, then fixes folders with duplicate-file mismatches).
+    const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
+      auto_strong: sql`am.decided_by = 'system' and am.reason like 'auto-accept:%'`,
+      chip_rule: sql`am.decided_by = 'system' and am.reason like 'chip-rule%'`,
+      first_candidate: sql`am.decided_by = 'system' and am.reason like 'first-candidate%'`,
+      by_me: sql`am.decided_by = 'user' and am.reason not like 'manual MBID%'`,
+      manual_mbid: sql`am.reason like 'manual MBID%'`,
+    };
+    const decidedClause = decided ? DECIDED_CLAUSES[decided] : undefined;
+    if (decided && decidedClause) {
+      conds.push(sql`exists (
+        select 1 from album_matches am
+        where am.local_album_id = ${localAlbums.id}
+          and am.status in ('auto', 'confirmed')
+          and ${decidedClause})`);
+    }
     const orderings: Record<string, ReturnType<typeof sql>> = {
       artist: sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`,
       title: sql`lower(coalesce(title_guess, '')), lower(coalesce(artist_guess, ''))`,
@@ -98,6 +115,25 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               ))
           : [];
         const flagged = new Set(gapRows.map((g) => g.subjectId));
+        const matchRows = albums.length
+          ? ((await db.execute(sql`
+              select distinct on (local_album_id) local_album_id, decided_by, reason
+              from album_matches
+              where local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
+                and status in ('auto', 'confirmed')
+              order by local_album_id, decided_at desc nulls last`)) as unknown as {
+              local_album_id: string; decided_by: string; reason: string | null;
+            }[])
+          : [];
+        const kindOf = (r: { decided_by: string; reason: string | null }): string => {
+          const reason = r.reason ?? '';
+          if (reason.startsWith('manual MBID')) return 'manual_mbid';
+          if (reason.startsWith('chip-rule')) return 'chip_rule';
+          if (reason.startsWith('first-candidate')) return 'first_candidate';
+          if (r.decided_by === 'user') return 'by_me';
+          return 'auto_strong';
+        };
+        const matchKind = new Map(matchRows.map((r) => [r.local_album_id, kindOf(r)]));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
@@ -110,6 +146,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         trackCount: album.trackCount ?? 0,
         canonicalTrackCount: (album.releaseId && canonCount.get(album.releaseId)) || null,
         needsAttention: flagged.has(album.id) || (!!album.releaseGroupId && flagged.has(album.releaseGroupId)),
+        matchKind: matchKind.get(album.id) ?? null,
         totalDurationMs: album.totalDurationMs ?? 0,
         coverUrl: withArt.has(album.id) ? `/api/v1/images/album/${album.id}` : null,
         ...(album.releaseId ? { releaseId: album.releaseId } : {}),
