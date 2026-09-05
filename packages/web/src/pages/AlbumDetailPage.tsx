@@ -17,6 +17,8 @@ interface DetailTrack {
   trackNo: number | null;
   title: string | null;
   durationMs: number | null;
+  origin: string;
+  cueStartMs: number | null;
   canonicalTitle: string | null;
   canonicalDurationMs: number | null;
   file: {
@@ -66,6 +68,8 @@ interface AlbumDetail {
   totalDurationMs: number | null;
   coverUrl: string | null;
   coverOrigin: string | null;
+  isCueImage: boolean;
+  cueRelPath: string | null;
   release: {
     mbid: string | null;
     title: string;
@@ -263,6 +267,7 @@ export function AlbumDetailPage() {
               </span>
             )}
             {album.coverOrigin && <span className={styles.provenance}>cover: {album.coverOrigin}</span>}
+            {album.isCueImage && <span className={styles.provenance} title={album.cueRelPath ?? ''}>Cue image</span>}
             {album.release?.mbid && (
               <a
                 className={styles.mbLink}
@@ -532,6 +537,9 @@ export function AlbumDetailPage() {
               </td>
               <td className={durationDrift(t) ? styles.durDrift : styles.num}>
                 {dur(t.durationMs)}
+                {t.origin === 'cue' && t.cueStartMs !== null && (
+                  <span> @ {dur(t.cueStartMs)}</span>
+                )}
               </td>
               {album.release && (
                 <td className={styles.num}>{dur(t.canonicalDurationMs)}</td>

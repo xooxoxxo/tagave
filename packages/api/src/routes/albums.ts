@@ -171,6 +171,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           title: localTracks.titleGuess,
           artist: localTracks.artistGuess,
           durationMs: localTracks.durationMs,
+          origin: localTracks.origin,
+          cueStartMs: localTracks.cueStartMs,
+          cueRelPath: localTracks.cueRelPath,
           fileId: audioFiles.id,
           relPath: audioFiles.relPath,
           container: audioFiles.container,
@@ -397,6 +400,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           lengthMs: c['lengthMs'] ?? null,
         }));
 
+      const isCueImage = trackRows.some((t) => t.origin === 'cue');
+      const cueRelPath = trackRows.find((t) => t.origin === 'cue')?.cueRelPath ?? null;
+
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
@@ -411,6 +417,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         totalDurationMs: album.totalDurationMs,
         coverUrl: art[0] ? `/api/v1/images/album/${album.id}` : null,
         coverOrigin: art[0]?.origin ?? null,
+        isCueImage,
+        cueRelPath,
         release,
         match: liveMatch
           ? {
@@ -434,6 +442,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               title: t.title,
               artist: t.artist,
               durationMs: t.durationMs,
+              origin: t.origin,
+              cueStartMs: t.cueStartMs,
               canonicalTitle: (canon?.['title'] as string) ?? null,
               canonicalDurationMs: (canon?.['lengthMs'] as number) ?? null,
               file: {

@@ -1,6 +1,9 @@
+import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, localAlbums, localTracks } from '@liner/db';
+import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@liner/db';
+import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
+import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {
   clusterKey, discDirNumber, extractYear, extOf, normKey,
   relBasename, relDirname, titleFromName, trackNoFromName,
@@ -29,6 +32,11 @@ interface FileRow {
   durationMs: number | null;
   format: string;
   tags: FileTags;
+  virtual?: {
+    tracks: VirtualTrack[];
+    cueRelPath: string;
+    sheet: CueSheet;
+  };
 }
 
 function tagsOf(tagsRaw: unknown): FileTags {
@@ -97,6 +105,74 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   }
   if (inScope.length === 0) return;
 
+  // Load and parse cue files (spec XO-314). Get scan root path for file I/O.
+  const roots = await ctx.db
+    .select({ id: scanRoots.id, path: scanRoots.path })
+    .from(scanRoots)
+    .where(eq(scanRoots.id, data.scanRootId));
+  const rootPath = roots[0]?.path;
+
+  if (rootPath) {
+    const scopeDirs = [...new Set(inScope.map((f) => relDirname(f.relPath)))];
+    const prefix = scope === '' ? '' : scope + '/';
+    const cueSidecars = await ctx.db
+      .select({ relPath: sidecarFiles.relPath })
+      .from(sidecarFiles)
+      .where(and(
+        eq(sidecarFiles.scanRootId, data.scanRootId),
+        eq(sidecarFiles.kind, 'cue'),
+        prefix === '' ? undefined : like(sidecarFiles.relPath, prefix.replaceAll('%', '\\%').replaceAll('_', '\\_') + '%'),
+      ));
+
+    // Parse cues, filtering to scope dirs
+    const cueInfos: Array<{ relPath: string; sheet: CueSheet }> = [];
+    for (const sc of cueSidecars) {
+      const cueDir = relDirname(sc.relPath);
+      if (!scopeDirs.includes(cueDir)) continue;
+
+      // Try to read with NFC/NFD variants (like openVariant in artFetch.ts)
+      let bytes: Buffer | null = null;
+      for (const cand of [sc.relPath, sc.relPath.normalize('NFD'), sc.relPath.normalize('NFC')]) {
+        try {
+          await access(rootPath + '/' + cand);
+          bytes = await readFile(rootPath + '/' + cand);
+          break;
+        } catch { /* try next */ }
+      }
+
+      if (!bytes) {
+        ctx.logger.warn({ cue: sc.relPath }, 'cue file not accessible');
+        continue;
+      }
+
+      try {
+        const sheet = parseCueSheet(bytes);
+        cueInfos.push({ relPath: sc.relPath, sheet });
+      } catch (err) {
+        ctx.logger.warn({ cue: sc.relPath, error: String(err) }, 'failed to parse cue sheet');
+      }
+    }
+
+    // Expand files with cues
+    if (cueInfos.length > 0) {
+      const expanded = expandFilesWithCues(inScope, cueInfos);
+      for (const [fileId, cueData] of expanded) {
+        const f = inScope.find((x) => x.id === fileId);
+        if (f) {
+          f.virtual = cueData;
+          ctx.logger.info(
+            {
+              relPath: f.relPath,
+              cue: cueData.cueRelPath,
+              tracks: cueData.tracks.length,
+            },
+            'expanded file with cue sheet',
+          );
+        }
+      }
+    }
+  }
+
   // Owner overrides pin files to albums regardless of rules (IDN-4).
   const overrides = await ctx.db
     .select({ audioFileId: clusterOverrides.audioFileId, localAlbumId: clusterOverrides.localAlbumId })
@@ -109,16 +185,18 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // artists, no albumartist) stay one cluster instead of one per artist —
   // same >3-distinct-artists rule the 2026-08 archive cleanup validated on
   // this collection (M0 decisions doc).
+  // Cue sheet title serves as album when file has no tag (spec XO-314).
   interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string> }
   const byAlbum = new Map<string, FileRow[]>();
   const loose: FileRow[] = [];
   for (const f of inScope) {
     if (pinned.has(f.id)) continue;
-    if (!f.tags.album) {
+    const albumTag = f.tags.album ?? (f.virtual?.sheet.title ?? null);
+    if (!albumTag) {
       loose.push(f);
       continue;
     }
-    const albumKey = normKey(f.tags.album);
+    const albumKey = normKey(albumTag);
     const arr = byAlbum.get(albumKey);
     if (arr) arr.push(f);
     else byAlbum.set(albumKey, [f]);
@@ -160,27 +238,33 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     const dirPaths = [...g.dirs].sort();
     const ckey = clusterKey(data.libraryId, dirPaths, g.albumKey, g.artistKey);
 
-    const sample = g.files.find((f) => f.tags.album) as FileRow;
+    const sample = g.files.find((f) => f.tags.album) ?? g.files[0]!;
     const discNos = new Set<number>();
     let totalDuration = 0;
     const formats = new Set<string>();
+    let trackCount = 0;
     for (const f of g.files) {
       const parentDisc = discDirNumber(relBasename(relDirname(f.relPath)));
-      discNos.add(f.tags.disc ?? parentDisc ?? 1);
+      // Disc number: cue sheet > file tag > parent disc dir > 1
+      const sheetDisc = f.virtual?.sheet.discNumber ?? null;
+      discNos.add(sheetDisc ?? f.tags.disc ?? parentDisc ?? 1);
       totalDuration += f.durationMs ?? 0;
       formats.add(f.format);
+      // Track count: sum of virtual tracks per file, or 1 if plain file
+      trackCount += f.virtual ? f.virtual.tracks.length : 1;
     }
 
     const albumValues = {
-      titleGuess: sample.tags.album,
+      titleGuess: sample.tags.album ?? sample.virtual?.sheet.title ?? null,
       artistGuess: g.artistKey === 'various artists' && !sample.tags.albumartist
         ? 'Various Artists'
-        : sample.tags.albumartist ?? sample.tags.artist ?? null,
+        : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
       yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
+        ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null)
         ?? extractYear(relBasename(dirPaths[0] ?? '')) ?? null,
       dirPaths,
       discCount: discNos.size,
-      trackCount: g.files.length,
+      trackCount,
       totalDurationMs: totalDuration,
       formats: [...formats].sort(),
       updatedAt: new Date(),
@@ -246,11 +330,46 @@ function toFileRow(r: { id: string; relPath: string; durationMs: number | null; 
 
 async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: FileRow[]): Promise<void> {
   await ctx.db.delete(localTracks).where(inArray(localTracks.audioFileId, files.map((f) => f.id)));
-  await ctx.db.insert(localTracks).values(
-    files.map((f) => {
-      const name = relBasename(f.relPath);
-      const parentDisc = discDirNumber(relBasename(relDirname(f.relPath)));
-      return {
+
+  const rows: Array<{
+    localAlbumId: string | null;
+    audioFileId: string;
+    discNo: number | null;
+    trackNo: number | null;
+    titleGuess: string | null;
+    artistGuess: string | null;
+    durationMs: number | null;
+    state: string;
+    origin?: string;
+    cueStartMs?: number | null;
+    cueRelPath?: string | null;
+  }> = [];
+
+  for (const f of files) {
+    const name = relBasename(f.relPath);
+    const parentDisc = discDirNumber(relBasename(relDirname(f.relPath)));
+
+    if (f.virtual) {
+      // Virtual tracks: one row per track from the cue sheet
+      const vt = f.virtual;
+      for (const track of vt.tracks) {
+        rows.push({
+          localAlbumId: albumId,
+          audioFileId: f.id,
+          discNo: vt.sheet.discNumber ?? f.tags.disc ?? parentDisc ?? null,
+          trackNo: track.number,
+          titleGuess: track.title ?? `Track ${track.number}`,
+          artistGuess: track.performer ?? f.tags.artist ?? f.tags.albumartist ?? null,
+          durationMs: track.durationMs,
+          origin: 'cue',
+          cueStartMs: track.startMs,
+          cueRelPath: vt.cueRelPath,
+          state: 'unmatched',
+        });
+      }
+    } else {
+      // Plain file: one row
+      rows.push({
         localAlbumId: albumId,
         audioFileId: f.id,
         discNo: f.tags.disc ?? parentDisc ?? null,
@@ -259,7 +378,11 @@ async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: 
         artistGuess: f.tags.artist ?? f.tags.albumartist ?? null,
         durationMs: f.durationMs,
         state: 'unmatched',
-      };
-    }),
-  );
+      });
+    }
+  }
+
+  if (rows.length > 0) {
+    await ctx.db.insert(localTracks).values(rows);
+  }
 }

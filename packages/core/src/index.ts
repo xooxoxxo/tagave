@@ -101,3 +101,8 @@ export {
 } from './tags/index.js';
 
 export type { FormatTagMapping, TagSet } from './tags/index.js';
+
+// CUE sheets
+export { decodeCueBytes, parseCueSheet, virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from './cue/index.js';
+
+export type { CueSheet, CueFile, CueTrack, VirtualTrack, CueCandidate } from './cue/index.js';

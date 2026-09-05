@@ -63,15 +63,29 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       order by best.min_distance asc nulls last, la.created_at asc
       limit ${limitN + 1} offset ${offsetN}`) as unknown as Record<string, unknown>[];
 
+    const totalRows = await db.execute(sql`
+      select count(*)::int as n from local_albums
+      where library_id = ${libraryId} and state = 'needs_review'`) as unknown as { n: number }[];
+    const total = totalRows[0]?.n ?? 0;
+
     const page = albums.slice(0, limitN);
     const albumIds = page.map((a) => a['id'] as string);
     if (albumIds.length === 0) {
-      reply.send({ items: [], nextCursor: null });
+      reply.send({ items: [], nextCursor: null, total });
       return;
     }
 
     const tracks = await db
-      .select()
+      .select({
+        id: localTracks.id,
+        localAlbumId: localTracks.localAlbumId,
+        discNo: localTracks.discNo,
+        trackNo: localTracks.trackNo,
+        titleGuess: localTracks.titleGuess,
+        durationMs: localTracks.durationMs,
+        origin: localTracks.origin,
+        cueStartMs: localTracks.cueStartMs,
+      })
       .from(localTracks)
       .where(inArray(localTracks.localAlbumId, albumIds));
 
@@ -120,6 +134,8 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
           trackNo: t.trackNo,
           title: t.titleGuess,
           durationMs: t.durationMs,
+          origin: t.origin,
+          cueStartMs: t.cueStartMs,
         })),
       candidates: cands
         .filter((c) => c.localAlbumId === a['id'] && !c.excluded)
@@ -143,7 +159,7 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
         })),
     }));
 
-    reply.send({ items, nextCursor: albums.length > limitN ? String(offsetN + limitN) : null });
+    reply.send({ items, nextCursor: albums.length > limitN ? String(offsetN + limitN) : null, total });
   });
 
   /** Accept a candidate (IDN-4 Enter): confirmed match, decided by user. */

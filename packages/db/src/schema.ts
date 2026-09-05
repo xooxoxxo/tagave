@@ -238,10 +238,14 @@ export const localTracks = pgTable(
     recordingId: uuid('recording_id'),
     matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
     state: varchar({ length: 20 }).default('unmatched'),
+    origin: varchar({ length: 10 }).notNull().default('file'),
+    cueStartMs: integer('cue_start_ms'),
+    cueRelPath: varchar('cue_rel_path', { length: 2048 }),
   },
   (table) => ({
     albumIdx: index('idx_local_tracks_album').on(table.localAlbumId),
     audioFileIdx: index('idx_local_tracks_audio_file').on(table.audioFileId),
+    originCheck: check('origin_check', sql`origin in ('file', 'cue')`),
   })
 );
 
