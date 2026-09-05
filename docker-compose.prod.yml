@@ -1,0 +1,41 @@
+services:
+  postgres:
+    image: postgres:16
+    command: postgres -c max_connections=300
+    environment:
+      POSTGRES_USER: liner
+      POSTGRES_PASSWORD: liner
+      POSTGRES_DB: liner
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liner"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/app.Dockerfile
+    environment:
+      DATABASE_URL: postgres://liner:liner@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
+      ALLOW_INSECURE_HTTP: "true"
+      NODE_ENV: production
+    volumes:
+      - cache:/cache
+    ports:
+      - "3100:3000"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  cache:
