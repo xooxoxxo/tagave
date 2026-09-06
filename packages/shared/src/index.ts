@@ -67,6 +67,35 @@ export {
   type MetadataDiff,
 } from './album.js';
 
+// Reviews and listens (REV-1..3)
+export {
+  listenFormatSchema,
+  type ListenFormat,
+  ownRatingSchema,
+  putOwnReviewSchema,
+  type PutOwnReview,
+  ownReviewSchema,
+  type OwnReview,
+  reviewRevisionSchema,
+  type ReviewRevision,
+  createListenSchema,
+  type CreateListen,
+  listenSchema,
+  type Listen,
+  createClippingSchema,
+  type CreateClipping,
+  clippingSchema,
+  type Clipping,
+  externalReviewSourceSchema,
+  type ExternalReviewSource,
+  externalReviewSchema,
+  type ExternalReview,
+  reviewLinkSchema,
+  type ReviewLink,
+  reviewsBundleSchema,
+  type ReviewsBundle,
+} from './review.js';
+
 // Jobs and SSE events
 export {
   jobTypeSchema,

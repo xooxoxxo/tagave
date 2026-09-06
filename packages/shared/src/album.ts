@@ -65,6 +65,8 @@ export const albumSummarySchema = z.object({
   canonicalTrackCount: z.number().int().nonnegative().nullish().describe('Tracks on the matched release'),
   coverUrl: z.string().url().nullable().optional().describe('Cover art URL (300px thumbnail)'),
   hasReview: z.boolean().optional().describe('Owner has written a review'),
+  ownRating: z.number().min(0.5).max(5).nullish().describe('Owner rating, half-star steps (REV-3)'),
+  lastListenedAt: z.string().datetime().nullish().describe('Most recent listen entry (REV-3)'),
   isPhysicallyOwned: z.boolean().optional().describe('In the Discogs collection'),
   isDuplicate: z.boolean().optional().describe('Another local album matched to the same release group'),
   qualityFlags: z.array(qualityFlagSchema).optional().describe('Lint/quality issues'),
