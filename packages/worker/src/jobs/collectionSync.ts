@@ -217,18 +217,11 @@ async function doMapping(ctx: WorkerContext, jobRunId: string | null, libraryId:
 
   let mapped = 0;
   const methods = new Map<string, number>();
-  const providers = await (async () => {
-    const libRows = await ctx.db.select().from(libraries).where(eq(libraries.id, libraryId));
-    if (libRows.length === 0) throw new Error('Library not found for mapping');
-    const lib = libRows[0]!;
-    const settings = typeof lib.settings === 'string' ? JSON.parse(lib.settings) : (lib.settings ?? {});
-    const discogsTokenSealed = (settings as Record<string, any>)['discogsToken'];
-    const appSecret = process.env.APP_SECRET;
-    if (!appSecret) throw new Error('APP_SECRET not set');
-    if (!discogsTokenSealed) throw new Error('Discogs token not configured');
-    const discogsToken = openSecret(discogsTokenSealed, appSecret);
-    return getProviders({ discogsToken });
-  })();
+  // Same loader as the pull phase: opens the sealed token and carries the
+  // contact string; mapping only needs Discogs for the release fetch and
+  // MusicBrainz for the URL lookup.
+  const providerSettings = await libraryProviderSettings(ctx, libraryId);
+  const providers = getProviders(providerSettings);
 
   for (const item of unmapped) {
     // Step (a): Try direct release_id lookup
