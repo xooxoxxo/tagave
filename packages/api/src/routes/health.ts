@@ -16,11 +16,13 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
     }
 
     try {
+      // Local checks only: a health probe must never spend MusicBrainz /
+      // Discogs budget (uptime monitors poll this every few seconds).
       const result = await runDoctor({
         databaseUrl,
         ...(process.env.CACHE_DIR ? { cacheDir: process.env.CACHE_DIR } : {}),
         expectWorkers: 2,
-        offline: false,
+        offline: true,
       });
 
       // Extract individual check results

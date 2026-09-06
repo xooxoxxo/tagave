@@ -575,15 +575,15 @@ export async function checkProviders(
           id: 'providers',
           title: 'Providers',
           status: 'warn',
-          detail: `${checks.filter((c) => c.status !== 'skip').map((c) => c.name).join(', ')} (warnings present)`,
+          detail: checks.filter((c) => c.status !== 'skip').map((c) => `${c.name}: ${c.detail}`).join('; '),
           durationMs: Date.now() - start,
         };
       }
 
       const checkDetails = checks
         .filter((c) => c.status !== 'skip')
-        .map((c) => c.name)
-        .join(', ');
+        .map((c) => `${c.name}: ${c.detail}`)
+        .join('; ');
 
       return {
         id: 'providers',
