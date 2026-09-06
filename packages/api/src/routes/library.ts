@@ -3,7 +3,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { libraries, scanRoots, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
-import PgBoss from 'pg-boss';
+import { getBoss } from '../boss.js';
 import { sealSecret, computeHint } from '@liner/core';
 import {
   createScanRootSchema,
@@ -14,15 +14,6 @@ import {
   patchLibrarySettingsSchema,
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
-
-let bossSingleton: PgBoss | null = null;
-async function getBoss(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-  }
-  return bossSingleton;
-}
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Get library settings (spec PLT-4)
@@ -241,45 +232,6 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         pending: albumStats?.['pending'] ?? 0,
         unidentified: albumStats?.['unidentified'] ?? 0,
       },
-    });
-  });
-
-  // Artists derived from local clusters (M0 grade; canonical artists in M1)
-  fastify.get('/:libraryId/artists', async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
-    const { libraryId } = request.params as { libraryId: string };
-    const { search = '', limit = '100', offset = '0' } = request.query as Record<string, string>;
-    const db = getDb();
-    const lib = await db.select().from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
-    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-
-    const limitN = Math.min(parseInt(limit, 10) || 100, 500);
-    const offsetN = parseInt(offset, 10) || 0;
-    const rows = await db.execute(sql`
-      select artist_guess as name,
-             count(*)::int as album_count,
-             coalesce(sum(track_count), 0)::int as track_count,
-             min(year_guess)::int as year_from,
-             max(year_guess)::int as year_to
-      from local_albums
-      where library_id = ${libraryId}
-        and artist_guess is not null
-        ${search ? sql`and artist_guess ilike ${'%' + search + '%'}` : sql``}
-      group by artist_guess
-      order by lower(artist_guess)
-      limit ${limitN + 1} offset ${offsetN}`) as unknown as Record<string, unknown>[];
-
-    const items = rows.slice(0, limitN).map((r) => ({
-      name: r['name'],
-      albumCount: r['album_count'],
-      trackCount: r['track_count'],
-      yearFrom: r['year_from'],
-      yearTo: r['year_to'],
-    }));
-    reply.send({
-      items,
-      nextCursor: rows.length > limitN ? String(offsetN + limitN) : null,
     });
   });
 

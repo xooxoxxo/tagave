@@ -8,21 +8,10 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, desc } from 'drizzle-orm';
-import PgBoss from 'pg-boss';
 import { libraries, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
+import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-
-let bossSingleton: PgBoss | null = null;
-async function getBoss(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-    await bossSingleton.createQueue('identify.album');
-    await bossSingleton.createQueue('identify.sweep');
-  }
-  return bossSingleton;
-}
 
 /** G1 (spec §2): 95% of albums identified by day 30 of the library's life. */
 const G1_SHARE = 0.95;

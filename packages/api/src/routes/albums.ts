@@ -4,19 +4,9 @@ import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
 } from '@liner/db';
-import PgBoss from 'pg-boss';
 import { parseDiscogsRef } from '@liner/core';
-
-let bossSingleton: PgBoss | null = null;
-async function getBossForAlbums(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-    await bossSingleton.createQueue('identify.album');
-  }
-  return bossSingleton;
-}
 import { getDb } from '../db.js';
+import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -800,7 +790,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .from(libraries)
         .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-      const boss = await getBossForAlbums();
+      const boss = await getBoss();
       await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
       reply.status(202).send({ ok: true });
     }
@@ -827,7 +817,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           .from(libraries)
           .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
         if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-        const boss = await getBossForAlbums();
+        const boss = await getBoss();
         await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
           singletonKey: `identify:${albumId}`,
         });
@@ -844,7 +834,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           .from(libraries)
           .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
         if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-        const boss = await getBossForAlbums();
+        const boss = await getBoss();
         await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedDiscogs: discogsRef }, {
           singletonKey: `identify:${albumId}`,
         });
@@ -869,7 +859,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .from(libraries)
         .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-      const boss = await getBossForAlbums();
+      const boss = await getBoss();
       await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
         singletonKey: `identify:${albumId}`,
       });
@@ -918,7 +908,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
       // If editions not recently fetched, enqueue fetch (client polls while null)
       if (!rg.editionsFetchedAt || new Date().getTime() - rg.editionsFetchedAt.getTime() > 30 * 24 * 3600 * 1000) {
-        const boss = await getBossForAlbums();
+        const boss = await getBoss();
         await boss.send('editions.fetch', { releaseGroupId: album.releaseGroupId }, { singletonKey: `editions:${rg.id}` });
       }
 
@@ -1001,7 +991,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', 'Album has no matched release group');
       }
 
-      const boss = await getBossForAlbums();
+      const boss = await getBoss();
       await boss.send(
         'editions.fetch',
         { releaseGroupId: album.releaseGroupId, force: true },

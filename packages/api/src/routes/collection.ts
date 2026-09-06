@@ -3,22 +3,10 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   libraries, collectionSources, collectionItems, releases, releaseGroups, localAlbums,
 } from '@liner/db';
-import PgBoss from 'pg-boss';
 import { DiscogsProvider, openSecret, isSealed, parseDiscogsRef } from '@liner/core';
 import { getDb } from '../db.js';
+import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-
-let bossSingleton: PgBoss | null = null;
-async function getBoss(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-    await bossSingleton.createQueue('collection.sync');
-    await bossSingleton.createQueue('collection.push');
-    await bossSingleton.createQueue('collection.remove');
-  }
-  return bossSingleton;
-}
 
 export async function createCollectionRoutes(fastify: FastifyInstance) {
   // GET /libraries/:lib/collection-sources — list sources with counts
