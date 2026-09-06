@@ -4,10 +4,30 @@
  */
 import { eq, sql } from 'drizzle-orm';
 import {
-  releaseGroups, releases, canonicalTracks, externalIds, entityTags, imageSources,
+  releaseGroups, releases, canonicalTracks, externalIds, entityTags, imageSources, artists, releaseGroupArtists,
 } from '@liner/db';
-import type { CanonicalRelease, CanonicalTrack } from '@liner/core';
+import type { CanonicalRelease, CanonicalTrack, ArtistCredit } from '@liner/core';
 import type { WorkerContext } from './context.js';
+
+/**
+ * Extract artist links from credits, keeping only those with mbid.
+ * Returns an array of artist link records for upsert.
+ */
+export function artistLinksFrom(
+  credits: ArtistCredit[] | undefined,
+): Array<{ mbid: string; name: string; position: number; creditedName: string | undefined; joinPhrase: string | undefined }> {
+  if (!credits || credits.length === 0) return [];
+
+  return credits
+    .map((credit, position) => ({
+      mbid: credit.mbid,
+      name: credit.name.trim(),
+      position,
+      creditedName: credit.name.trim(),
+      joinPhrase: credit.joinPhrase,
+    }))
+    .filter(link => link.mbid !== undefined) as Array<{ mbid: string; name: string; position: number; creditedName: string | undefined; joinPhrase: string | undefined }>;
+}
 
 /**
  * Normalize partial dates (YYYY, YYYY-MM, YYYY-MM-DD) to full dates.
@@ -114,6 +134,90 @@ export async function upsertCanonical(
   }
 
   const rgId = rgInsert.id;
+
+  // Upsert artists and release_group_artists from artistCredits with mbid
+  if (release.artistCredits && release.artistCredits.length > 0) {
+    const artistLinks = artistLinksFrom(release.artistCredits);
+
+    if (artistLinks.length > 0) {
+      // Upsert artists by mbid
+      for (const link of artistLinks) {
+        await ctx.db.insert(artists)
+          .values({
+            mbid: link.mbid,
+            name: link.name,
+            sortName: null,
+          })
+          .onConflictDoUpdate({
+            target: artists.mbid,
+            set: {
+              name: sql`case when ${artists.name} = '' or ${artists.name} is null then excluded.name else ${artists.name} end`,
+            },
+          });
+      }
+
+      // Get artist IDs by mbid and delete existing release_group_artists for this RG
+      await ctx.db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, rgId));
+
+      // Insert new release_group_artists rows
+      for (const link of artistLinks) {
+        await ctx.sql`
+          insert into release_group_artists (release_group_id, artist_id, position, credited_name, join_phrase)
+          select
+            ${rgId}::uuid as release_group_id,
+            artists.id,
+            ${link.position} as position,
+            ${link.creditedName ?? null} as credited_name,
+            ${link.joinPhrase ?? null} as join_phrase
+          from artists
+          where artists.mbid = ${link.mbid}
+          on conflict do nothing
+        `;
+      }
+
+      // Set artists_resolved_at
+      await ctx.db.update(releaseGroups)
+        .set({ artistsResolvedAt: new Date() })
+        .where(eq(releaseGroups.id, rgId));
+    }
+  }
+
+  // Upsert MB genres and tags into entity_tags
+  if (release.mbGenres && release.mbGenres.length > 0) {
+    for (const genre of release.mbGenres) {
+      await ctx.sql`
+        insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
+        values (
+          'release_group',
+          ${rgId}::uuid,
+          ${genre.name.trim()},
+          'genre',
+          'musicbrainz',
+          ${genre.count ?? 0}
+        )
+        on conflict (entity_type, entity_id, kind, source, lower(tag))
+        do update set weight = excluded.weight
+      `;
+    }
+  }
+
+  if (release.mbTags && release.mbTags.length > 0) {
+    for (const tag of release.mbTags) {
+      await ctx.sql`
+        insert into entity_tags (entity_type, entity_id, tag, kind, source, weight)
+        values (
+          'release_group',
+          ${rgId}::uuid,
+          ${tag.name.trim()},
+          'tag',
+          'musicbrainz',
+          ${tag.count ?? 0}
+        )
+        on conflict (entity_type, entity_id, kind, source, lower(tag))
+        do update set weight = excluded.weight
+      `;
+    }
+  }
 
   // Upsert release
   const dateStr = normDate(release.date) ?? (release.year ? `${release.year}-01-01` : null);

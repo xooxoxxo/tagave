@@ -2,7 +2,7 @@
  * Tests for pure canonical functions.
  */
 import { describe, it, expect } from 'vitest';
-import { normDate, buildLabelsJsonb, buildMediaJsonb } from './canonical.js';
+import { normDate, buildLabelsJsonb, buildMediaJsonb, artistLinksFrom } from './canonical.js';
 
 describe('normDate', () => {
   it('handles null/undefined', () => {
@@ -92,5 +92,76 @@ describe('buildMediaJsonb', () => {
     const result = buildMediaJsonb(mediaList);
     expect(result[0]).toEqual({ position: 1, format: 'CD' });
     expect(result[1]).toEqual({ position: 2, format: 'Vinyl', trackCount: 10 });
+  });
+});
+
+describe('artistLinksFrom', () => {
+  it('handles undefined credits', () => {
+    expect(artistLinksFrom(undefined)).toEqual([]);
+  });
+
+  it('handles empty credits array', () => {
+    expect(artistLinksFrom([])).toEqual([]);
+  });
+
+  it('skips credits without mbid', () => {
+    const credits = [
+      { mbid: '123', name: 'Artist A', joinPhrase: undefined },
+      { name: 'Artist B', joinPhrase: undefined }, // no mbid
+      { mbid: '456', name: 'Artist C', joinPhrase: ' & ' },
+    ];
+    const result = artistLinksFrom(credits as any);
+    expect(result).toHaveLength(2);
+    expect(result[0]!.mbid).toBe('123');
+    expect(result[1]!.mbid).toBe('456');
+  });
+
+  it('keeps positions from credits array', () => {
+    const credits = [
+      { mbid: '123', name: 'Artist A', joinPhrase: undefined },
+      { mbid: '456', name: 'Artist B', joinPhrase: ' & ' },
+      { mbid: '789', name: 'Artist C', joinPhrase: ' feat. ' },
+    ];
+    const result = artistLinksFrom(credits);
+    expect(result[0]!.position).toBe(0);
+    expect(result[1]!.position).toBe(1);
+    expect(result[2]!.position).toBe(2);
+  });
+
+  it('trims artist names', () => {
+    const credits = [
+      { mbid: '123', name: '  Artist A  ', joinPhrase: undefined },
+      { mbid: '456', name: 'Artist B', joinPhrase: ' & ' },
+    ];
+    const result = artistLinksFrom(credits);
+    expect(result[0]!.name).toBe('Artist A');
+    expect(result[0]!.creditedName).toBe('Artist A');
+  });
+
+  it('preserves joinPhrase and creditedName', () => {
+    const credits = [
+      { mbid: '123', name: 'Artist A', joinPhrase: ' & ' },
+      { mbid: '456', name: 'Artist B', joinPhrase: ' feat. ' },
+    ];
+    const result = artistLinksFrom(credits);
+    expect(result[0]!.joinPhrase).toBe(' & ');
+    expect(result[1]!.joinPhrase).toBe(' feat. ');
+    expect(result[0]!.creditedName).toBe('Artist A');
+    expect(result[1]!.creditedName).toBe('Artist B');
+  });
+
+  it('handles mixed credits with and without mbid', () => {
+    const credits = [
+      { mbid: '111', name: 'Artist 1', joinPhrase: undefined },
+      { name: 'Artist 2', joinPhrase: undefined }, // no mbid - skipped
+      { mbid: '222', name: 'Artist 3', joinPhrase: ' & ' },
+      { discogsId: 999, name: 'Artist 4', joinPhrase: undefined }, // no mbid - skipped
+    ];
+    const result = artistLinksFrom(credits as any);
+    expect(result).toHaveLength(2);
+    expect(result[0]!.mbid).toBe('111');
+    expect(result[1]!.mbid).toBe('222');
+    expect(result[0]!.position).toBe(0);
+    expect(result[1]!.position).toBe(2); // position from original array
   });
 });
