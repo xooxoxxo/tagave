@@ -1,7 +1,7 @@
 /**
  * Sync Discogs collection and map items to canonical releases (spec COL-1, GAP-3).
  */
-import { eq, and, notInArray, sql as dsql, sql } from 'drizzle-orm';
+import { eq, and, notInArray, sql as dsql, sql, lt } from 'drizzle-orm';
 import {
   libraries, collectionSources, collectionItems, releases, releaseGroups,
 } from '@liner/db';
@@ -176,7 +176,7 @@ export async function collectionSyncJob(ctx: WorkerContext, data: CollectionSync
       .set({ removedAt: new Date() })
       .where(and(
         eq(collectionItems.collectionSourceId, sourceId),
-        sql`last_seen_at < ${syncStart}`,
+        lt(collectionItems.lastSeenAt, syncStart), // typed column: drizzle serialises the Date; a raw sql fragment cannot
         dsql`removed_at is null`
       ));
 
