@@ -115,6 +115,33 @@ export const externalReviewSchema = z.object({
 
 export type ExternalReview = z.infer<typeof externalReviewSchema>;
 
+/** Display labels for link-out sources (REV-2); unknown sources fall back to the slug. */
+export const REVIEW_LINK_SOURCES: Record<string, string> = {
+  metacritic: 'Metacritic',
+  allmusic: 'AllMusic',
+  rateyourmusic: 'Rate Your Music',
+  wikipedia: 'Wikipedia',
+  pitchfork: 'Pitchfork',
+  albumoftheyear: 'Album of the Year',
+  sputnikmusic: 'Sputnikmusic',
+  residentadvisor: 'Resident Advisor',
+  thequietus: 'The Quietus',
+  rollingstone: 'Rolling Stone',
+  bandcamp: 'Bandcamp',
+  bbc: 'BBC',
+  guardian: 'The Guardian',
+  nme: 'NME',
+  popmatters: 'PopMatters',
+  consequence: 'Consequence',
+  stereogum: 'Stereogum',
+  discogs: 'Discogs',
+  musicbrainz: 'MusicBrainz',
+};
+
+export function reviewLinkLabel(source: string): string {
+  return REVIEW_LINK_SOURCES[source] ?? source.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 export const reviewLinkSchema = z.object({
   source: z.string(),
   label: z.string(),

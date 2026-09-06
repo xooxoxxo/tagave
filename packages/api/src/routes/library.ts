@@ -216,8 +216,19 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
              coalesce(sum(duration_ms), 0)::bigint as duration_ms,
              count(*) filter (where lossless)::int as lossless
       from audio_files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
+    // "Reviews written" is one of the four promise counters (spec §14.2)
+    const [reviewStats] = await db.execute(sql`
+      select count(*) filter (where coalesce(body_md, '') <> '')::int as written,
+             count(*) filter (where rating is not null)::int as rated,
+             (select count(*)::int from listens where library_id = ${libraryId}) as listens
+      from user_reviews where library_id = ${libraryId}`) as unknown as [Record<string, number>];
 
     reply.send({
+      reviews: {
+        written: reviewStats?.['written'] ?? 0,
+        rated: reviewStats?.['rated'] ?? 0,
+        listens: reviewStats?.['listens'] ?? 0,
+      },
       albums: albumStats?.['albums'] ?? 0,
       tracks: Number(fileStats?.['files'] ?? 0),
       hours: Math.round(Number(fileStats?.['duration_ms'] ?? 0) / 3600000),

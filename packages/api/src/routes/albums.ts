@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
-  localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags,
+  localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
 } from '@liner/db';
 import PgBoss from 'pg-boss';
 import { parseDiscogsRef } from '@liner/core';
@@ -27,8 +27,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search, decided } =
+    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search, decided, review } =
       request.query as Record<string, string>;
+    const userId = request.user.id;
 
     const db = getDb();
 
@@ -70,11 +71,28 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           and am.status in ('auto', 'confirmed')
           and ${decidedClause})`);
     }
+    // Own rating / review state / listens live per release group (REV-3);
+    // correlated subqueries keep the drizzle select intact and cost one index
+    // probe per row on (library_id, user_id, release_group_id).
+    const ownReviewWhere = sql`ur.library_id = ${localAlbums.libraryId} and ur.release_group_id = ${localAlbums.releaseGroupId} and ur.user_id = ${userId}`;
+    const listensWhere = sql`l.library_id = ${localAlbums.libraryId} and l.release_group_id = ${localAlbums.releaseGroupId} and l.user_id = ${userId}`;
+    const ownRatingSql = sql`(select ur.rating from user_reviews ur where ${ownReviewWhere} limit 1)`;
+    const lastListenSql = sql`(select max(l.listened_at) from listens l where ${listensWhere})`;
+    const REVIEW_CLAUSES: Record<string, ReturnType<typeof sql>> = {
+      reviewed: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
+      unreviewed: sql`not exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
+      rated: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and ur.rating is not null)`,
+      listened: sql`exists (select 1 from listens l where ${listensWhere})`,
+    };
+    const reviewClause = review ? REVIEW_CLAUSES[review] : undefined;
+    if (reviewClause) conds.push(reviewClause);
     const orderings: Record<string, ReturnType<typeof sql>> = {
       artist: sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`,
       title: sql`lower(coalesce(title_guess, '')), lower(coalesce(artist_guess, ''))`,
       year: sql`year_guess desc nulls last, lower(coalesce(artist_guess, ''))`,
       added_date: sql`created_at desc`,
+      rating: sql`${ownRatingSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
+      listened: sql`${lastListenSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
     };
     const albums = await db
       .select()
@@ -134,6 +152,24 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           return 'auto_strong';
         };
         const matchKind = new Map(matchRows.map((r) => [r.local_album_id, kindOf(r)]));
+        // own rating / reviewed / last listen for badges and sorts (REV-3)
+        const rgIds = [...new Set(albums.map((a) => a.releaseGroupId).filter((x): x is string => !!x))];
+        const reviewRows = rgIds.length
+          ? await db
+              .select({ releaseGroupId: userReviews.releaseGroupId, rating: userReviews.rating, bodyMd: userReviews.bodyMd })
+              .from(userReviews)
+              .where(and(eq(userReviews.libraryId, libraryId), eq(userReviews.userId, userId), inArray(userReviews.releaseGroupId, rgIds)))
+          : [];
+        const ownReview = new Map(reviewRows.map((r) => [r.releaseGroupId, r]));
+        const listenRows = rgIds.length
+          ? ((await db.execute(sql`
+              select release_group_id, max(listened_at) as last_listened_at
+              from listens
+              where library_id = ${libraryId} and user_id = ${userId}
+                and release_group_id in ${sql`(${sql.join(rgIds.map((id) => sql`${id}`), sql`, `)})`}
+              group by release_group_id`)) as unknown as { release_group_id: string; last_listened_at: Date | string }[])
+          : [];
+        const lastListened = new Map(listenRows.map((r) => [r.release_group_id, new Date(r.last_listened_at).toISOString()]));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
@@ -149,6 +185,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         matchKind: matchKind.get(album.id) ?? null,
         totalDurationMs: album.totalDurationMs ?? 0,
         coverUrl: withArt.has(album.id) ? `/api/v1/images/album/${album.id}` : null,
+        hasReview: !!(album.releaseGroupId && (ownReview.get(album.releaseGroupId)?.bodyMd ?? '').trim()),
+        ownRating: album.releaseGroupId && ownReview.get(album.releaseGroupId)?.rating != null
+          ? Number(ownReview.get(album.releaseGroupId)!.rating) : null,
+        lastListenedAt: (album.releaseGroupId && lastListened.get(album.releaseGroupId)) || null,
         ...(album.releaseId ? { releaseId: album.releaseId } : {}),
         ...(album.releaseGroupId ? { releaseGroupId: album.releaseGroupId } : {}),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
@@ -487,6 +527,23 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             ))
         : [];
 
+      // GAP-3: physical copies of this release group from the synced Discogs
+      // collection (user data — stays inside this library).
+      const physicalRows = album.releaseGroupId
+        ? await db.execute(sql`
+            select id, folder_name, media_condition, sleeve_condition, rating
+            from collection_items
+            where library_id = ${libraryId} and release_group_id = ${album.releaseGroupId} and removed_at is null
+            order by date_added desc nulls last`) as unknown as Array<Record<string, unknown>>
+        : [];
+      const discogsCollectionItems = physicalRows.map((r) => ({
+        id: String(r['id']),
+        folder: String(r['folder_name'] ?? 'All'),
+        ...(r['media_condition'] ? { mediaCondition: String(r['media_condition']) } : {}),
+        ...(r['sleeve_condition'] ? { sleeveCondition: String(r['sleeve_condition']) } : {}),
+        ...(typeof r['rating'] === 'number' && r['rating'] > 0 ? { rating: r['rating'] } : {}),
+      }));
+
       const missingTracks = canonicalTrackRows
         .filter((c) => !c['isDataTrack'] && !c['isVideo'])
         .filter((c) => !trackRows.some(
@@ -505,6 +562,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
+        releaseGroupId: album.releaseGroupId ?? null,
         title: album.titleGuess,
         artistCredit: album.artistGuess,
         year: album.yearGuess,
@@ -593,6 +651,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           excluded: c.excluded,
         })),
         duplicates: duplicateRows,
+        physicalOwnershipState: discogsCollectionItems.length > 0 ? 'owned' : 'not_owned',
+        discogsCollectionItems,
       });
     }
   );

@@ -90,6 +90,8 @@ export {
   type ExternalReviewSource,
   externalReviewSchema,
   type ExternalReview,
+  REVIEW_LINK_SOURCES,
+  reviewLinkLabel,
   reviewLinkSchema,
   type ReviewLink,
   reviewsBundleSchema,
