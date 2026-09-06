@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { libraries, jobRuns } from '@liner/db';
 import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -57,7 +57,8 @@ export async function createJobRoutes(fastify: FastifyInstance) {
     const jobs = await db
       .select()
       .from(jobRuns)
-      .where(eq(jobRuns.libraryId, libraryId))
+      .where(status ? and(eq(jobRuns.libraryId, libraryId), eq(jobRuns.state, status)) : eq(jobRuns.libraryId, libraryId))
+      .orderBy(desc(jobRuns.createdAt))
       .limit(Math.min(parseInt(limit, 10), 500))
       .offset(parseInt(offset, 10));
 

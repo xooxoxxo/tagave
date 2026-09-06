@@ -129,7 +129,7 @@ export function JobsPage() {
                   const statusClass =
                     job.state === 'running'
                       ? styles.statusRunning
-                      : job.state === 'finished'
+                      : job.state === 'completed'
                         ? styles.statusCompleted
                         : job.state === 'failed'
                           ? styles.statusFailed
