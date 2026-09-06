@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, sql, inArray, type SQLWrapper } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
@@ -19,7 +19,172 @@ async function getBossForAlbums(): Promise<PgBoss> {
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
+/** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
+const LOSSLESS_TRACKS = (albumId: SQLWrapper) =>
+  sql`select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and af.lossless`;
+const LOSSY_TRACKS = (albumId: SQLWrapper) =>
+  sql`select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and not coalesce(af.lossless, false)`;
+
+/** Match provenance: how the live match was decided (owner audits auto-accepts here). */
+const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
+  auto_strong: sql`am.decided_by = 'system' and am.reason like 'auto-accept:%'`,
+  chip_rule: sql`am.decided_by = 'system' and am.reason like 'chip-rule%'`,
+  first_candidate: sql`am.decided_by = 'system' and am.reason like 'first-candidate%'`,
+  by_me: sql`am.decided_by = 'user' and am.reason not like 'manual MBID%'`,
+  manual_mbid: sql`am.reason like 'manual MBID%'`,
+};
+const decidedExists = (clause: ReturnType<typeof sql>) => sql`exists (
+  select 1 from album_matches am
+  where am.local_album_id = ${localAlbums.id} and am.status in ('auto', 'confirmed') and ${clause})`;
+
+/**
+ * Album grid filters (spec BRW-1) shared by the list and the facets endpoint.
+ * Own rating / review state / listens live per release group (REV-3);
+ * correlated subqueries keep the drizzle select intact and cost one index
+ * probe per row. Query keys mirror `albumsQuerySchema` (`q` ≡ `search`,
+ * `state` ≡ `filter` for older clients).
+ */
+export function albumQueryParts(libraryId: string, userId: string, q: Record<string, string | undefined>) {
+  const conds = [eq(localAlbums.libraryId, libraryId)];
+  const search = q['q'] ?? q['search'];
+  const state = q['state'] ?? q['filter'];
+  if (q['artist']) conds.push(eq(localAlbums.artistGuess, q['artist']));
+  if (search) {
+    conds.push(sql`(title_guess ilike ${'%' + search + '%'} or artist_guess ilike ${'%' + search + '%'})`);
+  }
+  if (state && state !== 'all') conds.push(eq(localAlbums.state, state));
+  const decidedClause = q['decided'] ? DECIDED_CLAUSES[q['decided']] : undefined;
+  if (decidedClause) conds.push(decidedExists(decidedClause));
+
+  const ownReviewWhere = sql`ur.library_id = ${localAlbums.libraryId} and ur.release_group_id = ${localAlbums.releaseGroupId} and ur.user_id = ${userId}`;
+  const listensWhere = sql`l.library_id = ${localAlbums.libraryId} and l.release_group_id = ${localAlbums.releaseGroupId} and l.user_id = ${userId}`;
+  const ownRatingSql = sql`(select ur.rating from user_reviews ur where ${ownReviewWhere} limit 1)`;
+  const lastListenSql = sql`(select max(l.listened_at) from listens l where ${listensWhere})`;
+  const REVIEW_CLAUSES: Record<string, ReturnType<typeof sql>> = {
+    reviewed: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
+    unreviewed: sql`not exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
+    rated: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and ur.rating is not null)`,
+    listened: sql`exists (select 1 from listens l where ${listensWhere})`,
+  };
+  const reviewClause = q['review'] ? REVIEW_CLAUSES[q['review']] : undefined;
+  if (reviewClause) conds.push(reviewClause);
+
+  if (q['genre']) {
+    conds.push(sql`exists (select 1 from entity_tags et where et.tag = ${q['genre']} and et.kind in ('genre', 'style')
+      and (et.entity_id = ${localAlbums.releaseGroupId} or et.entity_id = ${localAlbums.releaseId}))`);
+  }
+  const decade = q['decade'] ? parseInt(q['decade'], 10) : NaN;
+  if (Number.isFinite(decade)) conds.push(sql`year_guess >= ${decade} and year_guess < ${decade + 10}`);
+  const format = q['format'];
+  if (format === 'lossless') {
+    conds.push(sql`exists (${LOSSLESS_TRACKS(localAlbums.id)}) and not exists (${LOSSY_TRACKS(localAlbums.id)})`);
+  } else if (format === 'lossy') {
+    conds.push(sql`not exists (${LOSSLESS_TRACKS(localAlbums.id)})`);
+  } else if (format === 'mixed') {
+    conds.push(sql`exists (${LOSSLESS_TRACKS(localAlbums.id)}) and exists (${LOSSY_TRACKS(localAlbums.id)})`);
+  } else if (format) {
+    conds.push(sql`${format} = any(formats)`);
+  }
+  if (q['label']) {
+    conds.push(sql`exists (select 1 from releases r where r.id = ${localAlbums.releaseId}
+      and r.labels @> ${JSON.stringify([{ name: q['label'] }])}::jsonb)`);
+  }
+  const ownedSql = sql`exists (select 1 from collection_items ci where ci.release_group_id = ${localAlbums.releaseGroupId} and ci.removed_at is null)`;
+  if (q['owned'] === 'both') conds.push(ownedSql);
+  else if (q['owned'] === 'digital') conds.push(sql`not ${ownedSql}`);
+  const gap = q['gap'];
+  const openGap = (kindClause: ReturnType<typeof sql>) => sql`exists (select 1 from gaps g where g.state = 'open' ${kindClause}
+    and (g.subject_id = ${localAlbums.id} or g.subject_id = ${localAlbums.releaseGroupId}))`;
+  if (gap === 'none') conds.push(sql`not ${openGap(sql``)}`);
+  else if (gap) conds.push(openGap(sql`and g.kind = ${gap}`));
+
+  const orderings: Record<string, ReturnType<typeof sql>> = {
+    artist: sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`,
+    title: sql`lower(coalesce(title_guess, '')), lower(coalesce(artist_guess, ''))`,
+    year: sql`year_guess desc nulls last, lower(coalesce(artist_guess, ''))`,
+    added_date: sql`created_at desc`,
+    rating: sql`${ownRatingSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
+    listened: sql`${lastListenSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
+  };
+  return { conds, orderings, REVIEW_CLAUSES, ownedSql, openGap };
+}
+
 export async function createAlbumRoutes(fastify: FastifyInstance) {
+  /**
+   * Facet counts for the filter rail (spec BRW-1): each dimension counted
+   * over the albums matching the current query, so the rail narrows down.
+   */
+  fastify.get('/libraries/:libraryId/albums/facets', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+    const lib = await db.select({ id: libraries.id }).from(libraries)
+      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+    const { conds, REVIEW_CLAUSES, ownedSql, openGap } = albumQueryParts(libraryId, request.user.id, request.query as Record<string, string>);
+    const where = and(...conds)!;
+    type Row = Record<string, string | number | null>;
+    const rows = async (query: ReturnType<typeof sql>) => (await db.execute(query)) as unknown as Row[];
+    const facet = (list: Row[], key: string, label?: (v: string) => string) =>
+      list.filter((r) => r[key] != null).map((r) => ({
+        value: String(r[key]), ...(label ? { label: label(String(r[key])) } : {}), count: Number(r['n']),
+      }));
+
+    const [totals] = await rows(sql`
+      select count(*)::int as total,
+             count(*) filter (where ${ownedSql})::int as owned_both,
+             count(*) filter (where ${REVIEW_CLAUSES['reviewed']})::int as reviewed,
+             count(*) filter (where ${REVIEW_CLAUSES['rated']})::int as rated,
+             count(*) filter (where ${REVIEW_CLAUSES['listened']})::int as listened,
+             count(*) filter (where not ${openGap(sql``)})::int as no_gap,
+             ${sql.join(Object.entries(DECIDED_CLAUSES).map(([k, c]) => sql`count(*) filter (where ${decidedExists(c)})::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
+      from local_albums where ${where}`);
+    const total = Number(totals?.['total'] ?? 0);
+    const states = await rows(sql`select state, count(*)::int as n from local_albums where ${where} group by state order by n desc`);
+    const formats = await rows(sql`
+      select k, count(*)::int as n from (
+        select case
+          when exists (${LOSSLESS_TRACKS(localAlbums.id)}) and not exists (${LOSSY_TRACKS(localAlbums.id)}) then 'lossless'
+          when exists (${LOSSLESS_TRACKS(localAlbums.id)}) then 'mixed'
+          else 'lossy' end as k
+        from local_albums where ${where}) x group by k order by n desc`);
+    const containers = await rows(sql`select f, count(*)::int as n from local_albums, unnest(formats) f where ${where} group by f order by n desc limit 12`);
+    // tag garbage produces years like 1000 or 1720; the rail only offers plausible decades
+    const decades = await rows(sql`select (year_guess / 10) * 10 as decade, count(*)::int as n from local_albums where ${where} and year_guess between 1900 and 2100 group by 1 order by 1`);
+    const genres = await rows(sql`
+      select et.tag, count(distinct local_albums.id)::int as n from local_albums
+      join entity_tags et on et.kind in ('genre', 'style') and (et.entity_id = local_albums.release_group_id or et.entity_id = local_albums.release_id)
+      where ${where} group by et.tag order by n desc, et.tag limit 40`);
+    const labels = await rows(sql`
+      select l->>'name' as name, count(*)::int as n from local_albums
+      join releases r on r.id = local_albums.release_id
+      cross join lateral jsonb_array_elements(coalesce(r.labels, '[]'::jsonb)) l
+      where ${where} and l->>'name' is not null group by 1 order by n desc, 1 limit 40`);
+    const gapRows = await rows(sql`
+      select g.kind, count(distinct local_albums.id)::int as n from local_albums
+      join gaps g on g.state = 'open' and (g.subject_id = local_albums.id or g.subject_id = local_albums.release_group_id)
+      where ${where} group by g.kind order by n desc`);
+
+    const n = (k: string) => Number(totals?.[k] ?? 0);
+    reply.send({
+      total,
+      states: facet(states, 'state'),
+      formats: facet(formats, 'k'),
+      containers: facet(containers, 'f'),
+      decades: facet(decades, 'decade', (d) => `${d}s`),
+      genres: facet(genres, 'tag'),
+      labels: facet(labels, 'name'),
+      review: [
+        { value: 'reviewed', count: n('reviewed') }, { value: 'unreviewed', count: total - n('reviewed') },
+        { value: 'rated', count: n('rated') }, { value: 'listened', count: n('listened') },
+      ],
+      gaps: [...facet(gapRows, 'kind'), { value: 'none', count: n('no_gap') }],
+      owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
+      decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
+    });
+  });
+
   // Get albums for a library with pagination and filters
   fastify.get('/libraries/:libraryId/albums', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
@@ -27,8 +192,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { limit = '50', offset = '0', sort = 'artist', filter, artist, search, decided, review } =
-      request.query as Record<string, string>;
+    const { limit = '50', offset = '0', sort = 'artist' } = request.query as Record<string, string>;
     const userId = request.user.id;
 
     const db = getDb();
@@ -45,55 +209,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       throw new ApiError(404, 'Not Found', 'Library not found');
     }
 
-    // Query local albums
-    const conds = [eq(localAlbums.libraryId, libraryId)];
-    if (artist) conds.push(eq(localAlbums.artistGuess, artist));
-    if (search) {
-      conds.push(
-        sql`(title_guess ilike ${'%' + search + '%'} or artist_guess ilike ${'%' + search + '%'})`,
-      );
-    }
-    if (filter && filter !== 'all') conds.push(eq(localAlbums.state, filter));
-    // Match provenance filter: how the live match was decided (owner audits
-    // auto-accepts here, then fixes folders with duplicate-file mismatches).
-    const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
-      auto_strong: sql`am.decided_by = 'system' and am.reason like 'auto-accept:%'`,
-      chip_rule: sql`am.decided_by = 'system' and am.reason like 'chip-rule%'`,
-      first_candidate: sql`am.decided_by = 'system' and am.reason like 'first-candidate%'`,
-      by_me: sql`am.decided_by = 'user' and am.reason not like 'manual MBID%'`,
-      manual_mbid: sql`am.reason like 'manual MBID%'`,
-    };
-    const decidedClause = decided ? DECIDED_CLAUSES[decided] : undefined;
-    if (decided && decidedClause) {
-      conds.push(sql`exists (
-        select 1 from album_matches am
-        where am.local_album_id = ${localAlbums.id}
-          and am.status in ('auto', 'confirmed')
-          and ${decidedClause})`);
-    }
-    // Own rating / review state / listens live per release group (REV-3);
-    // correlated subqueries keep the drizzle select intact and cost one index
-    // probe per row on (library_id, user_id, release_group_id).
-    const ownReviewWhere = sql`ur.library_id = ${localAlbums.libraryId} and ur.release_group_id = ${localAlbums.releaseGroupId} and ur.user_id = ${userId}`;
-    const listensWhere = sql`l.library_id = ${localAlbums.libraryId} and l.release_group_id = ${localAlbums.releaseGroupId} and l.user_id = ${userId}`;
-    const ownRatingSql = sql`(select ur.rating from user_reviews ur where ${ownReviewWhere} limit 1)`;
-    const lastListenSql = sql`(select max(l.listened_at) from listens l where ${listensWhere})`;
-    const REVIEW_CLAUSES: Record<string, ReturnType<typeof sql>> = {
-      reviewed: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
-      unreviewed: sql`not exists (select 1 from user_reviews ur where ${ownReviewWhere} and coalesce(ur.body_md, '') <> '')`,
-      rated: sql`exists (select 1 from user_reviews ur where ${ownReviewWhere} and ur.rating is not null)`,
-      listened: sql`exists (select 1 from listens l where ${listensWhere})`,
-    };
-    const reviewClause = review ? REVIEW_CLAUSES[review] : undefined;
-    if (reviewClause) conds.push(reviewClause);
-    const orderings: Record<string, ReturnType<typeof sql>> = {
-      artist: sql`lower(coalesce(artist_guess, '')), year_guess nulls last, lower(coalesce(title_guess, ''))`,
-      title: sql`lower(coalesce(title_guess, '')), lower(coalesce(artist_guess, ''))`,
-      year: sql`year_guess desc nulls last, lower(coalesce(artist_guess, ''))`,
-      added_date: sql`created_at desc`,
-      rating: sql`${ownRatingSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
-      listened: sql`${lastListenSql} desc nulls last, lower(coalesce(artist_guess, ''))`,
-    };
+    const { conds, orderings } = albumQueryParts(libraryId, userId, request.query as Record<string, string>);
     const albums = await db
       .select()
       .from(localAlbums)
@@ -170,6 +286,15 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               group by release_group_id`)) as unknown as { release_group_id: string; last_listened_at: Date | string }[])
           : [];
         const lastListened = new Map(listenRows.map((r) => [r.release_group_id, new Date(r.last_listened_at).toISOString()]));
+        // lossless / lossy / mixed badge per album from the files themselves (m4a can be either)
+        const losslessRows = albums.length
+          ? ((await db.execute(sql`
+              select lt.local_album_id, bool_and(coalesce(af.lossless, false)) as all_lossless, bool_or(coalesce(af.lossless, false)) as any_lossless
+              from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+              where lt.local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
+              group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean }[])
+          : [];
+        const losslessOf = new Map(losslessRows.map((r) => [r.local_album_id, r]));
         return albums.map((album) => ({
         id: album.id,
         libraryId: album.libraryId,
@@ -178,6 +303,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         artistCredit: album.artistGuess ?? 'Unknown Artist',
         ...(album.yearGuess ? { year: album.yearGuess } : {}),
         formats: album.formats ?? [],
+        isLossless: losslessOf.get(album.id)?.all_lossless ?? false,
+        isMixed: (losslessOf.get(album.id)?.any_lossless ?? false) && !(losslessOf.get(album.id)?.all_lossless ?? false),
         state: album.state,
         trackCount: album.trackCount ?? 0,
         canonicalTrackCount: (album.releaseId && canonCount.get(album.releaseId)) || null,

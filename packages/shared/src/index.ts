@@ -67,6 +67,19 @@ export {
   type MetadataDiff,
 } from './album.js';
 
+// Album grid query, facets, saved views (BRW-1)
+export {
+  albumsQuerySchema,
+  type AlbumsQuery,
+  facetCountSchema,
+  albumFacetsSchema,
+  type AlbumFacets,
+  savedViewSchema,
+  type SavedView,
+  createSavedViewSchema,
+  type CreateSavedView,
+} from './views.js';
+
 // Reviews and listens (REV-1..3)
 export {
   listenFormatSchema,

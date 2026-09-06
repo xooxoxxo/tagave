@@ -9,7 +9,180 @@
 .header {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.toolbar .title {
+  margin-right: var(--space-sm);
+}
+
+.toolButton,
+.toolButtonActive {
+  padding: 0.45rem 0.7rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.toolButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.toolButtonActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.viewToggle {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.chip,
+.chipClear {
+  padding: 0.15rem 0.6rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--accent);
+  background: rgba(42, 127, 249, 0.12);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.chipClear {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.body {
+  display: flex;
+  gap: var(--space-lg);
+  flex: 1;
+  min-height: 0;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-height: 0;
+}
+
+.formatTag,
+.formatLossless,
+.formatMixed {
+  color: var(--text-secondary);
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+
+.formatLossless {
+  color: var(--success);
+}
+
+.formatMixed {
+  color: var(--warning);
+}
+
+.listTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.listTable th {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-primary);
+}
+
+.listTable td {
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--border-secondary);
+  vertical-align: middle;
+}
+
+.listRow {
+  cursor: pointer;
+}
+
+.listRow:hover {
+  background: var(--bg-hover);
+}
+
+.thumb,
+.thumbPlaceholder {
+  display: block;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: linear-gradient(135deg, #1a3a52 0%, #0f1a2e 100%);
+}
+
+.listTitle {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.listArtist,
+.listState {
+  color: var(--text-secondary);
+}
+
+.listBadges {
+  color: #f5c518;
+  white-space: nowrap;
+}
+
+.listBadges span {
+  margin-left: 0.4rem;
+}
+
+.inlineDot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e5484d;
+  vertical-align: middle;
+}
+
+.incomplete {
+  color: #f5c518;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
 }
 
 .title {

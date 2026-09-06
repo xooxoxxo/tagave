@@ -1,5 +1,6 @@
 export { useMe, useSetup, useLogin, useLogout } from './useAuth';
 export { useLibraries, useLibrary, useAlbums, useAlbum, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useCollectionSources, useCollection, useReconciliation, useSyncCollection, useRemapCollection, useMapCollectionItem, useUnmapCollectionItem, useCollectionOptions, useAddCollectionItem, useRemoveCollectionItem, useRetryPush, type Edition, type EditionsData } from './useLibrary';
 export { useCurrentLibrary } from './useCurrentLibrary';
+export { useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from './useViews';
 export { useReviews, useSaveReview, useDeleteReview, useReviewRevisions, useAddListen, useDeleteListen, useAddClipping, useDeleteClipping, useRefreshReviews } from './useReviews';
 export { useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useJobs, useJobEvents, type IdentifyStatsResponse, type TriageItem, type JobInfo } from './useIdentify';

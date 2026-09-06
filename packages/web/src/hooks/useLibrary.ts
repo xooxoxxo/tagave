@@ -42,6 +42,12 @@ export interface AlbumsFilterOptions {
   filter?: string;
   decided?: string;
   review?: string;
+  genre?: string;
+  decade?: number;
+  format?: string;
+  label?: string;
+  owned?: string;
+  gap?: string;
   order?: 'asc' | 'desc';
   // M1+: will add filter support for identification state, format, etc
 }
@@ -59,6 +65,12 @@ export function useAlbums(libraryId: string | undefined, options: AlbumsFilterOp
       if (options.filter) params.set('filter', options.filter);
       if (options.decided) params.set('decided', options.decided);
       if (options.review) params.set('review', options.review);
+      if (options.genre) params.set('genre', options.genre);
+      if (options.decade !== undefined) params.set('decade', String(options.decade));
+      if (options.format) params.set('format', options.format);
+      if (options.label) params.set('label', options.label);
+      if (options.owned) params.set('owned', options.owned);
+      if (options.gap) params.set('gap', options.gap);
       if (options.order) params.set('order', options.order);
       return api.get<{ items: AlbumSummary[]; nextCursor: string | null }>(`/libraries/${libraryId}/albums?${params}`);
     },

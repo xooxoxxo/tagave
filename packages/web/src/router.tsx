@@ -18,6 +18,7 @@ import {
   JobsPage,
 } from './pages';
 import { useMe } from './hooks';
+import { parseAlbumsSearch } from './pages/albumsSearch';
 
 // Root route - handles auth redirection
 const rootRoute = new RootRoute({
@@ -61,6 +62,8 @@ const albumsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums',
   component: AlbumsPage,
+  // Filters/sort/view/page live in the URL (spec BRW-1: bookmarkable views).
+  validateSearch: (search: Record<string, unknown>) => parseAlbumsSearch(search),
 });
 
 const artistsRoute = new Route({

@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 
 import { makeDb, runMigrations } from '@liner/db';
 import { createReviewRoutes } from './routes/reviews.js';
+import { createViewRoutes } from './routes/views.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
@@ -235,6 +236,9 @@ app.register(async (instance) => {
 
   // Reviews, listens, clippings (REV-1..3)
   instance.register(createReviewRoutes, { prefix: '/api/v1' });
+
+  // Saved grid views (BRW-1)
+  instance.register(createViewRoutes, { prefix: '/api/v1' });
 
   // Album routes
   instance.register(createAlbumRoutes, { prefix: '/api/v1' });
