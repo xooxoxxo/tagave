@@ -17,6 +17,8 @@ import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecomput
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
+import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
+import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnrich.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -43,10 +45,11 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'identify.album': 'stately',
   'roots.validate': 'stately',
   'scan.root': 'stately',
+  'artists.resolve': 'stately',
+  'artists.enrich': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES = [
-  'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
   'artist.refresh',
 ];
@@ -63,7 +66,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -72,8 +75,10 @@ async function main() {
     await client`update pgboss.queue set policy = ${policy} where name = ${name} and policy <> ${policy}`;
   }
 
-  // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
-  // process works — lets an identify-only worker run beside the file worker.
+  // LINER_QUEUES=identify.album,identify.sweep,artists.resolve,artists.enrich
+  // restricts which queues this process works — lets an identify-only worker
+  // run beside the file worker. Default: all queues. For identify worker, add
+  // artists.resolve,artists.enrich to include artist enrichment jobs.
   const only = process.env.LINER_QUEUES ? new Set(process.env.LINER_QUEUES.split(',').map((q) => q.trim())) : null;
   const wants = (q: string) => !only || only.has(q);
 
@@ -172,6 +177,20 @@ async function main() {
   if (wants('reviews.fetch')) await boss.work<ReviewsFetchJobData>('reviews.fetch', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await reviewsFetchJob(ctx, job.data);
   });
+
+  if (wants('artists.resolve')) {
+    await boss.work<ArtistsResolveJobData>('artists.resolve', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await artistsResolveJob(ctx, job.data);
+    });
+    // Schedule every 10 minutes, ~2 req/min (20 RGs per run at 30s TTL each)
+    await boss.schedule('artists.resolve', '*/10 * * * *', {}, { singletonKey: 'artists.resolve' });
+  }
+
+  if (wants('artists.enrich')) {
+    await boss.work<ArtistsEnrichJobData>('artists.enrich', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await artistsEnrichJob(ctx, job.data);
+    });
+  }
 
   if (wants('gaps.recompute')) {
     await boss.work<GapsRecomputeJobData>('gaps.recompute', { batchSize: 1 }, async (jobs) => {

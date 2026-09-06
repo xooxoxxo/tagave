@@ -15,6 +15,7 @@ export const TTLs = {
   discogsSearch: 7 * 24 * 3600,
   mbRelease: 30 * 24 * 3600,
   mbUrl: 30 * 24 * 3600,
+  mbArtist: 30 * 24 * 3600,
   wikidata: 30 * 24 * 3600,
   // reviews refresh at most weekly (spec REV-1)
   critiquebrainz: 7 * 24 * 3600,
