@@ -1,0 +1,36 @@
+{
+  "id": "rg-id-1",
+  "title": "Test Release Group",
+  "primary-type": "Album",
+  "secondary-types": ["Compilation"],
+  "first-release-date": "2020-01-15",
+  "artist-credit": [
+    {
+      "artist": {
+        "id": "artist-id-1",
+        "name": "Artist One",
+        "sort-name": "One, Artist"
+      },
+      "name": "Artist One",
+      "joinphrase": " & "
+    },
+    {
+      "artist": {
+        "id": "artist-id-2",
+        "name": "Artist Two",
+        "sort-name": "Two, Artist"
+      },
+      "name": "Artist Two",
+      "joinphrase": ""
+    }
+  ],
+  "genres": [
+    { "name": "Rock", "count": 10 },
+    { "name": "Pop", "count": 8 },
+    { "name": "Alternative", "count": 5 }
+  ],
+  "tags": [
+    { "name": "british", "count": 3 },
+    { "name": "70s", "count": 2 }
+  ]
+}

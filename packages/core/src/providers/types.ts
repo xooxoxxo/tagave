@@ -37,6 +37,24 @@ export interface ReleaseQuery {
 }
 
 /**
+ * Artist credit with optional MusicBrainz metadata.
+ */
+export interface ArtistCredit {
+  mbid?: string | undefined;
+  discogsId?: number | undefined;
+  name: string;
+  joinPhrase?: string | undefined;
+}
+
+/**
+ * Tag with vote count (null when MB returns explicit nulls).
+ */
+export interface WeightedTag {
+  name: string;
+  count: number | null;
+}
+
+/**
  * Canonical release data from provider.
  */
 export interface CanonicalRelease {
@@ -62,6 +80,11 @@ export interface CanonicalRelease {
   mediaList?: Array<{ position: number; format: string; trackCount: number }> | undefined;
   urlRelations?: Array<{ type: string; url: string }> | undefined;
   labels?: Array<{ name: string; catalogNumber?: string | undefined }> | undefined;
+  artistCredits?: ArtistCredit[] | undefined;
+  mbGenres?: WeightedTag[] | undefined;
+  mbTags?: WeightedTag[] | undefined;
+  primaryType?: string | undefined;
+  secondaryTypes?: string[] | undefined;
 }
 
 /**

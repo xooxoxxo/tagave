@@ -1,6 +1,6 @@
 /**
  * MusicBrainz metadata provider.
- * Implements spec §10.2.1, IDN-1, ENR-1.
+ * Implements spec §10.2.1, IDN-1, ENR-1, ENR-7.
  */
 import { z } from 'zod';
 import type {
@@ -10,6 +10,8 @@ import type {
   CanonicalRelease,
   CanonicalTrack,
   CallContext,
+  ArtistCredit,
+  WeightedTag,
 } from './types.js';
 
 /**
@@ -29,6 +31,23 @@ export type Edition = {
   trackCount?: number | null;
 };
 
+/**
+ * MusicBrainz artist with extended metadata (spec ENR-7).
+ */
+export type MbArtist = {
+  id: string;
+  name: string;
+  sortName?: string | null;
+  disambiguation?: string | null;
+  type?: string | null;
+  country?: string | null;
+  beginDate?: string | null;
+  endDate?: string | null;
+  ended?: boolean | null;
+  aliases: string[];
+  urlRelations: Array<{ type: string; url: string }>;
+};
+
 const MB_BASE_URL = 'https://musicbrainz.org/ws/2';
 
 /** HTTP failure with the status attached, so callers can tell a stale id
@@ -42,10 +61,36 @@ export function mbHttpError(message: string, status: number): Error {
 /**
  * Zod schemas for MusicBrainz API responses.
  */
+
+// Define RelationSchema early since it's needed by other schemas
+const RelationSchema = z.object({
+  type: z.string().nullish(),
+  'target-type': z.string().nullish(),
+  url: z.object({
+    resource: z.string().nullish(),
+    id: z.string().nullish(),
+  }).nullish(),
+});
+
 const ArtistSchema = z.object({
   id: z.string(),
   name: z.string(),
   'sort-name': z.string().nullish(),
+  type: z.string().nullish(),
+  country: z.string().nullish(),
+  'begin-date': z.string().nullish(),
+  'end-date': z.string().nullish(),
+  ended: z.boolean().nullish(),
+  disambiguation: z.string().nullish(),
+  aliases: z.array(z.object({
+    'sort-name': z.string(),
+    name: z.string(),
+    primary: z.string().nullish(),
+  })).optional(),
+  area: z.object({
+    'iso-3166-1-codes': z.array(z.string()).optional(),
+  }).nullish(),
+  relations: z.array(RelationSchema).optional(),
 });
 
 const RecordingSchema = z.object({
@@ -58,6 +103,7 @@ const RecordingSchema = z.object({
       z.object({
         artist: ArtistSchema,
         name: z.string().nullish(),
+        joinphrase: z.string().nullish(),
       })
     )
     .optional(),
@@ -77,6 +123,7 @@ const TrackSchema = z.object({
       z.object({
         artist: ArtistSchema,
         name: z.string().nullish(),
+        joinphrase: z.string().nullish(),
       })
     )
     .optional(),
@@ -95,12 +142,28 @@ const LabelSchema = z.object({
   'catalog-number': z.string().nullish(),
 });
 
+const WeightedTagSchema = z.object({
+  name: z.string(),
+  count: z.number().nullable(),
+});
+
 const ReleaseGroupSchema = z.object({
   id: z.string(),
   title: z.string(),
   'primary-type': z.string().nullish(),
   'secondary-types': z.array(z.string()).optional(),
   'first-release-date': z.string().nullish(),
+  'artist-credit': z
+    .array(
+      z.object({
+        artist: ArtistSchema,
+        name: z.string().nullish(),
+        joinphrase: z.string().nullish(),
+      })
+    )
+    .optional(),
+  genres: z.array(WeightedTagSchema).optional(),
+  tags: z.array(WeightedTagSchema).optional(),
 });
 
 /**
@@ -139,15 +202,6 @@ const ReleaseGroupWithReleasesSchema = z.object({
   releases: z.array(ReleaseMinimalSchema).optional(),
 });
 
-const RelationSchema = z.object({
-  type: z.string().nullish(),
-  'target-type': z.string().nullish(),
-  url: z.object({
-    resource: z.string().nullish(),
-    id: z.string().nullish(),
-  }).nullish(),
-});
-
 const ReleaseSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -173,9 +227,12 @@ const ReleaseSchema = z.object({
       z.object({
         artist: ArtistSchema,
         name: z.string().nullish(),
+        joinphrase: z.string().nullish(),
       })
     )
     .optional(),
+  genres: z.array(WeightedTagSchema).optional(),
+  tags: z.array(WeightedTagSchema).optional(),
   relations: z.array(RelationSchema).optional(),
 });
 
@@ -193,6 +250,20 @@ function formatArtistCredit(
 ): string[] {
   if (!credits) return [];
   return credits.map((c) => c.name || c.artist.name);
+}
+
+/**
+ * Convert MB artist credit array to ArtistCredit objects (spec ENR-7).
+ */
+function mbArtistCreditsToCanonical(
+  credits?: Array<{ artist: { id: string; name: string }; name?: string | null | undefined; joinphrase?: string | null | undefined }> | null
+): ArtistCredit[] {
+  if (!credits) return [];
+  return credits.map((c) => ({
+    mbid: c.artist.id,
+    name: c.name || c.artist.name,
+    ...(c.joinphrase ? { joinPhrase: c.joinphrase } : {}),
+  }));
 }
 
 /**
@@ -320,6 +391,13 @@ function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): Canonic
   // Extract URL relations
   const urlRelations = extractUrlRelations(mbRelease.relations);
 
+  // Extract artist credits with MusicBrainz IDs (spec ENR-7)
+  const artistCredits = mbArtistCreditsToCanonical(mbRelease['artist-credit']);
+
+  // Prefer release-group genres/tags, else use release's (spec ENR-3)
+  const genres: WeightedTag[] | undefined = rg?.genres?.length ? rg.genres : mbRelease.genres;
+  const tags: WeightedTag[] | undefined = rg?.tags?.length ? rg.tags : mbRelease.tags;
+
   return {
     id: mbRelease.id,
     releaseGroupId: rg?.id || mbRelease.id,
@@ -337,6 +415,11 @@ function mbReleaseToCanonical(mbRelease: z.infer<typeof ReleaseSchema>): Canonic
     source: 'musicbrainz',
     sourceId: mbRelease.id,
     urlRelations: urlRelations.length > 0 ? urlRelations : undefined,
+    artistCredits: artistCredits.length > 0 ? artistCredits : undefined,
+    mbGenres: genres?.length ? genres : undefined,
+    mbTags: tags?.length ? tags : undefined,
+    primaryType: rg?.['primary-type'] || undefined,
+    secondaryTypes: rg?.['secondary-types']?.length ? rg['secondary-types'] : undefined,
   };
 }
 
@@ -420,7 +503,7 @@ export class MusicBrainzProvider implements MetadataProvider {
   async getRelease(id: string, ctx: CallContext): Promise<CanonicalRelease> {
     const url = new URL(`${MB_BASE_URL}/release/${id}`, 'https://musicbrainz.org');
     url.searchParams.set('fmt', 'json');
-    url.searchParams.set('inc', 'recordings+artist-credits+labels+media+release-groups+url-rels');
+    url.searchParams.set('inc', 'recordings+artist-credits+labels+media+release-groups+url-rels+genres+tags');
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -476,6 +559,46 @@ export class MusicBrainzProvider implements MetadataProvider {
       year: releaseYear,
       source: 'musicbrainz',
       sourceId: rg.id,
+    };
+  }
+
+  /**
+   * Get release group with artist credits, genres, and tags (spec ENR-7).
+   */
+  async getReleaseGroupCredits(
+    mbid: string,
+    ctx: CallContext
+  ): Promise<{ mbid: string; title: string; artistCredits: ArtistCredit[]; mbGenres?: WeightedTag[]; mbTags?: WeightedTag[]; primaryType?: string; secondaryTypes?: string[]; firstReleaseDate?: string }> {
+    const url = new URL(`${MB_BASE_URL}/release-group/${mbid}`, 'https://musicbrainz.org');
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'artist-credits+genres+tags');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 503) {
+      throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
+    }
+    if (!response.ok) {
+      throw mbHttpError(`Failed to fetch MusicBrainz release group ${mbid}: ${response.statusText}`, response.status);
+    }
+
+    const data = await response.json();
+    const rg = ReleaseGroupSchema.parse(data);
+
+    return {
+      mbid: rg.id,
+      title: rg.title,
+      artistCredits: mbArtistCreditsToCanonical(rg['artist-credit']),
+      ...(rg.genres?.length ? { mbGenres: rg.genres } : {}),
+      ...(rg.tags?.length ? { mbTags: rg.tags } : {}),
+      ...(rg['primary-type'] ? { primaryType: rg['primary-type'] } : {}),
+      ...(rg['secondary-types']?.length ? { secondaryTypes: rg['secondary-types'] } : {}),
+      ...(rg['first-release-date'] ? { firstReleaseDate: rg['first-release-date'] } : {}),
     };
   }
 
@@ -602,11 +725,12 @@ export class MusicBrainzProvider implements MetadataProvider {
   }
 
   /**
-   * Get artist metadata.
+   * Get artist metadata with aliases and URL relations (spec ENR-7).
    */
-  async getArtist(id: string, ctx: CallContext): Promise<{ id: string; name: string }> {
+  async getArtist(id: string, ctx: CallContext): Promise<MbArtist> {
     const url = new URL(`${MB_BASE_URL}/artist/${id}`, 'https://musicbrainz.org');
     url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'url-rels+aliases');
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -615,13 +739,61 @@ export class MusicBrainzProvider implements MetadataProvider {
       },
     });
 
+    if (response.status === 503) {
+      throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
+    }
     if (!response.ok) {
       throw mbHttpError(`Failed to fetch MusicBrainz artist ${id}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
     const artist = ArtistSchema.parse(data);
-    return { id: artist.id, name: artist.name };
+
+    // Extract unique aliases, with primary first (spec ENR-7)
+    const aliasSet = new Set<string>();
+    const primaryAliases: string[] = [];
+    const otherAliases: string[] = [];
+
+    if (artist.aliases) {
+      for (const alias of artist.aliases) {
+        const aliasName = alias.name;
+        if (aliasSet.has(aliasName)) continue;
+        aliasSet.add(aliasName);
+
+        if (alias.primary) {
+          primaryAliases.push(aliasName);
+        } else {
+          otherAliases.push(aliasName);
+        }
+      }
+    }
+
+    const aliases = [...primaryAliases, ...otherAliases];
+
+    // Extract country: prefer 'country' field, else area iso-3166-1 codes
+    let country: string | undefined;
+    if (artist.country) {
+      country = artist.country;
+    } else if (artist.area?.['iso-3166-1-codes']?.length) {
+      country = artist.area['iso-3166-1-codes'][0];
+    }
+
+    // Extract URL relations
+    const urlRels = extractUrlRelations(artist.relations);
+
+    return {
+      id: artist.id,
+      name: artist.name,
+      ...(artist['sort-name'] ? { sortName: artist['sort-name'] } : {}),
+      ...(artist.disambiguation ? { disambiguation: artist.disambiguation } : {}),
+      ...(artist.type ? { type: artist.type } : {}),
+      ...(country ? { country } : {}),
+      ...(artist['begin-date'] ? { beginDate: artist['begin-date'] } : {}),
+      ...(artist['end-date'] ? { endDate: artist['end-date'] } : {}),
+      ...(artist.ended !== null && artist.ended !== undefined ? { ended: artist.ended } : {}),
+      aliases,
+      urlRelations: urlRels,
+    };
   }
 
   /**

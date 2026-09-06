@@ -1,0 +1,63 @@
+{
+  "id": "artist-id-1",
+  "name": "Artist Name",
+  "sort-name": "Name, Artist",
+  "type": "Person",
+  "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+  "country": "GB",
+  "begin-date": "1980-01-01",
+  "end-date": "2020-12-31",
+  "ended": true,
+  "disambiguation": "British musician",
+  "aliases": [
+    {
+      "name": "Main Name",
+      "sort-name": "Main Name",
+      "primary": "primary"
+    },
+    {
+      "name": "One, Alias",
+      "sort-name": "One, Alias",
+      "primary": null
+    },
+    {
+      "name": "Two, Alias",
+      "sort-name": "Two, Alias",
+      "primary": null
+    }
+  ],
+  "relations": [
+    {
+      "type": "wikidata",
+      "type-id": "aaa6e1f0-b044-404a-9031-b86cc3385f42",
+      "target-type": "url",
+      "url": {
+        "id": "url-id-1",
+        "resource": "https://www.wikidata.org/wiki/Q123456"
+      }
+    },
+    {
+      "type": "wikipedia",
+      "type-id": "aaa6e1f0-b044-404a-9031-b86cc3385f42",
+      "target-type": "url",
+      "url": {
+        "id": "url-id-2",
+        "resource": "https://en.wikipedia.org/wiki/Artist_Name"
+      }
+    },
+    {
+      "type": "discogs",
+      "type-id": "aaa6e1f0-b044-404a-9031-b86cc3385f42",
+      "target-type": "url",
+      "url": {
+        "id": "url-id-3",
+        "resource": "https://www.discogs.com/artist/123456"
+      }
+    }
+  ],
+  "area": {
+    "id": "area-id-1",
+    "name": "United Kingdom",
+    "iso-3166-1-codes": ["GB"]
+  }
+}

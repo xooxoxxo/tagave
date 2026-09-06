@@ -1,0 +1,90 @@
+{
+  "id": "12345678-1234-1234-1234-123456789012",
+  "title": "Test Album",
+  "status": "Official",
+  "date": "2020-01-15",
+  "country": "US",
+  "barcode": "123456789",
+  "track-count": 3,
+  "artist-credit": [
+    {
+      "artist": {
+        "id": "artist-id-1",
+        "name": "Artist One",
+        "sort-name": "One, Artist"
+      },
+      "name": "Artist One",
+      "joinphrase": " feat. "
+    },
+    {
+      "artist": {
+        "id": "artist-id-2",
+        "name": "Artist Two",
+        "sort-name": "Two, Artist"
+      },
+      "name": "Artist Two",
+      "joinphrase": ""
+    }
+  ],
+  "release-group": {
+    "id": "rg-id-1",
+    "title": "Test Album",
+    "primary-type": "Album",
+    "secondary-types": [],
+    "first-release-date": "2020-01-15",
+    "artist-credit": [
+      {
+        "artist": {
+          "id": "artist-id-1",
+          "name": "Artist One"
+        },
+        "name": "Artist One",
+        "joinphrase": ""
+      }
+    ],
+    "genres": [
+      { "name": "Rock", "count": 5 },
+      { "name": "Pop", "count": 3 }
+    ],
+    "tags": [
+      { "name": "alternative", "count": 2 },
+      { "name": "indie", "count": 1 }
+    ]
+  },
+  "genres": [
+    { "name": "Electronic", "count": 2 }
+  ],
+  "tags": [
+    { "name": "experimental", "count": 1 }
+  ],
+  "media": [
+    {
+      "position": 1,
+      "format": "CD",
+      "track-count": 3,
+      "tracks": [
+        {
+          "id": "track-1",
+          "title": "Track 1",
+          "position": 1,
+          "length": 180000,
+          "recording": {
+            "id": "recording-1",
+            "title": "Track 1",
+            "length": 180000
+          }
+        }
+      ]
+    }
+  ],
+  "label-info": [
+    {
+      "label": {
+        "id": "label-1",
+        "name": "Test Label"
+      },
+      "catalog-number": "CAT001"
+    }
+  ],
+  "relations": []
+}

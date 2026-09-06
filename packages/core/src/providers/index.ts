@@ -23,10 +23,12 @@ export type {
   ProviderRateLimitState,
   DiscogsMaster,
   RateLimitInfo,
+  ArtistCredit,
+  WeightedTag,
 } from './types.js';
 
 export { MusicBrainzProvider, extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations } from './musicbrainz.js';
-export type { Edition } from './musicbrainz.js';
+export type { Edition, MbArtist } from './musicbrainz.js';
 export {
   DiscogsProvider,
   parseDiscogsDuration,
