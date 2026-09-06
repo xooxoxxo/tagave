@@ -52,11 +52,12 @@ export interface ArtistDetail {
   } | null;
   enrichedAt: string | null;
   enrichError: string | null;
+  /** the API omits links it cannot build, so every key is optional */
   links: {
-    musicbrainz: string | null;
-    discogs: string | null;
-    wikidata: string | null;
-    wikipedia: string | null;
+    musicbrainz?: string | null;
+    discogs?: string | null;
+    wikidata?: string | null;
+    wikipedia?: string | null;
   };
   followed: boolean;
   discography: ArtistDiscography[];

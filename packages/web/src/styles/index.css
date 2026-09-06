@@ -66,6 +66,17 @@
   --z-sticky: 100;
   --z-backdrop: 999;
   --z-modal: 1001;
+
+  /* Legacy aliases: several pages were written against these names.
+     They resolve to the canonical tokens above so themes stay in sync. */
+  --border-color: var(--border);
+  --border-color-hover: var(--border-secondary);
+  --accent-color: var(--accent);
+  --accent-color-hover: var(--accent-hover);
+  --accent-rgb: 42, 127, 249;
+  --success-color: var(--success);
+  --error-color: var(--error);
+  --font-size-md: var(--font-size-base);
 }
 
 @media (prefers-color-scheme: light) {

@@ -42,8 +42,9 @@ async function getProvidersForLibrary(ctx: WorkerContext, libraryId?: string): P
  */
 async function countUnresolved(ctx: WorkerContext, libraryId: string): Promise<number> {
   const rows = await ctx.sql`
-    select count(*)::int as cnt from release_groups
-    where mbid is not null and artists_resolved_at is null` as unknown as Array<{ cnt: number }>;
+    select count(*)::int as cnt from release_groups rg
+    where rg.mbid is not null and rg.artists_resolved_at is null
+      and exists (select 1 from local_albums la where la.release_group_id = rg.id and la.library_id = ${libraryId})` as unknown as Array<{ cnt: number }>;
   return rows[0]?.cnt ?? 0;
 }
 

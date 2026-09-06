@@ -140,40 +140,27 @@ export async function upsertCanonical(
     const artistLinks = artistLinksFrom(release.artistCredits);
 
     if (artistLinks.length > 0) {
-      // Upsert artists by mbid
-      for (const link of artistLinks) {
-        await ctx.db.insert(artists)
-          .values({
-            mbid: link.mbid,
-            name: link.name,
-            sortName: null,
-          })
-          .onConflictDoUpdate({
-            target: artists.mbid,
-            set: {
-              name: sql`case when ${artists.name} = '' or ${artists.name} is null then excluded.name else ${artists.name} end`,
-            },
-          });
-      }
-
-      // Get artist IDs by mbid and delete existing release_group_artists for this RG
+      // One statement per table: postgres.js sends JS arrays as PG arrays,
+      // so unnest() turns the credit list into rows (no per-artist round trips).
+      const mbids = artistLinks.map((l) => l.mbid);
+      const names = artistLinks.map((l) => l.name);
+      const positions = artistLinks.map((l) => l.position);
+      const credited = artistLinks.map((l) => l.creditedName ?? null);
+      const joins = artistLinks.map((l) => l.joinPhrase ?? null);
+      // Upsert artists by mbid; never overwrite a name enrichment already filled.
+      await ctx.sql`
+        insert into artists (mbid, name)
+        select c.mbid, c.name from unnest(${mbids}::text[], ${names}::text[]) as c(mbid, name)
+        on conflict (mbid) do update
+          set name = case when artists.name = '' or artists.name is null then excluded.name else artists.name end`;
       await ctx.db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, rgId));
-
-      // Insert new release_group_artists rows
-      for (const link of artistLinks) {
-        await ctx.sql`
-          insert into release_group_artists (release_group_id, artist_id, position, credited_name, join_phrase)
-          select
-            ${rgId}::uuid as release_group_id,
-            artists.id,
-            ${link.position} as position,
-            ${link.creditedName ?? null} as credited_name,
-            ${link.joinPhrase ?? null} as join_phrase
-          from artists
-          where artists.mbid = ${link.mbid}
-          on conflict do nothing
-        `;
-      }
+      await ctx.sql`
+        insert into release_group_artists (release_group_id, artist_id, position, credited_name, join_phrase)
+        select ${rgId}::uuid, a.id, c.position, c.credited_name, c.join_phrase
+          from unnest(${mbids}::text[], ${positions}::int[], ${credited}::text[], ${joins}::text[])
+               as c(mbid, position, credited_name, join_phrase)
+          join artists a on a.mbid = c.mbid
+        on conflict do nothing`;
 
       // Set artists_resolved_at
       await ctx.db.update(releaseGroups)
