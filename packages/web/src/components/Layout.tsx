@@ -4,14 +4,18 @@
 
 import { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation } from '@tanstack/react-router';
-import { useMe } from '../hooks';
+import { useMe, useCurrentLibrary, useJobEvents } from '../hooks';
 import { SearchModal } from './SearchModal';
 import styles from './Layout.module.css';
 
 export function Layout() {
   const { data: user } = useMe();
+  const { libraryId } = useCurrentLibrary();
   const location = useLocation();
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Mount SSE listener for job events and queue changes (once per library)
+  useJobEvents(user && libraryId ? libraryId : undefined);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -68,6 +72,12 @@ export function Layout() {
             className={isActive('/queue') ? styles.navLinkActive : styles.navLink}
           >
             Queue
+          </Link>
+          <Link
+            to="/identify"
+            className={isActive('/identify') ? styles.navLinkActive : styles.navLink}
+          >
+            Identify
           </Link>
           <Link
             to="/attention"

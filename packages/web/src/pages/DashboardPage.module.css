@@ -42,6 +42,15 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.statCard:hover {
+  border-color: var(--accent);
+  background-color: var(--bg-tertiary);
 }
 
 .statLabel {

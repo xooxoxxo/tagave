@@ -5,7 +5,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useCurrentLibrary, useScanRoots } from '../hooks';
+import { useCurrentLibrary, useScanRoots, useIdentifyStats } from '../hooks';
 import { api } from '../services/api';
 
 interface LibraryStats {
@@ -32,6 +32,7 @@ export function DashboardPage() {
   const { libraryId } = useCurrentLibrary();
   const { data: scanRoots, isLoading, error } = useScanRoots(libraryId);
   const { data: stats } = useLibraryStats(libraryId);
+  const { data: identifyStats } = useIdentifyStats(libraryId);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading library...</div>;
@@ -61,12 +62,18 @@ export function DashboardPage() {
       </header>
 
       <div className={styles.grid}>
-        {/* Promise counters per spec 14.2 */}
-        <div className={styles.statCard}>
+        {/* Identified card with real data */}
+        <Link to="/identify" className={styles.statCard}>
           <div className={styles.statLabel}>Identified</div>
-          <div className={styles.statValue}>—</div>
-          <div className={styles.statNote}>M1+</div>
-        </div>
+          <div className={styles.statValue}>
+            {identifyStats ? `${(identifyStats.identifiedShare * 100).toFixed(1)}%` : '—'}
+          </div>
+          <div className={styles.statNote}>
+            {identifyStats
+              ? `${identifyStats.states.matched} of ${identifyStats.total} · day ${identifyStats.target.day}/30 · ${identifyStats.target.onTrack ? 'on track' : 'behind'} for 95%`
+              : 'M1+'}
+          </div>
+        </Link>
 
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Tag Health</div>

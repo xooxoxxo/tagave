@@ -3,13 +3,18 @@
  * M0: Basic view of scan jobs
  */
 
-import { useCurrentLibrary, useScanRoots } from '../hooks';
+import { Link } from '@tanstack/react-router';
+import { useCurrentLibrary, useScanRoots, useIdentifyStats, useKickSweep, useJobs } from '../hooks';
 import { formatDateTime } from '../utils';
+import { formatEta, formatRelativeTime } from '../utils/time';
 import styles from './JobsPage.module.css';
 
 export function JobsPage() {
   const { libraryId } = useCurrentLibrary();
   const { data: scanRoots = [], isLoading } = useScanRoots(libraryId);
+  const { data: identifyStats } = useIdentifyStats(libraryId);
+  const { data: jobsData } = useJobs(libraryId);
+  const kickSweep = useKickSweep(libraryId);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading...</div>;
@@ -60,6 +65,123 @@ export function JobsPage() {
         <div className={styles.loading}>Loading jobs...</div>
       ) : (
         <>
+          {/* Identification sweep section */}
+          {identifyStats && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Identification sweep</h2>
+              <div className={styles.jobCard}>
+                <div className={styles.jobHeader}>
+                  <div>
+                    <h3 className={styles.jobTitle}>Sweep top-up</h3>
+                    <p className={styles.jobType}>Identify</p>
+                  </div>
+                  <span className={`${styles.badge} ${identifyStats.sweep?.state === 'running' ? styles.statusRunning : styles.statusCompleted}`}>
+                    {identifyStats.sweep?.state || 'idle'}
+                  </span>
+                </div>
+                <div className={styles.progress}>
+                  <div className={styles.progressBar}>
+                    <div
+                      className={styles.progressFill}
+                      style={{
+                        width: identifyStats.sweep
+                          ? `${((identifyStats.sweep.progress.done / identifyStats.sweep.progress.total) * 100) || 0}%`
+                          : '0%',
+                      }}
+                    />
+                  </div>
+                  <p className={styles.progressText}>
+                    {identifyStats.sweep?.progress?.message
+                      ? identifyStats.sweep.progress.message
+                      : `${identifyStats.sweep?.progress?.done ?? 0} / ${identifyStats.sweep?.progress?.total ?? 0}`}
+                  </p>
+                </div>
+                <div className={styles.sweepStats}>
+                  <span className={styles.metaTag}>
+                    {identifyStats.rate.perMin}/min · ETA {formatEta(identifyStats.etaSeconds)}
+                  </span>
+                  <span className={styles.metaTag}>
+                    {identifyStats.queue.queued} queued · {identifyStats.queue.active} active · {identifyStats.queue.retry} retrying · {identifyStats.queue.failed} failed
+                  </span>
+                </div>
+                <div className={styles.sweepActions}>
+                  <button
+                    className={styles.btn}
+                    onClick={() => kickSweep.mutate()}
+                    disabled={kickSweep.isPending}
+                  >
+                    {kickSweep.isPending ? 'Kicking...' : 'Kick sweep'}
+                  </button>
+                  <Link to="/identify" className={styles.link}>
+                    Open triage
+                  </Link>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Recent jobs section */}
+          {jobsData && jobsData.data.length > 0 && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Recent jobs</h2>
+              <div className={styles.jobsList}>
+                {jobsData.data.slice(0, 10).map((job) => {
+                  const statusClass =
+                    job.state === 'running'
+                      ? styles.statusRunning
+                      : job.state === 'finished'
+                        ? styles.statusCompleted
+                        : job.state === 'failed'
+                          ? styles.statusFailed
+                          : '';
+                  return (
+                    <div key={job.id} className={`${styles.jobCard} ${statusClass}`}>
+                      <div className={styles.jobHeader}>
+                        <div>
+                          <h3 className={styles.jobTitle}>{job.type}</h3>
+                          <p className={styles.jobType}>{job.state}</p>
+                        </div>
+                        <span className={`${styles.badge} ${statusClass}`}>
+                          {job.state}
+                        </span>
+                      </div>
+                      {job.progress && (
+                        <div className={styles.progress}>
+                          <div className={styles.progressBar}>
+                            <div
+                              className={styles.progressFill}
+                              style={{
+                                width: `${(((job.progress.done || 0) / (job.progress.total || 1)) * 100) || 0}%`,
+                              }}
+                            />
+                          </div>
+                          <p className={styles.progressText}>
+                            {job.progress.message ? job.progress.message : `${job.progress.done} / ${job.progress.total}`}
+                          </p>
+                        </div>
+                      )}
+                      <div className={styles.jobMeta}>
+                        {job.startedAt && (
+                          <span className={styles.metaTag}>
+                            Started {formatRelativeTime(job.startedAt)}
+                          </span>
+                        )}
+                        {job.finishedAt && (
+                          <span className={styles.metaTag}>
+                            Finished {formatDateTime(job.finishedAt)}
+                          </span>
+                        )}
+                      </div>
+                      {job.error && (
+                        <p className={styles.error}>{job.error}</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
           {/* Running jobs */}
           {runningJobs.length > 0 && (
             <section className={styles.section}>
