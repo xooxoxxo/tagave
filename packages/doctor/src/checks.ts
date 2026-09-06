@@ -498,6 +498,14 @@ export async function checkProviders(
 
         if (mbResponse.ok) {
           checks.push({ name: 'MusicBrainz', status: 'pass', detail: 'OK' });
+        } else if (mbResponse.status === 503) {
+          // MusicBrainz answers 503 whenever the shared per-IP budget is busy
+          // (the workers pace and retry); reachable, just throttled right now.
+          checks.push({
+            name: 'MusicBrainz',
+            status: 'warn',
+            detail: 'HTTP 503 (rate limited right now; workers are pacing — retry in a minute)',
+          });
         } else {
           checks.push({
             name: 'MusicBrainz',
