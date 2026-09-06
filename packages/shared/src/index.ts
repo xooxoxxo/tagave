@@ -35,6 +35,8 @@ export {
   type Library,
   scanStatsSchema,
   type ScanStats,
+  genreMapSchema,
+  type GenreMap,
   librarySettingsViewSchema,
   type LibrarySettingsView,
   patchLibrarySettingsSchema,

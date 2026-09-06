@@ -134,3 +134,16 @@ export type { LinkIdentity, LinkInputs, ResolvedLink } from './reviews/index.js'
 
 // Credential encryption
 export { sealSecret, openSecret, isSealed, computeHint } from './crypto/secretbox.js';
+
+// Genre canonicalisation (XO-310)
+export {
+  DEFAULT_GENRE_MAP,
+  normalizeGenreMap,
+  effectiveGenres,
+} from './genres/index.js';
+
+export type {
+  GenreMap,
+  RawTag,
+  EffectiveGenres,
+} from './genres/index.js';

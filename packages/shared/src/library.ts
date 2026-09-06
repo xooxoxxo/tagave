@@ -82,7 +82,19 @@ export const scanStatsSchema = z.object({
 export type ScanStats = z.infer<typeof scanStatsSchema>;
 
 /**
- * Library settings view per PLT-4 (token configuration)
+ * Genre map configuration per XO-310
+ * Whitelist of canonical genres and aliases for tag normalization
+ */
+export const genreMapSchema = z.object({
+  whitelist: z.array(z.string().min(1)).max(100).describe('List of canonical genre names'),
+  aliases: z.record(z.string().min(1)).default({}).describe('Mapping of tags to canonical genres (lower-case keys)'),
+  maxGenres: z.number().int().min(1).max(10).describe('Maximum number of genres to return'),
+}).strict();
+
+export type GenreMap = z.infer<typeof genreMapSchema>;
+
+/**
+ * Library settings view per PLT-4 (token configuration) and XO-310 (genres)
  * Returned by GET /libraries/:id/settings
  */
 export const librarySettingsViewSchema = z.object({
@@ -92,12 +104,13 @@ export const librarySettingsViewSchema = z.object({
   acoustidKeySet: z.boolean().describe('Whether an AcoustID key is configured'),
   acoustidKeyHint: z.string().nullable().describe('Last 4 characters of the AcoustID key for hint purposes'),
   onboardingCompletedAt: z.string().datetime().nullable().describe('ISO 8601 timestamp when onboarding was completed'),
+  genreMap: genreMapSchema.describe('Genre canonicalisation configuration (required)'),
 }).strict();
 
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
 
 /**
- * Library settings patch request per PLT-4
+ * Library settings patch request per PLT-4 and XO-310
  * Body for PATCH /libraries/:id/settings
  */
 export const patchLibrarySettingsSchema = z.object({
@@ -105,6 +118,7 @@ export const patchLibrarySettingsSchema = z.object({
   discogsToken: z.union([z.string().min(10), z.null()]).optional().describe('Discogs API token (null to clear)'),
   acoustidKey: z.union([z.string().min(8), z.null()]).optional().describe('AcoustID key (null to clear)'),
   onboardingCompletedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp when onboarding was completed'),
+  genreMap: genreMapSchema.optional().describe('Genre canonicalisation configuration'),
 }).strict();
 
 export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;
