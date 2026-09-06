@@ -392,7 +392,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (!response.ok) {
       if (response.status === 503) {
-        throw new Error('MusicBrainz rate limited (503)');
+        throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
       }
       throw new Error(`MusicBrainz search failed: ${response.statusText}`);
     }
@@ -423,7 +423,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (!response.ok) {
       if (response.status === 503) {
-        throw new Error('MusicBrainz rate limited (503)');
+        throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
       }
       throw new Error(`Failed to fetch MusicBrainz release ${id}: ${response.statusText}`);
     }
@@ -489,7 +489,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       },
     });
 
-    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
     }
@@ -521,7 +521,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       },
     });
 
-    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
     }
@@ -562,7 +562,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       return { releaseMbids: [], releaseGroupMbids: [] };
     }
 
-    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
       throw new Error(`Failed to look up URL ${resource}: ${response.statusText}`);
     }
@@ -682,7 +682,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       },
     });
 
-    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
     }

@@ -58,7 +58,7 @@ async function main() {
   await boss.start();
 
   const ctx: WorkerContext = { db, sql: client, boss, logger };
-  setCooldownObserver((provider, ms, attempt) => logger.warn({ provider, ms, attempt }, 'provider cooldown opened'));
+  setCooldownObserver((provider, ms, attempt, reason) => logger.warn({ provider, ms, attempt, reason: reason.slice(0, 200) }, 'provider cooldown opened'));
   const workerId = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   logger.info({ workerId }, 'worker connected');
 

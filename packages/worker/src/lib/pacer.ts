@@ -85,7 +85,7 @@ interface PacedOptions {
 const chains = new Map<ProviderName, Promise<void>>();
 
 /** Optional observer so the worker can log every shared cooldown it opens. */
-let onCooldown: ((provider: ProviderName, ms: number, attempt: number) => void) | undefined;
+let onCooldown: ((provider: ProviderName, ms: number, attempt: number, reason: string) => void) | undefined;
 export function setCooldownObserver(fn: typeof onCooldown): void { onCooldown = fn; }
 
 /**
@@ -114,7 +114,7 @@ export function paced<T>(
         const retryAfterMs = (err as { retryAfterMs?: number }).retryAfterMs;
         const ms = cooldownMsForAttempt(attempt, retryAfterMs);
         await openCooldown(sql, provider, ms, (err as Error).message);
-        onCooldown?.(provider, ms, attempt);
+        onCooldown?.(provider, ms, attempt, (err as Error).message);
         if (attempt >= maxAttempts) throw err;
         // claimSlot on the next loop waits out the cooldown (server time).
       }
