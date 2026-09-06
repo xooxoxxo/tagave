@@ -8,6 +8,7 @@ import {
   pickByChipRule, chipCounts,
 } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
+import { notifyQueueChanged } from './progress.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 import {
   libraryProviderSettings, getProviders, discogsCall, mbCall, type Providers,
@@ -120,10 +121,20 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   if (!album) return;
   const pinned = !!(data.pinnedMbid || data.pinnedDiscogs);
   if (!pinned && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
-  if (!pinned && (!album.titleGuess || !album.artistGuess)) {
+  // Triage bookkeeping (XO-309): attempts + last run feed the sweep top-up
+  // (eligibility) and the triage view; the reason explains every non-match.
+  await ctx.db.update(localAlbums)
+    .set({ identifyAttempts: album.identifyAttempts + 1, lastIdentifyAt: new Date() })
+    .where(eq(localAlbums.id, album.id));
+  const giveUp = async (reason: 'no_tags' | 'no_candidates' | 'weak_candidates' | 'ambiguous') => {
+    const state = reason === 'ambiguous' ? 'needs_review' : 'unidentified';
     await ctx.db.update(localAlbums)
-      .set({ state: 'unidentified', updatedAt: new Date() })
+      .set({ state, identifyReason: reason, updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
+    await notifyQueueChanged(ctx, album.libraryId, album.id, state);
+  };
+  if (!pinned && (!album.titleGuess || !album.artistGuess)) {
+    await giveUp('no_tags');
     return;
   }
 
@@ -255,9 +266,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   }
 
   if (fetched.length === 0) {
-    await ctx.db.update(localAlbums)
-      .set({ state: 'unidentified', updatedAt: new Date() })
-      .where(eq(localAlbums.id, album.id));
+    await giveUp('no_candidates');
     return;
   }
 
@@ -305,8 +314,16 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       .select({ rgId: releases.releaseGroupId })
       .from(releases).where(eq(releases.id, releaseDb)).limit(1);
     await ctx.db.update(localAlbums)
-      .set({ state: 'matched', releaseId: releaseDb, releaseGroupId: rgRow[0]?.rgId ?? null, updatedAt: new Date() })
+      .set({
+        state: 'matched',
+        releaseId: releaseDb,
+        releaseGroupId: rgRow[0]?.rgId ?? null,
+        identifyReason: null,
+        identifiedAt: new Date(),
+        updatedAt: new Date(),
+      })
       .where(eq(localAlbums.id, album.id));
+    await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
     // ENR-1: bridge + enrich the release of record.
     await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
   };
@@ -342,26 +359,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
     if (chosen && chosenDb) {
       const cc = chipCounts(chosen.breakdown);
-      await ctx.db.insert(albumMatches).values({
-        libraryId: album.libraryId,
-        localAlbumId: album.id,
-        releaseId: chosenDb,
-        distance: chosen.distance.toFixed(4),
-        status: 'auto',
-        decidedBy: 'system',
-        reason: `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
-      });
-      const rgRow2 = await ctx.db
-        .select({ rgId: releases.releaseGroupId })
-        .from(releases).where(eq(releases.id, chosenDb)).limit(1);
-      await ctx.db.update(localAlbums)
-        .set({
-          state: 'matched',
-          releaseId: chosenDb,
-          releaseGroupId: rgRow2[0]?.rgId ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(localAlbums.id, album.id));
+      await goLive(chosenDb, 'auto', 'system', chosen.distance,
+        `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`);
       return;
     }
     // Owner policy (2026-09-05): the top candidate in the band is what the
@@ -369,34 +368,12 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     // and the grid's match-kind filter instead of the queue.
     if (best && bestDb) {
       const cc2 = chipCounts(best.breakdown);
-      await ctx.db.insert(albumMatches).values({
-        libraryId: album.libraryId,
-        localAlbumId: album.id,
-        releaseId: bestDb,
-        distance: best.distance.toFixed(4),
-        status: 'auto',
-        decidedBy: 'system',
-        reason: `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`,
-      });
-      const rgRow3 = await ctx.db
-        .select({ rgId: releases.releaseGroupId })
-        .from(releases).where(eq(releases.id, bestDb)).limit(1);
-      await ctx.db.update(localAlbums)
-        .set({
-          state: 'matched',
-          releaseId: bestDb,
-          releaseGroupId: rgRow3[0]?.rgId ?? null,
-          updatedAt: new Date(),
-        })
-        .where(eq(localAlbums.id, album.id));
+      await goLive(bestDb, 'auto', 'system', best.distance,
+        `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`);
       return;
     }
-    await ctx.db.update(localAlbums)
-      .set({ state: 'needs_review', updatedAt: new Date() })
-      .where(eq(localAlbums.id, album.id));
+    await giveUp('ambiguous');
   } else {
-    await ctx.db.update(localAlbums)
-      .set({ state: 'unidentified', updatedAt: new Date() })
-      .where(eq(localAlbums.id, album.id));
+    await giveUp('weak_candidates');
   }
 }

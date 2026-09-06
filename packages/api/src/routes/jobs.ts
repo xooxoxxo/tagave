@@ -1,8 +1,33 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import { libraries, jobRuns } from '@liner/db';
-import { getDb } from '../db.js';
+import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
+
+const subscribers = new Map<string, Set<FastifyReply>>();
+let listening: Promise<void> | undefined;
+
+/** One LISTEN connection per process (postgres.js keeps it dedicated). */
+function ensureListener(fastify: FastifyInstance): Promise<void> {
+  if (listening) return listening;
+  listening = getSql()
+    .listen('liner_jobs', (payload) => {
+      let event: { type?: string; libraryId?: string } = {};
+      try { event = JSON.parse(payload); } catch { return; }
+      if (!event.libraryId) return;
+      const subs = subscribers.get(event.libraryId);
+      if (!subs) return;
+      const frame = `event: ${event.type ?? 'message'}\ndata: ${payload}\n\n`;
+      for (const r of subs) {
+        try { r.raw.write(frame); } catch { subs.delete(r); }
+      }
+    })
+    .then(() => undefined, (err: Error) => {
+      listening = undefined;
+      fastify.log.error({ err }, 'LISTEN liner_jobs failed');
+    });
+  return listening;
+}
 
 export async function createJobRoutes(fastify: FastifyInstance) {
   // Get all jobs for a library
@@ -114,7 +139,10 @@ export async function createJobRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Stream job events via SSE
+  // Stream job events via SSE (spec §11.4): one LISTEN on `liner_jobs` per
+  // process, fanned out to the clients of the library named in each event.
+  // Workers publish job.progress/completed/failed (reportProgress) and
+  // queue.changed (identification decisions); a heartbeat keeps proxies open.
   fastify.get(
     '/libraries/:libraryId/jobs/stream',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -138,41 +166,26 @@ export async function createJobRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
 
-      reply.header('Content-Type', 'text/event-stream');
-      reply.header('Cache-Control', 'no-cache');
-      reply.header('Connection', 'keep-alive');
-
-      // Send initial message
+      await ensureListener(fastify);
+      reply.raw.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
       reply.raw.write('data: {"type":"connected"}\n\n');
 
-      // Set up periodic polling for job updates
-      const interval = setInterval(async () => {
-        try {
-          const jobs = await db
-            .select()
-            .from(jobRuns)
-            .where(eq(jobRuns.libraryId, libraryId));
-
-          jobs.forEach((job) => {
-            reply.raw.write(
-              `data: ${JSON.stringify({
-                type: 'job_update',
-                id: job.id,
-                state: job.state,
-                progress: job.progress ? JSON.parse(job.progress as string) : { done: 0, total: 0 },
-              })}\n\n`
-            );
-          });
-        } catch (err) {
-          clearInterval(interval);
-          reply.raw.end();
-        }
-      }, 1000);
-
-      // Clean up on close
+      const subs = subscribers.get(libraryId) ?? new Set<FastifyReply>();
+      subs.add(reply);
+      subscribers.set(libraryId, subs);
+      const heartbeat = setInterval(() => reply.raw.write(': ping\n\n'), 25_000);
       request.raw.on('close', () => {
-        clearInterval(interval);
+        clearInterval(heartbeat);
+        subs.delete(reply);
+        if (subs.size === 0) subscribers.delete(libraryId);
       });
+      // keep the handler open; fastify must not end the raw response
+      await new Promise<void>((resolve) => request.raw.on('close', resolve));
     }
   );
 

@@ -18,6 +18,7 @@ import { createQueueRoutes } from './routes/queue.js';
 import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createCollectionRoutes } from './routes/collection.js';
+import { createIdentifyRoutes } from './routes/identify.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -252,6 +253,9 @@ app.register(async (instance) => {
 
   // Collection (COL-1, GAP-3)
   instance.register(createCollectionRoutes, { prefix: '/api/v1' });
+
+  // Identify triage + coverage metrics (XO-309)
+  instance.register(createIdentifyRoutes, { prefix: '/api/v1' });
 });
 
 // Start server

@@ -14,3 +14,9 @@ export function getDb(): Awaited<ReturnType<typeof makeDb>>['db'] {
   if (!instance) throw new Error('getDb() before initDb()');
   return instance.db;
 }
+
+/** The raw postgres.js client behind the pool (LISTEN/NOTIFY, tagged SQL). */
+export function getSql(): Awaited<ReturnType<typeof makeDb>>['client'] {
+  if (!instance) throw new Error('getSql() before initDb()');
+  return instance.client;
+}

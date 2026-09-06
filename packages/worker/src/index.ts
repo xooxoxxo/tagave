@@ -117,9 +117,14 @@ async function main() {
     await Promise.all(jobs.map((job) => identifyAlbumJob(ctx, job.data)));
   });
 
-  if (wants('identify.sweep')) await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await identifySweepJob(ctx, job.data);
-  });
+  if (wants('identify.sweep')) {
+    await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await identifySweepJob(ctx, job.data);
+    });
+    // Keep the sweep fed and its status row fresh (XO-309): every 5 minutes
+    // top up the identify queue from pending albums and refresh coverage/ETA.
+    await boss.schedule('identify.sweep', '*/5 * * * *', { topUp: true }, {});
+  }
 
   if (wants('enrich.release')) {
     await boss.work<EnrichReleaseJobData>('enrich.release', { batchSize: 1 }, async (jobs) => {

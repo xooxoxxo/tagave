@@ -84,3 +84,22 @@ export async function reportProgress(
   await ctx.sql`select pg_notify('liner_jobs', ${payload})`;
   return id;
 }
+
+/**
+ * Fan-out hook for the API's SSE stream (spec §11.4 `queue.changed`): an
+ * identification decision changed the review queue / coverage counters.
+ * Payload stays tiny; clients refetch the counts they show.
+ */
+export async function notifyQueueChanged(
+  ctx: WorkerContext,
+  libraryId: string,
+  localAlbumId: string,
+  state: string,
+): Promise<void> {
+  const payload = JSON.stringify({ type: 'queue.changed', libraryId, localAlbumId, state });
+  try {
+    await ctx.sql`select pg_notify('liner_jobs', ${payload})`;
+  } catch (err) {
+    ctx.logger.warn({ err: (err as Error).message }, 'queue.changed notify failed');
+  }
+}

@@ -215,6 +215,11 @@ export const localAlbums = pgTable(
     releaseGroupId: uuid('release_group_id'),
     qualityFlags: jsonb('quality_flags').default('[]'),
     preferred: boolean().default(false),
+    /** why unidentified / needs review: no_tags | no_candidates | weak_candidates | ambiguous | provider_errors */
+    identifyReason: varchar('identify_reason', { length: 40 }),
+    identifyAttempts: integer('identify_attempts').notNull().default(0),
+    lastIdentifyAt: timestamp('last_identify_at', { withTimezone: true }),
+    identifiedAt: timestamp('identified_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
