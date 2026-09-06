@@ -38,6 +38,17 @@ export function isRateLimitError(err: unknown): boolean {
 }
 
 /**
+ * MusicBrainz answers 503 "web server is currently busy" under its own load,
+ * unrelated to our per-IP budget: that request should simply be retried,
+ * while everyone else keeps their 1.1 s cadence. Only a real rate-limit
+ * message ("exceeding the allowable rate") earns the shared cooldown.
+ */
+export function isServerBusyError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /currently busy|try again later/i.test(msg) && !/exceeding|rate limit exceeded/i.test(msg);
+}
+
+/**
  * Claim the next slot for a provider and sleep until it arrives. One atomic
  * upsert: the row's next_slot_at is pushed forward by intervalMs from
  * max(previous slot, now, circuit_open_until); the caller gets its own slot
@@ -111,6 +122,12 @@ export function paced<T>(
         return out;
       } catch (err) {
         if (!isRateLimitError(err)) throw err;
+        if (isServerBusyError(err)) {
+          // per-request backoff only; the shared cadence stays untouched
+          if (attempt >= maxAttempts) throw err;
+          await new Promise((r) => setTimeout(r, 2_000 * attempt));
+          continue;
+        }
         const retryAfterMs = (err as { retryAfterMs?: number }).retryAfterMs;
         const ms = cooldownMsForAttempt(attempt, retryAfterMs);
         await openCooldown(sql, provider, ms, (err as Error).message);

@@ -1,7 +1,7 @@
 /**
  * Tests for pure pacer functions.
  */
-import { describe, it, expect } from 'vitest';
+import { isServerBusyError, describe, it, expect } from 'vitest';
 import { cooldownMsForAttempt, isRateLimitError } from './pacer.js';
 
 describe('cooldownMsForAttempt', () => {
@@ -48,5 +48,13 @@ describe('isRateLimitError', () => {
   it('is case-insensitive', () => {
     expect(isRateLimitError(new Error('RATE LIMIT'))).toBe(true);
     expect(isRateLimitError(new Error('Rate Limit'))).toBe(true);
+  });
+});
+
+describe('isServerBusyError', () => {
+  it('recognises the MusicBrainz busy body but not a real rate-limit', () => {
+    expect(isServerBusyError(new Error('MusicBrainz rate limited (503): {"error": "The MusicBrainz web server is currently busy. Please try again later."}'))).toBe(true);
+    expect(isServerBusyError(new Error('MusicBrainz rate limited (503): {"error": "Your requests are exceeding the allowable rate limit."}'))).toBe(false);
+    expect(isServerBusyError(new Error('Discogs rate limited (429): retry after 30s'))).toBe(false);
   });
 });
