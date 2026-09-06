@@ -172,12 +172,14 @@ export async function collectionSyncJob(ctx: WorkerContext, data: CollectionSync
 
     // Mark removed items (spec GAP-3: use last_seen_at instead of seenIds to handle partial syncs)
     // Items unseen in this run stay unseen until absent in a complete run
+    // Skip items with push_state 'pending'/'failed' (no instance id yet) — they were never synced to Discogs
     await ctx.db.update(collectionItems)
       .set({ removedAt: new Date() })
       .where(and(
         eq(collectionItems.collectionSourceId, sourceId),
         lt(collectionItems.lastSeenAt, syncStart), // typed column: drizzle serialises the Date; a raw sql fragment cannot
-        dsql`removed_at is null`
+        dsql`removed_at is null`,
+        eq(collectionItems.pushState, 'synced') // only mark synced items as removed
       ));
 
     await ctx.db.update(collectionSources)
@@ -342,4 +344,321 @@ async function doMapping(ctx: WorkerContext, jobRunId: string | null, libraryId:
     libraryId, type: 'collection.sync', state: 'completed',
     message: `Mapped ${mapped}/${unmapped.length}`,
   });
+}
+
+export interface CollectionPushJobData {
+  libraryId: string;
+  itemId: string;
+}
+
+/**
+ * Push collection item to Discogs (spec COL-3).
+ */
+export async function collectionPushJob(ctx: WorkerContext, data: CollectionPushJobData): Promise<void> {
+  const { libraryId, itemId } = data;
+  const logger = ctx.logger.child({ jobType: 'collection.push', libraryId, itemId });
+
+  try {
+    const itemRows = await ctx.db.select().from(collectionItems)
+      .where(eq(collectionItems.id, itemId));
+
+    if (itemRows.length === 0) {
+      logger.warn('Item not found');
+      return;
+    }
+
+    const item = itemRows[0]!;
+
+    // Get library and settings
+    const libRows = await ctx.db.select().from(libraries)
+      .where(eq(libraries.id, libraryId));
+
+    if (libRows.length === 0) {
+      logger.warn('Library not found');
+      return;
+    }
+
+    const settings = await libraryProviderSettings(ctx, libraryId);
+    const providers = getProviders(settings);
+
+    // Get identity and ensure fields are cached in collection_sources
+    const identity = await discogsCall(ctx, providers, () => providers.discogs.getIdentity(bg));
+
+    // Get or update source fields
+    const sources = await ctx.db.select().from(collectionSources)
+      .where(eq(collectionSources.id, item.collectionSourceId));
+
+    if (sources.length === 0) {
+      throw new Error('Collection source not found');
+    }
+
+    const source = sources[0]!;
+    const fieldsList = await discogsCall(ctx, providers, () =>
+      providers.discogs.getCollectionFields(identity.username, bg));
+
+    // Update source with fields
+    const fields = source.fields || [];
+    if (Array.isArray(fields) && fields.length === 0) {
+      await ctx.db.update(collectionSources)
+        .set({ fields: fieldsList as any })
+        .where(eq(collectionSources.id, item.collectionSourceId));
+    }
+
+    // Add to Discogs collection
+    const addResult = await discogsCall(ctx, providers, () =>
+      providers.discogs.addToCollection(
+        identity.username,
+        item.folderId || 1,
+        item.discogsReleaseId!,
+        bg
+      ));
+
+    const instanceId = addResult.instanceId;
+
+    // Immediately persist the instanceId before field/rating writes to prevent duplicates on retry
+    await ctx.db.update(collectionItems)
+      .set({ providerItemId: String(instanceId) })
+      .where(eq(collectionItems.id, itemId));
+
+    // Set custom fields
+    let fieldErrors: string[] = [];
+    if (item.mediaCondition || item.sleeveCondition || item.notes) {
+      // Find field IDs by name (case-insensitive)
+      const fieldMap = new Map(fieldsList.map(f => [f.name.toLowerCase(), f]));
+
+      if (item.mediaCondition) {
+        const mediaField = Array.from(fieldMap.values()).find(f =>
+          f.name.toLowerCase().includes('media condition')
+        );
+        if (mediaField) {
+          // Validate dropdown value is in options
+          if (mediaField.type === 'dropdown' && mediaField.options && !mediaField.options.includes(item.mediaCondition)) {
+            fieldErrors.push(`Invalid media condition "${item.mediaCondition}": not in available options`);
+          } else {
+            try {
+              await discogsCall(ctx, providers, () =>
+                providers.discogs.setCollectionField(
+                  identity.username,
+                  item.folderId || 1,
+                  item.discogsReleaseId!,
+                  instanceId,
+                  mediaField.id,
+                  item.mediaCondition!,
+                  bg
+                )
+              );
+            } catch (err: any) {
+              fieldErrors.push(`Failed to set media condition: ${err?.message || String(err)}`);
+            }
+          }
+        }
+      }
+
+      if (item.sleeveCondition) {
+        const sleeveField = Array.from(fieldMap.values()).find(f =>
+          f.name.toLowerCase().includes('sleeve condition')
+        );
+        if (sleeveField) {
+          // Validate dropdown value is in options
+          if (sleeveField.type === 'dropdown' && sleeveField.options && !sleeveField.options.includes(item.sleeveCondition)) {
+            fieldErrors.push(`Invalid sleeve condition "${item.sleeveCondition}": not in available options`);
+          } else {
+            try {
+              await discogsCall(ctx, providers, () =>
+                providers.discogs.setCollectionField(
+                  identity.username,
+                  item.folderId || 1,
+                  item.discogsReleaseId!,
+                  instanceId,
+                  sleeveField.id,
+                  item.sleeveCondition!,
+                  bg
+                )
+              );
+            } catch (err: any) {
+              fieldErrors.push(`Failed to set sleeve condition: ${err?.message || String(err)}`);
+            }
+          }
+        }
+      }
+
+      if (item.notes) {
+        const notesField = Array.from(fieldMap.values()).find(f =>
+          f.name.toLowerCase() === 'notes'
+        );
+        if (notesField) {
+          try {
+            await discogsCall(ctx, providers, () =>
+              providers.discogs.setCollectionField(
+                identity.username,
+                item.folderId || 1,
+                item.discogsReleaseId!,
+                instanceId,
+                notesField.id,
+                item.notes!,
+                bg
+              )
+            );
+          } catch (err: any) {
+            fieldErrors.push(`Failed to set notes: ${err?.message || String(err)}`);
+          }
+        }
+      }
+    }
+
+    // Set rating if provided
+    if (item.rating && item.rating > 0) {
+      await discogsCall(ctx, providers, () =>
+        providers.discogs.setCollectionRating(
+          identity.username,
+          item.folderId || 1,
+          item.discogsReleaseId!,
+          instanceId,
+          item.rating!,
+          bg
+        )
+      );
+    }
+
+    // Fetch release basic info
+    let basicInfo: Record<string, unknown> | undefined;
+    try {
+      const release = await discogsRelease(ctx, providers, item.discogsReleaseId!);
+      basicInfo = {
+        title: release.title,
+        artists: release.artists,
+        year: release.year,
+        formats: release.mediaList,
+        thumb: release.images?.find(i => i.primary)?.url,
+      };
+    } catch (err) {
+      logger.warn({ err }, 'Failed to fetch basic info');
+    }
+
+    // Mark as synced or failed based on field errors
+    const hasFatalErrors = fieldErrors.length > 0;
+    const pushError = hasFatalErrors ? fieldErrors.join('; ') : null;
+
+    await ctx.db.update(collectionItems)
+      .set({
+        pushState: hasFatalErrors ? 'failed' : 'synced',
+        pushError,
+        dateAdded: new Date(),
+        lastSeenAt: new Date(),
+        ...(basicInfo ? { basicInfo } : {}),
+      })
+      .where(eq(collectionItems.id, itemId));
+
+    if (hasFatalErrors) {
+      logger.warn({ instanceId, errors: fieldErrors }, 'Item pushed with field errors');
+    } else {
+      logger.info({ instanceId }, 'Item pushed to Discogs');
+    }
+  } catch (err: any) {
+    logger.error({ err }, 'Push failed');
+
+    // Set error state
+    let errorMsg = err?.message || 'Unknown error';
+    if (err?.retryAfterMs) {
+      // Rate limit — let pg-boss retry
+      throw err;
+    }
+
+    await ctx.db.update(collectionItems)
+      .set({
+        pushState: 'failed',
+        pushError: errorMsg.substring(0, 500),
+      })
+      .where(eq(collectionItems.id, itemId))
+      .catch(e => logger.warn({ e }, 'Failed to set error state'));
+  }
+}
+
+export interface CollectionRemoveJobData {
+  libraryId: string;
+  itemId: string;
+}
+
+/**
+ * Remove collection item from Discogs (spec COL-3).
+ */
+export async function collectionRemoveJob(ctx: WorkerContext, data: CollectionRemoveJobData): Promise<void> {
+  const { libraryId, itemId } = data;
+  const logger = ctx.logger.child({ jobType: 'collection.remove', libraryId, itemId });
+
+  try {
+    const itemRows = await ctx.db.select().from(collectionItems)
+      .where(eq(collectionItems.id, itemId));
+
+    if (itemRows.length === 0) {
+      logger.warn('Item not found');
+      return;
+    }
+
+    const item = itemRows[0]!;
+
+    if (!item.providerItemId) {
+      logger.warn('Provider item ID not set');
+      return;
+    }
+
+    // Get library and settings
+    const libRows = await ctx.db.select().from(libraries)
+      .where(eq(libraries.id, libraryId));
+
+    if (libRows.length === 0) {
+      logger.warn('Library not found');
+      return;
+    }
+
+    const settings = await libraryProviderSettings(ctx, libraryId);
+    const providers = getProviders(settings);
+
+    // Get identity
+    const identity = await discogsCall(ctx, providers, () => providers.discogs.getIdentity(bg));
+
+    // Remove from Discogs
+    try {
+      await discogsCall(ctx, providers, () =>
+        providers.discogs.removeFromCollection(
+          identity.username!,
+          item.folderId || 1,
+          item.discogsReleaseId!,
+          parseInt(item.providerItemId!, 10),
+          bg
+        )
+      );
+    } catch (err: any) {
+      // 404 = already removed, treat as success
+      if (err?.status !== 404) {
+        throw err;
+      }
+    }
+
+    // Mark as removed
+    await ctx.db.update(collectionItems)
+      .set({
+        removedAt: new Date(),
+        pushState: 'synced',
+      })
+      .where(eq(collectionItems.id, itemId));
+
+    logger.info('Item removed from Discogs');
+  } catch (err: any) {
+    logger.error({ err }, 'Remove failed');
+
+    if (err?.retryAfterMs) {
+      throw err;
+    }
+
+    // Set error state
+    let errorMsg = err?.message || 'Unknown error';
+    await ctx.db.update(collectionItems)
+      .set({
+        pushState: 'failed',
+        pushError: errorMsg.substring(0, 500),
+      })
+      .where(eq(collectionItems.id, itemId))
+      .catch(e => logger.warn({ e }, 'Failed to set error state'));
+  }
 }

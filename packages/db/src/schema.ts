@@ -778,6 +778,7 @@ export const collectionSources = pgTable(
     syncCursor: jsonb('sync_cursor'),
     status: varchar({ length: 20 }),
     folders: jsonb().default('[]'),
+    fields: jsonb().default('[]'),
     lastError: text('last_error'),
     itemCount: integer('item_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -818,12 +819,16 @@ export const collectionItems = pgTable(
     mappedAt: timestamp('mapped_at', { withTimezone: true }),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     removedAt: timestamp('removed_at', { withTimezone: true }),
+    pushState: varchar('push_state', { length: 20 }).default('synced'),
+    pushError: text('push_error'),
+    localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_collection_items_library').on(table.libraryId),
     mappingStateIdx: index('idx_collection_items_mapping_state').on(table.libraryId, table.mappingState),
     releaseGroupIdx: index('idx_collection_items_release_group').on(table.libraryId, table.releaseGroupId),
+    pushStateIdx: index('idx_collection_items_push_state').on(table.libraryId, table.pushState),
     sourceItemUnique: uniqueIndex('collection_items_source_item_unique').on(table.collectionSourceId, table.providerItemId),
   })
 );

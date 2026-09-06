@@ -62,6 +62,8 @@ interface DiscogsCollectionItem {
   mediaCondition?: string;
   sleeveCondition?: string;
   rating?: number;
+  pushState?: string;
+  pushError?: string;
 }
 
 interface AlbumDetail {
@@ -357,12 +359,19 @@ export function AlbumDetailPage() {
                     const conds = [];
                     if (item.mediaCondition) conds.push(`Media: ${item.mediaCondition}`);
                     if (item.sleeveCondition) conds.push(`Sleeve: ${item.sleeveCondition}`);
-                    return `${item.folder}${conds.length > 0 ? ' (' + conds.join(', ') + ')' : ''}`;
+                    const state = item.pushState === 'pending' ? ' (Adding to Discogs...)' :
+                      item.pushState === 'failed' ? ` (Failed: ${item.pushError})` : '';
+                    return `${item.folder}${conds.length > 0 ? ' (' + conds.join(', ') + ')' : ''}${state}`;
                   })
                   .join(' · ')}
               >
-                On vinyl/CD
+                {album.discogsCollectionItems[0]?.pushState === 'pending' ? 'Adding...' : 'On vinyl/CD'}
               </a>
+            )}
+            {(!album.discogsCollectionItems || album.discogsCollectionItems.length === 0) && (
+              <span title="Add this album to your Discogs collection">
+                I own this on vinyl/CD
+              </span>
             )}
           </div>
           <div className={styles.dirPath}>{album.dirPaths?.[0]}</div>

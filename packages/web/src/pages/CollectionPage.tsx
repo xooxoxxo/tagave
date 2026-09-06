@@ -11,6 +11,10 @@ import {
   useRemapCollection,
   useMapCollectionItem,
   useUnmapCollectionItem,
+  useCollectionOptions,
+  useAddCollectionItem,
+  useRemoveCollectionItem,
+  useRetryPush,
   useCurrentLibrary,
 } from '../hooks';
 import styles from './CollectionPage.module.css';
@@ -21,6 +25,15 @@ const VIEW_LABELS: Record<string, string> = {
   unmapped: 'Unmapped',
   removed: 'Removed',
 };
+
+interface AddCollectionItemInput {
+  input: string;
+  folderId?: number;
+  mediaCondition?: string;
+  sleeveCondition?: string;
+  notes?: string;
+  rating?: number;
+}
 
 interface CollectionItem {
   id: string;
@@ -53,6 +66,9 @@ interface CollectionItem {
     formats: string[];
   }>;
   discogsUrl: string;
+  pushState?: string;
+  pushError?: string;
+  localAlbumId?: string;
 }
 
 interface SourcesResponse {
@@ -76,12 +92,33 @@ interface CollectionResponse {
   nextCursor: string | null;
 }
 
+interface CollectionOptions {
+  username: string;
+  folders: Array<{ id: number; name: string }>;
+  fields: Array<{ id: number; name: string; type: string; options?: string[] }>;
+  conditionGrades: string[];
+}
+
+interface AddCollectionItemPayload extends AddCollectionItemInput {
+  input: string;
+}
+
 export function CollectionPage() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const [view, setView] = useState<'physical_only' | 'both' | 'unmapped' | 'removed'>('physical_only');
   const [mapInputId, setMapInputId] = useState<string | null>(null);
   const [mapInputValue, setMapInputValue] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addFormData, setAddFormData] = useState({
+    input: '',
+    folderId: 1,
+    mediaCondition: '',
+    sleeveCondition: '',
+    notes: '',
+    rating: 0,
+  });
+  const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
 
   const sources = useCollectionSources(libraryId);
   const collection = useCollection(libraryId, { view });
@@ -89,19 +126,26 @@ export function CollectionPage() {
   const remap = useRemapCollection(libraryId);
   const mapItem = useMapCollectionItem(libraryId);
   const unmapItem = useUnmapCollectionItem(libraryId);
+  const options = useCollectionOptions(libraryId);
+  const addItem = useAddCollectionItem(libraryId);
+  const removeItem = useRemoveCollectionItem(libraryId);
+  const retryPush = useRetryPush(libraryId);
 
   const sourcesData = (sources.data as SourcesResponse) ?? { sources: [] };
   const collectionData = (collection.data as CollectionResponse) ?? { items: [] };
+  const optionsData = (options.data as CollectionOptions) ?? { username: '', folders: [], fields: [], conditionGrades: [] };
   const source = sourcesData.sources[0];
 
-  // Poll while syncing
+  // Poll while syncing OR while any item has pending pushState
+  const hasPendingPush = collectionData.items.some(item => item.pushState === 'pending');
   useEffect(() => {
-    if (!source || source.status !== 'syncing') return;
+    if (!source || (source.status !== 'syncing' && !hasPendingPush)) return;
     const interval = setInterval(() => {
       sources.refetch();
-    }, 5000);
+      collection.refetch();
+    }, 3000);
     return () => clearInterval(interval);
-  }, [source?.status, sources]);
+  }, [source?.status, hasPendingPush, sources, collection]);
 
   const formatSummary = (formats: unknown): string => {
     if (!Array.isArray(formats)) return '';
@@ -175,6 +219,12 @@ export function CollectionPage() {
                 <div className={styles.statusChip}>Syncing...</div>
               )}
               <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className={styles.primaryBtn}
+              >
+                Add physical item
+              </button>
+              <button
                 onClick={() => sync.mutate()}
                 disabled={sync.isPending || source.status === 'syncing'}
                 className={styles.primaryBtn}
@@ -190,6 +240,127 @@ export function CollectionPage() {
               </button>
             </div>
           </div>
+
+          {showAddForm && (
+            <div className={styles.addForm}>
+              <h2>Add Physical Item</h2>
+              <div className={styles.formGroup}>
+                <label>Discogs Release URL or ID *</label>
+                <input
+                  type="text"
+                  placeholder="https://www.discogs.com/release/12345 or 12345"
+                  value={addFormData.input}
+                  onChange={(e) => setAddFormData({ ...addFormData, input: e.target.value })}
+                  className={styles.formInput}
+                />
+              </div>
+
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label>Folder</label>
+                  <select
+                    value={addFormData.folderId}
+                    onChange={(e) => setAddFormData({ ...addFormData, folderId: parseInt(e.target.value, 10) })}
+                    className={styles.formInput}
+                  >
+                    {optionsData.folders.map(f => (
+                      <option key={f.id} value={f.id}>{f.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Media Condition</label>
+                  <select
+                    value={addFormData.mediaCondition}
+                    onChange={(e) => setAddFormData({ ...addFormData, mediaCondition: e.target.value })}
+                    className={styles.formInput}
+                  >
+                    <option value="">Select condition</option>
+                    {optionsData.conditionGrades.map(grade => (
+                      <option key={grade} value={grade}>{grade}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className={styles.formGroup}>
+                  <label>Sleeve Condition</label>
+                  <select
+                    value={addFormData.sleeveCondition}
+                    onChange={(e) => setAddFormData({ ...addFormData, sleeveCondition: e.target.value })}
+                    className={styles.formInput}
+                  >
+                    <option value="">Select condition</option>
+                    {optionsData.conditionGrades.map(grade => (
+                      <option key={grade} value={grade}>{grade}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Notes</label>
+                <textarea
+                  placeholder="Optional notes..."
+                  value={addFormData.notes}
+                  onChange={(e) => setAddFormData({ ...addFormData, notes: e.target.value })}
+                  className={styles.formInput}
+                  rows={2}
+                />
+              </div>
+
+              <div className={styles.formGroup}>
+                <label>Rating (0-5)</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="5"
+                  value={addFormData.rating}
+                  onChange={(e) => setAddFormData({ ...addFormData, rating: parseInt(e.target.value, 10) || 0 })}
+                  className={styles.formInput}
+                />
+              </div>
+
+              <div className={styles.formActions}>
+                <button
+                  onClick={async () => {
+                    try {
+                      const payload: AddCollectionItemInput = {
+                        input: addFormData.input,
+                        folderId: addFormData.folderId,
+                      };
+                      if (addFormData.mediaCondition) payload.mediaCondition = addFormData.mediaCondition;
+                      if (addFormData.sleeveCondition) payload.sleeveCondition = addFormData.sleeveCondition;
+                      if (addFormData.notes) payload.notes = addFormData.notes;
+                      if (addFormData.rating) payload.rating = addFormData.rating;
+                      await addItem.mutateAsync(payload);
+                      setShowAddForm(false);
+                      setAddFormData({
+                        input: '',
+                        folderId: 1,
+                        mediaCondition: '',
+                        sleeveCondition: '',
+                        notes: '',
+                        rating: 0,
+                      });
+                    } catch (err: any) {
+                      alert(`Error: ${err?.response?.data?.detail || 'Failed to add item'}`);
+                    }
+                  }}
+                  disabled={!addFormData.input.trim() || addItem.isPending}
+                  className={styles.primaryBtn}
+                >
+                  {addItem.isPending ? 'Adding...' : 'Add Item'}
+                </button>
+                <button
+                  onClick={() => setShowAddForm(false)}
+                  className={styles.secondaryBtn}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className={styles.tabs}>
             {Object.entries(VIEW_LABELS).map(([k, label]) => {
@@ -247,6 +418,14 @@ export function CollectionPage() {
                       {item.rating && (
                         <span className={styles.chip} title={`Rating: ${item.rating}`}>
                           {renderStars(item.rating)}
+                        </span>
+                      )}
+                      {item.pushState === 'pending' && (
+                        <span className={`${styles.chip} ${styles.chipPending}`}>adding to Discogs…</span>
+                      )}
+                      {item.pushState === 'failed' && (
+                        <span className={`${styles.chip} ${styles.chipFailed}`} title={`Error: ${item.pushError}`}>
+                          failed: {item.pushError?.substring(0, 20)}…
                         </span>
                       )}
                     </div>
@@ -332,6 +511,51 @@ export function CollectionPage() {
                       title="Clear mapping and return to unmapped"
                     >
                       Unmap
+                    </button>
+                  )}
+
+                  {item.pushState === 'failed' && (
+                    <button
+                      onClick={() => retryPush.mutate(item.id)}
+                      disabled={retryPush.isPending}
+                      className={styles.smallBtn}
+                      title="Retry failed push"
+                    >
+                      Retry
+                    </button>
+                  )}
+
+                  {removeConfirmId === item.id ? (
+                    <div className={styles.removeConfirm}>
+                      <span>Remove from Discogs?</span>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await removeItem.mutateAsync(item.id);
+                            setRemoveConfirmId(null);
+                          } catch (err) {
+                            console.error('Remove failed:', err);
+                          }
+                        }}
+                        disabled={removeItem.isPending}
+                        className={styles.smallBtn}
+                      >
+                        {removeItem.isPending ? 'Removing…' : 'Yes'}
+                      </button>
+                      <button
+                        onClick={() => setRemoveConfirmId(null)}
+                        className={styles.smallBtn}
+                      >
+                        No
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setRemoveConfirmId(item.id)}
+                      className={styles.smallBtn}
+                      title="Remove from collection"
+                    >
+                      Remove
                     </button>
                   )}
                 </div>

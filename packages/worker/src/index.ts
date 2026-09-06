@@ -14,7 +14,7 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
-import { collectionSyncJob, type CollectionSyncJobData } from './jobs/collectionSync.js';
+import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -42,7 +42,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'reviews.fetch', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
   // singletonKey dedupes only under a non-standard queue policy (pg-boss ≥10)
   // and updateQueue() cannot change it; the album page enqueues reviews.fetch
@@ -106,6 +106,14 @@ async function main() {
 
     await boss.work<CollectionSyncJobData>('collection.sync', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await collectionSyncJob(ctx, job.data);
+    });
+
+    await boss.work<CollectionPushJobData>('collection.push', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await collectionPushJob(ctx, job.data);
+    });
+
+    await boss.work<CollectionRemoveJobData>('collection.remove', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await collectionRemoveJob(ctx, job.data);
     });
 
     // Schedule daily collection.sync at 04:15 for default library (spec COL-1)

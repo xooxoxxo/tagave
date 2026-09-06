@@ -352,3 +352,60 @@ export function useUnmapCollectionItem(libraryId: string | undefined) {
     },
   });
 }
+
+export function useCollectionOptions(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: [...COLLECTION_QUERY_KEY, 'options', libraryId],
+    queryFn: () => api.get(`/libraries/${libraryId}/collection-sources/options`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+interface AddCollectionItemInput {
+  input: string;
+  folderId?: number;
+  mediaCondition?: string;
+  sleeveCondition?: string;
+  notes?: string;
+  rating?: number;
+}
+
+export function useAddCollectionItem(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (data: AddCollectionItemInput) =>
+      api.post(`/libraries/${libraryId}/collection/items`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}
+
+export function useRemoveCollectionItem(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      api.delete(`/collection-items/${itemId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}
+
+export function useRetryPush(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      api.post(`/collection-items/${itemId}/retry-push`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}

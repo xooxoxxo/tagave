@@ -429,6 +429,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               labels: releases.labels,
               media: releases.media,
               trackCount: releases.trackCount,
+              discogsReleaseId: releases.discogsReleaseId,
             })
             .from(releases)
             .where(eq(releases.releaseGroupId, album.releaseGroupId))
@@ -464,6 +465,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               trackCount: e.trackCount ?? 0,
               owned: e.id === album.releaseId,
               ownedByOtherAlbums: otherAlbumCounts.get(e.id) ?? 0,
+              discogsReleaseId: e.discogsReleaseId ?? undefined,
             })),
           };
         }
@@ -531,7 +533,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       // collection (user data — stays inside this library).
       const physicalRows = album.releaseGroupId
         ? await db.execute(sql`
-            select id, folder_name, media_condition, sleeve_condition, rating
+            select id, folder_name, media_condition, sleeve_condition, rating, push_state, push_error
             from collection_items
             where library_id = ${libraryId} and release_group_id = ${album.releaseGroupId} and removed_at is null
             order by date_added desc nulls last`) as unknown as Array<Record<string, unknown>>
@@ -542,6 +544,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         ...(r['media_condition'] ? { mediaCondition: String(r['media_condition']) } : {}),
         ...(r['sleeve_condition'] ? { sleeveCondition: String(r['sleeve_condition']) } : {}),
         ...(typeof r['rating'] === 'number' && r['rating'] > 0 ? { rating: r['rating'] } : {}),
+        ...(r['push_state'] ? { pushState: String(r['push_state']) } : {}),
+        ...(r['push_error'] ? { pushError: String(r['push_error']) } : {}),
       }));
 
       const missingTracks = canonicalTrackRows

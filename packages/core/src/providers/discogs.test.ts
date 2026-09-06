@@ -365,3 +365,200 @@ describe('conditionsFromNotes', () => {
     expect(result).toEqual({});
   });
 });
+
+describe('DiscogsProvider collection mutations', () => {
+  it('should add release to collection with correct method and body', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      expect(url).toContain('/users/testuser/collection/folders/1/releases/249504');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body).toEqual({});
+      return new Response(JSON.stringify({ instance_id: 999, resource_url: 'http://example.com' }), {
+        status: 201,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '5',
+          'X-Discogs-Ratelimit-Remaining': '55',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    const result = await provider.addToCollection('testuser', 1, 249504, { priority: 'background' });
+    expect(result.instanceId).toBe(999);
+  });
+
+  it('should set collection field with correct method and body', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      expect(url).toContain('/users/testuser/collection/folders/1/releases/249504/instances/999/fields/1');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body.value).toBe('Very Good Plus (VG+)');
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '6',
+          'X-Discogs-Ratelimit-Remaining': '54',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    await provider.setCollectionField('testuser', 1, 249504, 999, 1, 'Very Good Plus (VG+)', { priority: 'background' });
+  });
+
+  it('should set collection rating with correct method and body', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      expect(url).toContain('/users/testuser/collection/folders/1/releases/249504/instances/999');
+      expect(options.method).toBe('POST');
+      const body = JSON.parse(options.body);
+      expect(body.rating).toBe(4);
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '7',
+          'X-Discogs-Ratelimit-Remaining': '53',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    await provider.setCollectionRating('testuser', 1, 249504, 999, 4, { priority: 'background' });
+  });
+
+  it('should remove collection item with DELETE method', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      expect(url).toContain('/users/testuser/collection/folders/1/releases/249504/instances/999');
+      expect(options.method).toBe('DELETE');
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '8',
+          'X-Discogs-Ratelimit-Remaining': '52',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    await provider.removeFromCollection('testuser', 1, 249504, 999, { priority: 'background' });
+  });
+
+  it('should handle 422 validation error with Discogs message', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      return new Response(JSON.stringify({ message: 'Release not found' }), {
+        status: 422,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '9',
+          'X-Discogs-Ratelimit-Remaining': '51',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    try {
+      await provider.addToCollection('testuser', 1, 999999, { priority: 'background' });
+      expect.fail('Should have thrown');
+    } catch (err: any) {
+      expect(err.message).toContain('Release not found');
+      expect(err.status).toBe(422);
+    }
+  });
+
+  it('should parse dropdown options from getCollectionFields', async () => {
+    const mockFetch = async (url: string, options: any) => {
+      return new Response(JSON.stringify({
+        fields: [
+          {
+            id: 1,
+            name: 'Media Condition',
+            type: 'dropdown',
+            options: [
+              { name: 'Mint (M)' },
+              { name: 'Near Mint (NM or M-)' },
+              { name: 'Very Good Plus (VG+)' },
+            ],
+          },
+          {
+            id: 2,
+            name: 'Sleeve Condition',
+            type: 'dropdown',
+            options: [
+              { name: 'Mint (M)' },
+              { name: 'Very Good (VG)' },
+            ],
+          },
+          {
+            id: 3,
+            name: 'Notes',
+            type: 'textarea',
+          },
+        ],
+      }), {
+        status: 200,
+        headers: {
+          'X-Discogs-Ratelimit': '60',
+          'X-Discogs-Ratelimit-Used': '10',
+          'X-Discogs-Ratelimit-Remaining': '50',
+        },
+      });
+    };
+
+    const provider = new DiscogsProvider({
+      token: 'testtoken',
+      userAgent: 'test',
+      fetchImpl: mockFetch as any,
+    });
+
+    const fields = await provider.getCollectionFields('testuser', { priority: 'background' });
+
+    expect(fields).toHaveLength(3);
+    expect(fields[0]).toEqual({
+      id: 1,
+      name: 'Media Condition',
+      type: 'dropdown',
+      options: ['Mint (M)', 'Near Mint (NM or M-)', 'Very Good Plus (VG+)'],
+    });
+    expect(fields[1]).toEqual({
+      id: 2,
+      name: 'Sleeve Condition',
+      type: 'dropdown',
+      options: ['Mint (M)', 'Very Good (VG)'],
+    });
+    expect(fields[2]).toEqual({
+      id: 3,
+      name: 'Notes',
+      type: 'textarea',
+    });
+  });
+});

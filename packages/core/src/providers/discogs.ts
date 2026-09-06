@@ -630,8 +630,9 @@ export class DiscogsProvider implements MetadataProvider {
   /**
    * Make authenticated Discogs API request.
    */
-  private async request(path: string): Promise<unknown> {
+  private async request(path: string, options?: { method?: 'GET' | 'POST' | 'DELETE'; body?: unknown }): Promise<unknown> {
     const url = new URL(path, DISCOGS_BASE_URL);
+    const method = options?.method ?? 'GET';
 
     const headers: Record<string, string> = {
       'User-Agent': this.userAgent,
@@ -640,7 +641,14 @@ export class DiscogsProvider implements MetadataProvider {
     // Header auth only (spec Appendix C); a query-string token would leak
     // into logs and cache keys.
     if (this.token) headers['Authorization'] = `Discogs token=${this.token}`;
-    const response = await this.fetchImpl(url.toString(), { headers });
+
+    const fetchOptions: RequestInit = { method, headers };
+    if (options?.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      fetchOptions.body = JSON.stringify(options.body);
+    }
+
+    const response = await this.fetchImpl(url.toString(), fetchOptions);
 
     // Capture rate limit headers
     const limit = response.headers.get('X-Discogs-Ratelimit');
@@ -670,6 +678,20 @@ export class DiscogsProvider implements MetadataProvider {
       const err = new Error(`Discogs not found (404): ${path}`);
       (err as any).status = 404;
       throw err;
+    }
+
+    if (response.status === 422) {
+      const data = await response.json().catch(() => ({})) as any;
+      const message = data.message || `Discogs validation error (422): ${path}`;
+      const err = new Error(message);
+      (err as any).status = 422;
+      throw err;
+    }
+
+    // 201, 204 are success; 200 is success
+    if (response.status === 201 || response.status === 204) {
+      if (response.status === 204) return null;
+      return response.json();
     }
 
     if (!response.ok) {
@@ -816,10 +838,10 @@ export class DiscogsProvider implements MetadataProvider {
   }
 
   /**
-   * Get custom fields for collection (spec COL-1).
+   * Get custom fields for collection (spec COL-1, COL-3).
    * Returns empty array if none exist (404/403).
    */
-  async getCollectionFields(username: string, ctx: CallContext): Promise<Array<{ id: number; name: string; type: string }>> {
+  async getCollectionFields(username: string, ctx: CallContext): Promise<Array<{ id: number; name: string; type: string; options?: string[] }>> {
     try {
       const data = await this.request(`/users/${username}/collection/fields`);
       const parsed = z.object({
@@ -827,9 +849,15 @@ export class DiscogsProvider implements MetadataProvider {
           id: z.number(),
           name: z.string(),
           type: z.string(),
+          options: z.array(z.object({ name: z.string() })).nullish(),
         }).nullish()).nullish(),
       }).parse(data);
-      return (parsed.fields || []).filter((f): f is typeof f & { id: number } => f != null);
+      return (parsed.fields || []).filter((f): f is typeof f & { id: number } => f != null).map(f => ({
+        id: f.id,
+        name: f.name,
+        type: f.type,
+        ...(f.options ? { options: f.options.map(o => o.name) } : {}),
+      }));
     } catch (e: any) {
       // 404/403 when user has no custom fields
       if (e.status === 404 || e.status === 403) {
@@ -837,6 +865,72 @@ export class DiscogsProvider implements MetadataProvider {
       }
       throw e;
     }
+  }
+
+  /**
+   * Add release to user's collection (spec COL-3).
+   * Returns instance ID created by Discogs.
+   */
+  async addToCollection(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    ctx: CallContext
+  ): Promise<{ instanceId: number }> {
+    const path = `/users/${username}/collection/folders/${folderId}/releases/${releaseId}`;
+    const data = await this.request(path, { method: 'POST', body: {} });
+    const parsed = z.object({
+      instance_id: z.number(),
+      resource_url: z.string().nullish(),
+    }).parse(data);
+    return { instanceId: parsed.instance_id };
+  }
+
+  /**
+   * Set custom field value on collection instance (spec COL-3).
+   * Dropdown values must match field options exactly.
+   */
+  async setCollectionField(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    fieldId: number,
+    value: string,
+    ctx: CallContext
+  ): Promise<void> {
+    const path = `/users/${username}/collection/folders/${folderId}/releases/${releaseId}/instances/${instanceId}/fields/${fieldId}`;
+    await this.request(path, { method: 'POST', body: { value } });
+  }
+
+  /**
+   * Set rating on collection instance (spec COL-3).
+   * Rating is 0-5.
+   */
+  async setCollectionRating(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    rating: number,
+    ctx: CallContext
+  ): Promise<void> {
+    const path = `/users/${username}/collection/folders/${folderId}/releases/${releaseId}/instances/${instanceId}`;
+    await this.request(path, { method: 'POST', body: { rating } });
+  }
+
+  /**
+   * Remove release from user's collection (spec COL-3).
+   */
+  async removeFromCollection(
+    username: string,
+    folderId: number,
+    releaseId: number,
+    instanceId: number,
+    ctx: CallContext
+  ): Promise<void> {
+    const path = `/users/${username}/collection/folders/${folderId}/releases/${releaseId}/instances/${instanceId}`;
+    await this.request(path, { method: 'DELETE' });
   }
 
   /**
