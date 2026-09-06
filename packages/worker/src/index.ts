@@ -25,6 +25,25 @@ if (!databaseUrl) {
   process.exit(1);
 }
 
+/**
+ * Queue policies that make singletonKey mean something. 'stately' keeps one
+ * job per key per state (one queued behind one active, so a re-request during
+ * a run still runs afterwards); 'exclusive' keeps one per key across both
+ * (reviews.fetch is enqueued by a polling album page). Not listed on purpose:
+ * cluster.dir — scan.parse re-sends a directory as parse batches land and
+ * every send must run; collection.* belong to the collection sync session.
+ */
+const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
+  'reviews.fetch': 'exclusive',
+  'editions.fetch': 'stately',
+  'enrich.release': 'stately',
+  'enrich.sweep': 'stately',
+  'art.fetch': 'stately',
+  'identify.album': 'stately',
+  'roots.validate': 'stately',
+  'scan.root': 'stately',
+};
+
 const M1_PLACEHOLDER_QUEUES = [
   'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
@@ -43,11 +62,13 @@ async function main() {
 
   // Queues must exist before work() in pg-boss v10+.
   const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', ...M1_PLACEHOLDER_QUEUES];
-  for (const q of queues) await boss.createQueue(q);
-  // singletonKey dedupes only under a non-standard queue policy (pg-boss ≥10)
-  // and updateQueue() cannot change it; the album page enqueues reviews.fetch
-  // on every poll, so keep one job per release group in created/active state.
-  await client`update pgboss.queue set policy = 'exclusive' where name = 'reviews.fetch' and policy <> 'exclusive'`;
+  for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
+  // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
+  // and updateQueue() cannot change the policy of an existing queue — so the
+  // policies are (re)applied here on every boot for queues created before.
+  for (const [name, policy] of Object.entries(QUEUE_POLICIES)) {
+    await client`update pgboss.queue set policy = ${policy} where name = ${name} and policy <> ${policy}`;
+  }
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
   // process works — lets an identify-only worker run beside the file worker.
