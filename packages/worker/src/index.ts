@@ -15,6 +15,7 @@ import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } 
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { collectionSyncJob, type CollectionSyncJobData } from './jobs/collectionSync.js';
+import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -27,7 +28,7 @@ if (!databaseUrl) {
 const M1_PLACEHOLDER_QUEUES = [
   'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
-  'artist.refresh', 'reviews.fetch',
+  'artist.refresh',
 ];
 
 async function main() {
@@ -41,8 +42,12 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'reviews.fetch', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
+  // singletonKey dedupes only under a non-standard queue policy (pg-boss ≥10)
+  // and updateQueue() cannot change it; the album page enqueues reviews.fetch
+  // on every poll, so keep one job per release group in created/active state.
+  await client`update pgboss.queue set policy = 'exclusive' where name = 'reviews.fetch' and policy <> 'exclusive'`;
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
   // process works — lets an identify-only worker run beside the file worker.
@@ -122,6 +127,11 @@ async function main() {
 
   if (wants('queue.autoaccept')) await boss.work<QueueAutoAcceptJobData>('queue.autoaccept', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await queueAutoAcceptJob(ctx, job.data);
+  });
+
+  // Per opened album only — never swept (spec REV-1); shares the MB pacer.
+  if (wants('reviews.fetch')) await boss.work<ReviewsFetchJobData>('reviews.fetch', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) await reviewsFetchJob(ctx, job.data);
   });
 
   if (wants('gaps.recompute')) {

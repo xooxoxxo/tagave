@@ -8,7 +8,7 @@ import type { Sql } from './context.js';
 
 /** provider_state rows. Discogs has ONE budget whether or not a token is
  * used (token → per-token, else per-IP; all our processes share both). */
-export type ProviderName = 'musicbrainz' | 'discogs' | 'wikidata' | 'caa';
+export type ProviderName = 'musicbrainz' | 'discogs' | 'wikidata' | 'caa' | 'critiquebrainz' | 'wikipedia';
 
 /** Request intervals in ms (spec §10.2.1 headroom under each limit). */
 export const PROVIDER_INTERVALS = {
@@ -16,6 +16,8 @@ export const PROVIDER_INTERVALS = {
   discogsAuth: 1091,   // 55/min authenticated (limit 60)
   discogsAnon: 2400,   // 25/min unauthenticated
   wikidata: 1000,
+  critiquebrainz: 1000, // MetaBrainz etiquette, 1 req/s
+  wikipedia: 1000,      // Action API: serial requests, maxlag=5
 } as const;
 
 /** Escalating cooldown: 60s × attempt, or the provider's Retry-After when longer. */

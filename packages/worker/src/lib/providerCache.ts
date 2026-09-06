@@ -16,6 +16,10 @@ export const TTLs = {
   mbRelease: 30 * 24 * 3600,
   mbUrl: 30 * 24 * 3600,
   wikidata: 30 * 24 * 3600,
+  // reviews refresh at most weekly (spec REV-1)
+  critiquebrainz: 7 * 24 * 3600,
+  wikipedia: 7 * 24 * 3600,
+  mbRating: 7 * 24 * 3600,
 } as const;
 
 /**

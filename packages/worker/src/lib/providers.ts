@@ -3,7 +3,9 @@
  * uses. Instances are memoised per (contact, token); the pacer state lives in
  * provider_state (see pacer.ts) so all processes share one budget.
  */
-import { MusicBrainzProvider, DiscogsProvider, WikidataClient, openSecret, isSealed } from '@liner/core';
+import {
+  MusicBrainzProvider, DiscogsProvider, WikidataClient, CritiqueBrainzClient, WikipediaClient, openSecret, isSealed,
+} from '@liner/core';
 import type { WorkerContext } from './context.js';
 import { PROVIDER_INTERVALS, openCooldown, paced } from './pacer.js';
 
@@ -16,6 +18,8 @@ export interface Providers {
   mb: MusicBrainzProvider;
   discogs: DiscogsProvider;
   wikidata: WikidataClient;
+  critiquebrainz: CritiqueBrainzClient;
+  wikipedia: WikipediaClient;
 }
 
 const memo = new Map<string, Providers>();
@@ -74,6 +78,8 @@ export function getProviders(settings: LibraryProviderSettings): Providers {
       userAgent,
     }),
     wikidata: new WikidataClient({ userAgent }),
+    critiquebrainz: new CritiqueBrainzClient({ userAgent }),
+    wikipedia: new WikipediaClient({ userAgent }),
   };
   memo.set(key, made);
   return made;
@@ -105,4 +111,12 @@ export function mbCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> 
 
 export function wikidataCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
   return paced(ctx.sql, 'wikidata', PROVIDER_INTERVALS.wikidata, fn);
+}
+
+export function critiqueBrainzCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
+  return paced(ctx.sql, 'critiquebrainz', PROVIDER_INTERVALS.critiquebrainz, fn);
+}
+
+export function wikipediaCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
+  return paced(ctx.sql, 'wikipedia', PROVIDER_INTERVALS.wikipedia, fn);
 }
