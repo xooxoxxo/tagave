@@ -1,0 +1,63 @@
+{
+  "head" : {
+    "vars" : [ "item", "master", "enwiki", "metacritic", "allmusic", "rym" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "item" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q202996"
+      },
+      "master" : {
+        "type" : "literal",
+        "value" : "21491"
+      },
+      "allmusic" : {
+        "type" : "literal",
+        "value" : "mw0000024289"
+      },
+      "rym" : {
+        "type" : "literal",
+        "value" : "album/radiohead/ok-computer"
+      },
+      "enwiki" : {
+        "type" : "uri",
+        "value" : "https://en.wikipedia.org/wiki/OK_Computer"
+      }
+    }, {
+      "item" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q33328630"
+      },
+      "master" : {
+        "type" : "literal",
+        "value" : "21491"
+      },
+      "enwiki" : {
+        "type" : "uri",
+        "value" : "https://en.wikipedia.org/wiki/OK_Computer_OKNOTOK_1997_2017"
+      },
+      "metacritic" : {
+        "type" : "literal",
+        "value" : "music/ok-computer-oknotok-1997-2017"
+      }
+    }, {
+      "item" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q33328630"
+      },
+      "master" : {
+        "type" : "literal",
+        "value" : "21491"
+      },
+      "enwiki" : {
+        "type" : "uri",
+        "value" : "https://en.wikipedia.org/wiki/OK_Computer_OKNOTOK_1997_2017"
+      },
+      "metacritic" : {
+        "type" : "literal",
+        "value" : "music/ok-computer-oknotok-1997-2017/radiohead"
+      }
+    } ]
+  }
+}

@@ -503,6 +503,43 @@ export class MusicBrainzProvider implements MetadataProvider {
   }
 
   /**
+   * Community rating of a release group (spec REV-1; CC BY-NC-SA 3.0).
+   * value is null when nobody has voted.
+   */
+  async getReleaseGroupRating(
+    rgMbid: string,
+    _ctx: CallContext
+  ): Promise<{ value: number | null; votes: number }> {
+    const url = new URL(`${MB_BASE_URL}/release-group/${rgMbid}`, 'https://musicbrainz.org');
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'ratings');
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 503) throw new Error('MusicBrainz rate limited (503)');
+    if (!response.ok) {
+      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+    }
+
+    const data = z.object({
+      rating: z.object({
+        value: z.number().nullish(),
+        'votes-count': z.number().nullish(),
+      }).nullish(),
+    }).parse(await response.json());
+
+    return {
+      value: data.rating?.value ?? null,
+      votes: data.rating?.['votes-count'] ?? 0,
+    };
+  }
+
+  /**
    * Look up a URL to find related releases and release groups.
    */
   async lookupUrl(

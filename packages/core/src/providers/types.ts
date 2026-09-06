@@ -157,6 +157,7 @@ export interface ExternalReview {
   ratingRaw?: number;
   ratingScale?: number; // e.g., 100 for percent, 5 for 0-5
   license?: string; // e.g., "CC BY-SA 3.0"
+  language?: string; // ISO 639-1 where the provider says
   publishedAt?: Date;
 }
 

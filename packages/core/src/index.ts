@@ -63,6 +63,13 @@ export {
   discogsIdsFromUrlRelations,
   wikidataQidFromUrlRelations,
   parseWikidataBindings,
+  pickIdentityBinding,
+  CritiqueBrainzClient,
+  critiqueBrainzLicense,
+  mapCritiqueBrainzReview,
+  WikipediaClient,
+  findReceptionSection,
+  wikiHtmlToText,
   fuzzyBridgeScore,
   chooseBestSearchHit,
   FUZZY_BRIDGE_ACCEPT,
@@ -91,6 +98,10 @@ export type {
   DiscogsMaster,
   RateLimitInfo,
   Edition,
+  ReleaseGroupIdentity,
+  WikidataBinding,
+  ReceptionSection,
+  WikiSection,
   DiscogsCollectionItem,
 } from './providers/index.js';
 
@@ -110,6 +121,10 @@ export type { FormatTagMapping, TagSet } from './tags/index.js';
 export { decodeCueBytes, parseCueSheet, virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from './cue/index.js';
 
 export type { CueSheet, CueFile, CueTrack, VirtualTrack, CueCandidate } from './cue/index.js';
+
+// Review link-outs (REV-2)
+export { SEARCH_TEMPLATES, resolveReviewLinks, sourceFromUrl } from './reviews/index.js';
+export type { LinkIdentity, LinkInputs, ResolvedLink } from './reviews/index.js';
 
 // Credential encryption
 export { sealSecret, openSecret, isSealed, computeHint } from './crypto/secretbox.js';

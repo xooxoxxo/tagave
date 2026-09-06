@@ -739,6 +739,23 @@ export class DiscogsProvider implements MetadataProvider {
   }
 
   /**
+   * Community rating of a release (spec REV-1, §10.2.5: displayed with
+   * attribution, revalidated after 6 h, never kept in provider_cache — this
+   * call deliberately bypasses getRawRelease's stripped schema).
+   */
+  async getCommunityRating(id: string, _ctx: CallContext): Promise<{ average: number; count: number } | null> {
+    const data = await this.request(`/releases/${id}`);
+    const parsed = z.object({
+      community: z.object({
+        rating: z.object({ average: z.number().nullish(), count: z.number().nullish() }).nullish(),
+      }).nullish(),
+    }).parse(data);
+    const rating = parsed.community?.rating;
+    if (!rating || rating.average == null || !rating.count) return null;
+    return { average: rating.average, count: rating.count };
+  }
+
+  /**
    * Get a master release.
    */
   async getMaster(id: string, ctx: CallContext): Promise<DiscogsMaster> {
