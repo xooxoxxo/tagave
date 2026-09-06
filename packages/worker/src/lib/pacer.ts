@@ -20,9 +20,14 @@ export const PROVIDER_INTERVALS = {
   wikipedia: 1000,      // Action API: serial requests, maxlag=5
 } as const;
 
-/** Escalating cooldown: 60s × attempt, or the provider's Retry-After when longer. */
+/**
+ * Escalating cooldown. MusicBrainz answers 503 the moment a per-IP window is
+ * exceeded and recovers within seconds, so a minute-long freeze per 503 was
+ * costing more throughput than the overrun itself: 5 s → 15 s → 45 s.
+ * A provider's Retry-After (Discogs 429) always wins when longer.
+ */
 export function cooldownMsForAttempt(attempt: number, retryAfterMs?: number): number {
-  const base = 60_000 * Math.max(1, attempt);
+  const base = 5_000 * 3 ** Math.max(0, Math.min(attempt, 3) - 1);
   return retryAfterMs ? Math.max(retryAfterMs, base) : base;
 }
 
@@ -79,6 +84,10 @@ interface PacedOptions {
 
 const chains = new Map<ProviderName, Promise<void>>();
 
+/** Optional observer so the worker can log every shared cooldown it opens. */
+let onCooldown: ((provider: ProviderName, ms: number, attempt: number) => void) | undefined;
+export function setCooldownObserver(fn: typeof onCooldown): void { onCooldown = fn; }
+
 /**
  * Serialise + pace + retry a provider call. Rate-limit errors (503/429)
  * open a shared cooldown that every process honours through claimSlot,
@@ -105,6 +114,7 @@ export function paced<T>(
         const retryAfterMs = (err as { retryAfterMs?: number }).retryAfterMs;
         const ms = cooldownMsForAttempt(attempt, retryAfterMs);
         await openCooldown(sql, provider, ms, (err as Error).message);
+        onCooldown?.(provider, ms, attempt);
         if (attempt >= maxAttempts) throw err;
         // claimSlot on the next loop waits out the cooldown (server time).
       }

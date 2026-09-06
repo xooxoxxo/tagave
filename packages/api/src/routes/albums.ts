@@ -773,7 +773,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const album = albums[0]!;
 
       if (!album.releaseGroupId) {
-        throw new ApiError(400, 'Bad Request', 'Album has no matched release group');
+        // Unmatched albums simply have no editions yet (the page asks for every album).
+        return reply.status(200).send({ fetchedAt: null, releaseGroupMbid: null, editions: [] });
       }
 
       const rgRows = await db

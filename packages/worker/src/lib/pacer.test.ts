@@ -6,17 +6,20 @@ import { cooldownMsForAttempt, isRateLimitError } from './pacer.js';
 
 describe('cooldownMsForAttempt', () => {
   it('returns attempt * 60s when no retryAfterMs', () => {
-    expect(cooldownMsForAttempt(1)).toBe(60_000);
-    expect(cooldownMsForAttempt(2)).toBe(120_000);
-    expect(cooldownMsForAttempt(3)).toBe(180_000);
+    expect(cooldownMsForAttempt(1)).toBe(5_000);
+    expect(cooldownMsForAttempt(2)).toBe(15_000);
+    expect(cooldownMsForAttempt(3)).toBe(45_000);
   });
 
-  it('returns max(retryAfterMs, attempt * 60s)', () => {
-    // retryAfterMs is smaller: use attempt * 60s
-    expect(cooldownMsForAttempt(1, 30_000)).toBe(60_000);
-    // retryAfterMs is larger: use it
+  it('escalates 5s → 15s → 45s and lets a longer Retry-After win', () => {
+    expect(cooldownMsForAttempt(1)).toBe(5_000);
+    expect(cooldownMsForAttempt(2)).toBe(15_000);
+    expect(cooldownMsForAttempt(3)).toBe(45_000);
+    expect(cooldownMsForAttempt(9)).toBe(45_000); // capped
+    // Retry-After shorter than the ladder: ladder wins
+    expect(cooldownMsForAttempt(1, 3_000)).toBe(5_000);
+    // Retry-After longer: it wins
     expect(cooldownMsForAttempt(1, 120_000)).toBe(120_000);
-    expect(cooldownMsForAttempt(2, 100_000)).toBe(120_000);
   });
 });
 

@@ -1,6 +1,7 @@
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { makeDb } from '@liner/db';
+import { setCooldownObserver } from './lib/pacer.js';
 import type { WorkerContext } from './lib/context.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
@@ -57,6 +58,7 @@ async function main() {
   await boss.start();
 
   const ctx: WorkerContext = { db, sql: client, boss, logger };
+  setCooldownObserver((provider, ms, attempt) => logger.warn({ provider, ms, attempt }, 'provider cooldown opened'));
   const workerId = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   logger.info({ workerId }, 'worker connected');
 
@@ -108,8 +110,11 @@ async function main() {
     await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
   });
 
-  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await identifyAlbumJob(ctx, job.data);
+  // Three albums in flight: provider calls still go one at a time through
+  // the shared pacer, but DB work, Discogs and scoring overlap instead of
+  // leaving MusicBrainz idle (measured 2/min at batchSize 1, p50 12 s/job).
+  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 3, pollingIntervalSeconds: 1 }, async (jobs) => {
+    await Promise.all(jobs.map((job) => identifyAlbumJob(ctx, job.data)));
   });
 
   if (wants('identify.sweep')) await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {
