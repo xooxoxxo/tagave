@@ -212,7 +212,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const rows = await db.execute(sql`
       select la.id, la.title_guess, la.artist_guess, la.year_guess, la.track_count, la.formats,
              la.dir_paths[1] as dir_path, la.identify_reason, la.identify_attempts, la.last_identify_at, la.state,
-             b.distance as best_distance, b.source as best_source, r.title as best_title, r.year as best_year,
+             b.distance as best_distance, b.source as best_source, r.title as best_title, extract(year from r.date)::int as best_year,
              count(*) over() as total
         from local_albums la
         left join lateral (
