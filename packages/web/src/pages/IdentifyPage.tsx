@@ -110,6 +110,20 @@ export function IdentifyPage() {
   const queue = stats.queue;
   const series = stats.series;
 
+  // Provenance of the live matches + the embedded-MBID fast path (XO-309).
+  // Both fields are absent on an older API during a rolling deploy.
+  const sources = stats.sources ?? {};
+  const fastPath = stats.fastPath ?? { eligible: 0, viaMbid: 0, viaOther: 0, undecided: 0, pending: 0 };
+  const buckets = [
+    { key: 'mbid', label: 'Embedded MBID', count: sources['mbid'] ?? 0, className: styles.srcMbid },
+    { key: 'mb_search', label: 'MusicBrainz search', count: sources['mb_search'] ?? 0, className: styles.srcMbSearch },
+    { key: 'discogs_search', label: 'Discogs', count: sources['discogs_search'] ?? 0, className: styles.srcDiscogs },
+    { key: 'manual', label: 'Manual', count: (sources['user_mbid'] ?? 0) + (sources['user_discogs'] ?? 0), className: styles.srcManual },
+    { key: 'unknown', label: 'Unknown', count: sources['unknown'] ?? 0, className: styles.srcUnknown },
+  ];
+  const liveTotal = buckets.reduce((n, b) => n + b.count, 0);
+  const pctOf = (n: number, d: number) => (d ? `${((n / d) * 100).toFixed(1)}%` : '0%');
+
   return (
     <div className={styles.container}>
       <header className={styles.header}>
@@ -198,6 +212,37 @@ export function IdentifyPage() {
           )}
         </svg>
       </div>
+
+      {/* Provenance: how the live matches were found */}
+      <section className={styles.provenance}>
+        <div className={styles.provenanceHeader}>
+          <span className={styles.identifiedLabel}>How albums were matched</span>
+          <span className={styles.provenanceTotal}>{liveTotal} live {liveTotal === 1 ? 'match' : 'matches'}</span>
+        </div>
+        <div className={styles.provenanceBar} role="img" aria-label="Match sources">
+          {buckets.filter((b) => b.count > 0).map((b) => (
+            <div
+              key={b.key}
+              className={`${styles.provenanceSegment} ${b.className}`}
+              style={{ flexGrow: b.count }}
+              title={`${b.label}: ${b.count} (${pctOf(b.count, liveTotal)})`}
+            />
+          ))}
+        </div>
+        <div className={styles.provenanceLegend}>
+          {buckets.filter((b) => b.count > 0 || b.key === 'mbid').map((b) => (
+            <span key={b.key} className={styles.legendItem}>
+              <span className={`${styles.legendSwatch} ${b.className}`} />
+              {b.label} <strong>{b.count}</strong> <span className={styles.legendPct}>{pctOf(b.count, liveTotal)}</span>
+            </span>
+          ))}
+        </div>
+        <div className={styles.fastPathLine}>
+          {fastPath.eligible === 0
+            ? 'No albums carry embedded MusicBrainz IDs in their tags.'
+            : `Embedded MusicBrainz IDs: ${fastPath.eligible} ${fastPath.eligible === 1 ? 'album' : 'albums'} · ${fastPath.viaMbid} matched via the tag (${pctOf(fastPath.viaMbid, fastPath.eligible)} of eligible) · ${fastPath.viaOther} via search · ${fastPath.undecided} undecided · ${fastPath.pending} pending`}
+        </div>
+      </section>
 
       {/* Reason tabs */}
       <div className={styles.tabs}>

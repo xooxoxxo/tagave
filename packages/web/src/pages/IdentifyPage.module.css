@@ -368,3 +368,79 @@
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
+
+/* Provenance block (XO-309): where the live matches came from */
+.provenance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+}
+
+.provenanceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-lg);
+}
+
+.provenanceTotal {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.provenanceBar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-tertiary);
+}
+
+.provenanceSegment {
+  flex-basis: 0;
+  min-width: 2px;
+}
+
+.provenanceLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.legendItem strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.legendPct {
+  font-size: var(--font-size-xs);
+}
+
+.legendSwatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.srcMbid { background-color: var(--accent); }
+.srcMbSearch { background-color: var(--success); }
+.srcDiscogs { background-color: var(--warning); }
+.srcManual { background-color: var(--text-secondary); }
+.srcUnknown { background-color: var(--border); }
+
+.fastPathLine {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}

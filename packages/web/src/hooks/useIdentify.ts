@@ -37,6 +37,16 @@ export interface IdentifyStatsResponse {
   };
   etaSeconds: number | null;
   reasons: Record<string, number>;
+  /** live matches by provenance: mbid | mb_search | discogs_search | user_mbid | user_discogs | unknown (absent on an older API) */
+  sources?: Record<string, number>;
+  /** albums whose tags name a MusicBrainz release, and how they fared (absent on an older API) */
+  fastPath?: {
+    eligible: number;
+    viaMbid: number;
+    viaOther: number;
+    undecided: number;
+    pending: number;
+  };
   series: Array<{
     day: string;
     matched: number;

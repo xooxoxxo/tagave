@@ -1,7 +1,7 @@
 /**
  * MusicBrainz provider tests.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -257,5 +257,26 @@ describe('getReleaseGroupEditions', () => {
     // Second edition has two label-info entries, but only one with a label name
     expect(ed2.labels).toHaveLength(1);
     expect(ed2.labels[0]!).toEqual({ name: 'Test Label UK', catalogNumber: 'CAT002' });
+  });
+});
+
+describe('HTTP failures carry their status', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('getRelease rejects a stale MBID with status 404', async () => {
+    globalThis.fetch = (async () => new Response('not found', { status: 404, statusText: 'Not Found' })) as typeof fetch;
+    const provider = new MusicBrainzProvider('Test/1.0 (+test)');
+    await expect(provider.getRelease('00000000-0000-0000-0000-000000000000', { priority: 'background' }))
+      .rejects.toMatchObject({ status: 404 });
+  });
+
+  it('searchReleases rejects a server error with its status', async () => {
+    globalThis.fetch = (async () => new Response('boom', { status: 500, statusText: 'Internal Server Error' })) as typeof fetch;
+    const provider = new MusicBrainzProvider('Test/1.0 (+test)');
+    await expect(provider.searchReleases({ albumTitle: 'x' }, { priority: 'background' }))
+      .rejects.toMatchObject({ status: 500 });
   });
 });

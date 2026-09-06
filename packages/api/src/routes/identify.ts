@@ -33,6 +33,13 @@ export type IdentifyReason = (typeof IDENTIFY_REASONS)[number];
 
 const RETRY_CAP = 500;
 
+/** A failed identify job is history once a fresh job is waiting for the same
+ * album (the sweep re-enqueues pending albums); only orphaned failures count. */
+const NO_LIVE_JOB = sql`not exists (
+  select 1 from pgboss.job q
+   where q.name = 'identify.album' and q.state in ('created', 'retry', 'active')
+     and q.data->>'localAlbumId' = j.data->>'localAlbumId')`;
+
 async function ownedLibrary(userId: string, libraryId: string) {
   const db = getDb();
   const rows = await db.select().from(libraries)
@@ -72,7 +79,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
        where name = 'identify.album' group by 1`) as unknown as Array<{ state: string; n: number }>;
     const failedAlbumRows = await db.execute(sql`
       select count(distinct data->>'localAlbumId')::int as n from pgboss.job j
-       where j.name = 'identify.album' and j.state = 'failed'
+       where j.name = 'identify.album' and j.state = 'failed' and ${NO_LIVE_JOB}
          and exists (select 1 from local_albums la where la.id = (j.data->>'localAlbumId')::uuid
                        and la.library_id = ${libraryId} and la.state = 'pending')`) as unknown as [{ n: number }];
 
@@ -87,6 +94,27 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
       .where(and(eq(jobRuns.libraryId, libraryId), eq(jobRuns.type, 'identify.sweep')))
       .orderBy(desc(jobRuns.createdAt)).limit(1);
     const sweep = sweepRows[0];
+
+    // Provenance (XO-309 fast-path metrics): where the live matches came from,
+    // and how the albums whose tags name a MusicBrainz release fared.
+    const sourceRows = await db.execute(sql`
+      select coalesce(source, 'unknown') as source, count(*)::int as n
+        from album_matches
+       where library_id = ${libraryId} and status in ('auto', 'confirmed')
+       group by 1`) as unknown as Array<{ source: string; n: number }>;
+    const [fp] = await db.execute(sql`
+      select count(*)::int as eligible,
+             count(*) filter (where la.state = 'matched' and m.source = 'mbid')::int as via_mbid,
+             count(*) filter (where la.state = 'matched' and (m.source is null or m.source <> 'mbid'))::int as via_other,
+             count(*) filter (where la.state in ('unidentified', 'needs_review'))::int as undecided,
+             count(*) filter (where la.state = 'pending')::int as pending
+        from local_albums la
+        left join lateral (
+          select am.source from album_matches am
+           where am.local_album_id = la.id and am.status in ('auto', 'confirmed') limit 1) m on true
+       where la.library_id = ${libraryId} and la.embedded_mbid is not null`) as unknown as [Record<string, number>];
+    const sources: Record<string, number> = {};
+    for (const r of sourceRows) sources[r.source] = r.n;
 
     const total = c?.['total'] ?? 0;
     const matched = c?.['matched'] ?? 0;
@@ -151,6 +179,14 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
       etaSeconds: perMin15 > 0 && pending > 0 ? Math.round((pending / perMin15) * 60) : null,
       reasons,
       series,
+      sources,
+      fastPath: {
+        eligible: fp?.['eligible'] ?? 0,
+        viaMbid: fp?.['via_mbid'] ?? 0,
+        viaOther: fp?.['via_other'] ?? 0,
+        undecided: fp?.['undecided'] ?? 0,
+        pending: fp?.['pending'] ?? 0,
+      },
       sweep: sweep ? {
         id: sweep.id,
         state: sweep.state,
@@ -178,10 +214,10 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
         select la.id, la.title_guess, la.artist_guess, la.year_guess, la.track_count, la.formats,
                la.dir_paths[1] as dir_path, la.identify_attempts, la.last_identify_at, la.state,
                f.error, f.failed_at
-          from (select distinct on (data->>'localAlbumId') (data->>'localAlbumId')::uuid as album_id,
-                       coalesce(output->>'message', output::text) as error, completed_on as failed_at
-                  from pgboss.job where name = 'identify.album' and state = 'failed'
-                 order by data->>'localAlbumId', completed_on desc) f
+          from (select distinct on (j.data->>'localAlbumId') (j.data->>'localAlbumId')::uuid as album_id,
+                       coalesce(j.output->>'message', j.output::text) as error, j.completed_on as failed_at
+                  from pgboss.job j where j.name = 'identify.album' and j.state = 'failed' and ${NO_LIVE_JOB}
+                 order by j.data->>'localAlbumId', j.completed_on desc) f
           join local_albums la on la.id = f.album_id
          where la.library_id = ${libraryId} and la.state = 'pending'
            ${search ? sql`and (la.title_guess ilike ${search} or la.artist_guess ilike ${search})` : sql``}
@@ -268,7 +304,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
       const rows = await db.execute(sql`
         select distinct la.id from pgboss.job j
           join local_albums la on la.id = (j.data->>'localAlbumId')::uuid
-         where j.name = 'identify.album' and j.state = 'failed'
+         where j.name = 'identify.album' and j.state = 'failed' and ${NO_LIVE_JOB}
            and la.library_id = ${libraryId} and la.state = 'pending'
          limit ${RETRY_CAP}`) as unknown as Array<{ id: string }>;
       ids = rows.map((r) => r.id);

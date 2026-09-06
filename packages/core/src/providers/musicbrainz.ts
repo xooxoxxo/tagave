@@ -31,6 +31,14 @@ export type Edition = {
 
 const MB_BASE_URL = 'https://musicbrainz.org/ws/2';
 
+/** HTTP failure with the status attached, so callers can tell a stale id
+ * (404 → fall back to search) from an outage (retry). */
+export function mbHttpError(message: string, status: number): Error {
+  const err = new Error(message);
+  (err as Error & { status?: number }).status = status;
+  return err;
+}
+
 /**
  * Zod schemas for MusicBrainz API responses.
  */
@@ -394,7 +402,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       if (response.status === 503) {
         throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
       }
-      throw new Error(`MusicBrainz search failed: ${response.statusText}`);
+      throw mbHttpError(`MusicBrainz search failed: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -425,7 +433,7 @@ export class MusicBrainzProvider implements MetadataProvider {
       if (response.status === 503) {
         throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
       }
-      throw new Error(`Failed to fetch MusicBrainz release ${id}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz release ${id}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -451,7 +459,7 @@ export class MusicBrainzProvider implements MetadataProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch MusicBrainz release group ${id}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz release group ${id}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -491,7 +499,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
-      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -523,7 +531,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
-      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`, response.status);
     }
 
     const data = z.object({
@@ -564,7 +572,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
-      throw new Error(`Failed to look up URL ${resource}: ${response.statusText}`);
+      throw mbHttpError(`Failed to look up URL ${resource}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -608,7 +616,7 @@ export class MusicBrainzProvider implements MetadataProvider {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch MusicBrainz artist ${id}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz artist ${id}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
@@ -636,8 +644,8 @@ export class MusicBrainzProvider implements MetadataProvider {
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to fetch MusicBrainz artist release groups for ${artistId}: ${response.statusText}`
+      throw mbHttpError(
+        `Failed to fetch MusicBrainz artist release groups for ${artistId}: ${response.statusText}`, response.status
       );
     }
 
@@ -684,7 +692,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
-      throw new Error(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`);
+      throw mbHttpError(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();

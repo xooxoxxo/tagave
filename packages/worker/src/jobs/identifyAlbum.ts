@@ -32,13 +32,16 @@ export interface IdentifyAlbumJobData {
 const MAX_LOOKUPS_PER_ALBUM = 3;
 const MAX_DISCOGS_FETCHES = 2;
 
-interface EmbeddedIds {
+/** provenance of a candidate / decision (match_candidates.source, album_matches.source) */
+export type CandidateSource = 'mbid' | 'mb_search' | 'discogs_search' | 'user_mbid' | 'user_discogs';
+
+export interface EmbeddedIds {
   albumMbid?: string;
   rgMbid?: string;
   barcode?: string;
 }
 
-function embeddedIdsOf(tagsRaw: unknown): EmbeddedIds {
+export function embeddedIdsOf(tagsRaw: unknown): EmbeddedIds {
   const common = ((tagsRaw as { common?: Record<string, unknown> } | null)?.common ?? {}) as Record<string, unknown>;
   const one = (v: unknown): string | undefined => {
     const s = Array.isArray(v) ? v[0] : v;
@@ -52,6 +55,14 @@ function embeddedIdsOf(tagsRaw: unknown): EmbeddedIds {
   if (rgMbid) out.rgMbid = rgMbid;
   if (typeof bc === 'string' && bc.trim()) out.barcode = bc.trim();
   return out;
+}
+
+/** IDN-1a fast path verdict for the release named by the file tags: a strong
+ * score with track parity is a hit; anything else also runs the search
+ * cascade (stale or edition-mismatched tags are common in hand-ripped
+ * archives) and lets the scorer choose. */
+export function fastPathOutcome(distance: number, providerTrackCount: number, localTrackCount: number): 'hit' | 'weak' {
+  return distance <= MATCHING_THRESHOLDS.strong && providerTrackCount === localTrackCount ? 'hit' : 'weak';
 }
 
 const bg = { priority: 'background' as const };
@@ -156,6 +167,12 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   for (const f of fileRows) {
     embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };
   }
+  // Fast-path eligibility is a library metric (XO-309): remember the tag id.
+  if ((embedded.albumMbid ?? null) !== (album.embeddedMbid ?? null)) {
+    await ctx.db.update(localAlbums)
+      .set({ embeddedMbid: embedded.albumMbid ?? null })
+      .where(eq(localAlbums.id, album.id));
+  }
 
   const local = {
     artist: album.artistGuess ?? '',
@@ -195,11 +212,18 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   });
 
   // Candidate generation (IDN-1): pinned (IDN-6) short-circuits, then
-  // embedded MBID, then MB search cascade, then Discogs (IDN-1c).
+  // embedded MBID, then MB search cascade, then Discogs (IDN-1c). Every
+  // fetched release remembers how it was found (provenance metrics).
   const fetched: CanonicalRelease[] = [];
+  const sourceOf = new Map<string, CandidateSource>();
+  const take = (r: CanonicalRelease, source: CandidateSource) => {
+    fetched.push(r);
+    sourceOf.set(r.id, source);
+  };
+  let fastPathWeak = false;
   try {
     if (data.pinnedMbid) {
-      fetched.push(await mbRelease(ctx, p, data.pinnedMbid));
+      take(await mbRelease(ctx, p, data.pinnedMbid), 'user_mbid');
     } else if (data.pinnedDiscogs) {
       let releaseId: number | undefined = data.pinnedDiscogs.id;
       if (data.pinnedDiscogs.kind === 'master') {
@@ -210,12 +234,26 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
           return;
         }
       }
-      fetched.push(await discogsRelease(ctx, p, releaseId));
+      take(await discogsRelease(ctx, p, releaseId), 'user_discogs');
     } else if (embedded.albumMbid) {
-      fetched.push(await mbRelease(ctx, p, embedded.albumMbid));
+      // IDN-1a fast path: the tags name the release. A stale id (404) falls
+      // back to the search cascade instead of failing the job; a weak or
+      // edition-mismatched hit keeps its candidate and searches as well.
+      const mbid = embedded.albumMbid;
+      try {
+        const r = await mbRelease(ctx, p, mbid);
+        const distance = scoreCandidates(local, [toScorable(r)])[0]?.distance ?? 1;
+        const outcome = fastPathOutcome(distance, r.tracks?.length ?? 0, local.tracks.length);
+        fastPathWeak = outcome === 'weak';
+        ctx.logger.info({ album: album.titleGuess, mbid, outcome, distance }, 'identify: fast path');
+        take(r, 'mbid');
+      } catch (err) {
+        if ((err as { status?: number }).status !== 404) throw err;
+        ctx.logger.warn({ album: album.titleGuess, mbid }, 'identify: embedded MBID not found, falling back to search');
+      }
     }
 
-    if (fetched.length === 0 && !pinned) {
+    if (!pinned && (fetched.length === 0 || fastPathWeak)) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
       let found = await mbSearch(ctx, p, {
@@ -227,12 +265,15 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
         found = await mbSearch(ctx, p, { albumTitle: album.titleGuess as string });
       }
       // Fetch full tracklists for the top few candidates whose track counts
-      // are not impossible (spec §10.3 budget: cap lookups per album).
+      // are not impossible (spec §10.3 budget: cap lookups per album; the
+      // fast-path lookup already spent one).
+      const budget = fastPathWeak ? MAX_LOOKUPS_PER_ALBUM - 1 : MAX_LOOKUPS_PER_ALBUM;
       const plausible = found
+        .filter((c) => c.release.id !== embedded.albumMbid)
         .filter((c) => !c.release.tracks?.length || Math.abs(c.release.tracks.length - tracks.length) <= 5)
-        .slice(0, MAX_LOOKUPS_PER_ALBUM);
+        .slice(0, budget);
       for (const cand of plausible) {
-        fetched.push(await mbRelease(ctx, p, cand.release.id));
+        take(await mbRelease(ctx, p, cand.release.id), 'mb_search');
       }
     }
   } catch (err) {
@@ -257,7 +298,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
           ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
         });
         for (const cand of hits.slice(0, MAX_DISCOGS_FETCHES)) {
-          fetched.push(await discogsRelease(ctx, p, cand.release.id));
+          take(await discogsRelease(ctx, p, cand.release.id), 'discogs_search');
         }
       } catch (err) {
         ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: Discogs error (continuing with MB)');
@@ -282,10 +323,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   for (const s of scored) {
     const relDb = releaseDbIds.get(s.id);
     if (!relDb) continue;
-    const source = data.pinnedMbid ? 'user_mbid'
-      : data.pinnedDiscogs ? 'user_discogs'
-      : s.source === 'discogs' ? 'discogs_search'
-      : embedded.albumMbid ? 'mbid' : 'mb_search';
+    const source: CandidateSource = sourceOf.get(s.id) ?? (s.source === 'discogs' ? 'discogs_search' : 'mb_search');
     await ctx.db.insert(matchCandidates).values({
       localAlbumId: album.id,
       releaseId: relDb,
@@ -295,7 +333,10 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     });
   }
 
-  const goLive = async (releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user', distance: number, reason: string) => {
+  const goLive = async (
+    releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',
+    distance: number, reason: string, source: CandidateSource | null,
+  ) => {
     if (status === 'confirmed') {
       await ctx.sql`
         update album_matches set status = 'rejected', reason = 'superseded by manual entry'
@@ -309,6 +350,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       status,
       decidedBy,
       reason,
+      source,
     });
     const rgRow = await ctx.db
       .select({ rgId: releases.releaseGroupId })
@@ -335,7 +377,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     const topDb = top ? releaseDbIds.get(top.id) : undefined;
     if (!top || !topDb) return;
     await goLive(topDb, 'confirmed', 'user', top.distance,
-      data.pinnedMbid ? 'manual MBID entry (IDN-6)' : 'manual Discogs entry (IDN-6)');
+      data.pinnedMbid ? 'manual MBID entry (IDN-6)' : 'manual Discogs entry (IDN-6)',
+      data.pinnedMbid ? 'user_mbid' : 'user_discogs');
     return;
   }
 
@@ -349,7 +392,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
 
   if (best && bestDb && best.distance <= MATCHING_THRESHOLDS.strong && trackParity && !gapDemoted) {
     ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
-    await goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`);
+    await goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`,
+      sourceOf.get(best.id) ?? null);
   } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
     // Owner chip rule (2026-09-05): no reds + ≥3 greens auto-accepts even in
     // the review band; fewest yellows wins. Mirrors hand-review outcomes.
@@ -360,7 +404,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     if (chosen && chosenDb) {
       const cc = chipCounts(chosen.breakdown);
       await goLive(chosenDb, 'auto', 'system', chosen.distance,
-        `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`);
+        `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
+        sourceOf.get(chosen.id) ?? null);
       return;
     }
     // Owner policy (2026-09-05): the top candidate in the band is what the
@@ -369,7 +414,8 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     if (best && bestDb) {
       const cc2 = chipCounts(best.breakdown);
       await goLive(bestDb, 'auto', 'system', best.distance,
-        `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`);
+        `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`,
+        sourceOf.get(best.id) ?? null);
       return;
     }
     await giveUp('ambiguous');

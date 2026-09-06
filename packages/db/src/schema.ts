@@ -220,6 +220,8 @@ export const localAlbums = pgTable(
     identifyAttempts: integer('identify_attempts').notNull().default(0),
     lastIdentifyAt: timestamp('last_identify_at', { withTimezone: true }),
     identifiedAt: timestamp('identified_at', { withTimezone: true }),
+    /** first MusicBrainz release id found in the album's file tags (IDN-1a fast path); feeds the fast-path metrics */
+    embeddedMbid: varchar('embedded_mbid', { length: 36 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -633,6 +635,8 @@ export const albumMatches = pgTable(
     status: varchar({ length: 20 }).notNull().default('auto'),
     decidedBy: varchar('decided_by', { length: 20 }).notNull().default('system'),
     reason: text(),
+    /** provenance of the chosen candidate: mbid | mb_search | discogs_search | user_mbid | user_discogs (same vocabulary as match_candidates.source) */
+    source: varchar({ length: 50 }),
     decidedAt: timestamp('decided_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
