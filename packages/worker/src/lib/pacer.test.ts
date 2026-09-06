@@ -1,8 +1,8 @@
 /**
  * Tests for pure pacer functions.
  */
-import { isServerBusyError, describe, it, expect } from 'vitest';
-import { cooldownMsForAttempt, isRateLimitError } from './pacer.js';
+import { describe, it, expect } from 'vitest';
+import { cooldownMsForAttempt, isRateLimitError, isServerBusyError } from './pacer.js';
 
 describe('cooldownMsForAttempt', () => {
   it('returns attempt * 60s when no retryAfterMs', () => {
