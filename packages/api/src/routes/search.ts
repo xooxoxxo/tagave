@@ -42,13 +42,22 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       limit 8`) as unknown as Record<string, unknown>[];
 
     const artists = await db.execute(sql`
-      select la.artist_guess as name, count(*)::int as album_count,
-             max(similarity(la.artist_guess, ${query})) as score
+      select a.id, a.name, count(distinct la.id)::int as album_count,
+             greatest(
+               similarity(a.name, ${query}),
+               similarity(coalesce(a.sort_name, ''), ${query}),
+               similarity(array_to_string(a.aliases, ' '), ${query})
+             ) as score
       from local_albums la
-      where la.library_id = ${libraryId} and la.artist_guess is not null
-        and (la.artist_guess ilike ${'%' + query + '%'}
-             ${useSimilarity ? sql`or la.artist_guess % ${query}` : sql``})
-      group by la.artist_guess
+      join release_groups rg on rg.id = la.release_group_id
+      join release_group_artists rga on rga.release_group_id = rg.id
+      join artists a on a.id = rga.artist_id
+      where la.library_id = ${libraryId}
+        and (a.name ilike ${'%' + query + '%'}
+             or a.sort_name ilike ${'%' + query + '%'}
+             or array_to_string(a.aliases, ' ') ilike ${'%' + query + '%'}
+             ${useSimilarity ? sql`or a.name % ${query} or a.sort_name % ${query} or array_to_string(a.aliases, ' ') % ${query}` : sql``})
+      group by a.id, a.name, a.sort_name, a.aliases
       order by score desc nulls last, album_count desc
       limit 8`) as unknown as Record<string, unknown>[];
 
@@ -69,7 +78,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
         id: a['id'], title: a['title'], artist: a['artist'],
         year: a['year'], state: a['state'], trackCount: a['track_count'],
       })),
-      artists: artists.map((a) => ({ name: a['name'], albumCount: a['album_count'] })),
+      artists: artists.map((a) => ({ id: a['id'], name: a['name'], albumCount: a['album_count'] })),
       tracks: tracks.map((t) => ({
         id: t['id'], title: t['title'], albumId: t['local_album_id'],
         albumTitle: t['album_title'], artist: t['artist'],

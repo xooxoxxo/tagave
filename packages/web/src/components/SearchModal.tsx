@@ -11,13 +11,13 @@ import styles from './SearchModal.module.css';
 
 interface SearchResult {
   albums: { id: string; title: string; artist: string | null; year: number | null; trackCount: number }[];
-  artists: { name: string; albumCount: number }[];
+  artists: { id: string; name: string; albumCount: number }[];
   tracks: { id: string; title: string; albumId: string; albumTitle: string; artist: string | null }[];
 }
 
 type Row =
   | { type: 'album'; id: string; primary: string; secondary: string }
-  | { type: 'artist'; name: string; primary: string; secondary: string }
+  | { type: 'artist'; id: string; primary: string; secondary: string }
   | { type: 'track'; albumId: string; primary: string; secondary: string };
 
 export function SearchModal({ onClose }: { onClose: () => void }) {
@@ -54,7 +54,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
         secondary: `${a.artist ?? 'Unknown'}${a.year ? ` · ${a.year}` : ''} · ${a.trackCount} tracks`,
       })),
       ...data.artists.map<Row>((a) => ({
-        type: 'artist', name: a.name,
+        type: 'artist', id: a.id,
         primary: a.name,
         secondary: `${a.albumCount} album${a.albumCount === 1 ? '' : 's'}`,
       })),
@@ -71,7 +71,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   const open = (row: Row) => {
     onClose();
     if (row.type === 'artist') {
-      navigate({ to: '/albums', search: { artist: row.name } as never });
+      navigate({ to: '/artists/$artistId', params: { artistId: row.id } as never });
     } else {
       const albumId = row.type === 'album' ? row.id : row.albumId;
       navigate({ to: '/albums/$albumId', params: { albumId } as never });
