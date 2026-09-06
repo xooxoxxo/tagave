@@ -37,6 +37,9 @@ export {
   mapDiscogsRelease,
   mapDiscogsSearchHit,
   parseDiscogsRef,
+  mapCollectionRelease,
+  conditionsFromNotes,
+  type DiscogsCollectionItem,
 } from './discogs.js';
 export { WikidataClient, parseWikidataBindings } from './wikidata.js';
 export { fuzzyBridgeScore, chooseBestSearchHit, FUZZY_BRIDGE_ACCEPT } from './bridge.js';

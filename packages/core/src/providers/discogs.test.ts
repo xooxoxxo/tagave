@@ -14,6 +14,7 @@ import {
   mapDiscogsRelease,
   mapDiscogsSearchHit,
   parseDiscogsRef,
+  conditionsFromNotes,
   DiscogsProvider,
 } from './discogs.js';
 
@@ -293,5 +294,74 @@ describe('search hit year as string (live payload shape)', () => {
     const hits = await p.searchReleases({ albumTitle: 'Whenever You Need Somebody', artistName: 'Rick Astley' }, { priority: 'background' });
     expect(hits[0]!.release.year).toBe(1987);
     expect(hits[1]!.release.year).toBeUndefined();
+  });
+});
+
+describe('conditionsFromNotes', () => {
+  it('extracts media condition', () => {
+    const fields = [{ id: 1, name: 'Media Condition' }];
+    const notes = [{ fieldId: 1, value: 'Very Good Plus' }];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result.mediaCondition).toBe('Very Good Plus');
+    expect(result.sleeveCondition).toBeUndefined();
+  });
+
+  it('extracts sleeve condition case-insensitively', () => {
+    const fields = [{ id: 2, name: 'SLEEVE CONDITION' }];
+    const notes = [{ fieldId: 2, value: 'Mint' }];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result.sleeveCondition).toBe('Mint');
+    expect(result.mediaCondition).toBeUndefined();
+  });
+
+  it('extracts notes field', () => {
+    const fields = [{ id: 3, name: 'Notes' }];
+    const notes = [{ fieldId: 3, value: 'Some notes about the item' }];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result.notes).toBe('Some notes about the item');
+  });
+
+  it('handles mixed conditions', () => {
+    const fields = [
+      { id: 1, name: 'Media Condition' },
+      { id: 2, name: 'Sleeve Condition' },
+      { id: 3, name: 'Notes' },
+    ];
+    const notes = [
+      { fieldId: 1, value: 'Good' },
+      { fieldId: 2, value: 'Fair' },
+      { fieldId: 3, value: 'Slight crease' },
+    ];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result).toEqual({
+      mediaCondition: 'Good',
+      sleeveCondition: 'Fair',
+      notes: 'Slight crease',
+    });
+  });
+
+  it('ignores unknown field IDs', () => {
+    const fields = [{ id: 1, name: 'Media Condition' }];
+    const notes = [
+      { fieldId: 1, value: 'Good' },
+      { fieldId: 999, value: 'Unknown' },
+    ];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result.mediaCondition).toBe('Good');
+  });
+
+  it('handles values from unknown field names', () => {
+    const fields = [{ id: 1, name: 'Custom Field' }];
+    const notes = [{ fieldId: 1, value: 'Some value' }];
+    const result = conditionsFromNotes(notes, fields);
+    expect(result.mediaCondition).toBeUndefined();
+    expect(result.sleeveCondition).toBeUndefined();
+    expect(result.notes).toBeUndefined();
+  });
+
+  it('handles empty notes array', () => {
+    const fields = [{ id: 1, name: 'Media Condition' }];
+    const result = conditionsFromNotes([], fields);
+    expect(result).toEqual({});
   });
 });

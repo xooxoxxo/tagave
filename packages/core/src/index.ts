@@ -56,6 +56,8 @@ export {
   discogsBarcodesFromSearchHit,
   mapDiscogsRelease,
   mapDiscogsSearchHit,
+  mapCollectionRelease,
+  conditionsFromNotes,
   parseDiscogsRef,
   extractUrlRelations,
   discogsIdsFromUrlRelations,
@@ -89,6 +91,7 @@ export type {
   DiscogsMaster,
   RateLimitInfo,
   Edition,
+  DiscogsCollectionItem,
 } from './providers/index.js';
 
 // Tag mapping

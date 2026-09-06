@@ -17,6 +17,7 @@ import { createJobRoutes } from './routes/jobs.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
+import { createCollectionRoutes } from './routes/collection.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -248,6 +249,9 @@ app.register(async (instance) => {
 
   // Search (BRW-4)
   instance.register(createSearchRoutes, { prefix: '/api/v1' });
+
+  // Collection (COL-1, GAP-3)
+  instance.register(createCollectionRoutes, { prefix: '/api/v1' });
 });
 
 // Start server

@@ -777,6 +777,9 @@ export const collectionSources = pgTable(
     lastSyncAt: timestamp('last_sync_at', { withTimezone: true }),
     syncCursor: jsonb('sync_cursor'),
     status: varchar({ length: 20 }),
+    folders: jsonb().default('[]'),
+    lastError: text('last_error'),
+    itemCount: integer('item_count'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -796,23 +799,32 @@ export const collectionItems = pgTable(
       .references(() => collectionSources.id, { onDelete: 'cascade' }),
     providerItemId: varchar('provider_item_id', { length: 255 }),
     discogsReleaseId: integer('discogs_release_id'),
+    discogsMasterId: integer('discogs_master_id'),
     releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
     releaseGroupId: uuid('release_group_id').references(() => releaseGroups.id, {
       onDelete: 'set null',
     }),
+    folderId: integer('folder_id'),
     folderName: varchar('folder_name', { length: 255 }),
     formats: jsonb().default('[]'),
+    basicInfo: jsonb('basic_info'),
     mediaCondition: varchar('media_condition', { length: 50 }),
     sleeveCondition: varchar('sleeve_condition', { length: 50 }),
     rating: integer(),
     notes: text(),
     dateAdded: timestamp('date_added', { withTimezone: true }),
     mappingState: varchar('mapping_state', { length: 50 }).default('unmapped'),
+    mappingSource: varchar('mapping_source', { length: 30 }),
+    mappedAt: timestamp('mapped_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
     removedAt: timestamp('removed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_collection_items_library').on(table.libraryId),
+    mappingStateIdx: index('idx_collection_items_mapping_state').on(table.libraryId, table.mappingState),
+    releaseGroupIdx: index('idx_collection_items_release_group').on(table.libraryId, table.releaseGroupId),
+    sourceItemUnique: uniqueIndex('collection_items_source_item_unique').on(table.collectionSourceId, table.providerItemId),
   })
 );
 

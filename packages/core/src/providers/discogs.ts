@@ -769,4 +769,218 @@ export class DiscogsProvider implements MetadataProvider {
       ...(images.length > 0 ? { images } : {}),
     };
   }
+
+  /**
+   * Get authenticated user identity (spec COL-1).
+   */
+  async getIdentity(ctx: CallContext): Promise<{ username: string; id: number }> {
+    const data = await this.request('/oauth/identity');
+    const identity = z.object({ username: z.string(), id: z.number() }).parse(data);
+    return identity;
+  }
+
+  /**
+   * List user's collection folders (spec COL-1).
+   */
+  async listCollectionFolders(username: string, ctx: CallContext): Promise<Array<{ id: number; name: string; count: number }>> {
+    const data = await this.request(`/users/${username}/collection/folders`);
+    const parsed = z.object({
+      folders: z.array(z.object({
+        id: z.number(),
+        name: z.string(),
+        count: z.number().nullish(),
+      }).nullish()).nullish(),
+    }).parse(data);
+    return (parsed.folders || []).filter((f): f is typeof f & { id: number } => f != null).map(f => ({
+      id: f.id,
+      name: f.name,
+      count: f.count ?? 0,
+    }));
+  }
+
+  /**
+   * Get custom fields for collection (spec COL-1).
+   * Returns empty array if none exist (404/403).
+   */
+  async getCollectionFields(username: string, ctx: CallContext): Promise<Array<{ id: number; name: string; type: string }>> {
+    try {
+      const data = await this.request(`/users/${username}/collection/fields`);
+      const parsed = z.object({
+        fields: z.array(z.object({
+          id: z.number(),
+          name: z.string(),
+          type: z.string(),
+        }).nullish()).nullish(),
+      }).parse(data);
+      return (parsed.fields || []).filter((f): f is typeof f & { id: number } => f != null);
+    } catch (e: any) {
+      // 404/403 when user has no custom fields
+      if (e.status === 404 || e.status === 403) {
+        return [];
+      }
+      throw e;
+    }
+  }
+
+  /**
+   * List collection page for a folder (spec COL-1).
+   * Per spec: folder 0 = "All", paginated at per_page items per page.
+   */
+  async listCollectionPage(
+    username: string,
+    folderId: number,
+    page: number,
+    ctx: CallContext,
+    perPage: number = 100
+  ): Promise<{ page: number; pages: number; items: DiscogsCollectionItem[] }> {
+    const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('per_page', String(perPage));
+    params.set('sort', 'added');
+    params.set('sort_order', 'desc');
+
+    const data = await this.request(`/users/${username}/collection/folders/${folderId}/releases?${params.toString()}`);
+    const CollectionReleaseSchema = z.object({
+      id: z.number(),
+      instance_id: z.number(),
+      folder_id: z.number().nullish(),
+      date_added: z.string().nullish(),
+      rating: z.number().nullish(),
+      basic_information: z.object({
+        id: z.number(),
+        master_id: z.number().nullish(),
+        master_url: z.string().nullish(),
+        title: z.string(),
+        year: z.number().nullish(),
+        artists: z.array(ArtistSchema).nullish(),
+        labels: z.array(LabelSchema).nullish(),
+        formats: z.array(z.object({
+          name: z.string(),
+          qty: z.string().nullish(),
+          descriptions: z.array(z.string()).nullish(),
+        })).nullish(),
+        genres: z.array(z.string()).nullish(),
+        styles: z.array(z.string()).nullish(),
+        thumb: z.string().nullish(),
+        cover_image: z.string().nullish(),
+      }).nullish(),
+      notes: z.array(z.object({
+        field_id: z.number(),
+        value: z.string(),
+      })).nullish(),
+    });
+
+    const parsed = z.object({
+      pagination: z.object({
+        page: z.number().nullish(),
+        pages: z.number().nullish(),
+        per_page: z.number().nullish(),
+        items: z.number().nullish(),
+      }).nullish(),
+      releases: z.array(CollectionReleaseSchema).nullish(),
+    }).parse(data);
+
+    const items = (parsed.releases || []).map((r) => mapCollectionRelease(r, parsed.pagination?.items ?? 0));
+
+    return {
+      page: parsed.pagination?.page ?? page,
+      pages: parsed.pagination?.pages ?? 1,
+      items,
+    };
+  }
+}
+
+/**
+ * Mapped Discogs collection item (spec COL-1).
+ */
+export interface DiscogsCollectionItem {
+  instanceId: number;
+  releaseId: number;
+  masterId?: number;
+  folderId: number;
+  dateAdded: string;
+  rating?: number;
+  title: string;
+  artists: string[];
+  year?: number;
+  labels: Array<{ name: string; catalogNumber?: string }>;
+  formats: Array<{ name: string; qty?: number; descriptions: string[] }>;
+  genres: string[];
+  styles: string[];
+  thumbUrl?: string;
+  coverUrl?: string;
+  notes: Array<{ fieldId: number; value: string }>;
+}
+
+/**
+ * Map raw Discogs collection release to DiscogsCollectionItem (spec COL-1).
+ */
+export function mapCollectionRelease(raw: any, _totalItems: number): DiscogsCollectionItem {
+  const bi = raw.basic_information || {};
+  const artists = (bi.artists || []).map((a: any) => {
+    let name = a.anv || a.name;
+    // Remove disambiguation suffix like " (2)"
+    name = name.replace(/\s+\(\d+\)$/, '');
+    return name;
+  });
+
+  const labels = (bi.labels || []).map((l: any) => ({
+    name: l.name,
+    ...(l.catno ? { catalogNumber: l.catno } : {}),
+  }));
+
+  const formats = (bi.formats || []).map((f: any) => ({
+    name: f.name,
+    ...(f.qty ? { qty: parseInt(f.qty, 10) } : {}),
+    descriptions: f.descriptions || [],
+  }));
+
+  return {
+    instanceId: raw.instance_id,
+    releaseId: raw.id,
+    ...(bi.master_id && bi.master_id > 0 ? { masterId: bi.master_id } : {}),
+    folderId: raw.folder_id ?? 0,
+    dateAdded: raw.date_added || new Date().toISOString(),
+    ...(raw.rating ? { rating: raw.rating } : {}),
+    title: bi.title || '',
+    artists,
+    ...(bi.year ? { year: bi.year } : {}),
+    labels,
+    formats,
+    genres: bi.genres || [],
+    styles: bi.styles || [],
+    ...(bi.thumb ? { thumbUrl: bi.thumb } : {}),
+    ...(bi.cover_image ? { coverUrl: bi.cover_image } : {}),
+    notes: (raw.notes || []).map((n: any) => ({
+      fieldId: n.field_id,
+      value: n.value,
+    })),
+  };
+}
+
+/**
+ * Extract media/sleeve condition and notes from custom fields (spec COL-1).
+ * Fields matched case-insensitively by name.
+ */
+export function conditionsFromNotes(
+  notes: Array<{ fieldId: number; value: string }>,
+  fields: Array<{ id: number; name: string }>
+): { mediaCondition?: string; sleeveCondition?: string; notes?: string } {
+  const result: { mediaCondition?: string; sleeveCondition?: string; notes?: string } = {};
+
+  // Build map of field id → name
+  const fieldMap = new Map(fields.map(f => [f.id, f.name.toLowerCase()]));
+
+  for (const note of notes) {
+    const fieldName = fieldMap.get(note.fieldId)?.toLowerCase() || '';
+    if (fieldName.includes('media condition') || fieldName === 'media condition') {
+      result.mediaCondition = note.value;
+    } else if (fieldName.includes('sleeve condition') || fieldName === 'sleeve condition') {
+      result.sleeveCondition = note.value;
+    } else if (fieldName === 'notes') {
+      result.notes = note.value;
+    }
+  }
+
+  return result;
 }

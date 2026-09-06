@@ -14,6 +14,7 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
+import { collectionSyncJob, type CollectionSyncJobData } from './jobs/collectionSync.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -26,7 +27,7 @@ if (!databaseUrl) {
 const M1_PLACEHOLDER_QUEUES = [
   'enrich.artist',
   'tags.preview', 'tags.apply', 'tags.revert',
-  'artist.refresh', 'reviews.fetch', 'collection.sync',
+  'artist.refresh', 'reviews.fetch',
 ];
 
 async function main() {
@@ -40,7 +41,7 @@ async function main() {
   logger.info({ workerId }, 'worker connected');
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q);
 
   // LINER_QUEUES=identify.album,identify.sweep restricts which queues this
@@ -97,6 +98,14 @@ async function main() {
     await boss.work<EditionsFetchJobData>('editions.fetch', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await editionsFetchJob(ctx, job.data);
     });
+
+    await boss.work<CollectionSyncJobData>('collection.sync', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await collectionSyncJob(ctx, job.data);
+    });
+
+    // Schedule daily collection.sync at 04:15 for default library (spec COL-1)
+    await boss.schedule('collection.sync', '15 4 * * *',
+      { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
   }
 
   if (wants('enrich.sweep')) await boss.work<EnrichSweepJobData>('enrich.sweep', { batchSize: 1 }, async (jobs) => {
