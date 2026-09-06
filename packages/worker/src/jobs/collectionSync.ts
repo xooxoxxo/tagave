@@ -12,6 +12,7 @@ import { reportProgress } from './progress.js';
 import {
   getProviders, discogsCall, type Providers,
 } from '../lib/providers.js';
+import { libraryProviderSettings } from '../lib/providers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 
 export interface CollectionSyncJobData {
@@ -58,11 +59,17 @@ export async function collectionSyncJob(ctx: WorkerContext, data: CollectionSync
       return;
     }
 
-    const appSecret = process.env.APP_SECRET;
-    if (!appSecret) throw new Error('APP_SECRET not set');
-
-    const discogsToken = openSecret(discogsTokenSealed, appSecret);
-    const providers = getProviders({ discogsToken });
+    // The settings loader opens the sealed token with this host's APP_SECRET
+    // and carries the contact string the providers refuse to run without.
+    const providerSettings = await libraryProviderSettings(ctx, libraryId);
+    if (!providerSettings.discogsToken) {
+      await reportProgress(ctx, jobRunId, {
+        libraryId, type: 'collection.sync', state: 'failed',
+        error: 'Discogs token could not be opened on this host (APP_SECRET missing or different) — see liner-doctor',
+      });
+      return;
+    }
+    const providers = getProviders(providerSettings);
 
     if (remapOnly) {
       await doMapping(ctx, jobRunId, libraryId);
