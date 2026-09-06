@@ -16,10 +16,22 @@ WHAT=${1:-all}
 source .deploy.env
 : "${APP_HOST:?}" "${APP_DIR:?}" "${WORKER_HOST:?}" "${WORKER_DIR:?}" "${WORKER_NODE_BIN:?}"
 
-if [ -n "$(git status --porcelain)" ]; then
-  echo "working tree is dirty — commit first (another session may be mid-edit):"; git status --short; exit 3
-fi
 COMMIT=$(git rev-parse --short HEAD)
+SRC_DIR=$(pwd)
+if [ -n "$(git status --porcelain)" ]; then
+  if [ "${DEPLOY_FROM_HEAD:-0}" = "1" ]; then
+    # Two sessions share this checkout: ship exactly HEAD, never the other
+    # session's work in progress. Export the commit and rsync from the export.
+    SRC_DIR=$(mktemp -d /tmp/liner-deploy-src.XXXXXX)
+    git archive HEAD | tar -x -C "$SRC_DIR"
+    echo "working tree is dirty; DEPLOY_FROM_HEAD=1 → deploying commit $COMMIT from an export (uncommitted files ignored):"
+    git status --short | sed 's/^/    ignored: /'
+  else
+    echo "working tree is dirty — commit first, or DEPLOY_FROM_HEAD=1 to ship exactly HEAD:"; git status --short; exit 3
+  fi
+fi
+cd "$SRC_DIR"
+EXPORT_DIR=""; case "$SRC_DIR" in /tmp/liner-deploy-src.*) EXPORT_DIR="$SRC_DIR" ;; esac
 
 # Local lock (mkdir is atomic on APFS; macOS has no flock binary).
 LOCK=/tmp/liner-deploy.lock
@@ -27,21 +39,29 @@ if ! mkdir "$LOCK" 2>/dev/null; then
   echo "another deploy is running (lock $LOCK, owner: $(cat "$LOCK/owner" 2>/dev/null)); wait or remove a stale lock"; exit 4
 fi
 echo "$$ $(date +%FT%T) $USER" > "$LOCK/owner"
-trap 'rm -rf "$LOCK"' EXIT
+REMOTE_LOCKED_HOST=""
+cleanup() {
+  [ -n "$REMOTE_LOCKED_HOST" ] && ssh "$REMOTE_LOCKED_HOST" 'rm -rf /tmp/liner-deploy.lock' 2>/dev/null || true
+  rm -rf "$LOCK"
+  [ -n "${EXPORT_DIR:-}" ] && rm -rf "$EXPORT_DIR"
+  return 0
+}
+trap cleanup EXIT
 
 remote_lock() {  # $1 host
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$1" true 2>/dev/null \
     || { echo "ssh to $1 failed — key agent locked or host down; nothing deployed there"; exit 6; }
   ssh "$1" 'mkdir /tmp/liner-deploy.lock 2>/dev/null && echo "'"$COMMIT $(date +%FT%T)"'" > /tmp/liner-deploy.lock/owner' \
     || { echo "remote deploy lock held on $1: $(ssh "$1" cat /tmp/liner-deploy.lock/owner 2>/dev/null)"; exit 5; }
+  REMOTE_LOCKED_HOST="$1"
 }
-remote_unlock() { ssh "$1" 'rm -rf /tmp/liner-deploy.lock' || true; }
+remote_unlock() { ssh "$1" 'rm -rf /tmp/liner-deploy.lock' || true; REMOTE_LOCKED_HOST=""; }
 
 EXCLUDES=(--exclude node_modules --exclude .git --exclude '*.tsbuildinfo' --exclude 'packages/*/dist' --exclude '.deploy.env')
 
 deploy_app() {
   echo "== app → $APP_HOST ($COMMIT)"
-  remote_lock "$APP_HOST"; trap 'remote_unlock "$APP_HOST"; rm -rf "$LOCK"' EXIT
+  remote_lock "$APP_HOST"
   # never --delete and never touch the host's own env file
   rsync -az "${EXCLUDES[@]}" --exclude '.env' ./ "$APP_HOST:$APP_DIR/"
   ssh "$APP_HOST" "cd $APP_DIR && docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
@@ -51,7 +71,7 @@ deploy_app() {
 
 deploy_workers() {
   echo "== workers → $WORKER_HOST ($COMMIT)"
-  remote_lock "$WORKER_HOST"; trap 'remote_unlock "$WORKER_HOST"; rm -rf "$LOCK"' EXIT
+  remote_lock "$WORKER_HOST"
   rsync -az "${EXCLUDES[@]}" --exclude dist packages/shared packages/core packages/db packages/worker packages/doctor "$WORKER_HOST:$WORKER_DIR/packages/"
   rsync -az package.json pnpm-workspace.yaml tsconfig.base.json pnpm-lock.yaml "$WORKER_HOST:$WORKER_DIR/"
   # every manifest must be present for the frozen lockfile to validate, even
