@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import postgres from 'postgres';
 import { MIGRATIONS_DIR } from '@liner/db';
-import { MusicBrainzProvider, DiscogsProvider } from '@liner/core';
+import { MusicBrainzProvider, DiscogsProvider, isSealed, openSecret } from '@liner/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -453,8 +453,26 @@ export async function checkProviders(
       `;
 
       const contactString = result[0]?.['contact_string'] as string | null;
-      const discogsToken = result[0]?.['discogs_token'] as string | null;
       const acoustidKey = result[0]?.['acoustid_key'] as string | null;
+      // Credentials are sealed at rest (XO-299): open the box with this host's
+      // APP_SECRET, otherwise probe unauthenticated and say why.
+      const storedToken = result[0]?.['discogs_token'] as string | null;
+      let discogsToken: string | null = storedToken;
+      let tokenNote = '';
+      if (storedToken && isSealed(storedToken)) {
+        const appSecret = process.env.APP_SECRET;
+        if (!appSecret) {
+          discogsToken = null;
+          tokenNote = ' (sealed token; APP_SECRET missing here)';
+        } else {
+          try {
+            discogsToken = openSecret(storedToken, appSecret);
+          } catch {
+            discogsToken = null;
+            tokenNote = ' (sealed token does not open with this APP_SECRET)';
+          }
+        }
+      }
 
       const checks: { name: string; status: CheckStatus; detail: string }[] = [];
 
@@ -504,26 +522,23 @@ export async function checkProviders(
         const discogsUrl = new URL('https://api.discogs.com/database/search');
         discogsUrl.searchParams.set('q', 'nevermind');
         discogsUrl.searchParams.set('per_page', '1');
-        if (discogsToken) {
-          discogsUrl.searchParams.set('token', discogsToken);
-        }
+        // Header auth like the worker's provider (a query-string token leaks into logs).
+        const dcHeaders: Record<string, string> = { 'User-Agent': userAgent, Accept: 'application/json' };
+        if (discogsToken) dcHeaders['Authorization'] = `Discogs token=${discogsToken}`;
 
-        const dcResponse = await fetch(discogsUrl.toString(), {
-          headers: {
-            'User-Agent': userAgent,
-          },
-          signal: controller.signal,
-        });
+        const dcResponse = await fetch(discogsUrl.toString(), { headers: dcHeaders, signal: controller.signal });
 
         clearTimeout(timeoutId);
 
         if (dcResponse.ok) {
-          const rateLimit = dcResponse.headers.get('x-rate-limit-remaining');
-          const isAuth = discogsToken ? ' (authenticated)' : '';
+          const rateLimit = dcResponse.headers.get('x-discogs-ratelimit-remaining');
+          const limit = dcResponse.headers.get('x-discogs-ratelimit');
+          // A token that Discogs rejects silently drops to the 25/min bucket.
+          const isAuth = discogsToken ? (limit === '60' ? ' (authenticated)' : ' (token NOT accepted — unauthenticated bucket)') : '';
           checks.push({
             name: 'Discogs',
-            status: 'pass',
-            detail: `OK${isAuth}${rateLimit ? `, ${rateLimit} remaining` : ''}`,
+            status: discogsToken && limit !== '60' ? 'warn' : 'pass',
+            detail: `OK${isAuth}${tokenNote}${rateLimit ? `, ${rateLimit}/${limit ?? '?'} remaining` : ''}`,
           });
         } else {
           checks.push({
