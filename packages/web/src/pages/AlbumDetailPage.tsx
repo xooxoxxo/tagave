@@ -55,6 +55,14 @@ interface Gap {
   dismissReason: string | null;
   details: Record<string, unknown>;
 }
+interface DiscogsCollectionItem {
+  id: string;
+  folder: string;
+  mediaCondition?: string;
+  sleeveCondition?: string;
+  rating?: number;
+}
+
 interface AlbumDetail {
   id: string;
   title: string | null;
@@ -95,6 +103,7 @@ interface AlbumDetail {
     reason: string | null;
     releaseGroupOnly?: boolean;
   } | null;
+  discogsCollectionItems?: DiscogsCollectionItem[];
   editions?: {
     fetchedAt: string | null;
     releaseGroupMbid: string;
@@ -336,6 +345,22 @@ export function AlbumDetailPage() {
             )}
             {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
               <span className={styles.provenance}>Discogs-only</span>
+            )}
+            {album.discogsCollectionItems && album.discogsCollectionItems.length > 0 && (
+              <a
+                className={styles.collectionChip}
+                href="/collection?view=both"
+                title={album.discogsCollectionItems
+                  .map((item) => {
+                    const conds = [];
+                    if (item.mediaCondition) conds.push(`Media: ${item.mediaCondition}`);
+                    if (item.sleeveCondition) conds.push(`Sleeve: ${item.sleeveCondition}`);
+                    return `${item.folder}${conds.length > 0 ? ' (' + conds.join(', ') + ')' : ''}`;
+                  })
+                  .join(' · ')}
+              >
+                On vinyl/CD
+              </a>
             )}
           </div>
           <div className={styles.dirPath}>{album.dirPaths?.[0]}</div>

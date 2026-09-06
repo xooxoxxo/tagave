@@ -253,3 +253,100 @@ export function useClearAnyEdition(libraryId: string | undefined) {
     },
   });
 }
+
+const COLLECTION_QUERY_KEY = ['collection'];
+
+interface CollectionFilters {
+  view?: 'physical_only' | 'both' | 'unmapped' | 'removed' | 'all';
+  folder?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function useCollectionSources(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId],
+    queryFn: () => api.get(`/libraries/${libraryId}/collection-sources`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 5, // 5 seconds when syncing
+    refetchInterval: (query) => {
+      const data = query.state.data as any;
+      const status = data?.sources?.[0]?.status;
+      return status === 'syncing' ? 5000 : false;
+    },
+  });
+}
+
+export function useCollection(libraryId: string | undefined, filters: CollectionFilters = {}) {
+  return useQuery({
+    queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId, filters],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filters.view) params.set('view', filters.view);
+      if (filters.folder) params.set('folder', filters.folder);
+      if (filters.q) params.set('q', filters.q);
+      if (filters.limit !== undefined) params.set('limit', String(filters.limit));
+      if (filters.offset !== undefined) params.set('offset', String(filters.offset));
+      return api.get(`/libraries/${libraryId}/collection?${params}`);
+    },
+    enabled: !!libraryId,
+    staleTime: 1000 * 30, // 30 seconds
+  });
+}
+
+export function useReconciliation(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: [...COLLECTION_QUERY_KEY, 'reconciliation', libraryId],
+    queryFn: () => api.get(`/libraries/${libraryId}/collection/reconciliation`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+export function useSyncCollection(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post(`/libraries/${libraryId}/collection-sources/sync`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}
+
+export function useRemapCollection(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post(`/libraries/${libraryId}/collection-sources/remap`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}
+
+export function useMapCollectionItem(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ itemId, input }: { itemId: string; input: string }) =>
+      api.post(`/collection-items/${itemId}/map`, { input }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}
+
+export function useUnmapCollectionItem(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      api.delete(`/collection-items/${itemId}/map`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
+    },
+  });
+}

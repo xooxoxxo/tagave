@@ -97,6 +97,21 @@
   text-decoration: none;
 }
 
+.collectionChip {
+  display: inline-block;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.collectionChip:hover {
+  opacity: 0.9;
+}
+
 .dirPath {
   font-family: ui-monospace, monospace;
   font-size: var(--font-size-sm);

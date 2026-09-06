@@ -76,6 +76,12 @@ export function Layout() {
             Attention
           </Link>
           <Link
+            to="/collection"
+            className={isActive('/collection') ? styles.navLinkActive : styles.navLink}
+          >
+            Collection
+          </Link>
+          <Link
             to="/settings/scan-roots"
             className={location.pathname.startsWith('/settings') ? styles.navLinkActive : styles.navLink}
           >
