@@ -82,6 +82,12 @@ interface AlbumDetail {
   coverOrigin: string | null;
   isCueImage: boolean;
   cueRelPath: string | null;
+  artists?: Array<{ id: string; name: string; position: number }>;
+  genres?: {
+    effective: string[];
+    styles: string[];
+    raw: Array<{ tag: string; kind: string; source: string; weight?: number | null }>;
+  };
   release: {
     mbid: string | null;
     title: string;
@@ -280,9 +286,22 @@ export function AlbumDetailPage() {
         <div className={styles.headInfo}>
           <h1 className={styles.title}>{album.release?.title ?? album.title ?? 'Untitled'}</h1>
           <div className={styles.artist}>
-            {Array.isArray(album.release?.artistCredit)
-              ? album.release?.artistCredit.join(', ')
-              : album.release?.artistCredit ?? album.artistCredit ?? 'Unknown artist'}
+            {album.artists && album.artists.length > 0 ? (
+              <>
+                {album.artists.map((artist, idx) => (
+                  <span key={artist.id}>
+                    <Link to="/artists/$artistId" params={{ artistId: artist.id }}>
+                      {artist.name}
+                    </Link>
+                    {idx < album.artists!.length - 1 && ', '}
+                  </span>
+                ))}
+              </>
+            ) : Array.isArray(album.release?.artistCredit) ? (
+              album.release?.artistCredit.join(', ')
+            ) : (
+              album.release?.artistCredit ?? album.artistCredit ?? 'Unknown artist'
+            )}
           </div>
           <div className={styles.metaRow}>
             {[
@@ -294,6 +313,19 @@ export function AlbumDetailPage() {
               album.formats?.join(', '),
             ].filter(Boolean).join(' · ')}
           </div>
+          {album.genres && (album.genres.effective.length > 0 || album.genres.styles.length > 0) && (
+            <div className={styles.genresRow} title={album.genres.raw.map((r) => `${r.tag} — ${r.source} ${r.kind}`).join('; ')}>
+              {album.genres.effective.map((g) => (
+                <span key={`g-${g}`} className={styles.genreChip}>{g}</span>
+              ))}
+              {album.genres.styles.length > 0 && album.genres.effective.length > 0 && (
+                <span className={styles.genreSeparator}>·</span>
+              )}
+              {album.genres.styles.map((s) => (
+                <span key={`s-${s}`} className={styles.styleChip}>{s}</span>
+              ))}
+            </div>
+          )}
           <div className={styles.badgeRow}>
             <span className={styles[`state_${album.state}`] ?? styles.stateBadge}>
               {STATE_LABEL[album.state] ?? album.state}
