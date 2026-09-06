@@ -26,6 +26,7 @@ export {
   scoreCandidates,
   DEFAULT_WEIGHTS,
   MATCHING_THRESHOLDS,
+  MAX_ALIGN_TRACKS,
   hungarianAlgorithm,
   chipCounts,
   pickByChipRule,

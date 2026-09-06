@@ -20,6 +20,15 @@ import {
 } from './types.js';
 
 /**
+ * Largest tracklist the alignment will consider. The Hungarian solver pads
+ * to a square of the larger side (O(n³)): a 6-track album against a
+ * 6,666-track Discogs compilation froze the identify worker for ten
+ * minutes (2026-09-06). Nothing in a personal archive is that big, so
+ * such a candidate is simply "no alignment" (distance 1 per track).
+ */
+export const MAX_ALIGN_TRACKS = 500;
+
+/**
  * Align local tracks to canonical tracks using the Hungarian algorithm.
  * Cost is 0.6*titleDistance + 0.4*lengthDistance with grace (10s) and hard cap (30s).
  *
@@ -35,7 +44,8 @@ export function alignTracks(
   const HARD_CAP_DURATION = 30; // seconds
   const IMPOSSIBLE_COST = 1000; // High cost for forbidden assignment
 
-  if (!localTracks.length || !canonicalTracks.length) {
+  if (!localTracks.length || !canonicalTracks.length
+    || Math.max(localTracks.length, canonicalTracks.length) > MAX_ALIGN_TRACKS) {
     return localTracks.map((track) => ({
       localIndex: track.index,
       canonicalIndex: null,

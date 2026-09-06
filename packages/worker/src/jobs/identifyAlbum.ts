@@ -3,7 +3,7 @@ import {
   albumMatches, audioFiles, localAlbums, localTracks, matchCandidates, releases,
 } from '@liner/db';
 import {
-  scoreCandidates, MATCHING_THRESHOLDS, discogsIdsFromUrlRelations,
+  scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
   type CanonicalRelease, type ReleaseQuery,
   pickByChipRule, chipCounts,
 } from '@liner/core';
@@ -217,6 +217,13 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   const fetched: CanonicalRelease[] = [];
   const sourceOf = new Map<string, CandidateSource>();
   const take = (r: CanonicalRelease, source: CandidateSource) => {
+    // Search hits carry no track counts, so a mega-compilation is only
+    // recognisable after the fetch. Scoring it would pad the alignment to
+    // its size (O(n³)) and persisting it writes thousands of rows.
+    if ((r.tracks?.length ?? 0) > MAX_ALIGN_TRACKS) {
+      ctx.logger.warn({ album: album.titleGuess, candidate: r.title, source, tracks: r.tracks?.length }, 'identify: candidate dropped, tracklist too large');
+      return;
+    }
     fetched.push(r);
     sourceOf.set(r.id, source);
   };

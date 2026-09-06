@@ -5,6 +5,7 @@ export {
   alignTracks,
   scoreRelease,
   scoreCandidates,
+  MAX_ALIGN_TRACKS,
 } from './scoring.js';
 
 export type {
