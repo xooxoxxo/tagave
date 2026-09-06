@@ -20,6 +20,12 @@ export interface ReceptionSection {
   text: string;
 }
 
+export interface IntroExtract {
+  title: string;
+  extract: string;
+  url: string;
+}
+
 const SectionsSchema = z.object({
   parse: z.object({
     title: z.string(),
@@ -38,6 +44,16 @@ const TextSchema = z.object({
   parse: z.object({
     title: z.string(),
     text: z.string(),
+  }).nullish(),
+  error: z.object({ code: z.string().nullish() }).nullish(),
+});
+
+const ExtractsSchema = z.object({
+  query: z.object({
+    pages: z.record(z.object({
+      title: z.string(),
+      extract: z.string(),
+    })).nullish(),
   }).nullish(),
   error: z.object({ code: z.string().nullish() }).nullish(),
 });
@@ -106,9 +122,9 @@ export class WikipediaClient {
     this.lang = options.lang ?? 'en';
   }
 
-  private async call(params: Record<string, string>): Promise<unknown> {
+  private async call(params: Record<string, string>, action: string = 'parse'): Promise<unknown> {
     const url = new URL(`https://${this.lang}.wikipedia.org/w/api.php`);
-    url.searchParams.set('action', 'parse');
+    url.searchParams.set('action', action);
     url.searchParams.set('format', 'json');
     url.searchParams.set('formatversion', '2');
     url.searchParams.set('maxlag', '5');
@@ -147,6 +163,36 @@ export class WikipediaClient {
       url: `https://${this.lang}.wikipedia.org/wiki/${encodeURIComponent(sections.parse.title.replace(/ /g, '_'))}#${anchor}`,
       sectionTitle: hit.line,
       text,
+    };
+  }
+
+  /** null when the article is missing or the extract is empty. */
+  async getIntroExtract(title: string): Promise<IntroExtract | null> {
+    const response = ExtractsSchema.parse(
+      await this.call({
+        titles: title,
+        prop: 'extracts',
+        exintro: '1',
+        explaintext: '1',
+        redirects: '1',
+      }, 'query'),
+    );
+
+    if (!response.query?.pages) return null;
+
+    const pages = Object.values(response.query.pages);
+    if (pages.length === 0) return null;
+
+    const page = pages[0];
+    if (!page || !page.extract) return null;
+
+    const normalizedTitle = page.title;
+    const urlTitle = normalizedTitle.replace(/ /g, '_');
+
+    return {
+      title: normalizedTitle,
+      extract: page.extract,
+      url: `https://${this.lang}.wikipedia.org/wiki/${encodeURIComponent(urlTitle)}`,
     };
   }
 }

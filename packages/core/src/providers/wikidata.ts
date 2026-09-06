@@ -16,6 +16,7 @@ export interface WikidataBinding {
   metacritic?: string;
   allmusic?: string;
   rym?: string;
+  discogsArtist?: number;
 }
 
 export interface ReleaseGroupIdentity {
@@ -25,6 +26,12 @@ export interface ReleaseGroupIdentity {
   metacriticId?: string;
   allmusicId?: string;
   rymId?: string;
+}
+
+export interface ArtistIdentity {
+  qid: string;
+  enwikiTitle?: string;
+  discogsArtistId?: number;
 }
 
 const Literal = z.object({ value: z.string() }).optional();
@@ -42,6 +49,7 @@ export function parseWikidataBindings(json: unknown): WikidataBinding[] {
         metacritic: Literal,
         allmusic: Literal,
         rym: Literal,
+        discogsArtist: Literal,
       })).optional(),
     }).optional(),
   });
@@ -72,6 +80,11 @@ export function parseWikidataBindings(json: unknown): WikidataBinding[] {
     if (b?.metacritic?.value) result.metacritic = b.metacritic.value;
     if (b?.allmusic?.value) result.allmusic = b.allmusic.value;
     if (b?.rym?.value) result.rym = b.rym.value;
+
+    if (b?.discogsArtist?.value) {
+      const discogsId = parseInt(b.discogsArtist.value, 10);
+      if (!isNaN(discogsId)) result.discogsArtist = discogsId;
+    }
 
     return result;
   });
@@ -174,5 +187,53 @@ export class WikidataClient {
       ...(identity.discogsMasterId ? { discogsMasterId: identity.discogsMasterId } : {}),
       ...(identity.enwikiTitle ? { enwikiTitle: identity.enwikiTitle } : {}),
     };
+  }
+
+  /**
+   * Full identity for a MusicBrainz artist: QID, Discogs artist ID,
+   * and enwiki title. null when Wikidata has no item.
+   */
+  async findArtistIdentity(artistMbid: string): Promise<ArtistIdentity | null> {
+    const sparqlQuery = `
+      SELECT ?item ?discogsArtist ?enwiki WHERE {
+        ?item wdt:P434 "${artistMbid.replace(/"/g, '')}" .
+        OPTIONAL { ?item wdt:P1953 ?discogsArtist }
+        OPTIONAL { ?enwiki schema:about ?item ; schema:isPartOf <https://en.wikipedia.org/> }
+      }
+      LIMIT 10
+    `;
+
+    const url = new URL(WIKIDATA_SPARQL_URL);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('query', sparqlQuery);
+
+    try {
+      const response = await this.fetchImpl(url.toString(), {
+        headers: {
+          'User-Agent': this.userAgent,
+          Accept: 'application/sparql-results+json',
+        },
+      });
+
+      if (response.status === 429 || response.status === 503) {
+        throw new Error(`Wikidata rate limited (${response.status})`);
+      }
+      if (!response.ok) {
+        return null;
+      }
+
+      const bindings = parseWikidataBindings(await response.json());
+      const best = pickIdentityBinding(bindings);
+      if (!best?.item) return null;
+
+      return {
+        qid: best.item,
+        ...(best.enwiki ? { enwikiTitle: best.enwiki } : {}),
+        ...(best.discogsArtist ? { discogsArtistId: best.discogsArtist } : {}),
+      };
+    } catch (err) {
+      if (err instanceof Error && /rate limited/.test(err.message)) throw err;
+      return null;
+    }
   }
 }

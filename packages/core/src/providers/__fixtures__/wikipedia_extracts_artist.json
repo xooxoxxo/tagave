@@ -1,0 +1,12 @@
+{
+  "batchcomplete": true,
+  "query": {
+    "pages": {
+      "123456": {
+        "pageid": 123456,
+        "title": "Miles Davis",
+        "extract": "Miles Dewey Davis III was an American jazz trumpeter, bandleader, and composer. He is among the most influential and acclaimed figures in the history of jazz and 20th-century music. Davis adopted a role as what musician and theorist George Russell called an 'artist in residence' to a variety of groups throughout his career."
+      }
+    }
+  }
+}

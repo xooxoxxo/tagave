@@ -69,3 +69,71 @@ describe('WikidataClient.findReleaseGroupIdentity', () => {
     expect(await new WikidataClient({ userAgent: 't', fetchImpl }).findReleaseGroupIdentity('x')).toBeNull();
   });
 });
+
+describe('WikidataClient.findArtistIdentity', () => {
+  it('asks for P434/P1953 and the enwiki sitelink, and picks the artist item', async () => {
+    let seenQuery = '';
+    const fetchImpl = (async (url: string) => {
+      seenQuery = decodeURIComponent(new URL(url).searchParams.get('query') ?? '');
+      return new Response(JSON.stringify(loadFixture('wikidata_artist_identity.json')), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = new WikidataClient({ userAgent: 't', fetchImpl });
+
+    const identity = await client.findArtistIdentity('b1392450-e666-3926-a536-22c65f834433');
+
+    expect(seenQuery).toContain('P434');
+    expect(seenQuery).toContain('P1953');
+    expect(identity).toEqual({
+      qid: 'Q5',
+      discogsArtistId: 123456,
+      enwikiTitle: 'Miles_Davis',
+    });
+  });
+
+  it('returns identity without discogs ID when not present', async () => {
+    const fixture = {
+      head: { vars: ['item', 'discogsArtist', 'enwiki'] },
+      results: {
+        bindings: [{
+          item: { type: 'uri', value: 'http://www.wikidata.org/entity/Q123' },
+          enwiki: { type: 'uri', value: 'https://en.wikipedia.org/wiki/Artist_Name' },
+        }],
+      },
+    };
+    const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+    const client = new WikidataClient({ userAgent: 't', fetchImpl });
+
+    const identity = await client.findArtistIdentity('test-mbid');
+
+    expect(identity).toEqual({
+      qid: 'Q123',
+      enwikiTitle: 'Artist_Name',
+    });
+    expect(identity?.discogsArtistId).toBeUndefined();
+  });
+
+  it('returns null when the artist is not found in Wikidata', async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ results: { bindings: [] } }), { status: 200 })) as unknown as typeof fetch;
+    const client = new WikidataClient({ userAgent: 't', fetchImpl });
+
+    const identity = await client.findArtistIdentity('unknown-mbid');
+
+    expect(identity).toBeNull();
+  });
+
+  it('throws on rate limit (429)', async () => {
+    const fetchImpl = (async () => new Response('', { status: 429 })) as unknown as typeof fetch;
+    const client = new WikidataClient({ userAgent: 't', fetchImpl });
+
+    await expect(client.findArtistIdentity('test-mbid')).rejects.toThrow(/rate limited/);
+  });
+
+  it('returns null on other HTTP errors', async () => {
+    const fetchImpl = (async () => new Response('', { status: 500 })) as unknown as typeof fetch;
+    const client = new WikidataClient({ userAgent: 't', fetchImpl });
+
+    const identity = await client.findArtistIdentity('test-mbid');
+
+    expect(identity).toBeNull();
+  });
+});

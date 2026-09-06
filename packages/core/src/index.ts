@@ -104,8 +104,10 @@ export type {
   MbArtist,
   ReleaseGroupIdentity,
   WikidataBinding,
+  ArtistIdentity,
   ReceptionSection,
   WikiSection,
+  IntroExtract,
   DiscogsCollectionItem,
 } from './providers/index.js';
 

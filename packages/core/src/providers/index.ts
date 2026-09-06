@@ -44,9 +44,9 @@ export {
   type DiscogsCollectionItem,
 } from './discogs.js';
 export { WikidataClient, parseWikidataBindings, pickIdentityBinding } from './wikidata.js';
-export type { ReleaseGroupIdentity, WikidataBinding } from './wikidata.js';
+export type { ReleaseGroupIdentity, WikidataBinding, ArtistIdentity } from './wikidata.js';
 export { CritiqueBrainzClient, critiqueBrainzLicense, mapCritiqueBrainzReview } from './critiquebrainz.js';
 export { WikipediaClient, findReceptionSection, wikiHtmlToText } from './wikipedia.js';
-export type { ReceptionSection, WikiSection } from './wikipedia.js';
+export type { ReceptionSection, WikiSection, IntroExtract } from './wikipedia.js';
 export { fuzzyBridgeScore, chooseBestSearchHit, FUZZY_BRIDGE_ACCEPT } from './bridge.js';
 export { ProviderGateway } from './gateway.js';

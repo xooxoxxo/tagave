@@ -1,0 +1,21 @@
+{
+  "head" : {
+    "vars" : [ "item", "discogsArtist", "enwiki" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "item" : {
+        "type" : "uri",
+        "value" : "http://www.wikidata.org/entity/Q5"
+      },
+      "discogsArtist" : {
+        "type" : "literal",
+        "value" : "123456"
+      },
+      "enwiki" : {
+        "type" : "uri",
+        "value" : "https://en.wikipedia.org/wiki/Miles_Davis"
+      }
+    } ]
+  }
+}

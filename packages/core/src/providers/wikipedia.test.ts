@@ -99,4 +99,107 @@ describe('WikipediaClient', () => {
     });
     await expect(limited.getReceptionSection('X')).rejects.toThrow(/429/);
   });
+
+  describe('getIntroExtract', () => {
+    it('fetches intro extract with action=query', async () => {
+      const extractFixture = loadFixture('wikipedia_extracts_artist.json');
+      let capturedUrl = '';
+      const fetchImpl = (async (url: string) => {
+        capturedUrl = url;
+        return new Response(JSON.stringify(extractFixture), { status: 200 });
+      }) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('Miles Davis');
+
+      expect(capturedUrl).toContain('action=query');
+      expect(capturedUrl).toContain('prop=extracts');
+      expect(capturedUrl).toContain('exintro=1');
+      expect(capturedUrl).toContain('explaintext=1');
+      expect(capturedUrl).toContain('redirects=1');
+      expect(result).toEqual({
+        title: 'Miles Davis',
+        extract: expect.stringContaining('Miles Dewey Davis III'),
+        url: 'https://en.wikipedia.org/wiki/Miles_Davis',
+      });
+    });
+
+    it('normalizes page title in URL (spaces → underscores)', async () => {
+      const fixture = {
+        query: {
+          pages: {
+            '999': {
+              title: 'The Beatles',
+              extract: 'The Beatles were an English rock band.',
+            },
+          },
+        },
+      };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('The Beatles');
+
+      expect(result?.url).toBe('https://en.wikipedia.org/wiki/The_Beatles');
+    });
+
+    it('returns null when the page is missing', async () => {
+      const fixture = { error: { code: 'missingtitle' } };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('Nonexistent Page');
+
+      expect(result).toBeNull();
+    });
+
+    it('returns null when the extract is empty', async () => {
+      const fixture = {
+        query: {
+          pages: {
+            '123': {
+              title: 'Stub Article',
+              extract: '',
+            },
+          },
+        },
+      };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('Stub Article');
+
+      expect(result).toBeNull();
+    });
+
+    it('handles redirect normalization (returned title is normalized)', async () => {
+      const fixture = {
+        query: {
+          pages: {
+            '456': {
+              title: 'Bob Dylan',
+              extract: 'Robert Allen Zimmerman, known professionally as Bob Dylan...',
+            },
+          },
+        },
+      };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('Robert Dylan');
+
+      expect(result).toEqual({
+        title: 'Bob Dylan',
+        extract: expect.stringContaining('Robert Allen Zimmerman'),
+        url: 'https://en.wikipedia.org/wiki/Bob_Dylan',
+      });
+    });
+
+    it('throws on rate limit (429)', async () => {
+      const fetchImpl = (async () => new Response('', { status: 429, headers: { 'Retry-After': '60' } })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      await expect(client.getIntroExtract('Title')).rejects.toThrow(/rate limited/);
+    });
+  });
 });
