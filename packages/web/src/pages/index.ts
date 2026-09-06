@@ -4,6 +4,7 @@ export { DashboardPage } from './DashboardPage';
 export { OnboardingPage } from './OnboardingPage';
 export { AlbumsPage } from './AlbumsPage';
 export { ArtistsPage } from './ArtistsPage';
+export { ArtistPage } from './ArtistPage';
 export { QueuePage } from './QueuePage';
 export { AlbumDetailPage } from './AlbumDetailPage';
 export { AttentionPage } from './AttentionPage';

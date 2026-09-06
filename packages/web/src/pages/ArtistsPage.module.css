@@ -56,6 +56,10 @@
   outline: none;
 }
 
+.unresolved {
+  opacity: 0.6;
+}
+
 .name {
   font-weight: 500;
   overflow: hidden;
@@ -100,4 +104,15 @@
 .pagination button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.unresolvedTag {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(220, 38, 38, 0.12);
+  color: var(--error);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
 }

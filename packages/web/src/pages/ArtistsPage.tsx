@@ -1,34 +1,16 @@
 /**
  * Artists browse view (spec BRW-5, M0 grade: derived from local clusters).
+ * Resolved artists (with id) navigate to /artists/$artistId; unresolved rows
+ * navigate to /albums?artist=name with muted styling and "unresolved" tag.
  */
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useArtistsList, type ArtistListItem } from '../hooks';
 import { useCurrentLibrary } from '../hooks';
-import { api } from '../services/api';
 import styles from './ArtistsPage.module.css';
 
-interface ArtistRow {
-  name: string;
-  albumCount: number;
-  trackCount: number;
-  yearFrom: number | null;
-  yearTo: number | null;
-}
-
 function useArtists(libraryId: string | undefined, search: string, offset: number) {
-  return useQuery({
-    queryKey: ['artists', libraryId, search, offset],
-    queryFn: () => {
-      const params = new URLSearchParams({ limit: '100', offset: String(offset) });
-      if (search) params.set('search', search);
-      return api.get<{ items: ArtistRow[]; nextCursor: string | null }>(
-        `/libraries/${libraryId}/artists?${params}`,
-      );
-    },
-    enabled: !!libraryId,
-    staleTime: 60_000,
-  });
+  return useArtistsList(libraryId, { search, offset, limit: 100 });
 }
 
 export function ArtistsPage() {
@@ -63,30 +45,42 @@ export function ArtistsPage() {
       {data && data.items.length > 0 && (
         <>
           <div className={styles.list}>
-            {data.items.map((artist) => (
-              <div
-                key={artist.name}
-                className={styles.row}
-                role="button"
-                tabIndex={0}
-                onClick={() =>
-                  navigate({ to: '/albums', search: { artist: artist.name } as never })
-                }
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    navigate({ to: '/albums', search: { artist: artist.name } as never });
-                  }
-                }}
-              >
-                <span className={styles.name}>{artist.name}</span>
-                <span className={styles.meta}>
-                  {artist.albumCount} albums · {artist.trackCount} tracks
-                  {artist.yearFrom
-                    ? ` · ${artist.yearFrom}${artist.yearTo && artist.yearTo !== artist.yearFrom ? `–${artist.yearTo}` : ''}`
-                    : ''}
-                </span>
-              </div>
-            ))}
+            {data.items.map((artist) => {
+              const isResolved = artist.id !== null && artist.resolved;
+              return (
+                <div
+                  key={artist.id || artist.name}
+                  className={`${styles.row} ${!isResolved ? styles.unresolved : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (isResolved) {
+                      navigate({ to: `/artists/${artist.id}` });
+                    } else {
+                      navigate({ to: '/albums', search: { artist: artist.name } as never });
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (isResolved) {
+                        navigate({ to: `/artists/${artist.id}` });
+                      } else {
+                        navigate({ to: '/albums', search: { artist: artist.name } as never });
+                      }
+                    }
+                  }}
+                >
+                  <span className={styles.name}>{artist.name}</span>
+                  <span className={styles.meta}>
+                    {artist.albumCount} albums · {artist.trackCount} tracks
+                    {artist.yearFrom
+                      ? ` · ${artist.yearFrom}${artist.yearTo && artist.yearTo !== artist.yearFrom ? `–${artist.yearTo}` : ''}`
+                      : ''}
+                    {!isResolved && <span className={styles.unresolvedTag}>unresolved</span>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
           <div className={styles.pagination}>
             <button onClick={() => setOffset(Math.max(0, offset - 100))} disabled={offset === 0}>
