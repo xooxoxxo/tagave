@@ -3,8 +3,9 @@ import { eq, and, sql, inArray, type SQLWrapper } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
+  releaseGroupArtists,
 } from '@liner/db';
-import { parseDiscogsRef } from '@liner/core';
+import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -680,6 +681,61 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const isCueImage = trackRows.some((t) => t.origin === 'cue');
       const cueRelPath = trackRows.find((t) => t.origin === 'cue')?.cueRelPath ?? null;
 
+      // Fetch artists and genres for the album (XO-310)
+      let artists: Array<{ id: string | null; name: string; position: number }> = [];
+      let genres: { effective: string[]; styles: string[]; raw: Array<{ tag: string; kind: string; source: string; weight: number | null }> } = {
+        effective: [],
+        styles: [],
+        raw: [],
+      };
+
+      if (album.releaseGroupId) {
+        // Fetch artists from release_group_artists
+        const artistRows = await db
+          .select()
+          .from(releaseGroupArtists)
+          .where(eq(releaseGroupArtists.releaseGroupId, album.releaseGroupId))
+          .orderBy(releaseGroupArtists.position);
+
+        artists = artistRows.map((row) => ({
+          id: row.artistId,
+          name: row.creditedName ?? '',
+          position: row.position,
+        }));
+
+        // Fetch genre map from library settings
+        const rgTagRows = await db
+          .select()
+          .from(entityTags)
+          .where(
+            and(
+              eq(entityTags.entityType, 'release_group'),
+              eq(entityTags.entityId, album.releaseGroupId)
+            )
+          );
+
+        let rawTags = rgTagRows.map((row) => ({
+          tag: row.tag,
+          kind: row.kind as 'genre' | 'style' | 'tag',
+          source: row.source,
+          weight: row.weight ? Number(row.weight) : null,
+        }));
+
+        const libSettings2 = lib[0];
+        const settings2 = typeof libSettings2?.settings === 'string'
+          ? JSON.parse(libSettings2.settings)
+          : (libSettings2?.settings ?? {});
+        const genreMapRaw2 = (settings2 as Record<string, any>)['genreMap'] ?? null;
+        const map2 = normalizeGenreMap(genreMapRaw2);
+
+        const effective = effectiveGenres(rawTags, map2);
+        genres = {
+          effective: effective.genres,
+          styles: effective.styles,
+          raw: rawTags,
+        };
+      }
+
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
@@ -771,6 +827,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           rgMbid: c.rgMbid ?? null,
           excluded: c.excluded,
         })),
+        artists,
+        genres,
         duplicates: duplicateRows,
         physicalOwnershipState: discogsCollectionItems.length > 0 ? 'owned' : 'not_owned',
         discogsCollectionItems,

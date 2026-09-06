@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, inArray } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
-import { libraries, scanRoots, jobRuns } from '@liner/db';
+import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { sealSecret, computeHint } from '@liner/core';
+import { sealSecret, computeHint, normalizeGenreMap, effectiveGenres } from '@liner/core';
 import {
   createScanRootSchema,
   patchScanRootSchema,
@@ -46,6 +46,8 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const discogsTokenHint = (settings as Record<string, any>)['discogsTokenHint'] ?? null;
     const acoustidKeyHint = (settings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
+    const genreMapRaw = (settings as Record<string, any>)['genreMap'] ?? null;
+    const genreMap = normalizeGenreMap(genreMapRaw);
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -55,6 +57,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
         onboardingCompletedAt,
+        genreMap,
       })
     );
   });
@@ -134,8 +137,12 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       mergedSettings.onboardingCompletedAt = body.onboardingCompletedAt;
     }
 
+    if (body.genreMap !== undefined) {
+      mergedSettings.genreMap = normalizeGenreMap(body.genreMap);
+    }
+
     await db.update(libraries)
-      .set({ settings: mergedSettings })
+      .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
       .where(eq(libraries.id, libraryId));
 
     // Return the view
@@ -143,6 +150,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const discogsTokenHint = (mergedSettings as Record<string, any>)['discogsTokenHint'] ?? null;
     const acoustidKeyHint = (mergedSettings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
+    const genreMap = normalizeGenreMap((mergedSettings as Record<string, any>)['genreMap'] ?? null);
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -152,8 +160,122 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
         onboardingCompletedAt,
+        genreMap,
       })
     );
+  });
+
+  // Get genre preview for library (spec XO-310 §6)
+  fastify.get('/:libraryId/genres/preview', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) {
+      throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    }
+
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+
+    // Verify library ownership
+    const lib = await db
+      .select()
+      .from(libraries)
+      .where(
+        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+      );
+
+    if (lib.length === 0) {
+      throw new ApiError(404, 'Not Found', 'Library not found');
+    }
+
+    // Get the genre map (default if not set)
+    const libSettings = lib[0];
+    const settings = typeof libSettings?.settings === 'string'
+      ? JSON.parse(libSettings.settings)
+      : (libSettings?.settings ?? {});
+    const genreMapRaw = (settings as Record<string, any>)['genreMap'] ?? null;
+    const map = normalizeGenreMap(genreMapRaw);
+
+    // Fetch top 200 raw tags from release groups of this library's local_albums
+    const tagRows = await db.execute(sql`
+      select et.tag, et.kind, et.source, et.weight
+      from entity_tags et
+      where et.entity_type = 'release_group'
+        and et.entity_id in (
+          select distinct release_group_id from local_albums where library_id = ${libraryId} and release_group_id is not null
+        )
+      order by et.weight desc nulls last, et.tag asc
+      limit 200
+    `) as unknown as Array<{ tag: string; kind: string; source: string; weight: number | null }>;
+
+    // Compute mappedTo for each tag by running effectiveGenres on a single tag
+    const tags = tagRows.map((row) => {
+      const rawTag = {
+        tag: row.tag,
+        kind: row.kind as 'genre' | 'style' | 'tag',
+        source: row.source,
+        weight: row.weight ? Number(row.weight) : null,
+      };
+      const effective = effectiveGenres([rawTag], map);
+      const mappedTo = effective.genres.length > 0 ? effective.genres[0] : (effective.styles.length > 0 ? effective.styles[0] : null);
+
+      return {
+        tag: row.tag,
+        kind: row.kind,
+        source: row.source,
+        count: 1, // Count of occurrences in the result set
+        mappedTo,
+      };
+    });
+
+    // Build histogram of effective genres across all local_albums with release groups
+    // Fetch all tags for all release groups in this library (cap at ~20k rows as per spec)
+    const histogramRows = await db.execute(sql`
+      select et.tag, et.kind, et.source, et.weight, la.id as album_id
+      from entity_tags et
+      join (
+        select distinct release_group_id, id from local_albums where library_id = ${libraryId} and release_group_id is not null
+      ) la on la.release_group_id = et.entity_id
+      where et.entity_type = 'release_group'
+      limit 20000
+    `) as unknown as Array<{ tag: string; kind: string; source: string; weight: number | null; album_id: string }>;
+
+    // Group tags by album ID
+    const albumTags = new Map<string, Array<{ tag: string; kind: string; source: string; weight: number | null }>>();
+    for (const row of histogramRows) {
+      if (!albumTags.has(row.album_id)) {
+        albumTags.set(row.album_id, []);
+      }
+      albumTags.get(row.album_id)!.push({
+        tag: row.tag,
+        kind: row.kind as 'genre' | 'style' | 'tag',
+        source: row.source,
+        weight: row.weight ? Number(row.weight) : null,
+      });
+    }
+
+    // Compute effective genres per album and build histogram
+    const genreAlbumCounts = new Map<string, number>();
+    for (const [, tagsArray] of albumTags.entries()) {
+      const typedTags = tagsArray.map((t) => ({
+        tag: t.tag,
+        kind: t.kind as 'genre' | 'style' | 'tag',
+        source: t.source,
+        weight: t.weight,
+      }));
+      const rgEffective = effectiveGenres(typedTags, map);
+      for (const genre of rgEffective.genres) {
+        genreAlbumCounts.set(genre, (genreAlbumCounts.get(genre) ?? 0) + 1);
+      }
+    }
+
+    const histogram = Array.from(genreAlbumCounts.entries())
+      .map(([genre, albums]) => ({ genre, albums }))
+      .sort((a, b) => b.albums - a.albums);
+
+    reply.status(200).send({
+      map,
+      tags,
+      histogram,
+    });
   });
 
   // Enrich Discogs sweep (spec §12.4)
