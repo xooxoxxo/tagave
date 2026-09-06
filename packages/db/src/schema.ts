@@ -301,6 +301,9 @@ export const artists = pgTable(
     endDate: date('end_date'),
     bio: jsonb(),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
+    aliases: text().array().notNull().default(sql`'{}'`),
+    enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+    enrichError: text('enrich_error'),
   },
   (table) => ({
     mbidIdx: index('idx_artists_mbid').on(table.mbid),
@@ -326,6 +329,7 @@ export const releaseGroups = pgTable(
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
     editionsFetchedAt: timestamp('editions_fetched_at', { withTimezone: true }),
     reviewsFetchedAt: timestamp('reviews_fetched_at', { withTimezone: true }),
+    artistsResolvedAt: timestamp('artists_resolved_at', { withTimezone: true }),
   },
   (table) => ({
     mbidIdx: index('idx_release_groups_mbid').on(table.mbid),
@@ -334,6 +338,25 @@ export const releaseGroups = pgTable(
       'release_groups_identity',
       sql`mbid IS NOT NULL OR discogs_master_id IS NOT NULL OR discogs_release_id IS NOT NULL`
     ),
+  })
+);
+
+export const releaseGroupArtists = pgTable(
+  'release_group_artists',
+  {
+    releaseGroupId: uuid('release_group_id')
+      .notNull()
+      .references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    artistId: uuid('artist_id')
+      .notNull()
+      .references(() => artists.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+    creditedName: varchar('credited_name', { length: 255 }),
+    joinPhrase: varchar('join_phrase', { length: 50 }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.releaseGroupId, table.position] }),
+    artistIdx: index('idx_rga_artist').on(table.artistId),
   })
 );
 
