@@ -121,6 +121,28 @@ When you need to rotate the secret (e.g., after a compromise):
 - In production, always use TLS (reverse proxy with HTTPS)
 - Development: set `ALLOW_INSECURE_HTTP=true` to allow HTTP (cookies will not have `secure` flag)
 
+## Features
+
+### Artist pages
+
+Every artist linked to your library's albums has a profile showing their name, type (Person, Group, …), country, years active, and a biography excerpt from Wikipedia with full attribution and a link to the full article (CC BY-SA 4.0). Click any artist name to browse their discography as it appears in your library, grouped by type (Album, EP, Single, Live, Compilation, Other). Each release shows what you own: digital, physical, or both. Toggle **Follow** to curate your own artist list.
+
+### Genres
+
+Each album is tagged with effective genres (up to three) computed from Discogs and MusicBrainz data and weighted to surface the most relevant: top genres appear as chips, secondary styles as muted tags. Go to **Settings › Genres** to customize the genre taxonomy: edit the whitelist (default: Rock, Electronic, Pop, Jazz, 13 more), add aliases to map niche styles to top-level categories (e.g., black metal → Metal), and adjust the maximum number of genres per album.
+
+### Background jobs
+
+The catalog enriches artist data and resolves credits in the background:
+
+- **`artists.resolve`** queries MusicBrainz for release group credits, discovering canonical artist names and identities; it runs every 10 minutes (throttled to ~2 requests/min to respect rate limits).
+- **`artists.enrich`** fetches artist biographies, type, country, and years from MusicBrainz, Wikidata, and Wikipedia; it runs on-demand when an artist page is opened (if not already enriched in the last 7 days).
+
+Both jobs are queued in the Postgres `pg-boss` queue. When split across multiple hosts—a web API host and a worker host—add the queue names to your worker's `LINER_QUEUES` environment variable (comma-separated) so it claims the jobs:
+
+```
+LINER_QUEUES=scan,cluster,identify,artists.resolve,artists.enrich
+```
 
 ## Development
 
