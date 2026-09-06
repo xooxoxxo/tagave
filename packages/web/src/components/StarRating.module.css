@@ -1,0 +1,57 @@
+.stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.star {
+  position: relative;
+  display: inline-block;
+  line-height: 1;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+.starEmpty {
+  position: absolute;
+  inset: 0;
+}
+
+.starFill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #f5c518;
+}
+
+.half {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.half:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 2px;
+}
+
+.value {
+  margin-left: var(--space-xs);
+  min-width: 2ch;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}

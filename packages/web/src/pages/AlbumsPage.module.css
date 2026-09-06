@@ -246,3 +246,26 @@
 .kindTag {
   color: var(--text-tertiary);
 }
+
+.ratingBadge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #f5c518;
+  font-size: var(--font-size-xs);
+  z-index: 1;
+}
+
+.reviewedDot {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  z-index: 1;
+}

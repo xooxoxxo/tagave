@@ -15,6 +15,7 @@ interface LibraryStats {
   storageBytes: number;
   losslessShare: number;
   states: { matched: number; needsReview: number; pending: number; unidentified: number };
+  reviews?: { written: number; rated: number; listens: number };
 }
 
 function useLibraryStats(libraryId: string | undefined) {
@@ -81,8 +82,10 @@ export function DashboardPage() {
 
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Reviews</div>
-          <div className={styles.statValue}>—</div>
-          <div className={styles.statNote}>M4+</div>
+          <div className={styles.statValue}>{(stats?.reviews?.written ?? 0).toLocaleString()}</div>
+          <div className={styles.statNote}>
+            {stats?.reviews ? `${stats.reviews.rated} rated · ${stats.reviews.listens} listens` : 'written'}
+          </div>
         </div>
       </div>
 

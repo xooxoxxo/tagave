@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition } from '../hooks';
 import { api } from '../services/api';
+import { ReviewsSection } from '../components/ReviewsSection';
 import styles from './AlbumDetailPage.module.css';
 
 interface DetailTrack {
@@ -65,6 +66,7 @@ interface DiscogsCollectionItem {
 
 interface AlbumDetail {
   id: string;
+  releaseGroupId: string | null;
   title: string | null;
   artistCredit: string | null;
   year: number | null;
@@ -712,6 +714,17 @@ export function AlbumDetailPage() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {album.releaseGroupId ? (
+        <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
+      ) : (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
+          <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>
+            Ratings, reviews and listens attach to a release group — match this album first.
+          </p>
         </div>
       )}
 

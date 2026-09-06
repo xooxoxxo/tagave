@@ -17,9 +17,10 @@ export function AlbumsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [offset, setOffset] = useState(0);
   const [limit] = useState(50);
-  const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'added_date'>('artist');
+  const [sort, setSort] = useState<'artist' | 'title' | 'year' | 'added_date' | 'rating' | 'listened'>('artist');
   const [stateFilter, setStateFilter] = useState('all');
   const [decided, setDecided] = useState('all');
+  const [review, setReview] = useState('all');
 
   const filterOptions: AlbumsFilterOptions = {
     offset,
@@ -28,6 +29,7 @@ export function AlbumsPage() {
     ...(artistFilter && { artist: artistFilter }),
     ...(stateFilter !== 'all' && { filter: stateFilter }),
     ...(decided !== 'all' && { decided }),
+    ...(review !== 'all' && { review }),
     sort,
   };
 
@@ -66,6 +68,20 @@ export function AlbumsPage() {
           <option value="title">Title A–Z</option>
           <option value="year">Year, newest</option>
           <option value="added_date">Recently added</option>
+          <option value="rating">Your rating</option>
+          <option value="listened">Last listened</option>
+        </select>
+        <select
+          className={styles.select}
+          value={review}
+          onChange={(e) => { setReview(e.target.value); setOffset(0); }}
+          title="Your reviews and listens"
+        >
+          <option value="all">Reviewed or not</option>
+          <option value="reviewed">Reviewed</option>
+          <option value="unreviewed">Unreviewed</option>
+          <option value="rated">Rated</option>
+          <option value="listened">Listened</option>
         </select>
         <select
           className={styles.select}
@@ -128,6 +144,10 @@ export function AlbumsPage() {
                   <div className={styles.albumCover}>
                     {album.needsAttention && (
                       <span className={styles.attentionDot} title="Needs attention" />
+                    )}
+                    {album.hasReview && <span className={styles.reviewedDot} title="Reviewed" />}
+                    {album.ownRating != null && (
+                      <span className={styles.ratingBadge} title={`Your rating: ${album.ownRating}`}>★ {album.ownRating}</span>
                     )}
                     {album.canonicalTrackCount != null &&
                       album.trackCount < album.canonicalTrackCount && (

@@ -1,0 +1,340 @@
+.section {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+.headMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.gathering {
+  color: var(--info);
+}
+
+.gathering::after {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-left: 0.4em;
+  border-radius: 50%;
+  border: 2px solid var(--info);
+  border-right-color: transparent;
+  animation: spin 0.9s linear infinite;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.block {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border-secondary);
+}
+
+.blockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.blockTitle {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.count {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  color: var(--error);
+  font-size: var(--font-size-sm);
+}
+
+.linkButton,
+.linkButtonActive,
+.primary,
+.iconButton {
+  padding: 0.25rem 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.linkButton:hover,
+.iconButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.linkButtonActive {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.primary:hover {
+  background: var(--accent-hover);
+}
+
+.primary:disabled,
+.linkButton:disabled,
+.iconButton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.iconButton {
+  padding: 0.1rem 0.45rem;
+  margin-left: auto;
+}
+
+.editor {
+  margin-top: var(--space-sm);
+}
+
+.textarea {
+  width: 100%;
+  margin-top: var(--space-xs);
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  resize: vertical;
+}
+
+.markdown {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-primary);
+}
+
+.markdown p {
+  margin: 0 0 0.75em;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: 0.75em 0 0.35em;
+  font-size: var(--font-size-base);
+}
+
+.markdown blockquote {
+  margin: 0.5em 0;
+  padding-left: var(--space-sm);
+  border-left: 3px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+.history {
+  list-style: none;
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+}
+
+.historyRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.25rem 0;
+  font-size: var(--font-size-sm);
+  border-top: 1px dashed var(--border-secondary);
+}
+
+.historyBody {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.listenForm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-sm);
+}
+
+.input {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  min-width: 8rem;
+  flex: 1 1 8rem;
+}
+
+.list {
+  list-style: none;
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+}
+
+.listRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.35rem 0;
+  font-size: var(--font-size-sm);
+  border-top: 1px solid var(--border-secondary);
+  flex-wrap: wrap;
+}
+
+.note {
+  color: var(--text-secondary);
+}
+
+.score {
+  color: #f5c518;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip,
+.chipLink,
+.chipSearch {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.chipLink {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.chipLink:hover,
+.chipSearch:hover {
+  background: var(--bg-hover);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.ratingsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.ratingCard {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.reviewCard {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+}
+
+.reviewHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.reviewFoot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
+.reviewFoot a,
+.extLink {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.reviewFoot a:hover,
+.extLink:hover {
+  text-decoration: underline;
+}
