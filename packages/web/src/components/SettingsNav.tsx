@@ -16,6 +16,9 @@ export function SettingsNav() {
       <Link to="/settings/providers" className={styles.link} activeProps={{ className: styles.active }}>
         Providers
       </Link>
+      <Link to="/settings/genres" className={styles.link} activeProps={{ className: styles.active }}>
+        Genres
+      </Link>
     </div>
   );
 }

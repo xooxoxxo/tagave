@@ -12,4 +12,5 @@ export { IdentifyPage } from './IdentifyPage';
 export { CollectionPage } from './CollectionPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
 export { SettingsProvidersPage } from './SettingsProvidersPage';
+export { SettingsGenresPage } from './SettingsGenresPage';
 export { JobsPage } from './JobsPage';
