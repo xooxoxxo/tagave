@@ -66,9 +66,11 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
         -- Unresolved artist guesses (no release group, or one with no credits).
         -- A name that already has a canonical row is dropped: the artist's
         -- undecided albums must not add a second, unclickable row for them.
-        select null as id,
+        -- casts are required: a bare null in a CTE arm is text, and the
+        -- union against canon.id (uuid) / canon.sort_name (varchar) fails
+        select null::uuid as id,
                la.artist_guess as name,
-               null as sort_name,
+               null::varchar as sort_name,
                false as resolved,
                count(distinct la.id)::int as album_count,
                coalesce(sum(la.track_count), 0)::int as track_count,

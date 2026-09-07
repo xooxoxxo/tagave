@@ -160,9 +160,13 @@ export async function artistsEnrichJob(ctx: WorkerContext, data: ArtistsEnrichJo
       `;
     }
 
-    // 3. If no wikidata from MB, try Wikidata findArtistIdentity
+    // 3. Ask Wikidata whenever the QID or the article title is still missing.
+    // MusicBrainz publishes a `wikidata` relation for most artists but rarely
+    // a `wikipedia` one (those were migrated to Wikidata), so keying this on
+    // "no QID from MB" meant the article title — and therefore the bio — was
+    // never resolved for exactly the artists MB knows best.
     let enwikiTitle = wikipediaTitle;
-    if (!wikidataQid) {
+    if (!wikidataQid || !enwikiTitle) {
       const wdIdentity = await cached(
         ctx.sql,
         'wikidata',
