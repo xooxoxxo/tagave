@@ -2,7 +2,7 @@
  * Tests for pure canonical functions.
  */
 import { describe, it, expect } from 'vitest';
-import { normDate, buildLabelsJsonb, buildMediaJsonb, artistLinksFrom } from './canonical.js';
+import { normDate, buildLabelsJsonb, buildMediaJsonb, artistLinksFrom, uniqueByMbid } from './canonical.js';
 
 describe('normDate', () => {
   it('handles null/undefined', () => {
@@ -163,5 +163,20 @@ describe('artistLinksFrom', () => {
     expect(result[1]!.mbid).toBe('222');
     expect(result[0]!.position).toBe(0);
     expect(result[1]!.position).toBe(2); // position from original array
+  });
+});
+
+describe('uniqueByMbid', () => {
+  it('keeps the first credit per mbid and preserves order (composer credited twice)', () => {
+    const links = [
+      { mbid: 'a', name: 'Joe Hisaishi', position: 0 },
+      { mbid: 'b', name: 'Orchestra', position: 1 },
+      { mbid: 'a', name: 'Joe Hisaishi (conductor)', position: 2 },
+    ];
+    expect(uniqueByMbid(links)).toEqual([links[0], links[1]]);
+  });
+
+  it('returns an empty array unchanged', () => {
+    expect(uniqueByMbid([])).toEqual([]);
   });
 });

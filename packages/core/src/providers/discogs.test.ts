@@ -562,3 +562,21 @@ describe('DiscogsProvider collection mutations', () => {
     });
   });
 });
+
+describe('getCollectionFields', () => {
+  it('accepts dropdown options as plain strings (live Discogs shape) and as { name } objects', async () => {
+    const body = { fields: [
+      { id: 1, name: 'Media Condition', type: 'dropdown', options: ['Mint (M)', 'Near Mint (NM or M-)'] },
+      { id: 3, name: 'Notes', type: 'textarea' },
+      { id: 4, name: 'Legacy', type: 'dropdown', options: [{ name: 'A' }] },
+    ] };
+    const fetchImpl = (async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
+    const p = new DiscogsProvider({ userAgent: 'test', fetchImpl });
+    const fields = await p.getCollectionFields('tantuni', { priority: 'background' });
+    expect(fields).toEqual([
+      { id: 1, name: 'Media Condition', type: 'dropdown', options: ['Mint (M)', 'Near Mint (NM or M-)'] },
+      { id: 3, name: 'Notes', type: 'textarea' },
+      { id: 4, name: 'Legacy', type: 'dropdown', options: ['A'] },
+    ]);
+  });
+});

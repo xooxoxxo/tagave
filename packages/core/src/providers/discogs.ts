@@ -849,14 +849,16 @@ export class DiscogsProvider implements MetadataProvider {
           id: z.number(),
           name: z.string(),
           type: z.string(),
-          options: z.array(z.object({ name: z.string() })).nullish(),
+          // Discogs sends dropdown options as plain strings (seen live on the
+          // owner's account, 2026-09-07); older docs show { name } objects.
+          options: z.array(z.union([z.string(), z.object({ name: z.string() })])).nullish(),
         }).nullish()).nullish(),
       }).parse(data);
       return (parsed.fields || []).filter((f): f is typeof f & { id: number } => f != null).map(f => ({
         id: f.id,
         name: f.name,
         type: f.type,
-        ...(f.options ? { options: f.options.map(o => o.name) } : {}),
+        ...(f.options ? { options: f.options.map(o => (typeof o === 'string' ? o : o.name)) } : {}),
       }));
     } catch (e: any) {
       // 404/403 when user has no custom fields

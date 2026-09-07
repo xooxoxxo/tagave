@@ -13,6 +13,12 @@ import type { WorkerContext } from './context.js';
  * Extract artist links from credits, keeping only those with mbid.
  * Returns an array of artist link records for upsert.
  */
+/** First occurrence per mbid, order preserved (multi-row upserts need distinct conflict keys). */
+export function uniqueByMbid<T extends { mbid: string }>(links: T[]): T[] {
+  const seen = new Set<string>();
+  return links.filter((l) => (seen.has(l.mbid) ? false : (seen.add(l.mbid), true)));
+}
+
 export function artistLinksFrom(
   credits: ArtistCredit[] | undefined,
 ): Array<{ mbid: string; name: string; position: number; creditedName: string | undefined; joinPhrase: string | undefined }> {
@@ -143,14 +149,17 @@ export async function upsertCanonical(
       // One statement per table: postgres.js sends JS arrays as PG arrays,
       // so unnest() turns the credit list into rows (no per-artist round trips).
       const mbids = artistLinks.map((l) => l.mbid);
-      const names = artistLinks.map((l) => l.name);
       const positions = artistLinks.map((l) => l.position);
       const credited = artistLinks.map((l) => l.creditedName ?? null);
       const joins = artistLinks.map((l) => l.joinPhrase ?? null);
+      // A credit list can name the same artist twice (composer + performer on
+      // soundtracks); a multi-row upsert must see each mbid once or Postgres
+      // refuses ("ON CONFLICT DO UPDATE command cannot affect row a second time").
+      const uniqueArtists = uniqueByMbid(artistLinks);
       // Upsert artists by mbid; never overwrite a name enrichment already filled.
       await ctx.sql`
         insert into artists (mbid, name)
-        select c.mbid, c.name from unnest(${mbids}::text[], ${names}::text[]) as c(mbid, name)
+        select c.mbid, c.name from unnest(${uniqueArtists.map((l) => l.mbid)}::text[], ${uniqueArtists.map((l) => l.name)}::text[]) as c(mbid, name)
         on conflict (mbid) do update
           set name = case when artists.name = '' or artists.name is null then excluded.name else artists.name end`;
       await ctx.db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, rgId));
