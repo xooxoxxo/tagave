@@ -110,6 +110,9 @@ export async function artistsResolveJob(ctx: WorkerContext, data: ArtistsResolve
         artistCredits: credits.artistCredits,
         mbGenres: credits.mbGenres,
         mbTags: credits.mbTags,
+        ...(credits.primaryType ? { primaryType: credits.primaryType } : {}),
+        ...(credits.secondaryTypes ? { secondaryTypes: credits.secondaryTypes } : {}),
+        ...(credits.firstReleaseDate ? { date: credits.firstReleaseDate } : {}),
       };
 
       // Upsert the canonical data (which includes artists and links)

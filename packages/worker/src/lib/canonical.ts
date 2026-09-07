@@ -91,16 +91,23 @@ export async function upsertCanonical(
 
   if (release.source === 'musicbrainz') {
     // MB: by mbid
+    // Release-group type drives the artist page's discography sections
+    // (BRW-3); only MusicBrainz knows it, so never null an existing value.
+    const typeCols = {
+      ...(release.primaryType ? { primaryType: release.primaryType } : {}),
+      ...(release.secondaryTypes?.length ? { secondaryTypes: release.secondaryTypes } : {}),
+    };
     rgInsert = (await ctx.db.insert(releaseGroups)
       .values({
         mbid: release.releaseGroupId,
         title: release.title,
         artistCredit: release.artists,
+        ...typeCols,
         fetchedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: releaseGroups.mbid,
-        set: { fetchedAt: new Date() },
+        set: { fetchedAt: new Date(), ...typeCols },
       })
       .returning({ id: releaseGroups.id }))[0]!;
   } else {

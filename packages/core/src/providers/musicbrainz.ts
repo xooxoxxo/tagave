@@ -85,7 +85,9 @@ const ArtistSchema = z.object({
   aliases: z.array(z.object({
     'sort-name': z.string(),
     name: z.string(),
-    primary: z.string().nullish(),
+    // MB sends a boolean here (null when the alias is not primary); older
+    // docs show a string, so both are accepted.
+    primary: z.union([z.boolean(), z.string()]).nullish(),
   })).optional(),
   area: z.object({
     'iso-3166-1-codes': z.array(z.string()).optional(),

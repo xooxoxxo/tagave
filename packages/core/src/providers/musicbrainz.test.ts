@@ -488,3 +488,32 @@ describe('getArtist with aliases and URL relations (spec ENR-7)', () => {
     expect(artist.urlRelations).toEqual([]);
   });
 });
+
+describe('getArtist alias shapes', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('accepts a boolean `primary` on aliases and lists primary aliases first', async () => {
+    const body = {
+      id: 'b83bc61f-8451-4a5d-8b8e-7e9ed295e822',
+      name: 'Elton John',
+      'sort-name': 'John, Elton',
+      type: 'Person',
+      country: 'GB',
+      'life-span': { begin: '1947-03-25', ended: false },
+      aliases: [
+        { name: 'Reginald Dwight', 'sort-name': 'Dwight, Reginald', primary: null },
+        { name: 'Elton Hercules John', 'sort-name': 'John, Elton Hercules', primary: true },
+        { name: 'Elton John', 'sort-name': 'John, Elton', primary: 'true' },
+      ],
+      relations: [],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+    const provider = new MusicBrainzProvider('Test/1.0 (+test)');
+    const artist = await provider.getArtist('b83bc61f-8451-4a5d-8b8e-7e9ed295e822', { priority: 'background' });
+    expect(artist.name).toBe('Elton John');
+    expect(artist.country).toBe('GB');
+    expect(artist.aliases.slice(0, 2)).toEqual(['Elton Hercules John', 'Elton John']);
+    expect(artist.aliases).toContain('Reginald Dwight');
+  });
+});

@@ -42,7 +42,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     // Union of canonical artists and unresolved guesses
     const rows = await db.execute(sql`
-      select * from (
+      with canon as (
         -- Canonical artists linked to release groups of the library's albums
         select a.id,
                a.name,
@@ -60,8 +60,12 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
            ${search ? sql`and (a.name ilike ${('%' + search + '%')}
                              or a.sort_name ilike ${('%' + search + '%')})` : sql``}
          group by a.id, a.name, a.sort_name
-        union all
-        -- Unresolved artist guesses (no release group or unmatched)
+      ),
+      canon_names as (select distinct lower(name) as lname from canon),
+      guess as (
+        -- Unresolved artist guesses (no release group, or one with no credits).
+        -- A name that already has a canonical row is dropped: the artist's
+        -- undecided albums must not add a second, unclickable row for them.
         select null as id,
                la.artist_guess as name,
                null as sort_name,
@@ -76,9 +80,12 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
            and (la.release_group_id is null or not exists (
              select 1 from release_group_artists rga
               where rga.release_group_id = la.release_group_id))
+           and not exists (
+             select 1 from canon_names cn where cn.lname = lower(la.artist_guess))
            ${search ? sql`and la.artist_guess ilike ${('%' + search + '%')}` : sql``}
          group by la.artist_guess
-      ) combined
+      )
+      select * from (select * from canon union all select * from guess) combined
       order by lower(name)
       limit ${limitN + 1} offset ${offsetN}
     `) as unknown as Array<{
