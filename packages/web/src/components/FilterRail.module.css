@@ -59,6 +59,25 @@
   letter-spacing: 0.04em;
 }
 
+.checkbox {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.badge {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-full);
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
 .option,
 .optionActive {
   display: flex;

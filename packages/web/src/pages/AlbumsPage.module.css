@@ -2,14 +2,21 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  gap: var(--space-lg);
+  gap: var(--space-md);
   padding: var(--space-lg);
+  min-height: 0;
 }
 
 .header {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  margin: 0 var(--space-sm) 0 0;
+  font-weight: 600;
 }
 
 .toolbar {
@@ -19,8 +26,39 @@
   flex-wrap: wrap;
 }
 
-.toolbar .title {
-  margin-right: var(--space-sm);
+.searchInput {
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-base);
+  flex: 1 1 220px;
+  max-width: 400px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: all var(--transition-normal);
+}
+
+.searchInput:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(42, 127, 249, 0.1);
+}
+
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+.select {
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.countInfo {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .toolButton,
@@ -32,11 +70,17 @@
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .toolButton:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.toolButton:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .toolButtonActive {
@@ -75,6 +119,53 @@
   color: var(--text-tertiary);
 }
 
+.bulkBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: rgba(42, 127, 249, 0.1);
+  font-size: var(--font-size-sm);
+}
+
+.bulkActions {
+  display: inline-flex;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.bulkResult {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.linkButton {
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+
+.linkButton:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
 .body {
   display: flex;
   gap: var(--space-lg);
@@ -87,172 +178,65 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: var(--space-sm);
   min-height: 0;
-}
-
-.formatTag,
-.formatLossless,
-.formatMixed {
-  color: var(--text-secondary);
-  font-variant: small-caps;
-  letter-spacing: 0.02em;
-}
-
-.formatLossless {
-  color: var(--success);
-}
-
-.formatMixed {
-  color: var(--warning);
-}
-
-.listTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-}
-
-.listTable th {
-  text-align: left;
-  padding: 0.4rem 0.5rem;
-  color: var(--text-tertiary);
-  font-weight: 500;
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  background: var(--bg-primary);
-}
-
-.listTable td {
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid var(--border-secondary);
-  vertical-align: middle;
-}
-
-.listRow {
-  cursor: pointer;
-}
-
-.listRow:hover {
-  background: var(--bg-hover);
-}
-
-.thumb,
-.thumbPlaceholder {
-  display: block;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  background: linear-gradient(135deg, #1a3a52 0%, #0f1a2e 100%);
-}
-
-.listTitle {
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.listArtist,
-.listState {
-  color: var(--text-secondary);
-}
-
-.listBadges {
-  color: #f5c518;
-  white-space: nowrap;
-}
-
-.listBadges span {
-  margin-left: 0.4rem;
-}
-
-.inlineDot {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #e5484d;
-  vertical-align: middle;
-}
-
-.incomplete {
-  color: #f5c518;
-}
-
-.num {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-.title {
-  font-size: var(--font-size-2xl);
-  margin: 0;
-  font-weight: 600;
-}
-
-.searchInput {
-  padding: 0.75rem 1rem;
-  font-size: var(--font-size-base);
-  max-width: 400px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  transition: all var(--transition-normal);
-}
-
-.searchInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(42, 127, 249, 0.1);
-}
-
-.searchInput::placeholder {
-  color: var(--text-tertiary);
 }
 
 .gridContainer {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  padding-right: var(--space-sm);
+  contain: layout style paint;
+}
+
+.virtualCanvas {
+  position: relative;
+  width: 100%;
+}
+
+.gridRow {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
+  align-items: flex-start;
 }
 
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: var(--space-lg);
-  padding-right: var(--space-md);
-}
-
-.albumCard {
+.albumCard,
+.albumCardSelected {
   cursor: pointer;
   border-radius: var(--radius-lg);
   overflow: hidden;
-  transition: all var(--transition-normal);
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
   padding: var(--space-md);
   border: 1px solid var(--border);
+  box-sizing: border-box;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  /* shift-click extends the selection; it must not select text as well */
+  user-select: none;
 }
 
-.albumCard:hover {
+.albumCard:hover,
+.albumCardSelected:hover {
   border-color: var(--accent);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-.albumCard:focus {
+.albumCard:focus-visible,
+.albumCardSelected:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
+.albumCardSelected {
+  border-color: var(--accent);
+  background-color: rgba(42, 127, 249, 0.12);
+}
+
 .albumCover {
   width: 100%;
-  aspect-ratio: 1;
   background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
   border-radius: var(--radius-md);
   display: flex;
@@ -260,6 +244,14 @@
   justify-content: center;
   overflow: hidden;
   position: relative;
+  flex: none;
+}
+
+.coverImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .coverPlaceholder {
@@ -280,6 +272,29 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
+.cardCheckbox,
+.cardCheckboxOn {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+/* The checkbox only appears on hover until something is selected. */
+.cardCheckbox {
+  opacity: 0;
+}
+
+.albumCard:hover .cardCheckbox,
+.cardCheckbox:focus-visible {
+  opacity: 1;
+}
+
 .albumInfo {
   display: flex;
   flex-direction: column;
@@ -287,11 +302,14 @@
   min-height: 0;
 }
 
+/* Fixed height keeps every card the same size, which is what lets the
+   virtualizer use one row height without measuring each card. */
 .albumTitle {
   margin: 0;
   font-size: var(--font-size-sm);
   font-weight: 600;
-  line-height: var(--line-height-tight);
+  line-height: 1.3;
+  height: 2.6em;
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -313,82 +331,13 @@
   margin: 0;
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.loading,
-.error {
-  padding: var(--space-xl);
-  text-align: center;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.error {
-  background-color: rgba(220, 38, 38, 0.1);
-  border-color: var(--error);
-  color: var(--error);
-}
-
-.emptyState {
-  padding: 3rem var(--space-lg);
-  text-align: center;
-  background-color: var(--bg-secondary);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-  margin-top: var(--space-lg);
-}
-
-.emptyState h2 {
-  margin: 0 0 var(--space-md) 0;
-  color: var(--text-secondary);
-}
-
-.emptyState p {
-  margin: 0;
+.kindTag {
   color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-}
-
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-lg);
-  padding-top: var(--space-lg);
-  border-top: 1px solid var(--border);
-}
-
-.paginationInfo {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  min-width: 120px;
-  text-align: center;
-}
-
-.pagination button {
-  padding: 0.5rem 1rem;
-  font-size: var(--font-size-sm);
-}
-
-.pagination button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.coverImg {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  display: block;
-}
-
-.select {
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
 }
 
 .attentionDot {
@@ -403,10 +352,22 @@
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
 }
 
-.trackBadge {
+.reviewedDot {
+  position: absolute;
+  top: 8px;
+  right: 24px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  z-index: 1;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+.trackBadge,
+.ratingBadge {
   position: absolute;
   bottom: 8px;
-  right: 8px;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.75);
@@ -416,29 +377,176 @@
   z-index: 1;
 }
 
-.kindTag {
-  color: var(--text-tertiary);
+.trackBadge {
+  right: 8px;
 }
 
 .ratingBadge {
-  position: absolute;
-  bottom: 8px;
   left: 8px;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.75);
-  color: #f5c518;
-  font-size: var(--font-size-xs);
-  z-index: 1;
 }
 
-.reviewedDot {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  width: 10px;
-  height: 10px;
+/* ---- list mode (virtualized rows, not a table) ---- */
+
+.listRow,
+.listRowSelected {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-sm);
+  border-bottom: 1px solid var(--border-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+.listRow:hover,
+.listRowSelected:hover {
+  background: var(--bg-hover);
+}
+
+.listRowSelected {
+  background: rgba(42, 127, 249, 0.12);
+}
+
+.rowCheckbox {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.thumb,
+.thumbPlaceholder {
+  display: block;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  background: linear-gradient(135deg, #1a3a52 0%, #0f1a2e 100%);
+}
+
+.listTitle {
+  flex: 3 1 0;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listArtist {
+  flex: 2 1 0;
+  min-width: 0;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.listYear,
+.listTracks {
+  flex: none;
+  width: 4rem;
+  text-align: right;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.listState {
+  flex: none;
+  width: 7rem;
+  color: var(--text-secondary);
+}
+
+.listBadges {
+  flex: none;
+  width: 6rem;
+  text-align: right;
+  color: #f5c518;
+  white-space: nowrap;
+}
+
+.listBadges span {
+  margin-left: 0.4rem;
+}
+
+.inlineDot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--accent);
-  z-index: 1;
+  background: #e5484d;
+  vertical-align: middle;
+}
+
+.incomplete {
+  color: #f5c518;
+}
+
+.formatTag,
+.formatLossless,
+.formatMixed {
+  flex: none;
+  width: 5.5rem;
+  color: var(--text-secondary);
+  font-variant: small-caps;
+  letter-spacing: 0.02em;
+}
+
+.formatLossless {
+  color: var(--success);
+}
+
+.formatMixed {
+  color: var(--warning);
+}
+
+/* Inside a card the format tag is inline text, not a list column. */
+.albumStats .formatTag,
+.albumStats .formatLossless,
+.albumStats .formatMixed {
+  width: auto;
+  display: inline;
+}
+
+.loading,
+.error,
+.loadingMore {
+  padding: var(--space-md);
+  text-align: center;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+
+.error {
+  background-color: rgba(220, 38, 38, 0.1);
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.emptyState {
+  padding: 3rem var(--space-lg);
+  text-align: center;
+  background-color: var(--bg-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.emptyState h2 {
+  margin: 0 0 var(--space-md) 0;
+  color: var(--text-secondary);
+}
+
+.emptyState p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
 }

@@ -1,20 +1,23 @@
 /**
  * Album grid filter rail (spec BRW-1, §14.2): one section per dimension with
- * facet counts over the current result set, single-select per dimension,
- * plus saved views. Every choice is written to the URL by the page.
+ * facet counts over the current result set. Dimensions listed in
+ * MULTI_FILTER_KEYS accept several values at once (checkboxes); the rest are
+ * single-select. Every choice is written to the URL by the page.
  */
 import { useState } from 'react';
-import type { AlbumFacets, AlbumsQuery, SavedView } from '@liner/shared';
+import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@liner/shared';
+import { isMultiActive } from '../pages/albumsSearch';
 import styles from './FilterRail.module.css';
-
-type Patch = Partial<Record<keyof AlbumsQuery, string | number | undefined>>;
 
 interface FilterRailProps {
   query: AlbumsQuery;
   facets: AlbumFacets | undefined;
   savedViews: SavedView[] | undefined;
   activeCount: number;
-  onPatch: (patch: Patch) => void;
+  /** Toggle one value of a multi-select dimension. */
+  onToggle: (key: MultiFilterKey, value: string | number) => void;
+  /** Replace a single-select dimension (undefined clears it). */
+  onSet: (key: 'decided' | 'review' | 'owned', value: string | undefined) => void;
   onClear: () => void;
   onApplyView: (view: SavedView) => void;
   onSaveView: () => void;
@@ -32,12 +35,16 @@ const DECIDED_LABEL: Record<string, string> = {
   auto_strong: 'Auto (strong)', chip_rule: 'Auto (chip rule)', first_candidate: 'Auto (first candidate)', by_me: 'Accepted by me', manual_mbid: 'Manual MBID',
 };
 
-function Section({ title, children, defaultOpen = true }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+type FacetItem = { value: string; label?: string | undefined; count: number };
+
+function Section({ title, count, children, defaultOpen = true }: {
+  title: string; count?: number; children: React.ReactNode; defaultOpen?: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <section className={styles.section}>
       <button className={styles.sectionHead} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span>{title}</span>
+        <span>{title}{count ? <span className={styles.badge}>{count}</span> : null}</span>
         <span className={styles.chevron}>{open ? '▾' : '▸'}</span>
       </button>
       {open && <div className={styles.options}>{children}</div>}
@@ -45,28 +52,58 @@ function Section({ title, children, defaultOpen = true }: { title: string; child
   );
 }
 
-function Options({ items, labels, current, onPick, hideZero = true }: {
-  items: Array<{ value: string; label?: string | undefined; count: number }> | undefined;
+/** Checkbox list: several values can be on at once. */
+function MultiOptions({ items, labels, isActive, onToggle, hideZero = true }: {
+  items: FacetItem[] | undefined;
+  labels?: Record<string, string>;
+  isActive: (value: string) => boolean;
+  onToggle: (value: string) => void;
+  hideZero?: boolean;
+}) {
+  if (!items) return <div className={styles.muted}>…</div>;
+  const visible = items.filter((i) => !hideZero || i.count > 0 || isActive(i.value));
+  if (visible.length === 0) return <div className={styles.muted}>none</div>;
+  return (
+    <>
+      {visible.map((i) => {
+        const active = isActive(i.value);
+        const label = i.label ?? labels?.[i.value] ?? i.value;
+        return (
+          <label key={i.value} className={active ? styles.optionActive : styles.option} title={label}>
+            <input type="checkbox" className={styles.checkbox} checked={active} onChange={() => onToggle(i.value)} />
+            <span className={styles.optionLabel}>{label}</span>
+            <span className={styles.count}>{i.count.toLocaleString()}</span>
+          </label>
+        );
+      })}
+    </>
+  );
+}
+
+/** Radio-style list: picking a value replaces the previous one, clicking it again clears. */
+function SingleOptions({ items, labels, current, onPick, hideZero = true }: {
+  items: FacetItem[] | undefined;
   labels?: Record<string, string>;
   current: string | undefined;
   onPick: (value: string | undefined) => void;
   hideZero?: boolean;
 }) {
   if (!items) return <div className={styles.muted}>…</div>;
-  const visible = items.filter((i) => !hideZero || i.count > 0 || i.value === current);
+  const visible = items.filter((i) => !hideZero || i.count > 0 || current === i.value);
   if (visible.length === 0) return <div className={styles.muted}>none</div>;
   return (
     <>
       {visible.map((i) => {
         const active = current === i.value;
+        const label = i.label ?? labels?.[i.value] ?? i.value;
         return (
           <button
             key={i.value}
             className={active ? styles.optionActive : styles.option}
             onClick={() => onPick(active ? undefined : i.value)}
-            title={i.label ?? labels?.[i.value] ?? i.value}
+            title={label}
           >
-            <span className={styles.optionLabel}>{i.label ?? labels?.[i.value] ?? i.value}</span>
+            <span className={styles.optionLabel}>{label}</span>
             <span className={styles.count}>{i.count.toLocaleString()}</span>
           </button>
         );
@@ -75,17 +112,20 @@ function Options({ items, labels, current, onPick, hideZero = true }: {
   );
 }
 
-export function FilterRail({ query, facets, savedViews, activeCount, onPatch, onClear, onApplyView, onSaveView, onDeleteView }: FilterRailProps) {
+export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView }: FilterRailProps) {
   const [genreQuery, setGenreQuery] = useState('');
+  const [labelQuery, setLabelQuery] = useState('');
   const genres = facets?.genres.filter((g) => !genreQuery || g.value.toLowerCase().includes(genreQuery.toLowerCase()));
+  const labels = facets?.labels.filter((l) => !labelQuery || l.value.toLowerCase().includes(labelQuery.toLowerCase()));
+  const on = (key: MultiFilterKey) => (value: string) => onToggle(key, key === 'decade' ? Number(value) : value);
+  const active = (key: MultiFilterKey) => (value: string) => isMultiActive(query, key, key === 'decade' ? Number(value) : value);
+  const len = (key: MultiFilterKey) => (query[key]?.length ?? 0);
 
   return (
     <aside className={styles.rail}>
       <div className={styles.railHead}>
         <span className={styles.total}>{facets ? `${facets.total.toLocaleString()} albums` : '…'}</span>
-        {activeCount > 0 && (
-          <button className={styles.linkButton} onClick={onClear}>Clear {activeCount}</button>
-        )}
+        {activeCount > 0 && <button className={styles.linkButton} onClick={onClear}>Clear {activeCount}</button>}
       </div>
 
       <Section title="Saved views">
@@ -102,37 +142,44 @@ export function FilterRail({ query, facets, savedViews, activeCount, onPatch, on
         </button>
       </Section>
 
-      <Section title="Identification">
-        <Options items={facets?.states} labels={STATE_LABEL} current={query.state} onPick={(v) => onPatch({ state: v })} />
+      <Section title="Identification" count={len('state')}>
+        <MultiOptions items={facets?.states} labels={STATE_LABEL} isActive={active('state')} onToggle={on('state')} />
       </Section>
-      <Section title="Format">
-        <Options items={facets?.formats} labels={FORMAT_LABEL} current={query.format} onPick={(v) => onPatch({ format: v })} />
+      <Section title="Format" count={len('format')}>
+        <MultiOptions items={facets?.formats} labels={FORMAT_LABEL} isActive={active('format')} onToggle={on('format')} />
         <div className={styles.subhead}>containers</div>
-        <Options items={facets?.containers?.map((c) => ({ ...c, label: c.value.toUpperCase() }))} current={query.format} onPick={(v) => onPatch({ format: v })} />
+        <MultiOptions
+          items={facets?.containers?.map((c) => ({ ...c, label: c.value.toUpperCase() }))}
+          isActive={active('format')}
+          onToggle={on('format')}
+        />
       </Section>
-      <Section title="Decade">
-        <Options items={facets?.decades} current={query.decade !== undefined ? String(query.decade) : undefined} onPick={(v) => onPatch({ decade: v ? Number(v) : undefined })} />
+      <Section title="Decade" count={len('decade')}>
+        <MultiOptions items={facets?.decades} isActive={active('decade')} onToggle={on('decade')} />
       </Section>
-      <Section title="Genre & style">
+      <Section title="Genre & style" count={len('genre')}>
         {facets && facets.genres.length > 8 && (
           <input className={styles.filterInput} placeholder="Filter genres…" value={genreQuery} onChange={(e) => setGenreQuery(e.target.value)} />
         )}
-        <Options items={genres} current={query.genre} onPick={(v) => onPatch({ genre: v })} />
+        <MultiOptions items={genres} isActive={active('genre')} onToggle={on('genre')} />
       </Section>
-      <Section title="Label" defaultOpen={false}>
-        <Options items={facets?.labels} current={query.label} onPick={(v) => onPatch({ label: v })} />
+      <Section title="Label" count={len('label')} defaultOpen={false}>
+        {facets && facets.labels.length > 8 && (
+          <input className={styles.filterInput} placeholder="Filter labels…" value={labelQuery} onChange={(e) => setLabelQuery(e.target.value)} />
+        )}
+        <MultiOptions items={labels} isActive={active('label')} onToggle={on('label')} />
+      </Section>
+      <Section title="Needs attention" count={len('gap')}>
+        <MultiOptions items={facets?.gaps} labels={GAP_LABEL} isActive={active('gap')} onToggle={on('gap')} hideZero={false} />
       </Section>
       <Section title="Collection">
-        <Options items={facets?.owned} labels={OWNED_LABEL} current={query.owned} onPick={(v) => onPatch({ owned: v })} hideZero={false} />
+        <SingleOptions items={facets?.owned} labels={OWNED_LABEL} current={query.owned} onPick={(v) => onSet('owned', v)} hideZero={false} />
       </Section>
       <Section title="Reviews & listens">
-        <Options items={facets?.review} labels={REVIEW_LABEL} current={query.review} onPick={(v) => onPatch({ review: v })} hideZero={false} />
-      </Section>
-      <Section title="Needs attention">
-        <Options items={facets?.gaps} labels={GAP_LABEL} current={query.gap} onPick={(v) => onPatch({ gap: v })} hideZero={false} />
+        <SingleOptions items={facets?.review} labels={REVIEW_LABEL} current={query.review} onPick={(v) => onSet('review', v)} hideZero={false} />
       </Section>
       <Section title="Match kind" defaultOpen={false}>
-        <Options items={facets?.decided} labels={DECIDED_LABEL} current={query.decided} onPick={(v) => onPatch({ decided: v })} />
+        <SingleOptions items={facets?.decided} labels={DECIDED_LABEL} current={query.decided} onPick={(v) => onSet('decided', v)} />
       </Section>
     </aside>
   );

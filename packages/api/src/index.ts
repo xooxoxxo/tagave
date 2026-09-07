@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { makeDb, runMigrations } from '@liner/db';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
+import { createBulkRoutes } from './routes/bulk.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
@@ -240,6 +241,9 @@ app.register(async (instance) => {
 
   // Saved grid views (BRW-1)
   instance.register(createViewRoutes, { prefix: '/api/v1' });
+
+  // Bulk actions on a grid selection (§14.2)
+  instance.register(createBulkRoutes, { prefix: '/api/v1' });
 
   // Album routes
   instance.register(createAlbumRoutes, { prefix: '/api/v1' });

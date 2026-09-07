@@ -4,14 +4,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AlbumFacets, AlbumsQuery, CreateSavedView, SavedView } from '@liner/shared';
 import { api } from '../services/api';
+import { apiSearchParams } from '../pages/albumsSearch';
 
 export function facetParams(query: AlbumsQuery): URLSearchParams {
-  const params = new URLSearchParams();
-  for (const [k, v] of Object.entries(query)) {
-    if (v === undefined || v === '' || k === 'view' || k === 'sort') continue;
-    params.set(k, String(v));
-  }
-  return params;
+  const { sort: _sort, ...filters } = query;
+  return apiSearchParams(filters);
 }
 
 export function useAlbumFacets(libraryId: string | undefined, query: AlbumsQuery) {
