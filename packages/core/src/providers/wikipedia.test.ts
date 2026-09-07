@@ -124,6 +124,35 @@ describe('WikipediaClient', () => {
       });
     });
 
+    it('reads the formatversion=2 array shape the client actually requests', async () => {
+      // Live shape (2026-09-07): query.pages is an array, not an id-keyed map.
+      const fixture = {
+        batchcomplete: true,
+        query: {
+          redirects: [{ from: 'Elton john', to: 'Elton John' }],
+          pages: [{ pageid: 12140, ns: 0, title: 'Elton John', extract: 'Sir Elton Hercules John is an English singer.' }],
+        },
+      };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      const result = await client.getIntroExtract('Elton john');
+
+      expect(result).toEqual({
+        title: 'Elton John',
+        extract: 'Sir Elton Hercules John is an English singer.',
+        url: 'https://en.wikipedia.org/wiki/Elton_John',
+      });
+    });
+
+    it('returns null for a missing page in the array shape', async () => {
+      const fixture = { batchcomplete: true, query: { pages: [{ ns: 0, title: 'Nope', missing: true }] } };
+      const fetchImpl = (async () => new Response(JSON.stringify(fixture), { status: 200 })) as unknown as typeof fetch;
+      const client = new WikipediaClient({ userAgent: 'test', fetchImpl });
+
+      expect(await client.getIntroExtract('Nope')).toBeNull();
+    });
+
     it('normalizes page title in URL (spaces → underscores)', async () => {
       const fixture = {
         query: {

@@ -48,12 +48,18 @@ const TextSchema = z.object({
   error: z.object({ code: z.string().nullish() }).nullish(),
 });
 
+const ExtractPageSchema = z.object({
+  title: z.string(),
+  // absent on a missing page, and on pages that genuinely have no intro
+  extract: z.string().nullish(),
+  missing: z.boolean().nullish(),
+});
+
 const ExtractsSchema = z.object({
   query: z.object({
-    pages: z.record(z.object({
-      title: z.string(),
-      extract: z.string(),
-    })).nullish(),
+    // formatversion=2 returns an array; formatversion=1 an object keyed by
+    // page id. The client asks for 2, but both are accepted.
+    pages: z.union([z.array(ExtractPageSchema), z.record(ExtractPageSchema)]).nullish(),
   }).nullish(),
   error: z.object({ code: z.string().nullish() }).nullish(),
 });
@@ -180,18 +186,19 @@ export class WikipediaClient {
 
     if (!response.query?.pages) return null;
 
-    const pages = Object.values(response.query.pages);
+    const raw = response.query.pages;
+    const pages = Array.isArray(raw) ? raw : Object.values(raw);
     if (pages.length === 0) return null;
 
     const page = pages[0];
-    if (!page || !page.extract) return null;
+    if (!page || page.missing || !page.extract) return null;
 
     const normalizedTitle = page.title;
     const urlTitle = normalizedTitle.replace(/ /g, '_');
 
     return {
       title: normalizedTitle,
-      extract: page.extract,
+      extract: page.extract as string,
       url: `https://${this.lang}.wikipedia.org/wiki/${encodeURIComponent(urlTitle)}`,
     };
   }
