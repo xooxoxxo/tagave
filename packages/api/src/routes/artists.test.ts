@@ -93,9 +93,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL)(
     let artistId: string;
 
     beforeEach(async () => {
-      const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+      const databaseUrl = process.env.TEST_DATABASE_URL;
       if (!databaseUrl) {
-        throw new Error('DATABASE_URL or TEST_DATABASE_URL not set');
+        throw new Error('TEST_DATABASE_URL not set — these suites delete rows and must never run against DATABASE_URL');
       }
 
       const { db: dbInstance } = await makeDb(databaseUrl);
@@ -170,7 +170,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL)(
     expect(new Date(afterRow.lastViewedAt).getTime()).toBeGreaterThanOrEqual(now.getTime());
   });
 
-  it('should advance last_viewed_at on subsequent visits with 5+ second interval', async () => {
+  it('should advance last_viewed_at on subsequent visits', async () => {
     // Follow the artist
     await db.insert(followedArtists).values({
       libraryId,
@@ -189,8 +189,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL)(
       .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
     const firstTimestamp = afterFirst.lastViewedAt;
 
-    // Wait 5+ seconds
-    await new Promise((resolve) => setTimeout(resolve, 5100));
+    // A later visit only needs a later clock; the route has no throttle, so a
+    // short pause keeps the test inside vitest's default 5 s budget.
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     // Second visit
     const secondVisit = new Date();
@@ -204,7 +205,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL)(
 
     // Verify that the timestamp advanced
     expect(secondTimestamp.getTime()).toBeGreaterThan(firstTimestamp.getTime());
-    expect(secondTimestamp.getTime() - firstTimestamp.getTime()).toBeGreaterThanOrEqual(5000);
+    expect(secondTimestamp.getTime() - firstTimestamp.getTime()).toBeGreaterThanOrEqual(100);
   });
 
   it('should not update last_viewed_at when artist is not followed', async () => {

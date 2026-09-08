@@ -63,9 +63,9 @@ describe('tagsPreview job', () => {
     let planId: string;
 
     beforeAll(async () => {
-      const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+      const databaseUrl = process.env.TEST_DATABASE_URL;
       if (!databaseUrl) {
-        throw new Error('DATABASE_URL or TEST_DATABASE_URL not set');
+        throw new Error('TEST_DATABASE_URL not set — these suites delete rows and must never run against DATABASE_URL');
       }
 
       const { db, client } = await makeDb(databaseUrl);

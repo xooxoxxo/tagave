@@ -19,7 +19,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './gapsRecompute.js';
 import pino from 'pino';
 
-const hasDatabaseUrl = !!(process.env.TEST_DATABASE_URL || process.env.DATABASE_URL);
+const hasDatabaseUrl = !!(process.env.TEST_DATABASE_URL);
 
 describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => {
   let ctx: WorkerContext;
@@ -32,9 +32,9 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
   let releaseGroupId3: string;
 
   beforeAll(async () => {
-    const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+    const databaseUrl = process.env.TEST_DATABASE_URL;
     if (!databaseUrl) {
-      throw new Error('DATABASE_URL or TEST_DATABASE_URL not set');
+      throw new Error('TEST_DATABASE_URL not set — these suites delete rows and must never run against DATABASE_URL');
     }
 
     const { db: dbInstance, client } = await makeDb(databaseUrl);
