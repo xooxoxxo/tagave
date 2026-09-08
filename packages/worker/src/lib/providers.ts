@@ -4,7 +4,7 @@
  * provider_state (see pacer.ts) so all processes share one budget.
  */
 import {
-  MusicBrainzProvider, DiscogsProvider, WikidataClient, CritiqueBrainzClient, WikipediaClient, openSecret, isSealed,
+  MusicBrainzProvider, DiscogsProvider, WikidataClient, CritiqueBrainzClient, WikipediaClient, AcoustIdClient, openSecret, isSealed,
 } from '@liner/core';
 import type { WorkerContext } from './context.js';
 import { PROVIDER_INTERVALS, openCooldown, paced } from './pacer.js';
@@ -12,6 +12,10 @@ import { PROVIDER_INTERVALS, openCooldown, paced } from './pacer.js';
 export interface LibraryProviderSettings {
   contactString?: string;
   discogsToken?: string;
+  /** owner's AcoustID application key (PLT-4); fingerprint lookups need it */
+  acoustidKey?: string;
+  /** IDN-5 opt-in: the fingerprint sweep runs only when this is on */
+  fingerprintingEnabled?: boolean;
 }
 
 export interface Providers {
@@ -20,6 +24,8 @@ export interface Providers {
   wikidata: WikidataClient;
   critiquebrainz: CritiqueBrainzClient;
   wikipedia: WikipediaClient;
+  /** present only when the library has an AcoustID key */
+  acoustid?: AcoustIdClient;
 }
 
 const memo = new Map<string, Providers>();
@@ -34,29 +40,38 @@ function warnOnce(ctx: WorkerContext, msg: string): void {
 /** libraries.settings jsonb → the two keys the providers need. */
 export async function libraryProviderSettings(ctx: WorkerContext, libraryId: string): Promise<LibraryProviderSettings> {
   const rows = await ctx.sql`
-    select settings->>'contactString' as contact, settings->>'discogsToken' as token
-    from libraries where id = ${libraryId}` as unknown as Array<{ contact: string | null; token: string | null }>;
+    select settings->>'contactString' as contact, settings->>'discogsToken' as token,
+           settings->>'acoustidKey' as acoustid, (settings->>'fingerprintingEnabled')::boolean as fingerprinting
+    from libraries where id = ${libraryId}` as unknown as Array<{
+    contact: string | null; token: string | null; acoustid: string | null; fingerprinting: boolean | null;
+  }>;
   const out: LibraryProviderSettings = {};
   if (rows[0]?.contact) out.contactString = rows[0].contact;
+  if (rows[0]?.fingerprinting) out.fingerprintingEnabled = true;
 
-  // Sealed credentials (PLT-5) open with this host's APP_SECRET; without it
-  // Discogs simply runs unauthenticated — warned once, never a crash.
-  if (rows[0]?.token) {
-    const token = rows[0].token;
-    if (isSealed(token)) {
-      const appSecret = process.env.APP_SECRET;
-      if (!appSecret) {
-        warnOnce(ctx, 'APP_SECRET missing on this host; sealed credentials unusable — Discogs runs unauthenticated');
-      } else {
-        try {
-          out.discogsToken = openSecret(token, appSecret);
-        } catch {
-          warnOnce(ctx, `sealed discogsToken for library ${libraryId} does not open with this host's APP_SECRET — Discogs runs unauthenticated`);
-        }
-      }
-    } else {
-      out.discogsToken = token; // legacy plaintext row (sealed by the api on its next boot)
+  // Sealed credentials (PLT-5) open with this host's APP_SECRET; without it a
+  // provider simply runs without its key — warned once, never a crash.
+  const open = (value: string, name: string, consequence: string): string | undefined => {
+    if (!isSealed(value)) return value; // legacy plaintext row (sealed by the api on its next boot)
+    const appSecret = process.env.APP_SECRET;
+    if (!appSecret) {
+      warnOnce(ctx, `APP_SECRET missing on this host; sealed credentials unusable — ${consequence}`);
+      return undefined;
     }
+    try {
+      return openSecret(value, appSecret);
+    } catch {
+      warnOnce(ctx, `sealed ${name} for library ${libraryId} does not open with this host's APP_SECRET — ${consequence}`);
+      return undefined;
+    }
+  };
+  if (rows[0]?.token) {
+    const t = open(rows[0].token, 'discogsToken', 'Discogs runs unauthenticated');
+    if (t) out.discogsToken = t;
+  }
+  if (rows[0]?.acoustid) {
+    const k = open(rows[0].acoustid, 'acoustidKey', 'fingerprint lookups are skipped');
+    if (k) out.acoustidKey = k;
   }
   return out;
 }
@@ -67,7 +82,7 @@ export function getProviders(settings: LibraryProviderSettings): Providers {
   if (!settings.contactString) {
     throw new Error('no contact string configured (PLT-4); refusing provider calls');
   }
-  const key = `${settings.contactString}|${settings.discogsToken ?? ''}`;
+  const key = `${settings.contactString}|${settings.discogsToken ?? ''}|${settings.acoustidKey ?? ''}`;
   const hit = memo.get(key);
   if (hit) return hit;
   const userAgent = `Liner/0.1 (+${settings.contactString})`;
@@ -80,9 +95,14 @@ export function getProviders(settings: LibraryProviderSettings): Providers {
     wikidata: new WikidataClient({ userAgent }),
     critiquebrainz: new CritiqueBrainzClient({ userAgent }),
     wikipedia: new WikipediaClient({ userAgent }),
+    ...(settings.acoustidKey ? { acoustid: new AcoustIdClient({ apiKey: settings.acoustidKey, userAgent }) } : {}),
   };
   memo.set(key, made);
   return made;
+}
+
+export function acoustidCall<T>(ctx: WorkerContext, fn: () => Promise<T>): Promise<T> {
+  return paced(ctx.sql, 'acoustid', PROVIDER_INTERVALS.acoustid, fn);
 }
 
 export function discogsIntervalFor(p: DiscogsProvider): number {

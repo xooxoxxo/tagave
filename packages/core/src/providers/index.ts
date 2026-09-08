@@ -47,6 +47,8 @@ export { WikidataClient, parseWikidataBindings, pickIdentityBinding } from './wi
 export type { ReleaseGroupIdentity, WikidataBinding, ArtistIdentity } from './wikidata.js';
 export { CritiqueBrainzClient, critiqueBrainzLicense, mapCritiqueBrainzReview } from './critiquebrainz.js';
 export { WikipediaClient, findReceptionSection, wikiHtmlToText } from './wikipedia.js';
+export { AcoustIdClient, AcoustIdError, acoustIdResponseSchema, flattenResults as flattenAcoustIdResults, rankReleases as rankAcoustIdReleases } from './acoustid.js';
+export type { AcoustIdRecording, AcoustIdRelease, AcoustIdClientOptions } from './acoustid.js';
 export type { ReceptionSection, WikiSection, IntroExtract } from './wikipedia.js';
 export { fuzzyBridgeScore, chooseBestSearchHit, FUZZY_BRIDGE_ACCEPT } from './bridge.js';
 export { ProviderGateway } from './gateway.js';
