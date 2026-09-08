@@ -4,6 +4,6 @@ export { useCurrentLibrary } from './useCurrentLibrary';
 export { useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from './useViews';
 export { useReviews, useSaveReview, useDeleteReview, useReviewRevisions, useAddListen, useDeleteListen, useAddClipping, useDeleteClipping, useRefreshReviews } from './useReviews';
 export { useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useJobs, useJobEvents, useIdentifyRequests, useCancelIdentifyRequest, type IdentifyStatsResponse, type TriageItem, type JobInfo, type PendingIdentify, type PendingIdentifyRequest } from './useIdentify';
-export { useArtistsList, useArtist, useFollowArtist, useGenreMap, usePatchGenreMap, useGenrePreview, type ArtistListItem, type ArtistDetail, type ArtistsListResponse, type GenreMap, type GenrePreviewResponse } from './useArtists';
+export { useArtistsList, useArtist, useFollowArtist, useGenreMap, usePatchGenreMap, useGenrePreview, useReopenGap, type ArtistListItem, type ArtistDetail, type ArtistsListResponse, type GenreMap, type GenrePreviewResponse, type ArtistDiscographyItem } from './useArtists';
 export { useRefreshArtist, type RefreshArtistResponse } from './useRefreshArtist';
 export { useTagPlans, useTagPlan, useTagPlanItems, useCreateTagPlan, usePreviewTagPlan, useApplyTagPlan, usePauseTagPlan, useResumeTagPlan, useCancelTagPlan, useRevertTagPlan, useLibrarySettings, type TagPlansResponse, type ApplyPlanResponse } from './usePlanWizard';

@@ -1,11 +1,11 @@
 /**
  * Artist detail page (spec BRW-3): canonical artist with enrichment state,
  * bio excerpt from Wikipedia, link chips, follow toggle, refresh button, and
- * discography grouped by release type.
+ * discography grouped by release type with five-state ownership.
  */
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist } from '../hooks';
+import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap } from '../hooks';
 import styles from './ArtistPage.module.css';
 
 export function ArtistPage() {
@@ -15,6 +15,7 @@ export function ArtistPage() {
   const { data: artist, isLoading, error, refetch } = useArtist(libraryId, artistId);
   const followMutation = useFollowArtist(libraryId, artistId);
   const refreshMutation = useRefreshArtist(libraryId, artistId);
+  const reopenMutation = useReopenGap(libraryId, artistId);
   const [showRefreshNotification, setShowRefreshNotification] = useState(false);
 
   // Re-fetch artist data 1-2s after refresh completes
@@ -154,6 +155,25 @@ export function ArtistPage() {
 
       {/* Discography sections */}
       <div className={styles.discography}>
+        {/* Five-state ownership legend */}
+        <div className={styles.ownershipLegend}>
+          <div className={styles.legendItem}>
+            <span className={`${styles.stateChip} ${styles.digitalChip}`}>Digital</span>
+          </div>
+          <div className={styles.legendItem}>
+            <span className={`${styles.stateChip} ${styles.physicalChip}`}>Physical</span>
+          </div>
+          <div className={styles.legendItem}>
+            <span className={`${styles.stateChip} ${styles.bothChip}`}>Both</span>
+          </div>
+          <div className={styles.legendItem}>
+            <span className={`${styles.stateChip} ${styles.missingChip}`}>Missing</span>
+          </div>
+          <div className={styles.legendItem}>
+            <span className={`${styles.stateChip} ${styles.ignoredChip}`}>Ignored</span>
+          </div>
+        </div>
+
         {artist.discography.length === 0 ? (
           <p className={styles.emptyDiscography}>No albums in library</p>
         ) : (
@@ -164,7 +184,7 @@ export function ArtistPage() {
                 {section.items.map((item) => (
                   <div
                     key={item.releaseGroupId}
-                    className={styles.albumCard}
+                    className={`${styles.albumCard} ${item.ownership === 'missing' ? styles.missingItem : ''} ${item.ownership === 'ignored' ? styles.ignoredItem : ''}`}
                     role="button"
                     tabIndex={0}
                     onClick={() => {
@@ -184,10 +204,43 @@ export function ArtistPage() {
                       ) : (
                         <div className={styles.coverPlaceholder}>🎵</div>
                       )}
-                      <div className={styles.ownership}>
-                        {item.ownership === 'both' && <span>Digital & Physical</span>}
-                        {item.ownership === 'digital' && <span>Digital</span>}
-                        {item.ownership === 'physical' && <span>Physical</span>}
+                      <div className={`${styles.ownership} ${item.ownership === 'missing' ? styles.ownershipMissing : ''} ${item.ownership === 'ignored' ? styles.ownershipIgnored : ''}`}>
+                        <div className={styles.stateChipContainer}>
+                          <span
+                            className={`${styles.stateChip} ${
+                              item.ownership === 'digital'
+                                ? styles.digitalChip
+                                : item.ownership === 'physical'
+                                  ? styles.physicalChip
+                                  : item.ownership === 'both'
+                                    ? styles.bothChip
+                                    : item.ownership === 'missing'
+                                      ? styles.missingChip
+                                      : item.ownership === 'ignored'
+                                        ? styles.ignoredChip
+                                        : ''
+                            }`}
+                          >
+                            {item.ownership === 'both' && 'Digital & Physical'}
+                            {item.ownership === 'digital' && 'Digital'}
+                            {item.ownership === 'physical' && 'Physical'}
+                            {item.ownership === 'missing' && 'Missing'}
+                            {item.ownership === 'ignored' && 'Ignored'}
+                          </span>
+                          {item.ownership === 'ignored' && item.gapId && (
+                            <button
+                              className={styles.reopenButton}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                reopenMutation.mutate(item.gapId!);
+                              }}
+                              disabled={reopenMutation.isPending}
+                              title={`Dismissed: ${item.dismissReason || 'No reason'}`}
+                            >
+                              ↻
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className={styles.cardInfo}>

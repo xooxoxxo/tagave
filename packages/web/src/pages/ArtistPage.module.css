@@ -238,6 +238,62 @@
   gap: var(--space-xl);
 }
 
+.ownershipLegend {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.stateChip {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.digitalChip {
+  background: rgba(76, 175, 80, 0.2);
+  color: rgb(76, 175, 80);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+}
+
+.physicalChip {
+  background: rgba(33, 150, 243, 0.2);
+  color: rgb(33, 150, 243);
+  border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.bothChip {
+  background: rgba(156, 39, 176, 0.2);
+  color: rgb(156, 39, 176);
+  border: 1px solid rgba(156, 39, 176, 0.3);
+}
+
+.missingChip {
+  background: rgba(255, 152, 0, 0.2);
+  color: rgb(255, 152, 0);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.ignoredChip {
+  background: rgba(158, 158, 158, 0.2);
+  color: rgb(158, 158, 158);
+  border: 1px solid rgba(158, 158, 158, 0.3);
+  text-decoration: line-through;
+}
+
 .discographySection {
   display: flex;
   flex-direction: column;
@@ -270,6 +326,15 @@
 
 .albumCard:hover {
   background-color: var(--bg-hover);
+}
+
+.missingItem {
+  opacity: 0.7;
+}
+
+.ignoredItem {
+  opacity: 0.5;
+  text-decoration: line-through;
 }
 
 .coverContainer {
@@ -313,6 +378,24 @@
   font-size: var(--font-size-xs);
   padding: 0.3rem 0.5rem;
   border-radius: 0 0 var(--radius-md) var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ownershipMissing {
+  background: rgba(255, 152, 0, 0.85);
+}
+
+.ownershipIgnored {
+  background: rgba(158, 158, 158, 0.85);
+}
+
+.stateChipContainer {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: 1;
 }
 
 .ownership span {
@@ -320,6 +403,29 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.reopenButton {
+  padding: 0.2rem 0.4rem;
+  border: none;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
+  margin-left: 0.3rem;
+}
+
+.reopenButton:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.reopenButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .cardInfo {

@@ -20,9 +20,12 @@ export interface ArtistDiscographyItem {
   releaseGroupId: string;
   title: string;
   firstReleaseDate: string | null;
-  ownership: 'digital' | 'physical' | 'both';
+  ownership: 'digital' | 'physical' | 'both' | 'missing' | 'ignored';
   localAlbumId: string | null;
   coverUrl: string | null;
+  gapId?: string;
+  dismissReason?: string | null;
+  firstSeenAt?: string | null;
 }
 
 export interface ArtistDiscography {
@@ -199,5 +202,21 @@ export function useGenrePreview(libraryId: string | undefined) {
     queryFn: () => api.get<GenrePreviewResponse>(`/libraries/${libraryId}/genres/preview`),
     enabled: !!libraryId,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Reopen a dismissed gap (mutation)
+ */
+export function useReopenGap(libraryId: string | undefined, artistId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (gapId: string) =>
+      api.post<{ ok: boolean }>(`/gaps/${gapId}/reopen`, {}),
+    onSuccess: () => {
+      // Invalidate the artist query to refresh the discography
+      queryClient.invalidateQueries({ queryKey: ['artist', libraryId, artistId] });
+    },
   });
 }

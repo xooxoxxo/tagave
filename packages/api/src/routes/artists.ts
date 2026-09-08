@@ -6,7 +6,7 @@ import { eq, and, sql, inArray } from 'drizzle-orm';
 import {
   artists, releaseGroupArtists, releaseGroups, localAlbums,
   collectionItems, followedArtists, externalIds, libraries,
-  images,
+  images, gaps,
 } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
@@ -157,6 +157,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     }
 
     // Get discography grouped by release group primary type with ownership
+    // Left join with gaps to include missing_album gaps (open or dismissed)
     const discogRows = await db.execute(sql`
       select rg.id as release_group_id,
              rg.title,
@@ -169,15 +170,28 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
                      where la.release_group_id = rg.id and la.library_id = ${libraryId}) as has_digital,
              exists (select 1 from collection_items ci
                      where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                       and ci.removed_at is null) as has_physical
+                       and ci.removed_at is null) as has_physical,
+             g.id as gap_id,
+             g.state as gap_state,
+             g.dismiss_reason,
+             g.first_seen_at
         from release_group_artists rga
         join release_groups rg on rga.release_group_id = rg.id
+        left join gaps g on g.library_id = ${libraryId}
+                         and g.subject_id = rg.id
+                         and g.kind = 'missing_album'
+                         and g.state in ('open', 'dismissed')
        where rga.artist_id = ${artistId}
          and (exists (select 1 from local_albums la
                       where la.release_group_id = rg.id and la.library_id = ${libraryId})
               or exists (select 1 from collection_items ci
                          where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                           and ci.removed_at is null))
+                           and ci.removed_at is null)
+              or exists (select 1 from gaps gx
+                         where gx.library_id = ${libraryId}
+                           and gx.subject_id = rg.id
+                           and gx.kind = 'missing_album'
+                           and gx.state in ('open', 'dismissed')))
     `) as unknown as Array<{
       release_group_id: string;
       title: string;
@@ -186,6 +200,10 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
       local_album_id: string | null;
       has_digital: boolean;
       has_physical: boolean;
+      gap_id: string | null;
+      gap_state: string | null;
+      dismiss_reason: string | null;
+      first_seen_at: string | null;
     }>;
 
     // Get cover images for albums in the discography
@@ -219,16 +237,42 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     const discography = Array.from(byType.entries()).map(([type, rows]) => ({
       type,
-      items: rows.map((row) => ({
-        releaseGroupId: row.release_group_id,
-        title: row.title,
-        firstReleaseDate: row.first_release_date,
-        ownership: (row.has_digital && row.has_physical) ? 'both' : row.has_digital ? 'digital' : 'physical',
-        localAlbumId: row.local_album_id,
-        coverUrl: row.local_album_id && withArt.has(row.local_album_id)
-          ? `/api/v1/images/album/${row.local_album_id}`
-          : null,
-      })),
+      items: rows.map((row) => {
+        // Five-state ownership logic:
+        // ignored = gap exists AND gap.state='dismissed'
+        // missing = neither digital nor physical AND (no gap OR gap.state='open')
+        // both = both digital and physical
+        // digital = only digital
+        // physical = only physical
+        let ownership: 'digital' | 'physical' | 'both' | 'missing' | 'ignored';
+        if (row.gap_state === 'dismissed') {
+          ownership = 'ignored';
+        } else if (!row.has_digital && !row.has_physical) {
+          ownership = 'missing';
+        } else if (row.has_digital && row.has_physical) {
+          ownership = 'both';
+        } else if (row.has_digital) {
+          ownership = 'digital';
+        } else {
+          ownership = 'physical';
+        }
+
+        return {
+          releaseGroupId: row.release_group_id,
+          title: row.title,
+          firstReleaseDate: row.first_release_date,
+          ownership,
+          localAlbumId: row.local_album_id,
+          coverUrl: row.local_album_id && withArt.has(row.local_album_id)
+            ? `/api/v1/images/album/${row.local_album_id}`
+            : null,
+          ...(row.gap_id && {
+            gapId: row.gap_id,
+            dismissReason: row.dismiss_reason,
+            firstSeenAt: row.first_seen_at,
+          }),
+        };
+      }),
     }));
 
     // Check if enrichment is needed (null or older than 7 days)
