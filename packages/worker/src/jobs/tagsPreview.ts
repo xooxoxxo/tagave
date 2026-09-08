@@ -1,366 +1,278 @@
-import { eq, and, inArray } from 'drizzle-orm';
+/**
+ * tags.preview (spec §9.5 TAG-3): for every file in the plan's scope, compare
+ * the tags the scanner read (audio_files.tags_raw.common, mapped to the
+ * canonical field set) with the canonical values resolved from the album's
+ * matched release, apply the policy, and store one tag_plan_items row per
+ * file with its diff. No disk writes. Ends by setting the plan to
+ * 'previewed' with the aggregate.
+ *
+ * Rules that keep the preview honest:
+ * - a file whose album is not identified is skipped (nothing canonical to
+ *   write), and says so;
+ * - a field whose canonical value is unknown is never changed — no policy
+ *   blanks a tag because the provider had no data;
+ * - arrays compare as sets (genre order or a duplicate is not a change).
+ */
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
-  tagPlans,
-  tagPlanItems,
   audioFiles,
   localAlbums,
   localTracks,
+  releaseGroupArtists,
   scanRoots,
+  tagPlanItems,
+  tagPlans,
 } from '@liner/db';
-import { type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats } from '@liner/shared';
+import { CanonicalField, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats } from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
+
+type Value = string | string[] | null;
+type FieldPolicy = 'overwrite' | 'fill' | 'never';
+
+const OVERWRITE_IN_CANONICAL_PRESET = new Set<string>([
+  'musicbrainz_albumid', 'musicbrainz_releasegroupid', 'musicbrainz_albumartistid', 'musicbrainz_artistid',
+  'musicbrainz_recordingid', 'musicbrainz_releasetrackid', 'discogs_release_id', 'discogs_master_id',
+  'album', 'albumartist', 'albumartistsort', 'date', 'originaldate',
+  'tracknumber', 'totaltracks', 'discnumber', 'totaldiscs',
+  'label', 'catalognumber', 'barcode', 'media', 'releasecountry', 'releasestatus', 'releasetype',
+]);
+const FILL_IN_CANONICAL_PRESET = new Set<string>(['title', 'artist', 'artistsort', 'genre', 'compilation', 'isrc']);
 
 /**
- * Mock ResolvedMetadataService for testing.
- * In production (XO-307-4), this will be replaced with the real service
- * that fetches canonical metadata from release/release-group/tracks + field_locks.
- *
- * For now, this returns fixture data keyed by audioFileId.
+ * Field policy from the preset (M2 plan Q5). Comments, lyrics, ratings and
+ * anything outside the canonical set are never touched by any preset.
  */
-class MockResolvedMetadataService {
-  private fixtures: Record<string, Record<string, any>> = {};
-
-  constructor() {
-    // Initialize with empty fixtures - these will be populated by tests
-    // In real implementation, this will query canonical metadata
-  }
-
-  setFixture(audioFileId: string, canonicalMetadata: Record<string, any>) {
-    this.fixtures[audioFileId] = canonicalMetadata;
-  }
-
-  async getCanonicalMetadata(audioFileId: string): Promise<Record<string, any>> {
-    // Return fixture if available, otherwise return empty object
-    return this.fixtures[audioFileId] || {};
+export function presetPolicy(preset: TagPolicies['preset'], field: string): FieldPolicy {
+  switch (preset) {
+    case 'canonical_ids_and_fill':
+      if (OVERWRITE_IN_CANONICAL_PRESET.has(field)) return 'overwrite';
+      if (FILL_IN_CANONICAL_PRESET.has(field)) return 'fill';
+      return 'never';
+    case 'fill_blanks_only':
+      return 'fill';
+    case 'overwrite_all':
+      return 'overwrite';
+    case 'custom':
+    default:
+      return 'never';
   }
 }
 
-const metadataService = new MockResolvedMetadataService();
+export function fieldPolicyFor(policy: TagPolicies, field: string): FieldPolicy {
+  const override = policy.overrides ? (policy.overrides as Record<string, FieldPolicy | undefined>)[field] : undefined;
+  return override ?? presetPolicy(policy.preset, field);
+}
 
-export { metadataService };
+const isBlank = (v: Value | undefined): boolean =>
+  v === null || v === undefined || (typeof v === 'string' && v.trim() === '') || (Array.isArray(v) && v.length === 0);
+
+/** Comparable form: trimmed strings, arrays as sorted sets, numbers as strings. */
+export function valueKey(v: Value | undefined): string {
+  if (isBlank(v)) return '';
+  if (Array.isArray(v)) return JSON.stringify([...new Set(v.map((x) => String(x).trim()))].sort());
+  return String(v).trim();
+}
 
 /**
- * Apply tag policy to compute what the after value should be.
- * Per Spec §9.5 TAG-2: policy can be fill blanks only, overwrite with canonical,
- * or per-field rules.
+ * Decide the after-value for one field. Returns the reason the diff carries;
+ * 'no-change' rows are not stored.
  */
-function applyPolicy(
-  field: string,
-  beforeValue: any,
-  canonicalValue: any,
-  policy: TagPolicies,
-  isLocked: boolean
-): { after: any; reason: 'locked' | 'no-change' | 'policy:fill' | 'policy:overwrite' } {
-  if (isLocked) {
-    return { after: beforeValue, reason: 'locked' };
+export function decideField(
+  policy: FieldPolicy,
+  before: Value,
+  canonical: Value,
+  locked: boolean,
+): { after: Value; reason: TagDiffEntry['reason'] } {
+  if (locked) return { after: before, reason: 'locked' };
+  if (policy === 'never') return { after: before, reason: 'no-change' };
+  if (isBlank(canonical)) return { after: before, reason: 'no-change' }; // never blank a tag from missing data
+  if (valueKey(before) === valueKey(canonical)) return { after: before, reason: 'no-change' };
+  if (policy === 'fill') {
+    return isBlank(before) ? { after: canonical, reason: 'policy:fill' } : { after: before, reason: 'no-change' };
   }
+  return { after: canonical, reason: 'policy:overwrite' };
+}
 
-  // Check for per-field override
-  const override: 'overwrite' | 'fill' | 'never' | undefined = policy.overrides ? (policy.overrides as any)[field] : undefined;
-  const fieldPolicy = override || getPresetPolicy(policy.preset, field);
-
-  if (fieldPolicy === 'never') {
-    return { after: beforeValue, reason: 'no-change' };
-  }
-
-  if (fieldPolicy === 'fill') {
-    // Fill blanks only
-    if (beforeValue === null || beforeValue === undefined || beforeValue === '') {
-      if (canonicalValue === null || canonicalValue === undefined || canonicalValue === '') {
-        return { after: beforeValue, reason: 'no-change' };
-      }
-      return { after: canonicalValue, reason: 'policy:fill' };
+/**
+ * The file's current tags as canonical fields, from music-metadata's
+ * `common` block (what scan.parse stored in tags_raw).
+ */
+export function currentFieldsFrom(tagsRaw: unknown): Partial<Record<CanonicalField, Value>> {
+  const root = (typeof tagsRaw === 'string' ? JSON.parse(tagsRaw) : tagsRaw) as { common?: Record<string, unknown> } | null;
+  const c = root?.common ?? {};
+  const str = (k: string): string | null => {
+    const v = c[k];
+    if (typeof v === 'string') return v.trim() || null;
+    if (typeof v === 'number') return String(v);
+    if (typeof v === 'boolean') return v ? '1' : null;
+    if (Array.isArray(v) && v.length && (typeof v[0] === 'string' || typeof v[0] === 'number')) return String(v[0]).trim() || null;
+    return null;
+  };
+  const arr = (k: string): string[] | null => {
+    const v = c[k];
+    if (Array.isArray(v)) {
+      const out = v.map((x) => (typeof x === 'string' ? x.trim() : typeof x === 'number' ? String(x) : '')).filter(Boolean);
+      return out.length ? out : null;
     }
-    return { after: beforeValue, reason: 'no-change' };
-  }
+    if (typeof v === 'string' && v.trim()) return [v.trim()];
+    return null;
+  };
+  const no = (k: string, part: 'no' | 'of'): string | null => {
+    const v = c[k] as { no?: unknown; of?: unknown } | undefined;
+    const n = v?.[part];
+    return typeof n === 'number' && n > 0 ? String(n) : typeof n === 'string' && n.trim() ? n.trim() : null;
+  };
+  const yearOf = (): string | null => (typeof c['year'] === 'number' && c['year'] > 0 ? String(c['year']) : null);
 
-  if (fieldPolicy === 'overwrite') {
-    // Overwrite with canonical
-    if (beforeValue === canonicalValue) {
-      return { after: beforeValue, reason: 'no-change' };
-    }
-    return { after: canonicalValue, reason: 'policy:overwrite' };
-  }
-
-  return { after: beforeValue, reason: 'no-change' };
+  const out: Partial<Record<CanonicalField, Value>> = {
+    title: str('title'),
+    artist: str('artist'),
+    artistsort: str('artistsort'),
+    album: str('album'),
+    albumartist: str('albumartist'),
+    albumartistsort: str('albumartistsort'),
+    date: str('date') ?? yearOf(),
+    originaldate: str('originaldate') ?? str('originalyear'),
+    tracknumber: no('track', 'no'),
+    totaltracks: no('track', 'of'),
+    discnumber: no('disk', 'no'),
+    totaldiscs: no('disk', 'of'),
+    discsubtitle: str('discsubtitle'),
+    genre: arr('genre'),
+    compilation: c['compilation'] === true || c['compilation'] === 1 || c['compilation'] === '1' ? '1' : null,
+    label: arr('label') ? arr('label')!.join('; ') : null,
+    catalognumber: arr('catalognumber') ? arr('catalognumber')!.join('; ') : null,
+    barcode: str('barcode'),
+    media: str('media'),
+    releasecountry: str('releasecountry'),
+    releasestatus: str('releasestatus'),
+    releasetype: arr('releasetype') ? arr('releasetype')!.join('; ') : null,
+    isrc: arr('isrc'),
+    musicbrainz_albumid: str('musicbrainz_albumid'),
+    musicbrainz_releasegroupid: str('musicbrainz_releasegroupid'),
+    musicbrainz_albumartistid: arr('musicbrainz_albumartistid'),
+    musicbrainz_artistid: arr('musicbrainz_artistid'),
+    musicbrainz_recordingid: str('musicbrainz_recordingid'),
+    musicbrainz_releasetrackid: str('musicbrainz_trackid'),
+    acoustid_id: str('acoustid_id'),
+    discogs_release_id: str('discogs_release_id'),
+    discogs_master_id: str('discogs_master_release_id'),
+  };
+  return out;
 }
 
-/**
- * Get the field policy from a preset.
- * Per M2 Tag Correction Plan section 1 Q5:
- * - Preset 'Canonical IDs + fill':
- *   - overwrite: musicbrainz_*, discogs_*, album, albumartist, albumartistsort,
- *     date, originaldate, tracknumber/totaltracks, discnumber/totaldiscs, label,
- *     catalognumber, barcode, media, releasecountry, releasestatus, releasetype
- *   - fill: title, artist, genre, compilation
- *   - never: comment, lyrics, ratings, replaygain, unknown/custom tags
- */
-function getPresetPolicy(preset: string, field: string): 'overwrite' | 'fill' | 'never' {
-  const overwrites = new Set([
-    'musicbrainz_albumid',
-    'musicbrainz_releasegroupid',
-    'musicbrainz_albumartistid',
-    'musicbrainz_artistid',
-    'musicbrainz_recordingid',
-    'musicbrainz_releasetrackid',
-    'discogs_release_id',
-    'discogs_master_id',
-    'album',
-    'albumartist',
-    'albumartistsort',
-    'date',
-    'originaldate',
-    'tracknumber',
-    'totaltracks',
-    'discnumber',
-    'totaldiscs',
-    'label',
-    'catalognumber',
-    'barcode',
-    'media',
-    'releasecountry',
-    'releasestatus',
-    'releasetype',
-  ]);
-
-  const fills = new Set([
-    'title',
-    'artist',
-    'genre',
-    'compilation',
-  ]);
-
-  const nevers = new Set([
-    'comment',
-    'lyrics',
-  ]);
-
-  if (preset === 'canonical_ids_and_fill') {
-    if (overwrites.has(field)) return 'overwrite';
-    if (fills.has(field)) return 'fill';
-    if (nevers.has(field)) return 'never';
-    // Default: never touch unknown/custom tags
-    return 'never';
-  }
-
-  if (preset === 'fill_blanks_only') {
-    return 'fill';
-  }
-
-  if (preset === 'overwrite_all') {
-    if (nevers.has(field)) return 'never';
-    return 'overwrite';
-  }
-
-  // 'custom' uses overrides only
-  return 'never';
-}
-
-/**
- * Enumerate audio files matching the plan scope.
- * Per Spec §9.5 TAG-3: per-file diff computation.
- */
-async function enumerateFilesForScope(
-  db: WorkerContext['db'],
-  libraryId: string,
-  scope: TagPlanScope
-): Promise<string[]> {
-
+/** Audio file ids in scope; only present files, and (for albums) only tracks of those albums. */
+async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
+  const db = ctx.db;
   if (scope.type === 'library') {
-    // All audio files in the library
-    const files = await db
-      .select({ id: audioFiles.id })
-      .from(audioFiles)
-      .where(eq(audioFiles.libraryId, libraryId));
+    const files = await db.select({ id: audioFiles.id }).from(audioFiles)
+      .where(and(eq(audioFiles.libraryId, libraryId), eq(audioFiles.status, 'present')));
     return files.map((f) => f.id);
   }
-
-  if (scope.type === 'artist') {
-    // All albums by an artist - not directly supported yet
-    // Would need to query through releases and albums
+  let albumIds: string[] = [];
+  if (scope.type === 'albumIds') {
+    albumIds = scope.albumIds;
+  } else if (scope.type === 'artist') {
+    const rows = await db
+      .select({ id: localAlbums.id })
+      .from(localAlbums)
+      .where(and(
+        eq(localAlbums.libraryId, libraryId),
+        sql`${localAlbums.releaseGroupId} in (select release_group_id from release_group_artists where artist_id = ${scope.artistId})`,
+      ));
+    albumIds = rows.map((r) => r.id);
+  } else {
+    // filterQuery: the API resolves it to albumIds when the plan is created
     return [];
   }
-
-  if (scope.type === 'albumIds') {
-    // Specific albums - get all tracks from these albums
-    const tracks = await db
-      .select({ audioFileId: localTracks.audioFileId })
-      .from(localTracks)
-      .where(scope.albumIds.length > 0 ? inArray(localTracks.localAlbumId, scope.albumIds) : undefined);
-
-    return tracks.map((t) => t.audioFileId);
-  }
-
-  // filterQuery scope - not implemented yet (requires query builder)
-  return [];
+  if (albumIds.length === 0) return [];
+  const rows = await db
+    .select({ audioFileId: localTracks.audioFileId })
+    .from(localTracks)
+    .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+    .where(and(inArray(localTracks.localAlbumId, albumIds), eq(audioFiles.status, 'present')));
+  return [...new Set(rows.map((r) => r.audioFileId))];
 }
 
-/**
- * Main job handler: tags.preview
- * Per Spec §9.5 TAG-3: "A plan produces a per-file diff (field, before, after,
- * reason/source) and an aggregate summary (files touched, fields by count,
- * locked fields respected, files skipped and why) before anything is written."
- *
- * No disk writes. Updates tag_plan.status = 'previewed' and tag_plan.stats.
- *
- * IMPORTANT: Deletes any existing pending/applying items before recomputing to avoid
- * duplicates (per finding 1: preview must ensure one row per (tag_plan_id, audio_file_id)).
- */
+void releaseGroupArtists; // referenced via raw SQL above; keeps the import meaningful for readers
+
 export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promise<void> {
   const db = ctx.db;
-
-  // Fetch the plan
-  const plan = await db
-    .select()
-    .from(tagPlans)
-    .where(eq(tagPlans.id, planId))
-    .then((rows) => rows[0]);
-
-  if (!plan) {
-    throw new Error(`Tag plan ${planId} not found`);
-  }
+  const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
+  if (!plan) throw new Error(`Tag plan ${planId} not found`);
 
   const libraryId = plan.libraryId;
   const scope = plan.scope as TagPlanScope;
   const policy = plan.policy as TagPolicies;
 
-  // Delete any existing pending/applying items to ensure fresh computation
-  // (Spec TAG-3 recompute: one preview per plan session)
-  await db
-    .delete(tagPlanItems)
-    .where(
-      and(
-        eq(tagPlanItems.tagPlanId, planId),
-        inArray(tagPlanItems.status, ['pending', 'applying'])
-      )
-    );
+  // One row per (plan, file): drop the previous preview's pending rows first.
+  await db.delete(tagPlanItems).where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
 
-  // Enumerate matching files
-  const fileIds = await enumerateFilesForScope(db, libraryId, scope);
+  const fileIds = await enumerateFilesForScope(ctx, libraryId, scope);
+  const writableRoots = new Set(
+    (await db.select({ id: scanRoots.id }).from(scanRoots).where(and(eq(scanRoots.libraryId, libraryId), eq(scanRoots.writable, true)))).map((r) => r.id),
+  );
 
   let filesTouched = 0;
   let fieldsModified = 0;
   let lockedFieldsRespected = 0;
-  const filesSkipped: Array<{ audioFileId: string; reason: 'scan_root_not_writable' | 'audio_file_error'; message?: string }> = [];
+  const filesSkipped: TagPlanStats['filesSkipped'] = [];
+  const fields = Object.values(CanonicalField) as CanonicalField[];
 
-  // Process each file
   for (const audioFileId of fileIds) {
     try {
-      // Fetch file metadata
-      const file = await db
-        .select()
-        .from(audioFiles)
-        .where(eq(audioFiles.id, audioFileId))
-        .then((rows) => rows[0]);
-
+      const [file] = await db.select().from(audioFiles).where(eq(audioFiles.id, audioFileId));
       if (!file) {
         filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: 'File not found' });
         continue;
       }
-
-      // Check if scan root is writable
-      const scanRoot = await db
-        .select()
-        .from(scanRoots)
-        .where(eq(scanRoots.id, file.scanRootId))
-        .then((rows) => rows[0]);
-
-      if (!scanRoot || !scanRoot.writable) {
-        filesSkipped.push({
-          audioFileId,
-          reason: 'scan_root_not_writable',
-          ...(scanRoot?.path && { message: scanRoot.path }),
-        });
+      if (!writableRoots.has(file.scanRootId)) {
+        filesSkipped.push({ audioFileId, reason: 'scan_root_not_writable' });
+        continue;
+      }
+      const resolution = await resolveMetadataForFile(ctx, libraryId, audioFileId);
+      if (!resolution.ok) {
+        filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: resolution.reason.replaceAll('_', ' ') });
         continue;
       }
 
-      // Fetch canonical metadata (mocked for now)
-      const canonicalMetadata = await metadataService.getCanonicalMetadata(audioFileId);
-
-      // Parse current tags
-      let currentTags: Record<string, any> = {};
-      if (file.tagsRaw) {
-        const tagsData = file.tagsRaw;
-        if (typeof tagsData === 'string') {
-          currentTags = JSON.parse(tagsData);
-        } else if (typeof tagsData === 'object') {
-          currentTags = tagsData as Record<string, any>;
-        }
-      }
-
-      // Compute diffs for this file
+      const before = currentFieldsFrom(file.tagsRaw);
       const diffs: TagDiffEntry[] = [];
-      let fileTouched = false;
-
-      for (const field of Object.keys(canonicalMetadata) as (keyof typeof canonicalMetadata)[]) {
-        const beforeValue = currentTags[field] ?? null;
-        const canonicalValue = canonicalMetadata[field] ?? null;
-        const isLocked = false; // TODO: Check field_locks table
-
-        const { after, reason } = applyPolicy(field, beforeValue, canonicalValue, policy, isLocked);
-
-        if (reason === 'locked') {
-          lockedFieldsRespected++;
+      const after: Partial<Record<CanonicalField, Value>> = {};
+      for (const field of fields) {
+        const resolved = resolution.value.resolved[field];
+        const canonical: Value = resolved?.value === undefined ? null : resolved.value;
+        const locked = resolved?.source === 'lock';
+        const current: Value = before[field] ?? null;
+        const decision = decideField(fieldPolicyFor(policy, field), current, canonical, locked);
+        if (decision.reason === 'locked') {
+          // a lock only counts when the policy would otherwise have changed the field
+          if (fieldPolicyFor(policy, field) !== 'never' && valueKey(current) !== valueKey(canonical)) lockedFieldsRespected++;
+          continue;
         }
-
-        if (after !== beforeValue) {
-          diffs.push({
-            field: field as any,
-            before: beforeValue,
-            after,
-            reason: reason as any,
-          });
-          fieldsModified++;
-          fileTouched = true;
-        } else if (beforeValue !== canonicalValue) {
-          // Record no-change diffs for policy:fill and policy:overwrite
-          diffs.push({
-            field: field as any,
-            before: beforeValue,
-            after,
-            reason,
-          });
-        }
+        if (decision.reason === 'no-change') continue;
+        diffs.push({ field, before: current, after: decision.after, reason: decision.reason });
+        after[field] = decision.after;
+        fieldsModified++;
       }
 
-      if (fileTouched) {
-        filesTouched++;
-      }
-
-      // Store diffs in tag_plan_items
-      if (diffs.length > 0) {
-        await db.insert(tagPlanItems).values({
-          tagPlanId: planId,
-          audioFileId,
-          before: currentTags,
-          after: {} as Record<string, any>, // Will be computed when applied
-          diff: diffs,
-          status: 'pending',
-        });
-      }
-    } catch (err) {
-      filesSkipped.push({
+      if (diffs.length === 0) continue;
+      filesTouched++;
+      await db.insert(tagPlanItems).values({
+        tagPlanId: planId,
         audioFileId,
-        reason: 'audio_file_error',
-        message: err instanceof Error ? err.message : 'Unknown error',
+        before,
+        after,
+        diff: diffs,
+        status: 'pending',
       });
+    } catch (err) {
+      filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: err instanceof Error ? err.message : String(err) });
     }
   }
 
-  // Update plan status and stats
-  const stats: TagPlanStats = {
-    filesTouched,
-    fieldsModified,
-    lockedFieldsRespected,
-    filesSkipped,
-  };
-
-  await db
-    .update(tagPlans)
-    .set({
-      status: 'previewed',
-      stats,
-    })
-    .where(eq(tagPlans.id, planId));
+  const stats: TagPlanStats = { filesTouched, fieldsModified, lockedFieldsRespected, filesSkipped };
+  await db.update(tagPlans).set({ status: 'previewed', stats }).where(eq(tagPlans.id, planId));
+  ctx.logger.info({ planId, files: fileIds.length, ...stats, filesSkipped: filesSkipped.length }, 'tags.preview done');
 }
-

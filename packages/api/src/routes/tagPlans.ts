@@ -21,6 +21,7 @@ import {
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { albumQueryParts } from './albums.js';
 
 /**
  * Register tag plan routes.
@@ -127,6 +128,16 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       const body = createTagPlanSchema.parse(request.body);
 
+      // A filter scope is resolved to the matching album ids now — the worker
+      // has no query builder — so the plan records what the filter meant today.
+      let scope: TagPlanScope = body.scope;
+      if (scope.type === 'filterQuery') {
+        const { conds } = albumQueryParts(libraryId, request.user.id, scope.filterQuery as Record<string, unknown>);
+        const rows = await db.select({ id: localAlbums.id }).from(localAlbums).where(and(...conds));
+        if (rows.length === 0) throw new ApiError(400, 'Bad Request', 'The filter matches no albums');
+        scope = { type: 'albumIds', albumIds: rows.map((r) => r.id) };
+      }
+
       const planId = uuidv7();
       const now = new Date();
 
@@ -134,7 +145,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         id: planId,
         libraryId,
         name: body.name,
-        scope: body.scope,
+        scope,
         policy: body.policy,
         status: 'draft',
         stats: {},

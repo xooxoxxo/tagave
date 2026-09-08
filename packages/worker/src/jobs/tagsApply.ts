@@ -166,8 +166,14 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
           const beforeTags = typeof item.before === 'string' ? JSON.parse(item.before) : item.before;
           const diffs = typeof item.diff === 'string' ? JSON.parse(item.diff) : item.diff || [];
 
-          // Reconstruct the complete after-tag set from before tags and diffs
+          // The journal keeps the complete after-tag set; the file gets only
+          // the fields the policy changed (a lock or no-change row is not a write).
           const afterTags = reconstructAfterTags(beforeTags, diffs);
+          const fieldsToWrite = Object.fromEntries(
+            (diffs as TagDiffEntry[])
+              .filter((d) => d.reason === 'policy:fill' || d.reason === 'policy:overwrite')
+              .map((d) => [d.field, d.after]),
+          );
 
           // CRITICAL: Re-check gates immediately before writing (finding 3: per-item gate verification)
           // Check 1: scan root writable
@@ -239,7 +245,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
             multiValueSeparator: (plan.policy as any)?.multiValueSeparator || '; ',
           };
 
-          const writeResult = await safeWriter.write(fullPath, afterTags, writeOpts);
+          const writeResult = await safeWriter.write(fullPath, fieldsToWrite as typeof afterTags, writeOpts);
 
           if (writeResult.error) {
             // Check for hash mismatch
