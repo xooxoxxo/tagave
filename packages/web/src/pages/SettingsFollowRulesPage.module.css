@@ -4,6 +4,12 @@
   padding: 2rem 1rem;
 }
 
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+}
+
 .title {
   font-size: 2rem;
   font-weight: 600;
@@ -135,7 +141,7 @@
 
 .resetButton:hover:not(:disabled) {
   background: var(--bg-tertiary);
-  border-color: var(--border-hover);
+  border-color: var(--border-secondary);
 }
 
 .resetButton:disabled {

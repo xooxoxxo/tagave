@@ -5,11 +5,24 @@
 
 import { useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { SettingsNav } from '../components/SettingsNav';
 import { ScanRoot } from '@liner/shared';
 import styles from './SettingsScanRootsPage.module.css';
 
+/**
+ * Content component for embedding in SettingsPage
+ */
+export function SettingsScanRootsContent() {
+  return <SettingsScanRootsContentInner />;
+}
+
+/**
+ * Full page component (for backward compatibility / direct navigation)
+ */
 export function SettingsScanRootsPage() {
+  return <SettingsScanRootsContentInner />;
+}
+
+function SettingsScanRootsContentInner() {
   const { libraryId } = useCurrentLibrary();
   const { data: scanRoots = [], isLoading } = useScanRoots(libraryId);
   const createMutation = useCreateScanRoot(libraryId);
@@ -143,13 +156,7 @@ export function SettingsScanRootsPage() {
   }
 
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Settings</h1>
-      </header>
-      <SettingsNav />
-
-      <div className={styles.section}>
+    <div className={styles.content}>
         <h2 className={styles.sectionTitle}>Scan Roots</h2>
         <p className={styles.subtitle}>Manage the folders Liner indexes for music files</p>
 
@@ -353,7 +360,6 @@ export function SettingsScanRootsPage() {
           ))}
         </div>
       )}
-      </div>
     </div>
   );
 }

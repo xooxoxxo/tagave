@@ -4,10 +4,23 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useGenreMap, usePatchGenreMap, useGenrePreview, type GenreMap } from '../hooks/useArtists';
-import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsGenresPage.module.css';
 
+/**
+ * Content component for embedding in SettingsPage
+ */
+export function SettingsGenresContent() {
+  return <SettingsGenresContentInner />;
+}
+
+/**
+ * Full page component (for backward compatibility / direct navigation)
+ */
 export function SettingsGenresPage() {
+  return <SettingsGenresContentInner />;
+}
+
+function SettingsGenresContentInner() {
   const { libraryId } = useCurrentLibrary();
   const { data: currentMap, isLoading: mapLoading } = useGenreMap(libraryId);
   const { data: previewData, isLoading: previewLoading } = useGenrePreview(libraryId);
@@ -110,10 +123,7 @@ export function SettingsGenresPage() {
   if (isLoading) return <div className={styles.container}>Loading settings...</div>;
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.title}>Settings</h1>
-      <SettingsNav />
-
+    <div className={styles.content}>
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Genre Configuration</h2>
 

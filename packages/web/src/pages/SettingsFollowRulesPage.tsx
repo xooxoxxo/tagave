@@ -4,13 +4,26 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useFollowRules, usePatchFollowRules, type FollowRules } from '../hooks/useArtists';
-import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsFollowRulesPage.module.css';
 
 const PRIMARY_TYPES = ['Album', 'EP', 'Single'];
 const SECONDARY_TYPES = ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'];
 
+/**
+ * Content component for embedding in SettingsPage
+ */
+export function SettingsFollowRulesContent() {
+  return <SettingsFollowRulesContentInner />;
+}
+
+/**
+ * Full page component (for backward compatibility / direct navigation)
+ */
 export function SettingsFollowRulesPage() {
+  return <SettingsFollowRulesContentInner />;
+}
+
+function SettingsFollowRulesContentInner() {
   const { libraryId } = useCurrentLibrary();
   const { data: currentRules, isLoading: rulesLoading } = useFollowRules(libraryId);
   const patchFollowRules = usePatchFollowRules(libraryId);
@@ -69,10 +82,7 @@ export function SettingsFollowRulesPage() {
   if (rulesLoading) return <div className={styles.container}>Loading settings...</div>;
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.title}>Settings</h1>
-      <SettingsNav />
-
+    <div className={styles.content}>
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Follow Rules</h2>
 

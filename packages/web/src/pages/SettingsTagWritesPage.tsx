@@ -9,7 +9,6 @@ import { Link } from '@tanstack/react-router';
 import type { TagPolicies } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
-import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsTagWritesPage.module.css';
 
 type Preset = TagPolicies['preset'];
@@ -42,7 +41,21 @@ const DEFAULT_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Versi
 const samePolicy = (a: TagPolicies, b: TagPolicies) =>
   a.preset === b.preset && a.id3Version === b.id3Version && a.multiValueSeparator === b.multiValueSeparator;
 
+/**
+ * Content component for embedding in SettingsPage
+ */
+export function SettingsTagWritesContent() {
+  return <SettingsTagWritesContentInner />;
+}
+
+/**
+ * Full page component (for backward compatibility / direct navigation)
+ */
 export function SettingsTagWritesPage() {
+  return <SettingsTagWritesContentInner />;
+}
+
+function SettingsTagWritesContentInner() {
   const { libraryId } = useCurrentLibrary();
   const settings = useLibrarySettings(libraryId);
   const roots = useScanRoots(libraryId);
@@ -96,10 +109,7 @@ export function SettingsTagWritesPage() {
     : null;
 
   return (
-    <div className={styles.container}>
-      <h1 className={styles.title}>Settings</h1>
-      <SettingsNav />
-
+    <div className={styles.content}>
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Tag writes</h2>
         <p className={styles.pageHint}>
@@ -140,7 +150,7 @@ export function SettingsTagWritesPage() {
                       : writableRoots.map((r) => r.path).join(', ')}
               </span>
             </div>
-            <Link to="/settings/scan-roots" className={styles.linkButton}>
+            <Link to="/settings/library" className={styles.linkButton}>
               Scan roots
             </Link>
           </div>
@@ -230,7 +240,7 @@ export function SettingsTagWritesPage() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>First run, safely</h2>
         <ol className={styles.steps}>
-          <li>Allow tag writes on your music root under <Link to="/settings/scan-roots">Scan roots</Link>.</li>
+          <li>Allow tag writes on your music root under <Link to="/settings/library">Scan roots</Link>.</li>
           <li>Enable the library switch above.</li>
           <li>
             Open <Link to="/plans">Plans</Link>, create a plan for one artist or a handful of albums, and preview it.
