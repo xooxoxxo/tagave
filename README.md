@@ -47,36 +47,94 @@ Postgres listens on `5432` (configurable via `POSTGRES_PORT`).
 
 ### 5. Connect your music
 
-The app validates scan roots against the **worker** — the background service that handles file scanning, identification, and tag writing.
+Scanning, identification and tag writing happen in the **worker** — a separate
+process that has to see your music files. Two ways to run it; both talk to the
+same Postgres.
 
-**Option A: Worker as a Compose service** (untested in this repo)
-```yaml
-# Uncomment the worker block in docker-compose.prod.yml and bind your music:
-volumes:
-  - /path/to/music:/music:ro
+**Option A: workers as Compose services (recommended)**
+
+Put the host path of your library in `.env`:
+
+```sh
+MUSIC_DIR=/path/to/music
 ```
-Then update settings to use `/music` as the scan root. Restart with `docker compose -f docker-compose.prod.yml up -d`.
 
-**Option B: Worker on the host** (see `scripts/deploy.sh`)
-Run `pnpm -r build && node packages/worker/dist/index.js` on a machine with access to your music library. The worker connects to the same Postgres database.
+and start the stack with the `workers` profile. It adds two services:
+`worker-files` (scanning, clustering, cover art; the library is mounted
+read-only at `/mnt/music`) and `worker-identify` (MusicBrainz/Discogs lookups,
+enrichment, reviews; no file access):
 
-The first scan will fail until a worker is listening (the API returns `409 Conflict` and marks the root `pending`).
+```sh
+docker compose -f docker-compose.prod.yml --profile workers up -d
+```
+
+Register the scan root as `/mnt/music` — the path inside the container. Later
+`up`/`down`/`stop` calls need `--profile workers` too, otherwise they leave the
+worker containers untouched.
+
+**Option B: worker on another machine**
+
+Build the workspace on a host that has the library mounted and run the worker
+against the same database:
+
+```sh
+pnpm install && pnpm -r build
+DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
+LINER_QUEUES=scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept \
+node packages/worker/dist/index.js
+```
+
+`LINER_QUEUES` limits which queues a process works (default: all). The list
+above is the file worker; a second process with
+`LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich`
+is the identify worker, and can run anywhere with internet access. `APP_SECRET`
+must match the app's so the worker can open the sealed provider credentials.
+`scripts/deploy.sh` shows one way to keep such a host in step with the app
+(rsync, build, migrate, pidfile restart).
+
+Until a worker is listening, a new scan root stays `pending` and starting a
+scan returns `409 Conflict`.
 
 ### 6. Health check
 
-Verify all systems are configured:
+Verify all systems are configured (add `--expect-workers 0` while no worker
+runs yet):
 
 ```sh
 docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js doctor
 ```
 
-Or on the worker host: `pnpm doctor`.
+Or on a worker host: `pnpm doctor`.
 
 ### Data & backups
 
-- **Database:** pgdata volume (docker-compose.prod.yml)
-- **Cache:** cache volume (thumbnails, converted audio)
-- **Backup database:** `docker compose -f docker-compose.prod.yml exec postgres pg_dump -U liner liner | gzip > liner-backup-$(date +%s).sql.gz`
+- **Database:** `pgdata` volume
+- **Cache:** `cache` volume (thumbnails, converted audio, database dumps)
+
+Take a verified dump of the database — custom `pg_dump` format, checked with
+`pg_restore --list` before the command reports success, older dumps pruned to
+the newest 14:
+
+```sh
+docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
+```
+
+Dumps land in `/cache/backups/liner-<timestamp>.pgdump` inside the app
+container (`--out DIR` or `LINER_BACKUP_DIR` changes that). Copy them off the
+host — the cache volume is not a backup location:
+
+```sh
+docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
+```
+
+Restore into an empty database:
+
+```sh
+pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
+```
+
+Run `backup` before every upgrade, and put it on a nightly timer once you rely
+on the catalog.
 
 ### Behind a reverse proxy
 
@@ -84,6 +142,63 @@ If you proxy the app (nginx, Caddy, etc.):
 - Set `PUBLIC_URL=https://your-domain.com` in `.env`
 - Keep `ALLOW_INSECURE_HTTP=false` (default) so cookies use `secure` flag
 - The app will serve the correct CORS origins and redirect URIs
+
+## Moving workers into containers
+
+If you started with a worker on another machine (Option B above) and want the
+`workers` profile to take over, do this once. Nothing in the database changes
+as long as the library ends up at the same path inside the container as the
+scan root you registered; otherwise edit the scan root's path in Settings after
+step 3.
+
+**Prerequisites**
+
+- The Compose host can read the library — local disk, or an NFS/SMB export that
+  includes this host — at the path you set as `MUSIC_DIR` in `.env`.
+- `APP_SECRET` in `.env` is the value the app already runs with; the workers
+  open the same sealed credentials.
+
+**Cutover**
+
+1. Build the worker images while the old workers keep running. Pass the same
+   build args `scripts/deploy.sh` passes for the app — they are what
+   Settings › Updates and the doctor `Build Versions` check compare:
+   ```sh
+   GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%TZ) \
+   docker compose -f docker-compose.prod.yml --profile workers build
+   ```
+2. Stop the old workers on their host (`scripts/deploy.sh` tracks them in
+   `~/liner-worker.pid` and `~/liner-identify.pid`; under systemd,
+   `systemctl stop`). A worker finishes its current job on `SIGTERM`; give it
+   up to 30 s, then `kill -9` one that ignores it — a ghost of the old build
+   keeps a database connection and shows up in `Build Versions` as a lagging sha.
+3. Start the containers:
+   ```sh
+   docker compose -f docker-compose.prod.yml --profile workers up -d
+   ```
+4. Verify. The first heartbeat lands about 30 s after boot; `Worker Heartbeat`
+   and `Build Versions` must both pass, and Settings › Updates lists both
+   workers at the app's sha:
+   ```sh
+   curl -s http://localhost:3100/api/v1/health        # "2 live worker(s) detected"
+   docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js doctor --offline
+   ```
+5. Retire the old launchers so a reboot of that host does not bring the bare
+   workers back.
+
+**Rollback**
+
+```sh
+docker compose -f docker-compose.prod.yml stop worker-files worker-identify
+```
+
+then relaunch the host workers. Both topologies can coexist — jobs are claimed
+from the same queue — but keep the builds at the same sha, or `Build Versions`
+warns until you do.
+
+`scripts/smoke.sh` runs exactly this topology on a throwaway stack (postgres,
+app, both workers, a temp music dir, a `backup` round-trip) and is the release
+gate for the images.
 
 ## Security
 
@@ -138,10 +253,12 @@ The catalog enriches artist data and resolves credits in the background:
 - **`artists.resolve`** queries MusicBrainz for release group credits, discovering canonical artist names and identities; it runs every 10 minutes (throttled to ~2 requests/min to respect rate limits).
 - **`artists.enrich`** fetches artist biographies, type, country, and years from MusicBrainz, Wikidata, and Wikipedia; it runs on-demand when an artist page is opened (if not already enriched in the last 7 days).
 
-Both jobs are queued in the Postgres `pg-boss` queue. When split across multiple hosts—a web API host and a worker host—add the queue names to your worker's `LINER_QUEUES` environment variable (comma-separated) so it claims the jobs:
+Both jobs are queued in the Postgres `pg-boss` queue. When you split workers by
+role, the process whose `LINER_QUEUES` names them claims them — in the Compose
+setup that is `worker-identify`:
 
 ```
-LINER_QUEUES=scan,cluster,identify,artists.resolve,artists.enrich
+LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich
 ```
 
 ## Development
