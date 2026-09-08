@@ -12,3 +12,9 @@ export {
 
 export type { FormatTagMapping } from './mapping.js';
 export type { TagSet } from './mapping.js';
+
+export {
+  resolveFields,
+} from './resolveFields.js';
+
+export type { ResolvedField, ResolvedMetadata, ResolutionInput, FieldLock } from './resolveFields.js';
