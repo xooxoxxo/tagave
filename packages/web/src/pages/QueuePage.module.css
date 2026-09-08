@@ -224,7 +224,7 @@
 }
 
 .candLink {
-  color: var(--accent-color);
+  color: var(--accent);
   text-decoration: none;
   margin: 0 0.25rem;
 }

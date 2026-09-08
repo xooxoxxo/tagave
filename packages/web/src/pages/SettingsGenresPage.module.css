@@ -20,7 +20,7 @@
   font-weight: 600;
   margin: 0 0 1.5rem 0;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   padding-bottom: 0.5rem;
 }
 
@@ -51,7 +51,7 @@
   width: 100%;
   max-width: 400px;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -61,14 +61,14 @@
 
 .input:focus {
   outline: none;
-  border-color: var(--accent-color);
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
 }
 
 .textarea {
   width: 100%;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -80,14 +80,14 @@
 
 .textarea:focus {
   outline: none;
-  border-color: var(--accent-color);
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
 }
 
 .button,
 .resetButton {
   padding: 0.75rem 1.5rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -97,14 +97,14 @@
 }
 
 .button {
-  background: var(--accent-color);
+  background: var(--accent);
   color: white;
-  border-color: var(--accent-color);
+  border-color: var(--accent);
 }
 
 .button:hover:not(:disabled) {
-  background: var(--accent-color-hover);
-  border-color: var(--accent-color-hover);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .button:disabled {
@@ -114,7 +114,7 @@
 
 .resetButton:hover:not(:disabled) {
   background: var(--bg-tertiary);
-  border-color: var(--border-color-hover);
+  border-color: var(--border-hover);
 }
 
 .resetButton:disabled {
@@ -130,12 +130,12 @@
 }
 
 .success {
-  color: var(--success-color);
+  color: var(--success);
   font-weight: 500;
 }
 
 .error {
-  color: var(--error-color);
+  color: var(--error);
   font-weight: 500;
 }
 
@@ -162,14 +162,14 @@
 
 .barContainer {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   height: 24px;
   overflow: hidden;
 }
 
 .bar {
-  background: var(--accent-color);
+  background: var(--accent);
   height: 100%;
   transition: width 200ms ease;
 }
@@ -188,7 +188,7 @@
 .table {
   width: 100%;
   border-collapse: collapse;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
   background: var(--bg-secondary);
@@ -196,7 +196,7 @@
 
 .table thead {
   background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
 }
 
 .table th {
@@ -211,7 +211,7 @@
 
 .table td {
   padding: 0.75rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   color: var(--text-primary);
   font-size: 0.9rem;
 }

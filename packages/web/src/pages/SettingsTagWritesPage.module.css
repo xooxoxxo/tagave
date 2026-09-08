@@ -20,7 +20,7 @@
   font-weight: 600;
   margin: 0 0 1.5rem 0;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   padding-bottom: 0.5rem;
 }
 
@@ -32,7 +32,7 @@
   background: var(--bg-secondary);
   padding: 1rem;
   border-radius: 4px;
-  border-left: 3px solid var(--accent-color);
+  border-left: 3px solid var(--accent);
 }
 
 .statusList {
@@ -46,7 +46,7 @@
   align-items: center;
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-secondary);
 }
@@ -59,7 +59,7 @@
 }
 
 .on {
-  background: var(--success-color);
+  background: var(--success);
 }
 
 .off {
@@ -85,7 +85,7 @@
 .warning {
   margin: 1rem 0 0 0;
   font-size: 0.875rem;
-  color: var(--error-color);
+  color: var(--error);
   line-height: 1.5;
 }
 
@@ -118,7 +118,7 @@
   align-items: flex-start;
   gap: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-primary);
@@ -130,13 +130,13 @@
 }
 
 .radioActive {
-  border-color: var(--accent-color);
+  border-color: var(--accent);
   background: var(--bg-secondary);
 }
 
 .radio {
   margin-top: 0.2rem;
-  accent-color: var(--accent-color);
+  accent-color: var(--accent);
 }
 
 .radioText {
@@ -156,7 +156,7 @@
   width: 100%;
   max-width: 400px;
   padding: 0.75rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -167,7 +167,7 @@
 .select:focus,
 .input:focus {
   outline: none;
-  border-color: var(--accent-color);
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
 }
 
@@ -175,7 +175,7 @@
 .resetButton,
 .linkButton {
   padding: 0.6rem 1.25rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -188,14 +188,14 @@
 }
 
 .button {
-  background: var(--accent-color);
+  background: var(--accent);
   color: white;
-  border-color: var(--accent-color);
+  border-color: var(--accent);
 }
 
 .button:hover:not(:disabled) {
-  background: var(--accent-color-hover);
-  border-color: var(--accent-color-hover);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .button:disabled,
@@ -207,7 +207,7 @@
 .resetButton:hover:not(:disabled),
 .linkButton:hover {
   background: var(--bg-tertiary);
-  border-color: var(--border-color-hover);
+  border-color: var(--border-hover);
 }
 
 .actions {
@@ -218,12 +218,12 @@
 }
 
 .success {
-  color: var(--success-color);
+  color: var(--success);
   font-weight: 500;
 }
 
 .error {
-  color: var(--error-color);
+  color: var(--error);
   font-weight: 500;
 }
 
@@ -235,5 +235,5 @@
 }
 
 .steps a {
-  color: var(--accent-color);
+  color: var(--accent);
 }

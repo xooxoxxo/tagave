@@ -53,7 +53,7 @@
 .btnPrimary,
 .btnDanger {
   padding: 0.55rem 1.1rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -64,14 +64,14 @@
 }
 
 .btnPrimary {
-  background: var(--accent-color);
-  border-color: var(--accent-color);
+  background: var(--accent);
+  border-color: var(--accent);
   color: white;
 }
 
 .btnDanger {
-  border-color: var(--error-color);
-  color: var(--error-color);
+  border-color: var(--error);
+  color: var(--error);
 }
 
 .btn:hover:not(:disabled) {
@@ -79,7 +79,7 @@
 }
 
 .btnPrimary:hover:not(:disabled) {
-  background: var(--accent-color-hover);
+  background: var(--accent-hover);
 }
 
 .btn:disabled,
@@ -95,14 +95,14 @@
   letter-spacing: 0.04em;
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
-.status_previewed { color: var(--accent-color); border-color: var(--accent-color); }
+.status_previewed { color: var(--accent); border-color: var(--accent); }
 .status_applying, .status_paused { color: #e0a800; border-color: #e0a800; }
-.status_applied { color: var(--success-color); border-color: var(--success-color); }
-.status_partially_failed, .status_cancelled { color: var(--error-color); border-color: var(--error-color); }
+.status_applied { color: var(--success); border-color: var(--success); }
+.status_partially_failed, .status_cancelled { color: var(--error); border-color: var(--error); }
 
 .banner {
   background: rgba(255, 193, 7, 0.1);
@@ -118,7 +118,7 @@
 
 .note {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem 1.25rem;
   margin-bottom: 1rem;
@@ -132,8 +132,8 @@
   color: var(--text-secondary);
 }
 
-.error { color: var(--error-color); margin: 0 0 1rem 0; }
-.success { color: var(--success-color); margin: 0 0 1rem 0; }
+.error { color: var(--error); margin: 0 0 1rem 0; }
+.success { color: var(--success); margin: 0 0 1rem 0; }
 
 .summary {
   display: grid;
@@ -147,7 +147,7 @@
   flex-direction: column;
   gap: 0.15rem;
   padding: 0.8rem 1rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-secondary);
 }
@@ -174,7 +174,7 @@
 
 .fill {
   height: 100%;
-  background: var(--accent-color);
+  background: var(--accent);
   transition: width 300ms ease;
 }
 
@@ -191,7 +191,7 @@
 .select,
 .input {
   padding: 0.45rem 0.6rem;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -207,7 +207,7 @@
 .pager .btn { padding: 0.35rem 0.75rem; }
 
 .tableWrap {
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border);
   border-radius: 8px;
   overflow: auto;
   max-height: calc(100vh - 320px);
@@ -232,19 +232,19 @@
   background: var(--bg-secondary);
   text-align: left;
   padding: 0.55rem 0.75rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
   font-weight: 600;
 }
 
 .table td {
   padding: 0.45rem 0.75rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border);
   vertical-align: top;
   overflow-wrap: anywhere;
 }
 
-.firstRow td { border-top: 2px solid var(--border-color); }
+.firstRow td { border-top: 2px solid var(--border); }
 
 .cellPath {
   color: var(--text-secondary);
