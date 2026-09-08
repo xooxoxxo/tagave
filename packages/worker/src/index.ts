@@ -19,6 +19,9 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
+import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
+import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
+import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
@@ -65,6 +68,9 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'tags.apply': 'stately',
   'tags.revert': 'stately',
   'facets.refresh': 'stately',
+  'fingerprint.album': 'stately',
+  'fingerprint.sweep': 'stately',
+  'acoustid.lookup': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -97,7 +103,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
     await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
@@ -271,6 +277,26 @@ async function main() {
   if (wants('artist.refresh')) {
     await boss.work<ArtistRefreshJobData>('artist.refresh', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await artistRefreshJob(ctx, job.data);
+    });
+  }
+
+  // IDN-5 (XO-372): fingerprints on the file worker (needs the mount and fpcalc),
+  // AcoustID lookups on the identify worker (shares the provider budget).
+  if (wants('fingerprint.album')) {
+    await boss.work<FingerprintAlbumJobData>('fingerprint.album', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await fingerprintAlbumJob(ctx, job.data);
+    });
+  }
+  if (wants('fingerprint.sweep')) {
+    await boss.work<FingerprintSweepJobData>('fingerprint.sweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await fingerprintSweepJob(ctx, job.data);
+    });
+    // a no-op unless a library opted in (settings.fingerprintingEnabled) and has an AcoustID key
+    await boss.schedule('fingerprint.sweep', '*/15 * * * *', {}, { singletonKey: 'fingerprint.sweep' });
+  }
+  if (wants('acoustid.lookup')) {
+    await boss.work<AcoustidLookupJobData>('acoustid.lookup', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await acoustidLookupJob(ctx, job.data);
     });
   }
 

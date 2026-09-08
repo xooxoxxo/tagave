@@ -25,6 +25,9 @@ export interface IdentifyAlbumJobData {
   /** IDN-6 manual entry: Discogs release or master (master → its main
    * release), same semantics as pinnedMbid */
   pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
+  /** IDN-5: release MBIDs the AcoustID lookup ranked for this album; fetched
+   * and scored beside the search candidates, never trusted blindly */
+  acoustidMbids?: string[];
 }
 
 /** spec §10.3 budget: MB lookups per album; Discogs is consulted only when
@@ -33,7 +36,7 @@ const MAX_LOOKUPS_PER_ALBUM = 3;
 const MAX_DISCOGS_FETCHES = 2;
 
 /** provenance of a candidate / decision (match_candidates.source, album_matches.source) */
-export type CandidateSource = 'mbid' | 'mb_search' | 'discogs_search' | 'user_mbid' | 'user_discogs';
+export type CandidateSource = 'mbid' | 'mb_search' | 'discogs_search' | 'user_mbid' | 'user_discogs' | 'acoustid';
 
 export interface EmbeddedIds {
   albumMbid?: string;
@@ -229,6 +232,13 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   };
   let fastPathWeak = false;
   try {
+    for (const mbid of data.acoustidMbids ?? []) {
+      try {
+        take(await mbRelease(ctx, p, mbid), 'acoustid');
+      } catch (err) {
+        ctx.logger.warn({ mbid, err: (err as Error).message }, 'identify: acoustid candidate fetch failed');
+      }
+    }
     if (data.pinnedMbid) {
       take(await mbRelease(ctx, p, data.pinnedMbid), 'user_mbid');
     } else if (data.pinnedDiscogs) {

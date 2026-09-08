@@ -82,6 +82,9 @@ export {
 } from './providers/index.js';
 
 export type {
+  AcoustIdRecording,
+  AcoustIdRelease,
+  AcoustIdClientOptions,
   CallContext,
   ExternalId,
   ReleaseQuery,

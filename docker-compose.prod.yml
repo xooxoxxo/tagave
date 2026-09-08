@@ -58,7 +58,7 @@ services:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
-      LINER_QUEUES: scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh
+      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
@@ -82,7 +82,7 @@ services:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
-      LINER_QUEUES: identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich
+      LINER_QUEUES: identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:

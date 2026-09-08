@@ -80,13 +80,13 @@ against the same database:
 ```sh
 pnpm install && pnpm -r build
 DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh \
+LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep \
 node packages/worker/dist/index.js
 ```
 
 `LINER_QUEUES` limits which queues a process works (default: all). The list
 above is the file worker; a second process with
-`LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich`
+`LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup`
 is the identify worker, and can run anywhere with internet access. `APP_SECRET`
 must match the app's so the worker can open the sealed provider credentials.
 `scripts/deploy.sh` shows one way to keep such a host in step with the app

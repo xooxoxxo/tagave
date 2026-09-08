@@ -1,7 +1,9 @@
 -- XO-372 (IDN-5): Chromaprint fingerprints + AcoustID lookups for unidentified albums.
 -- audio_files.fingerprint / fingerprint_duration exist since 0000; these columns let the
 -- sweep skip files that were tried and albums that were looked up already.
+-- a 120-second Chromaprint fingerprint is 1–2 KB of base64; varchar(255) held none of them
 alter table audio_files
+  alter column fingerprint type text,
   add column if not exists fingerprinted_at timestamptz,
   add column if not exists fingerprint_error text;
 create index if not exists idx_audio_files_unfingerprinted
