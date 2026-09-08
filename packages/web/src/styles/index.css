@@ -67,6 +67,10 @@
   --z-backdrop: 999;
   --z-modal: 1001;
 
+  /* Page layout */
+  --page-pad: 1.5rem;
+  --content-max: 1400px;
+
   /* Legacy aliases: several pages were written against these names.
      They resolve to the canonical tokens above so themes stay in sync. */
   --border-color: var(--border);
@@ -265,4 +269,17 @@ a:active {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
+}
+
+/* Utility classes */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

@@ -1,4 +1,4 @@
-import { RootRoute, Router, Route } from '@tanstack/react-router';
+import { RootRoute, Router, Route, redirect } from '@tanstack/react-router';
 import { App } from './components/App';
 import { Layout } from './components/Layout';
 import {
@@ -23,9 +23,22 @@ import {
   SettingsTagWritesPage,
   SettingsUpdatesPage,
   JobsPage,
+  WorkPage,
+  SettingsPage,
 } from './pages';
 import { useMe } from './hooks';
 import { parseAlbumsSearch } from './pages/albumsSearch';
+
+/**
+ * Parse work page search params: validate optional tab
+ */
+function parseWorkSearch(search: Record<string, unknown>) {
+  const tab = search.tab as string | undefined;
+  if (tab && !['review', 'identify', 'attention'].includes(tab)) {
+    throw new Error(`Invalid work tab: ${tab}`);
+  }
+  return { tab: (tab as 'review' | 'identify' | 'attention' | undefined) ?? 'review' };
+}
 
 // Root route - handles auth redirection
 const rootRoute = new RootRoute({
@@ -85,29 +98,6 @@ const artistDetailRoute = new Route({
   component: ArtistPage,
 });
 
-const queueRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/queue',
-  component: QueuePage,
-});
-
-const attentionRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/attention',
-  component: AttentionPage,
-});
-
-const identifyRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/identify',
-  component: IdentifyPage,
-});
-
-const collectionRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/collection',
-  component: CollectionPage,
-});
 
 const plansRoute = new Route({
   getParentRoute: () => layoutRoute,
@@ -127,46 +117,91 @@ const albumDetailRoute = new Route({
   component: AlbumDetailPage,
 });
 
-const settingsScanRootsRoute = new Route({
-  getParentRoute: () => layoutRoute,
-  path: '/settings/scan-roots',
-  component: SettingsScanRootsPage,
-});
-
 const settingsProvidersRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/providers',
   component: SettingsProvidersPage,
 });
 
-const settingsGenresRoute = new Route({
+// New unified routes
+const workRoute = new Route({
   getParentRoute: () => layoutRoute,
-  path: '/settings/genres',
-  component: SettingsGenresPage,
+  path: '/work',
+  component: WorkPage,
+  validateSearch: (search: Record<string, unknown>) => parseWorkSearch(search),
 });
 
-const settingsFollowRulesRoute = new Route({
+const settingsRoute = new Route({
   getParentRoute: () => layoutRoute,
-  path: '/settings/follow-rules',
-  component: SettingsFollowRulesPage,
+  path: '/settings',
+  component: SettingsPage,
 });
 
-const settingsTagWritesRoute = new Route({
+const settingsSectionRoute = new Route({
   getParentRoute: () => layoutRoute,
-  path: '/settings/tag-writes',
-  component: SettingsTagWritesPage,
+  path: '/settings/$section',
+  component: SettingsPage,
 });
 
-const settingsUpdatesRoute = new Route({
+// Redirects for old routes
+const queueRedirect = new Route({
   getParentRoute: () => layoutRoute,
-  path: '/settings/updates',
-  component: SettingsUpdatesPage,
+  path: '/queue',
+  beforeLoad: () => redirect({ to: '/work', search: { tab: 'review' } }),
 });
 
-const jobsRoute = new Route({
+const identifyRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/identify',
+  beforeLoad: () => redirect({ to: '/work', search: { tab: 'identify' } }),
+});
+
+const attentionRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/attention',
+  beforeLoad: () => redirect({ to: '/work', search: { tab: 'attention' } }),
+});
+
+const collectionRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/collection',
+  beforeLoad: () => redirect({ to: '/settings/collection' }),
+});
+
+const jobsOldRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
-  component: JobsPage,
+  beforeLoad: () => redirect({ to: '/settings/system' }),
+});
+
+const scanRootsRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/scan-roots',
+  beforeLoad: () => redirect({ to: '/settings/library' }),
+});
+
+const tagWritesRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/tag-writes',
+  beforeLoad: () => redirect({ to: '/settings/library' }),
+});
+
+const genresRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/genres',
+  beforeLoad: () => redirect({ to: '/settings/library' }),
+});
+
+const followRulesRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/follow-rules',
+  beforeLoad: () => redirect({ to: '/settings/library' }),
+});
+
+const updatesRedirect = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/updates',
+  beforeLoad: () => redirect({ to: '/settings/system' }),
 });
 
 const logoutRoute = new Route({
@@ -190,20 +225,25 @@ const routeTree = rootRoute.addChildren([
     albumsRoute,
     artistsRoute,
     artistDetailRoute,
-    queueRoute,
-    attentionRoute,
-    identifyRoute,
-    collectionRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,
-    settingsScanRootsRoute,
+    // New unified routes
+    workRoute,
+    settingsRoute,
+    settingsSectionRoute,
     settingsProvidersRoute,
-    settingsGenresRoute,
-    settingsFollowRulesRoute,
-    settingsTagWritesRoute,
-    settingsUpdatesRoute,
-    jobsRoute,
+    // Redirects for old routes
+    queueRedirect,
+    identifyRedirect,
+    attentionRedirect,
+    collectionRedirect,
+    jobsOldRoute,
+    scanRootsRedirect,
+    tagWritesRedirect,
+    genresRedirect,
+    followRulesRedirect,
+    updatesRedirect,
     logoutRoute,
   ]),
 ]);

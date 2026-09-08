@@ -33,7 +33,10 @@ export function Layout() {
     return <Outlet />;
   }
 
-  const isActive = (href: string) => location.pathname === href;
+  const isLibraryActive = location.pathname.startsWith('/albums') || location.pathname.startsWith('/artists');
+  const isWorkActive = location.pathname.startsWith('/work') || location.pathname.startsWith('/queue') || location.pathname.startsWith('/identify') || location.pathname.startsWith('/attention');
+  const isPlansActive = location.pathname.startsWith('/plans');
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/collection') || location.pathname.startsWith('/jobs');
 
   return (
     <div className={styles.container}>
@@ -51,63 +54,34 @@ export function Layout() {
         <div className={styles.navLinks}>
           <Link
             to="/"
-            className={isActive('/') ? styles.navLinkActive : styles.navLink}
+            className={location.pathname === '/' ? styles.navLinkActive : styles.navLink}
           >
-            Dashboard
+            Home
           </Link>
           <Link
             to="/albums"
-            className={isActive('/albums') ? styles.navLinkActive : styles.navLink}
+            className={isLibraryActive ? styles.navLinkActive : styles.navLink}
           >
-            Albums
+            Library
           </Link>
           <Link
-            to="/artists"
-            className={isActive('/artists') ? styles.navLinkActive : styles.navLink}
+            to="/work"
+            search={{ tab: 'review' }}
+            className={isWorkActive ? styles.navLinkActive : styles.navLink}
           >
-            Artists
-          </Link>
-          <Link
-            to="/queue"
-            className={isActive('/queue') ? styles.navLinkActive : styles.navLink}
-          >
-            Queue
-          </Link>
-          <Link
-            to="/identify"
-            className={isActive('/identify') ? styles.navLinkActive : styles.navLink}
-          >
-            Identify
-          </Link>
-          <Link
-            to="/attention"
-            className={isActive('/attention') ? styles.navLinkActive : styles.navLink}
-          >
-            Attention
-          </Link>
-          <Link
-            to="/collection"
-            className={isActive('/collection') ? styles.navLinkActive : styles.navLink}
-          >
-            Collection
+            Work
           </Link>
           <Link
             to="/plans"
-            className={isActive('/plans') ? styles.navLinkActive : styles.navLink}
+            className={isPlansActive ? styles.navLinkActive : styles.navLink}
           >
             Plans
           </Link>
           <Link
-            to="/settings/scan-roots"
-            className={location.pathname.startsWith('/settings') ? styles.navLinkActive : styles.navLink}
+            to="/settings"
+            className={isSettingsActive ? styles.navLinkActive : styles.navLink}
           >
             Settings
-          </Link>
-          <Link
-            to="/jobs"
-            className={isActive('/jobs') ? styles.navLinkActive : styles.navLink}
-          >
-            Jobs
           </Link>
         </div>
 
