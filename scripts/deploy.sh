@@ -113,7 +113,9 @@ deploy_app() {
 deploy_workers() {
   echo "== workers → $WORKER_HOST ($COMMIT)"
   remote_lock "$WORKER_HOST"
-  rsync -az "${EXCLUDES[@]}" --exclude dist packages/shared packages/core packages/db packages/worker packages/doctor "$WORKER_HOST:$WORKER_DIR/packages/"
+  # tagwriter-py is the mutagen sidecar the worker spawns from
+  # packages/tagwriter-py (its .venv is host-local, never shipped)
+  rsync -az "${EXCLUDES[@]}" --exclude dist --exclude .venv packages/shared packages/core packages/db packages/worker packages/doctor packages/tagwriter-py "$WORKER_HOST:$WORKER_DIR/packages/"
   rsync -az package.json pnpm-workspace.yaml tsconfig.base.json pnpm-lock.yaml "$WORKER_HOST:$WORKER_DIR/"
   # every manifest must be present for the frozen lockfile to validate, even
   # for packages the worker host never builds (api, web); deps are installed
