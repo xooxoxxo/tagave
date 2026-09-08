@@ -1,78 +1,81 @@
 {
-  "release-group-count": 526,
   "release-group-offset": 0,
+  "release-group-count": 526,
   "release-groups": [
     {
-      "id": "6792b6d1-4e65-3c3c-9d20-d08aa1dcfc60",
-      "title": "The Piper at the Gates of Dawn",
-      "primary-type": "Album",
-      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
-      "secondary-types": [],
-      "secondary-type-ids": [],
       "first-release-date": "1967-07-07",
-      "disambiguation": "",
       "artist-credit": [
         {
           "name": "Pink Floyd",
-          "joinphrase": "",
           "artist": {
-            "id": "83d91898-7763-47d7-b03b-b92132375c47",
-            "name": "Pink Floyd",
-            "sort-name": "Pink Floyd",
-            "type": "Group",
             "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
-            "disambiguation": ""
-          }
+            "id": "83d91898-7763-47d7-b03b-b92132375c47",
+            "type": "Group",
+            "disambiguation": "",
+            "country": "GB",
+            "sort-name": "Pink Floyd",
+            "name": "Pink Floyd"
+          },
+          "joinphrase": ""
         }
-      ]
+      ],
+      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+      "secondary-types": [],
+      "secondary-type-ids": [],
+      "title": "The Piper at the Gates of Dawn",
+      "disambiguation": "",
+      "primary-type": "Album",
+      "id": "6792b6d1-4e65-3c3c-9d20-d08aa1dcfc60"
     },
     {
-      "id": "8a9caa40-b7c6-33eb-a13c-6c15f09b1c44",
+      "primary-type": "Album",
+      "disambiguation": "",
       "title": "A Saucerful of Secrets",
-      "primary-type": "Album",
-      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
       "secondary-types": [],
       "secondary-type-ids": [],
+      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
+      "id": "8a9caa40-b7c6-33eb-a13c-6c15f09b1c44",
       "first-release-date": "1968-06-29",
-      "disambiguation": "",
       "artist-credit": [
         {
-          "name": "Pink Floyd",
           "joinphrase": "",
           "artist": {
-            "id": "83d91898-7763-47d7-b03b-b92132375c47",
             "name": "Pink Floyd",
+            "disambiguation": "",
+            "country": "GB",
             "sort-name": "Pink Floyd",
-            "type": "Group",
             "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
-            "disambiguation": ""
-          }
+            "id": "83d91898-7763-47d7-b03b-b92132375c47",
+            "type": "Group"
+          },
+          "name": "Pink Floyd"
         }
       ]
     },
     {
-      "id": "b7aa61ae-3572-32c0-8b93-6af78ea83760",
-      "title": "Ummagumma",
-      "primary-type": "Album",
-      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc",
-      "secondary-types": [],
-      "secondary-type-ids": [],
-      "first-release-date": "1969-10-25",
-      "disambiguation": "",
       "artist-credit": [
         {
-          "name": "Pink Floyd",
           "joinphrase": "",
           "artist": {
-            "id": "83d91898-7763-47d7-b03b-b92132375c47",
-            "name": "Pink Floyd",
-            "sort-name": "Pink Floyd",
-            "type": "Group",
             "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
-            "disambiguation": ""
-          }
+            "type": "Group",
+            "id": "83d91898-7763-47d7-b03b-b92132375c47",
+            "disambiguation": "",
+            "country": "GB",
+            "sort-name": "Pink Floyd",
+            "name": "Pink Floyd"
+          },
+          "name": "Pink Floyd"
         }
-      ]
+      ],
+      "first-release-date": "1969-10-25",
+      "id": "b7aa61ae-3572-32c0-8b93-6af78ea83760",
+      "primary-type": "Album",
+      "title": "Ummagumma",
+      "disambiguation": "",
+      "secondary-types": [],
+      "secondary-type-ids": [],
+      "primary-type-id": "f529b476-6e62-324f-b0aa-1f3e33d313fc"
     }
   ]
 }
