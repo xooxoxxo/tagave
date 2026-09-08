@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { WorkerContext } from '../lib/context.js';
-import { fpcalcFingerprint } from '../lib/fingerprint.js';
+import { FPCALC_LENGTH_S, fpcalcFingerprint, fpcalcSliceFingerprint } from '../lib/fingerprint.js';
 
 export interface FingerprintAlbumJobData {
   localAlbumId: string;
@@ -17,6 +17,16 @@ interface FileRow {
   root_path: string;
   fingerprint: string | null;
   fingerprinted_at: Date | null;
+}
+
+interface CueTrackRow {
+  id: string;
+  cue_start_ms: number;
+  duration_ms: number | null;
+  fingerprint: string | null;
+  fingerprinted_at: Date | null;
+  rel_path: string;
+  root_path: string;
 }
 
 /**
@@ -62,8 +72,46 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, todo.length)) }, worker));
 
-  ctx.logger.info({ localAlbumId: data.localAlbumId, files: files.length, fingerprinted: ok, failed, skipped: files.length - todo.length }, 'fingerprint.album done');
-  if (files.some((f) => f.fingerprint) || ok > 0) {
+  // Cue images: the file fingerprint covers the first two minutes of a whole
+  // album and never matches a recording; each virtual track gets its own slice.
+  const cueTracks = (await ctx.sql`
+    select lt.id, lt.cue_start_ms, lt.duration_ms, lt.fingerprint, lt.fingerprinted_at, af.rel_path, sr.path as root_path
+    from local_tracks lt
+    join audio_files af on af.id = lt.audio_file_id
+    join scan_roots sr on sr.id = af.scan_root_id
+    where lt.local_album_id = ${data.localAlbumId} and lt.origin = 'cue'
+      and lt.cue_start_ms is not null and af.status in ('present', 'error')
+    order by lt.cue_start_ms`) as unknown as CueTrackRow[];
+  const cueTodo = cueTracks.filter((t) => data.force || (!t.fingerprint && !t.fingerprinted_at));
+  let cueOk = 0;
+  let cueFailed = 0;
+  const cueQueue = [...cueTodo];
+  const cueWorker = async () => {
+    for (let t = cueQueue.shift(); t; t = cueQueue.shift()) {
+      const full = path.join(t.root_path, t.rel_path);
+      const durationS = t.duration_ms ? Math.max(1, Math.round(t.duration_ms / 1000)) : FPCALC_LENGTH_S;
+      try {
+        const fp = await fpcalcSliceFingerprint(full, t.cue_start_ms / 1000, { lengthS: Math.min(FPCALC_LENGTH_S, durationS) });
+        await ctx.sql`
+          update local_tracks
+          set fingerprint = ${fp}, fingerprint_duration = ${durationS}, fingerprinted_at = now(), fingerprint_error = null
+          where id = ${t.id}`;
+        cueOk++;
+      } catch (err) {
+        const message = (err as Error).message.slice(0, 500);
+        await ctx.sql`update local_tracks set fingerprinted_at = now(), fingerprint_error = ${message} where id = ${t.id}`;
+        cueFailed++;
+        ctx.logger.warn({ file: full, startMs: t.cue_start_ms, err: message }, 'fingerprint slice failed');
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, Math.max(1, cueTodo.length)) }, cueWorker));
+
+  ctx.logger.info({
+    localAlbumId: data.localAlbumId, files: files.length, fingerprinted: ok, failed, skipped: files.length - todo.length,
+    cueTracks: cueTracks.length, cueFingerprinted: cueOk, cueFailed,
+  }, 'fingerprint.album done');
+  if (files.some((f) => f.fingerprint) || ok > 0 || cueTracks.some((t) => t.fingerprint) || cueOk > 0) {
     await ctx.boss.send('acoustid.lookup', { localAlbumId: data.localAlbumId }, { singletonKey: `acoustid:${data.localAlbumId}` });
   } else {
     await ctx.sql`update local_albums set fingerprinted_at = now(), acoustid_result = 'no_fingerprints' where id = ${data.localAlbumId}`;

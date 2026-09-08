@@ -272,6 +272,11 @@ export const localTracks = pgTable(
     origin: varchar({ length: 10 }).notNull().default('file'),
     cueStartMs: integer('cue_start_ms'),
     cueRelPath: varchar('cue_rel_path', { length: 2048 }),
+    // 0024: per-virtual-track Chromaprint for cue images (file-backed tracks use audio_files.fingerprint)
+    fingerprint: text('fingerprint'),
+    fingerprintDuration: integer('fingerprint_duration'),
+    fingerprintedAt: timestamp('fingerprinted_at', { withTimezone: true }),
+    fingerprintError: text('fingerprint_error'),
   },
   (table) => ({
     albumIdx: index('idx_local_tracks_album').on(table.localAlbumId),

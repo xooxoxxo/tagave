@@ -48,10 +48,16 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
     return;
   }
 
+  // one fingerprint per track: the file's for file-backed tracks, the track's own
+  // slice for virtual tracks of a cue image (the image fingerprint is never used)
   const tracks = (await ctx.sql`
     select distinct af.id as audio_file_id, af.fingerprint, af.fingerprint_duration
     from local_tracks lt join audio_files af on af.id = lt.audio_file_id
-    where lt.local_album_id = ${album.id} and af.fingerprint is not null`) as unknown as TrackRow[];
+    where lt.local_album_id = ${album.id} and lt.origin <> 'cue' and af.fingerprint is not null
+    union all
+    select lt.id as audio_file_id, lt.fingerprint, lt.fingerprint_duration
+    from local_tracks lt
+    where lt.local_album_id = ${album.id} and lt.origin = 'cue' and lt.fingerprint is not null`) as unknown as TrackRow[];
   if (tracks.length === 0) {
     await ctx.sql`update local_albums set fingerprinted_at = now(), acoustid_result = 'no_fingerprints' where id = ${album.id}`;
     return;

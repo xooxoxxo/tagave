@@ -23,11 +23,20 @@ const releaseSchema = z.object({
   releasegroup: releaseGroupSchema.optional(),
 }).passthrough();
 
+// With `meta=recordings releases releasegroups` AcoustID nests each recording's
+// releases INSIDE its releasegroups (recording.releasegroups[].releases[]) and
+// leaves recording.releases empty — verified against the live service
+// 2026-09-09, when every lookup "had hits" and no candidates. Both shapes parse.
+const releaseGroupWithReleasesSchema = releaseGroupSchema.extend({
+  releases: z.array(releaseSchema).optional(),
+});
+
 const recordingSchema = z.object({
   id: z.string(),
   title: z.string().optional(),
   duration: z.number().optional(),
   releases: z.array(releaseSchema).optional(),
+  releasegroups: z.array(releaseGroupWithReleasesSchema).optional(),
 }).passthrough();
 
 const resultSchema = z.object({
@@ -130,19 +139,30 @@ export function flattenResults(parsed: z.infer<typeof acoustIdResponseSchema>): 
   const out: AcoustIdRecording[] = [];
   for (const result of parsed.results ?? []) {
     for (const rec of result.recordings ?? []) {
+      // flat releases (meta without releasegroups) + releases nested under each group
+      const flat = (rec.releases ?? []).map((r) => ({ release: r, groupMbid: r.releasegroup?.id }));
+      const nested = (rec.releasegroups ?? []).flatMap((g) =>
+        (g.releases ?? []).map((r) => ({ release: r, groupMbid: r.releasegroup?.id ?? g.id })));
+      const seen = new Set<string>();
+      const releases: AcoustIdRelease[] = [];
+      for (const { release: r, groupMbid } of [...flat, ...nested]) {
+        if (seen.has(r.id)) continue;
+        seen.add(r.id);
+        releases.push({
+          mbid: r.id,
+          ...(groupMbid !== undefined ? { releaseGroupMbid: groupMbid } : {}),
+          ...(r.title !== undefined ? { title: r.title } : {}),
+          ...(r.country !== undefined ? { country: r.country } : {}),
+          ...(r.track_count !== undefined ? { trackCount: r.track_count } : {}),
+          ...(r.medium_count !== undefined ? { mediumCount: r.medium_count } : {}),
+        });
+      }
       out.push({
         score: result.score,
         recordingMbid: rec.id,
         ...(rec.title !== undefined ? { title: rec.title } : {}),
         ...(rec.duration !== undefined ? { durationS: rec.duration } : {}),
-        releases: (rec.releases ?? []).map((r) => ({
-          mbid: r.id,
-          ...(r.releasegroup?.id !== undefined ? { releaseGroupMbid: r.releasegroup.id } : {}),
-          ...(r.title !== undefined ? { title: r.title } : {}),
-          ...(r.country !== undefined ? { country: r.country } : {}),
-          ...(r.track_count !== undefined ? { trackCount: r.track_count } : {}),
-          ...(r.medium_count !== undefined ? { mediumCount: r.medium_count } : {}),
-        })),
+        releases,
       });
     }
   }

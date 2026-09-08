@@ -1,17 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { AcoustIdClient, AcoustIdError, acoustIdResponseSchema, flattenResults, rankReleases } from './acoustid.js';
 
-// Shape per https://acoustid.org/webservice (lookup with meta=recordings releases releasegroups).
-// NOTE: replace with a captured live response once the owner's key exists (repo rule: fixtures from real responses).
+// Live shape (2026-09-09, meta=recordings releases releasegroups): releases sit INSIDE
+// each recording's releasegroups[]; recording.releases is absent or empty. The flat
+// shape (meta without releasegroups) is kept in the second result.
 const sample = {
   status: 'ok',
   results: [
     {
       id: 'fp-1', score: 0.97,
       recordings: [
-        { id: 'rec-a', title: 'Airbag', duration: 284, releases: [
-          { id: 'rel-uk', title: 'OK Computer', country: 'GB', track_count: 12, medium_count: 1, releasegroup: { id: 'rg-ok', type: 'Album' } },
-          { id: 'rel-comp', title: 'Some Compilation', track_count: 40, medium_count: 2, releasegroup: { id: 'rg-comp', type: 'Album' } },
+        { id: 'rec-a', title: 'Airbag', duration: 284, releases: [], releasegroups: [
+          { id: 'rg-ok', type: 'Album', title: 'OK Computer', releases: [
+            { id: 'rel-uk', title: 'OK Computer', country: 'GB', track_count: 12, medium_count: 1 },
+            { id: 'rel-us', title: 'OK Computer', country: 'US', track_count: 12, medium_count: 1 },
+          ] },
+          { id: 'rg-comp', type: 'Album', title: 'Some Compilation', releases: [
+            { id: 'rel-comp', title: 'Some Compilation', track_count: 40, medium_count: 2 },
+          ] },
         ] },
       ],
     },
@@ -20,11 +26,20 @@ const sample = {
 };
 
 describe('flattenResults', () => {
-  it('yields one row per recording, best score first, with releases and release groups', () => {
+  it('yields one row per recording, best score first, with releases lifted out of their release groups', () => {
     const rows = flattenResults(acoustIdResponseSchema.parse(sample));
     expect(rows.map((r) => r.recordingMbid)).toEqual(['rec-a', 'rec-noise']);
+    expect(rows[0]!.releases.map((r) => r.mbid)).toEqual(['rel-uk', 'rel-us', 'rel-comp']);
     expect(rows[0]!.releases[0]).toMatchObject({ mbid: 'rel-uk', releaseGroupMbid: 'rg-ok', trackCount: 12, country: 'GB' });
+    expect(rows[0]!.releases[2]).toMatchObject({ mbid: 'rel-comp', releaseGroupMbid: 'rg-comp' });
     expect(rows[1]!.releases[0]).toEqual({ mbid: 'rel-noise' });
+  });
+
+  it('does not list a release twice when it appears flat and under its group', () => {
+    const both = { status: 'ok', results: [{ id: 'x', score: 1, recordings: [{ id: 'r',
+      releases: [{ id: 'rel-1', releasegroup: { id: 'rg-1' } }],
+      releasegroups: [{ id: 'rg-1', releases: [{ id: 'rel-1' }] }] }] }] };
+    expect(flattenResults(acoustIdResponseSchema.parse(both))[0]!.releases).toEqual([{ mbid: 'rel-1', releaseGroupMbid: 'rg-1' }]);
   });
 
   it('tolerates an empty result list', () => {
