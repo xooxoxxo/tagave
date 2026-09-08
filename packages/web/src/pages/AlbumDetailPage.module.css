@@ -360,3 +360,19 @@
 .attribution a:hover {
   text-decoration: underline;
 }
+
+/* queued identification request (manual pin / re-identify / sweep) */
+.pendingPanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-secondary);
+  font-size: var(--font-size-sm);
+}
+.pendingTitle { font-weight: 600; }
+.pendingMeta { color: var(--text-secondary); flex: 1; }

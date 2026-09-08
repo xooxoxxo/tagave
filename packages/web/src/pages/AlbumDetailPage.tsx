@@ -49,6 +49,16 @@ interface Candidate {
   rgMbid: string | null;
   excluded: boolean;
 }
+interface PendingIdentify {
+  id: string;
+  state: 'created' | 'retry' | 'active';
+  kind: 'mbid' | 'discogs' | 'reidentify' | 'sweep';
+  pinned: string | null;
+  priority: number;
+  createdAt: string;
+  startedAt: string | null;
+  jobsAhead: number;
+}
 interface Gap {
   id: string;
   kind: string;
@@ -79,6 +89,8 @@ interface AlbumDetail {
   trackCount: number | null;
   totalDurationMs: number | null;
   coverUrl: string | null;
+  /** the one queued identify job for this album, if any (manual pin, re-identify or the sweep) */
+  pendingIdentify?: PendingIdentify | null;
   coverOrigin: string | null;
   isCueImage: boolean;
   cueRelPath: string | null;
@@ -228,9 +240,20 @@ export function AlbumDetailPage() {
       }),
     onSuccess: () => {
       setMbidInput('');
-      refresh(6000);
+      refresh(0); // the detail now carries pendingIdentify; SSE clears it when the job decides
     },
   });
+  const cancelRequest = useMutation({
+    mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify-request/cancel`, {}),
+    onSuccess: () => refresh(0),
+  });
+  const pending = album?.pendingIdentify ?? null;
+  const PENDING_KIND: Record<string, string> = {
+    mbid: 'Manual match (MusicBrainz release)',
+    discogs: 'Manual match (Discogs)',
+    reidentify: 'Re-identify',
+    sweep: 'Identification sweep',
+  };
 
   const switchEdition = useMutation({
     mutationFn: (mbid: string) =>
@@ -418,7 +441,7 @@ export function AlbumDetailPage() {
             </div>
           )}
           <div className={styles.actions}>
-            <button onClick={() => reidentify.mutate()} disabled={reidentify.isPending}>
+            <button onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : undefined}>
               {reidentify.isPending ? 'Queued...' : 'Re-identify'}
             </button>
             <button onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
@@ -435,21 +458,36 @@ export function AlbumDetailPage() {
               </button>
             )}
           </div>
+          {pending && (
+            <div className={styles.pendingPanel} role="status">
+              <span className={styles.pendingTitle}>{PENDING_KIND[pending.kind] ?? 'Identification'} queued</span>
+              <span className={styles.pendingMeta}>
+                {pending.pinned ? `${pending.pinned} · ` : ''}
+                {pending.state === 'active' ? 'running now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `${pending.jobsAhead.toLocaleString()} ahead in the queue`}
+                {' · '}since {new Date(pending.createdAt).toLocaleString()}
+              </span>
+              <button onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
+                {cancelRequest.isPending ? 'Cancelling...' : 'Cancel'}
+              </button>
+              {cancelRequest.isError && <span className={styles.mbidError}>Cancel failed</span>}
+            </div>
+          )}
           <div className={styles.mbidRow}>
             <input
               className={styles.mbidInput}
-              placeholder="Paste a MusicBrainz or Discogs release URL / ID to match manually"
+              placeholder={pending ? 'A request is queued — cancel it to submit another' : 'Paste a MusicBrainz or Discogs release URL / ID to match manually'}
               value={mbidInput}
+              disabled={!!pending}
               onChange={(e) => setMbidInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && mbidInput.trim()) matchMbid.mutate();
+                if (e.key === 'Enter' && mbidInput.trim() && !pending) matchMbid.mutate();
               }}
             />
             <button
               onClick={() => matchMbid.mutate()}
-              disabled={!mbidInput.trim() || matchMbid.isPending}
+              disabled={!mbidInput.trim() || matchMbid.isPending || !!pending}
             >
-              {matchMbid.isPending ? 'Matching...' : 'Match'}
+              {matchMbid.isPending ? 'Queuing...' : 'Match'}
             </button>
             {matchMbid.isError && (
               <span className={styles.mbidError}>
@@ -457,7 +495,7 @@ export function AlbumDetailPage() {
                   (matchMbid.error as Error)?.message ?? 'Failed'}
               </span>
             )}
-            {matchMbid.isSuccess && <span className={styles.mbidOk}>Queued — updates in a few seconds</span>}
+            {matchMbid.isSuccess && !pending && <span className={styles.mbidOk}>Queued</span>}
           </div>
         </div>
       </div>

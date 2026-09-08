@@ -12,6 +12,7 @@ import { libraries, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 
 /** G1 (spec §2): 95% of albums identified by day 30 of the library's life. */
 const G1_SHARE = 0.95;
@@ -311,7 +312,8 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     let enqueued = 0;
     for (const id of ids) {
       const jobId = await boss.send('identify.album', { localAlbumId: id, force: true }, {
-        singletonKey: `identify:${id}`,
+        singletonKey: IDENTIFY_SINGLETON(id),
+        priority: IDENTIFY_PRIORITY.retry,
         retryLimit: 3,
         retryDelay: 60,
         retryBackoff: true,
@@ -328,5 +330,25 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const boss = await getBoss();
     await boss.send('identify.sweep', { libraryId, topUp: true }, { singletonKey: `identify.sweep:${libraryId}` });
     reply.status(202).send({ ok: true });
+  });
+
+  // Owner-initiated identification requests still waiting (pinned ids,
+  // re-identify) with their position in the queue; the sweep's own jobs are
+  // not listed here.
+  fastify.get('/libraries/:libraryId/identify/requests', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    await ownedLibrary(request.user.id, libraryId);
+    reply.send({ items: await listPendingIdentifyRequests(libraryId) });
+  });
+
+  fastify.post('/libraries/:libraryId/identify/requests/:albumId/cancel', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+    await ownedLibrary(request.user.id, libraryId);
+    const pending = await pendingIdentifyJob(albumId);
+    if (!pending) throw new ApiError(404, 'Not Found', 'No identification request is queued for this album');
+    await cancelIdentifyJob(await getBoss(), pending.id);
+    reply.send({ cancelled: pending.id, wasActive: pending.state === 'active' });
   });
 }

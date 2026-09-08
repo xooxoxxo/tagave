@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep } from '../hooks';
+import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
 import { formatEta, formatRelativeTime } from '../utils/time';
 import styles from './IdentifyPage.module.css';
 
@@ -50,6 +50,9 @@ export function IdentifyPage() {
   });
   const retry = useRetryIdentify(libraryId);
   const kickSweep = useKickSweep(libraryId);
+  const { data: requests } = useIdentifyRequests(libraryId);
+  const cancelRequest = useCancelIdentifyRequest(libraryId);
+  const REQUEST_KIND: Record<string, string> = { mbid: 'MusicBrainz id', discogs: 'Discogs id', reidentify: 'Re-identify', sweep: 'Sweep' };
 
   const limit = 100;
   const offset = page * 100;
@@ -212,6 +215,34 @@ export function IdentifyPage() {
           )}
         </svg>
       </div>
+
+      {/* Manual requests: owner-initiated identify jobs still in the queue */}
+      <section className={styles.requests}>
+        <div className={styles.provenanceHeader}>
+          <span className={styles.identifiedLabel}>Manual requests</span>
+          <span className={styles.provenanceTotal}>{requests ? `${requests.items.length} queued` : '…'}</span>
+        </div>
+        {requests && requests.items.length === 0 && (
+          <div className={styles.fastPathLine}>No manual identification requests waiting. Requests from an album page run ahead of the sweep.</div>
+        )}
+        {requests && requests.items.length > 0 && (
+          <div className={styles.requestList}>
+            {requests.items.map((r) => (
+              <div key={r.id} className={styles.requestRow}>
+                <button className={styles.requestAlbum} onClick={() => navigate({ to: '/albums/$albumId', params: { albumId: r.album.id } as never })}>
+                  {r.album.artist ? `${r.album.artist} — ` : ''}{r.album.title ?? '(untitled)'}
+                </button>
+                <span className={styles.requestMeta}>
+                  {REQUEST_KIND[r.kind] ?? r.kind}{r.pinned ? ` ${r.pinned}` : ''} · {r.state === 'active' ? 'running' : r.state === 'retry' ? 'retrying' : r.jobsAhead === 0 ? 'next' : `${r.jobsAhead.toLocaleString()} ahead`} · {formatRelativeTime(r.createdAt)}
+                </span>
+                <button className={styles.btn} onClick={() => cancelRequest.mutate(r.album.id)} disabled={cancelRequest.isPending || r.state === 'active'}>
+                  Cancel
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Provenance: how the live matches were found */}
       <section className={styles.provenance}>

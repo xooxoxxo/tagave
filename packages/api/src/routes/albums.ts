@@ -8,6 +8,7 @@ import {
 import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
+import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -767,6 +768,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         };
       }
 
+      const pendingIdentify = await pendingIdentifyJob(album.id);
+
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
@@ -775,6 +778,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         artistCredit: album.artistGuess,
         year: album.yearGuess,
         state: album.state,
+        pendingIdentify,
         dirPaths: album.dirPaths,
         formats: album.formats,
         discCount: album.discCount,
@@ -906,11 +910,17 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           .from(libraries)
           .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
         if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+        const pendingMb = await pendingIdentifyJob(albumId);
+        if (pendingMb) {
+          reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending: pendingMb });
+          return;
+        }
         const boss = await getBoss();
-        await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
-          singletonKey: `identify:${albumId}`,
+        const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
+          singletonKey: IDENTIFY_SINGLETON(albumId),
+          priority: IDENTIFY_PRIORITY.manual,
         });
-        reply.status(202).send({ ok: true, mbid });
+        reply.status(202).send({ ok: true, mbid, jobId, pending: await pendingIdentifyJob(albumId) });
         return;
       }
 
@@ -923,11 +933,17 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           .from(libraries)
           .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
         if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+        const pendingDg = await pendingIdentifyJob(albumId);
+        if (pendingDg) {
+          reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending: pendingDg });
+          return;
+        }
         const boss = await getBoss();
-        await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedDiscogs: discogsRef }, {
-          singletonKey: `identify:${albumId}`,
+        const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedDiscogs: discogsRef }, {
+          singletonKey: IDENTIFY_SINGLETON(albumId),
+          priority: IDENTIFY_PRIORITY.manual,
         });
-        reply.status(202).send({ ok: true, discogs: discogsRef });
+        reply.status(202).send({ ok: true, discogs: discogsRef, jobId, pending: await pendingIdentifyJob(albumId) });
         return;
       }
 
@@ -948,11 +964,38 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .from(libraries)
         .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const pending = await pendingIdentifyJob(albumId);
+      if (pending) {
+        reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending });
+        return;
+      }
       const boss = await getBoss();
-      await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
-        singletonKey: `identify:${albumId}`,
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
+        singletonKey: IDENTIFY_SINGLETON(albumId),
+        priority: IDENTIFY_PRIORITY.manual,
       });
-      reply.status(202).send({ ok: true });
+      reply.status(202).send({ ok: true, jobId, pending: await pendingIdentifyJob(albumId) });
+    }
+  );
+
+  // Cancel the queued identification request for an album (manual pin,
+  // re-identify or the sweep's own job). An active job cannot be interrupted;
+  // it is marked cancelled and finishes on the worker.
+  fastify.post(
+    '/libraries/:libraryId/albums/:albumId/identify-request/cancel',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const db = getDb();
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const pending = await pendingIdentifyJob(albumId);
+      if (!pending) throw new ApiError(404, 'Not Found', 'No identification request is queued for this album');
+      await cancelIdentifyJob(await getBoss(), pending.id);
+      reply.send({ cancelled: pending.id, wasActive: pending.state === 'active' });
     }
   );
 

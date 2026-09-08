@@ -3,5 +3,5 @@ export { useLibraries, useLibrary, useAlbums, useAlbum, useScanRoots, useCreateS
 export { useCurrentLibrary } from './useCurrentLibrary';
 export { useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from './useViews';
 export { useReviews, useSaveReview, useDeleteReview, useReviewRevisions, useAddListen, useDeleteListen, useAddClipping, useDeleteClipping, useRefreshReviews } from './useReviews';
-export { useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useJobs, useJobEvents, type IdentifyStatsResponse, type TriageItem, type JobInfo } from './useIdentify';
+export { useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useJobs, useJobEvents, useIdentifyRequests, useCancelIdentifyRequest, type IdentifyStatsResponse, type TriageItem, type JobInfo, type PendingIdentify, type PendingIdentifyRequest } from './useIdentify';
 export { useArtistsList, useArtist, useFollowArtist, useGenreMap, usePatchGenreMap, useGenrePreview, type ArtistListItem, type ArtistDetail, type ArtistsListResponse, type GenreMap, type GenrePreviewResponse } from './useArtists';

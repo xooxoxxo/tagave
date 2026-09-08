@@ -223,6 +223,7 @@ export function useJobEvents(libraryId: string | undefined) {
       debounceTimer = setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
         queryClient.invalidateQueries({ queryKey: ['identify-triage', libraryId] });
+        queryClient.invalidateQueries({ queryKey: ['identify-requests', libraryId] });
         queryClient.invalidateQueries({ queryKey: ['queue', libraryId] });
         queryClient.invalidateQueries({ queryKey: ['jobs', libraryId] });
         queryClient.invalidateQueries({ queryKey: ['library-stats', libraryId] });
@@ -233,6 +234,8 @@ export function useJobEvents(libraryId: string | undefined) {
       try {
         const event: QueueChangedEvent = JSON.parse(e.data);
         if (event.libraryId === libraryId) {
+          // the album page shows its pending request; refresh just that album
+          if (event.localAlbumId) queryClient.invalidateQueries({ queryKey: ['album', event.localAlbumId] });
           invalidate();
         }
       } catch {
@@ -278,4 +281,43 @@ export function useJobEvents(libraryId: string | undefined) {
       if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [libraryId, queryClient]);
+}
+
+/** One live identify.album job for an album (manual pin, re-identify, or the sweep's own). */
+export interface PendingIdentify {
+  id: string;
+  state: 'created' | 'retry' | 'active';
+  kind: 'mbid' | 'discogs' | 'reidentify' | 'sweep';
+  pinned: string | null;
+  priority: number;
+  createdAt: string;
+  startedAt: string | null;
+  jobsAhead: number;
+}
+
+export interface PendingIdentifyRequest extends PendingIdentify {
+  album: { id: string; title: string | null; artist: string | null; state: string };
+}
+
+/** Owner-initiated identification requests still waiting (GET /identify/requests, 15 s refetch + SSE). */
+export function useIdentifyRequests(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['identify-requests', libraryId],
+    queryFn: () => api.get<{ items: PendingIdentifyRequest[] }>(`/libraries/${libraryId}/identify/requests`),
+    enabled: !!libraryId,
+    refetchInterval: 15_000,
+  });
+}
+
+/** Cancel the queued request of one album; invalidates the album, the requests list and the stats. */
+export function useCancelIdentifyRequest(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (albumId: string) => api.post(`/libraries/${libraryId}/identify/requests/${albumId}/cancel`, {}),
+    onSuccess: (_data, albumId) => {
+      queryClient.invalidateQueries({ queryKey: ['identify-requests', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+    },
+  });
 }

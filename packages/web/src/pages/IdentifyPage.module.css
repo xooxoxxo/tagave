@@ -444,3 +444,33 @@
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
 }
+
+/* manual identification requests */
+.requests {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
+  background-color: var(--bg-secondary);
+  border-radius: var(--radius-lg);
+}
+.requestList { display: flex; flex-direction: column; gap: var(--space-xs); }
+.requestRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-xs) 0;
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-sm);
+}
+.requestAlbum {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.requestAlbum:hover { text-decoration: underline; }
+.requestMeta { flex: 1; color: var(--text-secondary); }
