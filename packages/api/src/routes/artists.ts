@@ -13,6 +13,7 @@ import { getBoss } from '../boss.js';
 import { normalizeFollowRules } from '@liner/core';
 import { followRulesSchema } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
+import { followDefaultsFor } from '../lib/followRules.js';
 
 const ENRICH_TTL_DAYS = 7;
 
@@ -333,7 +334,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     const { libraryId, artistId } = request.params as { libraryId: string; artistId: string };
     const { followed } = request.body as { followed?: boolean };
 
-    await ownedLibrary(request.user.id, libraryId);
+    const lib = await ownedLibrary(request.user.id, libraryId);
     const db = getDb();
 
     // Verify artist exists
@@ -346,10 +347,15 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
         .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
 
       if (!existing) {
+        // Type filters start as a copy of the library's follow rules (XO-345),
+        // not the schema defaults, so a library that follows EPs gets EP gaps.
+        const defaults = followDefaultsFor(lib.settings);
         await db.insert(followedArtists).values({
           libraryId,
           artistId,
           mode: 'manual',
+          includePrimary: defaults.includePrimary,
+          excludeSecondary: defaults.excludeSecondary,
         });
       }
     } else {
@@ -384,7 +390,8 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     try {
       const boss = await getBoss();
-      await boss.send('artist.refresh', { libraryId, artistId }, {
+      // force: a manual refresh must reach MusicBrainz, not the 6-day browse cache
+      await boss.send('artist.refresh', { libraryId, artistId, force: true }, {
         singletonKey: `artist.refresh:${artistId}`,
         retryLimit: 2,
         retryDelay: 30,

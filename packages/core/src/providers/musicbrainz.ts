@@ -48,6 +48,29 @@ export type MbArtist = {
   urlRelations: Array<{ type: string; url: string }>;
 };
 
+/**
+ * One release group from the artist browse (XO-348): what a followed
+ * artist's discography needs, without a per-group lookup.
+ */
+export type ArtistReleaseGroup = {
+  mbid: string;
+  title: string;
+  primaryType: string | null;
+  secondaryTypes: string[];
+  firstReleaseDate: string | null;
+  artistCredits: ArtistCredit[];
+};
+
+export type ArtistReleaseGroupPage = {
+  items: ArtistReleaseGroup[];
+  /** release groups matching the filter across all pages */
+  total: number;
+  offset: number;
+};
+
+/** MusicBrainz caps browse pages at 100 entries. */
+export const MB_BROWSE_LIMIT = 100;
+
 const MB_BASE_URL = 'https://musicbrainz.org/ws/2';
 
 /** HTTP failure with the status attached, so callers can tell a stale id
@@ -843,6 +866,70 @@ export class MusicBrainzProvider implements MetadataProvider {
         sourceId: rg.id,
       };
     });
+  }
+
+  /**
+   * One page of an artist's release groups from the browse endpoint
+   * (`/release-group?artist=`), with types, first release date and the full
+   * artist credit. `types` filters server-side by primary type, so a followed
+   * artist's discography costs one request per 100 release groups instead of
+   * one per release group (XO-348). Live check 2026-09-08: Pink Floyd with
+   * type=album|ep reports 526 groups; secondary types are not filtered.
+   */
+  async browseArtistReleaseGroups(
+    artistMbid: string,
+    _ctx: CallContext,
+    opts: { types?: string[]; offset?: number; limit?: number } = {}
+  ): Promise<ArtistReleaseGroupPage> {
+    const limit = Math.max(1, Math.min(opts.limit ?? MB_BROWSE_LIMIT, MB_BROWSE_LIMIT));
+    const offset = Math.max(0, opts.offset ?? 0);
+    const url = new URL(`${MB_BASE_URL}/release-group`, 'https://musicbrainz.org');
+    url.searchParams.set('artist', artistMbid);
+    url.searchParams.set('fmt', 'json');
+    url.searchParams.set('inc', 'artist-credits');
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('offset', String(offset));
+    if (opts.types?.length) {
+      url.searchParams.set('type', opts.types.map((t) => t.toLowerCase()).join('|'));
+    }
+
+    const response = await fetch(url.toString(), {
+      headers: {
+        'User-Agent': this.userAgent,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 503) {
+      throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
+    }
+    if (!response.ok) {
+      throw mbHttpError(`Failed to browse MusicBrainz release groups for artist ${artistMbid}: ${response.statusText}`, response.status);
+    }
+
+    const data = await response.json();
+    const parsed = z
+      .object({
+        'release-group-count': z.number().nullish(),
+        'release-group-offset': z.number().nullish(),
+        'release-groups': z.array(ReleaseGroupSchema).optional(),
+      })
+      .parse(data);
+
+    const items: ArtistReleaseGroup[] = (parsed['release-groups'] ?? []).map((rg) => ({
+      mbid: rg.id,
+      title: rg.title,
+      primaryType: rg['primary-type'] ?? null,
+      secondaryTypes: rg['secondary-types'] ?? [],
+      firstReleaseDate: rg['first-release-date'] || null,
+      artistCredits: mbArtistCreditsToCanonical(rg['artist-credit']),
+    }));
+
+    return {
+      items,
+      total: parsed['release-group-count'] ?? items.length,
+      offset: parsed['release-group-offset'] ?? offset,
+    };
   }
 
   /**

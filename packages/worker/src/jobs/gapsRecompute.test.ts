@@ -118,11 +118,13 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
       },
     ]);
 
-    // Follow the artist
+    // Follow the artist; the fixtures are two albums and an EP, so the
+    // per-artist rules must include EPs (the schema default is Album only).
     await db.insert(followedArtists).values({
       libraryId,
       artistId,
       mode: 'manual',
+      includePrimary: ['Album', 'EP'],
       createdAt: new Date(),
     });
   });
@@ -373,7 +375,7 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
       position: 0,
     });
 
-    // Follow the new artist
+    // Follow the new artist with the schema defaults (Album only)
     await db.insert(followedArtists).values({
       libraryId,
       artistId: newArtistId,
@@ -381,8 +383,19 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
       createdAt: new Date(),
     });
 
-    // Run recompute
+    // A single is outside the default includePrimary: no gap
     const data: GapsRecomputeJobData = { libraryId };
+    await gapsRecomputeJob(ctx, data);
+    const noGap = await db
+      .select()
+      .from(gaps)
+      .where(and(eq(gaps.libraryId, libraryId), eq(gaps.subjectId, newRgId)));
+    expect(noGap).toHaveLength(0);
+
+    // Widen the artist's rules to singles and recompute
+    await db.update(followedArtists)
+      .set({ includePrimary: ['Album', 'Single'] })
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, newArtistId)));
     await gapsRecomputeJob(ctx, data);
 
     // The new release group should have a missing_album gap
@@ -409,5 +422,82 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
     await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.artistId, newArtistId));
     await db.delete(releaseGroups).where(eq(releaseGroups.id, newRgId));
     await db.delete(artists).where(eq(artists.id, newArtistId));
+  });
+
+  it('excludes release groups whose secondary type the follow rules exclude', async () => {
+    const liveRgId = randomUUID();
+    await db.insert(releaseGroups).values({
+      id: liveRgId,
+      mbid: randomUUID(),
+      title: 'Live at Somewhere',
+      primaryType: 'Album',
+      secondaryTypes: ['Live'],
+    });
+    await db.insert(releaseGroupArtists).values({ releaseGroupId: liveRgId, artistId, position: 0 });
+
+    await gapsRecomputeJob(ctx, { libraryId });
+
+    const rows = await db
+      .select()
+      .from(gaps)
+      .where(and(eq(gaps.libraryId, libraryId), eq(gaps.subjectId, liveRgId)));
+    expect(rows).toHaveLength(0);
+
+    await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, liveRgId));
+    await db.delete(releaseGroups).where(eq(releaseGroups.id, liveRgId));
+  });
+
+  it('null per-artist columns inherit the library followRules', async () => {
+    const soloArtistId = randomUUID();
+    const singleRgId = randomUUID();
+    await db.insert(artists).values({ id: soloArtistId, mbid: randomUUID(), name: 'Singles Artist' });
+    await db.insert(releaseGroups).values({ id: singleRgId, mbid: randomUUID(), title: 'Hit Single', primaryType: 'Single' });
+    await db.insert(releaseGroupArtists).values({ releaseGroupId: singleRgId, artistId: soloArtistId, position: 0 });
+    await db.insert(followedArtists).values({
+      libraryId,
+      artistId: soloArtistId,
+      mode: 'manual',
+      includePrimary: null,
+      excludeSecondary: null,
+    });
+
+    // Library never set rules → built-in default (Album only) → no gap
+    await gapsRecomputeJob(ctx, { libraryId });
+    let rows = await db.select().from(gaps).where(and(eq(gaps.libraryId, libraryId), eq(gaps.subjectId, singleRgId)));
+    expect(rows).toHaveLength(0);
+
+    // Library says singles count → the inheriting artist gets the gap
+    await db.update(libraries)
+      .set({ settings: { followRules: { includePrimary: ['Album', 'Single'] } } })
+      .where(eq(libraries.id, libraryId));
+    await gapsRecomputeJob(ctx, { libraryId });
+    rows = await db.select().from(gaps).where(and(eq(gaps.libraryId, libraryId), eq(gaps.subjectId, singleRgId)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.state).toBe('open');
+
+    await db.update(libraries).set({ settings: {} }).where(eq(libraries.id, libraryId));
+    await db.delete(followedArtists).where(eq(followedArtists.artistId, soloArtistId));
+    await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.releaseGroupId, singleRgId));
+    await db.delete(releaseGroups).where(eq(releaseGroups.id, singleRgId));
+    await db.delete(artists).where(eq(artists.id, soloArtistId));
+  });
+
+  it('a release group shared by two followed artists yields one gap', async () => {
+    const partnerId = randomUUID();
+    await db.insert(artists).values({ id: partnerId, mbid: randomUUID(), name: 'Partner' });
+    await db.insert(releaseGroupArtists).values({ releaseGroupId: releaseGroupId3, artistId: partnerId, position: 1 });
+    await db.insert(followedArtists).values({ libraryId, artistId: partnerId, mode: 'manual', includePrimary: ['Album', 'EP'] });
+
+    await db.delete(gaps).where(eq(gaps.libraryId, libraryId));
+    // Two followed artists on one group must not trip the multi-row upsert
+    await expect(gapsRecomputeJob(ctx, { libraryId })).resolves.toBeUndefined();
+
+    const rows = await db.select().from(gaps).where(and(eq(gaps.libraryId, libraryId), eq(gaps.subjectId, releaseGroupId3)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.state).toBe('open');
+
+    await db.delete(followedArtists).where(eq(followedArtists.artistId, partnerId));
+    await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.artistId, partnerId));
+    await db.delete(artists).where(eq(artists.id, partnerId));
   });
 });

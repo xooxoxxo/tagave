@@ -84,7 +84,7 @@ describe('Artist routes - follow rules (unit)', () => {
   });
 });
 
-describe.skipIf(!process.env.TEST_DATABASE_URL && !process.env.DATABASE_URL)(
+describe.skipIf(!process.env.TEST_DATABASE_URL)(
   'Artist routes - last_viewed_at tracking (integration)',
   () => {
     let db: any;

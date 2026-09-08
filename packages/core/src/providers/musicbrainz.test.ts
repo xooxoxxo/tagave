@@ -517,3 +517,74 @@ describe('getArtist alias shapes', () => {
     expect(artist.aliases).toContain('Reginald Dwight');
   });
 });
+
+describe('browseArtistReleaseGroups', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('maps one browse page: types, dates, credits and the paging totals', async () => {
+    // Trimmed from a live 2026-09-08 response (Pink Floyd, type=album|ep, limit 3).
+    const fixture = loadFixture('mb_rg_browse_artist.json');
+    let requested = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input);
+      return new Response(JSON.stringify(fixture), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const page = await provider.browseArtistReleaseGroups(
+      '83d91898-7763-47d7-b03b-b92132375c47',
+      { priority: 'background' },
+      { types: ['Album', 'EP'], offset: 0 },
+    );
+
+    const url = new URL(requested);
+    expect(url.pathname).toBe('/ws/2/release-group');
+    expect(url.searchParams.get('artist')).toBe('83d91898-7763-47d7-b03b-b92132375c47');
+    expect(url.searchParams.get('type')).toBe('album|ep');
+    expect(url.searchParams.get('inc')).toBe('artist-credits');
+    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('offset')).toBe('0');
+
+    expect(page.total).toBe(526);
+    expect(page.offset).toBe(0);
+    expect(page.items).toHaveLength(3);
+    expect(page.items[0]).toEqual({
+      mbid: '6792b6d1-4e65-3c3c-9d20-d08aa1dcfc60',
+      title: 'The Piper at the Gates of Dawn',
+      primaryType: 'Album',
+      secondaryTypes: [],
+      firstReleaseDate: '1967-07-07',
+      artistCredits: [{ mbid: '83d91898-7763-47d7-b03b-b92132375c47', name: 'Pink Floyd' }],
+    });
+  });
+
+  it('clamps the page size to the MusicBrainz maximum and omits the type filter when none is given', async () => {
+    let requested = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ 'release-group-count': 0, 'release-group-offset': 300, 'release-groups': [] }), { status: 200 });
+    }) as typeof fetch;
+
+    const page = await new MusicBrainzProvider('Liner-test/0.1')
+      .browseArtistReleaseGroups('83d91898-7763-47d7-b03b-b92132375c47', { priority: 'background' }, { limit: 500, offset: 300 });
+
+    const url = new URL(requested);
+    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('offset')).toBe('300');
+    expect(url.searchParams.has('type')).toBe(false);
+    expect(page).toEqual({ items: [], total: 0, offset: 300 });
+  });
+
+  it('surfaces a 503 as a rate-limit error and attaches the status to other failures', async () => {
+    const provider = new MusicBrainzProvider('Liner-test/0.1');
+
+    globalThis.fetch = (async () => new Response('{"error":"The MusicBrainz web server is currently busy."}', { status: 503, statusText: 'Service Unavailable' })) as typeof fetch;
+    await expect(provider.browseArtistReleaseGroups('x', { priority: 'background' })).rejects.toThrow(/rate limited \(503\)/);
+
+    globalThis.fetch = (async () => new Response('not found', { status: 404, statusText: 'Not Found' })) as typeof fetch;
+    await expect(provider.browseArtistReleaseGroups('x', { priority: 'background' })).rejects.toMatchObject({ status: 404 });
+  });
+});
