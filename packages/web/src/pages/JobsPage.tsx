@@ -56,11 +56,7 @@ export function JobsPage() {
 
   return (
     <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Jobs</h1>
-        <p className={styles.subtitle}>Job history and status</p>
-      </header>
-
+      {/* rendered inside Settings › System (SettingsPage → PageShell tabs); the shell owns the header */}
       {isLoading ? (
         <div className={styles.loading}>Loading jobs...</div>
       ) : (

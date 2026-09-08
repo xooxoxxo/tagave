@@ -5,7 +5,6 @@ import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
 import { useFingerprintStats } from '../hooks/useFingerprint';
-import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsProvidersPage.module.css';
 
 export function SettingsProvidersPage() {
@@ -55,9 +54,7 @@ export function SettingsProvidersPage() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Settings</h1>
-      <SettingsNav />
-
+      {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Provider Configuration</h2>
 

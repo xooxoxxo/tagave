@@ -9,7 +9,6 @@ import ReactMarkdown from 'react-markdown';
 import type { ReleaseNote, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useUpdates } from '../hooks/useUpdates';
-import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsUpdatesPage.module.css';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -48,9 +47,7 @@ export function SettingsUpdatesPage() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Settings</h1>
-      <SettingsNav />
-
+      {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
       {data.updateAvailable && feed.newer[0] && (
         <div className={styles.banner}>
           <strong>Update available:</strong> {feed.newer[0].tag}{feed.newer[0].name ? ` — ${feed.newer[0].name}` : ''}
