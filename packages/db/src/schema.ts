@@ -455,6 +455,8 @@ export const entityTags = pgTable(
   },
   (table) => ({
     entityIdx: index('idx_entity_tags_entity').on(table.entityType, table.entityId),
+    // facet joins probe by entity id alone (release group or release), 0017
+    entityIdIdx: index('idx_entity_tags_entity_id').on(table.entityId, table.kind),
     // Note: actual UNIQUE constraint in SQL is (entity_type, entity_id, kind, source, lower(tag))
     // for case-insensitive uniqueness; drizzle schema defines plain columns only.
   })
@@ -794,6 +796,8 @@ export const gaps = pgTable(
   (table) => ({
     libraryIdx: index('idx_gaps_library').on(table.libraryId),
     kindIdx: index('idx_gaps_kind').on(table.kind),
+    // per-album open-gap probes from the grid facets and filters, 0017
+    subjectIdx: index('idx_gaps_subject').on(table.subjectId, table.state),
   })
 );
 
