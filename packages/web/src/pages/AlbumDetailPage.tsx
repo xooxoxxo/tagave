@@ -10,6 +10,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
+import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import styles from './AlbumDetailPage.module.css';
 
 interface DetailTrack {
@@ -97,6 +98,10 @@ interface AlbumDetail {
   coverOrigin: string | null;
   isCueImage: boolean;
   cueRelPath: string | null;
+  /** the folder mixes lossless and lossy files (XO-364: can be split by format) */
+  mixed: boolean;
+  /** set on an album split off another one; "Merge back" returns the files */
+  splitFrom: string | null;
   artists?: Array<{ id: string; name: string; position: number }>;
   genres?: {
     effective: string[];
@@ -497,6 +502,7 @@ export function AlbumDetailPage() {
                 Ignore
               </button>
             )}
+            {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
           </div>
           {pending && (
             <div className={styles.pendingPanel} role="status">
