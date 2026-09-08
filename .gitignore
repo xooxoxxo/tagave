@@ -7,3 +7,7 @@ cache/
 coverage/
 .deploy.env
 .env.smoke
+
+# python sidecar (packages/tagwriter-py)
+__pycache__/
+packages/tagwriter-py/.venv/
