@@ -34,9 +34,24 @@ for pid in $(ps -eo pid,args | awk "/[n]ode packages\/worker\/dist\/index.js/ {p
 sleep 1
 nohup ~/liner-worker.sh > ~/liner-worker.log 2>&1 & echo $! > ~/liner-worker.pid
 nohup ~/liner-identify.sh > ~/liner-identify.log 2>&1 & echo $! > ~/liner-identify.pid
-sleep 8
-for p in liner-worker liner-identify; do echo -n "$p: "; kill -0 $(cat ~/$p.pid) 2>/dev/null && echo alive || echo DEAD; done
+# "alive after 8 s" is not "booted": a worker that dies while creating its
+# queues (pg-boss rejected a 24 h expiry, 2026-09-08) was reported alive.
+# Wait for each process to log "worker ready", up to 90 s, and fail the
+# deploy if one exits or never gets there.
+failed=0
+for p in liner-worker liner-identify; do
+  pid=$(cat ~/$p.pid); started=$(date +%s); state=""
+  for i in $(seq 1 90); do
+    if ! kill -0 "$pid" 2>/dev/null; then state="DEAD"; break; fi
+    if grep -q "\"msg\":\"worker ready\"" ~/$p.log 2>/dev/null; then state="ready in $(( $(date +%s) - started )) s"; break; fi
+    sleep 1
+  done
+  [ -n "$state" ] || state="NOT READY after 90 s"
+  echo "$p: $state"
+  case "$state" in ready*) ;; *) failed=1; echo "--- last lines of ~/$p.log"; tail -n 5 ~/$p.log | cut -c1-300 ;; esac
+done
 echo -n "worker processes: "; ps -eo args | grep -c "[n]ode packages/worker/dist/index.js"
+[ "$failed" = 0 ] || { echo "WORKER DEPLOY FAILED: a worker did not boot"; exit 7; }
 '
 WORKER_RESTART_CMD="${WORKER_RESTART_CMD:-$WORKER_RESTART_DEFAULT}"
 
