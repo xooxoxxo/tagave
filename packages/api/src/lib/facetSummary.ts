@@ -98,16 +98,19 @@ export async function summaryFacets(db: Db, libraryId: string, userId: string, r
     list.filter((r) => r[key] != null).map((r) => ({
       value: String(r[key]), ...(label ? { label: label(String(r[key])) } : {}), count: Number(r['n']),
     }));
-  const ownReview = sql`ur.library_id = af.library_id and ur.release_group_id = af.release_group_id and ur.user_id = ${userId}`;
-  const listensWhere = sql`l.library_id = af.library_id and l.release_group_id = af.release_group_id and l.user_id = ${userId}`;
+  // The owner's reviews and listens are a few hundred rows: a semi-join against
+  // them costs one hash, where a correlated EXISTS per album cost 45 ms of 28k probes.
+  const reviewedRgs = sql`(select ur.release_group_id from user_reviews ur where ur.library_id = ${libraryId} and ur.user_id = ${userId} and coalesce(ur.body_md, '') <> '')`;
+  const ratedRgs = sql`(select ur.release_group_id from user_reviews ur where ur.library_id = ${libraryId} and ur.user_id = ${userId} and ur.rating is not null)`;
+  const listenedRgs = sql`(select l.release_group_id from listens l where l.library_id = ${libraryId} and l.user_id = ${userId})`;
 
   const [[totals], states, formats, containers, decades, genres, labels, gapRows, [gapNone]] = await Promise.all([
     rows(sql`
       select count(*)::int as total,
              count(*) filter (where af.owned)::int as owned_both,
-             count(*) filter (where exists (select 1 from user_reviews ur where ${ownReview} and coalesce(ur.body_md, '') <> ''))::int as reviewed,
-             count(*) filter (where exists (select 1 from user_reviews ur where ${ownReview} and ur.rating is not null))::int as rated,
-             count(*) filter (where exists (select 1 from listens l where ${listensWhere}))::int as listened,
+             count(*) filter (where af.release_group_id in ${reviewedRgs})::int as reviewed,
+             count(*) filter (where af.release_group_id in ${ratedRgs})::int as rated,
+             count(*) filter (where af.release_group_id in ${listenedRgs})::int as listened,
              count(*) filter (where cardinality(af.gap_kinds) = 0)::int as no_gap,
              ${sql.join(DECIDED_KEYS.map((k) => sql`count(*) filter (where ${k} = any(af.decided))::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
       from album_facets af where ${where()}`),

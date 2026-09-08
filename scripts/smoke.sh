@@ -53,6 +53,8 @@ BUILT_AT=$(date -u +%FT%TZ)
 COOKIE_JAR=$(mktemp)
 DOCTOR_FILE=""
 DUMP_TMP=""
+DUMP_TMP_FACETS_S=$(mktemp)
+DUMP_TMP_FACETS_L=$(mktemp)
 
 compose() {
   LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
@@ -69,7 +71,7 @@ cleanup_stack() {
   rm -rf "$MUSIC_DIR"
 }
 cleanup_all() {
-  rm -f "${COOKIE_JAR:-}" "${DOCTOR_FILE:-}" 2>/dev/null || true
+  rm -f "${COOKIE_JAR:-}" "${DOCTOR_FILE:-}" "${DUMP_TMP_FACETS_S:-}" "${DUMP_TMP_FACETS_L:-}" 2>/dev/null || true
   [ -n "$DUMP_TMP" ] && rm -rf "$DUMP_TMP"
   cleanup_stack
 }
@@ -218,6 +220,26 @@ if [ "$WORKERS" = "1" ]; then
     exit 1
   fi
   echo "✓ Scan root validated by worker-files"
+
+  # Facet summary (XO-363): the file worker builds album_facets at boot; the
+  # facets endpoint must then answer from it, and its body must equal the live
+  # path's (forced by stamping the library dirty).
+  echo "Waiting for the facet summary (x-liner-facets: summary)..."
+  FACETS_URL="$API_URL/libraries/$LIBRARY_ID/albums/facets"
+  if ! wait_for "facet summary" 90 "curl -s -D - -o /dev/null -b '$COOKIE_JAR' '$FACETS_URL?_=\$RANDOM' | grep -qi 'x-liner-facets: summary'"; then
+    curl -s -D - -o /dev/null -b "$COOKIE_JAR" "$FACETS_URL" | grep -i x-liner
+    compose logs --tail=20 worker-files
+    exit 1
+  fi
+  curl -s -b "$COOKIE_JAR" "$FACETS_URL?_=1" > "$DUMP_TMP_FACETS_S"
+  compose exec -T postgres psql -q -U liner -d liner -Atc "update facet_state set dirty_at = now()" >/dev/null
+  LIVE_HDR=$(curl -s -D - -o "$DUMP_TMP_FACETS_L" -b "$COOKIE_JAR" "$FACETS_URL?_=2")
+  echo "$LIVE_HDR" | grep -qi 'x-liner-facets: live' || { echo "✗ FAIL: a dirty summary did not fall back to the live path"; exit 1; }
+  if ! python3 -c "import json,sys; a=json.load(open(sys.argv[1])); b=json.load(open(sys.argv[2])); sys.exit(0 if a == b else 1)" "$DUMP_TMP_FACETS_S" "$DUMP_TMP_FACETS_L"; then
+    echo "✗ FAIL: facet summary body differs from the live body"; cat "$DUMP_TMP_FACETS_S"; echo; cat "$DUMP_TMP_FACETS_L"; exit 1
+  fi
+  compose exec -T postgres psql -q -U liner -d liner -Atc "update facet_state set dirty_at = null" >/dev/null
+  echo "✓ Facet summary served and equal to the live counts"
 fi
 
 # Run doctor inside the app container
