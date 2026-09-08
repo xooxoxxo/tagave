@@ -124,6 +124,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
    * GET /libraries/:libraryId/artists/:artistId
    * Artist detail with discography, links, and follow status.
    * Side effect: enqueue artists.enrich if enriched_at is null or older than 7 days.
+   * Side effect: update followed_artists.last_viewed_at to current timestamp if artist is followed.
    */
   fastify.get('/libraries/:libraryId/artists/:artistId', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
@@ -140,6 +141,13 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     const [followRow] = await db.select().from(followedArtists)
       .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
     const followed = !!followRow;
+
+    // Update last_viewed_at if artist is followed
+    if (followed) {
+      await db.update(followedArtists)
+        .set({ lastViewedAt: new Date() })
+        .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+    }
 
     // Get external IDs for links
     const extIds = await db.select().from(externalIds)
