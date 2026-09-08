@@ -128,6 +128,22 @@ export const scans = pgTable(
   })
 );
 
+/** Directory mtimes per root for quick scans (0019). */
+export const scanDirs = pgTable(
+  'scan_dirs',
+  {
+    scanRootId: uuid('scan_root_id')
+      .notNull()
+      .references(() => scanRoots.id, { onDelete: 'cascade' }),
+    relPath: text('rel_path').notNull(),
+    mtime: bigint({ mode: 'number' }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.scanRootId, table.relPath] }),
+  })
+);
+
 export const audioFiles = pgTable(
   'audio_files',
   {

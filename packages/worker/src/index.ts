@@ -6,6 +6,8 @@ import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import type { WorkerContext } from './lib/context.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
+import { scanDirJob, type ScanDirJobData } from './jobs/scanDir.js';
+import { scanSweepJob, type ScanSweepJobData } from './jobs/scanSweep.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
@@ -53,6 +55,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'identify.album': 'stately',
   'roots.validate': 'stately',
   'scan.root': 'stately',
+  'scan.dir': 'stately',
+  'scan.sweep': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
   'artists.refresh': 'stately',
@@ -82,7 +86,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -117,6 +121,24 @@ async function main() {
     await boss.send('roots.validate', {}, { singletonKey: 'roots.validate:all' });
     // Every 10 minutes validate all roots (spec LIB-1)
     await boss.schedule('roots.validate', '*/10 * * * *', {}, {});
+  }
+
+  // One folder at a time (the album page's "Rescan this folder"); shares the
+  // walker with scan.root, so it lives on the same worker.
+  if (wants('scan.dir')) await boss.work<ScanDirJobData>('scan.dir', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) {
+      logger.info({ jobId: job.id, data: job.data }, 'scan.dir start');
+      await scanDirJob(ctx, job.data);
+    }
+  });
+
+  // Per-root poll (spec LIB-4): quick scans at each root's interval, a full
+  // scan weekly; checked every 10 minutes.
+  if (wants('scan.sweep')) {
+    await boss.work<ScanSweepJobData>('scan.sweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await scanSweepJob(ctx, job.data);
+    });
+    await boss.schedule('scan.sweep', '*/10 * * * *', {}, { singletonKey: 'scan.sweep' });
   }
 
   if (wants('scan.parse')) await boss.work<ScanParseJobData>(

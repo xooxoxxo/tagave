@@ -793,6 +793,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         throw new ApiError(409, 'Conflict', `Scan root has not been validated by the worker yet (status: ${root[0]!.validationStatus})`);
       }
 
+      // "Scan now" is a full walk unless the caller asks for a quick one
+      const requested = (request.body as { mode?: unknown } | null)?.mode;
+      const mode = requested === 'quick' ? 'quick' : 'full';
+
       // Enqueue scan job
       const jobId = uuidv7();
       const job = {
@@ -814,11 +818,12 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
 
       const boss = await getBoss();
       await boss.createQueue('scan.root');
-      await boss.send('scan.root', { scanRootId }, { singletonKey: `scan:${scanRootId}` });
+      await boss.send('scan.root', { scanRootId, mode }, { singletonKey: `scan:${scanRootId}` });
 
       reply.status(202).send({
         id: jobId,
         type: 'scan.root',
+        mode,
         state: 'created',
         createdAt: job.createdAt.toISOString(),
       });
