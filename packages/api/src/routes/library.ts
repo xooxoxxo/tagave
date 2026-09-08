@@ -4,7 +4,7 @@ import { uuidv7 } from 'uuidv7';
 import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { sealSecret, computeHint, normalizeGenreMap, effectiveGenres } from '@liner/core';
+import { sealSecret, computeHint, normalizeGenreMap, normalizeFollowRules, effectiveGenres } from '@liner/core';
 import {
   createScanRootSchema,
   patchScanRootSchema,
@@ -58,6 +58,14 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       discNumberGaps: true,
       noEmbeddedArt: true,
     };
+    const discographyRefreshEnabled = (settings as Record<string, any>)['discographyRefreshEnabled'] ?? false;
+    const followRulesRaw = (settings as Record<string, any>)['followRules'] ?? null;
+    let followRules;
+    try {
+      followRules = normalizeFollowRules(followRulesRaw);
+    } catch {
+      throw new ApiError(400, 'Bad Request', 'Invalid follow rules configuration');
+    }
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -69,6 +77,8 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         onboardingCompletedAt,
         genreMap,
         lintRules,
+        discographyRefreshEnabled,
+        followRules,
       })
     );
   });
@@ -156,6 +166,18 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       mergedSettings.lintRules = body.lintRules;
     }
 
+    if (body.discographyRefreshEnabled !== undefined) {
+      mergedSettings.discographyRefreshEnabled = body.discographyRefreshEnabled;
+    }
+
+    if (body.followRules !== undefined) {
+      try {
+        mergedSettings.followRules = normalizeFollowRules(body.followRules);
+      } catch (err) {
+        throw new ApiError(400, 'Bad Request', (err as Error).message);
+      }
+    }
+
     await db.update(libraries)
       .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
       .where(eq(libraries.id, libraryId));
@@ -176,6 +198,14 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       discNumberGaps: true,
       noEmbeddedArt: true,
     };
+    const discographyRefreshEnabled = (mergedSettings as Record<string, any>)['discographyRefreshEnabled'] ?? false;
+    const followRulesRaw = (mergedSettings as Record<string, any>)['followRules'] ?? null;
+    let followRules;
+    try {
+      followRules = normalizeFollowRules(followRulesRaw);
+    } catch {
+      throw new ApiError(400, 'Bad Request', 'Invalid follow rules configuration');
+    }
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -187,6 +217,8 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         onboardingCompletedAt,
         genreMap,
         lintRules,
+        discographyRefreshEnabled,
+        followRules,
       })
     );
   });

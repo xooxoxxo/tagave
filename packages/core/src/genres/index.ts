@@ -1,12 +1,15 @@
 /**
- * Genre canonicalisation per XO-310
+ * Genre canonicalisation per XO-310 and follow rules per XO-301
  *
  * Exports:
  * - GenreMap: configuration for genre normalization
+ * - FollowRules: configuration for following artists and filtering releases
  * - RawTag: input tag from entity_tags
  * - EffectiveGenres: output with genres, styles, and explanation
  * - DEFAULT_GENRE_MAP: Discogs' 15 top-level genres + Metal with comprehensive aliases
+ * - DEFAULT_FOLLOW_RULES: default rules for following artists
  * - normalizeGenreMap: fills defaults, validates, clamps
+ * - normalizeFollowRules: fills defaults, validates, rejects unknown types
  * - effectiveGenres: weights and buckets raw tags into genres/styles
  */
 
@@ -14,6 +17,12 @@ export interface GenreMap {
   whitelist: string[];
   aliases: Record<string, string>;
   maxGenres: number;
+}
+
+export interface FollowRules {
+  includePrimary: ('Album' | 'EP' | 'Single')[];
+  excludeSecondary: ('Compilation' | 'Live' | 'Remix' | 'DJ-mix' | 'Mixtape/Street' | 'Demo' | 'Soundtrack')[];
+  autoFollowMinAlbums: number;
 }
 
 export interface RawTag {
@@ -204,6 +213,60 @@ export function normalizeGenreMap(input: Partial<GenreMap> | null | undefined): 
   map.maxGenres = Math.max(1, Math.min(10, Math.floor(map.maxGenres)));
 
   return map;
+}
+
+/**
+ * Default follow rules per XO-301 GAP-2
+ * For followed artists, include Album releases by default;
+ * exclude compilations, live recordings, remixes, etc.
+ */
+export const DEFAULT_FOLLOW_RULES: FollowRules = {
+  includePrimary: ['Album'],
+  excludeSecondary: ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'],
+  autoFollowMinAlbums: 2,
+};
+
+/**
+ * Normalize a partial follow rules object to a valid FollowRules with defaults.
+ * Fills in defaults, validates type names, clamps autoFollowMinAlbums to 1..10.
+ * Throws an error if unknown type names are provided.
+ */
+export function normalizeFollowRules(input: Partial<FollowRules> | null | undefined): FollowRules {
+  const validPrimaryTypes = new Set(['Album', 'EP', 'Single']);
+  const validSecondaryTypes = new Set(['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack']);
+
+  // Validate includePrimary
+  if (input?.includePrimary) {
+    for (const type of input.includePrimary) {
+      if (!validPrimaryTypes.has(type)) {
+        throw new Error(`Invalid primary release type: ${type}`);
+      }
+    }
+  }
+
+  // Validate excludeSecondary
+  if (input?.excludeSecondary) {
+    for (const type of input.excludeSecondary) {
+      if (!validSecondaryTypes.has(type)) {
+        throw new Error(`Invalid secondary release type: ${type}`);
+      }
+    }
+  }
+
+  const rules: FollowRules = {
+    includePrimary: input?.includePrimary ?? DEFAULT_FOLLOW_RULES.includePrimary,
+    excludeSecondary: input?.excludeSecondary ?? DEFAULT_FOLLOW_RULES.excludeSecondary,
+    autoFollowMinAlbums: input?.autoFollowMinAlbums ?? DEFAULT_FOLLOW_RULES.autoFollowMinAlbums,
+  };
+
+  // Deduplicate and sort for consistency
+  rules.includePrimary = Array.from(new Set(rules.includePrimary)).sort();
+  rules.excludeSecondary = Array.from(new Set(rules.excludeSecondary)).sort();
+
+  // Clamp autoFollowMinAlbums to 1..10
+  rules.autoFollowMinAlbums = Math.max(1, Math.min(10, Math.floor(rules.autoFollowMinAlbums)));
+
+  return rules;
 }
 
 /**

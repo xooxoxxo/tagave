@@ -95,6 +95,18 @@ export const genreMapSchema = z.object({
 export type GenreMap = z.infer<typeof genreMapSchema>;
 
 /**
+ * Follow rules configuration per XO-301 GAP-2
+ * Determines which MusicBrainz release groups are followed and tracked
+ */
+export const followRulesSchema = z.object({
+  includePrimary: z.array(z.enum(['Album', 'EP', 'Single'])).default(['Album']).describe('Primary release types to include (Album, EP, Single)'),
+  excludeSecondary: z.array(z.enum(['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'])).default(['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack']).describe('Secondary types to exclude'),
+  autoFollowMinAlbums: z.number().int().min(1).max(10).default(2).describe('Minimum albums by artist to auto-follow (1–10)'),
+}).strict();
+
+export type FollowRules = z.infer<typeof followRulesSchema>;
+
+/**
  * Lint rules configuration per TAG-6
  * Toggle individual quality rules on or off (all true by default)
  */
@@ -111,7 +123,7 @@ export const lintRulesSchema = z.object({
 export type LintRules = z.infer<typeof lintRulesSchema>;
 
 /**
- * Library settings view per PLT-4 (token configuration) and XO-310 (genres) and TAG-6 (lint rules)
+ * Library settings view per PLT-4 (token configuration) and XO-310 (genres) and TAG-6 (lint rules) and XO-301 (discography)
  * Returned by GET /libraries/:id/settings
  */
 export const librarySettingsViewSchema = z.object({
@@ -125,12 +137,14 @@ export const librarySettingsViewSchema = z.object({
   lintRules: lintRulesSchema.describe('Lint rule toggles (TAG-6; defaults all true)'),
   tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
   tagWritesEnabled: z.boolean().default(false).describe('Whether tag writes are enabled (default false per spec §12.8)'),
+  discographyRefreshEnabled: z.boolean().default(false).describe('Whether weekly discography refreshes are enabled (XO-301; default false)'),
+  followRules: followRulesSchema.describe('Rules for following artists and filtering release groups (XO-301 GAP-2; defaults provided)'),
 }).strict();
 
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
 
 /**
- * Library settings patch request per PLT-4, XO-310, and TAG-6
+ * Library settings patch request per PLT-4, XO-310, TAG-6, and XO-301
  * Body for PATCH /libraries/:id/settings
  */
 export const patchLibrarySettingsSchema = z.object({
@@ -142,6 +156,8 @@ export const patchLibrarySettingsSchema = z.object({
   lintRules: lintRulesSchema.optional().describe('Lint rule toggles (TAG-6)'),
   tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
   tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
+  discographyRefreshEnabled: z.boolean().optional().describe('Whether weekly discography refreshes are enabled (XO-301)'),
+  followRules: followRulesSchema.optional().describe('Rules for following artists and filtering release groups (XO-301)'),
 }).strict();
 
 export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;

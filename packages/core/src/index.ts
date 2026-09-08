@@ -141,15 +141,18 @@ export type { BuildInfo } from './build/info.js';
 // Credential encryption
 export { sealSecret, openSecret, isSealed, computeHint } from './crypto/secretbox.js';
 
-// Genre canonicalisation (XO-310)
+// Genre canonicalisation (XO-310) and follow rules (XO-301)
 export {
   DEFAULT_GENRE_MAP,
   normalizeGenreMap,
   effectiveGenres,
+  DEFAULT_FOLLOW_RULES,
+  normalizeFollowRules,
 } from './genres/index.js';
 
 export type {
   GenreMap,
+  FollowRules,
   RawTag,
   EffectiveGenres,
 } from './genres/index.js';
