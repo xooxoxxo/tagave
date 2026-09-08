@@ -22,7 +22,7 @@ import {
 import { useCurrentLibrary } from '../hooks';
 import { useJobs } from '../hooks/useIdentify';
 import { useArtistsList } from '../hooks/useArtists';
-import { useAlbums } from '../hooks/useLibrary';
+import { useAlbums, useScanRoots } from '../hooks/useLibrary';
 import styles from './PlanWizard.module.css';
 
 interface WizardStep1State {
@@ -90,6 +90,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
   const [showHelp, setShowHelp] = useState(false);
 
   const settings = useLibrarySettings(libraryId);
+  const scanRoots = useScanRoots(libraryId);
   // New plans start from the library's default policy (Settings › Tag writes);
   // applied once when settings arrive, before the user reaches step 2.
   const [policySeeded, setPolicySeeded] = useState(false);
@@ -147,7 +148,9 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
     (step1.scopeType === 'albumIds' && (step1.albumIds?.length ?? 0) > 0) ||
     (step1.scopeType === 'filterQuery' && Object.keys(step1.filterQuery ?? {}).length > 0);
   const tagWritesDisabled = !settings.data?.tagWritesEnabled;
-  const noWritableRoots = !settings.data?.scanRoots?.some((r) => r.writable);
+  // Writable roots come from the scan-roots endpoint; the settings view never
+  // carried them, which kept Apply disabled even with everything switched on.
+  const noWritableRoots = scanRoots.data !== undefined && !scanRoots.data.some((r) => r.writable);
 
   const buildScope = (): TagPlanScope | null => {
     switch (step1.scopeType) {
@@ -287,13 +290,17 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
 
         {!showHelp && step === 3 && createdPlanId && (
           <Step3PreviewTable
+            libraryId={libraryId}
             planId={createdPlanId}
+            onPreview={handlePreviewPlan}
+            previewPending={previewMutation.isPending}
             onApply={handleApplyPlan}
             onBack={() => {
               setCreatedPlanId(null);
               setStep(2);
             }}
             isLoading={applyMutation.isPending}
+            error={step1Error}
             tagWritesDisabled={tagWritesDisabled}
             noWritableRoots={noWritableRoots}
           />
@@ -662,49 +669,174 @@ function Step2PolicyPicker({
   );
 }
 
+const PAGE_SIZE = 100;
+
+function fmtValue(v: string | string[] | null): string {
+  if (v === null || v === undefined) return '—';
+  if (Array.isArray(v)) return v.join('; ');
+  return v === '' ? '(empty)' : v;
+}
+
+/**
+ * Step 3: the plan is previewed (a worker job computes per-file diffs without
+ * touching disk), then the aggregate and the diff table are shown; Apply is
+ * enabled only once the preview exists and the write gates are open.
+ */
 function Step3PreviewTable({
+  libraryId,
   planId,
+  onPreview,
+  previewPending,
   onApply,
   onBack,
   isLoading,
+  error,
   tagWritesDisabled,
   noWritableRoots,
 }: {
+  libraryId: string;
   planId: string;
+  onPreview: () => void;
+  previewPending: boolean;
   onApply: () => void;
   onBack: () => void;
   isLoading: boolean;
+  error: string | null;
   tagWritesDisabled: boolean;
   noWritableRoots: boolean;
 }) {
-  const canApply = !tagWritesDisabled && !noWritableRoots;
-  const applyTitle = tagWritesDisabled
-    ? 'Tag writes disabled in library settings'
-    : noWritableRoots
-      ? 'No writable scan roots configured'
-      : undefined;
+  const [requested, setRequested] = useState(false);
+  const [field, setField] = useState('');
+  const [offset, setOffset] = useState(0);
+
+  // Poll the plan while the preview job runs.
+  const plan = useTagPlan(libraryId, planId, { refetchInterval: requested ? 2000 : false });
+  const status = plan.data?.status;
+  const previewed = status !== undefined && status !== 'draft';
+
+  // Kick off the preview once when arriving on a draft.
+  useEffect(() => {
+    if (!requested && status === 'draft') {
+      setRequested(true);
+      onPreview();
+    }
+    if (previewed && requested && plan.data?.stats) setRequested(false);
+  }, [requested, status, previewed, onPreview, plan.data?.stats]);
+
+  const items = useTagPlanItems(libraryId, planId, {
+    ...(field ? { fieldFilter: field } : {}),
+    limit: PAGE_SIZE,
+    offset,
+    enabled: previewed,
+  });
+
+  const stats = plan.data?.stats;
+  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
+  const canApply = previewed && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
+  const applyTitle = !previewed
+    ? 'Preview has not finished yet'
+    : nothingToDo
+      ? 'Nothing to change'
+      : tagWritesDisabled
+        ? 'Tag writes disabled in library settings'
+        : noWritableRoots
+          ? 'No writable scan roots configured'
+          : undefined;
+
+  const fields = new Set<string>();
+  for (const it of items.data?.items ?? []) for (const d of it.diffs) fields.add(d.field);
+  const total = items.data?.total ?? 0;
+  const pageEnd = Math.min(offset + PAGE_SIZE, total);
 
   return (
     <div className={styles.step}>
       <p className={styles.stepTitle}>Step 3: Preview changes</p>
       <p className={styles.stepSubtitle}>
-        Review the diff before applying. (Full preview table coming in follow-up UI)
+        Nothing is written yet. Each row is one file; each line the field it would change.
       </p>
 
-      <div className={styles.previewInfo}>
-        <p>Plan preview loaded. Aggregate stats will show:</p>
-        <ul className={styles.statsList}>
-          <li>Number of files touched</li>
-          <li>Total field changes</li>
-          <li>Locked fields respected</li>
-          <li>Files skipped and why</li>
-        </ul>
-      </div>
+      {!previewed && (
+        <div className={styles.previewInfo}>
+          <p>{previewPending || requested ? 'Computing the preview…' : 'Waiting for the preview…'}</p>
+          <p className={styles.hint}>Every file in scope is read once; a whole-library plan can take a few minutes.</p>
+        </div>
+      )}
+
+      {previewed && stats && (
+        <div className={styles.summaryGrid}>
+          <div className={styles.summaryCell}><strong>{stats.filesTouched.toLocaleString()}</strong><span>files change</span></div>
+          <div className={styles.summaryCell}><strong>{stats.fieldsModified.toLocaleString()}</strong><span>field changes</span></div>
+          <div className={styles.summaryCell}><strong>{stats.lockedFieldsRespected.toLocaleString()}</strong><span>locked fields kept</span></div>
+          <div className={styles.summaryCell}><strong>{stats.filesSkipped.length.toLocaleString()}</strong><span>files skipped</span></div>
+        </div>
+      )}
+
+      {previewed && stats && stats.filesSkipped.length > 0 && (
+        <p className={styles.hint}>
+          Skipped: {Object.entries(stats.filesSkipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {}))
+            .map(([reason, n]) => `${n} × ${reason.replaceAll('_', ' ')}`).join(', ')}
+        </p>
+      )}
+
+      {previewed && !nothingToDo && (
+        <>
+          <div className={styles.tableTools}>
+            <label className={styles.label} htmlFor="fieldFilter">Field</label>
+            <select id="fieldFilter" className={styles.select} value={field} onChange={(e) => { setField(e.target.value); setOffset(0); }}>
+              <option value="">all fields</option>
+              {[...fields].sort().map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+            <span className={styles.tableCount}>
+              {items.isLoading ? 'Loading…' : total === 0 ? 'No rows' : `${offset + 1}–${pageEnd} of ${total.toLocaleString()} files`}
+            </span>
+            <span className={styles.pager}>
+              <button type="button" className={styles.btn} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>‹</button>
+              <button type="button" className={styles.btn} disabled={pageEnd >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>›</button>
+            </span>
+          </div>
+
+          <div className={styles.tableWrap}>
+            <table className={styles.diffTable}>
+              <thead>
+                <tr><th>File</th><th>Field</th><th>Before</th><th>After</th><th>Why</th></tr>
+              </thead>
+              <tbody>
+                {(items.data?.items ?? []).map((it) => {
+                  const rows = it.diffs.filter((d) => d.reason !== 'no-change');
+                  if (rows.length === 0) return null;
+                  return rows.map((d, i) => (
+                    <tr key={`${it.id}:${d.field}`} className={d.reason === 'locked' ? styles.rowLocked : undefined}>
+                      {i === 0 && <td rowSpan={rows.length} className={styles.cellPath} title={it.relPath ?? it.audioFileId}>{it.relPath ?? it.audioFileId}</td>}
+                      <td className={styles.cellField}>{d.field}</td>
+                      <td className={styles.cellValue}>{fmtValue(d.before)}</td>
+                      <td className={styles.cellValue}>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
+                      <td className={styles.cellWhy}>{d.reason.replace('policy:', '')}</td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {nothingToDo && (
+        <div className={styles.previewInfo}>
+          <p>Every file in scope already carries the canonical values under this policy. Nothing to apply.</p>
+        </div>
+      )}
+
+      {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.stepActions}>
         <button className={styles.btn} onClick={onBack}>
           Back
         </button>
+        {previewed && (
+          <button type="button" className={styles.btn} onClick={() => { setRequested(true); onPreview(); }} disabled={previewPending || requested}>
+            Re-run preview
+          </button>
+        )}
         <button
           className={`${styles.btn} ${styles.btnPrimary}`}
           onClick={onApply}

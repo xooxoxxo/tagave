@@ -153,6 +153,7 @@ export const tagPlanItemSchema = z.object({
   id: z.string().uuid().describe('Item ID'),
   planId: z.string().uuid().describe('Tag plan ID'),
   audioFileId: z.string().uuid().describe('Audio file ID'),
+  relPath: z.string().optional().describe('Path of the file relative to its scan root (for the preview table)'),
   diffs: z.array(tagDiffEntrySchema).describe('List of field changes for this file'),
 }).strict().describe('Per-file diffs in a tag plan');
 

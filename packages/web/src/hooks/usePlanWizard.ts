@@ -49,32 +49,46 @@ export function useTagPlans(libraryId: string | undefined, opts?: { limit?: numb
 /**
  * Get a single tag plan (GET /libraries/:libraryId/tag-plans/:planId)
  */
-export function useTagPlan(libraryId: string | undefined, planId: string | undefined) {
+export function useTagPlan(
+  libraryId: string | undefined,
+  planId: string | undefined,
+  opts?: { refetchInterval?: number | false },
+) {
   return useQuery({
     queryKey: ['tag-plan', libraryId, planId],
     queryFn: () => api.get<TagPlan>(`/libraries/${libraryId}/tag-plans/${planId}`),
     enabled: !!libraryId && !!planId,
+    refetchInterval: opts?.refetchInterval ?? false,
   });
 }
 
+export interface TagPlanItemsPage {
+  items: TagPlanItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /**
- * Get preview items for a plan (GET /libraries/:libraryId/tag-plans/:planId/items)
+ * Preview items for a plan, one page at a time
+ * (GET /libraries/:libraryId/tag-plans/:planId/items?field=&album=&limit=&offset=)
  */
 export function useTagPlanItems(
   libraryId: string | undefined,
   planId: string | undefined,
-  opts?: { fieldFilter?: string; albumFilter?: string }
+  opts?: { fieldFilter?: string; albumFilter?: string; limit?: number; offset?: number; enabled?: boolean }
 ) {
   return useQuery({
-    queryKey: ['tag-plan-items', libraryId, planId, opts],
+    queryKey: ['tag-plan-items', libraryId, planId, opts?.fieldFilter ?? '', opts?.albumFilter ?? '', opts?.limit ?? 100, opts?.offset ?? 0],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (opts?.fieldFilter) params.append('field', opts.fieldFilter);
       if (opts?.albumFilter) params.append('album', opts.albumFilter);
-      const query = params.toString() ? `?${params.toString()}` : '';
-      return api.get<{ items: TagPlanItem[] }>(`/libraries/${libraryId}/tag-plans/${planId}/items${query}`);
+      params.append('limit', String(opts?.limit ?? 100));
+      params.append('offset', String(opts?.offset ?? 0));
+      return api.get<TagPlanItemsPage>(`/libraries/${libraryId}/tag-plans/${planId}/items?${params.toString()}`);
     },
-    enabled: !!libraryId && !!planId,
+    enabled: !!libraryId && !!planId && (opts?.enabled ?? true),
   });
 }
 
@@ -173,7 +187,6 @@ export function useLibrarySettings(libraryId: string | undefined) {
       api.get<{
         tagWritesEnabled: boolean;
         tagPolicy?: TagPolicies;
-        scanRoots: Array<{ id: string; displayName: string; writable: boolean }>;
       }>(`/libraries/${libraryId}/settings`),
     enabled: !!libraryId,
     staleTime: 1000 * 60, // 1 minute

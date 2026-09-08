@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
-import { and, eq, inArray, count, desc } from 'drizzle-orm';
+import { and, eq, inArray, count, desc, sql } from 'drizzle-orm';
 import {
   tagPlans,
   tagPlanItems,
@@ -270,44 +270,46 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Tag plan not found');
       }
 
-      // Get all items for this plan
-      let items = await db
-        .select({
-          id: tagPlanItems.id,
-          planId: tagPlanItems.tagPlanId,
-          audioFileId: tagPlanItems.audioFileId,
-          diffs: tagPlanItems.diff,
-        })
-        .from(tagPlanItems)
-        .where(eq(tagPlanItems.tagPlanId, planId));
-
-      // Filter by album if provided
+      // One page of items, path included, ordered by path so the table reads
+      // like the folder. A field filter narrows to files that change that
+      // field (jsonb containment) and trims each row's diffs to it.
+      const q = request.query as { field?: string; album?: string; limit?: string; offset?: string };
+      const limit = Math.min(Math.max(parseInt(q.limit ?? '100', 10) || 100, 1), 500);
+      const offset = Math.max(parseInt(q.offset ?? '0', 10) || 0, 0);
+      const conds = [eq(tagPlanItems.tagPlanId, planId)];
+      if (field) conds.push(sql`${tagPlanItems.diff} @> ${JSON.stringify([{ field }])}::jsonb`);
       if (album) {
-        // Get all tracks for the album
-        const tracksForAlbum = await db
-          .select({ audioFileId: localTracks.audioFileId })
-          .from(localTracks)
-          .where(eq(localTracks.localAlbumId, album));
-
-        const audioFileIdsForAlbum = new Set(tracksForAlbum.map((t) => t.audioFileId));
-        items = items.filter((item) => audioFileIdsForAlbum.has(item.audioFileId));
+        conds.push(sql`${tagPlanItems.audioFileId} in (select lt.audio_file_id from local_tracks lt where lt.local_album_id = ${album})`);
       }
+      const where = and(...conds);
 
-      // Filter by field if provided and format response
-      const formatted: TagPlanItem[] = (items as any[])
-        .filter((item) => {
-          if (!field) return true;
-          const diffs = item.diffs as any[];
-          return diffs && diffs.some((d: any) => d.field === field);
-        })
-        .map((item) => ({
-          id: item.id,
-          planId: item.planId,
-          audioFileId: item.audioFileId,
-          diffs: (item.diffs as any[] || []).filter((d: any) => !field || d.field === field),
-        }));
+      const [[count], rows] = await Promise.all([
+        db.select({ n: sql<number>`count(*)::int` }).from(tagPlanItems).where(where),
+        db
+          .select({
+            id: tagPlanItems.id,
+            planId: tagPlanItems.tagPlanId,
+            audioFileId: tagPlanItems.audioFileId,
+            relPath: audioFiles.relPath,
+            diffs: tagPlanItems.diff,
+          })
+          .from(tagPlanItems)
+          .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+          .where(where)
+          .orderBy(audioFiles.relPath)
+          .limit(limit)
+          .offset(offset),
+      ]);
 
-      reply.send({ items: formatted });
+      const formatted: TagPlanItem[] = rows.map((item) => ({
+        id: item.id,
+        planId: item.planId,
+        audioFileId: item.audioFileId,
+        relPath: item.relPath,
+        diffs: ((item.diffs as any[]) || []).filter((d: any) => !field || d.field === field),
+      }));
+
+      reply.send({ items: formatted, total: count?.n ?? 0, limit, offset });
     }
   );
 

@@ -552,3 +552,117 @@
 .chipRemove:hover {
   color: var(--color-text-primary);
 }
+
+/* step 3 preview */
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px 0;
+}
+
+.summaryCell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+}
+
+.summaryCell strong {
+  font-size: 18px;
+  color: var(--color-text-primary);
+}
+
+.summaryCell span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.tableTools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.tableTools .select {
+  width: auto;
+  max-width: 220px;
+  padding: 6px 8px;
+}
+
+.tableCount {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-left: auto;
+}
+
+.pager {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pager .btn {
+  padding: 4px 10px;
+}
+
+.tableWrap {
+  max-height: 46vh;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+
+.diffTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.diffTable th {
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-secondary);
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-weight: 600;
+}
+
+.diffTable td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  color: var(--color-text-primary);
+}
+
+.cellPath {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.cellField {
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.cellValue {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+}
+
+.cellWhy {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.rowLocked td {
+  opacity: 0.7;
+}
