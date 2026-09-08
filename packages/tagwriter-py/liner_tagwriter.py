@@ -8,7 +8,7 @@ import json
 import sys
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from mutagen import File
 from mutagen.id3 import ID3
@@ -247,25 +247,33 @@ def detect_tag_format(path: str) -> str:
     container = get_container_type(path)
 
     if container == "mp3":
-        # Check ID3 version
+        # Check ID3 version: read with actual version from file, default to v2.4
         try:
-            tags = ID3(path)
-            # ID3v2.4 is the default for mutagen
-            return "id3v24"
-        except:
+            audio = File(path)
+            if audio is not None and hasattr(audio, 'tags') and audio.tags is not None:
+                # Get the actual ID3 version from the file
+                id3_version = getattr(audio.tags, 'version', None)
+                if id3_version:
+                    # id3_version is a tuple like (2, 3) for v2.3 or (2, 4) for v2.4
+                    major, minor = int(id3_version[0]), int(id3_version[1])  # mutagen gives (2, 4, 0)
+                    if major == 2 and minor == 3:
+                        return "id3v23"
+                return "id3v24"
+        except (OSError, AttributeError):
+            # File not readable or no ID3 tags: default to v2.4
             return "id3v24"
 
     elif container in ("flac",):
         return "vorbis"
 
     elif container in ("ogg", "oga"):
-        # Could be vorbis or opus
+        # Could be vorbis or opus; both use Vorbis comments
         try:
             audio = File(path)
             if isinstance(audio, OggOpus):
                 return "vorbis"  # Opus also uses Vorbis comment
             return "vorbis"
-        except:
+        except (OSError, AttributeError):
             return "vorbis"
 
     elif container in ("m4a", "m4b", "m4p", "alac"):
@@ -405,6 +413,8 @@ def read_tags(path: str) -> dict[str, Any]:
         family = tag_family(path)
         if family == "id3":
             native = _native_from_id3(getattr(audio, "tags", None))
+            # mutagen translates v2.3 frames (TYER/TDAT/TORY) to their v2.4 names
+            # (TDRC/TDOR) on load, so the in-memory frames are always v2.4-shaped.
             key = "id3v24"
         elif family == "vorbis":
             native = _native_from_vorbis(getattr(audio, "tags", None))
@@ -459,7 +469,7 @@ def read_tags(path: str) -> dict[str, Any]:
         if unknown:
             canonical["__unknown__"] = unknown
         return canonical
-    except Exception as e:  # never crash the sidecar on one file
+    except (OSError, AttributeError, TypeError) as e:  # never crash the sidecar on one file
         return {"__error__": str(e)}
 
 
@@ -485,8 +495,10 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
     id3_version = str(options.get("id3Version", "2.4"))
     separator = str(options.get("multiValueSeparator", "; "))
     strip_unknown = bool(options.get("stripUnknown", False))
-    key = mapping_key(family, id3_version)
-    joined = key == "id3v23"  # v2.3 has no multi-value convention
+    # ID3 frames are always built v2.4-style; a v2.3 write converts on save
+    # (update_to_v23 turns TDRC into TYER+TDAT, v23_sep joins multi-values).
+    key = mapping_key(family, "2.4")
+    joined = False
 
     requested = {k: v for k, v in tags.items() if not k.startswith("__") and v is not None}
 
@@ -561,11 +573,18 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
                     continue
                 if fid.startswith("T") or fid in ("UFID", "COMM", "USLT", "WXXX"):
                     id3.delall(hk)
-        v2 = 3 if id3_version == "2.3" else 4
-        try:
-            audio.save(v2_version=v2, v23_sep=separator)
-        except TypeError:
-            audio.save()
+        if id3_version == "2.3":
+            id3.update_to_v23()
+            try:
+                audio.save(v2_version=3, v23_sep=separator)
+            except TypeError:
+                audio.save(v2_version=3)
+        else:
+            id3.update_to_v24()
+            try:
+                audio.save(v2_version=4)
+            except TypeError:
+                audio.save()
         return
 
     if family == "vorbis":
@@ -623,34 +642,58 @@ def supports(container: str) -> bool:
 
 
 def handle_json_command(req: dict) -> str:
-    """JSON-lines protocol: {"op": "read"|"write"|"supports", "path", "tags", "options", "container"}.
+    """JSON-lines protocol: {"op": "read"|"write"|"supports", "path", "tags", "options", "container", "id"}.
     Payloads travel as JSON, never through shell-style tokenising (shlex stripped the
-    quotes out of the tags object and every write failed)."""
+    quotes out of the tags object and every write failed).
+    The "id" field is echoed back in every response for request/response matching."""
     op = req.get("op")
+    request_id = req.get("id")
+
+    result: Dict[str, Any] = {}
+    if request_id is not None:
+        result["id"] = request_id
+
+    try:
+        return _dispatch_json(op, req, result)
+    except Exception as e:  # any bug below must still answer THIS request, never leave the caller hanging
+        result["error"] = f"{type(e).__name__}: {e}"
+        return json.dumps(result)
+
+
+def _dispatch_json(op: Any, req: dict, result: Dict[str, Any]) -> str:
     if op == "read":
         path = req.get("path")
         if not path:
-            return json.dumps({"error": "read requires a path"})
-        return json.dumps(read_tags(path))
+            result["error"] = "read requires a path"
+            return json.dumps(result)
+        read_result = read_tags(path)
+        result.update(read_result)
+        return json.dumps(result)
     if op == "write":
         path = req.get("path")
         if not path:
-            return json.dumps({"error": "write requires a path"})
+            result["error"] = "write requires a path"
+            return json.dumps(result)
         tags_json = req.get("tags") or {}
         options_json = req.get("options") or {}
         if not isinstance(tags_json, dict) or not isinstance(options_json, dict):
-            return json.dumps({"error": "write expects tags and options objects"})
+            result["error"] = "write expects tags and options objects"
+            return json.dumps(result)
         try:
             write_tags(path, tags_json, options_json)
-            return json.dumps({"success": True})
-        except Exception as e:  # surfaced to the caller as write_failed
-            return json.dumps({"error": str(e)})
+            result["success"] = True
+        except (OSError, ValueError, AttributeError) as e:  # surfaced to the caller as write_failed
+            result["error"] = str(e)
+        return json.dumps(result)
     if op == "supports":
         container = req.get("container")
         if not container:
-            return json.dumps({"error": "supports requires a container"})
-        return json.dumps({"supported": supports(container)})
-    return json.dumps({"error": f"Unknown op: {op}"})
+            result["error"] = "supports requires a container"
+            return json.dumps(result)
+        result["supported"] = supports(container)
+        return json.dumps(result)
+    result["error"] = f"Unknown op: {op}"
+    return json.dumps(result)
 
 
 def handle_command(line: str) -> str:
@@ -700,7 +743,7 @@ def handle_command(line: str) -> str:
             try:
                 write_tags(path, tags_json, options_json)
                 return json.dumps({"success": True})
-            except Exception as e:
+            except (OSError, ValueError, AttributeError) as e:
                 return json.dumps({"error": str(e)})
 
         elif command == "supports":
@@ -712,7 +755,7 @@ def handle_command(line: str) -> str:
         else:
             return json.dumps({"error": f"Unknown command: {command}"})
 
-    except Exception as e:
+    except (OSError, ValueError, AttributeError, json.JSONDecodeError) as e:
         return json.dumps({"error": f"Exception handling command: {str(e)}"})
 
 

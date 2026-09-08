@@ -64,7 +64,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
   const plan = plans[0]!;
   const libraryId = plan.libraryId;
 
-  // Get library settings: tagWritesEnabled
+  // Get library settings: tagWritesEnabled (will re-check per item)
   const libs = await db
     .select()
     .from(libraries)
@@ -74,12 +74,8 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
     throw new Error(`Library not found: ${libraryId}`);
   }
 
-  const lib = libs[0]!;
-  const tagWritesEnabled = (lib.settings as any)?.tagWritesEnabled === true;
-
-  if (!tagWritesEnabled) {
-    throw new Error('Tag writes are not enabled for this library');
-  }
+  // Note: Per-item gate checks happen before safeWriter.write() (finding 3)
+  // to catch flips that occur between job start and item processing
 
   // Get pending and applying items
   const pendingItems = await db
@@ -120,12 +116,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
 
   const rootMap = new Map(roots.map((r) => [r.id, r]));
 
-  // Check that all scan roots are writable
-  for (const root of roots) {
-    if (!root.writable) {
-      throw new Error(`Scan root is not writable: ${root.path}`);
-    }
-  }
+  // Note: Scan root writable flag will be checked per-item before writing (finding 3)
 
   // Build file info map
   for (const file of filesInPlan) {
@@ -177,6 +168,60 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
 
           // Reconstruct the complete after-tag set from before tags and diffs
           const afterTags = reconstructAfterTags(beforeTags, diffs);
+
+          // CRITICAL: Re-check gates immediately before writing (finding 3: per-item gate verification)
+          // Check 1: scan root writable
+          const freshScanRoot = await db
+            .select()
+            .from(scanRoots)
+            .where(eq(scanRoots.id, audioFile.scanRootId))
+            .then((rows) => rows[0]);
+
+          if (!freshScanRoot || !freshScanRoot.writable) {
+            // Gate closed: mark as skipped and pause the plan
+            await db
+              .update(tagPlanItems)
+              .set({
+                status: 'skipped',
+                error: 'scan_root_gate_closed',
+              })
+              .where(eq(tagPlanItems.id, item.id));
+
+            // Signal to pause the plan
+            hashMismatchEncountered = true;
+            logger.warn(
+              { itemId: item.id, audioFileId: item.audioFileId, scanRootId: audioFile.scanRootId },
+              'Tag apply: scan root writable gate closed'
+            );
+            return { success: false, hashMismatch: true }; // Treated as critical to pause
+          }
+
+          // Check 2: library tagWritesEnabled
+          const freshLib = await db
+            .select()
+            .from(libraries)
+            .where(eq(libraries.id, libraryId))
+            .then((rows) => rows[0]);
+
+          const tagWritesEnabled = (freshLib?.settings as any)?.tagWritesEnabled === true;
+          if (!tagWritesEnabled) {
+            // Gate closed: mark as skipped and pause the plan
+            await db
+              .update(tagPlanItems)
+              .set({
+                status: 'skipped',
+                error: 'gate_closed',
+              })
+              .where(eq(tagPlanItems.id, item.id));
+
+            // Signal to pause the plan
+            hashMismatchEncountered = true;
+            logger.warn(
+              { itemId: item.id, audioFileId: item.audioFileId },
+              'Tag apply: tagWritesEnabled gate closed'
+            );
+            return { success: false, hashMismatch: true }; // Treated as critical to pause
+          }
 
           // Compute audio-stream hash before writing
           let hashBefore: string;

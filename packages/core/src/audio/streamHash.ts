@@ -187,7 +187,14 @@ export async function hashMp4Stream(filePath: string): Promise<string> {
 
 /**
  * Extracts and hashes the audio stream from an Ogg file (Vorbis or Opus)
- * Per spec §12.6: packet payloads reassembled from audio pages after comment header
+ * Per spec §12.6: packet payloads reassembled from audio pages after header packets
+ *
+ * Ogg format carries logical packets split across physical pages. Header packets:
+ * - Vorbis: packets 1 (identification), 3 (comment), 5 (setup)
+ * - Opus: OpusHead, OpusTags
+ *
+ * We walk the page sequence, track packet boundaries via segment tables, and
+ * hash only the payload of real audio packets (those after all headers).
  */
 export async function hashOggStream(filePath: string): Promise<string> {
   const file = await open(filePath, 'r');
@@ -195,8 +202,12 @@ export async function hashOggStream(filePath: string): Promise<string> {
     const stats = await file.stat();
     const audioData: Buffer[] = [];
     let offset = 0;
-    let foundCommentHeader = false;
-    let packetCount = 0;
+    let packetsSeen = 0; // Track logical packets across pages
+    let seenAllHeaders = false;
+
+    // Detect codec from first page
+    let isOpus = false;
+    let isVorbis = false;
 
     while (offset < stats.size) {
       const pageHeader = Buffer.alloc(27);
@@ -208,7 +219,6 @@ export async function hashOggStream(filePath: string): Promise<string> {
         break;
       }
 
-      const headerType = pageHeader[5];
       const numSegments = pageHeader[26];
       if (numSegments === undefined) {
         throw new Error('Invalid OGG page header');
@@ -218,36 +228,75 @@ export async function hashOggStream(filePath: string): Promise<string> {
       await file.read(segmentSizes, 0, numSegments, offset + 27);
 
       let pageDataSize = 0;
+      const segmentList: number[] = [];
       for (let i = 0; i < numSegments; i++) {
         const segmentSize = segmentSizes[i];
         if (segmentSize !== undefined) {
           pageDataSize += segmentSize;
+          segmentList.push(segmentSize);
         }
       }
 
       const pageData = Buffer.alloc(pageDataSize);
       await file.read(pageData, 0, pageDataSize, offset + 27 + numSegments);
 
-      // First page is typically a header; track it
-      if (packetCount === 0) {
-        // This is a header packet (identification or comment)
-        if (pageData.length > 1) {
-          const packetByte = pageData[0];
-          if (packetByte !== undefined) {
-            const packetType = packetByte & 0x7f;
-            // Type 3 is comment header for Vorbis, 0x81 for Opus comment header
-            if (packetType === 3 || (packetByte & 0xff) === 0x81) {
-              foundCommentHeader = true;
+      // Parse logical packets from segments
+      // Each segment < 255 bytes marks a packet boundary
+      let pageOffset = 0;
+      for (let i = 0; i < segmentList.length; i++) {
+        const segmentSize = segmentList[i]!;
+        const segmentData = pageData.slice(pageOffset, pageOffset + segmentSize);
+        pageOffset += segmentSize;
+
+        // Check if this segment ends a logical packet (next segment < 255 or is last)
+        const isPacketEnd = i === segmentList.length - 1 || (segmentList[i + 1] ?? 0) < 255;
+
+        if (isPacketEnd && segmentSize > 0) {
+          packetsSeen++;
+
+          // Detect codec from first packet
+          if (packetsSeen === 1) {
+            if (segmentData[0] === 0x01) {
+              // Vorbis packet type 1 = identification
+              isVorbis = true;
+            } else if (segmentData.length >= 8 &&
+                       segmentData.toString('ascii', 0, 4) === 'Opus') {
+              // OpusHead starts with "Opus"
+              isOpus = true;
             }
           }
+
+          // Determine if this is a header packet or audio packet
+          let isHeader = false;
+
+          if (isVorbis) {
+            // Vorbis: packets 1, 3, 5 are headers
+            if ([1, 3, 5].includes(packetsSeen)) {
+              isHeader = true;
+            }
+          } else if (isOpus) {
+            // Opus: OpusHead (packet 1) and OpusTags (packet 2)
+            if ([1, 2].includes(packetsSeen)) {
+              isHeader = true;
+            }
+          } else {
+            // Unknown codec: assume first packet is ID, second is comment/tags
+            if (packetsSeen <= 2) {
+              isHeader = true;
+            }
+          }
+
+          if (isHeader) {
+            // Mark that we've seen all expected headers once we pass them
+            if (packetsSeen > 2) {
+              seenAllHeaders = true;
+            }
+          } else {
+            // This is audio data
+            seenAllHeaders = true;
+            audioData.push(segmentData);
+          }
         }
-        packetCount++;
-      } else if (foundCommentHeader) {
-        // Include audio page data
-        audioData.push(pageData);
-      } else {
-        // Not yet at audio pages, keep looking
-        packetCount++;
       }
 
       offset += 27 + numSegments + pageDataSize;

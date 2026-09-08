@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, count, desc } from 'drizzle-orm';
 import {
   tagPlans,
   tagPlanItems,
@@ -36,7 +36,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
    * GET /api/v1/libraries/:libraryId/tag-plans
    * List tag plans with pagination
    */
-  fastify.get<{ Params: { libraryId: string } }>(
+  fastify.get<{ Params: { libraryId: string }; Querystring: { limit?: string; offset?: string } }>(
     '/tag-plans',
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) {
@@ -44,6 +44,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       const { libraryId } = request.params as { libraryId: string };
+      const limit = Math.min(Math.max(parseInt((request.query as any).limit || '50', 10), 1), 200);
+      const offset = Math.max(parseInt((request.query as any).offset || '0', 10), 0);
       const db = getDb();
 
       // Verify library ownership
@@ -58,11 +60,22 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
 
-      // TODO: Implement pagination
+      // Get total count
+      const countResult = await db
+        .select({ count: count() })
+        .from(tagPlans)
+        .where(eq(tagPlans.libraryId, libraryId));
+
+      const total = countResult[0]?.count ?? 0;
+
+      // Get paginated plans, ordered by created_at desc
       const plans = await db
         .select()
         .from(tagPlans)
-        .where(eq(tagPlans.libraryId, libraryId));
+        .where(eq(tagPlans.libraryId, libraryId))
+        .orderBy(desc(tagPlans.createdAt))
+        .limit(limit)
+        .offset(offset);
 
       const formatted: TagPlan[] = plans.map((p) => {
         const scopeData = typeof p.scope === 'string' ? JSON.parse(p.scope) : p.scope;
@@ -82,7 +95,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         };
       });
 
-      reply.send({ items: formatted });
+      reply.send({ items: formatted, limit, offset, total });
     }
   );
 

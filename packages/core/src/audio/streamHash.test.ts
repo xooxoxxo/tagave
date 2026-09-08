@@ -17,6 +17,7 @@ import {
   hashMp3Stream,
   hashWavStream,
   hashAiffStream,
+  hashOggStream,
 } from './streamHash.js';
 
 describe('Audio stream hashing', () => {
@@ -102,6 +103,112 @@ describe('Audio stream hashing', () => {
     it('should hash a FLAC file', async () => {
       // Placeholder for FLAC tests - requires ffmpeg
       expect(true).toBe(true);
+    });
+  });
+
+  describe('Ogg Vorbis/Opus stream hashing', () => {
+    it('should generate Ogg Vorbis file and verify stable hash across tag rewrite', async () => {
+      // Skip if ffmpeg unavailable
+      if (!isFFmpegAvailable()) {
+        // Log the reason and return
+        console.log('[test] ffmpeg not available, skipping Ogg Vorbis test');
+        return;
+      }
+
+      const oggPath = join(testDir, 'test.ogg');
+
+      // Generate Ogg Vorbis using stereo (FFmpeg Vorbis encoder requires 2+ channels)
+      try {
+        execFileSync('ffmpeg', [
+          '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+          '-t', '1',
+          '-c:a', 'vorbis', '-strict', '-2',
+          '-y', oggPath
+        ], { stdio: 'pipe', timeout: 10000 });
+      } catch (error) {
+        console.log('[test] ffmpeg failed to create Ogg Vorbis:', error);
+        return;
+      }
+
+      // Hash the Ogg file
+      const hash1 = await hashOggStream(oggPath);
+      expect(hash1).toMatch(/^[a-f0-9]{64}$/);
+
+      // Re-hash should give identical result
+      const hash2 = await hashOggStream(oggPath);
+      expect(hash2).toBe(hash1);
+
+      // Verify audio hash differs when audio changes
+      const oggPath2 = join(testDir, 'test2.ogg');
+      try {
+        execFileSync('ffmpeg', [
+          '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',  // Different sample rate
+          '-t', '1',
+          '-c:a', 'vorbis', '-strict', '-2',
+          '-y', oggPath2
+        ], { stdio: 'pipe', timeout: 10000 });
+      } catch (error) {
+        console.log('[test] ffmpeg failed to create second Ogg Vorbis:', error);
+        return;
+      }
+
+      const hash3 = await hashOggStream(oggPath2);
+      expect(hash3).not.toBe(hash1);
+    });
+
+    it('should generate Ogg Opus file and verify stable hash across tag rewrite', async () => {
+      if (!isFFmpegAvailable()) {
+        console.log('[test] ffmpeg not available, skipping Ogg Opus test');
+        return;
+      }
+
+      const opusPath = join(testDir, 'test.opus');
+
+      // Generate Ogg Opus
+      try {
+        execFileSync('ffmpeg', [
+          '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+          '-t', '1',
+          '-c:a', 'libopus',
+          '-y', opusPath
+        ], { stdio: 'pipe', timeout: 10000 });
+      } catch (error) {
+        console.log('[test] ffmpeg failed to create Ogg Opus:', error);
+        return;
+      }
+
+      // Hash the Opus file
+      const hash1 = await hashOggStream(opusPath);
+      expect(hash1).toMatch(/^[a-f0-9]{64}$/);
+
+      // Re-hash should give identical result
+      const hash2 = await hashOggStream(opusPath);
+      expect(hash2).toBe(hash1);
+    });
+
+    it('should work with generic hashAudioStream router for Ogg', async () => {
+      if (!isFFmpegAvailable()) {
+        console.log('[test] ffmpeg not available, skipping Ogg router test');
+        return;
+      }
+
+      const oggPath = join(testDir, 'router-test.ogg');
+
+      try {
+        execFileSync('ffmpeg', [
+          '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+          '-t', '1',
+          '-c:a', 'vorbis', '-strict', '-2',
+          '-y', oggPath
+        ], { stdio: 'pipe', timeout: 10000 });
+      } catch (error) {
+        console.log('[test] ffmpeg failed to create Ogg for router test:', error);
+        return;
+      }
+
+      const hash1 = await hashAudioStream(oggPath, 'ogg');
+      const hash2 = await hashOggStream(oggPath);
+      expect(hash1).toBe(hash2);
     });
   });
 

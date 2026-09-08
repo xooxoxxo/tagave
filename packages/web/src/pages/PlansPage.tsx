@@ -11,14 +11,19 @@ import styles from './PlansPage.module.css';
 
 export function PlansPage() {
   const { libraryId } = useCurrentLibrary();
-  const { data: plansResponse, isLoading } = useTagPlans(libraryId);
+  const [limit] = useState(50);
+  const [offset, setOffset] = useState(0);
+  const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset });
   const [showWizard, setShowWizard] = useState(false);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading...</div>;
   }
 
-  const plans = plansResponse?.data ?? [];
+  const plans = plansResponse?.items ?? [];
+  const total = plansResponse?.total ?? 0;
+  const hasNext = offset + limit < total;
+  const hasPrev = offset > 0;
 
   const scopeLabel = (scope: Record<string, unknown> | undefined): string => {
     if (!scope) return 'Unknown';
@@ -145,6 +150,25 @@ export function PlansPage() {
               })}
             </tbody>
           </table>
+          <div className={styles.pagination}>
+            <button
+              className={styles.paginationBtn}
+              onClick={() => setOffset(Math.max(0, offset - limit))}
+              disabled={!hasPrev}
+            >
+              Prev
+            </button>
+            <span className={styles.paginationInfo}>
+              {total === 0 ? '0' : `${offset + 1}–${Math.min(offset + limit, total)}`} of {total}
+            </span>
+            <button
+              className={styles.paginationBtn}
+              onClick={() => setOffset(offset + limit)}
+              disabled={!hasNext}
+            >
+              Next
+            </button>
+          </div>
         </div>
       )}
 

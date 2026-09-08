@@ -14,9 +14,9 @@ import {
   useApplyTagPlan,
   useLibrarySettings,
   useTagPlan,
-  usePauseTagPlanJob,
-  useResumeTagPlanJob,
-  useCancelTagPlanJob,
+  usePauseTagPlan,
+  useResumeTagPlan,
+  useCancelTagPlan,
   useRevertTagPlan,
 } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
@@ -59,10 +59,14 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
   const [showHelp, setShowHelp] = useState(false);
 
   const settings = useLibrarySettings(libraryId);
-  const tagPlan = useTagPlan(createdPlanId || undefined);
+  const tagPlan = useTagPlan(libraryId, createdPlanId || undefined);
   const createPlanMutation = useCreateTagPlan(libraryId);
-  const previewMutation = usePreviewTagPlan(createdPlanId || undefined);
-  const applyMutation = useApplyTagPlan(createdPlanId || undefined);
+  const previewMutation = usePreviewTagPlan(libraryId, createdPlanId || undefined);
+  const applyMutation = useApplyTagPlan(libraryId, createdPlanId || undefined);
+  const pauseMutation = usePauseTagPlan(libraryId, createdPlanId || undefined);
+  const resumeMutation = useResumeTagPlan(libraryId, createdPlanId || undefined);
+  const cancelMutation = useCancelTagPlan(libraryId, createdPlanId || undefined);
+  const revertMutation = useRevertTagPlan(libraryId, createdPlanId || undefined);
   const jobsData = useJobs(libraryId);
   const currentJob = appliedJobId ? jobsData.data?.data?.find((j) => j.id === appliedJobId) : null;
 
@@ -223,6 +227,8 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
               setStep(2);
             }}
             isLoading={applyMutation.isPending}
+            tagWritesDisabled={tagWritesDisabled}
+            noWritableRoots={noWritableRoots}
           />
         )}
 
@@ -230,6 +236,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           <Step4Progress
             job={currentJob}
             planId={createdPlanId || ''}
+            libraryId={libraryId}
             onClose={onClose}
           />
         )}
@@ -465,12 +472,23 @@ function Step3PreviewTable({
   onApply,
   onBack,
   isLoading,
+  tagWritesDisabled,
+  noWritableRoots,
 }: {
   planId: string;
   onApply: () => void;
   onBack: () => void;
   isLoading: boolean;
+  tagWritesDisabled: boolean;
+  noWritableRoots: boolean;
 }) {
+  const canApply = !tagWritesDisabled && !noWritableRoots;
+  const applyTitle = tagWritesDisabled
+    ? 'Tag writes disabled in library settings'
+    : noWritableRoots
+      ? 'No writable scan roots configured'
+      : undefined;
+
   return (
     <div className={styles.step}>
       <p className={styles.stepTitle}>Step 3: Preview changes</p>
@@ -495,7 +513,8 @@ function Step3PreviewTable({
         <button
           className={`${styles.btn} ${styles.btnPrimary}`}
           onClick={onApply}
-          disabled={isLoading}
+          disabled={isLoading || !canApply}
+          title={applyTitle}
         >
           {isLoading ? 'Applying...' : 'Apply now'}
         </button>
@@ -519,17 +538,19 @@ function Step4Progress({
   job,
   planId,
   onClose,
+  libraryId,
 }: {
   job: JobInfo;
   planId: string;
+  libraryId: string;
   onClose: () => void;
 }) {
   const progress = job.progress || { done: 0, total: 0 };
   const percentage = progress.total > 0 ? ((progress.done / progress.total) * 100) : 0;
-  const pauseMutation = usePauseTagPlanJob(planId);
-  const resumeMutation = useResumeTagPlanJob(planId);
-  const cancelMutation = useCancelTagPlanJob(planId);
-  const revertMutation = useRevertTagPlan(planId);
+  const pauseMutation = usePauseTagPlan(libraryId, planId);
+  const resumeMutation = useResumeTagPlan(libraryId, planId);
+  const cancelMutation = useCancelTagPlan(libraryId, planId);
+  const revertMutation = useRevertTagPlan(libraryId, planId);
 
   const isRunning = job.state === 'active';
   const isPaused = job.state === 'paused';
@@ -555,13 +576,13 @@ function Step4Progress({
         <div className={styles.stepActions}>
           <button
             className={styles.btn}
-            onClick={() => pauseMutation.mutate(job.id)}
+            onClick={() => pauseMutation.mutate()}
           >
             Pause
           </button>
           <button
             className={`${styles.btn} ${styles.btnDanger}`}
-            onClick={() => cancelMutation.mutate(job.id)}
+            onClick={() => cancelMutation.mutate()}
           >
             Cancel
           </button>
@@ -572,13 +593,13 @@ function Step4Progress({
         <div className={styles.stepActions}>
           <button
             className={styles.btn}
-            onClick={() => resumeMutation.mutate(job.id)}
+            onClick={() => resumeMutation.mutate()}
           >
             Resume
           </button>
           <button
             className={`${styles.btn} ${styles.btnDanger}`}
-            onClick={() => cancelMutation.mutate(job.id)}
+            onClick={() => cancelMutation.mutate()}
           >
             Cancel
           </button>

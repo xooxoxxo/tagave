@@ -13,6 +13,7 @@ import {
   audioFiles,
   scanRoots,
 } from '@liner/db';
+import type { TagDiffEntry } from '@liner/shared';
 import { makeDb } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
 import { tagsRevertJob } from './tagsRevert.js';
@@ -226,5 +227,138 @@ describe('tagsRevert job', () => {
     await expect(tagsRevertJob(ctx, { planId: emptyPlanId })).rejects.toThrow(
       'No applied items found'
     );
+  });
+
+  it('should compute diffs for revert items (finding 2)', async () => {
+    // Create a scan root for the library
+    const scanRootId = randomUUID();
+    await dbClient.insert(scanRoots).values({
+      id: scanRootId,
+      libraryId,
+      path: '/test/music',
+      displayName: 'Test Root',
+      writable: true,
+      probeWritable: true,
+      enabled: true,
+      createdAt: new Date(),
+    });
+
+    // Create an audio file
+    const audioFileId = randomUUID();
+    await dbClient.insert(audioFiles).values({
+      id: audioFileId,
+      libraryId,
+      scanRootId,
+      relPath: 'test2.flac',
+      sizeBytes: 10000,
+      container: 'FLAC',
+      codec: 'FLAC',
+      lossless: true,
+      durationMs: 180000,
+      sampleRate: 44100,
+      bitDepth: 16,
+      channels: 2,
+      status: 'present',
+      firstSeenAt: new Date(),
+      lastSeenAt: new Date(),
+    });
+
+    // Create an original plan
+    const planId = randomUUID();
+    await dbClient.insert(tagPlans).values({
+      id: planId,
+      libraryId,
+      name: 'Original Plan 2',
+      scope: { type: 'library' },
+      policy: {
+        preset: 'canonical_ids_and_fill',
+        id3Version: '2.4',
+        multiValueSeparator: '; ',
+      },
+      status: 'applied',
+      stats: {},
+      createdBy: userId,
+      createdAt: new Date(),
+      appliedAt: new Date(),
+    });
+
+    // Create applied item with non-empty diffs
+    const itemId = randomUUID();
+
+    const beforeTags = {
+      title: 'Old Title',
+      artist: 'Old Artist',
+      album: 'Old Album',
+    };
+
+    const afterTags = {
+      title: 'New Title',
+      artist: 'New Artist',
+      album: 'New Album',
+    };
+
+    await dbClient.insert(tagPlanItems).values({
+      id: itemId,
+      tagPlanId: planId,
+      audioFileId,
+      before: beforeTags,
+      after: afterTags,
+      diff: [
+        {
+          field: 'title',
+          before: 'Old Title',
+          after: 'New Title',
+          reason: 'policy:overwrite',
+        },
+        {
+          field: 'artist',
+          before: 'Old Artist',
+          after: 'New Artist',
+          reason: 'policy:overwrite',
+        },
+      ],
+      status: 'applied',
+      audioHashBefore: 'hash-before',
+      audioHashAfter: 'hash-before',
+      sizeAfter: 1000000,
+      mtimeAfter: Date.now(),
+      appliedAt: new Date(),
+    });
+
+    // Call tagsRevertJob
+    await tagsRevertJob(ctx, { planId });
+
+    // Verify revert items have computed diffs (not empty)
+    const revertPlans = await dbClient
+      .select()
+      .from(tagPlans)
+      .where(eq(tagPlans.libraryId, libraryId));
+
+    const revertPlan = revertPlans.find((p: any) => p.name.startsWith('Revert'));
+    expect(revertPlan).toBeDefined();
+
+    const revertItems = await dbClient
+      .select()
+      .from(tagPlanItems)
+      .where(eq(tagPlanItems.tagPlanId, revertPlan.id));
+
+    expect(revertItems.length).toBe(1);
+
+    const revertItem = revertItems[0]!;
+
+    // CRITICAL: diff should NOT be empty (finding 2)
+    const revertDiff = typeof revertItem.diff === 'string'
+      ? JSON.parse(revertItem.diff)
+      : revertItem.diff;
+
+    expect(Array.isArray(revertDiff)).toBe(true);
+    expect(revertDiff.length).toBeGreaterThan(0);
+
+    // Each diff should show the change needed to restore the original state
+    const titleDiff = revertDiff.find((d: any) => d.field === 'title');
+    expect(titleDiff).toBeDefined();
+    expect(titleDiff?.before).toBe('New Title'); // Current
+    expect(titleDiff?.after).toBe('Old Title'); // Target
+    expect(titleDiff?.reason).toBe('revert');
   });
 });

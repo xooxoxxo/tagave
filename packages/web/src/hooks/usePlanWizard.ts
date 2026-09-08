@@ -12,72 +12,69 @@ import type {
 import { api } from '../services/api';
 
 export interface TagPlansResponse {
-  data: TagPlan[];
+  items: TagPlan[];
+  limit: number;
+  offset: number;
+  total: number;
 }
 
-export interface TagPlansPreviewResponse {
-  items: TagPlanItem[];
-  stats: {
-    filesTouched: number;
-    fieldsModified: number;
-    lockedFieldsRespected: number;
-    filesSkipped: Array<{
-      audioFileId: string;
-      reason: 'scan_root_not_writable' | 'audio_file_error';
-      message?: string;
-    }>;
-  };
+export interface JobResponse {
+  jobId: string;
+  singletonKey: string;
+  message: string;
 }
 
 export interface ApplyPlanResponse {
   jobId: string;
 }
 
-export interface RevertPlanResponse {
-  planId: string;
-  jobId: string;
-}
-
 /**
  * Get all tag plans for a library (GET /libraries/:libraryId/tag-plans)
  */
-export function useTagPlans(libraryId: string | undefined) {
+export function useTagPlans(libraryId: string | undefined, opts?: { limit?: number; offset?: number }) {
   return useQuery({
-    queryKey: ['tag-plans', libraryId],
-    queryFn: () => api.get<TagPlansResponse>(`/libraries/${libraryId}/tag-plans`),
+    queryKey: ['tag-plans', libraryId, opts?.limit, opts?.offset],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (opts?.limit) params.append('limit', opts.limit.toString());
+      if (opts?.offset) params.append('offset', opts.offset.toString());
+      const query = params.toString() ? `?${params.toString()}` : '';
+      return api.get<TagPlansResponse>(`/libraries/${libraryId}/tag-plans${query}`);
+    },
     enabled: !!libraryId,
     staleTime: 1000 * 60, // 1 minute
   });
 }
 
 /**
- * Get a single tag plan (GET /tag-plans/:planId)
+ * Get a single tag plan (GET /libraries/:libraryId/tag-plans/:planId)
  */
-export function useTagPlan(planId: string | undefined) {
+export function useTagPlan(libraryId: string | undefined, planId: string | undefined) {
   return useQuery({
-    queryKey: ['tag-plan', planId],
-    queryFn: () => api.get<TagPlan>(`/tag-plans/${planId}`),
-    enabled: !!planId,
+    queryKey: ['tag-plan', libraryId, planId],
+    queryFn: () => api.get<TagPlan>(`/libraries/${libraryId}/tag-plans/${planId}`),
+    enabled: !!libraryId && !!planId,
   });
 }
 
 /**
- * Get preview items for a plan (GET /tag-plans/:planId/items)
+ * Get preview items for a plan (GET /libraries/:libraryId/tag-plans/:planId/items)
  */
 export function useTagPlanItems(
+  libraryId: string | undefined,
   planId: string | undefined,
   opts?: { fieldFilter?: string; albumFilter?: string }
 ) {
   return useQuery({
-    queryKey: ['tag-plan-items', planId, opts],
+    queryKey: ['tag-plan-items', libraryId, planId, opts],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (opts?.fieldFilter) params.append('field', opts.fieldFilter);
       if (opts?.albumFilter) params.append('album', opts.albumFilter);
       const query = params.toString() ? `?${params.toString()}` : '';
-      return api.get<{ items: TagPlanItem[] }>(`/tag-plans/${planId}/items${query}`);
+      return api.get<{ items: TagPlanItem[] }>(`/libraries/${libraryId}/tag-plans/${planId}/items${query}`);
     },
-    enabled: !!planId,
+    enabled: !!libraryId && !!planId,
   });
 }
 
@@ -96,68 +93,72 @@ export function useCreateTagPlan(libraryId: string | undefined) {
 }
 
 /**
- * Preview a tag plan (POST /tag-plans/:planId/preview)
+ * Preview a tag plan (POST /libraries/:libraryId/tag-plans/:planId/preview)
+ * Returns 202 with jobId, singletonKey, and message
  */
-export function usePreviewTagPlan(planId: string | undefined) {
+export function usePreviewTagPlan(libraryId: string | undefined, planId: string | undefined) {
   return useMutation({
-    mutationFn: () => api.post<TagPlansPreviewResponse>(`/tag-plans/${planId}/preview`, {}),
+    mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/preview`, {}),
   });
 }
 
 /**
- * Apply a tag plan (POST /tag-plans/:planId/apply)
+ * Apply a tag plan (POST /libraries/:libraryId/tag-plans/:planId/apply)
+ * Returns 202 with jobId, singletonKey, and message
  */
-export function useApplyTagPlan(planId: string | undefined) {
+export function useApplyTagPlan(libraryId: string | undefined, planId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<ApplyPlanResponse>(`/tag-plans/${planId}/apply`, {}),
+    mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/apply`, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tag-plans'] });
-      queryClient.invalidateQueries({ queryKey: ['tag-plan', planId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
     },
   });
 }
 
 /**
- * Pause a tag plan job (POST /tag-plans/:planId/pause)
+ * Pause a tag plan (POST /libraries/:libraryId/tag-plans/:planId/pause)
  */
-export function usePauseTagPlanJob(planId: string | undefined) {
+export function usePauseTagPlan(libraryId: string | undefined, planId: string | undefined) {
   return useMutation({
-    mutationFn: (jobId: string) =>
-      api.post(`/tag-plans/${planId}/pause`, { jobId }),
+    mutationFn: () =>
+      api.post(`/libraries/${libraryId}/tag-plans/${planId}/pause`, {}),
   });
 }
 
 /**
- * Resume a tag plan job (POST /tag-plans/:planId/resume)
+ * Resume a tag plan (POST /libraries/:libraryId/tag-plans/:planId/resume)
+ * Returns 202 with jobId, singletonKey, and message
  */
-export function useResumeTagPlanJob(planId: string | undefined) {
+export function useResumeTagPlan(libraryId: string | undefined, planId: string | undefined) {
   return useMutation({
-    mutationFn: (jobId: string) =>
-      api.post(`/tag-plans/${planId}/resume`, { jobId }),
+    mutationFn: () =>
+      api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/resume`, {}),
   });
 }
 
 /**
- * Cancel a tag plan job (POST /tag-plans/:planId/cancel)
+ * Cancel a tag plan (POST /libraries/:libraryId/tag-plans/:planId/cancel)
  */
-export function useCancelTagPlanJob(planId: string | undefined) {
+export function useCancelTagPlan(libraryId: string | undefined, planId: string | undefined) {
   return useMutation({
-    mutationFn: (jobId: string) =>
-      api.post(`/tag-plans/${planId}/cancel`, { jobId }),
+    mutationFn: () =>
+      api.post(`/libraries/${libraryId}/tag-plans/${planId}/cancel`, {}),
   });
 }
 
 /**
- * Revert a tag plan (POST /tag-plans/:planId/revert)
+ * Revert a tag plan (POST /libraries/:libraryId/tag-plans/:planId/revert)
+ * Returns 202 with jobId, singletonKey, and message
  */
-export function useRevertTagPlan(planId: string | undefined) {
+export function useRevertTagPlan(libraryId: string | undefined, planId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<RevertPlanResponse>(`/tag-plans/${planId}/revert`, {}),
+    mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/revert`, {}),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tag-plans'] });
-      queryClient.invalidateQueries({ queryKey: ['tag-plan', planId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
     },
   });
 }

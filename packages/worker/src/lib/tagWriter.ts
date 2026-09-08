@@ -15,6 +15,7 @@ import type { TagWriter, WriteOptions } from '@liner/core';
  */
 interface SidecarResponse {
   [key: string]: any;
+  id?: string | number;
   error?: string;
   success?: boolean;
   supported?: boolean;
@@ -39,7 +40,8 @@ export class MutagenTagWriter implements TagWriter {
   private subprocess: ChildProcess | null = null;
   private inputBuffer = '';
   private responseQueue: Promise<SidecarResponse>[] = [];
-  private responseResolvers: Array<(value: SidecarResponse) => void> = [];
+  private responseResolvers: Map<string | number, (value: SidecarResponse) => void> = new Map();
+  private nextRequestId = 0;
   private initPromise: Promise<void>;
 
   constructor() {
@@ -130,9 +132,24 @@ export class MutagenTagWriter implements TagWriter {
 
       try {
         const response = JSON.parse(trimmed) as SidecarResponse;
-        const resolver = this.responseResolvers.shift();
-        if (resolver) {
-          resolver(response);
+        const requestId = response.id;
+
+        if (requestId !== undefined && requestId !== null) {
+          const resolver = this.responseResolvers.get(requestId);
+          if (resolver) {
+            this.responseResolvers.delete(requestId);
+            resolver(response);
+          } else {
+            // Late response for timed-out or unknown request
+            process.stderr.write(
+              `[mutagen sidecar] Received response for unknown request id ${requestId}\n`
+            );
+          }
+        } else {
+          // No id in response; log warning but try FIFO for backwards compatibility
+          process.stderr.write(
+            `[mutagen sidecar] Response missing id field\n`
+          );
         }
       } catch (error) {
         process.stderr.write(
@@ -153,22 +170,44 @@ export class MutagenTagWriter implements TagWriter {
     }
 
     return new Promise((resolve, reject) => {
-      // Add resolver to queue
-      this.responseResolvers.push(resolve);
+      const requestId = this.nextRequestId++;
+
+      // Parse command and add request id
+      let cmdObj: any;
+      try {
+        cmdObj = JSON.parse(command);
+        cmdObj.id = requestId;
+      } catch {
+        // Not JSON, send as-is with id appended (legacy support)
+        cmdObj = { id: requestId, __raw: command };
+      }
+
+      const commandWithId = JSON.stringify(cmdObj);
+
+      // Create a timeout handler
+      let timeoutId: NodeJS.Timeout | null = null;
+
+      // Create wrapper resolver that clears timeout
+      const wrappedResolve = (response: SidecarResponse) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        resolve(response);
+      };
+
+      // Add resolver to map by request id
+      this.responseResolvers.set(requestId, wrappedResolve);
 
       // Send command
-      this.subprocess!.stdin!.write(command + '\n', (error) => {
+      this.subprocess!.stdin!.write(commandWithId + '\n', (error) => {
         if (error) {
-          this.responseResolvers.pop();
+          this.responseResolvers.delete(requestId);
           reject(error);
         }
       });
 
       // Set timeout to prevent hanging
-      setTimeout(() => {
-        const idx = this.responseResolvers.indexOf(resolve);
-        if (idx !== -1) {
-          this.responseResolvers.splice(idx, 1);
+      timeoutId = setTimeout(() => {
+        if (this.responseResolvers.has(requestId)) {
+          this.responseResolvers.delete(requestId);
           reject(new Error('Sidecar response timeout'));
         }
       }, 30000); // 30 second timeout
@@ -188,7 +227,7 @@ export class MutagenTagWriter implements TagWriter {
     // Remove error and other meta fields
     const result: TagSet = {};
     for (const [key, value] of Object.entries(response)) {
-      if (!key.startsWith('__') && key !== 'error' && key !== 'success') {
+      if (!key.startsWith('__') && key !== 'error' && key !== 'success' && key !== 'id') {
         result[key] = value as string | string[] | undefined;
       }
     }

@@ -202,6 +202,9 @@ async function enumerateFilesForScope(
  * locked fields respected, files skipped and why) before anything is written."
  *
  * No disk writes. Updates tag_plan.status = 'previewed' and tag_plan.stats.
+ *
+ * IMPORTANT: Deletes any existing pending/applying items before recomputing to avoid
+ * duplicates (per finding 1: preview must ensure one row per (tag_plan_id, audio_file_id)).
  */
 export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promise<void> {
   const db = ctx.db;
@@ -220,6 +223,17 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
   const libraryId = plan.libraryId;
   const scope = plan.scope as TagPlanScope;
   const policy = plan.policy as TagPolicies;
+
+  // Delete any existing pending/applying items to ensure fresh computation
+  // (Spec TAG-3 recompute: one preview per plan session)
+  await db
+    .delete(tagPlanItems)
+    .where(
+      and(
+        eq(tagPlanItems.tagPlanId, planId),
+        inArray(tagPlanItems.status, ['pending', 'applying'])
+      )
+    );
 
   // Enumerate matching files
   const fileIds = await enumerateFilesForScope(db, libraryId, scope);

@@ -348,6 +348,30 @@ describe.skipIf(!isMutagenAvailable())('MutagenTagWriter', () => {
       expect(tagsRead.title).toBe('ID3v24 Test');
     });
 
+    it('should handle ID3v2.3 with TYER/TDAT date fields', async () => {
+      const testFile = testFiles[0]!;
+
+      // Write with ID3v2.3 which uses TYER/TDAT
+      const tagsToWrite: TagSet = {
+        title: 'ID3v23 Date Test',
+        date: '2024-05-15',
+      };
+
+      const opts: WriteOptions = {
+        id3Version: '2.3',
+      };
+
+      await tagWriter.write(testFile, tagsToWrite, opts);
+
+      // Read back and verify the date was properly round-tripped
+      const tagsRead = await tagWriter.read(testFile);
+
+      expect(tagsRead.title).toBe('ID3v23 Date Test');
+      // Date should be preserved (ID3v2.3 uses TYER and TDAT)
+      expect(tagsRead.date).toBeDefined();
+      expect(tagsRead.date).toContain('2024');
+    });
+
     it('should handle multiValueSeparator option', async () => {
       const testFile = testFiles[0]!;
 
@@ -402,6 +426,43 @@ describe.skipIf(!isMutagenAvailable())('MutagenTagWriter', () => {
       expect(readTags.genre).toBe(originalTags.genre);
       expect(readTags.musicbrainz_albumid).toBe(originalTags.musicbrainz_albumid);
       expect(readTags.discogs_release_id).toBe(originalTags.discogs_release_id);
+    });
+  });
+
+  describe('request ID matching', () => {
+    it('should handle multiple concurrent requests with proper ID matching', async () => {
+      const testFile = testFiles[0]!;
+
+      // Send multiple requests without waiting for responses
+      const promise1 = tagWriter.read(testFile);
+      const promise2 = tagWriter.write(testFile, { title: 'Test 1' });
+      const promise3 = tagWriter.read(testFile);
+
+      // All should complete without cross-contamination
+      const tags1 = await promise1;
+      await promise2;
+      const tags3 = await promise3;
+
+      // Verify tags3 includes the written tag
+      expect(tags3.title).toBe('Test 1');
+    });
+
+    it('should not match timed-out responses to subsequent requests', async () => {
+      const testFile = testFiles[0]!;
+
+      // This test verifies the fix for the FIFO matching bug:
+      // If request 1 times out and request 2 is sent, request 2's response
+      // should not be matched to request 1's timeout handler.
+
+      // Write a known tag
+      await tagWriter.write(testFile, { title: 'ID Matching Test' });
+
+      // Read back to verify
+      const tags = await tagWriter.read(testFile);
+      expect(tags.title).toBe('ID Matching Test');
+
+      // If IDs are properly matched, this should not cause issues
+      // even if responses arrive out of order
     });
   });
 

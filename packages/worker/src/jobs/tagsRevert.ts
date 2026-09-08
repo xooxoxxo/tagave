@@ -126,6 +126,29 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
 
     const revertItemId = randomUUID();
 
+    // Compute revert diffs: show the changes needed to restore the before-state
+    // Each field in afterTags (current) -> beforeTags (target) is a diff entry
+    const revertDiffs = [];
+    const allFields = new Set([
+      ...Object.keys(afterTags || {}),
+      ...Object.keys(beforeTags || {}),
+    ]);
+
+    for (const field of allFields) {
+      const currentValue = (afterTags || {})[field] ?? null;
+      const targetValue = (beforeTags || {})[field] ?? null;
+
+      // Only record diffs where the value actually changes
+      if (currentValue !== targetValue) {
+        revertDiffs.push({
+          field,
+          before: currentValue,
+          after: targetValue,
+          reason: 'revert',
+        });
+      }
+    }
+
     // For the revert plan, the "after" value is the original "before" value
     // The "before" value is the current "after" value
     // audioHashBefore is the current hash (from audioHashAfter of applied item)
@@ -136,7 +159,7 @@ export async function tagsRevertJob(ctx: WorkerContext, data: TagsRevertJobData)
       audioFileId: appliedItem.audioFileId,
       before: afterTags, // Current state (what was applied)
       after: beforeTags, // Revert to original state
-      diff: {}, // Revert diffs will be computed by tagsPreview
+      diff: revertDiffs, // Diffs computed here (not waiting for preview)
       status: 'pending',
       audioHashBefore: appliedItem.audioHashAfter, // Current hash
       audioHashAfter: appliedItem.audioHashBefore, // Original hash (must match after revert)
