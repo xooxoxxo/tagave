@@ -26,23 +26,27 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
         offline: true,
       });
 
-      // Extract individual check results
+      // Extract individual check results. A warn (e.g. a migration the
+      // workers applied that this app build does not carry yet, or a worker
+      // short) is reported as such; only a failed database or migration
+      // ledger makes the endpoint 503.
       const checkMap = new Map(result.checks.map((c) => [c.id, c]));
+      const level = (id: string): 'ok' | 'warn' | 'error' => {
+        const status = checkMap.get(id)?.status;
+        return status === 'pass' ? 'ok' : status === 'warn' ? 'warn' : 'error';
+      };
 
-      const database = checkMap.get('database')?.status === 'pass' ? 'ok' : 'error';
-      const migrations = checkMap.get('migrations')?.status === 'pass' ? 'ok' : 'error';
-      const cacheDir = checkMap.get('cacheDir')?.status === 'pass' ? 'ok' : 'error';
-      const workerHeartbeat =
-        checkMap.get('workerHeartbeat')?.status === 'pass'
-          ? 'ok'
-          : checkMap.get('workerHeartbeat')?.status === 'warn'
-            ? 'warn'
-            : 'error';
+      const database = level('database');
+      const migrations = level('migrations');
+      const cacheDir = level('cacheDir');
+      const workerHeartbeat = level('workerHeartbeat');
+      const down = database === 'error' || migrations === 'error';
 
       const health: any = {
-        status: 'ok',
+        status: down ? 'error' : 'ok',
         timestamp: new Date().toISOString(),
         database,
+        migrations,
         cacheDir,
         workerHeartbeat,
         checks: result.checks.map((c) => ({
@@ -53,12 +57,7 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
         })),
       };
 
-      // Fail (503) if database or migrations are down
-      if (database === 'error' || migrations === 'error') {
-        return reply.status(503).send(health);
-      }
-
-      reply.status(200).send(health);
+      reply.status(down ? 503 : 200).send(health);
     } catch (err) {
       return reply.status(503).send({
         status: 'error',
