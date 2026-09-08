@@ -22,6 +22,8 @@ import { parseFile } from 'music-metadata';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { TagDiffEntry } from '@liner/shared';
+import { tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { localTracks } from '@liner/db';
 
 export interface TagsApplyJobData {
   planId: string;
@@ -324,8 +326,9 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
           const metadata = await parseFile(fullPath);
           const stats = await fs.stat(fullPath);
 
-          // Get tags_raw from the file
-          const rawTags = metadata.common || {};
+          // Same snapshot shape scan.parse stores; a bare common block here
+          // made preview, identify and the lint read the file as untagged.
+          const rawTags = tagSnapshotOf(metadata);
 
           // Update tag_plan_items with all journal fields
           await db
@@ -421,13 +424,17 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
       );
 
     if (remainingPending.length === 0) {
-      // All done
+      const failed = await db
+        .select({ id: tagPlanItems.id })
+        .from(tagPlanItems)
+        .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'failed')));
+      const status = failed.length > 0 ? 'partially_failed' : 'applied';
       await db
         .update(tagPlans)
-        .set({ status: 'applied', appliedAt: new Date() })
+        .set({ status, appliedAt: new Date() })
         .where(eq(tagPlans.id, planId));
 
-      logger.info({ planId }, 'Tag apply: all items processed successfully');
+      logger.info({ planId, failed: failed.length }, `Tag apply: finished (${status})`);
     } else {
       // Still more to process (e.g., after restart)
       // Keep status as 'applying'
@@ -436,5 +443,27 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
         'Tag apply: more items to process'
       );
     }
+  }
+
+  await relintTouchedAlbums(ctx, libraryId, fileIds);
+}
+
+/**
+ * Quality chips on the album page come from gaps.recompute, which otherwise
+ * runs nightly; re-lint just the albums this plan wrote so the page reflects
+ * the new tags right away.
+ */
+async function relintTouchedAlbums(ctx: WorkerContext, libraryId: string, fileIds: string[]) {
+  if (fileIds.length === 0) return;
+  const rows = await ctx.db
+    .selectDistinct({ albumId: localTracks.localAlbumId })
+    .from(localTracks)
+    .where(inArray(localTracks.audioFileId, fileIds));
+  const albumIds = rows.map((r) => r.albumId).filter((id): id is string => !!id);
+  if (albumIds.length === 0) return;
+  try {
+    await ctx.boss.send('gaps.recompute', { libraryId, albumIds }, {});
+  } catch (error) {
+    ctx.logger.warn({ libraryId, albums: albumIds.length, error: String(error) }, 'tags.apply: could not queue re-lint');
   }
 }

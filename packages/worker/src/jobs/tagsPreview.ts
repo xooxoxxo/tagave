@@ -26,6 +26,9 @@ import {
 import { CanonicalField, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats } from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
+import { currentFieldsFrom } from '../lib/canonicalTags.js';
+
+export { currentFieldsFrom };
 
 type Value = string | string[] | null;
 type FieldPolicy = 'overwrite' | 'fill' | 'never';
@@ -92,74 +95,6 @@ export function decideField(
     return isBlank(before) ? { after: canonical, reason: 'policy:fill' } : { after: before, reason: 'no-change' };
   }
   return { after: canonical, reason: 'policy:overwrite' };
-}
-
-/**
- * The file's current tags as canonical fields, from music-metadata's
- * `common` block (what scan.parse stored in tags_raw).
- */
-export function currentFieldsFrom(tagsRaw: unknown): Partial<Record<CanonicalField, Value>> {
-  const root = (typeof tagsRaw === 'string' ? JSON.parse(tagsRaw) : tagsRaw) as { common?: Record<string, unknown> } | null;
-  const c = root?.common ?? {};
-  const str = (k: string): string | null => {
-    const v = c[k];
-    if (typeof v === 'string') return v.trim() || null;
-    if (typeof v === 'number') return String(v);
-    if (typeof v === 'boolean') return v ? '1' : null;
-    if (Array.isArray(v) && v.length && (typeof v[0] === 'string' || typeof v[0] === 'number')) return String(v[0]).trim() || null;
-    return null;
-  };
-  const arr = (k: string): string[] | null => {
-    const v = c[k];
-    if (Array.isArray(v)) {
-      const out = v.map((x) => (typeof x === 'string' ? x.trim() : typeof x === 'number' ? String(x) : '')).filter(Boolean);
-      return out.length ? out : null;
-    }
-    if (typeof v === 'string' && v.trim()) return [v.trim()];
-    return null;
-  };
-  const no = (k: string, part: 'no' | 'of'): string | null => {
-    const v = c[k] as { no?: unknown; of?: unknown } | undefined;
-    const n = v?.[part];
-    return typeof n === 'number' && n > 0 ? String(n) : typeof n === 'string' && n.trim() ? n.trim() : null;
-  };
-  const yearOf = (): string | null => (typeof c['year'] === 'number' && c['year'] > 0 ? String(c['year']) : null);
-
-  const out: Partial<Record<CanonicalField, Value>> = {
-    title: str('title'),
-    artist: str('artist'),
-    artistsort: str('artistsort'),
-    album: str('album'),
-    albumartist: str('albumartist'),
-    albumartistsort: str('albumartistsort'),
-    date: str('date') ?? yearOf(),
-    originaldate: str('originaldate') ?? str('originalyear'),
-    tracknumber: no('track', 'no'),
-    totaltracks: no('track', 'of'),
-    discnumber: no('disk', 'no'),
-    totaldiscs: no('disk', 'of'),
-    discsubtitle: str('discsubtitle'),
-    genre: arr('genre'),
-    compilation: c['compilation'] === true || c['compilation'] === 1 || c['compilation'] === '1' ? '1' : null,
-    label: arr('label') ? arr('label')!.join('; ') : null,
-    catalognumber: arr('catalognumber') ? arr('catalognumber')!.join('; ') : null,
-    barcode: str('barcode'),
-    media: str('media'),
-    releasecountry: str('releasecountry'),
-    releasestatus: str('releasestatus'),
-    releasetype: arr('releasetype') ? arr('releasetype')!.join('; ') : null,
-    isrc: arr('isrc'),
-    musicbrainz_albumid: str('musicbrainz_albumid'),
-    musicbrainz_releasegroupid: str('musicbrainz_releasegroupid'),
-    musicbrainz_albumartistid: arr('musicbrainz_albumartistid'),
-    musicbrainz_artistid: arr('musicbrainz_artistid'),
-    musicbrainz_recordingid: str('musicbrainz_recordingid'),
-    musicbrainz_releasetrackid: str('musicbrainz_trackid'),
-    acoustid_id: str('acoustid_id'),
-    discogs_release_id: str('discogs_release_id'),
-    discogs_master_id: str('discogs_master_release_id'),
-  };
-  return out;
 }
 
 /** Audio file ids in scope; only present files, and (for albums) only tracks of those albums. */

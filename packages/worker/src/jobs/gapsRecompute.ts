@@ -1,11 +1,18 @@
 import { sql as dsql } from 'drizzle-orm';
-import { lintAlbum, type RawTrackTags } from '@liner/core';
+import { lintAlbum } from '@liner/core';
+import { rawTracksForLint } from '../lib/canonicalTags.js';
 import type { WorkerContext } from '../lib/context.js';
 import { recomputeMissingAlbumGaps } from '../lib/missingAlbumGaps.js';
 import { reportProgress } from './progress.js';
 
 export interface GapsRecomputeJobData {
   libraryId: string;
+  /**
+   * Only re-lint these albums (after a tag plan wrote them). The set-based
+   * gap kinds (incomplete, duplicate, missing) are skipped; the nightly
+   * unscoped run covers them.
+   */
+  albumIds?: string[];
 }
 
 /**
@@ -18,6 +25,10 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
   const lib = data.libraryId;
   const started = Date.now();
 
+  const scoped = data.albumIds !== undefined;
+  const albumScope = data.albumIds ?? [];
+
+  if (!scoped) {
   // --- GAP-1: incomplete albums (matched, fewer local tracks than canonical)
   await ctx.sql`
     insert into gaps (library_id, kind, subject_type, subject_id, details, state)
@@ -90,6 +101,8 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
   // which runs the same pass scoped to the refreshed artist.
   await recomputeMissingAlbumGaps(ctx, lib);
 
+  }
+
   // --- GAP-5: quality flags per album, one row per (album, flag) family in details
   // Mark-and-sweep: pre-mark every live quality row, let the upsert clear the
   // mark on rows still flagged, then resolve whatever stayed marked. (A
@@ -115,7 +128,8 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
 
   await ctx.sql`
     update gaps set resolved_at = now()
-    where library_id = ${lib} and kind = 'quality' and state != 'resolved'`;
+    where library_id = ${lib} and kind = 'quality' and state != 'resolved'
+      and (${!scoped} or subject_id = any(${albumScope}::uuid[]))`;
 
   // Fetch all albums and their audio quality info for this library
   const albumQualityRows = await ctx.sql`
@@ -142,6 +156,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       from local_tracks lt join audio_files af on af.id = lt.audio_file_id
       where lt.local_album_id = la.id) lowbr on true
     where la.library_id = ${lib} and la.state not in ('ignored')
+      and (${!scoped} or la.id = any(${albumScope}::uuid[]))
   ` as unknown as Array<{ id: string; audio_flags: Record<string, unknown>; has_embedded_art: boolean }>;
 
   // For each album, fetch tracks and compute lint flags
@@ -161,8 +176,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
     // Compute lint flags if we have tracks
     let tagFlagsObj: Record<string, unknown> = {};
     if (trackRows.length > 0) {
-      const rawTracks: RawTrackTags[] = trackRows
-        .map((tr) => (tr.tags_raw ?? {}) as RawTrackTags)
+      const rawTracks = rawTracksForLint(trackRows.map((tr) => tr.tags_raw ?? {}))
         .filter((t) => Object.keys(t).length > 0);
 
       if (rawTracks.length > 0) {
@@ -193,7 +207,8 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
   await ctx.sql`
     update gaps set state = 'resolved'
     where library_id = ${lib} and kind = 'quality' and state != 'resolved'
-      and resolved_at is not null`;
+      and resolved_at is not null
+      and (${!scoped} or subject_id = any(${albumScope}::uuid[]))`;
 
   const counts = await ctx.sql`
     select kind, count(*) filter (where state = 'open') as open

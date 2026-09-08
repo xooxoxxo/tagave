@@ -188,37 +188,18 @@ export class SafeFileWriter {
 
         const writtenValue = writtenTags[field];
 
-        // Compare field values: handle both strings and arrays
-        if (Array.isArray(intendedValue)) {
-          // For arrays, check that all elements are present (order may vary depending on format)
-          if (!Array.isArray(writtenValue)) {
-            return {
-              error: `Field mismatch: ${field} - expected array, got ${typeof writtenValue}`,
-              code: 'field_mismatch'
-            };
-          }
-
-          // Create sets for comparison (handles order differences)
-          const intendedSet = new Set(intendedValue.map(String));
-          const writtenSet = new Set(writtenValue.map(String));
-
-          if (intendedSet.size !== writtenSet.size || ![...intendedSet].every(v => writtenSet.has(v))) {
-            return {
-              error: `Field mismatch: ${field} - values don't match`,
-              code: 'field_mismatch'
-            };
-          }
-        } else {
-          // For single values, compare strings directly
-          const intendedStr = String(intendedValue);
-          const writtenStr = writtenValue === undefined ? '' : String(writtenValue);
-
-          if (intendedStr !== writtenStr) {
-            return {
-              error: `Field mismatch: ${field} - expected "${intendedStr}", got "${writtenStr}"`,
-              code: 'field_mismatch'
-            };
-          }
+        // Formats and the sidecar's read() differ on whether a single value
+        // comes back as a string or a one-element list, so compare as sets of
+        // strings (order may vary between tag formats too).
+        const asList = (v: unknown): string[] =>
+          v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
+        const intended = new Set(asList(intendedValue));
+        const written = new Set(asList(writtenValue));
+        if (intended.size !== written.size || ![...intended].every((v) => written.has(v))) {
+          return {
+            error: `Field mismatch: ${field} - expected "${[...intended].join(' / ')}", got "${[...written].join(' / ')}"`,
+            code: 'field_mismatch',
+          };
         }
       }
 

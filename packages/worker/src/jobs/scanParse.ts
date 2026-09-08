@@ -5,6 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { audioFiles, scanRoots } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest } from '../lib/helpers.js';
+import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 
 export interface ScanParseJobData {
   audioFileIds: string[];
@@ -70,17 +71,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
     try {
       const meta = await parseFile(abs, { duration: true });
       const fmt = meta.format;
-      // Full snapshot: common (decoded) + native frames per tag type. Strip
-      // picture data — binary buffers do not belong in jsonb.
-      const common = safeJson({ ...meta.common }) as Record<string, unknown>;
-      delete common['picture'];
-      const native: Record<string, { id: string; value: unknown }[]> = {};
-      for (const [tagType, frames] of Object.entries(meta.native)) {
-        native[tagType] = frames
-          .filter((f) => !/^APIC|PIC|covr|METADATA_BLOCK_PICTURE$/i.test(f.id))
-          .map((f) => ({ id: f.id, value: safeJson(f.value) }));
-      }
-      const tagsRaw = { common, native };
+      const tagsRaw = tagSnapshotOf(meta);
 
       await ctx.db
         .update(audioFiles)
@@ -133,18 +124,3 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   }
 }
 
-/** jsonb-safe conversion for native frame values (Buffers → summaries). */
-function safeJson(v: unknown): unknown {
-  if (v === null || v === undefined) return v ?? null;
-  // Postgres jsonb cannot store \u0000 inside strings; old rips carry them.
-  if (typeof v === 'string') return v.replaceAll('\u0000', '');
-  if (typeof v === 'number' || typeof v === 'boolean') return v;
-  if (Buffer.isBuffer(v) || v instanceof Uint8Array) return `<binary ${v.length}B>`;
-  if (Array.isArray(v)) return v.map(safeJson);
-  if (typeof v === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, val] of Object.entries(v as Record<string, unknown>)) out[k] = safeJson(val);
-    return out;
-  }
-  return String(v);
-}
