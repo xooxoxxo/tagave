@@ -18,6 +18,7 @@ import {
   SettingsScanRootsPage,
   SettingsProvidersPage,
   SettingsGenresPage,
+  SettingsFollowRulesPage,
   SettingsUpdatesPage,
   JobsPage,
 } from './pages';
@@ -136,6 +137,12 @@ const settingsGenresRoute = new Route({
   component: SettingsGenresPage,
 });
 
+const settingsFollowRulesRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/follow-rules',
+  component: SettingsFollowRulesPage,
+});
+
 const settingsUpdatesRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/updates',
@@ -178,6 +185,7 @@ const routeTree = rootRoute.addChildren([
     settingsScanRootsRoute,
     settingsProvidersRoute,
     settingsGenresRoute,
+    settingsFollowRulesRoute,
     settingsUpdatesRoute,
     jobsRoute,
     logoutRoute,

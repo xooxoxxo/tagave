@@ -95,6 +95,12 @@ export interface GenrePreviewResponse {
   histogram: Array<{ genre: string; albums: number }>;
 }
 
+export interface FollowRules {
+  includePrimary: string[];
+  excludeSecondary: string[];
+  autoFollowMinAlbums: number;
+}
+
 /**
  * List artists with optional search
  */
@@ -217,6 +223,38 @@ export function useReopenGap(libraryId: string | undefined, artistId: string | u
     onSuccess: () => {
       // Invalidate the artist query to refresh the discography
       queryClient.invalidateQueries({ queryKey: ['artist', libraryId, artistId] });
+    },
+  });
+}
+
+/**
+ * Get follow rules (settings) for library
+ */
+export function useFollowRules(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['follow-rules', libraryId],
+    queryFn: async () => {
+      const settings = await api.get<{ followRules: FollowRules }>(
+        `/libraries/${libraryId}/settings`
+      );
+      return settings.followRules;
+    },
+    enabled: !!libraryId,
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Patch follow rules (mutation)
+ */
+export function usePatchFollowRules(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (followRules: FollowRules) =>
+      api.patch(`/libraries/${libraryId}/settings`, { followRules }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-rules', libraryId] });
     },
   });
 }

@@ -14,5 +14,6 @@ export { PlansPage } from './PlansPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
 export { SettingsProvidersPage } from './SettingsProvidersPage';
 export { SettingsGenresPage } from './SettingsGenresPage';
+export { SettingsFollowRulesPage } from './SettingsFollowRulesPage';
 export { SettingsUpdatesPage } from './SettingsUpdatesPage';
 export { JobsPage } from './JobsPage';
