@@ -61,7 +61,8 @@ export async function refreshLibraryFacets(
                   when f.has_lossless then 'mixed'
                   else 'lossy' end,
              coalesce(la.formats, '{}'),
-             case when la.year_guess is not null then (la.year_guess / 10) * 10 end,
+             -- tag garbage produces years like 1000 or 11289299; the rail lists 1900–2100 only
+             case when la.year_guess between 1900 and 2100 then (la.year_guess / 10) * 10 end,
              coalesce(lb.labels, '{}'),
              coalesce(g.genres, '{}'),
              coalesce(gp.kinds, '{}'),
@@ -80,7 +81,8 @@ export async function refreshLibraryFacets(
              ]::text[], null)
       from local_albums la
       left join lateral (
-        select bool_or(af.lossless is true) as has_lossless, bool_or(af.lossless is false) as has_lossy
+        -- a track whose losslessness is unknown counts as lossy, as the format filter does
+        select bool_or(af.lossless is true) as has_lossless, bool_or(not coalesce(af.lossless, false)) as has_lossy
         from local_tracks lt join audio_files af on af.id = lt.audio_file_id
         where lt.local_album_id = la.id) f on true
       left join lateral (

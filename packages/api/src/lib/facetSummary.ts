@@ -18,7 +18,8 @@ type Db = ReturnType<typeof getDb>;
 type Row = Record<string, string | number | null>;
 
 const SUMMARY_KEYS = new Set(['state', 'filter', 'genre', 'decade', 'format', 'label', 'owned', 'gap']);
-const IGNORED_KEYS = new Set(['sort', 'order', 'page', 'limit', 'offset', 'cursor', 'view', 'pageSize']);
+// `_` is the conventional cache-buster parameter; it never filters anything.
+const IGNORED_KEYS = new Set(['sort', 'order', 'page', 'limit', 'offset', 'cursor', 'view', 'pageSize', '_']);
 const FORMAT_CLASSES = new Set(['lossless', 'lossy', 'mixed']);
 const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid'] as const;
 
@@ -65,19 +66,22 @@ export function summaryConds(libraryId: string, rawQuery: Record<string, unknown
   const arr = (v: unknown): string[] => (empty(v) ? [] : (Array.isArray(v) ? v : [v]).map(String).filter((s) => s !== ''));
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined);
   const inList = (values: Array<string | number>) => sql`(${sql.join(values.map((v) => sql`${v}`), sql`, `)})`;
+  // one bound parameter per element: a JS array bound as a single parameter is
+  // not reliably encoded as a Postgres array by the driver stack
+  const textArray = (values: string[]) => sql`array[${sql.join(values.map((v) => sql`${v}`), sql`, `)}]::text[]`;
   const anyOf = (parts: SQL[]) => sql`(${sql.join(parts, sql` or `)})`;
 
   const out: SQL[] = [sql`af.library_id = ${libraryId}`];
   const states = arr(q['state'] ?? q['filter']).filter((s) => s !== 'all');
   if (states.length) out.push(sql`af.state in ${inList(states)}`);
   const genres = arr(q['genre']);
-  if (genres.length) out.push(sql`af.genres && ${genres}::text[]`);
+  if (genres.length) out.push(sql`af.genres && ${textArray(genres)}`);
   const decades = arr(q['decade']).map((d) => parseInt(d, 10)).filter(Number.isFinite);
   if (decades.length) out.push(sql`af.decade in ${inList(decades)}`);
   const formats = arr(q['format']);
   if (formats.length) out.push(anyOf(formats.map((f) => (FORMAT_CLASSES.has(f) ? sql`af.format = ${f}` : sql`${f} = any(af.containers)`))));
   const labels = arr(q['label']);
-  if (labels.length) out.push(sql`af.labels && ${labels}::text[]`);
+  if (labels.length) out.push(sql`af.labels && ${textArray(labels)}`);
   const owned = str(q['owned']);
   if (owned === 'both') out.push(sql`af.owned`);
   else if (owned === 'digital') out.push(sql`not af.owned`);

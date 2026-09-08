@@ -6,6 +6,7 @@ describe('summaryEligible', () => {
     expect(summaryEligible({})).toBe(true);
     expect(summaryEligible({ state: ['matched', 'pending'], genre: 'Rock', decade: '1990', format: ['lossless', 'flac'], label: 'Warp', owned: 'both', gap: 'none', sort: 'artist', page: '2', view: 'grid' })).toBe(true);
     expect(summaryEligible({ state: 'all', q: '' })).toBe(true);
+    expect(summaryEligible({ _: '1757330000000' })).toBe(true);
   });
 
   it('falls back to the live path for filters the table does not carry', () => {

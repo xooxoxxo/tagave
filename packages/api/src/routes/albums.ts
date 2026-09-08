@@ -10,7 +10,9 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
-import { summaryEligible, summaryFresh, summaryFacets } from '../lib/facetSummary.js';
+import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
+import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
+import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -221,11 +223,12 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       rows(sql`select state, count(*)::int as n from local_albums where ${wState} group by state order by n desc`),
       // One pass over the album's files instead of three correlated EXISTS per
       // album (2.3 s → 0.8 s on prod). Left joins keep track-less albums as
-      // 'lossy', as before; a null lossless flag counts as neither.
+      // 'lossy'; a track whose losslessness is unknown counts as lossy, exactly
+      // as the format filter above treats it, so counts match what a click shows.
       rows(sql`
         select k, count(*)::int as n from (
           select local_albums.id,
-                 case when bool_or(af.lossless is true) and not bool_or(af.lossless is false) then 'lossless'
+                 case when bool_or(af.lossless is true) and not bool_or(not coalesce(af.lossless, false)) then 'lossless'
                       when bool_or(af.lossless is true) then 'mixed'
                       else 'lossy' end as k
           from local_albums
