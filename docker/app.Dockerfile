@@ -28,6 +28,14 @@ RUN npm install -g pnpm@10.30.1
 # fragile; ship the whole built workspace.
 COPY --from=builder /app ./
 
+# Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+ARG LINER_VERSION=0.1.0
+ENV LINER_GIT_SHA=$GIT_SHA \
+    LINER_BUILT_AT=$BUILT_AT \
+    LINER_VERSION=$LINER_VERSION
+
 EXPOSE 3000
 
 CMD ["node", "packages/api/dist/index.js"]

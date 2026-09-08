@@ -64,7 +64,9 @@ deploy_app() {
   remote_lock "$APP_HOST"
   # never --delete and never touch the host's own env file
   rsync -az "${EXCLUDES[@]}" --exclude '.env' ./ "$APP_HOST:$APP_DIR/"
-  ssh "$APP_HOST" "cd $APP_DIR && docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
+  # GIT_SHA/BUILT_AT become build args → LINER_GIT_SHA/LINER_BUILT_AT in the
+  # image, which /version and Settings › Updates report (XO-313).
+  ssh "$APP_HOST" "cd $APP_DIR && GIT_SHA=$COMMIT BUILT_AT=$(date -u +%FT%TZ) docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
   echo "== health"; curl -sf "$APP_HEALTH_URL" && echo
   remote_unlock "$APP_HOST"
 }

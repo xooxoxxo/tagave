@@ -21,6 +21,9 @@ services:
     build:
       context: .
       dockerfile: docker/app.Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
     environment:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
@@ -36,26 +39,58 @@ services:
       postgres:
         condition: service_healthy
 
-  # Worker service (optional, untested in this repo)
-  # Uncomment and configure if running workers in the same compose stack.
-  # For production, prefer running workers on a separate host with direct
-  # filesystem access to the music library.
-  #
-  # worker:
-  #   build:
-  #     context: .
-  #     dockerfile: docker/worker.Dockerfile
-  #   environment:
-  #     DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
-  #     CACHE_DIR: /cache
-  #   volumes:
-  #     - cache:/cache
-  #     # Bind the music library read-only to the worker container
-  #     - ${MUSIC_DIR:-/mnt/music}:/music:ro
-  #   restart: unless-stopped
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
+  # Workers (XO-296). Both run behind the "workers" profile so a plain
+  # `docker compose up -d` keeps today's topology (workers as bare node on the
+  # g9 host); cut over with `docker compose --profile workers up -d` once this
+  # host is in the NAS export. The library is mounted at the same path the scan
+  # root was registered with, so no rows change at cutover. Queue lists mirror
+  # the g9 launcher scripts: the file worker owns everything that touches the
+  # music mount, the identify worker everything that spends provider budget.
+  worker-files:
+    profiles: ["workers"]
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
+    environment:
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
+      LINER_QUEUES: scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept
+      LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - cache:/cache
+      # read-only until M2 tag writing is switched on for this root
+      - ${MUSIC_DIR:-/mnt/music}:/mnt/music:ro
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker-identify:
+    profiles: ["workers"]
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILT_AT: ${BUILT_AT:-unknown}
+    environment:
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
+      LINER_QUEUES: identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich
+      LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - cache:/cache
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

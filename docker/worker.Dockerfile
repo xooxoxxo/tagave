@@ -1,5 +1,6 @@
-# Build stage
-FROM node:24-alpine AS builder
+# Build stage — same libc as the runtime: sharp ships per-platform native
+# binaries, and a musl (alpine) install does not load on the glibc runtime.
+FROM node:24-slim AS builder
 
 WORKDIR /app
 
@@ -21,7 +22,7 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# Install audio processing tools
+# Audio tooling the M5 fingerprinting job needs (fpcalc from libchromaprint-tools).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libchromaprint-tools \
@@ -30,17 +31,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install pnpm in runtime
 RUN npm install -g pnpm@10.30.1
 
-# Copy only necessary files from builder
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/packages/worker/dist ./packages/worker/dist
-COPY --from=builder /app/packages/worker/package.json ./packages/worker/
-COPY --from=builder /app/packages/db/dist ./packages/db/dist
-COPY --from=builder /app/packages/db/migrations ./packages/db/migrations
-COPY --from=builder /app/packages/db/package.json ./packages/db/
-COPY --from=builder /app/packages/core/dist ./packages/core/dist
-COPY --from=builder /app/packages/core/package.json ./packages/core/
-COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder /app/packages/shared/package.json ./packages/shared/
-COPY package.json pnpm-workspace.yaml ./
+# pnpm's per-package node_modules symlink farms make selective copies
+# fragile (the earlier selective COPY never booted); ship the built workspace.
+COPY --from=builder /app ./
+
+# Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
+ARG GIT_SHA=unknown
+ARG BUILT_AT=unknown
+ARG LINER_VERSION=0.1.0
+ENV LINER_GIT_SHA=$GIT_SHA \
+    LINER_BUILT_AT=$BUILT_AT \
+    LINER_VERSION=$LINER_VERSION \
+    NODE_ENV=production
 
 CMD ["node", "packages/worker/dist/index.js"]
