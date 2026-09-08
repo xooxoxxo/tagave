@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry } from '@liner/shared';
+import { PageShell, Button, Badge, statusTone, Banner, StatCard, Table, Th, Td } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -120,170 +121,172 @@ export function PlanPage() {
   const done = (progress?.applied ?? 0) + (progress?.failed ?? 0) + (progress?.skipped ?? 0);
   const pct = progress && progress.total > 0 ? Math.round((done / progress.total) * 100) : 0;
 
-  if (!libraryId || plan.isLoading) return <div className={styles.page}>Loading plan…</div>;
+  if (!libraryId || plan.isLoading) return <PageShell title="Loading">Loading plan…</PageShell>;
   if (plan.isError || !p) {
     return (
-      <div className={styles.page}>
+      <PageShell title="Plan not found">
         <Link to="/plans" className={styles.back}>← Plans</Link>
         <p className={styles.error}>This plan could not be loaded.</p>
-      </div>
+      </PageShell>
     );
   }
 
   return (
-    <div className={styles.page}>
-      <div className={styles.topbar}>
-        <Link to="/plans" className={styles.back}>← Plans</Link>
-        <span className={`${styles.badge} ${styles[`status_${p.status}`] ?? ''}`}>{p.status.replaceAll('_', ' ')}</span>
-      </div>
-
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>{p.name || 'Untitled plan'}</h1>
-          <p className={styles.meta}>
-            {scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
-            {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
-            {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
-          </p>
+    <PageShell
+      title={<div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+        {p.name || 'Untitled plan'}
+        <Badge tone={statusTone(p.status)}>
+          {p.status.replaceAll('_', ' ')}
+        </Badge>
+      </div>}
+      subtitle={
+        <div className={styles.meta}>
+          {scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
+          {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
+          {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
         </div>
-        <div className={styles.actions}>
+      }
+      actions={
+        <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
           {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
-            <button type="button" className={styles.btn} onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
+            <Button variant="secondary" onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
               {previewRequested || previewM.isPending ? 'Previewing…' : previewed ? 'Re-run preview' : 'Run preview'}
-            </button>
+            </Button>
           )}
           {p.status === 'previewed' && (
-            <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending} title={applyTitle}>
+            <Button variant="primary" onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending} title={applyTitle}>
               {applyM.isPending ? 'Starting…' : 'Apply now'}
-            </button>
+            </Button>
           )}
           {p.status === 'applying' && (
             <>
-              <button type="button" className={styles.btn} onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</button>
-              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</button>
+              <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
+              <Button variant="danger" onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {p.status === 'paused' && (
             <>
-              <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={run(resumeM)} disabled={resumeM.isPending}>Resume</button>
-              <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</button>
+              <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending}>Resume</Button>
+              <Button variant="danger" onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
-            <button type="button" className={`${styles.btn} ${styles.btnDanger}`} onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending}>
+            <Button variant="danger" onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending}>
               {revertM.isPending ? 'Starting…' : 'Revert'}
-            </button>
+            </Button>
           )}
         </div>
-      </header>
+      }
+    >
+      <div style={{ padding: 'var(--page-pad)' }}>
+        {(tagWritesDisabled || noWritableRoots) && (
+          <Banner tone="warning">
+            <strong>This plan can be previewed but not applied yet.</strong>
+            <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
+              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library" style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}>Settings › Tag writes</Link></li>}
+              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library" style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}>Settings › Scan roots</Link></li>}
+            </ul>
+          </Banner>
+        )}
 
-      {(tagWritesDisabled || noWritableRoots) && (
-        <div className={styles.banner}>
-          <strong>This plan can be previewed but not applied yet.</strong>
-          <ul>
-            {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/tag-writes">Settings › Tag writes</Link></li>}
-            {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/scan-roots">Settings › Scan roots</Link></li>}
-          </ul>
-        </div>
-      )}
+        {error && <Banner tone="danger">{error}</Banner>}
 
-      {error && <p className={styles.error}>{error}</p>}
+        {!previewed && (
+          <Banner tone="info">
+            <p style={{ margin: 0 }}>{previewRequested || previewM.isPending ? 'Computing the preview…' : 'No preview yet.'}</p>
+            <p style={{ margin: '0.25rem 0 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.</p>
+          </Banner>
+        )}
 
-      {!previewed && (
-        <div className={styles.note}>
-          <p>{previewRequested || previewM.isPending ? 'Computing the preview…' : 'No preview yet.'}</p>
-          <p className={styles.hint}>Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.</p>
-        </div>
-      )}
+        {p.status === 'paused' && stats?.lastError && (
+          <Banner tone="danger">{`The last run stopped early: ${stats.lastError}. Resume retries the files that were not written.`}</Banner>
+        )}
 
-      {p.status === 'paused' && stats?.lastError && (
-        <p className={styles.error}>The last run stopped early: {stats.lastError}. Resume retries the files that were not written.</p>
-      )}
-
-      {previewed && stats && (
-        <div className={styles.summary}>
-          <div className={styles.stat}><strong>{stats.filesTouched.toLocaleString()}</strong><span>files change</span></div>
-          <div className={styles.stat}><strong>{stats.fieldsModified.toLocaleString()}</strong><span>field changes</span></div>
-          <div className={styles.stat}><strong>{stats.lockedFieldsRespected.toLocaleString()}</strong><span>locked fields kept</span></div>
-          <div className={styles.stat}><strong>{stats.filesSkipped.length.toLocaleString()}</strong><span>files skipped</span></div>
-          {progress && progress.total > 0 && (p.status !== 'previewed') && (
-            <div className={styles.stat}><strong>{progress.applied.toLocaleString()}</strong><span>files written{progress.failed ? ` · ${progress.failed} failed` : ''}</span></div>
-          )}
-        </div>
-      )}
-
-      {previewed && stats && stats.filesSkipped.length > 0 && (
-        <p className={styles.hint}>
-          Skipped: {Object.entries(stats.filesSkipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.message ?? s.reason]: (acc[s.message ?? s.reason] ?? 0) + 1 }), {}))
-            .map(([reason, n]) => `${n} × ${reason.replaceAll('_', ' ')}`).join(', ')}
-        </p>
-      )}
-
-      {progress && BUSY.has(p.status) && (
-        <div className={styles.progress}>
-          <div className={styles.bar}><div className={styles.fill} style={{ width: `${pct}%` }} /></div>
-          <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
-        </div>
-      )}
-
-      {p.status === 'applied' && (
-        <p className={styles.success}>Applied. Check a file in your player; each album's History tab shows the write and offers the same revert.</p>
-      )}
-
-      {nothingToDo && (
-        <div className={styles.note}><p>Every file in scope already carries the canonical values under this policy. Nothing to apply.</p></div>
-      )}
-
-      {previewed && !nothingToDo && (
-        <>
-          <div className={styles.tools}>
-            <label htmlFor="planField" className={styles.label}>Field</label>
-            <select id="planField" className={styles.select} value={field} onChange={(e) => { setField(e.target.value); setOffset(0); }}>
-              <option value="">all fields</option>
-              {fields.map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-            <input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
-            <span className={styles.count}>
-              {items.isLoading ? 'Loading…' : total === 0 ? 'No rows' : `${offset + 1}–${pageEnd} of ${total.toLocaleString()} files`}
-            </span>
-            <span className={styles.pager}>
-              <button type="button" className={styles.btn} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>‹</button>
-              <button type="button" className={styles.btn} disabled={pageEnd >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>›</button>
-            </span>
+        {previewed && stats && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
+            <StatCard label="files change" value={stats.filesTouched.toLocaleString()} />
+            <StatCard label="field changes" value={stats.fieldsModified.toLocaleString()} />
+            <StatCard label="locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />
+            <StatCard label="files skipped" value={stats.filesSkipped.length.toLocaleString()} />
+            {progress && progress.total > 0 && (p.status !== 'previewed') && (
+              <StatCard label="files written" value={progress.applied.toLocaleString()} hint={progress.failed ? `${progress.failed} failed` : undefined} />
+            )}
           </div>
+        )}
 
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <colgroup>
-                <col className={styles.colFile} /><col className={styles.colField} /><col className={styles.colValue} /><col className={styles.colValue} /><col className={styles.colWhy} />
-              </colgroup>
-              <thead>
-                <tr><th>File</th><th>Field</th><th>Before</th><th>After</th><th>Why</th></tr>
-              </thead>
-              <tbody>
-                {visibleItems.map((it) => {
-                  const rows = (it.diffs as TagDiffEntry[]).filter((d) => d.reason !== 'no-change');
-                  if (rows.length === 0) return null;
-                  return rows.map((d, i) => (
-                    <tr key={`${it.id}:${d.field}`} className={i === 0 ? styles.firstRow : undefined}>
-                      {i === 0 && (
-                        <td rowSpan={rows.length} className={styles.cellPath} title={it.relPath ?? it.audioFileId}>
-                          <span className={styles.pathDir}>{(it.relPath ?? '').split('/').slice(0, -1).join('/')}</span>
-                          <span className={styles.pathFile}>{(it.relPath ?? it.audioFileId).split('/').pop()}</span>
-                        </td>
-                      )}
-                      <td className={styles.cellField}>{d.field}</td>
-                      <td className={styles.cellValue}>{fmtValue(d.before)}</td>
-                      <td className={styles.cellValue}>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
-                      <td className={styles.cellWhy}>{d.reason.replace('policy:', '')}</td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
+        {previewed && stats && stats.filesSkipped.length > 0 && (
+          <div style={{ marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
+            Skipped: {Object.entries(stats.filesSkipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.message ?? s.reason]: (acc[s.message ?? s.reason] ?? 0) + 1 }), {}))
+              .map(([reason, n]) => `${n} × ${reason.replaceAll('_', ' ')}`).join(', ')}
           </div>
-        </>
-      )}
-    </div>
+        )}
+
+        {progress && BUSY.has(p.status) && (
+          <div className={styles.progress}>
+            <div className={styles.bar}><div className={styles.fill} style={{ width: `${pct}%` }} /></div>
+            <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
+          </div>
+        )}
+
+        {p.status === 'applied' && (
+          <Banner tone="success">Applied. Check a file in your player; each album's History tab shows the write and offers the same revert.</Banner>
+        )}
+
+        {nothingToDo && (
+          <Banner tone="info">Every file in scope already carries the canonical values under this policy. Nothing to apply.</Banner>
+        )}
+
+        {previewed && !nothingToDo && (
+          <>
+            <div className={styles.tools}>
+              <label htmlFor="planField" className={styles.label}>Field</label>
+              <select id="planField" className={styles.select} value={field} onChange={(e) => { setField(e.target.value); setOffset(0); }}>
+                <option value="">all fields</option>
+                {fields.map((f) => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
+              <span className={styles.count}>
+                {items.isLoading ? 'Loading…' : total === 0 ? 'No rows' : `${offset + 1}–${pageEnd} of ${total.toLocaleString()} files`}
+              </span>
+              <span className={styles.pager}>
+                <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>‹</Button>
+                <Button variant="secondary" size="sm" disabled={pageEnd >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>›</Button>
+              </span>
+            </div>
+
+            <div className={styles.tableWrap}>
+              <Table>
+                <colgroup>
+                  <col className={styles.colFile} /><col className={styles.colField} /><col className={styles.colValue} /><col className={styles.colValue} /><col className={styles.colWhy} />
+                </colgroup>
+                <thead>
+                  <tr><Th>File</Th><Th>Field</Th><Th>Before</Th><Th>After</Th><Th>Why</Th></tr>
+                </thead>
+                <tbody>
+                  {visibleItems.map((it) => {
+                    const rows = (it.diffs as TagDiffEntry[]).filter((d) => d.reason !== 'no-change');
+                    if (rows.length === 0) return null;
+                    return rows.map((d, i) => (
+                      <tr key={`${it.id}:${d.field}`} className={i === 0 ? styles.firstRow : undefined}>
+                        {i === 0 && (
+                          <Td rowSpan={rows.length} className={styles.cellPath} title={it.relPath ?? it.audioFileId}>
+                            <span className={styles.pathDir}>{(it.relPath ?? '').split('/').slice(0, -1).join('/')}</span>
+                            <span className={styles.pathFile}>{(it.relPath ?? it.audioFileId).split('/').pop()}</span>
+                          </Td>
+                        )}
+                        <Td className={styles.cellField}>{d.field}</Td>
+                        <Td className={styles.cellValue}>{fmtValue(d.before)}</Td>
+                        <Td className={styles.cellValue}>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</Td>
+                        <Td className={styles.cellWhy}>{d.reason.replace('policy:', '')}</Td>
+                      </tr>
+                    ));
+                  })}
+                </tbody>
+              </Table>
+            </div>
+          </>
+        )}
+      </div>
+    </PageShell>
   );
 }

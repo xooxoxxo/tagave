@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import type { TagPlan } from '@liner/shared';
-import { Link } from '@tanstack/react-router';
+import { PageShell, Button, Badge, statusTone, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans } from '../hooks/usePlanWizard';
 import { PlanWizard } from '../components/PlanWizard';
@@ -15,11 +15,12 @@ export function PlansPage() {
   const { libraryId } = useCurrentLibrary();
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done'>('all');
   const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset });
   const [showWizard, setShowWizard] = useState(false);
 
   if (!libraryId) {
-    return <div className={styles.container}>Loading...</div>;
+    return <PageShell title="Tag plans">Loading...</PageShell>;
   }
 
   const plans = plansResponse?.items ?? [];
@@ -45,134 +46,132 @@ export function PlansPage() {
     }
   };
 
-  const statusBadgeClass = (status: string): string => {
-    switch (status) {
-      case 'draft':
-        return styles.statusDraft || '';
-      case 'previewed':
-        return styles.statusPreviewed || '';
-      case 'applying':
-      case 'paused':
-        return styles.statusApplying || '';
-      case 'applied':
-        return styles.statusApplied || '';
-      case 'reverted':
-        return styles.statusReverted || '';
-      case 'partially_failed':
-      case 'cancelled':
-        return styles.statusFailed || '';
-      default:
-        return styles.statusDefault || '';
+  // Filter plans based on status
+  const filteredPlans = plans.filter((plan) => {
+    if (statusFilter === 'all') return true;
+    if (statusFilter === 'active') {
+      return ['draft', 'previewed', 'applying', 'paused'].includes(plan.status);
     }
-  };
+    if (statusFilter === 'done') {
+      return ['applied', 'reverted', 'cancelled', 'partially_failed'].includes(plan.status);
+    }
+    return true;
+  });
+
+  const statusTabs: TabItem[] = [
+    { label: 'All', value: 'all', count: plans.length },
+    {
+      label: 'Active',
+      value: 'active',
+      count: plans.filter((p) => ['draft', 'previewed', 'applying', 'paused'].includes(p.status)).length,
+    },
+    {
+      label: 'Done',
+      value: 'done',
+      count: plans.filter((p) => ['applied', 'reverted', 'cancelled', 'partially_failed'].includes(p.status)).length,
+    },
+  ];
 
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div>
-          <h1 className={styles.title}>Tag plans</h1>
-          <p className={styles.subtitle}>Preview and apply tag corrections</p>
-        </div>
-        <button
-          className={styles.createBtn}
-          onClick={() => setShowWizard(true)}
-        >
+    <PageShell
+      title="Tag plans"
+      subtitle="Preview and apply tag corrections"
+      actions={
+        <Button variant="primary" onClick={() => setShowWizard(true)}>
           Create plan
-        </button>
-      </header>
-
+        </Button>
+      }
+      tabs={statusTabs}
+      activeTab={statusFilter}
+      onTabChange={(value) => {
+        setStatusFilter(value as 'all' | 'active' | 'done');
+        setOffset(0);
+      }}
+    >
       {isLoading ? (
-        <div className={styles.loading}>Loading plans...</div>
-      ) : plans.length === 0 ? (
-        <div className={styles.emptyState}>
-          <p className={styles.emptyTitle}>No plans yet</p>
-          <p className={styles.emptyText}>
-            Create a tag plan to preview and apply corrections to your library
-          </p>
-          <button
-            className={`${styles.createBtn} ${styles.emptyBtn}`}
-            onClick={() => setShowWizard(true)}
-          >
-            Create your first plan
-          </button>
-        </div>
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading plans...</div>
+      ) : filteredPlans.length === 0 ? (
+        <EmptyState
+          title="No plans"
+          text={statusFilter === 'all' ? 'Create a tag plan to preview and apply corrections to your library' : undefined}
+          action={
+            statusFilter === 'all' ? (
+              <Button variant="primary" size="sm" onClick={() => setShowWizard(true)}>
+                Create your first plan
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <div className={styles.tableWrapper}>
-          <table className={styles.table}>
+        <>
+          <Table>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Scope</th>
-                <th>Status</th>
-                <th>Files</th>
-                <th>Created</th>
-                <th>Applied</th>
+                <Th>Name</Th>
+                <Th>Scope</Th>
+                <Th>Status</Th>
+                <Th style={{ textAlign: 'right' }}>Files</Th>
+                <Th>Created</Th>
+                <Th>Applied</Th>
               </tr>
             </thead>
             <tbody>
-              {plans.map((plan) => {
+              {filteredPlans.map((plan) => {
                 if (!plan) return null;
                 return (
-                  <tr key={plan.id} className={styles.row}>
-                    <td className={styles.cellName}>
-                      <Link to="/plans/$planId" params={{ planId: plan.id }} className={styles.planLink}>
-                        {plan.name || 'Untitled plan'}
-                      </Link>
-                    </td>
-                    <td className={styles.cellScope} title={scopeLabel(plan)}>{scopeLabel(plan)}</td>
-                    <td className={styles.cellStatus}>
-                      <span className={`${styles.badge} ${statusBadgeClass(plan.status)}`}>
-                        {plan.status}
-                      </span>
-                    </td>
-                    <td className={styles.cellNumber}>
+                  <TableRow key={plan.id} to={`/plans/${plan.id}`}>
+                    <Td>{plan.name || 'Untitled plan'}</Td>
+                    <Td className={styles.cellScope}>{scopeLabel(plan)}</Td>
+                    <Td>
+                      <Badge tone={statusTone(plan.status)}>
+                        {plan.status.replaceAll('_', ' ')}
+                      </Badge>
+                    </Td>
+                    <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                       {plan.stats?.filesTouched ?? '—'}
-                    </td>
-                    <td className={styles.cellDate}>
-                      <span
-                        className={styles.dateTooltip}
-                        title={formatDateTime(plan.createdAt || '')}
-                      >
+                    </Td>
+                    <Td className={styles.cellDate}>
+                      <span title={formatDateTime(plan.createdAt || '')}>
                         {formatRelativeTime(plan.createdAt || '')}
                       </span>
-                    </td>
-                    <td className={styles.cellDate}>
+                    </Td>
+                    <Td className={styles.cellDate}>
                       {plan.appliedAt ? (
-                        <span
-                          className={styles.dateTooltip}
-                          title={formatDateTime(plan.appliedAt || '')}
-                        >
+                        <span title={formatDateTime(plan.appliedAt || '')}>
                           {formatRelativeTime(plan.appliedAt || '')}
                         </span>
                       ) : (
                         '—'
                       )}
-                    </td>
-                  </tr>
+                    </Td>
+                  </TableRow>
                 );
               })}
             </tbody>
-          </table>
+          </Table>
+
           <div className={styles.pagination}>
-            <button
-              className={styles.paginationBtn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setOffset(Math.max(0, offset - limit))}
               disabled={!hasPrev}
             >
               Prev
-            </button>
+            </Button>
             <span className={styles.paginationInfo}>
-              {total === 0 ? '0' : `${offset + 1}–${Math.min(offset + limit, total)}`} of {total}
+              {total === 0 ? '0' : `${offset + 1}–${Math.min(offset + limit, total)}`} of {total.toLocaleString()}
             </span>
-            <button
-              className={styles.paginationBtn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setOffset(offset + limit)}
               disabled={!hasNext}
             >
               Next
-            </button>
+            </Button>
           </div>
-        </div>
+        </>
       )}
 
       {showWizard && (
@@ -181,6 +180,6 @@ export function PlansPage() {
           onClose={() => setShowWizard(false)}
         />
       )}
-    </div>
+    </PageShell>
   );
 }

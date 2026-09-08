@@ -1,14 +1,13 @@
 /**
- * Tag plan wizard — 4-step form for creating and applying tag plans (XO-358)
+ * Tag plan wizard — 2-step form for creating tag plans (XO-358)
  * Step 1: Scope picker (library/artist/albums/query)
- * Step 2: Policy preset picker + per-field overrides
- * Step 3: Preview table (file path, field names, before/after, locked-field markers)
- * Step 4: Apply with progress bar, pause/resume/cancel, revert button
+ * Step 2: Policy preset picker
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import type { TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
 import { useNavigate } from '@tanstack/react-router';
+import { Button, Badge, Banner } from '../components/ui';
 import { useCreateTagPlan, useLibrarySettings } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
@@ -220,26 +219,30 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           </div>
         </div>
 
+        {showHelp && (
+          <Banner tone="info">
+            <HelpOverlay onClose={() => setShowHelp(false)} />
+          </Banner>
+        )}
+
         <div className={styles.body}>
           {(tagWritesDisabled || noWritableRoots) && (
-            <div className={styles.warningBanner}>
+            <Banner tone="warning">
               <strong>Plans preview, but cannot apply yet.</strong>
-              <ul>
+              <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
                 {tagWritesDisabled && (
                   <li>
-                    Tag writes are off — <a href="/settings/tag-writes">Settings › Tag writes</a>
+                    Tag writes are off — <a href="/settings/tag-writes" style={{ color: 'var(--text-primary)' }}>Settings › Tag writes</a>
                   </li>
                 )}
                 {noWritableRoots && (
                   <li>
-                    No scan root allows writes — <a href="/settings/scan-roots">Settings › Scan roots</a>
+                    No scan root allows writes — <a href="/settings/scan-roots" style={{ color: 'var(--text-primary)' }}>Settings › Scan roots</a>
                   </li>
                 )}
               </ul>
-            </div>
+            </Banner>
           )}
-
-          {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
 
         {!showHelp && step === 1 && (
           <Step1ScopePicker
@@ -496,12 +499,12 @@ function Step1ScopePicker({
         </div>
       </fieldset>
 
-      {error && <p className={styles.error}>{error}</p>}
+      {error && <Banner tone="danger">{error}</Banner>}
 
       <div className={styles.stepActions}>
-        <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={onNext} disabled={!canProceed}>
+        <Button variant="primary" onClick={onNext} disabled={!canProceed}>
           Next
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -608,16 +611,16 @@ function Step2PolicyPicker({
       </div>
 
       <div className={styles.stepActions}>
-        <button className={styles.btn} onClick={onBack}>
+        <Button variant="secondary" onClick={onBack}>
           Back
-        </button>
-        <button
-          className={`${styles.btn} ${styles.btnPrimary}`}
+        </Button>
+        <Button
+          variant="primary"
           onClick={onNext}
           disabled={isLoading}
         >
           {isLoading ? 'Creating…' : 'Create plan & preview'}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -628,9 +631,9 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
     <div className={styles.helpOverlay}>
       <div className={styles.helpHead}>
         <h3>Tag plan wizard help</h3>
-        <button type="button" className={styles.btn} onClick={onClose}>
+        <Button variant="secondary" size="sm" onClick={onClose}>
           Back to the wizard
-        </button>
+        </Button>
       </div>
       <section>
         <h4>Scope types</h4>
