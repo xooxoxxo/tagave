@@ -31,6 +31,9 @@ export function scanDecision(input: {
   return fullDue ? 'full' : 'quick';
 }
 
+/** A 'running' scan older than this never finished (worker died mid-walk); it must not block the schedule. */
+export const STALE_RUNNING_MS = 12 * 3600_000;
+
 export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): Promise<void> {
   const fullEveryDays = data.fullEveryDays ?? 7;
   const roots = await ctx.db.select().from(scanRoots).where(eq(scanRoots.enabled, true));
@@ -39,12 +42,19 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
 
   for (const root of roots) {
     const recent = await ctx.db
-      .select({ status: scans.status, finishedAt: scans.finishedAt, stats: scans.stats })
+      .select({ id: scans.id, status: scans.status, startedAt: scans.startedAt, finishedAt: scans.finishedAt, stats: scans.stats })
       .from(scans)
       .where(eq(scans.scanRootId, root.id))
       .orderBy(desc(scans.startedAt))
       .limit(30);
-    const running = recent.some((s) => s.status === 'running');
+    const stale = recent.filter((s) => s.status === 'running' && now.getTime() - s.startedAt.getTime() > STALE_RUNNING_MS);
+    for (const s of stale) {
+      await ctx.db.update(scans)
+        .set({ status: 'aborted', finishedAt: now, stats: { ...((s.stats as Record<string, unknown> | null) ?? {}), error: 'never finished; marked stale by scan.sweep' } })
+        .where(eq(scans.id, s.id));
+      ctx.logger.warn({ scanRootId: root.id, scanId: s.id, startedAt: s.startedAt }, 'scan sweep: stale running scan marked aborted');
+    }
+    const running = recent.some((s) => s.status === 'running' && !stale.includes(s));
     const completed = recent.filter((s) => s.status === 'completed' && s.finishedAt);
     const lastCompletedAt = completed[0]?.finishedAt ?? null;
     // Scans before 0019 recorded no mode; they were all full walks.

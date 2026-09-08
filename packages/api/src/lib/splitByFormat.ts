@@ -81,6 +81,14 @@ export async function splitAlbumByFormat(
   const dirs = [...new Map(moving.map((f) => [`${f.scanRootId}\n${relDirname(f.relPath)}`, { scanRootId: f.scanRootId, dirPath: relDirname(f.relPath) }])).values()];
   const formatsOf = (fs: typeof moving) => [...new Set(fs.map((f) => extOf(f.relPath)).filter(Boolean))].sort();
   const durationOf = (fs: typeof moving) => fs.reduce((s, f) => s + (f.durationMs ?? 0), 0);
+  // A cue-split image file carries several track rows; count rows, not files.
+  const trackRowsOf = async (fs: typeof moving) => {
+    if (fs.length === 0) return 0;
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(localTracks)
+      .where(inArray(localTracks.audioFileId, fs.map((f) => f.id)));
+    return row?.n ?? fs.length;
+  };
+  const [movingTracks, stayingTracks] = await Promise.all([trackRowsOf(moving), trackRowsOf(staying)]);
 
   const [created] = await db.insert(localAlbums).values({
     libraryId: input.libraryId,
@@ -90,7 +98,7 @@ export async function splitAlbumByFormat(
     artistGuess: album.artistGuess,
     yearGuess: album.yearGuess,
     discCount: album.discCount,
-    trackCount: moving.length,
+    trackCount: movingTracks,
     totalDurationMs: durationOf(moving),
     formats: formatsOf(moving),
     state: 'pending',
@@ -108,7 +116,7 @@ export async function splitAlbumByFormat(
   })));
   await db.update(localTracks).set({ localAlbumId: created.id }).where(inArray(localTracks.audioFileId, movingIds));
   await db.update(localAlbums).set({
-    trackCount: staying.length,
+    trackCount: stayingTracks,
     totalDurationMs: durationOf(staying),
     formats: formatsOf(staying),
     updatedAt: new Date(),
@@ -144,11 +152,18 @@ export async function mergeSplitAlbum(
     .where(eq(clusterOverrides.localAlbumId, album.id));
   const fileIds = pins.map((p) => p.audioFileId);
   const dirs = [...new Map(pins.map((p) => [`${p.scanRootId}\n${relDirname(p.relPath)}`, { scanRootId: p.scanRootId, dirPath: relDirname(p.relPath) }])).values()];
-  if (dirs.length === 0 && album.dirPaths.length) {
-    // no pins left (already merged by hand?) — still re-cluster the folder
-    const [anyFile] = await db.select({ scanRootId: audioFiles.scanRootId }).from(audioFiles)
-      .where(eq(audioFiles.libraryId, input.libraryId)).limit(1);
-    if (anyFile) for (const d of album.dirPaths) dirs.push({ scanRootId: anyFile.scanRootId, dirPath: d });
+  if (dirs.length === 0) {
+    // No pins left (merged by hand?): re-cluster the folders the original's
+    // own files live in — never a guessed root.
+    const originalFiles = await db
+      .select({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .from(localTracks)
+      .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+      .where(eq(localTracks.localAlbumId, originalId));
+    for (const f of originalFiles) {
+      const dirPath = relDirname(f.relPath);
+      if (!dirs.some((d) => d.scanRootId === f.scanRootId && d.dirPath === dirPath)) dirs.push({ scanRootId: f.scanRootId, dirPath });
+    }
   }
 
   if (fileIds.length) {

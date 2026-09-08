@@ -35,3 +35,11 @@ describe('scanDecision', () => {
     expect(scanDecision({ now, pollIntervalS: 21600, lastCompletedAt: at(6 * H), lastFullCompletedAt: at(1 * D), running: false, fullEveryDays: 7 })).toBe('quick');
   });
 });
+
+describe('STALE_RUNNING_MS', () => {
+  it('is long enough for a full walk of a large NFS root and short enough to unblock within a day', async () => {
+    const { STALE_RUNNING_MS } = await import('./scanSweep.js');
+    expect(STALE_RUNNING_MS).toBeGreaterThanOrEqual(6 * H);
+    expect(STALE_RUNNING_MS).toBeLessThanOrEqual(24 * H);
+  });
+});

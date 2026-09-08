@@ -1486,17 +1486,22 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       targets.set(`${f.scanRootId}\n${dirPath}`, { scanRootId: f.scanRootId, dirPath });
     }
     if (targets.size === 0) {
-      // every file already missing: fall back to the recorded folders on the library's root(s)
+      // Every track row is gone (folder already re-clustered away): fall back
+      // to the recorded folders — only when the library has a single root, so
+      // a same-named folder on another root cannot be marked missing by mistake.
       const roots = await db.select({ id: scanRootRows.id }).from(scanRootRows).where(eq(scanRootRows.libraryId, libraryId));
-      for (const r of roots) for (const dirPath of album.dirPaths ?? []) targets.set(`${r.id}\n${dirPath}`, { scanRootId: r.id, dirPath });
+      if (roots.length === 1) {
+        for (const dirPath of album.dirPaths ?? []) targets.set(`${roots[0]!.id}\n${dirPath}`, { scanRootId: roots[0]!.id, dirPath });
+      }
     }
     if (targets.size === 0) throw new ApiError(409, 'Conflict', 'This album has no folder to rescan');
 
     const boss = await getBoss();
-    const queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null }> = [];
+    // pg-boss returns null when the same folder is already queued (singleton key)
+    const queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null; alreadyQueued: boolean }> = [];
     for (const t of targets.values()) {
       const jobId = await boss.send('scan.dir', { ...t, reason: `album:${albumId}` }, { singletonKey: `scan.dir:${t.scanRootId}:${t.dirPath}` });
-      queued.push({ ...t, jobId: jobId ?? null });
+      queued.push({ ...t, jobId: jobId ?? null, alreadyQueued: jobId === null });
     }
     reply.status(202).send({ queued });
   });
