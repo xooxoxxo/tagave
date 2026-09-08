@@ -292,7 +292,10 @@ async function main() {
       for (const job of jobs) await fingerprintSweepJob(ctx, job.data);
     });
     // a no-op unless a library opted in (settings.fingerprintingEnabled) and has an AcoustID key
-    await boss.schedule('fingerprint.sweep', '*/15 * * * *', {}, { singletonKey: 'fingerprint.sweep' });
+    // 30 albums every 10 min ≈ 180/h: about what identify.album clears under
+    // MusicBrainz's "server busy" ceiling, so AcoustID candidates (priority 50)
+    // neither starve nor pile up ahead of it
+    await boss.schedule('fingerprint.sweep', '*/10 * * * *', {}, { singletonKey: 'fingerprint.sweep' });
   }
   if (wants('acoustid.lookup')) {
     await boss.work<AcoustidLookupJobData>('acoustid.lookup', { batchSize: 1 }, async (jobs) => {

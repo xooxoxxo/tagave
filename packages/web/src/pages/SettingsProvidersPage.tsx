@@ -164,7 +164,7 @@ export function SettingsProvidersPage() {
             Fingerprint unidentified albums in the background
           </label>
           <p className={styles.hint}>
-            Every 15 minutes the file worker fingerprints the next 20 unidentified albums (untagged and no-candidate ones first) and the identify
+            Every 10 minutes the file worker fingerprints the next 30 unidentified albums (untagged and no-candidate ones first; cue images track by track) and the identify
             worker looks them up on AcoustID at 3 requests/second; matches feed the normal identification with their release candidates.
             {!settings?.acoustidKeySet && ' Needs the key above.'}
           </p>

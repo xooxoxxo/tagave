@@ -3,12 +3,12 @@ import { libraryProviderSettings } from '../lib/providers.js';
 
 export interface FingerprintSweepJobData {
   libraryId?: string;
-  /** albums to enqueue per library per run (default 20; ~2 fpcalc/s keeps the NAS civil) */
+  /** albums to enqueue per library per run (default 30 every 10 min; ~2 fpcalc/s keeps the NAS civil) */
   limit?: number;
 }
 
 /**
- * IDN-5 sweep: every 15 minutes, for each library that opted in and has an
+ * IDN-5 sweep: every 10 minutes, for each library that opted in and has an
  * AcoustID key, hand the next unidentified albums that were never
  * fingerprinted to fingerprint.album — the ones text search could not help
  * first (no tags, no candidates), weak candidates after.
@@ -37,7 +37,7 @@ export async function fingerprintSweepJob(ctx: WorkerContext, data: FingerprintS
       where library_id = ${libraryId} and state = 'unidentified' and fingerprinted_at is null
       order by case identify_reason when 'no_tags' then 0 when 'no_candidates' then 1 when 'weak_candidates' then 2 else 3 end,
                identify_attempts, created_at
-      limit ${data.limit ?? 20}`) as unknown as Array<{ id: string }>;
+      limit ${data.limit ?? 30}`) as unknown as Array<{ id: string }>;
     let enqueued = 0;
     for (const row of rows) {
       const id = await ctx.boss.send('fingerprint.album', { localAlbumId: row.id }, { singletonKey: `fingerprint:${row.id}` });
