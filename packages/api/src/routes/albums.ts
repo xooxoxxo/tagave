@@ -9,6 +9,7 @@ import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
+import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -651,6 +652,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           releaseStatus: releases.status,
           releaseTrackCount: releases.trackCount,
           releaseLabels: releases.labels,
+          releaseMedia: releases.media,
           sourceOfTruth: releases.sourceOfTruth,
           rgArtistCredit: releaseGroups.artistCredit,
           rgMbid: releaseGroups.mbid,
@@ -855,6 +857,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           status: c.releaseStatus,
           trackCount: c.releaseTrackCount,
           labels: c.releaseLabels,
+          // media + first label tell apart two Discogs pressings that share
+          // title, date, country and track count (same distance, same row)
+          format: mediaSummary(c.releaseMedia),
+          label: labelSummary(c.releaseLabels),
           distance: Number(c.distance),
           breakdown: c.breakdown,
           source: c.source,
