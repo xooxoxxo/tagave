@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql, inArray, type SQLWrapper } from 'drizzle-orm';
+import { eq, and, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
-  releaseGroupArtists,
+  releaseGroupArtists, fieldLocks, auditLog,
 } from '@liner/db';
 import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
@@ -1228,6 +1228,74 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .where(eq(albumMatches.id, match.id));
 
       reply.status(200).send({ ok: true });
+    }
+  );
+
+  // Create field lock for an album
+  fastify.patch(
+    '/libraries/:libraryId/albums/:albumId/fields',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+      const { field, value, reason } = request.body as { field: string; value: unknown; reason?: string };
+
+      if (!field) throw new ApiError(400, 'Bad Request', 'field is required');
+
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      // Verify album belongs to the specified library
+      const albums = await db
+        .select()
+        .from(localAlbums)
+        .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)))
+        .limit(1);
+      if (albums.length === 0) throw new ApiError(404, 'Not Found', 'Album not found');
+
+      // Create the field lock
+      const result = await db
+        .insert(fieldLocks)
+        .values({
+          libraryId,
+          scope: 'album',
+          scopeId: albumId,
+          field,
+          value,
+          reason: reason ?? null,
+          createdBy: request.user.id,
+        })
+        .returning({
+          id: fieldLocks.id,
+          field: fieldLocks.field,
+          value: fieldLocks.value,
+          createdAt: fieldLocks.createdAt,
+          createdBy: fieldLocks.createdBy,
+        });
+
+      if (result.length === 0) throw new ApiError(500, 'Internal Server Error', 'Failed to create field lock');
+
+      // Write to audit log
+      const lock = result[0]!;
+      await db.insert(auditLog).values({
+        libraryId,
+        actorUserId: request.user.id,
+        action: 'lock.create',
+        subjectType: 'field',
+        subjectId: lock.id,
+        payload: {
+          album_id: albumId,
+          field,
+          value,
+        },
+      });
+
+      reply.status(201).send(lock);
     }
   );
 

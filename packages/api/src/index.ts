@@ -16,6 +16,7 @@ import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createAlbumRoutes } from './routes/albums.js';
+import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createImageRoutes } from './routes/images.js';
@@ -252,6 +253,9 @@ app.register(async (instance) => {
 
   // Album routes
   instance.register(createAlbumRoutes, { prefix: '/api/v1' });
+
+  // Field locks and history (M2)
+  instance.register(createFieldLocksRoutes, { prefix: '/api/v1' });
 
   // Job routes
   instance.register(createJobRoutes, { prefix: '/api/v1' });
