@@ -21,6 +21,7 @@ import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type Collect
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
 import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnrich.js';
+import { tagsPreviewJob } from './jobs/tagsPreview.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -49,10 +50,12 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'scan.root': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
+  'tags.preview': 'stately',
+  'tags.apply': 'stately',
+  'tags.revert': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES = [
-  'tags.preview', 'tags.apply', 'tags.revert',
   'artist.refresh',
 ];
 
@@ -73,7 +76,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'tags.preview', 'tags.apply', 'tags.revert', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -218,6 +221,16 @@ async function main() {
     // nightly at 03:15 (spec: nightly + after identification batches)
     await boss.schedule('gaps.recompute', '15 3 * * *',
       { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
+  }
+
+  if (wants('tags.preview')) {
+    await boss.work('tags.preview', { batchSize: 1 }, async (jobs: any[]) => {
+      for (const job of jobs) {
+        const planId = (job.data as { planId: string }).planId;
+        logger.info({ jobId: job.id, planId }, 'tags.preview start');
+        await tagsPreviewJob(ctx, planId);
+      }
+    });
   }
 
   for (const q of M1_PLACEHOLDER_QUEUES) {

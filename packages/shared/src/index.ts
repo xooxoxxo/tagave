@@ -195,3 +195,27 @@ export {
   type TagSet,
   tagSetSchema,
 } from './tags.js';
+
+// Tag plans and policies (M2)
+export {
+  tagPlanScopeSchema,
+  type TagPlanScope,
+  tagPolicyPresetSchema,
+  type TagPolicyPreset,
+  tagFieldPolicySchema,
+  type TagFieldPolicy,
+  tagPoliciesSchema,
+  type TagPolicies,
+  tagDiffEntrySchema,
+  type TagDiffEntry,
+  tagPlanSkippedFileSchema,
+  type TagPlanSkippedFile,
+  tagPlanStatsSchema,
+  type TagPlanStats,
+  tagPlanSchema,
+  type TagPlan,
+  createTagPlanSchema,
+  type CreateTagPlan,
+  tagPlanItemSchema,
+  type TagPlanItem,
+} from './tagPlan.js';

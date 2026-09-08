@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { tagPoliciesSchema } from './tagPlan.js';
 
 /**
  * Scan root configuration per LIB-1
@@ -105,6 +106,8 @@ export const librarySettingsViewSchema = z.object({
   acoustidKeyHint: z.string().nullable().describe('Last 4 characters of the AcoustID key for hint purposes'),
   onboardingCompletedAt: z.string().datetime().nullable().describe('ISO 8601 timestamp when onboarding was completed'),
   genreMap: genreMapSchema.describe('Genre canonicalisation configuration (required)'),
+  tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
+  tagWritesEnabled: z.boolean().default(false).describe('Whether tag writes are enabled (default false per spec §12.8)'),
 }).strict();
 
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
@@ -119,6 +122,8 @@ export const patchLibrarySettingsSchema = z.object({
   acoustidKey: z.union([z.string().min(8), z.null()]).optional().describe('AcoustID key (null to clear)'),
   onboardingCompletedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp when onboarding was completed'),
   genreMap: genreMapSchema.optional().describe('Genre canonicalisation configuration'),
+  tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
+  tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
 }).strict();
 
 export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;

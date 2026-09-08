@@ -23,6 +23,7 @@ import { createSearchRoutes } from './routes/search.js';
 import { createCollectionRoutes } from './routes/collection.js';
 import { createIdentifyRoutes } from './routes/identify.js';
 import { createArtistsRoutes } from './routes/artists.js';
+import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -272,6 +273,9 @@ app.register(async (instance) => {
 
   // Artists (canonical + unresolved, enrichment, follow) (XO-310)
   instance.register(createArtistsRoutes, { prefix: '/api/v1' });
+
+  // Tag plans (M2)
+  instance.register(createTagPlansRoutes, { prefix: '/api/v1/libraries/:libraryId' });
 });
 
 // Start server
