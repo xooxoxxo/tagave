@@ -139,6 +139,7 @@ export const librarySettingsViewSchema = z.object({
   tagWritesEnabled: z.boolean().default(false).describe('Whether tag writes are enabled (default false per spec §12.8)'),
   discographyRefreshEnabled: z.boolean().default(false).describe('Whether weekly discography refreshes are enabled (XO-301; default false)'),
   followRules: followRulesSchema.describe('Rules for following artists and filtering release groups (XO-301 GAP-2; defaults provided)'),
+  fingerprintingEnabled: z.boolean().default(false).describe('IDN-5: fingerprint unidentified albums and look them up on AcoustID (needs the key; default false)'),
 }).strict();
 
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
@@ -158,6 +159,7 @@ export const patchLibrarySettingsSchema = z.object({
   tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
   discographyRefreshEnabled: z.boolean().optional().describe('Whether weekly discography refreshes are enabled (XO-301)'),
   followRules: followRulesSchema.optional().describe('Rules for following artists and filtering release groups (XO-301)'),
+  fingerprintingEnabled: z.boolean().optional().describe('IDN-5: fingerprint unidentified albums and look them up on AcoustID'),
 }).strict();
 
 export type PatchLibrarySettings = z.infer<typeof patchLibrarySettingsSchema>;

@@ -11,6 +11,7 @@ import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdi
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
 import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
+import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 
 interface DetailTrack {
@@ -307,13 +308,24 @@ export function AlbumDetailPage() {
     sweep: 'Identification sweep',
   };
 
+  // Switching edition is a manual identification request: it queues on the
+  // worker and the detail carries pendingIdentify until the decision lands, so
+  // the page refetches at once (the panel appears) instead of after a blind wait.
+  const [switchingMbid, setSwitchingMbid] = useState<string | null>(null);
   const switchEdition = useMutation({
-    mutationFn: (mbid: string) =>
-      api.post(`/libraries/${libraryId}/albums/${albumId}/match-mbid`, { input: mbid }),
-    onSuccess: () => refresh(6000),
+    mutationFn: (mbid: string) => {
+      setSwitchingMbid(mbid);
+      return api.post(`/libraries/${libraryId}/albums/${albumId}/match-mbid`, { input: mbid });
+    },
+    onSuccess: () => refresh(0),
+    onSettled: () => setSwitchingMbid(null),
   });
+  /** the API's problem+json `detail` is the message the owner should read, e.g. the 409 for a request already queued */
+  const errorDetail = (m: { error: unknown }): string | null =>
+    (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
 
   const addToCollection = useAddCollectionItem(libraryId);
+  const fingerprint = useFingerprintAlbum(libraryId);
 
   const dismissGap = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
@@ -489,6 +501,16 @@ export function AlbumDetailPage() {
             <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
               {reidentify.isPending ? 'Queued…' : 'Re-identify'}
             </button>
+            {album.state !== 'matched' && (
+              <button
+                className="secondary"
+                onClick={() => fingerprint.mutate(albumId, { onSuccess: () => refresh(3000) })}
+                disabled={fingerprint.isPending}
+                title="Fingerprint the files (Chromaprint) and look them up on AcoustID — for albums whose tags are wrong or missing; needs an AcoustID key in Settings › Providers"
+              >
+                {fingerprint.isPending ? 'Queuing…' : fingerprint.isSuccess ? 'Fingerprint queued' : 'Fingerprint'}
+              </button>
+            )}
             <button className="secondary" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
               {fetchArt.isPending ? 'Queued…' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
             </button>
@@ -503,6 +525,7 @@ export function AlbumDetailPage() {
               </button>
             )}
             {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
+            {fingerprint.isError && <span className={styles.mbidError}>{errorDetail(fingerprint)}</span>}
           </div>
           {pending && (
             <div className={styles.pendingPanel} role="status">
@@ -763,6 +786,12 @@ export function AlbumDetailPage() {
               {album.match?.releaseGroupOnly && (
                 <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
               )}
+              {pending?.kind === 'mbid' && (
+                <span className={styles.muted}>
+                  Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
+                </span>
+              )}
+              {switchEdition.isError && <span className={styles.mbidError}>{errorDetail(switchEdition)}</span>}
               {!editions.fetchedAt && (
                 <span className={styles.muted}>Fetching editions from MusicBrainz…</span>
               )}
@@ -819,9 +848,10 @@ export function AlbumDetailPage() {
                       <button
                         className="secondary"
                         onClick={() => switchEdition.mutate(e.mbid)}
-                        disabled={switchEdition.isPending}
+                        disabled={switchEdition.isPending || !!pending}
+                        title={pending ? 'An identification request is already queued for this album — cancel it in the panel above first' : 'Re-match this album to this edition (queues a manual identification)'}
                       >
-                        {switchEdition.isPending ? 'Queued…' : 'Use this edition'}
+                        {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
                       </button>
                     )}
                   </td>
@@ -839,6 +869,9 @@ export function AlbumDetailPage() {
               >
                 {album.match.releaseGroupOnly ? 'Clear' : 'Mark'} any edition
               </button>
+              {(matchAnyEdition.isError || clearAnyEdition.isError) && (
+                <span className={styles.mbidError}> {errorDetail(matchAnyEdition.isError ? matchAnyEdition : clearAnyEdition)}</span>
+              )}
             </div>
           )}
         </div>

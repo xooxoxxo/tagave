@@ -23,6 +23,7 @@ import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createCollectionRoutes } from './routes/collection.js';
 import { createIdentifyRoutes } from './routes/identify.js';
+import { createFingerprintRoutes } from './routes/fingerprint.js';
 import { createArtistsRoutes } from './routes/artists.js';
 import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
@@ -274,6 +275,7 @@ app.register(async (instance) => {
 
   // Identify triage + coverage metrics (XO-309)
   instance.register(createIdentifyRoutes, { prefix: '/api/v1' });
+  instance.register(createFingerprintRoutes, { prefix: '/api/v1' });
 
   // Artists (canonical + unresolved, enrichment, follow) (XO-310)
   instance.register(createArtistsRoutes, { prefix: '/api/v1' });

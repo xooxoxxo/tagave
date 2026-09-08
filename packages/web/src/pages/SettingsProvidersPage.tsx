@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
+import { useFingerprintStats } from '../hooks/useFingerprint';
 import { SettingsNav } from '../components/SettingsNav';
 import styles from './SettingsProvidersPage.module.css';
 
@@ -11,6 +12,7 @@ export function SettingsProvidersPage() {
   const { libraryId } = useCurrentLibrary();
   const { data: settings, isLoading } = useLibrarySettings(libraryId);
   const updateSettings = useUpdateLibrarySettings(libraryId);
+  const { data: fpStats } = useFingerprintStats(libraryId, !!settings?.acoustidKeySet);
   const enrichSweep = useEnrichSweep(libraryId);
 
   const [contactString, setContactString] = useState('');
@@ -119,8 +121,8 @@ export function SettingsProvidersPage() {
         <div className={styles.fieldGroup}>
           <label className={styles.label}>AcoustID Key</label>
           <p className={styles.hint}>
-            Fingerprint-based identification of untagged files using the AcoustID service.
-            <strong> Coming in a later milestone</strong> — the key is stored now for future use.
+            Fingerprint-based identification for albums whose tags are wrong or missing (APE and WavPack image rips, mistagged folders).
+            Get a free application key at acoustid.org — the service is free for non-commercial use only.
           </p>
           {settings?.acoustidKeySet ? (
             <div className={styles.tokenConfigured}>
@@ -151,6 +153,33 @@ export function SettingsProvidersPage() {
               value={acoustidKey}
               onChange={(e) => setAcoustidKey(e.target.value)}
             />
+          )}
+        </div>
+
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>
+            <input
+              type="checkbox"
+              checked={!!settings?.fingerprintingEnabled}
+              disabled={!settings?.acoustidKeySet || updateSettings.isPending}
+              onChange={(e) => updateSettings.mutate({ fingerprintingEnabled: e.target.checked })}
+            />{' '}
+            Fingerprint unidentified albums in the background
+          </label>
+          <p className={styles.hint}>
+            Every 15 minutes the file worker fingerprints the next 20 unidentified albums (untagged and no-candidate ones first) and the identify
+            worker looks them up on AcoustID at 3 requests/second; matches feed the normal identification with their release candidates.
+            {!settings?.acoustidKeySet && ' Needs the key above.'}
+          </p>
+          {fpStats && (
+            <p className={styles.hint}>
+              {fpStats.albums.lookedUp.toLocaleString()} of {(fpStats.albums.lookedUp + fpStats.albums.remaining).toLocaleString()} unidentified albums looked up
+              {' · '}{fpStats.albums.withCandidates.toLocaleString()} got candidates, {fpStats.albums.noCandidates.toLocaleString()} none
+              {fpStats.albums.matchedViaAcoustid > 0 ? ` · ${fpStats.albums.matchedViaAcoustid.toLocaleString()} matched via AcoustID` : ''}
+              {' · '}{fpStats.files.fingerprinted.toLocaleString()} files fingerprinted{fpStats.files.failed ? ` (${fpStats.files.failed} failed)` : ''}
+              {fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting > 0 ? ` · ${fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting} in the queue` : ''}
+              {' · '}{fpStats.lookups.last24h.toLocaleString()} lookups in 24 h
+            </p>
           )}
         </div>
 

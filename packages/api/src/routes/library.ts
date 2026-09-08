@@ -46,6 +46,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const contactString = (settings as Record<string, any>)['contactString'] ?? null;
     const discogsTokenHint = (settings as Record<string, any>)['discogsTokenHint'] ?? null;
     const acoustidKeyHint = (settings as Record<string, any>)['acoustidKeyHint'] ?? null;
+    const fingerprintingEnabled = (settings as Record<string, any>)['fingerprintingEnabled'] === true;
     const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
     const genreMapRaw = (settings as Record<string, any>)['genreMap'] ?? null;
     const genreMap = normalizeGenreMap(genreMapRaw);
@@ -75,6 +76,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         discogsTokenHint,
         acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
+        fingerprintingEnabled,
         onboardingCompletedAt,
         genreMap,
         lintRules,
@@ -188,6 +190,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     if (body.tagPolicy !== undefined) {
       mergedSettings.tagPolicy = body.tagPolicy;
     }
+    // IDN-5 opt-in; the fingerprint sweep on the worker re-reads it every run
+    if (body.fingerprintingEnabled !== undefined) {
+      mergedSettings.fingerprintingEnabled = body.fingerprintingEnabled;
+    }
 
     await db.update(libraries)
       .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
@@ -197,6 +203,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const contactString = (mergedSettings as Record<string, any>)['contactString'] ?? null;
     const discogsTokenHint = (mergedSettings as Record<string, any>)['discogsTokenHint'] ?? null;
     const acoustidKeyHint = (mergedSettings as Record<string, any>)['acoustidKeyHint'] ?? null;
+    const fingerprintingEnabled = (mergedSettings as Record<string, any>)['fingerprintingEnabled'] === true;
     const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
     const genreMap = normalizeGenreMap((mergedSettings as Record<string, any>)['genreMap'] ?? null);
     const lintRulesRaw = (mergedSettings as Record<string, any>)['lintRules'] ?? null;
@@ -225,6 +232,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         discogsTokenHint,
         acoustidKeySet: acoustidKeyHint !== null,
         acoustidKeyHint,
+        fingerprintingEnabled,
         onboardingCompletedAt,
         genreMap,
         lintRules,
