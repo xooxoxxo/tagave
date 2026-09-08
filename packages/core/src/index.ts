@@ -151,3 +151,16 @@ export type {
   RawTag,
   EffectiveGenres,
 } from './genres/index.js';
+
+// Audio-stream hashing (XO-350)
+export {
+  hashAudioStream,
+  hashFlacStream,
+  hashMp3Stream,
+  hashMp4Stream,
+  hashOggStream,
+  hashWavStream,
+  hashAiffStream,
+  hashDsfStream,
+  hashDffStream,
+} from './audio/streamHash.js';
