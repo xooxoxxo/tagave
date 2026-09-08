@@ -1,7 +1,9 @@
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { makeDb } from '@liner/db';
+import { readBuildInfo } from '@liner/core';
 import { setCooldownObserver } from './lib/pacer.js';
+import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import type { WorkerContext } from './lib/context.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
@@ -54,6 +56,9 @@ const M1_PLACEHOLDER_QUEUES = [
   'artist.refresh',
 ];
 
+/** Provider waits are paced at ~1 req/s and capped at 3 lookups; 5 min is far past any honest run. */
+const IDENTIFY_JOB_TIMEOUT_MS = 5 * 60_000;
+
 async function main() {
   const { db, client } = await makeDb(databaseUrl as string);
   const boss = new PgBoss(databaseUrl as string);
@@ -63,7 +68,9 @@ async function main() {
   const ctx: WorkerContext = { db, sql: client, boss, logger };
   setCooldownObserver((provider, ms, attempt, reason) => logger.warn({ provider, ms, attempt, reason: reason.slice(0, 200) }, 'provider cooldown opened'));
   const workerId = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  logger.info({ workerId }, 'worker connected');
+  const build = readBuildInfo();
+  logger.info({ workerId, version: build.version, sha: build.sha, buildSource: build.source }, 'worker connected');
+  const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
   const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', ...M1_PLACEHOLDER_QUEUES];
@@ -118,8 +125,20 @@ async function main() {
   // Three albums in flight: provider calls still go one at a time through
   // the shared pacer, but DB work, Discogs and scoring overlap instead of
   // leaving MusicBrainz idle (measured 2/min at batchSize 1, p50 12 s/job).
+  // Each job is bounded on its own (XO-318): one that hangs is failed alone
+  // through boss.fail() and pg-boss retries it later; the batch completes
+  // the rest as usual.
   if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 3, pollingIntervalSeconds: 1 }, async (jobs) => {
-    await Promise.all(jobs.map((job) => identifyAlbumJob(ctx, job.data)));
+    const results = await Promise.allSettled(jobs.map((job) =>
+      tracked('identify.album', job.id, job.data.localAlbumId, () =>
+        withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `identify.album ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
+    for (const [i, r] of results.entries()) {
+      if (r.status !== 'rejected') continue;
+      const job = jobs[i]!;
+      const err = r.reason as Error;
+      logger.error({ jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify.album failed');
+      await boss.fail('identify.album', job.id, { message: err.message });
+    }
   });
 
   if (wants('identify.sweep')) {
@@ -209,13 +228,23 @@ async function main() {
   logger.info({ queues: queues.length }, 'job handlers registered');
 
   // Heartbeat: the API's /health reads the freshest worker.heartbeat row.
+  // It carries the build identity and the served queues so Settings › Updates
+  // can show a worker lagging the app (XO-313), plus the worst event-loop lag
+  // of the last interval (XO-318).
+  const servedQueues = only ? [...only] : ['*'];
   const heartbeat = setInterval(() => {
     void (async () => {
       try {
+        const loopLagMs = watchdog.maxLagMs();
+        if (loopLagMs > 5_000) logger.warn({ loopLagMs }, 'event loop lag');
         await ctx.sql`
           insert into job_runs (id, library_id, type, state, progress, created_at)
           select gen_random_uuid(), l.id, 'worker.heartbeat', 'completed',
-                 ${JSON.stringify({ workerId, at: new Date().toISOString() })}::jsonb, now()
+                 ${JSON.stringify({
+                   workerId, at: new Date().toISOString(),
+                   version: build.version, sha: build.sha, builtAt: build.builtAt,
+                   queues: servedQueues, host: process.env['HOSTNAME'] ?? null, loopLagMs,
+                 })}::jsonb, now()
           from libraries l limit 1
           on conflict do nothing`;
         await ctx.sql`
@@ -234,6 +263,7 @@ async function main() {
     shuttingDown = true;
     logger.info('shutting down...');
     clearInterval(heartbeat);
+    await watchdog.stop().catch(() => undefined);
     try {
       await boss.stop({ graceful: true, timeout: 30_000 });
     } catch (err) {
