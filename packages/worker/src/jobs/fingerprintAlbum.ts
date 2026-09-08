@@ -30,7 +30,12 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
     from local_tracks lt
     join audio_files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
-    where lt.local_album_id = ${data.localAlbumId} and af.status = 'present'`) as unknown as FileRow[];
+    where lt.local_album_id = ${data.localAlbumId}
+      and af.status in ('present', 'error')`) as unknown as FileRow[];
+  // 'error' = the tag parser failed on a file that is still on disk (870 such
+  // files in the owner's library, many of them APE rips) — exactly the albums a
+  // fingerprint can still identify, so fpcalc gets a go at them too; only
+  // 'missing' and 'archived' files are skipped.
   const todo = files.filter((f) => data.force || (!f.fingerprint && !f.fingerprinted_at));
   let ok = 0;
   let failed = 0;

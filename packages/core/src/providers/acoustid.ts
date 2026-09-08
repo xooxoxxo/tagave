@@ -105,7 +105,18 @@ export class AcoustIdClient {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': this.userAgent, Accept: 'application/json' },
       body,
     });
-    if (!res.ok) throw new AcoustIdError(`AcoustID ${res.status} ${res.statusText}`, res.status);
+    if (!res.ok) {
+      // AcoustID explains 4xx in the body ({"status":"error","error":{"code":4,"message":"invalid API key"}});
+      // keep that message, it is the only way to tell a bad key from a bad fingerprint
+      let detail = '';
+      let code: number | undefined;
+      try {
+        const err = (await res.json()) as { error?: { code?: number; message?: string } };
+        detail = err?.error?.message ?? '';
+        code = err?.error?.code;
+      } catch { /* non-JSON body: status line is all we have */ }
+      throw new AcoustIdError(`AcoustID ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''}`, res.status, code);
+    }
     const parsed = acoustIdResponseSchema.parse(await res.json());
     if (parsed.status !== 'ok') {
       throw new AcoustIdError(parsed.error?.message ?? `AcoustID status ${parsed.status}`, 200, parsed.error?.code);
