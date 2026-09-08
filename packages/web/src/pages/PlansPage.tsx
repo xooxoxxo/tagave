@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans } from '../hooks/usePlanWizard';
 import { PlanWizard } from '../components/PlanWizard';
@@ -112,9 +113,9 @@ export function PlansPage() {
                 return (
                   <tr key={plan.id} className={styles.row}>
                     <td className={styles.cellName}>
-                      <a href={`#`} className={styles.planLink}>
+                      <Link to="/plans/$planId" params={{ planId: plan.id }} className={styles.planLink}>
                         {plan.name || 'Untitled plan'}
-                      </a>
+                      </Link>
                     </td>
                     <td className={styles.cellScope}>{scopeLabel(plan.scope ?? {})}</td>
                     <td className={styles.cellStatus}>

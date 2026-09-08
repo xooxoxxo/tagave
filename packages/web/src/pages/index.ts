@@ -18,3 +18,4 @@ export { SettingsFollowRulesPage } from './SettingsFollowRulesPage';
 export { SettingsUpdatesPage } from './SettingsUpdatesPage';
 export { JobsPage } from './JobsPage';
 export { SettingsTagWritesPage } from './SettingsTagWritesPage';
+export { PlanPage } from './PlanPage';

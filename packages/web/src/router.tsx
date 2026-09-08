@@ -15,6 +15,7 @@ import {
   IdentifyPage,
   CollectionPage,
   PlansPage,
+  PlanPage,
   SettingsScanRootsPage,
   SettingsProvidersPage,
   SettingsGenresPage,
@@ -114,6 +115,12 @@ const plansRoute = new Route({
   component: PlansPage,
 });
 
+const planRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/plans/$planId',
+  component: PlanPage,
+});
+
 const albumDetailRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums/$albumId',
@@ -188,6 +195,7 @@ const routeTree = rootRoute.addChildren([
     identifyRoute,
     collectionRoute,
     plansRoute,
+    planRoute,
     albumDetailRoute,
     settingsScanRootsRoute,
     settingsProvidersRoute,

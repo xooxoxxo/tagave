@@ -8,20 +8,9 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import type { TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
-import {
-  useCreateTagPlan,
-  usePreviewTagPlan,
-  useApplyTagPlan,
-  useLibrarySettings,
-  useTagPlan,
-  useTagPlanItems,
-  usePauseTagPlan,
-  useResumeTagPlan,
-  useCancelTagPlan,
-  useRevertTagPlan,
-} from '../hooks/usePlanWizard';
+import { useNavigate } from '@tanstack/react-router';
+import { useCreateTagPlan, useLibrarySettings } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
-import { useJobs } from '../hooks/useIdentify';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
 import styles from './PlanWizard.module.css';
@@ -69,7 +58,7 @@ interface WizardStep2State {
   overrides?: Record<string, 'overwrite' | 'fill' | 'never'>;
 }
 
-type WizardStep = 1 | 2 | 3 | 4;
+type WizardStep = 1 | 2;
 
 interface PlanWizardProps {
   libraryId: string;
@@ -85,8 +74,6 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
     id3Version: '2.4',
     multiValueSeparator: '; ',
   });
-  const [createdPlanId, setCreatedPlanId] = useState<string | null>(null);
-  const [appliedJobId, setAppliedJobId] = useState<string | null>(null);
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -106,16 +93,8 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
     });
     setPolicySeeded(true);
   }, [policySeeded, settings.data]);
-  const tagPlan = useTagPlan(libraryId, createdPlanId || undefined);
+  const navigate = useNavigate();
   const createPlanMutation = useCreateTagPlan(libraryId);
-  const previewMutation = usePreviewTagPlan(libraryId, createdPlanId || undefined);
-  const applyMutation = useApplyTagPlan(libraryId, createdPlanId || undefined);
-  const pauseMutation = usePauseTagPlan(libraryId, createdPlanId || undefined);
-  const resumeMutation = useResumeTagPlan(libraryId, createdPlanId || undefined);
-  const cancelMutation = useCancelTagPlan(libraryId, createdPlanId || undefined);
-  const revertMutation = useRevertTagPlan(libraryId, createdPlanId || undefined);
-  const jobsData = useJobs(libraryId);
-  const currentJob = appliedJobId ? jobsData.data?.data?.find((j) => j.id === appliedJobId) : null;
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -129,12 +108,13 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
       if (e.key === '?') {
         setShowHelp((s) => !s);
       }
-      if (e.key === 'Enter' && step < 4) {
-        // Auto-advance on Enter if validation passes
+      if (e.key === 'Enter') {
+        // Enter advances; on the last step it creates the plan
         if (step === 1 && step1.scopeType) setStep(2);
-        else if (step === 2) setStep(3);
+        else if (step === 2) void handleCreatePlan();
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [step, step1, onClose]
   );
 
@@ -196,31 +176,11 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
 
     try {
       const result = await createPlanMutation.mutateAsync(payload);
-      setCreatedPlanId(result.id);
-      setStep(3);
+      // The plan page runs the preview and shows the diff at full width.
+      onClose();
+      void navigate({ to: '/plans/$planId', params: { planId: result.id } });
     } catch (error) {
-      setStep1Error((error as Error).message || 'Failed to create plan');
-    }
-  };
-
-  const handlePreviewPlan = async () => {
-    if (!createdPlanId) return;
-    try {
-      await previewMutation.mutateAsync();
-      // Stay on step 3 to show preview
-    } catch (error) {
-      setStep1Error((error as Error).message || 'Failed to preview plan');
-    }
-  };
-
-  const handleApplyPlan = async () => {
-    if (!createdPlanId) return;
-    try {
-      const result = await applyMutation.mutateAsync();
-      setAppliedJobId(result.jobId);
-      setStep(4);
-    } catch (error) {
-      setStep1Error((error as Error).message || 'Failed to apply plan');
+      setStep1Error((error as { detail?: string; message?: string })?.detail ?? (error as Error).message ?? 'Failed to create plan');
     }
   };
 
@@ -289,32 +249,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           />
         )}
 
-        {!showHelp && step === 3 && createdPlanId && (
-          <Step3PreviewTable
-            libraryId={libraryId}
-            planId={createdPlanId}
-            onPreview={handlePreviewPlan}
-            previewPending={previewMutation.isPending}
-            onApply={handleApplyPlan}
-            onBack={() => {
-              setCreatedPlanId(null);
-              setStep(2);
-            }}
-            isLoading={applyMutation.isPending}
-            error={step1Error}
-            tagWritesDisabled={tagWritesDisabled}
-            noWritableRoots={noWritableRoots}
-          />
-        )}
 
-        {!showHelp && step === 4 && appliedJobId && currentJob && (
-          <Step4Progress
-            job={currentJob}
-            planId={createdPlanId || ''}
-            libraryId={libraryId}
-            onClose={onClose}
-          />
-        )}
         </div>
       </div>
     </div>
@@ -663,298 +598,9 @@ function Step2PolicyPicker({
           onClick={onNext}
           disabled={isLoading}
         >
-          {isLoading ? 'Creating...' : 'Next'}
+          {isLoading ? 'Creating…' : 'Create plan & preview'}
         </button>
       </div>
-    </div>
-  );
-}
-
-const PAGE_SIZE = 100;
-
-function fmtValue(v: string | string[] | null): string {
-  if (v === null || v === undefined) return '—';
-  if (Array.isArray(v)) return v.join('; ');
-  return v === '' ? '(empty)' : v;
-}
-
-/**
- * Step 3: the plan is previewed (a worker job computes per-file diffs without
- * touching disk), then the aggregate and the diff table are shown; Apply is
- * enabled only once the preview exists and the write gates are open.
- */
-function Step3PreviewTable({
-  libraryId,
-  planId,
-  onPreview,
-  previewPending,
-  onApply,
-  onBack,
-  isLoading,
-  error,
-  tagWritesDisabled,
-  noWritableRoots,
-}: {
-  libraryId: string;
-  planId: string;
-  onPreview: () => void;
-  previewPending: boolean;
-  onApply: () => void;
-  onBack: () => void;
-  isLoading: boolean;
-  error: string | null;
-  tagWritesDisabled: boolean;
-  noWritableRoots: boolean;
-}) {
-  const [requested, setRequested] = useState(false);
-  const [field, setField] = useState('');
-  const [offset, setOffset] = useState(0);
-
-  // Poll the plan while the preview job runs.
-  const plan = useTagPlan(libraryId, planId, { refetchInterval: requested ? 2000 : false });
-  const status = plan.data?.status;
-  const previewed = status !== undefined && status !== 'draft';
-
-  // Kick off the preview once when arriving on a draft.
-  useEffect(() => {
-    if (!requested && status === 'draft') {
-      setRequested(true);
-      onPreview();
-    }
-    if (previewed && requested && plan.data?.stats) setRequested(false);
-  }, [requested, status, previewed, onPreview, plan.data?.stats]);
-
-  const items = useTagPlanItems(libraryId, planId, {
-    ...(field ? { fieldFilter: field } : {}),
-    limit: PAGE_SIZE,
-    offset,
-    enabled: previewed,
-  });
-
-  const stats = plan.data?.stats;
-  const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
-  const canApply = previewed && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
-  const applyTitle = !previewed
-    ? 'Preview has not finished yet'
-    : nothingToDo
-      ? 'Nothing to change'
-      : tagWritesDisabled
-        ? 'Tag writes disabled in library settings'
-        : noWritableRoots
-          ? 'No writable scan roots configured'
-          : undefined;
-
-  const fields = new Set<string>();
-  for (const it of items.data?.items ?? []) for (const d of it.diffs) fields.add(d.field);
-  const total = items.data?.total ?? 0;
-  const pageEnd = Math.min(offset + PAGE_SIZE, total);
-
-  return (
-    <div className={styles.step}>
-      <p className={styles.stepTitle}>Step 3: Preview changes</p>
-      <p className={styles.stepSubtitle}>
-        Nothing is written yet. Each row is one file; each line the field it would change.
-      </p>
-
-      {!previewed && (
-        <div className={styles.previewInfo}>
-          <p>{previewPending || requested ? 'Computing the preview…' : 'Waiting for the preview…'}</p>
-          <p className={styles.hint}>Every file in scope is read once; a whole-library plan can take a few minutes.</p>
-        </div>
-      )}
-
-      {previewed && stats && (
-        <div className={styles.summaryGrid}>
-          <div className={styles.summaryCell}><strong>{stats.filesTouched.toLocaleString()}</strong><span>files change</span></div>
-          <div className={styles.summaryCell}><strong>{stats.fieldsModified.toLocaleString()}</strong><span>field changes</span></div>
-          <div className={styles.summaryCell}><strong>{stats.lockedFieldsRespected.toLocaleString()}</strong><span>locked fields kept</span></div>
-          <div className={styles.summaryCell}><strong>{stats.filesSkipped.length.toLocaleString()}</strong><span>files skipped</span></div>
-        </div>
-      )}
-
-      {previewed && stats && stats.filesSkipped.length > 0 && (
-        <p className={styles.hint}>
-          Skipped: {Object.entries(stats.filesSkipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {}))
-            .map(([reason, n]) => `${n} × ${reason.replaceAll('_', ' ')}`).join(', ')}
-        </p>
-      )}
-
-      {previewed && !nothingToDo && (
-        <>
-          <div className={styles.tableTools}>
-            <label className={styles.label} htmlFor="fieldFilter">Field</label>
-            <select id="fieldFilter" className={styles.select} value={field} onChange={(e) => { setField(e.target.value); setOffset(0); }}>
-              <option value="">all fields</option>
-              {[...fields].sort().map((f) => <option key={f} value={f}>{f}</option>)}
-            </select>
-            <span className={styles.tableCount}>
-              {items.isLoading ? 'Loading…' : total === 0 ? 'No rows' : `${offset + 1}–${pageEnd} of ${total.toLocaleString()} files`}
-            </span>
-            <span className={styles.pager}>
-              <button type="button" className={styles.btn} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>‹</button>
-              <button type="button" className={styles.btn} disabled={pageEnd >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>›</button>
-            </span>
-          </div>
-
-          <div className={styles.tableWrap}>
-            <table className={styles.diffTable}>
-              <thead>
-                <tr><th>File</th><th>Field</th><th>Before</th><th>After</th><th>Why</th></tr>
-              </thead>
-              <tbody>
-                {(items.data?.items ?? []).map((it) => {
-                  const rows = it.diffs.filter((d) => d.reason !== 'no-change');
-                  if (rows.length === 0) return null;
-                  return rows.map((d, i) => (
-                    <tr key={`${it.id}:${d.field}`} className={d.reason === 'locked' ? styles.rowLocked : undefined}>
-                      {i === 0 && <td rowSpan={rows.length} className={styles.cellPath} title={it.relPath ?? it.audioFileId}>{it.relPath ?? it.audioFileId}</td>}
-                      <td className={styles.cellField}>{d.field}</td>
-                      <td className={styles.cellValue}>{fmtValue(d.before)}</td>
-                      <td className={styles.cellValue}>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
-                      <td className={styles.cellWhy}>{d.reason.replace('policy:', '')}</td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {nothingToDo && (
-        <div className={styles.previewInfo}>
-          <p>Every file in scope already carries the canonical values under this policy. Nothing to apply.</p>
-        </div>
-      )}
-
-      {error && <p className={styles.error}>{error}</p>}
-
-      <div className={styles.stepActions}>
-        <button className={styles.btn} onClick={onBack}>
-          Back
-        </button>
-        {previewed && (
-          <button type="button" className={styles.btn} onClick={() => { setRequested(true); onPreview(); }} disabled={previewPending || requested}>
-            Re-run preview
-          </button>
-        )}
-        <button
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={onApply}
-          disabled={isLoading || !canApply}
-          title={applyTitle}
-        >
-          {isLoading ? 'Applying...' : 'Apply now'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-interface JobInfo {
-  id: string;
-  type: string;
-  state: string;
-  progress: { done: number; total: number; etaS?: number; message?: string };
-  startedAt: string | undefined;
-  finishedAt: string | undefined;
-  error: string | null;
-  createdAt: string;
-}
-
-function Step4Progress({
-  job,
-  planId,
-  onClose,
-  libraryId,
-}: {
-  job: JobInfo;
-  planId: string;
-  libraryId: string;
-  onClose: () => void;
-}) {
-  const progress = job.progress || { done: 0, total: 0 };
-  const percentage = progress.total > 0 ? ((progress.done / progress.total) * 100) : 0;
-  const pauseMutation = usePauseTagPlan(libraryId, planId);
-  const resumeMutation = useResumeTagPlan(libraryId, planId);
-  const cancelMutation = useCancelTagPlan(libraryId, planId);
-  const revertMutation = useRevertTagPlan(libraryId, planId);
-
-  const isRunning = job.state === 'active';
-  const isPaused = job.state === 'paused';
-  const isFinished = job.state === 'completed' || job.state === 'failed';
-
-  return (
-    <div className={styles.step}>
-      <p className={styles.stepTitle}>Step 4: Apply in progress</p>
-
-      <div className={styles.progressSection}>
-        <div className={styles.progressBar}>
-          <div
-            className={styles.progressFill}
-            style={{ width: `${percentage}%` }}
-          />
-        </div>
-        <p className={styles.progressText}>
-          {progress.message || `${progress.done} / ${progress.total} files`}
-        </p>
-      </div>
-
-      {isRunning && (
-        <div className={styles.stepActions}>
-          <button
-            className={styles.btn}
-            onClick={() => pauseMutation.mutate()}
-          >
-            Pause
-          </button>
-          <button
-            className={`${styles.btn} ${styles.btnDanger}`}
-            onClick={() => cancelMutation.mutate()}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {isPaused && (
-        <div className={styles.stepActions}>
-          <button
-            className={styles.btn}
-            onClick={() => resumeMutation.mutate()}
-          >
-            Resume
-          </button>
-          <button
-            className={`${styles.btn} ${styles.btnDanger}`}
-            onClick={() => cancelMutation.mutate()}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {isFinished && (
-        <div className={styles.finishedSection}>
-          <p className={`${styles.status} ${job.state === 'completed' ? styles.statusSuccess : styles.statusError}`}>
-            {job.state === 'completed' ? '✓ Plan applied' : '✗ Plan failed'}
-          </p>
-          <div className={styles.stepActions}>
-            <button
-              className={`${styles.btn} ${styles.btnSecondary}`}
-              onClick={() => revertMutation.mutate()}
-            >
-              Revert this plan
-            </button>
-            <button
-              className={`${styles.btn} ${styles.btnPrimary}`}
-              onClick={onClose}
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

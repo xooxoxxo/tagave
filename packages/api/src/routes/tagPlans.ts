@@ -224,7 +224,20 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const policyData = typeof plan.policy === 'string' ? JSON.parse(plan.policy) : plan.policy;
       const statsData = typeof plan.stats === 'string' ? JSON.parse(plan.stats) : plan.stats;
 
-      const formatted: TagPlan = {
+      // Item counts by status: the plan page draws apply progress from these
+      // (no job id needed after a reload).
+      const counts = await db
+        .select({ status: tagPlanItems.status, n: sql<number>`count(*)::int` })
+        .from(tagPlanItems)
+        .where(eq(tagPlanItems.tagPlanId, planId))
+        .groupBy(tagPlanItems.status);
+      const progress: Record<string, number> = { pending: 0, applying: 0, applied: 0, failed: 0, skipped: 0, reverted: 0, total: 0 };
+      for (const c of counts) {
+        progress[c.status ?? 'pending'] = (progress[c.status ?? 'pending'] ?? 0) + c.n;
+        progress['total'] = (progress['total'] ?? 0) + c.n;
+      }
+
+      const formatted: TagPlan & { progress: Record<string, number> } = {
         id: plan.id,
         libraryId: plan.libraryId,
         name: plan.name,
@@ -235,6 +248,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         createdBy: plan.createdBy,
         createdAt: plan.createdAt.toISOString(),
         appliedAt: plan.appliedAt?.toISOString(),
+        progress,
       };
 
       reply.send(formatted);

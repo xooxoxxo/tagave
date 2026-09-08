@@ -49,6 +49,19 @@ export function useTagPlans(libraryId: string | undefined, opts?: { limit?: numb
 /**
  * Get a single tag plan (GET /libraries/:libraryId/tag-plans/:planId)
  */
+/** Item counts by status, from GET /tag-plans/:id — drives the apply progress bar. */
+export interface PlanProgress {
+  pending: number;
+  applying: number;
+  applied: number;
+  failed: number;
+  skipped: number;
+  reverted: number;
+  total: number;
+}
+
+export type TagPlanDetail = TagPlan & { progress?: PlanProgress };
+
 export function useTagPlan(
   libraryId: string | undefined,
   planId: string | undefined,
@@ -56,7 +69,7 @@ export function useTagPlan(
 ) {
   return useQuery({
     queryKey: ['tag-plan', libraryId, planId],
-    queryFn: () => api.get<TagPlan>(`/libraries/${libraryId}/tag-plans/${planId}`),
+    queryFn: () => api.get<TagPlanDetail>(`/libraries/${libraryId}/tag-plans/${planId}`),
     enabled: !!libraryId && !!planId,
     refetchInterval: opts?.refetchInterval ?? false,
   });
