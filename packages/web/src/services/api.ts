@@ -23,7 +23,11 @@ class ApiClient {
     const url = `${this.baseUrl}${path}`;
     const headers = new Headers(options.headers);
 
-    if (!(options.body instanceof FormData)) {
+    // Only claim a JSON body when there is one: Fastify answers 400
+    // ("Body cannot be empty when content-type is set to 'application/json'")
+    // to a bodiless POST/DELETE that still carries the header, which is what
+    // every action button without a payload used to send.
+    if (options.body != null && !(options.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
     }
 
