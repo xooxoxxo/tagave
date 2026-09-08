@@ -10,7 +10,9 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
-import { summaryEligible, summaryFresh, summaryFacets } from '../lib/facetSummary.js';
+import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
+import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
+import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -837,6 +839,14 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       }
 
       const pendingIdentify = await pendingIdentifyJob(album.id);
+      // Folder maintenance (XO-364): a lossless+lossy mix can be split; a
+      // split-off album can be merged back.
+      const [mix] = (await db.execute(sql`
+        select bool_or(af.lossless is true) as any_lossless, bool_or(af.lossless is false) as any_lossy
+          from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+         where lt.local_album_id = ${album.id}`)) as unknown as Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>;
+      const mixed = mix?.any_lossless === true && mix?.any_lossy === true;
+      const splitFrom = splitOriginOf(album.clusterKey);
 
       reply.status(200).send({
         id: album.id,
@@ -847,6 +857,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         year: album.yearGuess,
         state: album.state,
         pendingIdentify,
+        mixed,
+        splitFrom,
         dirPaths: album.dirPaths,
         formats: album.formats,
         discCount: album.discCount,
@@ -1421,5 +1433,104 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
 
     reply.status(200).send({ results: results.slice(0, parseInt(limit, 10)) });
+  });
+
+  // --- Folder maintenance (XO-364) ------------------------------------------
+
+  const ownedAlbum = async (userId: string, libraryId: string, albumId: string) => {
+    const db = getDb();
+    const lib = await db.select({ id: libraries.id }).from(libraries)
+      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+    const [album] = await db.select({ id: localAlbums.id, dirPaths: localAlbums.dirPaths, clusterKey: localAlbums.clusterKey })
+      .from(localAlbums)
+      .where(and(eq(localAlbums.id, albumId), eq(localAlbums.libraryId, libraryId)));
+    if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+    return album;
+  };
+  const relDirOf = (relPath: string) => {
+    const i = relPath.lastIndexOf('/');
+    return i < 0 ? '' : relPath.slice(0, i);
+  };
+  const recluster = async (libraryId: string, dirs: Array<{ scanRootId: string; dirPath: string }>) => {
+    const boss = await getBoss();
+    for (const d of dirs) {
+      await boss.send('cluster.dir', { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
+        { singletonKey: `cluster:${d.scanRootId}:${d.dirPath}`, singletonSeconds: 30, startAfter: 5 });
+    }
+  };
+  const splitFailure = (err: unknown): never => {
+    if (err instanceof SplitError) throw new ApiError(err.status, err.status === 404 ? 'Not Found' : 'Conflict', err.message);
+    throw err;
+  };
+
+  /**
+   * Rescan the album's folder(s): one scan.dir per (root, directory) holding
+   * its files — new files indexed, vanished ones dropped, changed and
+   * previously failed ones re-parsed, the folder re-clustered. Seconds.
+   */
+  fastify.post('/libraries/:libraryId/albums/:albumId/rescan', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+    const album = await ownedAlbum(request.user.id, libraryId, albumId);
+    const db = getDb();
+
+    const fileRows = await db
+      .select({ scanRootId: audioFileRows.scanRootId, relPath: audioFileRows.relPath })
+      .from(localTrackRows)
+      .innerJoin(audioFileRows, eq(audioFileRows.id, localTrackRows.audioFileId))
+      .where(eq(localTrackRows.localAlbumId, albumId));
+    const targets = new Map<string, { scanRootId: string; dirPath: string }>();
+    for (const f of fileRows) {
+      const dirPath = relDirOf(f.relPath);
+      targets.set(`${f.scanRootId}\n${dirPath}`, { scanRootId: f.scanRootId, dirPath });
+    }
+    if (targets.size === 0) {
+      // every file already missing: fall back to the recorded folders on the library's root(s)
+      const roots = await db.select({ id: scanRootRows.id }).from(scanRootRows).where(eq(scanRootRows.libraryId, libraryId));
+      for (const r of roots) for (const dirPath of album.dirPaths ?? []) targets.set(`${r.id}\n${dirPath}`, { scanRootId: r.id, dirPath });
+    }
+    if (targets.size === 0) throw new ApiError(409, 'Conflict', 'This album has no folder to rescan');
+
+    const boss = await getBoss();
+    const queued: Array<{ scanRootId: string; dirPath: string; jobId: string | null }> = [];
+    for (const t of targets.values()) {
+      const jobId = await boss.send('scan.dir', { ...t, reason: `album:${albumId}` }, { singletonKey: `scan.dir:${t.scanRootId}:${t.dirPath}` });
+      queued.push({ ...t, jobId: jobId ?? null });
+    }
+    reply.status(202).send({ queued });
+  });
+
+  /** Split a lossless+lossy album; the other copies get their own album, pinned by cluster overrides. */
+  fastify.post('/libraries/:libraryId/albums/:albumId/split-by-format', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+    await ownedAlbum(request.user.id, libraryId, albumId);
+    const keep = (request.body as { keep?: unknown } | null)?.keep === 'lossy' ? 'lossy' : 'lossless';
+    const db = getDb();
+
+    const result = await splitAlbumByFormat(db, { libraryId, albumId, userId: request.user.id, keep }).catch(splitFailure);
+    await recluster(libraryId, result.dirs);
+    // the new album is pending; identify it now rather than at the sweep's pace
+    const boss = await getBoss();
+    await boss.send('identify.album', { localAlbumId: result.newAlbumId },
+      { singletonKey: IDENTIFY_SINGLETON(result.newAlbumId), priority: IDENTIFY_PRIORITY.manual });
+    bustFacetCache(libraryId);
+    await markFacetsDirty(db, libraryId);
+    reply.send({ newAlbumId: result.newAlbumId, moved: result.movedFileIds.length, kept: result.keptFileIds.length });
+  });
+
+  /** Undo a split: the split-off album's files return to the original; the folder re-clusters. */
+  fastify.post('/libraries/:libraryId/albums/:albumId/merge-back', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+    await ownedAlbum(request.user.id, libraryId, albumId);
+    const db = getDb();
+
+    const result = await mergeSplitAlbum(db, { libraryId, albumId }).catch(splitFailure);
+    await recluster(libraryId, result.dirs);
+    bustFacetCache(libraryId);
+    await markFacetsDirty(db, libraryId);
+    reply.send({ originalAlbumId: result.originalAlbumId, moved: result.fileIds.length });
   });
 }
