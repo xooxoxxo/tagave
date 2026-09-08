@@ -233,17 +233,17 @@ fi
 # Display doctor output
 cat "$DOCTOR_FILE"
 
-# Check that critical checks passed: database, migrations, contact string, cache, workers
-for expected in "PASS Database" "PASS Migrations" "PASS Contact String" "PASS Cache Directory" "PASS Worker Heartbeat"; do
+# Check that critical checks passed: database, migrations, contact string, cache;
+# with workers also the heartbeat and the build identity (--expect-workers 0
+# reports both as SKIP).
+EXPECTED="PASS Database|PASS Migrations|PASS Contact String|PASS Cache Directory"
+[ "$WORKERS" = "1" ] && EXPECTED="$EXPECTED|PASS Worker Heartbeat|PASS Build Versions"
+echo "$EXPECTED" | tr '|' '\n' | while read -r expected; do
   if ! grep -q "$expected" "$DOCTOR_FILE"; then
     echo "✗ FAIL: doctor did not report '$expected'"
     exit 1
   fi
-done
-if [ "$WORKERS" = "1" ] && ! grep -q "PASS Build Versions" "$DOCTOR_FILE"; then
-  echo "✗ FAIL: doctor did not report 'PASS Build Versions' (app and workers built from different shas?)"
-  exit 1
-fi
+done || exit 1
 
 echo "✓ Doctor critical checks passed"
 
