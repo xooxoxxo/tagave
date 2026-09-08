@@ -202,6 +202,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
     expect(await db.select().from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/back.jpg')))).toHaveLength(0);
   });
 
+  it('never enters NAS housekeeping directories', async () => {
+    await mkdir(path.join(rootPath, 'A', '@eaDir', '01 - One.mp3'), { recursive: true });
+    await writeFile(path.join(rootPath, 'A', '@eaDir', '01 - One.mp3', 'SYNOPHOTO_THUMB_XL.jpg'), 'thumb');
+    await writeFile(path.join(rootPath, 'A', '@eaDir', 'ghost.mp3'), 'not music');
+    await mkdir(path.join(rootPath, '#recycle'), { recursive: true });
+    await writeFile(path.join(rootPath, '#recycle', 'deleted.flac'), 'gone');
+    await bump(path.join(rootPath, 'A'));
+    await bump(rootPath);
+    const before = (await rows()).length;
+    const r = await walkRoot(ctx, root, { mode: 'full' });
+    expect((await rows()).length).toBe(before);
+    expect(r.added).toBe(0);
+    const sidecars = await db.select().from(sidecarFiles).where(eq(sidecarFiles.scanRootId, rootId));
+    expect(sidecars.some((s: any) => s.relPath.includes('@eaDir'))).toBe(false);
+    const dirs = await db.select().from(scanDirs).where(eq(scanDirs.scanRootId, rootId));
+    expect(dirs.some((d: any) => d.relPath.includes('@eaDir') || d.relPath.startsWith('#recycle'))).toBe(false);
+  });
+
   it('directory mtime is what quick mode trusts', async () => {
     const st = await stat(path.join(rootPath, 'A'));
     const [row] = await db.select().from(scanDirs).where(and(eq(scanDirs.scanRootId, rootId), eq(scanDirs.relPath, 'A')));

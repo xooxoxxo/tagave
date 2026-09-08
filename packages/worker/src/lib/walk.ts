@@ -74,6 +74,17 @@ const PROGRESS_EVERY = 5000;
 
 const escapeLike = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 
+/**
+ * Directories that never hold music: dot-dirs, NAS housekeeping (Synology
+ * `@eaDir` thumbnail trees were 89,458 of the 161,960 directories under the
+ * owner's root — every `@eaDir/<file>/SYNOPHOTO_*.jpg` used to be indexed as
+ * a sidecar), recycle bins and snapshots.
+ */
+const SKIP_DIRS = new Set(['@eaDir', '#recycle', '#snapshot', '$RECYCLE.BIN', 'System Volume Information', 'lost+found']);
+export function skipDir(name: string): boolean {
+  return name.startsWith('.') || SKIP_DIRS.has(name);
+}
+
 /** Stored paths are NFC; the bytes on disk may be NFD. Find the spelling that opens. */
 async function openableDir(rootPath: string, relDir: string): Promise<string | null> {
   if (!relDir) return rootPath;
@@ -256,7 +267,7 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const files: string[] = [];
     for await (const ent of entries) {
       if (ent.isDirectory()) {
-        if (!ent.name.startsWith('.')) subdirs.push(path.join(dirAbs, ent.name));
+        if (!skipDir(ent.name)) subdirs.push(path.join(dirAbs, ent.name));
       } else if (ent.isFile()) {
         files.push(ent.name);
       }
