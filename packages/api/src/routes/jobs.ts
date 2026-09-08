@@ -4,6 +4,15 @@ import { libraries, jobRuns } from '@liner/db';
 import { getDb, getSql } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
+/** job_runs.progress is jsonb: the driver hands it over as an object, older code paths stored a string. */
+function parseProgress(value: unknown): Record<string, unknown> {
+  if (value == null) return { done: 0, total: 0 };
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as Record<string, unknown>; } catch { return { done: 0, total: 0 }; }
+  }
+  return value as Record<string, unknown>;
+}
+
 const subscribers = new Map<string, Set<FastifyReply>>();
 let listening: Promise<void> | undefined;
 
@@ -72,7 +81,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
         id: job.id,
         type: job.type,
         state: job.state,
-        progress: job.progress ? JSON.parse(job.progress as string) : { done: 0, total: 0 },
+        progress: parseProgress(job.progress),
         startedAt: job.startedAt?.toISOString(),
         finishedAt: job.finishedAt?.toISOString(),
         error: job.error,
@@ -131,7 +140,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
         id: job.id,
         type: job.type,
         state: job.state,
-        progress: job.progress ? JSON.parse(job.progress as string) : { done: 0, total: 0 },
+        progress: parseProgress(job.progress),
         startedAt: job.startedAt?.toISOString(),
         finishedAt: job.finishedAt?.toISOString(),
         error: job.error,
