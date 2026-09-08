@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { runDoctor } from '@liner/doctor';
+import { readBuildInfo } from '@liner/core';
 import { getDb } from '../db.js';
 
 export async function createHealthRoutes(fastify: FastifyInstance) {
@@ -68,10 +69,15 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Version endpoint
+  // Version endpoint: build identity from the image's build args, the
+  // DEPLOYED file or git (XO-313).
   fastify.get('/version', async (request: FastifyRequest, reply: FastifyReply) => {
+    const build = readBuildInfo();
     reply.status(200).send({
-      version: '0.1.0',
+      version: build.version,
+      sha: build.sha,
+      builtAt: build.builtAt,
+      buildSource: build.source,
       nodeVersion: process.version,
       environment: process.env.NODE_ENV || 'development',
     });

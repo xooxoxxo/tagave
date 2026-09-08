@@ -3,6 +3,7 @@ import {
   checkMigrations,
   checkContactString,
   checkWorkerHeartbeat,
+  checkWorkerVersions,
   checkScanRoots,
   checkCacheDir,
   checkProviders,
@@ -41,6 +42,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   checks.push(await checkMigrations(databaseUrl));
   checks.push(await checkContactString(databaseUrl));
   checks.push(await checkWorkerHeartbeat(databaseUrl, expectWorkers));
+  checks.push(await checkWorkerVersions(databaseUrl));
   checks.push(await checkScanRoots(databaseUrl));
   checks.push(await checkCacheDir(cacheDir));
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs));

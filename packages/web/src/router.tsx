@@ -17,6 +17,7 @@ import {
   SettingsScanRootsPage,
   SettingsProvidersPage,
   SettingsGenresPage,
+  SettingsUpdatesPage,
   JobsPage,
 } from './pages';
 import { useMe } from './hooks';
@@ -128,6 +129,12 @@ const settingsGenresRoute = new Route({
   component: SettingsGenresPage,
 });
 
+const settingsUpdatesRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/updates',
+  component: SettingsUpdatesPage,
+});
+
 const jobsRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
@@ -163,6 +170,7 @@ const routeTree = rootRoute.addChildren([
     settingsScanRootsRoute,
     settingsProvidersRoute,
     settingsGenresRoute,
+    settingsUpdatesRoute,
     jobsRoute,
     logoutRoute,
   ]),

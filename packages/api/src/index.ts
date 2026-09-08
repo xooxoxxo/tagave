@@ -11,6 +11,7 @@ import { makeDb, runMigrations } from '@liner/db';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
+import { createUpdateRoutes } from './routes/updates.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
@@ -244,6 +245,9 @@ app.register(async (instance) => {
 
   // Bulk actions on a grid selection (§14.2)
   instance.register(createBulkRoutes, { prefix: '/api/v1' });
+
+  // Build identity + release feed (PLT-5 / XO-313)
+  instance.register(createUpdateRoutes, { prefix: '/api/v1' });
 
   // Album routes
   instance.register(createAlbumRoutes, { prefix: '/api/v1' });

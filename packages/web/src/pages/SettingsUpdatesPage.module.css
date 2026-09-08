@@ -1,0 +1,219 @@
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 2rem 0;
+  color: var(--text-primary);
+}
+
+.section {
+  margin-bottom: 2.5rem;
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 1rem 0;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.5rem;
+}
+
+.banner,
+.warn,
+.error {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  font-size: var(--font-size-sm);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.banner {
+  border: 1px solid var(--accent);
+  background: rgba(42, 127, 249, 0.12);
+  color: var(--text-primary);
+}
+
+.warn {
+  border: 1px solid var(--warning);
+  background: rgba(234, 140, 85, 0.12);
+  color: var(--text-primary);
+}
+
+.error {
+  border: 1px solid var(--error);
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--error);
+}
+
+.attention {
+  margin-left: var(--space-xs);
+  padding: 0 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--warning);
+  color: #1a1a1a;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.attentionText {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--border-secondary);
+  vertical-align: top;
+}
+
+.rowWarn td {
+  background: rgba(234, 140, 85, 0.08);
+}
+
+.queues {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+}
+
+.hint {
+  margin: 0 0 var(--space-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xs);
+}
+
+.input {
+  flex: 1 1 320px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+}
+
+.button {
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--bg-hover);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.release {
+  margin-top: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.releaseHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.releaseHead a {
+  color: var(--accent);
+  text-decoration: none;
+  margin-left: auto;
+}
+
+.markdown {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-primary);
+}
+
+.markdown p {
+  margin: 0 0 0.6em;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: 0.6em 0 0.3em;
+  font-size: var(--font-size-base);
+}
+
+.steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-secondary);
+}
+
+.steps li {
+  margin-bottom: var(--space-sm);
+}
+
+.steps strong {
+  color: var(--text-primary);
+}
+
+.code {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  overflow-x: auto;
+}

@@ -69,6 +69,22 @@ export {
   type MetadataDiff,
 } from './album.js';
 
+// Build identity and updates (PLT-5 / XO-313)
+export {
+  buildInfoSchema,
+  type BuildInfoView,
+  workerVersionSchema,
+  type WorkerVersion,
+  releaseNoteSchema,
+  type ReleaseNote,
+  updatesFeedSchema,
+  updatesStatusSchema,
+  type UpdatesStatus,
+  setUpdatesFeedSchema,
+  type SetUpdatesFeed,
+  compareVersions,
+} from './updates.js';
+
 // Album grid query, facets, saved views (BRW-1)
 export {
   albumsQuerySchema,

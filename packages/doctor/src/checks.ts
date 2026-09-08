@@ -703,3 +703,47 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
     durationMs: Date.now() - start,
   };
 }
+
+// Check 9: build identity across processes (XO-313). The heartbeat rows carry
+// each worker's sha; this process's own sha comes from readBuildInfo(), so
+// run from the app container the check compares app vs workers, and run from
+// a dev checkout it simply reports what the workers are on.
+export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
+  const start = Date.now();
+  try {
+    const { readBuildInfo } = await import('@liner/core');
+    const me = readBuildInfo();
+    const sql = postgres(databaseUrl, { max: 1 });
+    try {
+      const rows = await sql`
+        select distinct on (progress->>'workerId') progress->>'workerId' as worker_id, progress->>'sha' as sha
+        from job_runs
+        where type = 'worker.heartbeat' and created_at > now() - interval '120 seconds'
+        order by progress->>'workerId', created_at desc`;
+      if (rows.length === 0) {
+        return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `no live workers; this process is ${me.version} @ ${me.sha ?? 'unknown'} (${me.source})`, durationMs: Date.now() - start };
+      }
+      const shas = new Map<string, number>();
+      for (const r of rows) {
+        const sha = (r['sha'] as string | null) ?? 'unknown';
+        shas.set(sha, (shas.get(sha) ?? 0) + 1);
+      }
+      const summary = [...shas.entries()].map(([sha, n]) => `${sha} (${n})`).join(', ');
+      const mine = me.sha ?? 'unknown';
+      const allMatch = shas.size === 1 && shas.has(mine);
+      return {
+        id: 'versions',
+        title: 'Build Versions',
+        status: allMatch ? 'pass' : 'warn',
+        detail: allMatch
+          ? `${rows.length} worker(s) and this process at ${mine}`
+          : `this process ${mine} (${me.source}); workers at ${summary} — redeploy the lagging side`,
+        durationMs: Date.now() - start,
+      };
+    } finally {
+      await sql.end({ timeout: 2 });
+    }
+  } catch (err) {
+    return { id: 'versions', title: 'Build Versions', status: 'fail', detail: `Failed to check: ${(err as Error).message}`, durationMs: Date.now() - start };
+  }
+}

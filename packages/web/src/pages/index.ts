@@ -13,4 +13,5 @@ export { CollectionPage } from './CollectionPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
 export { SettingsProvidersPage } from './SettingsProvidersPage';
 export { SettingsGenresPage } from './SettingsGenresPage';
+export { SettingsUpdatesPage } from './SettingsUpdatesPage';
 export { JobsPage } from './JobsPage';
