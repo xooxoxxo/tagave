@@ -1,18 +1,34 @@
 /**
  * Artist detail page (spec BRW-3): canonical artist with enrichment state,
- * bio excerpt from Wikipedia, link chips, follow toggle, and discography
- * grouped by release type.
+ * bio excerpt from Wikipedia, link chips, follow toggle, refresh button, and
+ * discography grouped by release type.
  */
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useArtist, useFollowArtist } from '../hooks';
+import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist } from '../hooks';
 import styles from './ArtistPage.module.css';
 
 export function ArtistPage() {
   const navigate = useNavigate();
   const { libraryId } = useCurrentLibrary();
   const { artistId } = useParams({ from: '/layout/artists/$artistId' });
-  const { data: artist, isLoading, error } = useArtist(libraryId, artistId);
+  const { data: artist, isLoading, error, refetch } = useArtist(libraryId, artistId);
   const followMutation = useFollowArtist(libraryId, artistId);
+  const refreshMutation = useRefreshArtist(libraryId, artistId);
+  const [showRefreshNotification, setShowRefreshNotification] = useState(false);
+
+  // Re-fetch artist data 1-2s after refresh completes
+  useEffect(() => {
+    if (refreshMutation.isSuccess) {
+      const timeout = setTimeout(() => {
+        refetch();
+        setShowRefreshNotification(true);
+        // Hide notification after 3 seconds
+        setTimeout(() => setShowRefreshNotification(false), 3000);
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [refreshMutation.isSuccess, refetch]);
 
   if (isLoading) {
     return <div className={styles.container}>Loading artist...</div>;
@@ -27,6 +43,7 @@ export function ArtistPage() {
   }
 
   const isEnriching = artist.enrichedAt === null;
+  const isRefreshing = refreshMutation.isPending;
 
   return (
     <div className={styles.container}>
@@ -68,9 +85,20 @@ export function ArtistPage() {
           )}
         </div>
 
-        {/* Enriching status and follow button */}
+        {/* Enriching status, refresh button, and follow button */}
         <div className={styles.actions}>
           {isEnriching && <div className={styles.enriching}>Enriching…</div>}
+          {isRefreshing && <div className={styles.refreshing}>Refreshing…</div>}
+          {artist.followed && (
+            <button
+              className={styles.refreshButton}
+              onClick={() => refreshMutation.mutate()}
+              disabled={isRefreshing}
+              title="Refresh discography from MusicBrainz"
+            >
+              {isRefreshing ? '⟳ Refreshing' : '⟳ Refresh'}
+            </button>
+          )}
           <button
             className={styles.followButton}
             onClick={() => followMutation.mutate(!artist.followed)}
@@ -177,6 +205,13 @@ export function ArtistPage() {
           ))
         )}
       </div>
+
+      {/* Refresh notification toast */}
+      {showRefreshNotification && (
+        <div className={styles.toast}>
+          Discography updated
+        </div>
+      )}
     </div>
   );
 }

@@ -306,4 +306,40 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
     reply.send({ followed });
   });
+
+  /**
+   * POST /libraries/:libraryId/artists/:artistId/refresh
+   * Enqueue manual refresh of artist's discography from MusicBrainz (XO-348).
+   * Only allowed if artist is followed.
+   */
+  fastify.post('/libraries/:libraryId/artists/:artistId/refresh', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, artistId } = request.params as { libraryId: string; artistId: string };
+
+    await ownedLibrary(request.user.id, libraryId);
+    const db = getDb();
+
+    // Verify artist exists
+    const [artist] = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (!artist) throw new ApiError(404, 'Not Found', 'Artist not found');
+
+    // Verify artist is followed
+    const [followRow] = await db.select().from(followedArtists)
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+    if (!followRow) throw new ApiError(403, 'Forbidden', 'Artist must be followed to refresh');
+
+    try {
+      const boss = await getBoss();
+      await boss.send('artist.refresh', { libraryId, artistId }, {
+        singletonKey: `artist.refresh:${artistId}`,
+        retryLimit: 2,
+        retryDelay: 30,
+      });
+    } catch (err) {
+      console.warn('Failed to enqueue artist.refresh', { libraryId, artistId, err });
+      throw new ApiError(500, 'Internal Server Error', 'Failed to enqueue refresh job');
+    }
+
+    reply.send({ discographyUpdated: false });
+  });
 }
