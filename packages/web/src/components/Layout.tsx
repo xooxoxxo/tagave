@@ -92,6 +92,12 @@ export function Layout() {
             Collection
           </Link>
           <Link
+            to="/plans"
+            className={isActive('/plans') ? styles.navLinkActive : styles.navLink}
+          >
+            Plans
+          </Link>
+          <Link
             to="/settings/scan-roots"
             className={location.pathname.startsWith('/settings') ? styles.navLinkActive : styles.navLink}
           >

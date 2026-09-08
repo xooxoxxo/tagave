@@ -10,6 +10,7 @@ export { AlbumDetailPage } from './AlbumDetailPage';
 export { AttentionPage } from './AttentionPage';
 export { IdentifyPage } from './IdentifyPage';
 export { CollectionPage } from './CollectionPage';
+export { PlansPage } from './PlansPage';
 export { SettingsScanRootsPage } from './SettingsScanRootsPage';
 export { SettingsProvidersPage } from './SettingsProvidersPage';
 export { SettingsGenresPage } from './SettingsGenresPage';
