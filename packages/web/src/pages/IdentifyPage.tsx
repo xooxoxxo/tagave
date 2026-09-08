@@ -26,7 +26,7 @@ const REASONS = [
   { key: 'job_failed', label: 'Failed jobs' },
 ];
 
-export function IdentifyPage() {
+export function IdentifyPanel() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const [reason, setReason] = useState<string | null>(null);
@@ -130,9 +130,6 @@ export function IdentifyPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <div className={styles.headerTitle}>
-          <h1 className={styles.title}>Identification</h1>
-        </div>
 
         {/* Header strip with big % and stats */}
         <div className={styles.headerStrip}>
@@ -419,6 +416,20 @@ export function IdentifyPage() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// Legacy export for backwards compatibility
+export function IdentifyPage() {
+  return (
+    <div className={styles.container}>
+      <header className={styles.header}>
+        <div className={styles.headerTitle}>
+          <h1 className={styles.title}>Identification</h1>
+        </div>
+      </header>
+      <IdentifyPanel />
     </div>
   );
 }

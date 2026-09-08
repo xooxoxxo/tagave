@@ -52,7 +52,7 @@ function fmtDur(ms: number | null): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-export function QueuePage() {
+export function ReviewPanel() {
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
   const [itemIdx, setItemIdx] = useState(0);
@@ -123,22 +123,18 @@ export function QueuePage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [items.length, item, decide]);
 
-  if (isLoading) return <div className={styles.container}>Loading queue...</div>;
+  if (isLoading) return <div>Loading queue...</div>;
   if (!items.length) {
     return (
-      <div className={styles.container}>
-        <h1 className={styles.title}>Review Queue</h1>
-        <div className={styles.emptyState}>
-          Queue is empty — nothing needs your judgment right now.
-        </div>
+      <div className={styles.emptyState}>
+        Queue is empty — nothing needs your judgment right now.
       </div>
     );
   }
 
   return (
-    <div className={styles.container}>
+    <div>
       <div className={styles.header}>
-        <h1 className={styles.title}>Review Queue</h1>
         <span className={styles.counter}>{totalLeft} left{items.length < totalLeft ? ` · viewing ${itemIdx + 1}/${items.length}` : ` · on ${itemIdx + 1}`}</span>
         <span className={styles.keysHint}>
           n/p albums · ↑↓ candidates · Enter accept · a as-is · x ignore · e exclude · ?
@@ -241,6 +237,18 @@ export function QueuePage() {
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+// Legacy export for backwards compatibility
+export function QueuePage() {
+  return (
+    <div className={styles.container}>
+      <div className={styles.header}>
+        <h1 className={styles.title}>Review Queue</h1>
+      </div>
+      <ReviewPanel />
     </div>
   );
 }

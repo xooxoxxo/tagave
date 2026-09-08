@@ -1,166 +1,218 @@
 /**
- * Dashboard page showing library overview and recent activity
- * M0: Basic stats and scan status
+ * Home page (DashboardPage) showing library overview and priority actions
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { Link } from '@tanstack/react-router';
-import { useCurrentLibrary, useScanRoots, useIdentifyStats } from '../hooks';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useCurrentLibrary, useIdentifyStats, useTagPlans } from '../hooks';
 import { api } from '../services/api';
+import { PageShell, StatCard, Card } from '../components/ui';
+import styles from './DashboardPage.module.css';
 
-interface LibraryStats {
-  albums: number;
-  tracks: number;
-  hours: number;
-  storageBytes: number;
-  losslessShare: number;
-  states: { matched: number; needsReview: number; pending: number; unidentified: number };
-  reviews?: { written: number; rated: number; listens: number };
+interface GapsCounts {
+  counts: Record<string, number>;
 }
 
-function useLibraryStats(libraryId: string | undefined) {
+interface QueueResponse {
+  items: unknown[];
+  nextCursor: string | null;
+  total?: number;
+}
+
+interface LibraryAlbums {
+  items: unknown[];
+  nextCursor: string | null;
+  total?: number;
+}
+
+function useGapsCounts(libraryId: string | undefined) {
   return useQuery({
-    queryKey: ['library-stats', libraryId],
-    queryFn: () => api.get<LibraryStats>(`/libraries/${libraryId}/stats`),
+    queryKey: ['gaps-counts', libraryId],
+    queryFn: () =>
+      api.get<GapsCounts>(`/libraries/${libraryId}/gaps?limit=1`),
     enabled: !!libraryId,
-    refetchInterval: 30_000,
+    staleTime: 1000 * 60, // 1 minute
   });
 }
-import styles from './DashboardPage.module.css';
+
+function useQueueTotal(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['queue-total', libraryId],
+    queryFn: () =>
+      api.get<QueueResponse>(`/libraries/${libraryId}/queue?limit=1`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 60, // 1 minute
+  });
+}
+
+function useLibraryAlbumTotal(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['library-albums-total', libraryId],
+    queryFn: () =>
+      api.get<LibraryAlbums>(`/libraries/${libraryId}/albums?limit=1`),
+    enabled: !!libraryId,
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
 
 export function DashboardPage() {
   const { libraryId } = useCurrentLibrary();
-  const { data: scanRoots, isLoading, error } = useScanRoots(libraryId);
-  const { data: stats } = useLibraryStats(libraryId);
+  const navigate = useNavigate();
   const { data: identifyStats } = useIdentifyStats(libraryId);
+  const { data: gapsCounts } = useGapsCounts(libraryId);
+  const { data: queueData } = useQueueTotal(libraryId);
+  const { data: albumsData } = useLibraryAlbumTotal(libraryId);
+  const { data: tagPlans } = useTagPlans(libraryId, { limit: 5 });
 
   if (!libraryId) {
-    return <div className={styles.container}>Loading library...</div>;
+    return <PageShell title="Home">Loading library...</PageShell>;
   }
 
-  if (isLoading) {
-    return <div className={styles.container}>Loading dashboard...</div>;
+  // Calculate metrics
+  const identifiedShare = identifyStats ? (identifyStats.identifiedShare * 100).toFixed(1) : '—';
+  const gaps = gapsCounts?.counts ?? {};
+  const totalGaps = Object.values(gaps).reduce((sum, count) => sum + count, 0);
+  const queueTotal = queueData?.total ?? 0;
+  const totalAlbums = albumsData?.total ?? 0;
+  const albumsWithoutGaps = totalAlbums - totalGaps;
+  const tagHealth = totalAlbums > 0 ? ((albumsWithoutGaps / totalAlbums) * 100).toFixed(1) : '—';
+
+  // Build "Needs You" shortcuts from counts
+  const needsYouItems: Array<{ label: string; count: number; tab: 'review' | 'identify' | 'attention' }> = [];
+  if (gaps.duplicate) {
+    needsYouItems.push({
+      label: 'duplicate groups to resolve',
+      count: gaps.duplicate,
+      tab: 'attention',
+    });
+  }
+  if (gaps.incomplete_album) {
+    needsYouItems.push({
+      label: 'incomplete albums to complete',
+      count: gaps.incomplete_album,
+      tab: 'attention',
+    });
+  }
+  if (gaps.missing_album) {
+    needsYouItems.push({
+      label: 'missing albums to track',
+      count: gaps.missing_album,
+      tab: 'attention',
+    });
+  }
+  if (gaps.quality) {
+    needsYouItems.push({
+      label: 'albums with quality flags',
+      count: gaps.quality,
+      tab: 'attention',
+    });
+  }
+  if (queueTotal > 0) {
+    needsYouItems.push({
+      label: 'albums waiting for review',
+      count: queueTotal,
+      tab: 'review',
+    });
   }
 
-  if (error) {
-    return (
-      <div className={styles.container}>
-        <div className={styles.error}>Failed to load dashboard</div>
-      </div>
-    );
-  }
+  const recentPlans = tagPlans?.items.slice(0, 5) ?? [];
 
-  const totalAlbums = stats?.albums ?? 0;
-  const totalTracks = stats?.tracks ?? 0;
-  const isScanning = scanRoots?.some((root) => root.lastStatus === 'scanning');
+  const handleNavToWork = (tab: 'review' | 'identify' | 'attention') => {
+    navigate({ to: '/work', search: { tab } });
+  };
 
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Dashboard</h1>
-        <p className={styles.subtitle}>Library overview and recent activity</p>
-      </header>
+    <PageShell title="Home" subtitle="Library metrics and priority actions">
+      <div className={styles.content}>
+        {/* Four stat cards grid */}
+        <div className={styles.statsGrid}>
+          <button
+            className={styles.cardButton}
+            onClick={() => handleNavToWork('review')}
+          >
+            <StatCard
+              label="Identified"
+              value={`${identifiedShare}%`}
+              hint={
+                identifyStats
+                  ? `${identifyStats.states.matched} of ${identifyStats.total} albums`
+                  : undefined
+              }
+              tone="info"
+            />
+          </button>
 
-      <div className={styles.grid}>
-        {/* Identified card with real data */}
-        <Link to="/identify" className={styles.statCard}>
-          <div className={styles.statLabel}>Identified</div>
-          <div className={styles.statValue}>
-            {identifyStats ? `${(identifyStats.identifiedShare * 100).toFixed(1)}%` : '—'}
-          </div>
-          <div className={styles.statNote}>
-            {identifyStats
-              ? `${identifyStats.states.matched} of ${identifyStats.total} · day ${identifyStats.target.day}/30 · ${identifyStats.target.onTrack ? 'on track' : 'behind'} for 95%`
-              : 'M1+'}
-          </div>
-        </Link>
-
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Tag Health</div>
-          <div className={styles.statValue}>—</div>
-          <div className={styles.statNote}>M2+</div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Open Gaps</div>
-          <div className={styles.statValue}>—</div>
-          <div className={styles.statNote}>M3+</div>
-        </div>
-
-        <div className={styles.statCard}>
-          <div className={styles.statLabel}>Reviews</div>
-          <div className={styles.statValue}>{(stats?.reviews?.written ?? 0).toLocaleString()}</div>
-          <div className={styles.statNote}>
-            {stats?.reviews ? `${stats.reviews.rated} rated · ${stats.reviews.listens} listens` : 'written'}
-          </div>
-        </div>
-      </div>
-
-      {/* Library stats */}
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Library Overview</h2>
-        <div className={styles.overview}>
-          <div className={styles.overviewItem}>
-            <span className={styles.overviewLabel}>Albums</span>
-            <span className={styles.overviewValue}>{totalAlbums.toLocaleString()}</span>
-          </div>
-          <div className={styles.overviewItem}>
-            <span className={styles.overviewLabel}>Tracks</span>
-            <span className={styles.overviewValue}>{totalTracks.toLocaleString()}</span>
-          </div>
-          <div className={styles.overviewItem}>
-            <span className={styles.overviewLabel}>Scan Roots</span>
-            <span className={styles.overviewValue}>{scanRoots?.length || 0}</span>
-          </div>
-          {isScanning && (
-            <div className={styles.overviewItem}>
-              <span className={styles.overviewLabel}>Status</span>
-              <span className={styles.overviewValue} style={{ color: 'var(--info)' }}>
-                Scanning...
-              </span>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Scan roots status */}
-      {scanRoots && scanRoots.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Scan Roots</h2>
-          <div className={styles.rootsList}>
-            {scanRoots.map((root) => (
-              <div key={root.id} className={styles.rootItem}>
-                <div className={styles.rootInfo}>
-                  <h3 className={styles.rootName}>{root.displayName}</h3>
-                  <p className={styles.rootPath}>{root.path}</p>
-                </div>
-                <div className={styles.rootStats}>
-                  <span className={styles.stat}>
-                    {root.albumsFound} albums
-                  </span>
-                  <span className={styles.stat}>
-                    {root.tracksFound} tracks
-                  </span>
-                  <span className={styles.stat}>
-                    {root.writable ? 'Writable' : 'Read-only'}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Empty state */}
-      {!scanRoots || scanRoots.length === 0 && (
-        <section className={styles.emptyState}>
-          <h2>No scan roots configured</h2>
-          <p>Complete the setup checklist to start indexing your music library.</p>
-          <Link to="/onboarding" className={styles.emptyStateLink}>
-            Open the setup checklist
+          <Link to="/albums">
+            <StatCard
+              label="Tag Health"
+              value={`${tagHealth}%`}
+              hint={`${albumsWithoutGaps} of ${totalAlbums} albums`}
+              tone="success"
+            />
           </Link>
-        </section>
-      )}
-    </div>
+
+          <button
+            className={styles.cardButton}
+            onClick={() => handleNavToWork('attention')}
+          >
+            <StatCard
+              label="Open Gaps"
+              value={totalGaps.toString()}
+              hint={`${gaps.duplicate || 0} duplicates · ${gaps.incomplete_album || 0} incomplete`}
+              tone="warning"
+            />
+          </button>
+
+          <button
+            className={styles.cardButton}
+            onClick={() => handleNavToWork('review')}
+          >
+            <StatCard
+              label="Review Items"
+              value={queueTotal.toString()}
+              hint="albums waiting for review"
+              tone="info"
+            />
+          </button>
+        </div>
+
+        {/* Needs You section */}
+        {needsYouItems.length > 0 && (
+          <Card title="Needs You" padded={false}>
+            <div className={styles.needsList}>
+              {needsYouItems.slice(0, 5).map((item, idx) => (
+                <button
+                  key={idx}
+                  className={styles.needsItem}
+                  onClick={() => handleNavToWork(item.tab)}
+                >
+                  <span className={styles.needsCount}>{item.count}</span>
+                  <span className={styles.needsLabel}>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {/* Recent Plans section */}
+        {recentPlans.length > 0 && (
+          <Card title="Recent Plans" padded={false}>
+            <div className={styles.plansList}>
+              {recentPlans.map((plan) => (
+                <Link
+                  key={plan.id}
+                  to="/plans/$planId"
+                  params={{ planId: plan.id }}
+                  className={styles.planItem}
+                >
+                  <span className={styles.planName}>{plan.name}</span>
+                  <span className={styles.planState}>{plan.status}</span>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        )}
+      </div>
+    </PageShell>
   );
 }

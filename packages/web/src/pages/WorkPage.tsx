@@ -1,14 +1,105 @@
 /**
  * Work page: review, identify, attention tabs
- * To be filled by another agent
+ * Combines QueuePage (review), IdentifyPage (identify), and AttentionPage (attention)
  */
+import { useMemo } from 'react';
+import { useSearch, useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import { useCurrentLibrary, useIdentifyStats } from '../hooks';
+import { api } from '../services/api';
+import { PageShell, TabItem } from '../components/ui';
+import { ReviewPanel } from './QueuePage';
+import { IdentifyPanel } from './IdentifyPage';
+import { AttentionPanel } from './AttentionPage';
 
-import { PageShell } from '../components/ui';
+interface QueueData {
+  items: unknown[];
+  total?: number;
+}
+
+interface GapsData {
+  counts: Record<string, number>;
+}
 
 export function WorkPage() {
+  const { libraryId } = useCurrentLibrary();
+  const navigate = useNavigate();
+  const { tab } = useSearch({ strict: false }) as { tab?: string };
+  const activeTab = tab || 'review';
+
+  // Fetch queue length for review tab count
+  const { data: queueData } = useQuery({
+    queryKey: ['queue', libraryId],
+    queryFn: () =>
+      api.get<QueueData>(`/libraries/${libraryId}/queue?limit=1`),
+    enabled: !!libraryId,
+  });
+
+  // Fetch identify stats for identify tab count
+  const { data: stats } = useIdentifyStats(libraryId);
+
+  // Fetch gaps for attention tab count
+  const { data: gapsData } = useQuery({
+    queryKey: ['gaps', libraryId],
+    queryFn: () =>
+      api.get<GapsData>(
+        `/libraries/${libraryId}/gaps?limit=1`,
+      ),
+    enabled: !!libraryId,
+  });
+
+  const queueCount = queueData?.total ?? 0;
+  const needsReviewCount = stats?.states.needsReview ?? 0;
+  const attentionTotal = useMemo(() => {
+    if (!gapsData?.counts) return 0;
+    return Object.values(gapsData.counts).reduce((a, b) => a + b, 0);
+  }, [gapsData]);
+
+  const tabs: TabItem[] = useMemo(
+    () => [
+      {
+        label: 'Review',
+        value: 'review',
+        ...(queueCount > 0 && { count: queueCount }),
+      },
+      {
+        label: 'Identify',
+        value: 'identify',
+        ...(needsReviewCount > 0 && { count: needsReviewCount }),
+      },
+      {
+        label: 'Attention',
+        value: 'attention',
+        ...(attentionTotal > 0 && { count: attentionTotal }),
+      },
+    ],
+    [queueCount, needsReviewCount, attentionTotal],
+  );
+
+  const handleTabChange = (newTab: string) => {
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' } });
+  };
+
+  const renderPanel = () => {
+    switch (activeTab) {
+      case 'identify':
+        return <IdentifyPanel />;
+      case 'attention':
+        return <AttentionPanel />;
+      default:
+        return <ReviewPanel />;
+    }
+  };
+
   return (
-    <PageShell title="Work" subtitle="Review, identify, and attention tasks">
-      <div>Work content to be filled by another agent</div>
+    <PageShell
+      title="Work"
+      subtitle="Review, identify, and attention tasks"
+      tabs={tabs}
+      activeTab={activeTab}
+      onTabChange={handleTabChange}
+    >
+      {renderPanel()}
     </PageShell>
   );
 }

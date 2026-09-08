@@ -26,7 +26,7 @@ const KIND_LABEL: Record<string, string> = {
   missing_album: 'Missing albums',
 };
 
-export function AttentionPage() {
+export function AttentionPanel() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -70,7 +70,6 @@ export function AttentionPage() {
 
   return (
     <div className={styles.container}>
-      <h1 className={styles.title}>Needs Attention</h1>
       <div className={styles.tabs}>
         {Object.entries(KIND_LABEL).map(([k, label]) => (
           <button
@@ -121,6 +120,16 @@ export function AttentionPage() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// Legacy export for backwards compatibility
+export function AttentionPage() {
+  return (
+    <div className={styles.container}>
+      <h1 className={styles.title}>Needs Attention</h1>
+      <AttentionPanel />
     </div>
   );
 }
