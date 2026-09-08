@@ -17,3 +17,4 @@ export { SettingsGenresPage } from './SettingsGenresPage';
 export { SettingsFollowRulesPage } from './SettingsFollowRulesPage';
 export { SettingsUpdatesPage } from './SettingsUpdatesPage';
 export { JobsPage } from './JobsPage';
+export { SettingsTagWritesPage } from './SettingsTagWritesPage';

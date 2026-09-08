@@ -1,0 +1,239 @@
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 600;
+  margin: 0 0 2rem 0;
+  color: var(--text-primary);
+}
+
+.section {
+  margin-bottom: 3rem;
+}
+
+.sectionTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem 0;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+}
+
+.pageHint {
+  font-size: 0.9375rem;
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem 0;
+  line-height: 1.6;
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 4px;
+  border-left: 3px solid var(--accent-color);
+}
+
+.statusList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+}
+
+.statusDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.on {
+  background: var(--success-color);
+}
+
+.off {
+  background: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.statusText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-primary);
+}
+
+.statusText span {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.warning {
+  margin: 1rem 0 0 0;
+  font-size: 0.875rem;
+  color: var(--error-color);
+  line-height: 1.5;
+}
+
+.fieldGroup {
+  margin-bottom: 2rem;
+}
+
+.label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  color: var(--text-primary);
+}
+
+.hint {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.75rem 0;
+  line-height: 1.5;
+}
+
+.radioGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.radioLabel:hover {
+  background: var(--bg-secondary);
+}
+
+.radioActive {
+  border-color: var(--accent-color);
+  background: var(--bg-secondary);
+}
+
+.radio {
+  margin-top: 0.2rem;
+  accent-color: var(--accent-color);
+}
+
+.radioText {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.radioText span {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.select,
+.input {
+  width: 100%;
+  max-width: 400px;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.select:focus,
+.input:focus {
+  outline: none;
+  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+}
+
+.button,
+.resetButton,
+.linkButton {
+  padding: 0.6rem 1.25rem;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 150ms ease;
+}
+
+.button {
+  background: var(--accent-color);
+  color: white;
+  border-color: var(--accent-color);
+}
+
+.button:hover:not(:disabled) {
+  background: var(--accent-color-hover);
+  border-color: var(--accent-color-hover);
+}
+
+.button:disabled,
+.resetButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.resetButton:hover:not(:disabled),
+.linkButton:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color-hover);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.success {
+  color: var(--success-color);
+  font-weight: 500;
+}
+
+.error {
+  color: var(--error-color);
+  font-weight: 500;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--text-primary);
+  line-height: 1.8;
+}
+
+.steps a {
+  color: var(--accent-color);
+}

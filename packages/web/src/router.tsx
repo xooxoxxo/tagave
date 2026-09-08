@@ -19,6 +19,7 @@ import {
   SettingsProvidersPage,
   SettingsGenresPage,
   SettingsFollowRulesPage,
+  SettingsTagWritesPage,
   SettingsUpdatesPage,
   JobsPage,
 } from './pages';
@@ -143,6 +144,12 @@ const settingsFollowRulesRoute = new Route({
   component: SettingsFollowRulesPage,
 });
 
+const settingsTagWritesRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/tag-writes',
+  component: SettingsTagWritesPage,
+});
+
 const settingsUpdatesRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/updates',
@@ -186,6 +193,7 @@ const routeTree = rootRoute.addChildren([
     settingsProvidersRoute,
     settingsGenresRoute,
     settingsFollowRulesRoute,
+    settingsTagWritesRoute,
     settingsUpdatesRoute,
     jobsRoute,
     logoutRoute,

@@ -59,6 +59,20 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
   const [showHelp, setShowHelp] = useState(false);
 
   const settings = useLibrarySettings(libraryId);
+  // New plans start from the library's default policy (Settings › Tag writes);
+  // applied once when settings arrive, before the user reaches step 2.
+  const [policySeeded, setPolicySeeded] = useState(false);
+  useEffect(() => {
+    if (policySeeded || !settings.data?.tagPolicy) return;
+    const p = settings.data.tagPolicy;
+    setStep2({
+      preset: p.preset,
+      id3Version: p.id3Version,
+      multiValueSeparator: p.multiValueSeparator,
+      ...(p.overrides ? { overrides: p.overrides } : {}),
+    });
+    setPolicySeeded(true);
+  }, [policySeeded, settings.data]);
   const tagPlan = useTagPlan(libraryId, createdPlanId || undefined);
   const createPlanMutation = useCreateTagPlan(libraryId);
   const previewMutation = usePreviewTagPlan(libraryId, createdPlanId || undefined);
@@ -183,7 +197,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
         {tagWritesDisabled && (
           <div className={styles.warningBanner}>
             Tag writes disabled in library settings.{' '}
-            <a href="/settings/scan-roots">Go to Settings › Scan roots</a> to enable.
+            <a href="/settings/tag-writes">Go to Settings › Tag writes</a> to enable.
           </div>
         )}
 

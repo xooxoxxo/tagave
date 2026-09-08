@@ -172,6 +172,7 @@ export function useLibrarySettings(libraryId: string | undefined) {
     queryFn: () =>
       api.get<{
         tagWritesEnabled: boolean;
+        tagPolicy?: TagPolicies;
         scanRoots: Array<{ id: string; displayName: string; writable: boolean }>;
       }>(`/libraries/${libraryId}/settings`),
     enabled: !!libraryId,

@@ -14,6 +14,7 @@ import {
   patchLibrarySettingsSchema,
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
+import { tagSettingsOf } from '../lib/tagSettings.js';
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Get library settings (spec PLT-4)
@@ -79,6 +80,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         lintRules,
         discographyRefreshEnabled,
         followRules,
+        ...tagSettingsOf(settings),
       })
     );
   });
@@ -178,6 +180,15 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       }
     }
 
+    // Tag writes (M2): master switch + default policy; the schema already
+    // validated the policy shape. The worker re-reads the switch per file.
+    if (body.tagWritesEnabled !== undefined) {
+      mergedSettings.tagWritesEnabled = body.tagWritesEnabled;
+    }
+    if (body.tagPolicy !== undefined) {
+      mergedSettings.tagPolicy = body.tagPolicy;
+    }
+
     await db.update(libraries)
       .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
       .where(eq(libraries.id, libraryId));
@@ -219,6 +230,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         lintRules,
         discographyRefreshEnabled,
         followRules,
+        ...tagSettingsOf(mergedSettings),
       })
     );
   });

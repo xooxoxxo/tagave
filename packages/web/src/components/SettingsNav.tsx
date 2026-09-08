@@ -24,6 +24,9 @@ export function SettingsNav() {
       <Link to="/settings/follow-rules" className={styles.link} activeProps={{ className: styles.active }}>
         Follow Rules
       </Link>
+      <Link to="/settings/tag-writes" className={styles.link} activeProps={{ className: styles.active }}>
+        Tag writes
+      </Link>
       <Link to="/settings/updates" className={styles.link} activeProps={{ className: styles.active }}>
         Updates<UpdateDot />
       </Link>
