@@ -767,6 +767,11 @@ export const tagPlanItems = pgTable(
       'tag_plan_items_audio_hash_check',
       sql`(status != 'applied' OR audio_hash_before = audio_hash_after)`
     ),
+    // Mirrors migration 0023: 'applying' is the in-flight state tags.apply sets.
+    statusCheck: check(
+      'tag_plan_items_status_check',
+      sql`status in ('pending', 'applying', 'applied', 'failed', 'skipped')`
+    ),
   })
 );
 

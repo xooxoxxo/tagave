@@ -101,6 +101,7 @@ export const tagPlanStatsSchema = z.object({
   fieldsModified: z.number().int().nonnegative().default(0).describe('Total number of field changes across all files'),
   lockedFieldsRespected: z.number().int().nonnegative().default(0).describe('Number of field changes blocked by locks'),
   filesSkipped: z.array(tagPlanSkippedFileSchema).default([]).describe('Files that could not be processed'),
+  lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;

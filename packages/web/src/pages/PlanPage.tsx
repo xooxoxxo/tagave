@@ -196,6 +196,10 @@ export function PlanPage() {
         </div>
       )}
 
+      {p.status === 'paused' && stats?.lastError && (
+        <p className={styles.error}>The last run stopped early: {stats.lastError}. Resume retries the files that were not written.</p>
+      )}
+
       {previewed && stats && (
         <div className={styles.summary}>
           <div className={styles.stat}><strong>{stats.filesTouched.toLocaleString()}</strong><span>files change</span></div>

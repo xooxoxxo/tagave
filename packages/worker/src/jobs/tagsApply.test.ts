@@ -89,6 +89,74 @@ describe('tagsApply job', () => {
     }
   });
 
+  async function seedPlan(status: string) {
+    const audioFileId = randomUUID();
+    await dbClient.insert(audioFiles).values({
+      id: audioFileId,
+      libraryId,
+      scanRootId,
+      relPath: `${audioFileId}.flac`,
+      sizeBytes: 10000,
+      container: 'FLAC',
+      codec: 'FLAC',
+      lossless: true,
+      durationMs: 180000,
+      sampleRate: 44100,
+      bitDepth: 16,
+      channels: 2,
+      status: 'present',
+      firstSeenAt: new Date(),
+      lastSeenAt: new Date(),
+    });
+    const planId = randomUUID();
+    await dbClient.insert(tagPlans).values({
+      id: planId,
+      libraryId,
+      name: 'Apply test plan',
+      scope: { type: 'library' },
+      policy: { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' },
+      status,
+      stats: { filesTouched: 1, fieldsModified: 1, lockedFieldsRespected: 0, filesSkipped: [] },
+      createdBy: userId,
+      createdAt: new Date(),
+    });
+    const itemId = randomUUID();
+    await dbClient.insert(tagPlanItems).values({
+      id: itemId,
+      tagPlanId: planId,
+      audioFileId,
+      before: { title: 'Old' },
+      after: { title: 'New' },
+      diff: [{ field: 'title', before: 'Old', after: 'New', reason: 'policy:overwrite' }],
+      status: 'pending',
+    });
+    return { planId, itemId };
+  }
+
+  it('accepts the applying item status the job writes (migration 0023)', async () => {
+    const { itemId } = await seedPlan('previewed');
+    await dbClient.update(tagPlanItems).set({ status: 'applying' }).where(eq(tagPlanItems.id, itemId));
+    const [row] = await dbClient.select().from(tagPlanItems).where(eq(tagPlanItems.id, itemId));
+    expect(row.status).toBe('applying');
+  });
+
+  it('parks the plan as paused with the error when the run dies outside the item loop', async () => {
+    const { planId, itemId } = await seedPlan('previewed');
+    // Reproduce the 2026-09-08 incident: the DB rejects the status update itself.
+    await ctx.sql.unsafe(`alter table tag_plan_items add constraint test_block_applying check (status <> 'applying') not valid`);
+    try {
+      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+    } finally {
+      await ctx.sql.unsafe(`alter table tag_plan_items drop constraint test_block_applying`);
+    }
+    const [plan] = await dbClient.select().from(tagPlans).where(eq(tagPlans.id, planId));
+    expect(plan.status).toBe('paused');
+    expect((plan.stats as any).lastError).toMatch(/test_block_applying/);
+    expect((plan.stats as any).filesTouched).toBe(1);
+    const [item] = await dbClient.select().from(tagPlanItems).where(eq(tagPlanItems.id, itemId));
+    expect(item.status).toBe('pending');
+  });
+
   it('should skip items when gates flip per-item (finding 3) - implementation verified in code', async () => {
     // This test verifies that per-item gate checking code is present.
     // Implementation adds fresh database queries for:

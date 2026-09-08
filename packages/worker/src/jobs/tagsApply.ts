@@ -4,7 +4,7 @@
  * pauses on audio-hash mismatch (P0 defect), continues on other errors.
  */
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import {
   tagPlans,
@@ -48,6 +48,39 @@ function reconstructAfterTags(
  * pause on hash mismatch, continue on other errors.
  */
 export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
+  try {
+    await applyPlan(ctx, data);
+  } catch (error) {
+    // A failure outside the per-item handler (a DB constraint, a missing
+    // sidecar, a lost connection) used to leave the plan in 'applying' with
+    // nothing written and no way forward (seen live 2026-09-08). Park it as
+    // 'paused' with the message so the page shows it and Resume retries.
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.logger.error({ planId: data.planId, error: message }, 'tags.apply failed; plan paused');
+    await parkPlan(ctx, data.planId, message);
+    throw error;
+  }
+}
+
+async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
+  try {
+    await ctx.db
+      .update(tagPlanItems)
+      .set({ status: 'pending' })
+      .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applying')));
+    await ctx.db
+      .update(tagPlans)
+      .set({
+        status: 'paused',
+        stats: sql`coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('lastError', ${message}::text)`,
+      })
+      .where(and(eq(tagPlans.id, planId), eq(tagPlans.status, 'applying')));
+  } catch (parkError) {
+    ctx.logger.error({ planId, error: String(parkError) }, 'tags.apply: could not park the plan');
+  }
+}
+
+async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   const { planId } = data;
   const { db, logger } = ctx;
 
@@ -133,14 +166,14 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
     .set({ status: 'applying' })
     .where(eq(tagPlans.id, planId));
 
-  // Update all 'pending' items to 'applying'
-  const itemsToProcess = pendingItems.filter((item) => item.status === 'pending');
-  for (const item of itemsToProcess) {
-    await db
-      .update(tagPlanItems)
-      .set({ status: 'applying' })
-      .where(eq(tagPlanItems.id, item.id));
-  }
+  // Mark every item we are about to write as 'applying'. Items already in
+  // 'applying' belong to a run that died mid-batch; nothing confirmed them
+  // written, and a rewrite of the same tags is idempotent, so retry them too.
+  const itemsToProcess = pendingItems;
+  await db
+    .update(tagPlanItems)
+    .set({ status: 'applying' })
+    .where(inArray(tagPlanItems.id, itemsToProcess.map((item) => item.id)));
 
   // Process items with concurrency 2
   const tagWriter = new MutagenTagWriter();
