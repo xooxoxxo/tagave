@@ -21,6 +21,7 @@ import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type Collect
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
 import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnrich.js';
+import { artistsRefreshSweepJob, type ArtistsRefreshSweepJobData } from './jobs/artistsRefreshSweep.js';
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
@@ -53,6 +54,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'scan.root': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
+  'artists.refresh': 'stately',
   'artist.refresh': 'stately',
   'tags.preview': 'stately',
   'tags.apply': 'stately',
@@ -78,7 +80,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -214,6 +216,14 @@ async function main() {
     await boss.work<ArtistsEnrichJobData>('artists.enrich', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await artistsEnrichJob(ctx, job.data);
     });
+  }
+
+  if (wants('artists.refresh')) {
+    await boss.work<ArtistsRefreshSweepJobData>('artists.refresh', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await artistsRefreshSweepJob(ctx, job.data);
+    });
+    // Weekly sweep every Monday at 05:00 (spec: weekly, gated by discographyRefreshEnabled)
+    await boss.schedule('artists.refresh', '0 5 * * 1', {}, { singletonKey: 'artists.refresh' });
   }
 
   if (wants('artist.refresh')) {
