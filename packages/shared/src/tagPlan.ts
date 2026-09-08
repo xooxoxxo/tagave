@@ -115,6 +115,7 @@ export const tagPlanSchema = z.object({
   libraryId: z.string().uuid().describe('Library ID'),
   name: z.string().describe('User-friendly plan name'),
   scope: tagPlanScopeSchema.describe('Scope: which files this applies to'),
+  scopeLabel: z.string().optional().describe('Human-readable scope (artist name, album count); resolved by the API on list and detail'),
   policy: tagPoliciesSchema.describe('Write policy'),
   status: z.enum([
     'draft',

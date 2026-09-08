@@ -9,6 +9,7 @@ import {
   localTracks,
   libraries,
   scanRoots,
+  artists,
 } from '@liner/db';
 import {
   type CreateTagPlan,
@@ -32,6 +33,28 @@ import { albumQueryParts } from './albums.js';
  * - GET /api/v1/libraries/:libraryId/tag-plans/:planId/items (filtered items)
  * - POST /api/v1/libraries/:libraryId/tag-plans/:planId/preview (enqueue preview job)
  */
+/**
+ * Readable scope per plan: artist name for artist scopes (one query for the
+ * page), album counts otherwise. The raw scope keeps the ids.
+ */
+async function scopeLabels(db: ReturnType<typeof getDb>, scopes: TagPlanScope[]): Promise<string[]> {
+  const artistIds = Array.from(new Set(scopes.flatMap((s) => (s.type === 'artist' ? [s.artistId] : []))));
+  const names = new Map<string, string>();
+  if (artistIds.length > 0) {
+    const rows = await db.select({ id: artists.id, name: artists.name }).from(artists).where(inArray(artists.id, artistIds));
+    for (const r of rows) names.set(r.id, r.name);
+  }
+  return scopes.map((s) => {
+    switch (s.type) {
+      case 'library': return 'Entire library';
+      case 'artist': return names.get(s.artistId) ?? 'One artist';
+      case 'albumIds': return s.albumIds.length === 1 ? '1 album' : `${s.albumIds.length} albums`;
+      case 'filterQuery': return 'Filtered albums';
+      default: return 'Unknown scope';
+    }
+  });
+}
+
 export async function createTagPlansRoutes(fastify: FastifyInstance) {
   /**
    * GET /api/v1/libraries/:libraryId/tag-plans
@@ -78,8 +101,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .limit(limit)
         .offset(offset);
 
-      const formatted: TagPlan[] = plans.map((p) => {
-        const scopeData = typeof p.scope === 'string' ? JSON.parse(p.scope) : p.scope;
+      const scopes = plans.map((p) => (typeof p.scope === 'string' ? JSON.parse(p.scope) : p.scope) as TagPlanScope);
+      const labels = await scopeLabels(db, scopes);
+
+      const formatted: TagPlan[] = plans.map((p, i) => {
+        const scopeData = scopes[i]!;
         const policyData = typeof p.policy === 'string' ? JSON.parse(p.policy) : p.policy;
         const statsData = typeof p.stats === 'string' ? JSON.parse(p.stats) : p.stats;
         return {
@@ -87,6 +113,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           libraryId: p.libraryId,
           name: p.name,
           scope: scopeData as TagPlanScope,
+          scopeLabel: labels[i],
           policy: policyData as TagPolicies,
           status: p.status as any,
           stats: statsData ?? { filesTouched: 0, fieldsModified: 0, lockedFieldsRespected: 0, filesSkipped: [] },

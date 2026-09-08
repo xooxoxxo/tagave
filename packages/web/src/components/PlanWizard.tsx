@@ -67,13 +67,28 @@ interface PlanWizardProps {
 
 export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
   const [step, setStep] = useState<WizardStep>(1);
-  const [planName, setPlanName] = useState('New tag plan');
+  const [planName, setPlanName] = useState('');
   const [step1, setStep1] = useState<WizardStep1State>({ scopeType: null });
   const [step2, setStep2] = useState<WizardStep2State>({
     preset: 'canonical_ids_and_fill',
     id3Version: '2.4',
     multiValueSeparator: '; ',
   });
+  // A plan is named after what it covers unless the user types a name;
+  // "New tag plan" x 12 in the list told nobody anything.
+  const suggestedName = (() => {
+    switch (step1.scopeType) {
+      case 'artist': return step1.artistName ? `${step1.artistName} tags` : 'Artist tags';
+      case 'albumIds': {
+        const ids = step1.albumIds ?? [];
+        if (ids.length === 1) return `${step1.albumLabels?.[ids[0]!] ?? '1 album'} tags`;
+        return `${ids.length} albums tags`;
+      }
+      case 'filterQuery': return 'Filtered albums tags';
+      case 'library': return 'Whole library tags';
+      default: return 'New tag plan';
+    }
+  })();
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
@@ -169,7 +184,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
 
     const policy = buildPolicy();
     const payload: CreateTagPlan = {
-      name: planName,
+      name: planName.trim() || suggestedName,
       scope,
       policy,
     };
@@ -242,6 +257,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
             state={step2}
             onChange={setStep2}
             planName={planName}
+            suggestedName={suggestedName}
             onPlanNameChange={setPlanName}
             onNext={handleCreatePlan}
             onBack={() => setStep(1)}
@@ -495,6 +511,7 @@ function Step2PolicyPicker({
   state,
   onChange,
   planName,
+  suggestedName,
   onPlanNameChange,
   onNext,
   onBack,
@@ -503,6 +520,7 @@ function Step2PolicyPicker({
   state: WizardStep2State;
   onChange: (state: WizardStep2State) => void;
   planName: string;
+  suggestedName: string;
   onPlanNameChange: (name: string) => void;
   onNext: () => void;
   onBack: () => void;
@@ -519,7 +537,7 @@ function Step2PolicyPicker({
           className={styles.input}
           value={planName}
           onChange={(e) => onPlanNameChange(e.target.value)}
-          placeholder="New tag plan"
+          placeholder={suggestedName}
         />
       </div>
 

@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import type { TagPlan } from '@liner/shared';
 import { Link } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans } from '../hooks/usePlanWizard';
@@ -26,20 +27,21 @@ export function PlansPage() {
   const hasNext = offset + limit < total;
   const hasPrev = offset > 0;
 
-  const scopeLabel = (scope: Record<string, unknown> | undefined): string => {
-    if (!scope) return 'Unknown';
-    const type = scope?.type as string | undefined;
-    switch (type) {
+  // The API resolves artist names; this fallback only covers older responses.
+  const scopeLabel = (plan: Pick<TagPlan, 'scope' | 'scopeLabel'>): string => {
+    if (plan.scopeLabel) return plan.scopeLabel;
+    const scope = plan.scope;
+    switch (scope.type) {
       case 'library':
         return 'Entire library';
       case 'artist':
-        return `Artist: ${String(scope.artistId || '')}`;
+        return 'One artist';
       case 'albumIds':
-        return `${(scope.albumIds as string[] | undefined)?.length ?? 0} album(s)`;
+        return scope.albumIds.length === 1 ? '1 album' : `${scope.albumIds.length} albums`;
       case 'filterQuery':
-        return `Query: ${JSON.stringify(scope.filterQuery || {})}`;
+        return 'Filtered albums';
       default:
-        return 'Unknown';
+        return 'Unknown scope';
     }
   };
 
@@ -117,7 +119,7 @@ export function PlansPage() {
                         {plan.name || 'Untitled plan'}
                       </Link>
                     </td>
-                    <td className={styles.cellScope}>{scopeLabel(plan.scope ?? {})}</td>
+                    <td className={styles.cellScope} title={scopeLabel(plan)}>{scopeLabel(plan)}</td>
                     <td className={styles.cellStatus}>
                       <span className={`${styles.badge} ${statusBadgeClass(plan.status)}`}>
                         {plan.status}
