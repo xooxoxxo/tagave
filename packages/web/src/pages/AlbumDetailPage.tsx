@@ -194,11 +194,27 @@ const GAP_LABEL: Record<string, string> = {
   missing_album: 'Missing album',
 };
 
+/** What a quality chip can offer: fetch art, open the tag wizard on this album, or point at Split by format. */
+type FlagAction = 'art' | 'tags' | 'split';
+
 interface FlagChip {
   key: string;
   label: string;
   detail?: string;
+  action?: FlagAction;
 }
+
+const FLAG_ACTION: Record<string, FlagAction> = {
+  noCover: 'art',
+  missingMbIds: 'tags',
+  emptyRequiredFields: 'tags',
+  trackNumberIssues: 'tags',
+  inconsistentAlbumFields: 'tags',
+  titleCaseAnomalies: 'tags',
+  discNumberGaps: 'tags',
+  mixedLossless: 'split',
+  lowBitrate: 'split',
+};
 
 const FLAG_LABEL: Record<string, string> = {
   noCover: 'No cover art',
@@ -226,15 +242,16 @@ function humanize(key: string): string {
 function describeQualityFlags(flags: Record<string, unknown>): FlagChip[] {
   return Object.entries(flags).map(([key, value]) => {
     const label = FLAG_LABEL[key] ?? humanize(key);
-    if (value === true || value == null) return { key, label };
-    if (typeof value === 'number') return { key, label: `${label} · ${value}` };
-    if (typeof value !== 'object') return { key, label: `${label} · ${String(value)}` };
+    const action = FLAG_ACTION[key] ? { action: FLAG_ACTION[key] } : {};
+    if (value === true || value == null) return { key, label, ...action };
+    if (typeof value === 'number') return { key, label: `${label} · ${value}`, ...action };
+    if (typeof value !== 'object') return { key, label: `${label} · ${String(value)}`, ...action };
     const obj = value as Record<string, unknown>;
     const items = Object.values(obj).filter(Array.isArray).flat() as unknown[];
     const noun = 'issues' in obj ? 'issues' : 'fields' in obj ? 'fields' : 'gap' in obj ? 'gaps' : 'tracks';
     const shown = items.slice(0, 8).map((x) => (typeof x === 'number' ? `track ${x + 1}` : typeof x === 'string' ? x : JSON.stringify(x)));
     const detail = shown.join('\n') + (items.length > 8 ? `\n… ${items.length - 8} more` : '');
-    return { key, label: items.length > 0 ? `${label} · ${items.length} ${noun}` : label, ...(detail ? { detail } : {}) };
+    return { key, label: items.length > 0 ? `${label} · ${items.length} ${noun}` : label, ...(detail ? { detail } : {}), ...action };
   });
 }
 
@@ -595,7 +612,23 @@ export function AlbumDetailPage() {
               {g.kind === 'quality' ? (
                 <span className={styles.flagList}>
                   {qualityFlags.map((f) => (
-                    <span key={f.key} className={styles.flagChip} title={f.detail}>{f.label}</span>
+                    <span key={f.key} className={styles.flagItem}>
+                      <span className={styles.flagChip} title={f.detail}>{f.label}</span>
+                      {/* one way out per chip: the thing that clears it */}
+                      {f.action === 'art' && (
+                        <button type="button" className={styles.flagAction} onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
+                          {fetchArt.isPending ? 'Queued…' : 'Fetch art'}
+                        </button>
+                      )}
+                      {f.action === 'tags' && (
+                        <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })} className={styles.flagAction} title="Open the tag wizard on this album">
+                          Fix tags
+                        </Link>
+                      )}
+                      {f.action === 'split' && album.mixed && (
+                        <span className={styles.flagHint} title="Split by format sits with the header actions">→ Split by format above</span>
+                      )}
+                    </span>
                   ))}
                 </span>
               ) : (

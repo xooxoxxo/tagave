@@ -420,6 +420,42 @@
   cursor: help;
 }
 
+/* chip + its one action, kept together on wrap */
+.flagItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.flagAction {
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  font-family: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.flagAction:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: transparent;
+}
+
+.flagAction:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+.flagHint {
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+}
+
 /* tables */
 
 .trackTable,
