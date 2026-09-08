@@ -104,6 +104,7 @@ export const bulkAlbumsResultSchema = z.object({
   matched: z.number().int().describe('Albums the selection resolved to'),
   updated: z.number().int(),
   queued: z.number().int(),
+  skippedAlreadyQueued: z.number().int().default(0).describe('Albums that already had a job waiting; their job was lifted to bulk priority instead'),
   capped: z.boolean().describe('The selection was larger than the cap for this action'),
 }).strict();
 

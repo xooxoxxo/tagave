@@ -19,6 +19,10 @@ import { albumQueryParts } from './albums.js';
 
 const CHUNK = 500;
 const QUEUES: Partial<Record<BulkAlbumAction, string>> = { identify: 'identify.album', fetch_art: 'art.fetch' };
+// Job priority tiers (see api/src/lib/identifyRequests.ts): manual single-album
+// pins 100, triage retries and bulk 50, background sweeps 0 — a bulk run of up
+// to 2,000 albums jumps the sweep but never an owner's click on one album.
+const BULK_JOB_PRIORITY = 50;
 
 function chunks<T>(items: T[], size = CHUNK): T[][] {
   const out: T[][] = [];
@@ -54,7 +58,7 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
     const capped = rows.length > cap;
     const ids = rows.slice(0, cap).map((r) => r.id);
 
-    const result: BulkAlbumsResult = { action, matched: ids.length, updated: 0, queued: 0, capped };
+    const result: BulkAlbumsResult = { action, matched: ids.length, updated: 0, queued: 0, skippedAlreadyQueued: 0, capped };
     if (ids.length === 0) {
       reply.send(result);
       return;
@@ -71,12 +75,20 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
       const keyPrefix = action === 'identify' ? 'identify:' : 'art:';
       for (const chunk of chunks(ids)) {
         const inserted = await db.execute(sql`
-          insert into pgboss.job (name, data, policy, singleton_key)
-          select ${queue}, ${data}, 'stately', ${keyPrefix} || la.id::text
+          insert into pgboss.job (name, data, policy, singleton_key, priority)
+          select ${queue}, ${data}, 'stately', ${keyPrefix} || la.id::text, ${BULK_JOB_PRIORITY}
           from local_albums la where la.id in ${idList(chunk)}
           on conflict do nothing
           returning 1`) as unknown as unknown[];
         result.queued += inserted.length;
+        result.skippedAlreadyQueued += chunk.length - inserted.length;
+        // Albums the conflict skipped already wait in the queue — usually as a
+        // priority-0 sweep job; lift those so the bulk run still jumps the sweep.
+        const keys = sql`(${sql.join(chunk.map((id) => sql`${keyPrefix + id}`), sql`, `)})`;
+        await db.execute(sql`
+          update pgboss.job set priority = ${BULK_JOB_PRIORITY}
+          where name = ${queue} and singleton_key in ${keys}
+            and state = 'created' and priority < ${BULK_JOB_PRIORITY}`);
       }
       reply.send(result);
       return;

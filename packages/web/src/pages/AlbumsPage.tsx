@@ -126,10 +126,11 @@ export function AlbumsPage() {
       setBulkResult(res);
     } else {
       const ids = [...selected];
-      const totals: BulkAlbumsResult = { action, matched: 0, updated: 0, queued: 0, capped: false };
+      const totals: BulkAlbumsResult = { action, matched: 0, updated: 0, queued: 0, skippedAlreadyQueued: 0, capped: false };
       for (let i = 0; i < ids.length; i += BULK_ID_CHUNK) {
         const res = await bulk.mutateAsync({ action, albumIds: ids.slice(i, i + BULK_ID_CHUNK) });
         totals.matched += res.matched; totals.updated += res.updated; totals.queued += res.queued;
+        totals.skippedAlreadyQueued += res.skippedAlreadyQueued ?? 0;
         totals.capped = totals.capped || res.capped;
       }
       setBulkResult(totals);
@@ -274,7 +275,8 @@ export function AlbumsPage() {
           <div className={styles.bulkResult}>
             {BULK_LABEL[bulkResult.action]}: {bulkResult.updated ? `${bulkResult.updated.toLocaleString()} updated` : ''}
             {bulkResult.queued ? `${bulkResult.queued.toLocaleString()} queued` : ''}
-            {!bulkResult.updated && !bulkResult.queued ? 'nothing to do' : ''}
+            {bulkResult.skippedAlreadyQueued ? `${bulkResult.queued ? ', ' : ''}${bulkResult.skippedAlreadyQueued.toLocaleString()} already queued (moved ahead of the sweep)` : ''}
+            {!bulkResult.updated && !bulkResult.queued && !bulkResult.skippedAlreadyQueued ? 'nothing to do' : ''}
             {bulkResult.capped ? ' (capped — run again for the rest)' : ''}
             <button className={styles.linkButton} onClick={() => setBulkResult(null)}>Dismiss</button>
           </div>
