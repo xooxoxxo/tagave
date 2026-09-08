@@ -17,7 +17,7 @@ from mutagen.oggflac import OggFLAC
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
 from mutagen.oggtheora import OggTheora
-from mutagen.oggspeeches import OggSpeech
+from mutagen.oggspeex import OggSpeex
 from mutagen.oggflac import OggFLAC
 from mutagen.oggvorbis import OggVorbis
 from mutagen.oggopus import OggOpus
@@ -25,7 +25,7 @@ from mutagen.wave import WAVE
 from mutagen.aiff import AIFF
 from mutagen.mp4 import MP4
 from mutagen.dsf import DSF
-from mutagen.dsdiff import DSDiff
+from mutagen.dsdiff import DSDIFF
 
 # Canonical field to format-specific tag mapping per Spec Appendix A
 TAG_MAPPING = {
@@ -294,167 +294,316 @@ def detect_tag_format(path: str) -> str:
         return "vorbis"
 
 
+# ---------------------------------------------------------------------------
+# Tag families. WAV / AIFF / DSF / DFF carry ID3 like MP3; FLAC + Ogg carry
+# Vorbis comments; MP4 carries atoms + iTunes freeform; APE / WavPack are
+# read-only in v1 (spec TAG-1: APEv2 mapping is P1, corpus not validated).
+# ---------------------------------------------------------------------------
+ID3_CONTAINERS = {"mp3", "wav", "aiff", "aif", "dsf", "dff"}
+VORBIS_CONTAINERS = {"flac", "ogg", "oga", "opus", "spx"}
+MP4_CONTAINERS = {"m4a", "m4b", "m4p", "alac", "mp4"}
+APE_CONTAINERS = {"ape", "wv", "mpc", "tta", "ofr"}
+# frames / keys that must never be rewritten or stripped (embedded art, binary blobs)
+ID3_PROTECTED_PREFIXES = ("APIC", "PIC", "GEOB", "PRIV", "MCDI", "AENC", "ASPI", "SEEK", "SIGN", "RVA2", "EQU2", "RBUF", "OWNE", "USER", "GRID", "POSS")
+VORBIS_PROTECTED = {"METADATA_BLOCK_PICTURE", "COVERART", "COVERARTMIME"}
+MP4_PROTECTED = {"covr"}
+
+
+def tag_family(path: str) -> str:
+    c = get_container_type(path)
+    if c in ID3_CONTAINERS:
+        return "id3"
+    if c in VORBIS_CONTAINERS:
+        return "vorbis"
+    if c in MP4_CONTAINERS:
+        return "mp4"
+    if c in APE_CONTAINERS:
+        return "ape"
+    return "vorbis"
+
+
+def mapping_key(family: str, id3_version: str) -> str:
+    if family == "id3":
+        return "id3v23" if str(id3_version) == "2.3" else "id3v24"
+    return family
+
+
+def _split_pair(text: str) -> tuple[str | None, str | None]:
+    """'3/12' -> ('3', '12'); '3' -> ('3', None)."""
+    if text is None:
+        return None, None
+    t = str(text)
+    if "/" in t:
+        a, b = t.split("/", 1)
+        return (a.strip() or None), (b.strip() or None)
+    return (t.strip() or None), None
+
+
+def _native_from_id3(tags) -> dict[str, list[str]]:
+    native: dict[str, list[str]] = {}
+    if tags is None:
+        return native
+    for frame in tags.values():
+        fid = frame.FrameID
+        if fid == "TXXX":
+            native[f"TXXX:{frame.desc}"] = [str(t) for t in frame.text]
+        elif fid == "UFID":
+            native[f"UFID:{frame.owner}"] = [frame.data.decode("utf-8", "replace")]
+        elif fid.startswith(ID3_PROTECTED_PREFIXES):
+            native[frame.HashKey] = ["<binary>"]
+        elif hasattr(frame, "text"):
+            native[fid] = [str(t) for t in frame.text]
+        else:
+            native[frame.HashKey] = ["<binary>"]
+    return native
+
+
+def _native_from_vorbis(tags) -> dict[str, list[str]]:
+    native: dict[str, list[str]] = {}
+    if tags is None:
+        return native
+    for key, value in tags.items():
+        k = key.upper()
+        vals = [str(v) for v in value] if isinstance(value, (list, tuple)) else [str(value)]
+        native.setdefault(k, []).extend(vals)
+    return native
+
+
+def _native_from_mp4(tags) -> dict[str, list[str]]:
+    native: dict[str, list[str]] = {}
+    if tags is None:
+        return native
+    for key, value in tags.items():
+        if key in MP4_PROTECTED:
+            native[key] = ["<binary>"]
+            continue
+        if key in ("trkn", "disk"):
+            pairs = value if isinstance(value, list) else [value]
+            n, total = (pairs[0] if pairs else (0, 0))
+            native[key] = [f"{n}/{total}" if total else str(n)]
+            continue
+        if key == "cpil":
+            native[key] = ["1" if value else "0"]
+            continue
+        vals = value if isinstance(value, list) else [value]
+        out = []
+        for v in vals:
+            if isinstance(v, bytes):
+                out.append(v.decode("utf-8", "replace"))
+            else:
+                out.append(str(v))
+        native[key] = out
+    return native
+
+
 def read_tags(path: str) -> dict[str, Any]:
-    """
-    Read tags from an audio file and return them as a canonical TagSet.
-    Unknown tags are preserved.
-    """
+    """Canonical TagSet for a file; unmapped native tags under __unknown__."""
     try:
         audio = File(path)
         if audio is None:
             return {}
-
-        canonical_tags: dict[str, Any] = {}
-        unknown_tags: dict[str, Any] = {}
-
-        tag_format = detect_tag_format(path)
-        all_tags: dict[str, Any] = {}
-
-        # Extract all tags from the audio file
-        if isinstance(audio, dict) and hasattr(audio, "items"):
-            all_tags = dict(audio)
+        family = tag_family(path)
+        if family == "id3":
+            native = _native_from_id3(getattr(audio, "tags", None))
+            key = "id3v24"
+        elif family == "vorbis":
+            native = _native_from_vorbis(getattr(audio, "tags", None))
+            key = "vorbis"
+        elif family == "mp4":
+            native = _native_from_mp4(getattr(audio, "tags", None))
+            key = "mp4"
         else:
-            all_tags = dict(audio) if hasattr(audio, "__iter__") else {}
+            return {"__error__": f"{family} files are read-only in v1"}
 
-        # Track which tags we've seen to identify unknowns
-        seen_native_tags = set()
-
-        # Map native tags back to canonical fields
-        for canonical_field, field_mapping in TAG_MAPPING.items():
-            native_tag_names = field_mapping.get(tag_format)
-            if not native_tag_names:
+        canonical: dict[str, Any] = {}
+        seen: set[str] = set()
+        for field, mapping in TAG_MAPPING.items():
+            names = mapping.get(key)
+            if not names:
                 continue
-
-            if not isinstance(native_tag_names, list):
-                native_tag_names = [native_tag_names]
-
-            values = []
-            for native_tag in native_tag_names:
-                if native_tag in all_tags:
-                    seen_native_tags.add(native_tag)
-                    value = all_tags[native_tag]
-                    # Handle mutagen's complex types
-                    if isinstance(value, (list, tuple)):
-                        values.extend([str(v) for v in value])
-                    else:
-                        values.append(str(value))
-
-            if values:
-                # Join or keep as array depending on field type
-                if canonical_field in MULTI_VALUE_FIELDS:
-                    canonical_tags[canonical_field] = (
-                        values if len(values) > 1 else values[0] if values else None
-                    )
+            if not isinstance(names, list):
+                names = [names]
+            values: list[str] = []
+            for n in names:
+                if n in native:
+                    seen.add(n)
+                    values.extend(native[n])
+            if not values and field in ("totaltracks", "totaldiscs") and key == "vorbis":
+                # some taggers write "3/12" into TRACKNUMBER without a TRACKTOTAL
+                src = TAG_MAPPING["tracknumber" if field == "totaltracks" else "discnumber"]["vorbis"]
+                _, second = _split_pair((native.get(src) or [None])[0])
+                if second is not None:
+                    canonical[field] = second
+                continue
+            if not values:
+                continue
+            # TRCK / TPOS / trkn / disk carry two canonical fields; Vorbis keys are separate
+            if field in ("tracknumber", "totaltracks", "discnumber", "totaldiscs"):
+                first, second = _split_pair(values[0])
+                if key == "vorbis":
+                    want = first if field in ("tracknumber", "discnumber") else (values[0].strip() or None)
                 else:
-                    canonical_tags[canonical_field] = "; ".join(values) if len(values) > 1 else values[0]
+                    want = first if field in ("tracknumber", "discnumber") else second
+                if want is not None:
+                    canonical[field] = want
+                continue
+            if field == "compilation":
+                canonical[field] = values[0] in ("1", "True", "true")
+                continue
+            if field in MULTI_VALUE_FIELDS:
+                canonical[field] = values if len(values) > 1 else values[0]
+            else:
+                canonical[field] = "; ".join(values) if len(values) > 1 else values[0]
 
-        # Collect unknown tags
-        for native_tag, value in all_tags.items():
-            if native_tag not in seen_native_tags:
-                if isinstance(value, (list, tuple)):
-                    unknown_tags[native_tag] = [str(v) for v in value]
-                else:
-                    unknown_tags[native_tag] = str(value)
-
-        if unknown_tags:
-            canonical_tags["__unknown__"] = unknown_tags
-
-        return canonical_tags
-
-    except Exception as e:
+        unknown = {k: (v if len(v) > 1 else v[0]) for k, v in native.items() if k not in seen}
+        if unknown:
+            canonical["__unknown__"] = unknown
+        return canonical
+    except Exception as e:  # never crash the sidecar on one file
         return {"__error__": str(e)}
 
 
+def _values_for(field: str, value: Any, separator: str, joined: bool) -> list[str]:
+    if isinstance(value, bool):
+        return ["1" if value else "0"]
+    vals = value if isinstance(value, list) else [value]
+    vals = [str(v) for v in vals if v is not None and str(v) != ""]
+    if field in MULTI_VALUE_FIELDS and not joined:
+        return vals
+    return [separator.join(vals)] if len(vals) > 1 else vals
+
+
 def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None:
-    """
-    Write tags to an audio file.
-    Respects stripUnknown option and preserves unknown tags by default.
-    """
-    try:
-        audio = File(path)
-        if audio is None:
-            audio = File(path, easy=False)
-            if audio is None:
-                raise ValueError(f"Could not open audio file: {path}")
+    """Write the given canonical fields; every other tag and all embedded art
+    stay untouched (stripUnknown=True removes unmapped *text* tags only)."""
+    family = tag_family(path)
+    if family == "ape":
+        raise ValueError(f"{get_container_type(path)} files are read-only in v1 (TAG-1)")
+    audio = File(path)
+    if audio is None:
+        raise ValueError(f"Could not open audio file: {path}")
+    id3_version = str(options.get("id3Version", "2.4"))
+    separator = str(options.get("multiValueSeparator", "; "))
+    strip_unknown = bool(options.get("stripUnknown", False))
+    key = mapping_key(family, id3_version)
+    joined = key == "id3v23"  # v2.3 has no multi-value convention
 
-        tag_format = detect_tag_format(path)
-        id3_version = options.get("id3Version", "2.4")
-        multi_value_separator = options.get("multiValueSeparator", "; ")
-        strip_unknown = options.get("stripUnknown", False)
+    requested = {k: v for k, v in tags.items() if not k.startswith("__") and v is not None}
 
-        # Prepare native tags to write
-        native_tags: dict[str, Any] = {}
+    # tracknumber/totaltracks and discnumber/totaldiscs share one native tag
+    existing = read_tags(path)
+    def pair(num_field: str, total_field: str) -> str | None:
+        if num_field not in requested and total_field not in requested:
+            return None
+        n = requested.get(num_field, existing.get(num_field))
+        t = requested.get(total_field, existing.get(total_field))
+        if n is None and t is None:
+            return None
+        return f"{n or ''}/{t}" if t else str(n)
 
-        # First, preserve existing unknown tags unless stripping
-        if not strip_unknown:
-            existing_unknown = read_tags(path).get("__unknown__", {})
-            for native_tag, value in existing_unknown.items():
-                native_tags[native_tag] = value
+    native: dict[str, list[str]] = {}
+    number_fields = ("tracknumber", "totaltracks", "discnumber", "totaldiscs")
+    for field, value in requested.items():
+        if field in number_fields:
+            if family == "vorbis":
+                # Vorbis comments keep numbers in separate keys (TRACKNUMBER +
+                # TRACKTOTAL/TOTALTRACKS); write every alias so all players agree.
+                names = TAG_MAPPING[field]["vorbis"]
+                for n in (names if isinstance(names, list) else [names]):
+                    native[n] = [str(value)]
+            continue
+        mapping = TAG_MAPPING.get(field)
+        if not mapping:
+            continue  # not a canonical field for this writer
+        name = mapping.get(key)
+        if not name:
+            continue
+        if isinstance(name, list):
+            name = name[0]
+        native[name] = _values_for(field, value, separator, joined)
+    trk = pair("tracknumber", "totaltracks") if family != "vorbis" else None
+    dsc = pair("discnumber", "totaldiscs") if family != "vorbis" else None
+    if trk is not None:
+        native[TAG_MAPPING["tracknumber"][key] if not isinstance(TAG_MAPPING["tracknumber"][key], list) else TAG_MAPPING["tracknumber"][key][0]] = [trk]
+    if dsc is not None:
+        native[TAG_MAPPING["discnumber"][key] if not isinstance(TAG_MAPPING["discnumber"][key], list) else TAG_MAPPING["discnumber"][key][0]] = [dsc]
 
-        # Convert canonical tags to native format
-        for canonical_field, value in tags.items():
-            if canonical_field == "__unknown__" or canonical_field == "__error__":
-                continue
+    mapped_names = set()
+    for field, mapping in TAG_MAPPING.items():
+        n = mapping.get(key)
+        if n:
+            mapped_names.update(n if isinstance(n, list) else [n])
 
-            if value is None:
-                continue
-
-            field_mapping = TAG_MAPPING.get(canonical_field)
-            if not field_mapping:
-                # Unknown canonical field, preserve as-is
-                native_tags[canonical_field] = value
-                continue
-
-            native_tag_names = field_mapping.get(tag_format)
-            if not native_tag_names:
-                continue
-
-            if not isinstance(native_tag_names, list):
-                native_tag_names = [native_tag_names]
-
-            # Handle multi-value fields
-            if canonical_field in MULTI_VALUE_FIELDS:
-                if isinstance(value, list):
-                    values = value
-                else:
-                    values = [value]
+    if family == "id3":
+        from mutagen.id3 import Frames, TXXX, UFID
+        if getattr(audio, "tags", None) is None:
+            audio.add_tags()
+        id3 = audio.tags
+        for name, vals in native.items():
+            if name.startswith("TXXX:"):
+                desc = name[5:]
+                id3.delall(f"TXXX:{desc}")
+                id3.add(TXXX(encoding=3, desc=desc, text=vals))
+            elif name.startswith("UFID:"):
+                owner = name[5:]
+                id3.delall(f"UFID:{owner}")
+                id3.add(UFID(owner=owner, data=vals[0].encode("utf-8")))
             else:
-                if isinstance(value, list):
-                    values = [multi_value_separator.join(value)]
-                else:
-                    values = [value]
-
-            # Write to the first native tag name
-            native_tag = native_tag_names[0]
-            if tag_format == "id3v24" or tag_format == "id3v23":
-                native_tags[native_tag] = values if len(values) > 1 else values[0]
-            else:
-                native_tags[native_tag] = values if len(values) > 1 else values[0]
-
-        # Clear existing tags
-        if hasattr(audio, "delete"):
-            audio.delete()
-        elif hasattr(audio, "clear"):
-            audio.clear()
-
-        # Set new tags
-        for native_tag, value in native_tags.items():
-            audio[native_tag] = value
-
-        # Handle ID3 version for MP3 files
-        if tag_format == "id3v24" or tag_format == "id3v23":
-            if hasattr(audio, "save"):
-                if id3_version == "2.3":
-                    audio.save(v2_version=3)
-                else:
-                    audio.save(v2_version=4)
-            else:
-                audio.save()
-        else:
+                cls = Frames.get(name)
+                if cls is None:
+                    continue
+                id3.delall(name)
+                id3.add(cls(encoding=3, text=vals))
+        if strip_unknown:
+            for hk in list(id3.keys()):
+                fid = hk.split(":", 1)[0]
+                if hk in mapped_names or fid.startswith(ID3_PROTECTED_PREFIXES):
+                    continue
+                if fid.startswith("T") or fid in ("UFID", "COMM", "USLT", "WXXX"):
+                    id3.delall(hk)
+        v2 = 3 if id3_version == "2.3" else 4
+        try:
+            audio.save(v2_version=v2, v23_sep=separator)
+        except TypeError:
             audio.save()
+        return
 
-    except Exception as e:
-        raise ValueError(f"Failed to write tags to {path}: {str(e)}")
+    if family == "vorbis":
+        if getattr(audio, "tags", None) is None:
+            audio.add_tags()
+        vc = audio.tags
+        for name, vals in native.items():
+            vc[name.upper()] = vals
+        if strip_unknown:
+            for k in list({k.upper() for k, _ in vc.items()}):
+                if k not in {m.upper() for m in mapped_names} and k not in VORBIS_PROTECTED:
+                    del vc[k]
+        audio.save()
+        return
+
+    if family == "mp4":
+        from mutagen.mp4 import MP4FreeForm
+        if getattr(audio, "tags", None) is None:
+            audio.add_tags()
+        mp4 = audio.tags
+        for name, vals in native.items():
+            if name in ("trkn", "disk"):
+                n, t = _split_pair(vals[0])
+                mp4[name] = [(int(n or 0), int(t or 0))]
+            elif name == "cpil":
+                mp4[name] = vals[0] in ("1", "True", "true")
+            elif name.startswith("----:"):
+                mp4[name] = [MP4FreeForm(v.encode("utf-8")) for v in vals]
+            else:
+                mp4[name] = vals
+        if strip_unknown:
+            for k in list(mp4.keys()):
+                if k not in mapped_names and k not in MP4_PROTECTED:
+                    del mp4[k]
+        audio.save()
+        return
+
+    raise ValueError(f"Unsupported tag family for {path}")
 
 
 def supports(container: str) -> bool:
@@ -470,13 +619,54 @@ def supports(container: str) -> bool:
         return False
 
     # All other formats are supported
-    return container_lower in ("mp3", "flac", "ogg", "oga", "m4a", "m4b", "m4p", "alac", "wav", "aiff", "aif")
+    return container_lower in (ID3_CONTAINERS | VORBIS_CONTAINERS | MP4_CONTAINERS)
+
+
+def handle_json_command(req: dict) -> str:
+    """JSON-lines protocol: {"op": "read"|"write"|"supports", "path", "tags", "options", "container"}.
+    Payloads travel as JSON, never through shell-style tokenising (shlex stripped the
+    quotes out of the tags object and every write failed)."""
+    op = req.get("op")
+    if op == "read":
+        path = req.get("path")
+        if not path:
+            return json.dumps({"error": "read requires a path"})
+        return json.dumps(read_tags(path))
+    if op == "write":
+        path = req.get("path")
+        if not path:
+            return json.dumps({"error": "write requires a path"})
+        tags_json = req.get("tags") or {}
+        options_json = req.get("options") or {}
+        if not isinstance(tags_json, dict) or not isinstance(options_json, dict):
+            return json.dumps({"error": "write expects tags and options objects"})
+        try:
+            write_tags(path, tags_json, options_json)
+            return json.dumps({"success": True})
+        except Exception as e:  # surfaced to the caller as write_failed
+            return json.dumps({"error": str(e)})
+    if op == "supports":
+        container = req.get("container")
+        if not container:
+            return json.dumps({"error": "supports requires a container"})
+        return json.dumps({"supported": supports(container)})
+    return json.dumps({"error": f"Unknown op: {op}"})
 
 
 def handle_command(line: str) -> str:
-    """Handle a single command from stdin."""
+    """Handle a single command from stdin (JSON object preferred; legacy text form kept)."""
     try:
-        parts = line.strip().split(None, 1)
+        stripped = line.strip()
+        if stripped.startswith("{"):
+            try:
+                req = json.loads(stripped)
+            except json.JSONDecodeError as e:
+                return json.dumps({"error": f"Invalid JSON command: {str(e)}"})
+            if isinstance(req, dict):
+                return handle_json_command(req)
+            return json.dumps({"error": "Command must be a JSON object"})
+
+        parts = stripped.split(None, 1)
         if not parts:
             return json.dumps({"error": "Empty command"})
 

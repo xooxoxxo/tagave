@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { MutagenTagWriter } from './tagWriter.js';
+import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
@@ -16,7 +16,7 @@ import type { WriteOptions } from '@liner/core';
  */
 function isMutagenAvailable(): boolean {
   try {
-    execSync('python3 -c "import mutagen"', { stdio: 'pipe' });
+    execSync(`"${resolvePythonInterpreter()}" -c "import mutagen"`, { stdio: 'pipe' });
     return true;
   } catch {
     return false;

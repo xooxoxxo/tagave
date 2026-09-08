@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { SafeFileWriter } from './safeFileWriter.js';
-import { MutagenTagWriter } from './tagWriter.js';
+import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import { promises as fsPromises } from 'node:fs';
@@ -18,7 +18,7 @@ import { hashAudioStream } from '@liner/core';
  */
 function isMutagenAvailable(): boolean {
   try {
-    execSync('python3 -c "import mutagen"', { stdio: 'pipe' });
+    execSync(`"${resolvePythonInterpreter()}" -c "import mutagen"`, { stdio: 'pipe' });
     return true;
   } catch {
     return false;

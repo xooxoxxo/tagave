@@ -6,6 +6,7 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
+import { existsSync } from 'node:fs';
 import type { TagSet } from '@liner/shared';
 import type { TagWriter, WriteOptions } from '@liner/core';
 
@@ -24,6 +25,16 @@ interface SidecarResponse {
  * Creates one long-lived process per instance, reused for all read/write calls
  */
 export class MutagenTagWriter implements TagWriter {
+  private stderrTail = '';
+  private exitCode: number | null | undefined = undefined;
+
+  /** Why the sidecar is unusable, with the last lines it wrote (e.g. a Python import error). */
+  private notRunningMessage(): string {
+    const tail = this.stderrTail.trim().split('\n').filter(Boolean).slice(-3).join(' | ');
+    const code = this.exitCode === undefined ? '' : ` (exit code ${this.exitCode})`;
+    return `Mutagen sidecar is not running${code}${tail ? `: ${tail}` : ''}`;
+  }
+
   readonly id = 'mutagen';
   private subprocess: ChildProcess | null = null;
   private inputBuffer = '';
@@ -62,20 +73,26 @@ export class MutagenTagWriter implements TagWriter {
           this.handleStdoutData(data);
         });
 
-        // Handle stderr (logging)
+        // Handle stderr (logging) and keep a tail for error messages
+        let settled = false;
         this.subprocess.stderr?.on('data', (data) => {
-          const message = data.toString().trim();
-          if (message && !message.includes('tagwriter sidecar started')) {
-            process.stderr.write(`[mutagen sidecar] ${message}\n`);
+          const message = data.toString();
+          this.stderrTail = (this.stderrTail + message).slice(-4000);
+          if (message.includes('tagwriter sidecar started') && !settled) { settled = true; resolve(); }
+          const trimmed = message.trim();
+          if (trimmed && !trimmed.includes('tagwriter sidecar started')) {
+            process.stderr.write(`[mutagen sidecar] ${trimmed}\n`);
           }
         });
 
         // Handle subprocess exit
         this.subprocess.on('exit', (code) => {
+          this.exitCode = code;
           if (code !== 0 && code !== null) {
             process.stderr.write(`[mutagen sidecar] exited with code ${code}\n`);
           }
           this.subprocess = null;
+          if (!settled) { settled = true; reject(new Error(this.notRunningMessage())); }
         });
 
         // Handle subprocess errors
@@ -83,8 +100,9 @@ export class MutagenTagWriter implements TagWriter {
           reject(error);
         });
 
-        // Give the subprocess a moment to start and confirm it's running
-        setTimeout(() => resolve(), 100);
+        // Resolve once the sidecar announces itself, or after a grace period
+        // if it stays silent but alive (older sidecar builds).
+        setTimeout(() => { if (!settled) { settled = true; resolve(); } }, 300);
       } catch (error) {
         reject(error);
       }
@@ -95,29 +113,7 @@ export class MutagenTagWriter implements TagWriter {
    * Detect Python interpreter from environment
    */
   private getPythonInterpreter(): string {
-    // Try environment variable first
-    const envInterpreter = process.env.LINER_TAGWRITER_PYTHON;
-    if (envInterpreter) {
-      return envInterpreter;
-    }
-
-    // Try .venv in the tagwriter-py directory
-    const venvPath = path.resolve(
-      import.meta.dirname,
-      '../../../tagwriter-py/.venv/bin/python'
-    );
-    try {
-      // Check if .venv exists
-      const fs = require('fs');
-      if (fs.existsSync(venvPath)) {
-        return venvPath;
-      }
-    } catch {
-      // Ignore
-    }
-
-    // Fall back to system python3
-    return 'python3';
+    return resolvePythonInterpreter();
   }
 
   /**
@@ -153,7 +149,7 @@ export class MutagenTagWriter implements TagWriter {
     await this.initPromise;
 
     if (!this.subprocess?.stdin) {
-      throw new Error('Subprocess stdin is not available');
+      throw new Error(this.notRunningMessage());
     }
 
     return new Promise((resolve, reject) => {
@@ -183,7 +179,7 @@ export class MutagenTagWriter implements TagWriter {
    * Read tags from an audio file
    */
   async read(filePath: string): Promise<TagSet> {
-    const response = await this.sendCommand(`read ${filePath}`);
+    const response = await this.sendCommand(JSON.stringify({ op: 'read', path: filePath }));
 
     if (response.error) {
       throw new Error(`Failed to read tags from ${filePath}: ${response.error}`);
@@ -208,15 +204,9 @@ export class MutagenTagWriter implements TagWriter {
     tags: TagSet,
     opts?: WriteOptions
   ): Promise<void> {
-    // Build the write command with JSON-encoded parameters
-    const tagsJson = JSON.stringify(tags);
-    const optsJson = JSON.stringify(opts || {});
-
-    // Quote paths for shell safety
-    const quotedPath = `'${filePath.replace(/'/g, "'\\''")}'`;
-
-    const command = `write ${quotedPath} ${tagsJson} ${optsJson}`;
-    const response = await this.sendCommand(command);
+    // One JSON object per line: paths with spaces and quotes inside the tag
+    // values need no escaping, and the sidecar never tokenises the payload.
+    const response = await this.sendCommand(JSON.stringify({ op: 'write', path: filePath, tags, options: opts ?? {} }));
 
     if (response.error) {
       throw new Error(`Failed to write tags to ${filePath}: ${response.error}`);
@@ -242,7 +232,7 @@ export class MutagenTagWriter implements TagWriter {
    * Async version of supports() for internal use
    */
   async supportsAsync(container: string): Promise<boolean> {
-    const response = await this.sendCommand(`supports ${container}`);
+    const response = await this.sendCommand(JSON.stringify({ op: 'supports', container }));
 
     if (response.error) {
       // Default to false on error
@@ -278,4 +268,19 @@ export class MutagenTagWriter implements TagWriter {
       });
     }
   }
+}
+
+/**
+ * Interpreter for the mutagen sidecar: LINER_TAGWRITER_PYTHON, then the
+ * repo-local venv (packages/tagwriter-py/.venv), then the system python3.
+ * Exported so tests decide availability with the same rule the client uses
+ * (the previous copy used require('fs') inside an ES module, which threw,
+ * was swallowed, and silently always chose the system python3).
+ */
+export function resolvePythonInterpreter(): string {
+  const env = process.env.LINER_TAGWRITER_PYTHON;
+  if (env) return env;
+  const venv = path.resolve(import.meta.dirname, '../../../tagwriter-py/.venv/bin/python');
+  if (existsSync(venv)) return venv;
+  return 'python3';
 }
