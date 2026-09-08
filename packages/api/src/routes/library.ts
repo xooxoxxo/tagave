@@ -548,9 +548,13 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       const updates: Record<string, any> = {};
       if (body.displayName) updates.displayName = body.displayName;
       if (body.enabled !== undefined) updates.enabled = body.enabled;
+      if (body.writable !== undefined) updates.writable = body.writable;
       if (body.pollIntervalS) updates.pollIntervalS = body.pollIntervalS;
 
-      await db.update(scanRoots).set(updates).where(eq(scanRoots.id, scanRootId));
+      // drizzle throws "No values to set" on an empty set(); an empty patch is a no-op
+      if (Object.keys(updates).length > 0) {
+        await db.update(scanRoots).set(updates).where(eq(scanRoots.id, scanRootId));
+      }
 
       const updated = await db
         .select()

@@ -99,6 +99,25 @@ export function SettingsScanRootsPage() {
     });
   };
 
+  // Tag writes need both the owner's intent (writable) and the worker's probe
+  // (probeWritable); the toggle only turns writes on for a validated,
+  // probed-writable root. Turning them off is always allowed.
+  const canEnableWrites = (root: ScanRoot) => root.validationStatus === 'ok' && root.probeWritable !== false;
+
+  const writableHint = (root: ScanRoot): string => {
+    if (root.writable) return 'Stop tag plans from writing files under this root';
+    if (root.validationStatus !== 'ok') return 'The path must be validated by the worker first';
+    if (root.probeWritable === false) return 'The worker reports this mount as read-only — remount it read-write and re-check';
+    return 'Allow tag plans to write files under this root (writes are journaled and revertible)';
+  };
+
+  const handleToggleWritable = (root: ScanRoot) => {
+    if (!root.writable && !window.confirm(`Allow tag writes under ${root.path}? Writes are journaled and revertible; nothing changes until you apply a tag plan.`)) return;
+    withPending(root.id, () => {
+      updateMutation.mutate({ rootId: root.id, data: { writable: !root.writable } }, { onSettled: clearPending(root.id) });
+    });
+  };
+
   const handleDelete = (rootId: string) => {
     if (confirm('Delete this scan root? Files will not be removed.')) {
       withPending(rootId, () => {
@@ -310,6 +329,14 @@ export function SettingsScanRootsPage() {
                   {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan Now'}
                 </button>
                 <button
+                  onClick={() => handleToggleWritable(root)}
+                  className="secondary"
+                  disabled={isPending(root.id) || (!root.writable && !canEnableWrites(root))}
+                  title={writableHint(root)}
+                >
+                  {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow tag writes'}
+                </button>
+                <button
                   onClick={() => handleDelete(root.id)}
                   className="secondary"
                   disabled={isPending(root.id)}
@@ -317,6 +344,11 @@ export function SettingsScanRootsPage() {
                   {isPending(root.id) ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
+              {root.writable && root.probeWritable === false && (
+                <p className={styles.rootWarning}>
+                  Marked writable, but the worker cannot write to this mount — tag plans will not apply here until it is remounted read-write.
+                </p>
+              )}
             </div>
           ))}
         </div>

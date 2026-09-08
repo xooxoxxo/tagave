@@ -175,6 +175,13 @@
   font-size: var(--font-size-sm);
 }
 
+.rootWarning {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--warning, var(--text-secondary));
+  line-height: var(--line-height-tight);
+}
+
 .loading,
 .emptyState {
   padding: var(--space-xl);
