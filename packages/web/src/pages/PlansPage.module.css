@@ -17,18 +17,18 @@
   font-size: 28px;
   font-weight: 700;
   margin: 0 0 4px 0;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .subtitle {
   font-size: 14px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   margin: 0;
 }
 
 .createBtn {
   padding: 10px 20px;
-  background: #3b82f6;
+  background: var(--accent);
   color: white;
   border: none;
   border-radius: 6px;
@@ -40,7 +40,7 @@
 }
 
 .createBtn:hover {
-  background: #2563eb;
+  background: var(--accent-hover);
 }
 
 .createBtn:active {
@@ -50,28 +50,28 @@
 .loading {
   text-align: center;
   padding: 40px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
 .emptyState {
   text-align: center;
   padding: 60px 20px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--color-bg-secondary);
+  background: var(--bg-secondary);
 }
 
 .emptyTitle {
   font-size: 18px;
   font-weight: 600;
   margin: 0 0 8px 0;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .emptyText {
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   margin: 0 0 20px 0;
   max-width: 400px;
   margin-left: auto;
@@ -79,18 +79,18 @@
 }
 
 .emptyBtn {
-  background: #3b82f6;
+  background: var(--accent);
   color: white;
 }
 
 .emptyBtn:hover {
-  background: #2563eb;
+  background: var(--accent-hover);
 }
 
 .tableWrapper {
   overflow-x: auto;
   border-radius: 8px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
 }
 
 .table {
@@ -100,15 +100,15 @@
 }
 
 .table thead {
-  background: var(--color-bg-secondary);
-  border-bottom: 2px solid var(--color-border);
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--border);
 }
 
 .table th {
   padding: 12px;
   text-align: left;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -116,40 +116,40 @@
 }
 
 .table tbody tr:hover {
-  background: var(--color-bg-hover);
+  background: var(--bg-hover);
 }
 
 .row {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   transition: background-color 150ms;
 }
 
 .row td {
   padding: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   vertical-align: middle;
 }
 
 .cellName {
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   min-width: 150px;
 }
 
 .planLink {
-  color: #3b82f6;
+  color: var(--accent);
   text-decoration: none;
   transition: color 150ms;
 }
 
 .planLink:hover {
-  color: #2563eb;
+  color: var(--accent-hover);
   text-decoration: underline;
 }
 
 .cellScope {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   max-width: 200px;
   white-space: nowrap;
   overflow: hidden;
@@ -176,19 +176,19 @@
 }
 
 .statusPreviewed {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
 }
 
 .statusApplying {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--accent);
   animation: pulse 2s infinite;
 }
 
 .statusApplied {
   background: rgba(16, 185, 129, 0.1);
-  color: #10b981;
+  color: var(--success);
 }
 
 .statusReverted {
@@ -198,7 +198,7 @@
 
 .statusFailed {
   background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  color: var(--error);
 }
 
 .statusDefault {
@@ -224,13 +224,13 @@
   text-align: right;
   white-space: nowrap;
   font-size: 12px;
-  color: var(--color-text-tertiary);
+  color: var(--text-tertiary);
 }
 
 .dateTooltip {
   cursor: help;
   text-decoration: underline dotted;
-  text-decoration-color: var(--color-text-tertiary);
+  text-decoration-color: var(--text-tertiary);
 }
 
 .pagination {
@@ -239,15 +239,15 @@
   justify-content: center;
   gap: 16px;
   padding: 16px 12px;
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
 
 .paginationBtn {
   padding: 6px 12px;
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  border: 1px solid var(--color-border);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 12px;
   font-weight: 500;
@@ -256,8 +256,8 @@
 }
 
 .paginationBtn:hover:not(:disabled) {
-  background: #3b82f6;
-  border-color: #3b82f6;
+  background: var(--accent);
+  border-color: var(--accent);
   color: white;
 }
 
@@ -268,7 +268,7 @@
 
 .paginationInfo {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   min-width: 100px;
   text-align: center;
 }

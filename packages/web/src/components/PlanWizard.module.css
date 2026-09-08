@@ -16,7 +16,7 @@
 }
 
 .modal {
-  background: var(--color-bg-primary);
+  background: var(--bg-primary);
   border-radius: 8px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
   max-width: 680px;
@@ -48,20 +48,20 @@
   height: 32px;
   font-size: 18px;
   line-height: 1;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
   border-radius: 6px;
   transition: background-color 150ms, color 150ms, border-color 150ms;
 }
 
 .iconBtn:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .iconBtnActive {
-  border-color: var(--color-border);
-  color: var(--color-text-primary);
+  border-color: var(--border);
+  color: var(--text-primary);
 }
 
 .header {
@@ -69,7 +69,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -77,7 +77,7 @@
   font-size: 18px;
   font-weight: 600;
   margin: 0;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .helpBtn,
@@ -85,7 +85,7 @@
   background: none;
   border: none;
   font-size: 18px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 4px 8px;
   margin-left: 8px;
@@ -95,21 +95,21 @@
 
 .helpBtn:hover,
 .closeBtn:hover {
-  background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .warningBanner {
-  background: var(--color-warning-bg, rgba(255, 193, 7, 0.1));
-  border-left: 3px solid var(--color-warning, #ffc107);
+  background: var(--warning-bg, rgba(255, 193, 7, 0.1));
+  border-left: 3px solid var(--warning, #ffc107);
   padding: 12px 16px;
   margin: 0;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .warningBanner a {
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   text-decoration: underline;
 }
 
@@ -139,13 +139,13 @@
 .helpOverlay h3 {
   margin: 0;
   font-size: 15px;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .helpOverlay h4 {
   margin: 12px 0 6px 0;
   font-size: 13px;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .helpOverlay section {
@@ -159,13 +159,13 @@
 
 .helpOverlay dt {
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   margin-top: 6px;
 }
 
 .helpOverlay dd {
   margin: 0 0 6px 0;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .step {
@@ -178,12 +178,12 @@
   font-size: 16px;
   font-weight: 600;
   margin: 0 0 16px 0;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .stepSubtitle {
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   margin: 0 0 12px 0;
 }
 
@@ -199,7 +199,7 @@
 .legend {
   font-size: 13px;
   font-weight: 600;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   margin: 0 0 8px 0;
   padding: 0;
 }
@@ -215,7 +215,7 @@
 }
 
 .radioLabel:hover {
-  background-color: var(--color-bg-hover);
+  background-color: var(--bg-hover);
 }
 
 .radioLabel input {
@@ -233,54 +233,54 @@
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 6px;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .input,
 .select {
   width: 100%;
   padding: 8px 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
-  color: var(--color-text-primary);
-  background: var(--color-bg-input);
+  color: var(--text-primary);
+  background: var(--bg-primary);
   font-family: inherit;
 }
 
 .input:focus,
 .select:focus {
   outline: none;
-  border-color: var(--color-focus);
-  box-shadow: 0 0 0 2px var(--color-focus, rgba(59, 130, 246, 0.1));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.25);
 }
 
 .input::placeholder {
-  color: var(--color-text-placeholder);
+  color: var(--text-tertiary);
 }
 
 .hint {
   font-size: 12px;
-  color: var(--color-text-tertiary);
+  color: var(--text-tertiary);
   margin: 6px 0 0 0;
   padding: 6px 8px;
-  background: var(--color-bg-secondary);
+  background: var(--bg-secondary);
   border-radius: 3px;
 }
 
 .error {
-  background: var(--color-error-bg, rgba(244, 63, 94, 0.1));
-  border-left: 3px solid var(--color-error, #f03f5e);
+  background: var(--error-bg, rgba(244, 63, 94, 0.1));
+  border-left: 3px solid var(--error, #f03f5e);
   padding: 8px 12px;
   margin: 12px 0;
   font-size: 13px;
-  color: var(--color-error, #f03f5e);
+  color: var(--error, #f03f5e);
   border-radius: 3px;
 }
 
 .previewInfo {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 12px;
   margin: 12px 0;
@@ -289,13 +289,13 @@
 
 .previewInfo p {
   margin: 0 0 6px 0;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .statsList {
   margin: 6px 0 0 12px;
   padding-left: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .statsList li {
@@ -309,8 +309,8 @@
 .progressBar {
   width: 100%;
   height: 24px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -324,7 +324,7 @@
 .progressText {
   margin: 8px 0 0 0;
   font-size: 13px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   text-align: center;
 }
 
@@ -357,24 +357,24 @@
   justify-content: flex-end;
   margin-top: 20px;
   padding-top: 16px;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border);
 }
 
 .btn {
   padding: 8px 16px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 150ms;
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-text-primary);
+  background: var(--bg-hover);
+  border-color: var(--text-primary);
 }
 
 .btn:disabled {
@@ -394,14 +394,14 @@
 }
 
 .btnSecondary {
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-  border-color: var(--color-border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border);
 }
 
 .btnSecondary:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  border-color: var(--color-text-primary);
+  background: var(--bg-hover);
+  border-color: var(--text-primary);
 }
 
 .btnDanger {
@@ -478,9 +478,9 @@
   padding: 4px;
   max-height: 240px;
   overflow-y: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--color-bg-secondary);
+  background: var(--bg-secondary);
 }
 
 .comboItem {
@@ -493,14 +493,14 @@
   border: none;
   border-radius: 4px;
   background: none;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   font: inherit;
   cursor: pointer;
 }
 
 .comboItem:hover,
 .comboItemChecked {
-  background: var(--color-bg-hover);
+  background: var(--bg-hover);
 }
 
 .comboItem input {
@@ -511,14 +511,14 @@
 .comboMeta {
   margin-left: auto;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
 .comboEmpty {
   padding: 8px 10px;
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .chips {
@@ -533,16 +533,16 @@
   gap: 6px;
   padding: 4px 6px 4px 10px;
   border-radius: 999px;
-  background: var(--color-bg-hover);
-  border: 1px solid var(--color-border);
-  color: var(--color-text-primary);
+  background: var(--bg-hover);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
   font-size: 13px;
 }
 
 .chipRemove {
   border: none;
   background: none;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -550,7 +550,7 @@
 }
 
 .chipRemove:hover {
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 /* step 3 preview */
@@ -566,19 +566,19 @@
   flex-direction: column;
   gap: 2px;
   padding: 10px 12px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--color-bg-secondary);
+  background: var(--bg-secondary);
 }
 
 .summaryCell strong {
   font-size: 18px;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .summaryCell span {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .tableTools {
@@ -596,7 +596,7 @@
 
 .tableCount {
   font-size: 12px;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   margin-left: auto;
 }
 
@@ -612,7 +612,7 @@
 .tableWrap {
   max-height: 46vh;
   overflow: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 
@@ -625,19 +625,19 @@
 .diffTable th {
   position: sticky;
   top: 0;
-  background: var(--color-bg-secondary);
+  background: var(--bg-secondary);
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
   font-weight: 600;
 }
 
 .diffTable td {
   padding: 5px 8px;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   vertical-align: top;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
 }
 
 .cellPath {
@@ -645,7 +645,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .cellField {
@@ -660,7 +660,7 @@
 
 .cellWhy {
   white-space: nowrap;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .rowLocked td {
