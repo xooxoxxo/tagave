@@ -10,9 +10,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
-import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
-import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
-import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
+import { summaryEligible, summaryFresh, summaryFacets } from '../lib/facetSummary.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
