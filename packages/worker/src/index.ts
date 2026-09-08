@@ -76,7 +76,7 @@ const M1_PLACEHOLDER_QUEUES: string[] = [];
  * day and no retries; scan.sweep re-enqueues on its own schedule.
  */
 const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: number }> = {
-  'scan.root': { expireInSeconds: 24 * 3600, retryLimit: 0 },
+  'scan.root': { expireInSeconds: 23 * 3600, retryLimit: 0 }, // pg-boss asserts < 24 h
   'scan.dir': { expireInSeconds: 6 * 3600, retryLimit: 0 },
 };
 
