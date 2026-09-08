@@ -84,6 +84,41 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
            where la.library_id = ${lib} and la.release_group_id = g.subject_id
              and la.state != 'ignored') < 2`;
 
+  // --- GAP-2: missing albums per followed artist (release groups not owned locally)
+  // Mark-and-sweep: pre-mark every live missing_album row, let the upsert clear
+  // the mark on rows still missing, then resolve whatever stayed marked.
+
+  // Pre-mark all missing_album rows with resolved_at
+  await ctx.sql`
+    update gaps set resolved_at = now()
+    where library_id = ${lib} and kind = 'missing_album' and state != 'resolved'`;
+
+  // Fetch all release groups for followed artists and insert/upsert missing_album gaps
+  await ctx.sql`
+    insert into gaps (library_id, kind, subject_type, subject_id, details, state)
+    select ${lib}, 'missing_album', 'release_group', rga.release_group_id,
+           jsonb_build_object('title', rg.title, 'primaryType', rg.primary_type),
+           'open'
+    from followed_artists fa
+    join release_group_artists rga on rga.artist_id = fa.artist_id
+    join release_groups rg on rg.id = rga.release_group_id
+    where fa.library_id = ${lib}
+      and not exists (
+        select 1 from local_albums la
+        where la.library_id = ${lib}
+          and la.release_group_id = rga.release_group_id
+          and la.state != 'ignored')
+    on conflict (library_id, kind, subject_type, subject_id)
+    do update set details = excluded.details,
+                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
+                  resolved_at = null`;
+
+  // Resolve missing_album gaps that no longer hold (release group is now owned)
+  await ctx.sql`
+    update gaps g set state = 'resolved', resolved_at = now()
+    where g.library_id = ${lib} and g.kind = 'missing_album' and g.state != 'resolved'
+      and resolved_at is not null`;
+
   // --- GAP-5: quality flags per album, one row per (album, flag) family in details
   // Mark-and-sweep: pre-mark every live quality row, let the upsert clear the
   // mark on rows still flagged, then resolve whatever stayed marked. (A
