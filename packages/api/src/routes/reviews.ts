@@ -138,14 +138,20 @@ export async function createReviewRoutes(fastify: FastifyInstance) {
     const db = getDb();
     const now = Date.now();
 
-    // First view: enqueue the fetch and answer immediately with "gathering";
-    // later views serve the cache and refresh weekly (REV-1). singletonKey
-    // keeps one job per release group in flight however often the page polls.
+    // Opening the page fetches nothing (owner's rule, 2026-09-08): the section
+    // offers "Gather reviews" / "Refresh", which POST …/reviews/refresh; a caller
+    // that wants the old first-view behaviour passes ?fetch=1. Staleness is
+    // reported, not acted on. singletonKey keeps one job per release group.
     const fetchStale = !rg.reviewsFetchedAt || now - rg.reviewsFetchedAt.getTime() > REVIEWS_TTL_MS;
-    if (fetchStale) {
+    if (fetchStale && (request.query as Record<string, unknown>)['fetch'] === '1') {
       const boss = await getBoss();
       await boss.send('reviews.fetch', { releaseGroupId: rgId }, { singletonKey: `reviews:${rgId}` });
     }
+    const inFlightRows = (await db.execute(sql`
+      select 1 as x from pgboss.job
+      where name = 'reviews.fetch' and singleton_key = ${'reviews:' + rgId} and state in ('created', 'retry', 'active')
+      limit 1`)) as unknown as unknown[];
+    const gathering = inFlightRows.length > 0;
 
     const extRows = await db.select().from(externalReviews).where(eq(externalReviews.releaseGroupId, rgId));
     const external = extRows
@@ -193,7 +199,7 @@ export async function createReviewRoutes(fastify: FastifyInstance) {
     const bundle: ReviewsBundle = {
       releaseGroupId: rgId,
       fetchedAt: iso(rg.reviewsFetchedAt),
-      gathering: !rg.reviewsFetchedAt,
+      gathering,
       external,
       links,
       clippings: clipRows.map(toClipping),

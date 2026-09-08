@@ -277,6 +277,54 @@
 .pendingTitle { font-weight: 600; }
 .pendingMeta { color: var(--text-secondary); flex: 1; }
 
+/* ---- faces ---- */
+
+.tabs {
+  display: flex;
+  gap: var(--space-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 0.5rem 0.9rem;
+  font-size: var(--font-size-sm);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--text-secondary);
+  margin-bottom: -1px;
+}
+
+.tab:hover {
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.tabActive {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.activity {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-xs) var(--space-lg);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.activity dt {
+  color: var(--text-tertiary);
+}
+
+.activity dd {
+  margin: 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 /* ---- sections ---- */
 
 .section {

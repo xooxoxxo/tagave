@@ -216,18 +216,27 @@ export interface Edition {
 
 export interface EditionsData {
   fetchedAt: string | null;
-  releaseGroupMbid: string;
+  /** an editions.fetch job for this release group is queued or running */
+  fetching?: boolean;
+  releaseGroupMbid: string | null;
   editions: Edition[];
 }
 
-export function useAlbumEditions(libraryId: string | undefined, albumId: string | undefined) {
+/**
+ * Editions are read-only here: nothing is fetched from MusicBrainz by opening
+ * the page. `enabled` lets the album page mount the query only on its Editions
+ * tab; polling (3 s, ≤ 60 s) runs only while a fetch the owner started is in
+ * flight (`fetching` in the payload).
+ */
+export function useAlbumEditions(libraryId: string | undefined, albumId: string | undefined, opts: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: [...ALBUMS_QUERY_KEY, libraryId, 'editions', albumId],
     queryFn: () => api.get<EditionsData>(`/libraries/${libraryId}/albums/${albumId}/editions`),
-    enabled: !!libraryId && !!albumId,
+    enabled: !!libraryId && !!albumId && (opts.enabled ?? true),
     refetchInterval: (query) => {
       const data = query.state.data as EditionsData | undefined;
-      return data?.fetchedAt ? false : 3000; // Poll every 3s while null
+      if (!data?.fetching) return false;
+      return query.state.dataUpdateCount > 20 ? false : 3000;
     },
   });
 }

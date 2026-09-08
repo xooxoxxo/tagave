@@ -60,17 +60,19 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
         <h2 className={styles.title}>Reviews &amp; listening</h2>
         <div className={styles.headMeta}>
           {data.gathering ? (
-            <span className={styles.gathering}>Gathering reviews…</span>
-          ) : (
+            <span className={styles.gathering}>Gathering reviews from CritiqueBrainz, MusicBrainz, Wikipedia and Discogs…</span>
+          ) : data.fetchedAt ? (
             <span className={styles.muted}>external sources as of {fmtDateTime(data.fetchedAt)}</span>
+          ) : (
+            <span className={styles.muted}>External reviews are fetched only when you ask (one call per source).</span>
           )}
           <button
             className={styles.linkButton}
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending || data.gathering}
-            title="Re-fetch external reviews and ratings now"
+            title={data.fetchedAt ? 'Re-fetch external reviews and ratings now' : 'Fetch external reviews and ratings for this album'}
           >
-            {refresh.isPending || refresh.isSuccess ? 'Refreshing…' : 'Refresh'}
+            {refresh.isPending || refresh.isSuccess ? 'Fetching…' : data.fetchedAt ? 'Refresh' : 'Gather reviews'}
           </button>
         </div>
       </div>

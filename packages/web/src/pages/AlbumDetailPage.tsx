@@ -244,6 +244,9 @@ export function AlbumDetailPage() {
   const queryClient = useQueryClient();
   const [showExcluded, setShowExcluded] = useState(false);
   const [mbidInput, setMbidInput] = useState('');
+  // Album first; editions, reviews and the background story live on their own
+  // faces and load only when opened, so a page visit costs one detail request.
+  const [tab, setTab] = useState<'album' | 'editions' | 'reviews' | 'activity'>('album');
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
@@ -257,7 +260,7 @@ export function AlbumDetailPage() {
     enabled: !!libraryId && !!albumId,
   });
 
-  const { data: editions } = useAlbumEditions(libraryId, albumId);
+  const { data: editions } = useAlbumEditions(libraryId, albumId, { enabled: tab === 'editions' });
   const refreshEditions = useRefreshEditions(libraryId);
   const matchAnyEdition = useMatchAnyEdition(libraryId);
   const clearAnyEdition = useClearAnyEdition(libraryId);
@@ -569,6 +572,20 @@ export function AlbumDetailPage() {
         </div>
       </div>
 
+      <nav className={styles.tabs} aria-label="Album sections">
+        {([
+          ['album', 'Album'],
+          ['editions', 'Editions'],
+          ['reviews', 'Reviews & listening'],
+          ['activity', pending ? 'Activity ·' : 'Activity'],
+        ] as const).map(([key, label]) => (
+          <button key={key} className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'album' && (<>
       {openGaps.length > 0 && (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Needs attention</h2>
@@ -777,11 +794,12 @@ export function AlbumDetailPage() {
           ))}
         </tbody>
       </table>
+      </>)}
 
-      {editions && editions.editions.length > 0 && (
+      {tab === 'editions' && (
         <div className={styles.section}>
           <div className={styles.sectionHead}>
-            <h2 className={styles.sectionTitle}>Editions ({editions.editions.length})</h2>
+            <h2 className={styles.sectionTitle}>Editions{editions?.editions.length ? ` (${editions.editions.length})` : ''}</h2>
             <div className={styles.sectionTools}>
               {album.match?.releaseGroupOnly && (
                 <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
@@ -792,20 +810,35 @@ export function AlbumDetailPage() {
                 </span>
               )}
               {switchEdition.isError && <span className={styles.mbidError}>{errorDetail(switchEdition)}</span>}
-              {!editions.fetchedAt && (
+              {editions?.fetching && (
                 <span className={styles.muted}>Fetching editions from MusicBrainz…</span>
               )}
-              {editions.fetchedAt && (
+              {editions?.fetchedAt && !editions.fetching && (
                 <button
                   className={styles.linkButton}
                   onClick={() => refreshEditions.mutate(albumId)}
                   disabled={refreshEditions.isPending}
+                  title={`Fetched ${new Date(editions.fetchedAt).toLocaleString()} — fetch again from MusicBrainz`}
                 >
                   Refresh
                 </button>
               )}
             </div>
           </div>
+          {!album.releaseGroupId ? (
+            <p className={styles.muted}>Editions belong to a release group — match this album first.</p>
+          ) : !editions ? (
+            <p className={styles.muted}>Loading…</p>
+          ) : !editions.fetchedAt && !editions.fetching ? (
+            <p className={styles.muted}>
+              The editions of this release group have not been fetched yet.{' '}
+              <button className={styles.linkButton} onClick={() => refreshEditions.mutate(albumId)} disabled={refreshEditions.isPending}>
+                {refreshEditions.isPending ? 'Queuing…' : 'Fetch editions from MusicBrainz'}
+              </button>
+            </p>
+          ) : editions.editions.length === 0 ? (
+            <p className={styles.muted}>{editions.fetching ? 'Fetching…' : 'MusicBrainz lists no other editions for this release group.'}</p>
+          ) : (<>
           <table className={styles.candTable}>
             <thead>
               <tr>
@@ -874,16 +907,48 @@ export function AlbumDetailPage() {
               )}
             </div>
           )}
+          </>)}
         </div>
       )}
 
-      {album.releaseGroupId ? (
+      {tab === 'reviews' && (album.releaseGroupId ? (
         <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
       ) : (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
           <p className={styles.muted}>
             Ratings, reviews and listens attach to a release group — match this album first.
+          </p>
+        </div>
+      ))}
+
+      {tab === 'activity' && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>What is going on with this album</h2>
+          <dl className={styles.activity}>
+            <dt>Identification</dt>
+            <dd>
+              {pending
+                ? `${PENDING_KIND[pending.kind] ?? 'Identification'} ${pending.state === 'active' ? 'running on the worker now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `queued, ${pending.jobsAhead.toLocaleString()} ahead`} · since ${new Date(pending.createdAt).toLocaleString()}`
+                : album.match
+                  ? `${album.match.decidedBy === 'system' ? 'Auto-matched' : 'Matched by you'} at distance ${album.match.distance.toFixed(4)}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleString()}` : ''}${album.match.reason ? ` — ${album.match.reason}` : ''}`
+                  : `${STATE_LABEL[album.state] ?? album.state}; nothing queued.`}
+            </dd>
+            <dt>Candidates</dt>
+            <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — see the Album face while unmatched.</dd>
+            <dt>Cover art</dt>
+            <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch art queues a lookup'}</dd>
+            <dt>Editions</dt>
+            <dd>{editions ? (editions.fetchedAt ? `fetched ${new Date(editions.fetchedAt).toLocaleString()}` : editions.fetching ? 'fetching now' : 'not fetched') : 'open the Editions tab to see or fetch them'}</dd>
+            <dt>Reviews</dt>
+            <dd>fetched only on request from the Reviews tab (one call per source: CritiqueBrainz, MusicBrainz, Wikipedia, Discogs)</dd>
+            <dt>Open gaps</dt>
+            <dd>{openGaps.length ? openGaps.map((g) => GAP_LABEL[g.kind] ?? g.kind).join(', ') : 'none'}{dismissedGaps.length ? ` · ${dismissedGaps.length} dismissed` : ''}</dd>
+            <dt>Folder</dt>
+            <dd className={styles.dirPath}>{album.dirPaths?.join('\n')}</dd>
+          </dl>
+          <p className={styles.muted}>
+            Library-wide progress: <Link to="/jobs">Jobs</Link> · <Link to="/identify">Identify</Link>.
           </p>
         </div>
       )}

@@ -1122,11 +1122,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', 'Release group has no MusicBrainz ID');
       }
 
-      // If editions not recently fetched, enqueue fetch (client polls while null)
-      if (!rg.editionsFetchedAt || new Date().getTime() - rg.editionsFetchedAt.getTime() > 30 * 24 * 3600 * 1000) {
+      // Opening the page fetches nothing (owner's rule, 2026-09-08): the Editions
+      // tab offers "Fetch editions", which passes ?fetch=1 on first fetch, and
+      // POST …/editions/refresh for a re-fetch. `fetching` tells the page whether
+      // to poll.
+      if ((request.query as Record<string, unknown>)['fetch'] === '1' && !rg.editionsFetchedAt) {
         const boss = await getBoss();
         await boss.send('editions.fetch', { releaseGroupId: album.releaseGroupId }, { singletonKey: `editions:${rg.id}` });
       }
+      const editionsInFlight = ((await db.execute(sql`
+        select 1 as x from pgboss.job
+        where name = 'editions.fetch' and singleton_key = ${'editions:' + rg.id} and state in ('created', 'retry', 'active')
+        limit 1`)) as unknown as unknown[]).length > 0;
 
       const editionRows = await db
         .select({
@@ -1161,6 +1168,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
       reply.status(200).send({
         fetchedAt: rg.editionsFetchedAt?.toISOString() ?? null,
+        fetching: editionsInFlight,
         releaseGroupMbid: rg.mbid,
         editions: editionRows.map((e) => ({
           releaseId: e.id,
