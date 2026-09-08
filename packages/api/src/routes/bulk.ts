@@ -15,7 +15,7 @@ import {
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { albumQueryParts } from './albums.js';
+import { albumQueryParts, bustFacetCache } from './albums.js';
 
 const CHUNK = 500;
 const QUEUES: Partial<Record<BulkAlbumAction, string>> = { identify: 'identify.album', fetch_art: 'art.fetch' };
@@ -90,6 +90,7 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
           where name = ${queue} and singleton_key in ${keys}
             and state = 'created' and priority < ${BULK_JOB_PRIORITY}`);
       }
+      bustFacetCache(libraryId);
       reply.send(result);
       return;
     }
@@ -125,6 +126,9 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
         result.updated += updated.length;
       }
     }
+    // The grid refetches facet counts right after a bulk action; the 15 s
+    // facet cache would otherwise hand back the pre-action counts.
+    bustFacetCache(libraryId);
     reply.send(result);
   });
 }
