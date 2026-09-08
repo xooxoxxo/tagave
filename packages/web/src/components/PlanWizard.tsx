@@ -21,13 +21,44 @@ import {
 } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
 import { useJobs } from '../hooks/useIdentify';
+import { useArtistsList } from '../hooks/useArtists';
+import { useAlbums } from '../hooks/useLibrary';
 import styles from './PlanWizard.module.css';
 
 interface WizardStep1State {
   scopeType: 'library' | 'artist' | 'albumIds' | 'filterQuery' | null;
   artistId?: string;
+  /** display only — the API takes the id */
+  artistName?: string;
   albumIds?: string[];
+  /** display only — id → "Artist — Title" */
+  albumLabels?: Record<string, string>;
   filterQuery?: Record<string, unknown>;
+  /** what the user typed for the filter scope, kept verbatim while editing */
+  filterText?: string;
+}
+
+/** `genre=Jazz&decade=1970&genre=Rock` → { genre: ['Jazz', 'Rock'], decade: '1970' } */
+function parseFilterText(text: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const params = new URLSearchParams(text.trim().replace(/^\?/, ''));
+  for (const [key, value] of params) {
+    if (!key) continue;
+    const prev = out[key];
+    if (prev === undefined) out[key] = value;
+    else if (Array.isArray(prev)) prev.push(value);
+    else out[key] = [prev, value];
+  }
+  return out;
+}
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
 }
 
 interface WizardStep2State {
@@ -88,7 +119,11 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+        return;
       }
+      // Typing into a search box must not toggle help or jump a step.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === '?') {
         setShowHelp((s) => !s);
       }
@@ -106,7 +141,11 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleKeyDown]);
 
-  const canProceedStep1 = step1.scopeType !== null;
+  const canProceedStep1 =
+    step1.scopeType === 'library' ||
+    (step1.scopeType === 'artist' && !!step1.artistId) ||
+    (step1.scopeType === 'albumIds' && (step1.albumIds?.length ?? 0) > 0) ||
+    (step1.scopeType === 'filterQuery' && Object.keys(step1.filterQuery ?? {}).length > 0);
   const tagWritesDisabled = !settings.data?.tagWritesEnabled;
   const noWritableRoots = !settings.data?.scanRoots?.some((r) => r.writable);
 
@@ -183,35 +222,49 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
 
   return (
     <div className={styles.overlay}>
-      <div className={styles.modal}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label="New tag plan">
         <div className={styles.header}>
           <h2 className={styles.title}>New tag plan</h2>
-          <button className={styles.helpBtn} onClick={() => setShowHelp(!showHelp)}>
-            ?
-          </button>
-          <button className={styles.closeBtn} onClick={onClose}>
-            ×
-          </button>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={`${styles.iconBtn} ${showHelp ? styles.iconBtnActive : ''}`}
+              onClick={() => setShowHelp(!showHelp)}
+              title={showHelp ? 'Back to the wizard (?)' : 'Help (?)'}
+              aria-pressed={showHelp}
+            >
+              ?
+            </button>
+            <button type="button" className={styles.iconBtn} onClick={onClose} title="Close (Esc)">
+              ×
+            </button>
+          </div>
         </div>
 
-        {tagWritesDisabled && (
-          <div className={styles.warningBanner}>
-            Tag writes disabled in library settings.{' '}
-            <a href="/settings/tag-writes">Go to Settings › Tag writes</a> to enable.
-          </div>
-        )}
+        <div className={styles.body}>
+          {(tagWritesDisabled || noWritableRoots) && (
+            <div className={styles.warningBanner}>
+              <strong>Plans preview, but cannot apply yet.</strong>
+              <ul>
+                {tagWritesDisabled && (
+                  <li>
+                    Tag writes are off — <a href="/settings/tag-writes">Settings › Tag writes</a>
+                  </li>
+                )}
+                {noWritableRoots && (
+                  <li>
+                    No scan root allows writes — <a href="/settings/scan-roots">Settings › Scan roots</a>
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
 
-        {noWritableRoots && (
-          <div className={styles.warningBanner}>
-            No writable scan roots configured. Plans cannot be applied.{' '}
-            <a href="/settings/scan-roots">Go to Settings › Scan roots</a> to set one.
-          </div>
-        )}
+          {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
 
-        {showHelp && <HelpOverlay />}
-
-        {step === 1 && (
+        {!showHelp && step === 1 && (
           <Step1ScopePicker
+            libraryId={libraryId}
             state={step1}
             onChange={setStep1}
             error={step1Error}
@@ -220,7 +273,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           />
         )}
 
-        {step === 2 && (
+        {!showHelp && step === 2 && (
           <Step2PolicyPicker
             state={step2}
             onChange={setStep2}
@@ -232,7 +285,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           />
         )}
 
-        {step === 3 && createdPlanId && (
+        {!showHelp && step === 3 && createdPlanId && (
           <Step3PreviewTable
             planId={createdPlanId}
             onApply={handleApplyPlan}
@@ -246,7 +299,7 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           />
         )}
 
-        {step === 4 && appliedJobId && currentJob && (
+        {!showHelp && step === 4 && appliedJobId && currentJob && (
           <Step4Progress
             job={currentJob}
             planId={createdPlanId || ''}
@@ -254,112 +307,240 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
             onClose={onClose}
           />
         )}
+        </div>
       </div>
     </div>
   );
 }
 
+/** Search-as-you-type artist picker; only canonical (resolved) artists can scope a plan. */
+function ArtistCombo({
+  libraryId,
+  selected,
+  onSelect,
+}: {
+  libraryId: string;
+  selected: { id: string; name: string } | null;
+  onSelect: (artist: { id: string; name: string } | null) => void;
+}) {
+  const [q, setQ] = useState('');
+  const debounced = useDebounced(q.trim(), 250);
+  const results = useArtistsList(libraryId, debounced ? { search: debounced, limit: 15 } : { limit: 0 });
+  const items = debounced ? (results.data?.items ?? []).filter((a) => a.id !== null) : [];
+
+  if (selected) {
+    return (
+      <div className={styles.chips}>
+        <span className={styles.chip}>
+          {selected.name}
+          <button type="button" className={styles.chipRemove} onClick={() => onSelect(null)} title="Change artist">
+            ×
+          </button>
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className={styles.combo}>
+      <input
+        type="search"
+        autoFocus
+        placeholder="Type an artist name…"
+        className={styles.input}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {debounced && (
+        <ul className={styles.comboList} role="listbox">
+          {results.isLoading && <li className={styles.comboEmpty}>Searching…</li>}
+          {!results.isLoading && items.length === 0 && (
+            <li className={styles.comboEmpty}>No identified artist matches “{debounced}”. Unidentified albums cannot be scoped by artist yet.</li>
+          )}
+          {items.map((a) => (
+            <li key={a.id!}>
+              <button
+                type="button"
+                className={styles.comboItem}
+                onClick={() => {
+                  onSelect({ id: a.id!, name: a.name });
+                  setQ('');
+                }}
+              >
+                <span>{a.name}</span>
+                <span className={styles.comboMeta}>
+                  {a.albumCount} album{a.albumCount === 1 ? '' : 's'}
+                  {a.yearFrom ? ` · ${a.yearFrom}${a.yearTo && a.yearTo !== a.yearFrom ? `–${a.yearTo}` : ''}` : ''}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Search-as-you-type album multi-select. */
+function AlbumPicker({
+  libraryId,
+  selectedIds,
+  labels,
+  onChange,
+}: {
+  libraryId: string;
+  selectedIds: string[];
+  labels: Record<string, string>;
+  onChange: (ids: string[], labels: Record<string, string>) => void;
+}) {
+  const [q, setQ] = useState('');
+  const debounced = useDebounced(q.trim(), 250);
+  const results = useAlbums(libraryId, debounced ? { search: debounced, limit: 15, sort: 'artist' } : { limit: 0 });
+  const items = debounced ? results.data?.items ?? [] : [];
+  const toggle = (id: string, label: string) => {
+    if (selectedIds.includes(id)) {
+      const rest = { ...labels };
+      delete rest[id];
+      onChange(selectedIds.filter((x) => x !== id), rest);
+    } else {
+      onChange([...selectedIds, id], { ...labels, [id]: label });
+    }
+  };
+  return (
+    <div className={styles.combo}>
+      {selectedIds.length > 0 && (
+        <div className={styles.chips}>
+          {selectedIds.map((id) => (
+            <span key={id} className={styles.chip}>
+              {labels[id] ?? id}
+              <button type="button" className={styles.chipRemove} onClick={() => toggle(id, labels[id] ?? id)} title="Remove">
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <input
+        type="search"
+        autoFocus
+        placeholder="Search albums by title or artist…"
+        className={styles.input}
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+      />
+      {debounced && (
+        <ul className={styles.comboList} role="listbox">
+          {results.isLoading && <li className={styles.comboEmpty}>Searching…</li>}
+          {!results.isLoading && items.length === 0 && <li className={styles.comboEmpty}>No albums match “{debounced}”.</li>}
+          {items.map((al) => {
+            const label = `${al.artistCredit} — ${al.title}`;
+            const checked = selectedIds.includes(al.id);
+            return (
+              <li key={al.id}>
+                <label className={`${styles.comboItem} ${checked ? styles.comboItemChecked : ''}`}>
+                  <input type="checkbox" checked={checked} onChange={() => toggle(al.id, label)} />
+                  <span>{label}</span>
+                  <span className={styles.comboMeta}>
+                    {al.year ?? '—'} · {al.trackCount} tracks · {al.formats.join('/')}
+                  </span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function Step1ScopePicker({
+  libraryId,
   state,
   onChange,
   error,
   onNext,
   canProceed,
 }: {
+  libraryId: string;
   state: WizardStep1State;
   onChange: (state: WizardStep1State) => void;
   error: string | null;
   onNext: () => void;
   canProceed: boolean;
 }) {
+  const pick = (scopeType: WizardStep1State['scopeType']) => onChange({ ...state, scopeType });
   return (
     <div className={styles.step}>
       <p className={styles.stepTitle}>Step 1: Select scope</p>
 
       <fieldset className={styles.fieldset}>
         <label className={styles.radioLabel}>
-          <input
-            type="radio"
-            name="scope"
-            value="library"
-            checked={state.scopeType === 'library'}
-            onChange={() => onChange({ scopeType: 'library' })}
-          />
+          <input type="radio" name="scope" value="library" checked={state.scopeType === 'library'} onChange={() => pick('library')} />
           Entire library
         </label>
 
-        <label className={styles.radioLabel}>
-          <input
-            type="radio"
-            name="scope"
-            value="artist"
-            checked={state.scopeType === 'artist'}
-            onChange={() => onChange({ ...state, scopeType: 'artist' })}
-          />
-          All albums by an artist
+        <div className={styles.scopeBlock}>
+          <label className={styles.radioLabel}>
+            <input type="radio" name="scope" value="artist" checked={state.scopeType === 'artist'} onChange={() => pick('artist')} />
+            All albums by an artist
+          </label>
           {state.scopeType === 'artist' && (
-            <input
-              type="text"
-              placeholder="Artist ID or name"
-              className={styles.input}
-              value={state.artistId || ''}
-              onChange={(e) => onChange({ ...state, artistId: e.target.value })}
-            />
+            <div className={styles.scopeDetail}>
+              <ArtistCombo
+                libraryId={libraryId}
+                selected={state.artistId && state.artistName ? { id: state.artistId, name: state.artistName } : null}
+                onSelect={(a) => {
+                  const { artistId: _id, artistName: _name, ...rest } = state;
+                  onChange(a ? { ...rest, artistId: a.id, artistName: a.name } : rest);
+                }}
+              />
+            </div>
           )}
-        </label>
+        </div>
 
-        <label className={styles.radioLabel}>
-          <input
-            type="radio"
-            name="scope"
-            value="albumIds"
-            checked={state.scopeType === 'albumIds'}
-            onChange={() => onChange({ ...state, scopeType: 'albumIds' })}
-          />
-          Selected albums (multi-select)
+        <div className={styles.scopeBlock}>
+          <label className={styles.radioLabel}>
+            <input type="radio" name="scope" value="albumIds" checked={state.scopeType === 'albumIds'} onChange={() => pick('albumIds')} />
+            Selected albums
+          </label>
           {state.scopeType === 'albumIds' && (
-            <p className={styles.hint}>Album picker coming in follow-up UI</p>
+            <div className={styles.scopeDetail}>
+              <AlbumPicker
+                libraryId={libraryId}
+                selectedIds={state.albumIds ?? []}
+                labels={state.albumLabels ?? {}}
+                onChange={(albumIds, albumLabels) => onChange({ ...state, albumIds, albumLabels })}
+              />
+            </div>
           )}
-        </label>
+        </div>
 
-        <label className={styles.radioLabel}>
-          <input
-            type="radio"
-            name="scope"
-            value="filterQuery"
-            checked={state.scopeType === 'filterQuery'}
-            onChange={() => onChange({ ...state, scopeType: 'filterQuery' })}
-          />
-          Filter query (e.g. genre=Jazz)
+        <div className={styles.scopeBlock}>
+          <label className={styles.radioLabel}>
+            <input type="radio" name="scope" value="filterQuery" checked={state.scopeType === 'filterQuery'} onChange={() => pick('filterQuery')} />
+            Albums matching a filter
+          </label>
           {state.scopeType === 'filterQuery' && (
-            <input
-              type="text"
-              placeholder="e.g. genre=Jazz&decade=1970"
-              className={styles.input}
-              value={JSON.stringify(state.filterQuery || {})}
-              onChange={(e) => {
-                try {
-                  onChange({
-                    ...state,
-                    filterQuery: JSON.parse(e.target.value),
-                  });
-                } catch {
-                  // Invalid JSON, ignore
-                }
-              }}
-            />
+            <div className={styles.scopeDetail}>
+              <input
+                type="text"
+                autoFocus
+                placeholder="genre=Jazz&decade=1970&format=lossless"
+                className={styles.input}
+                value={state.filterText ?? ''}
+                onChange={(e) => onChange({ ...state, filterText: e.target.value, filterQuery: parseFilterText(e.target.value) })}
+              />
+              <p className={styles.hint}>
+                Same keys as the album grid URL: state, genre, decade, format, label, gap, owned, review, q. Repeat a key for several values.
+              </p>
+            </div>
           )}
-        </label>
+        </div>
       </fieldset>
 
       {error && <p className={styles.error}>{error}</p>}
 
       <div className={styles.stepActions}>
-        <button
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={onNext}
-          disabled={!canProceed}
-        >
+        <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={onNext} disabled={!canProceed}>
           Next
         </button>
       </div>
@@ -645,10 +826,15 @@ function Step4Progress({
   );
 }
 
-function HelpOverlay() {
+function HelpOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div className={styles.helpOverlay}>
-      <h3>Tag Plan Wizard Help</h3>
+      <div className={styles.helpHead}>
+        <h3>Tag plan wizard help</h3>
+        <button type="button" className={styles.btn} onClick={onClose}>
+          Back to the wizard
+        </button>
+      </div>
       <section>
         <h4>Scope types</h4>
         <dl>

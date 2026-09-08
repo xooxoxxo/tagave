@@ -19,19 +19,56 @@
   background: var(--color-bg-primary);
   border-radius: 8px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  max-width: 600px;
-  width: 90%;
+  max-width: 680px;
+  width: 92%;
   max-height: 90vh;
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* the header stays put; only the body scrolls */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.iconBtn {
+  background: none;
+  border: 1px solid transparent;
+  width: 32px;
+  height: 32px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+}
+
+.iconBtn:hover {
+  background-color: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.iconBtnActive {
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
 }
 
 .header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 20px;
+  gap: 12px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
@@ -76,19 +113,32 @@
   text-decoration: underline;
 }
 
+.warningBanner ul {
+  margin: 6px 0 0 0;
+  padding-left: 18px;
+}
+
+.warningBanner li {
+  margin: 2px 0;
+}
+
 .helpOverlay {
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  padding: 16px;
-  margin: 16px;
-  font-size: 12px;
+  padding: 20px;
+  font-size: 13px;
   line-height: 1.6;
 }
 
+.helpHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .helpOverlay h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
+  margin: 0;
+  font-size: 15px;
   color: var(--color-text-primary);
 }
 
@@ -403,4 +453,102 @@
     --color-warning: #f57c00;
     --color-warning-bg: rgba(245, 124, 0, 0.1);
   }
+}
+
+
+/* scope pickers (step 1) */
+.scopeBlock {
+  display: flex;
+  flex-direction: column;
+}
+
+.scopeDetail {
+  margin: 4px 0 12px 26px;
+}
+
+.combo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comboList {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-secondary);
+}
+
+.comboItem {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.comboItem:hover,
+.comboItemChecked {
+  background: var(--color-bg-hover);
+}
+
+.comboItem input {
+  margin: 0;
+  align-self: center;
+}
+
+.comboMeta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.comboEmpty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 13px;
+}
+
+.chipRemove {
+  border: none;
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.chipRemove:hover {
+  color: var(--color-text-primary);
 }
