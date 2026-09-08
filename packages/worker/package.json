@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Liner music archive worker: scanning, clustering, matching, enrichment, tag writing",
+  "_notes": {
+    "python": "The tag writer sidecar requires Python 3.13+ with mutagen >=1.47. Set LINER_TAGWRITER_PYTHON env var to override the interpreter path, or use .venv/bin/python in packages/tagwriter-py."
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
