@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition } from '../hooks';
+import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
 import styles from './AlbumDetailPage.module.css';
@@ -48,6 +48,9 @@ interface Candidate {
   provider: string;
   rgMbid: string | null;
   excluded: boolean;
+  /** media summary and first label/catno — present once the detail handler ships them */
+  format?: string | null;
+  label?: string | null;
 }
 interface PendingIdentify {
   id: string;
@@ -185,6 +188,50 @@ const GAP_LABEL: Record<string, string> = {
   missing_album: 'Missing album',
 };
 
+interface FlagChip {
+  key: string;
+  label: string;
+  detail?: string;
+}
+
+const FLAG_LABEL: Record<string, string> = {
+  noCover: 'No cover art',
+  noEmbeddedArt: 'No embedded art',
+  mixedLossless: 'Mixed lossless and lossy',
+  parseErrors: 'Unreadable files',
+  lowBitrate: 'Low bitrate',
+  missingMbIds: 'Missing MusicBrainz IDs',
+  trackNumberIssues: 'Track numbers',
+  emptyRequiredFields: 'Empty required fields',
+  titleCaseAnomalies: 'Title case',
+  inconsistentAlbumFields: 'Inconsistent album fields',
+  discNumberGaps: 'Disc number gaps',
+};
+
+function humanize(key: string): string {
+  return key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+}
+
+/**
+ * One chip per quality flag. Audio flags are `true` or a count; the TAG-6 lint
+ * rules store an object with one list (track indexes, issue strings, field
+ * names), which becomes "<label> · n tracks" with the list in the tooltip.
+ */
+function describeQualityFlags(flags: Record<string, unknown>): FlagChip[] {
+  return Object.entries(flags).map(([key, value]) => {
+    const label = FLAG_LABEL[key] ?? humanize(key);
+    if (value === true || value == null) return { key, label };
+    if (typeof value === 'number') return { key, label: `${label} · ${value}` };
+    if (typeof value !== 'object') return { key, label: `${label} · ${String(value)}` };
+    const obj = value as Record<string, unknown>;
+    const items = Object.values(obj).filter(Array.isArray).flat() as unknown[];
+    const noun = 'issues' in obj ? 'issues' : 'fields' in obj ? 'fields' : 'gap' in obj ? 'gaps' : 'tracks';
+    const shown = items.slice(0, 8).map((x) => (typeof x === 'number' ? `track ${x + 1}` : typeof x === 'string' ? x : JSON.stringify(x)));
+    const detail = shown.join('\n') + (items.length > 8 ? `\n… ${items.length - 8} more` : '');
+    return { key, label: items.length > 0 ? `${label} · ${items.length} ${noun}` : label, ...(detail ? { detail } : {}) };
+  });
+}
+
 export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
   const { libraryId } = useCurrentLibrary();
@@ -261,6 +308,8 @@ export function AlbumDetailPage() {
     onSuccess: () => refresh(6000),
   });
 
+  const addToCollection = useAddCollectionItem(libraryId);
+
   const dismissGap = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason: string }) =>
       api.post(`/gaps/${id}/dismiss`, { reason }),
@@ -280,9 +329,13 @@ export function AlbumDetailPage() {
 
   const openGaps = album.gaps.filter((g) => g.state === 'open');
   const dismissedGaps = album.gaps.filter((g) => g.state === 'dismissed');
-  const visibleCandidates = album.candidates.filter((c) => showExcluded || !c.excluded);
+  const visibleCandidates = album.candidates
+    .filter((c) => showExcluded || !c.excluded)
+    .sort((a, b) => a.distance - b.distance);
   const excludedCount = album.candidates.filter((c) => c.excluded).length;
-  const qualityFlags = (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags ?? {};
+  const qualityFlags = describeQualityFlags(
+    (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags ?? {},
+  );
 
   const describeGap = (g: Gap): string => {
     if (g.kind === 'incomplete_album') {
@@ -290,9 +343,7 @@ export function AlbumDetailPage() {
       return `${d.have}/${d.want} tracks`;
     }
     if (g.kind === 'duplicate') return `${(g.details as { count?: number }).count} copies of this release group`;
-    if (g.kind === 'quality') {
-      return Object.entries(qualityFlags).map(([k, v]) => (v === true ? k : `${k}: ${v}`)).join(' · ');
-    }
+    if (g.kind === 'quality') return qualityFlags.map((f) => f.label).join(' · ');
     return '';
   };
 
@@ -350,64 +401,48 @@ export function AlbumDetailPage() {
             </div>
           )}
           <div className={styles.badgeRow}>
-            <span className={styles[`state_${album.state}`] ?? styles.stateBadge}>
+            <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>
               {STATE_LABEL[album.state] ?? album.state}
             </span>
             {openGaps.map((g) => (
-              <span key={g.id} className={styles.gapBadge} title={describeGap(g)}>
+              <span key={g.id} className={`${styles.pill} ${styles.pillGap}`} title={describeGap(g)}>
                 {GAP_LABEL[g.kind] ?? g.kind}
               </span>
             ))}
             {album.match?.releaseGroupOnly && (
-              <span className={styles.provenance} style={{ backgroundColor: 'rgba(156, 39, 176, 0.2)', cursor: 'pointer' }} title="Any edition mode" onClick={() => clearAnyEdition.mutate(albumId)}>
+              <button className={styles.pillButton} title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
                 any edition ✕
-              </span>
+              </button>
             )}
             {album.match && (
-              <span className={styles.provenance} title={album.match.reason ?? ''}>
-                {album.match.decidedBy === 'system' ? 'auto' : 'you'} · distance{' '}
-                {album.match.distance.toFixed(4)}
+              <span className={`${styles.pill} ${styles.pillMuted}`} title={album.match.reason ?? ''}>
+                {album.match.decidedBy === 'system' ? 'auto-matched' : 'matched by you'} · {album.match.distance.toFixed(4)}
                 {album.match.decidedAt ? ` · ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}
               </span>
             )}
-            {album.coverOrigin && <span className={styles.provenance}>cover: {album.coverOrigin}</span>}
-            {album.isCueImage && <span className={styles.provenance} title={album.cueRelPath ?? ''}>Cue image</span>}
+            {album.coverOrigin && <span className={`${styles.pill} ${styles.pillMuted}`}>cover: {album.coverOrigin}</span>}
+            {album.isCueImage && <span className={`${styles.pill} ${styles.pillMuted}`} title={album.cueRelPath ?? ''}>Cue image</span>}
+            {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
+              <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs-only</span>
+            )}
             {album.release?.mbid && (
-              <a
-                className={styles.mbLink}
-                href={`https://musicbrainz.org/release/${album.release.mbid}`}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">
                 MusicBrainz ↗
               </a>
             )}
             {album.release?.discogsReleaseId && (
-              <a
-                className={styles.mbLink}
-                href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">
                 Discogs ↗
               </a>
             )}
             {album.release?.discogsMasterId && (
-              <a
-                className={styles.mbLink}
-                href={`https://www.discogs.com/master/${album.release.discogsMasterId}`}
-                target="_blank"
-                rel="noreferrer"
-              >
+              <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">
                 Master ↗
               </a>
             )}
-            {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
-              <span className={styles.provenance}>Discogs-only</span>
-            )}
             {album.discogsCollectionItems && album.discogsCollectionItems.length > 0 && (
               <a
-                className={styles.collectionChip}
+                className={`${styles.pill} ${styles.pillAccent}`}
                 href="/collection?view=both"
                 title={album.discogsCollectionItems
                   .map((item) => {
@@ -420,40 +455,45 @@ export function AlbumDetailPage() {
                   })
                   .join(' · ')}
               >
-                {album.discogsCollectionItems[0]?.pushState === 'pending' ? 'Adding...' : 'On vinyl/CD'}
+                {album.discogsCollectionItems[0]?.pushState === 'pending' ? 'Adding to Discogs…' : 'On vinyl/CD'}
               </a>
             )}
-            {(!album.discogsCollectionItems || album.discogsCollectionItems.length === 0) && (
-              <span title="Add this album to your Discogs collection">
-                I own this on vinyl/CD
-              </span>
+            {(!album.discogsCollectionItems || album.discogsCollectionItems.length === 0) && album.release?.discogsReleaseId && (
+              <button
+                className={styles.pillButton}
+                onClick={() => addToCollection.mutate({ input: String(album.release?.discogsReleaseId) }, { onSuccess: () => refresh(1500) })}
+                disabled={addToCollection.isPending}
+                title="Add this edition to your Discogs collection (folder Uncategorized)"
+              >
+                {addToCollection.isPending ? 'Adding…' : '+ I own this on vinyl/CD'}
+              </button>
             )}
           </div>
-          <div className={styles.dirPath}>{album.dirPaths?.[0]}</div>
+          <div className={styles.dirPath} title={album.dirPaths?.join('\n')}>{album.dirPaths?.[0]}</div>
           {((album.release?.genres?.length ?? 0) + (album.release?.styles?.length ?? 0)) > 0 && (
-            <div className={styles.badgeRow} title="Genres and styles (Discogs, CC0)">
+            <div className={styles.genresRow} title="Genres and styles (Discogs, CC0)">
               {album.release?.genres?.map((g) => (
-                <span key={`g-${g}`} className={styles.provenance}>{g}</span>
+                <span key={`g-${g}`} className={styles.genreChip}>{g}</span>
               ))}
               {album.release?.styles?.map((st) => (
-                <span key={`s-${st}`} className={styles.gapBadge}>{st}</span>
+                <span key={`s-${st}`} className={styles.styleChip}>{st}</span>
               ))}
             </div>
           )}
           <div className={styles.actions}>
-            <button onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : undefined}>
-              {reidentify.isPending ? 'Queued...' : 'Re-identify'}
+            <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
+              {reidentify.isPending ? 'Queued…' : 'Re-identify'}
             </button>
-            <button onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
-              {fetchArt.isPending ? 'Queued...' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
+            <button className="secondary" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
+              {fetchArt.isPending ? 'Queued…' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
             </button>
             {album.state !== 'as_is' && (
-              <button onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending}>
+              <button className="secondary" onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending} title="Keep the local tags; stop identifying">
                 Keep as-is
               </button>
             )}
             {album.state !== 'ignored' && (
-              <button onClick={() => ignore.mutate()} disabled={ignore.isPending}>
+              <button className="secondary" onClick={() => ignore.mutate()} disabled={ignore.isPending} title="Hide from the queue and gap counts">
                 Ignore
               </button>
             )}
@@ -466,8 +506,8 @@ export function AlbumDetailPage() {
                 {pending.state === 'active' ? 'running now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `${pending.jobsAhead.toLocaleString()} ahead in the queue`}
                 {' · '}since {new Date(pending.createdAt).toLocaleString()}
               </span>
-              <button onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
-                {cancelRequest.isPending ? 'Cancelling...' : 'Cancel'}
+              <button className="secondary" onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
+                {cancelRequest.isPending ? 'Cancelling…' : 'Cancel'}
               </button>
               {cancelRequest.isError && <span className={styles.mbidError}>Cancel failed</span>}
             </div>
@@ -487,7 +527,7 @@ export function AlbumDetailPage() {
               onClick={() => matchMbid.mutate()}
               disabled={!mbidInput.trim() || matchMbid.isPending || !!pending}
             >
-              {matchMbid.isPending ? 'Queuing...' : 'Match'}
+              {matchMbid.isPending ? 'Queuing…' : 'Match'}
             </button>
             {matchMbid.isError && (
               <span className={styles.mbidError}>
@@ -506,16 +546,25 @@ export function AlbumDetailPage() {
           {openGaps.map((g) => (
             <div key={g.id} className={styles.gapRow}>
               <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
-              <span className={styles.gapDetail}>{describeGap(g)}</span>
+              {g.kind === 'quality' ? (
+                <span className={styles.flagList}>
+                  {qualityFlags.map((f) => (
+                    <span key={f.key} className={styles.flagChip} title={f.detail}>{f.label}</span>
+                  ))}
+                </span>
+              ) : (
+                <span className={styles.gapDetail}>{describeGap(g)}</span>
+              )}
               <span className={styles.gapActions}>
-                <button onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })}>
+                <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this; it will not count as a gap">
                   Dismiss
                 </button>
                 <button
+                  className="secondary"
                   title="The data is wrong (feeds the false-positive metric)"
                   onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
                 >
-                  Wrong
+                  Wrong data
                 </button>
               </span>
             </div>
@@ -524,10 +573,10 @@ export function AlbumDetailPage() {
             <div key={g.id} className={styles.gapRowDismissed}>
               <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
               <span className={styles.gapDetail}>
-                dismissed ({g.dismissReason ?? 'no reason'})
+                dismissed ({g.dismissReason?.replace('_', ' ') ?? 'no reason'})
               </span>
               <span className={styles.gapActions}>
-                <button onClick={() => reopenGap.mutate(g.id)}>Reopen</button>
+                <button className="secondary" onClick={() => reopenGap.mutate(g.id)}>Reopen</button>
               </span>
             </div>
           ))}
@@ -587,46 +636,41 @@ export function AlbumDetailPage() {
           <table className={styles.candTable}>
             <thead>
               <tr>
-                <th>Distance</th>
+                <th className={styles.num}>Distance</th>
                 <th>Release</th>
                 <th>Date</th>
                 <th>Country</th>
-                <th>Tracks</th>
+                <th className={styles.num}>Tracks</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {visibleCandidates.map((c) => (
                 <tr key={c.id} className={c.excluded ? styles.candExcluded : ''}>
-                  <td className={styles.num}>{c.distance.toFixed(4)}</td>
-                  <td>
-                    <span className={styles.provenance} title={`Provider: ${c.provider}`}>
-                      {c.provider === 'discogs' ? 'Discogs' : 'MB'}
-                    </span>
-                    {c.title}
-                    <span className={styles.gapDetail}> — {c.artistCredit}</span>
-                    {c.releaseMbid && (
-                      <a
-                        className={styles.mbLink}
-                        href={`https://musicbrainz.org/release/${c.releaseMbid}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {' '}↗
-                      </a>
-                    )}
-                    {c.discogsReleaseId && (
-                      <a
-                        className={styles.mbLink}
-                        href={`https://www.discogs.com/release/${c.discogsReleaseId}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {' '}🔗
-                      </a>
-                    )}
+                  <td className={styles.num} title="0 = identical to the local tags and durations">{c.distance.toFixed(4)}</td>
+                  <td className={styles.candRelease}>
+                    <div className={styles.candTitleRow}>
+                      <span className={`${styles.pill} ${styles.pillMuted}`} title={`Found via ${c.source.replace(/_/g, ' ')}`}>
+                        {c.provider === 'discogs' ? 'Discogs' : 'MusicBrainz'}
+                      </span>
+                      <span className={styles.candTitle}>{c.title}</span>
+                      <span className={styles.candArtist}>{c.artistCredit}</span>
+                    </div>
+                    <div className={styles.candSub}>
+                      {[c.format, c.label, c.status].filter(Boolean).join(' · ')}
+                      {c.releaseMbid && (
+                        <a className={styles.pillLink} href={`https://musicbrainz.org/release/${c.releaseMbid}`} target="_blank" rel="noreferrer">
+                          MusicBrainz ↗
+                        </a>
+                      )}
+                      {c.discogsReleaseId && (
+                        <a className={styles.pillLink} href={`https://www.discogs.com/release/${c.discogsReleaseId}`} target="_blank" rel="noreferrer">
+                          Discogs #{c.discogsReleaseId} ↗
+                        </a>
+                      )}
+                    </div>
                   </td>
-                  <td>{c.date ?? '–'}</td>
+                  <td className={styles.num}>{c.date ?? '–'}</td>
                   <td>{c.country ?? '–'}</td>
                   <td className={styles.num}>{c.trackCount ?? '–'}</td>
                   <td className={styles.gapActions}>
@@ -635,12 +679,15 @@ export function AlbumDetailPage() {
                         <button
                           onClick={() => acceptCandidate.mutate(c.id)}
                           disabled={acceptCandidate.isPending}
+                          title="Match this album to this release"
                         >
                           Accept
                         </button>
                         <button
+                          className="secondary"
                           onClick={() => excludeCandidate.mutate(c.id)}
                           disabled={excludeCandidate.isPending}
+                          title="Never suggest this release again"
                         >
                           Exclude
                         </button>
@@ -704,52 +751,46 @@ export function AlbumDetailPage() {
 
       {editions && editions.editions.length > 0 && (
         <div className={styles.section}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className={styles.sectionHead}>
             <h2 className={styles.sectionTitle}>Editions ({editions.editions.length})</h2>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <div className={styles.sectionTools}>
               {album.match?.releaseGroupOnly && (
-                <span className={styles.provenance} style={{ fontSize: '0.9em' }}>any edition</span>
+                <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
               )}
               {!editions.fetchedAt && (
-                <span style={{ fontSize: '0.9em', color: '#999' }}>Fetching editions from MusicBrainz…</span>
+                <span className={styles.muted}>Fetching editions from MusicBrainz…</span>
               )}
               {editions.fetchedAt && (
                 <button
                   className={styles.linkButton}
                   onClick={() => refreshEditions.mutate(albumId)}
                   disabled={refreshEditions.isPending}
-                  style={{ fontSize: '0.9em' }}
                 >
                   Refresh
                 </button>
               )}
             </div>
           </div>
-          <table className={styles.candTable} style={{ marginTop: '12px' }}>
+          <table className={styles.candTable}>
             <thead>
               <tr>
                 <th>Date</th>
                 <th>Country</th>
                 <th>Label / Catno</th>
                 <th>Format</th>
-                <th>Tracks</th>
+                <th className={styles.num}>Tracks</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {editions.editions.map((e) => (
-                <tr key={e.releaseId} className={e.owned ? styles.candExcluded : ''} style={e.owned ? { backgroundColor: 'rgba(76, 175, 80, 0.1)' } : {}}>
-                  <td>{e.date ?? '–'}</td>
+                <tr key={e.releaseId} className={e.owned ? styles.ownedRow : ''}>
+                  <td className={styles.num}>{e.date ?? '–'}</td>
                   <td>{e.country ?? '–'}</td>
                   <td>
-                    {e.labels.map((l) => (
-                      <span key={l.name}>
-                        {l.name}
-                        {l.catalogNumber && ` / ${l.catalogNumber}`}
-                      </span>
-                    )).length > 0
+                    {e.labels.length > 0
                       ? e.labels.map((l) => (
-                        <span key={l.name} style={{ display: 'block', fontSize: '0.9em' }}>
+                        <span key={l.name} className={styles.cellLine}>
                           {l.name}
                           {l.catalogNumber && ` / ${l.catalogNumber}`}
                         </span>
@@ -758,7 +799,7 @@ export function AlbumDetailPage() {
                   </td>
                   <td>
                     {e.media.map((m, i) => (
-                      <span key={i} style={{ display: 'block', fontSize: '0.9em' }}>
+                      <span key={i} className={styles.cellLine}>
                         {(m as any).format}
                         {(m as any).trackCount ? ` × ${(m as any).trackCount}` : ''}
                       </span>
@@ -767,14 +808,14 @@ export function AlbumDetailPage() {
                   <td className={styles.num}>{e.trackCount}</td>
                   <td className={styles.gapActions}>
                     {e.owned ? (
-                      <span style={{ fontSize: '0.9em', color: '#666' }}>This copy</span>
+                      <span className={styles.muted}>This copy</span>
                     ) : (
                       <button
+                        className="secondary"
                         onClick={() => switchEdition.mutate(e.mbid)}
                         disabled={switchEdition.isPending}
-                        style={{ fontSize: '0.9em' }}
                       >
-                        {switchEdition.isPending ? 'Queued' : 'Use this edition'}
+                        {switchEdition.isPending ? 'Queued…' : 'Use this edition'}
                       </button>
                     )}
                   </td>
@@ -783,11 +824,12 @@ export function AlbumDetailPage() {
             </tbody>
           </table>
           {album.match && (
-            <div style={{ marginTop: '12px' }}>
+            <div className={styles.sectionFoot}>
               <button
                 onClick={() => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId))}
                 disabled={matchAnyEdition.isPending || clearAnyEdition.isPending}
                 className={styles.linkButton}
+                title="Any edition: keep the release-group match without pinning one edition"
               >
                 {album.match.releaseGroupOnly ? 'Clear' : 'Mark'} any edition
               </button>
@@ -801,7 +843,7 @@ export function AlbumDetailPage() {
       ) : (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
-          <p style={{ color: 'var(--text-tertiary)', margin: 0 }}>
+          <p className={styles.muted}>
             Ratings, reviews and listens attach to a release group — match this album first.
           </p>
         </div>
