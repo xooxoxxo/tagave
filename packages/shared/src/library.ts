@@ -17,7 +17,7 @@ export const scanRootSchema = z.object({
   validatedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp of last validation'),
   probeWritable: z.boolean().nullable().optional().describe('Observed write ability on the worker host'),
   lastScanAt: z.string().datetime().optional().describe('ISO 8601 timestamp of the last completed scan'),
-  lastStatus: z.string().optional().describe('Status of the last scan'),
+  lastStatus: z.string().nullable().optional().describe('Status of the last scan; null until the first scan'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();

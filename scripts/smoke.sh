@@ -2,16 +2,21 @@
 # smoke.sh - Release gate: verify the production compose stack works on a clean host
 #
 # Tests:
-#   1. Stack boots (postgres + app)
+#   1. Stack boots (postgres + app, plus worker-files + worker-identify unless WORKERS=0)
 #   2. API health endpoint responds
 #   3. First-run setup (create library owner)
 #   4. Authentication (login, cookie jar)
-#   5. Settings read/write
-#   6. Scan root creation (validation deferred to worker)
-#   7. Doctor passes with --offline --expect-workers 0
+#   5. Libraries endpoint
+#   6. Scan root creation; with workers, the root on the bind-mounted music dir
+#      is validated by the file worker (roots.validate over /mnt/music)
+#   7. Both workers heartbeat; doctor passes with --expect-workers 2 and the
+#      Build Versions check sees the same git sha on app and workers
+#   8. liner-doctor backup writes, verifies and prunes dumps; pg_restore --list
+#      reads a dump outside the app container (stock postgres:16 image)
 #
 # Environment:
-#   KEEP=1   don't tear down after test (for debugging)
+#   KEEP=1       don't tear down after test (for debugging)
+#   WORKERS=0    app-only gate (no worker services; doctor --expect-workers 0)
 #   LINER_PORT / POSTGRES_PORT   override defaults (3199/5499)
 #
 # Usage: ./scripts/smoke.sh
@@ -30,33 +35,67 @@ SMOKE_EMAIL="smoke@example.com"
 SMOKE_PASSWORD="Smoke123!@#"
 SMOKE_DISPLAY_NAME="Smoke Test"
 CONTACT_STRING="smoke@example.com"
+WORKERS="${WORKERS:-1}"
+PROFILE=""
+[ "$WORKERS" = "1" ] && PROFILE="workers"
+# Smoke stack gets its own env file so an existing .env (dev or prod) is never
+# read or modified by the release gate.
+ENV_FILE=.env.smoke
+# Throwaway music dir: the worker-files service binds it at /mnt/music:ro, so a
+# real library is never touched. Same build args as scripts/deploy.sh so the
+# doctor Build Versions check compares real shas.
+TMPDIR="${TMPDIR:-/tmp}"
+MUSIC_DIR=$(mktemp -d "${TMPDIR%/}/liner-smoke-music.XXXXXX")
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
+BUILT_AT=$(date -u +%FT%TZ)
 
 # Temp files
 COOKIE_JAR=$(mktemp)
+DOCTOR_FILE=""
+DUMP_TMP=""
+
+compose() {
+  LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
+    docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" ${PROFILE:+--profile $PROFILE} "$@"
+}
 
 cleanup_stack() {
   if [ "${KEEP:-0}" = "1" ]; then
-    echo "KEEP=1: stack left running (project: $PROJECT_NAME, ports: $LINER_PORT, $POSTGRES_PORT)"
+    echo "KEEP=1: stack left running (project: $PROJECT_NAME, ports: $LINER_PORT, $POSTGRES_PORT, music dir: $MUSIC_DIR)"
     return
   fi
   echo "Tearing down stack..."
-  docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" down -v 2>/dev/null || true
+  compose down -v 2>/dev/null || true
+  rm -rf "$MUSIC_DIR"
 }
 cleanup_all() {
   rm -f "${COOKIE_JAR:-}" "${DOCTOR_FILE:-}" 2>/dev/null || true
+  [ -n "$DUMP_TMP" ] && rm -rf "$DUMP_TMP"
   cleanup_stack
 }
 trap cleanup_all EXIT
 
+# wait_for LABEL SECONDS COMMAND... — polls once a second until COMMAND succeeds.
+wait_for() {
+  local label=$1 secs=$2 i=0
+  shift 2
+  while ! eval "$@" >/dev/null 2>&1; do
+    i=$((i + 1))
+    if [ "$i" -ge "$secs" ]; then
+      echo "✗ FAIL: $label did not happen within ${secs}s"
+      return 1
+    fi
+    sleep 1
+  done
+}
 
 echo "=== Liner Smoke Test ==="
 echo "Project: $PROJECT_NAME"
 echo "Ports: app=$LINER_PORT, postgres=$POSTGRES_PORT"
+echo "Workers: $([ "$WORKERS" = "1" ] && echo "worker-files + worker-identify (profile workers)" || echo "none (WORKERS=0)")"
+echo "Build: $GIT_SHA @ $BUILT_AT"
 echo ""
 
-# Smoke stack gets its own env file so an existing .env (dev or prod) is never
-# read or modified by the release gate.
-ENV_FILE=.env.smoke
 if [ ! -f "$ENV_FILE" ]; then
   SECRET=$(openssl rand -hex 32)
   printf 'APP_SECRET=%s\nLOG_LEVEL=info\n' "$SECRET" > "$ENV_FILE"
@@ -65,27 +104,17 @@ fi
 
 # Start stack
 echo "Starting the compose stack ($PROJECT_NAME)..."
-LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" up -d --build
+compose up -d --build
 
 # Wait for health endpoint
 echo "Waiting for API to be ready..."
-RETRIES=60
-while [ $RETRIES -gt 0 ]; do
-  if curl -sf "$HEALTH_URL" >/dev/null 2>&1; then
-    echo "✓ API is healthy"
-    break
-  fi
-  RETRIES=$((RETRIES - 1))
-  if [ $RETRIES -eq 0 ]; then
-    echo "✗ FAIL: API did not respond after 60 retries"
-    echo ""
-    echo "Stack logs:"
-    LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT \
-      docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" logs app
-    exit 1
-  fi
-  sleep 1
-done
+if ! wait_for "API health" 60 "curl -sf '$HEALTH_URL'"; then
+  echo ""
+  echo "Stack logs:"
+  compose logs app
+  exit 1
+fi
+echo "✓ API is healthy"
 
 # First-run setup
 echo "Running first-run setup..."
@@ -142,14 +171,20 @@ if [ -z "$LIBRARY_ID" ]; then
   exit 1
 fi
 
-# Create a scan root (pointing to a temp dir inside the container)
-# Since there's no worker, the API will accept it but mark it as pending
+# Create a scan root. With workers it is the bind-mounted music dir (the path
+# inside the worker container); without, a path nobody validates (stays pending).
 # Expected: 201 Created
-echo "Creating scan root (worker not present, expect pending)..."
+if [ "$WORKERS" = "1" ]; then
+  SCAN_PATH="/mnt/music"
+  echo "Creating scan root $SCAN_PATH (file worker will validate it)..."
+else
+  SCAN_PATH="/tmp/music-test"
+  echo "Creating scan root $SCAN_PATH (worker not present, expect pending)..."
+fi
 SCANROOT_RESPONSE=$(curl -s -w "%{http_code}" -b "$COOKIE_JAR" -X POST "$API_URL/libraries/$LIBRARY_ID/scan-roots" \
   -H "Content-Type: application/json" \
   -d "{
-    \"path\": \"/tmp/music-test\",
+    \"path\": \"$SCAN_PATH\",
     \"displayName\": \"Test Music\"
   }")
 
@@ -160,53 +195,104 @@ BODY="${SCANROOT_RESPONSE%???}"
 
 # Accept 201 Created or 409 Conflict (if worker validation fails immediately)
 if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "409" ]; then
-  echo "✓ Scan root creation returned $HTTP_CODE (expected, worker not present)"
+  echo "✓ Scan root creation returned $HTTP_CODE"
 else
   echo "✗ FAIL: Scan root creation returned $HTTP_CODE"
   echo "$BODY"
   exit 1
 fi
 
+if [ "$WORKERS" = "1" ]; then
+  echo "Waiting for both worker heartbeats (the first one lands ~30 s after boot)..."
+  if ! wait_for "two live workers in /health" 150 "curl -s '$HEALTH_URL' | grep -q '2 live worker'"; then
+    curl -s "$HEALTH_URL"; echo ""
+    compose logs --tail=40 worker-files worker-identify
+    exit 1
+  fi
+  echo "✓ Two workers heartbeating"
+
+  echo "Waiting for the file worker to validate $SCAN_PATH over the bind mount..."
+  if ! wait_for "scan root validation" 90 "curl -s -b '$COOKIE_JAR' '$API_URL/libraries/$LIBRARY_ID/scan-roots' | grep -q '\"validationStatus\":\"ok\"'"; then
+    curl -s -b "$COOKIE_JAR" "$API_URL/libraries/$LIBRARY_ID/scan-roots"; echo ""
+    compose logs --tail=40 worker-files
+    exit 1
+  fi
+  echo "✓ Scan root validated by worker-files"
+fi
+
 # Run doctor inside the app container
-echo "Running doctor (--offline --expect-workers 0)..."
+EXPECT_WORKERS=0
+[ "$WORKERS" = "1" ] && EXPECT_WORKERS=2
+echo "Running doctor (--offline --expect-workers $EXPECT_WORKERS)..."
 DOCTOR_FILE=$(mktemp)
 
-if ! docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" exec app \
-  node packages/doctor/dist/cli.js doctor --offline --expect-workers 0 > "$DOCTOR_FILE" 2>&1; then
-  echo "Doctor command execution failed (exit code $?)"
+if ! compose exec -T app node packages/doctor/dist/cli.js doctor --offline --expect-workers "$EXPECT_WORKERS" > "$DOCTOR_FILE" 2>&1; then
+  echo "Doctor exited non-zero (individual checks below)"
 fi
 
 # Display doctor output
 cat "$DOCTOR_FILE"
 
-# Check that critical checks passed: database, migrations, contact string, cache
-if ! grep -q "PASS Database" "$DOCTOR_FILE"; then
-  echo "✗ FAIL: Database check did not pass"
-  exit 1
-fi
-
-if ! grep -q "PASS Migrations" "$DOCTOR_FILE"; then
-  echo "✗ FAIL: Migrations check did not pass"
-  exit 1
-fi
-
-if ! grep -q "PASS Contact String" "$DOCTOR_FILE"; then
-  echo "✗ FAIL: Contact String check did not pass"
-  exit 1
-fi
-
-if ! grep -q "PASS Cache Directory" "$DOCTOR_FILE"; then
-  echo "✗ FAIL: Cache Directory check did not pass"
+# Check that critical checks passed: database, migrations, contact string, cache, workers
+for expected in "PASS Database" "PASS Migrations" "PASS Contact String" "PASS Cache Directory" "PASS Worker Heartbeat"; do
+  if ! grep -q "$expected" "$DOCTOR_FILE"; then
+    echo "✗ FAIL: doctor did not report '$expected'"
+    exit 1
+  fi
+done
+if [ "$WORKERS" = "1" ] && ! grep -q "PASS Build Versions" "$DOCTOR_FILE"; then
+  echo "✗ FAIL: doctor did not report 'PASS Build Versions' (app and workers built from different shas?)"
   exit 1
 fi
 
 echo "✓ Doctor critical checks passed"
+
+# Backup: four runs with --keep 3 must leave exactly three verified dumps
+echo "Running liner-doctor backup four times with --keep 3..."
+BACKUP_OUT=""
+for i in 1 2 3 4; do
+  if ! BACKUP_OUT=$(compose exec -T app node packages/doctor/dist/cli.js backup --keep 3 2>&1); then
+    echo "✗ FAIL: backup run $i failed:"
+    echo "$BACKUP_OUT"
+    exit 1
+  fi
+  sleep 1  # file names carry a 1 s timestamp
+done
+echo "$BACKUP_OUT"
+if ! echo "$BACKUP_OUT" | grep -q "backup written /cache/backups/liner-"; then
+  echo "✗ FAIL: unexpected backup output"
+  exit 1
+fi
+DUMP_COUNT=$(compose exec -T app sh -c 'ls /cache/backups/*.pgdump | wc -l' | tr -d ' \r')
+if [ "$DUMP_COUNT" != "3" ]; then
+  echo "✗ FAIL: expected 3 dumps after --keep 3, found $DUMP_COUNT"
+  exit 1
+fi
+echo "✓ Backup written, verified (pg_restore --list) and pruned to 3"
+
+# The dump must be readable outside the app container too: copy it to the host
+# and feed it to a stock postgres image over stdin (no host bind mount — Docker
+# Desktop does not always expose a file written to a temp dir moments earlier).
+LATEST=$(compose exec -T app sh -c 'ls /cache/backups/*.pgdump | sort | tail -1' | tr -d '\r')
+DUMP_TMP=$(mktemp -d "${TMPDIR%/}/liner-smoke-dump.XXXXXX")
+compose cp "app:$LATEST" "$DUMP_TMP/"
+DUMP_FILE="$DUMP_TMP/$(basename "$LATEST")"
+if [ ! -s "$DUMP_FILE" ]; then
+  echo "✗ FAIL: $DUMP_FILE is missing or empty after docker compose cp"
+  exit 1
+fi
+TOC=$(docker run --rm -i postgres:16 pg_restore --list < "$DUMP_FILE" | grep -c '^[0-9][0-9]*;' || true)
+if [ "${TOC:-0}" -le 0 ]; then
+  echo "✗ FAIL: pg_restore --list found no entries in $(basename "$LATEST")"
+  exit 1
+fi
+echo "✓ pg_restore --list reads $(basename "$LATEST") outside the container ($TOC entries, $(wc -c < "$DUMP_FILE" | tr -d ' ') bytes)"
 
 echo ""
 echo "=== PASS ==="
 echo "Stack is ready for deployment"
 echo ""
 echo "Stack status before teardown:"
-docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" ps
+compose ps
 
 exit 0
