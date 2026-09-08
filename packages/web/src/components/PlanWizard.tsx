@@ -62,12 +62,18 @@ type WizardStep = 1 | 2;
 interface PlanWizardProps {
   libraryId: string;
   onClose: () => void;
+  /** Open already scoped to these albums (album page "Fix tags"); lands on step 2. */
+  initialScope?: { albumIds: string[]; albumLabels?: Record<string, string> };
 }
 
-export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
-  const [step, setStep] = useState<WizardStep>(1);
+export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps) {
+  const [step, setStep] = useState<WizardStep>(initialScope ? 2 : 1);
   const [planName, setPlanName] = useState('');
-  const [step1, setStep1] = useState<WizardStep1State>({ scopeType: null });
+  const [step1, setStep1] = useState<WizardStep1State>(
+    initialScope
+      ? { scopeType: 'albumIds', albumIds: initialScope.albumIds, ...(initialScope.albumLabels ? { albumLabels: initialScope.albumLabels } : {}) }
+      : { scopeType: null },
+  );
   const [step2, setStep2] = useState<WizardStep2State>({
     preset: 'canonical_ids_and_fill',
     id3Version: '2.4',

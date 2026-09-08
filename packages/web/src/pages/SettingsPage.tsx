@@ -3,7 +3,7 @@
  * Renders sub-pages based on the section parameter (/settings/$section)
  */
 
-import { useParams, useNavigate } from '@tanstack/react-router';
+import { useParams, useNavigate, useLocation } from '@tanstack/react-router';
 import { PageShell, TabItem } from '../components/ui';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
@@ -21,7 +21,11 @@ type SettingsSection = 'library' | 'providers' | 'collection' | 'system';
 export function SettingsPage() {
   const navigate = useNavigate();
   const params = useParams({ strict: false }) as { section?: string };
-  const section = (params.section || 'library') as SettingsSection;
+  // /settings/providers and /settings/system are registered as literal routes
+  // (typed links), so the section also has to come from the path.
+  const pathSection = useLocation().pathname.split('/')[2];
+  const raw = params.section || pathSection || 'library';
+  const section = (['library', 'providers', 'collection', 'system'].includes(raw) ? raw : 'library') as SettingsSection;
 
   const tabs: TabItem[] = [
     { label: 'Library', value: 'library' },
@@ -60,31 +64,13 @@ export function SettingsPage() {
  * Library section: scan roots, tag writes, genres, follow rules
  */
 function LibrarySection() {
+  // Each content block carries its own heading and intro.
   return (
     <div className={styles.sections}>
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Scan Roots</h2>
-        <p className={styles.sectionDescription}>Manage the folders Liner indexes for music files</p>
-        <SettingsScanRootsContent />
-      </section>
-
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Tag Writes</h2>
-        <p className={styles.sectionDescription}>Control metadata writing to your music files</p>
-        <SettingsTagWritesContent />
-      </section>
-
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Genres</h2>
-        <p className={styles.sectionDescription}>Configure genre whitelisting and aliases</p>
-        <SettingsGenresContent />
-      </section>
-
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Follow Rules</h2>
-        <p className={styles.sectionDescription}>Set defaults for artist discography collection</p>
-        <SettingsFollowRulesContent />
-      </section>
+      <section className={styles.subsection}><SettingsScanRootsContent /></section>
+      <section className={styles.subsection}><SettingsTagWritesContent /></section>
+      <section className={styles.subsection}><SettingsGenresContent /></section>
+      <section className={styles.subsection}><SettingsFollowRulesContent /></section>
     </div>
   );
 }

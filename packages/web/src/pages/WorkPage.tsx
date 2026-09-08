@@ -51,8 +51,9 @@ export function WorkPage() {
   const queueCount = queueData?.total ?? 0;
   const needsReviewCount = stats?.states.needsReview ?? 0;
   const attentionTotal = useMemo(() => {
-    if (!gapsData?.counts) return 0;
-    return Object.values(gapsData.counts).reduce((a, b) => a + b, 0);
+    const c = gapsData?.counts;
+    if (!c) return 0;
+    return (c['incomplete_album'] ?? 0) + (c['duplicate'] ?? 0) + (c['missing_album'] ?? 0);
   }, [gapsData]);
 
   const tabs: TabItem[] = useMemo(

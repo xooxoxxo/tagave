@@ -71,10 +71,12 @@ export function DashboardPage() {
   // Calculate metrics
   const identifiedShare = identifyStats ? (identifyStats.identifiedShare * 100).toFixed(1) : '—';
   const gaps = gapsCounts?.counts ?? {};
-  const totalGaps = Object.values(gaps).reduce((sum, count) => sum + count, 0);
+  // Open gaps are the collection kinds; quality flags are tag/art hygiene and
+  // feed Tag health instead.
+  const totalGaps = (gaps['incomplete_album'] ?? 0) + (gaps['duplicate'] ?? 0) + (gaps['missing_album'] ?? 0);
   const queueTotal = queueData?.total ?? 0;
-  const totalAlbums = albumsData?.total ?? 0;
-  const albumsWithoutGaps = totalAlbums - totalGaps;
+  const totalAlbums = identifyStats?.total ?? albumsData?.total ?? 0;
+  const albumsWithoutGaps = Math.max(0, totalAlbums - (gaps['quality'] ?? 0));
   const tagHealth = totalAlbums > 0 ? ((albumsWithoutGaps / totalAlbums) * 100).toFixed(1) : '—';
 
   // Build "Needs You" shortcuts from counts
@@ -102,7 +104,7 @@ export function DashboardPage() {
   }
   if (gaps.quality) {
     needsYouItems.push({
-      label: 'albums with quality flags',
+      label: 'albums with tag or art flags',
       count: gaps.quality,
       tab: 'attention',
     });
@@ -206,7 +208,7 @@ export function DashboardPage() {
                   className={styles.planItem}
                 >
                   <span className={styles.planName}>{plan.name}</span>
-                  <span className={styles.planState}>{plan.status}</span>
+                  <span className={styles.planState}>{plan.status.replace(/_/g, ' ')}</span>
                 </Link>
               ))}
             </div>

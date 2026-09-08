@@ -3,6 +3,9 @@
  */
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigate, useSearch } from '@tanstack/react-router';
+import { api } from '../services/api';
 import type { TagPlan } from '@liner/shared';
 import { PageShell, Button, Badge, statusTone, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
@@ -17,7 +20,26 @@ export function PlansPage() {
   const [offset, setOffset] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done'>('all');
   const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset });
+  const navigate = useNavigate();
+  const { album: albumParam } = useSearch({ strict: false }) as { album?: string };
   const [showWizard, setShowWizard] = useState(false);
+  const albumForWizard = useQuery({
+    queryKey: ['album-label', libraryId, albumParam],
+    queryFn: () => api.get<{ title: string; artistCredit: string }>(`/libraries/${libraryId}/albums/${albumParam}`),
+    enabled: !!libraryId && !!albumParam,
+    staleTime: 5 * 60 * 1000,
+  });
+  const wizardOpen = showWizard || !!albumParam;
+  const closeWizard = () => {
+    setShowWizard(false);
+    if (albumParam) void navigate({ to: '/plans', search: {} });
+  };
+  const initialScope = albumParam
+    ? {
+        albumIds: [albumParam],
+        ...(albumForWizard.data ? { albumLabels: { [albumParam]: `${albumForWizard.data.artistCredit} — ${albumForWizard.data.title}` } } : {}),
+      }
+    : undefined;
 
   if (!libraryId) {
     return <PageShell title="Tag plans">Loading...</PageShell>;
@@ -174,10 +196,12 @@ export function PlansPage() {
         </>
       )}
 
-      {showWizard && (
+      {wizardOpen && (albumParam ? !albumForWizard.isLoading : true) && (
         <PlanWizard
+          key={albumParam ?? 'blank'}
           libraryId={libraryId}
-          onClose={() => setShowWizard(false)}
+          onClose={closeWizard}
+          {...(initialScope ? { initialScope } : {})}
         />
       )}
     </PageShell>

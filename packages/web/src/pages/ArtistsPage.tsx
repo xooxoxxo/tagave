@@ -82,9 +82,7 @@ export function ArtistsPage() {
                     </Td>
                     <Td>{yearRange}</Td>
                     <Td className={styles.badgeCell}>
-                      {!isResolved && (
-                        <Badge tone="neutral">No MusicBrainz ID</Badge>
-                      )}
+                      
                     </Td>
                   </>
                 );

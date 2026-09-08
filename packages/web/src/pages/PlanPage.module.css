@@ -111,6 +111,7 @@
 .cellPath {
   color: var(--text-secondary);
   background: var(--bg-primary);
+  vertical-align: top;
 }
 
 .pathDir {
