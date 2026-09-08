@@ -38,6 +38,7 @@ export async function createFingerprintRoutes(fastify: FastifyInstance) {
              count(*) filter (where acoustid_result = 'no_candidates')::int as no_candidates,
              count(*) filter (where acoustid_result = 'no_fingerprints')::int as no_fingerprints,
              count(*) filter (where acoustid_result = 'no_key')::int as no_key,
+             count(*) filter (where acoustid_result = 'bad_key')::int as bad_key,
              count(*) filter (where state = 'matched' and exists (
                select 1 from album_matches am join match_candidates mc on mc.local_album_id = am.local_album_id and mc.release_id = am.release_id
                where am.local_album_id = local_albums.id and am.status in ('auto', 'confirmed') and mc.source = 'acoustid'))::int as matched_via_acoustid
@@ -53,6 +54,10 @@ export async function createFingerprintRoutes(fastify: FastifyInstance) {
     const [lookups] = (await db.execute(sql`
       select count(*)::int as cached, count(*) filter (where fetched_at > now() - interval '24 hours')::int as last_24h
       from provider_cache where provider = 'acoustid'`)) as unknown as [Record<string, number>];
+    // parked circuit (bad key, quota): the sweep skips while this is in the future
+    const [provider] = (await db.execute(sql`
+      select circuit_open_until, last_error from provider_state
+      where provider = 'acoustid' and circuit_open_until > now()`)) as unknown as [{ circuit_open_until: Date | string; last_error: string | null } | undefined];
 
     reply.send({
       enabled: settings['fingerprintingEnabled'] === true,
@@ -65,11 +70,15 @@ export async function createFingerprintRoutes(fastify: FastifyInstance) {
         noCandidates: albums?.['no_candidates'] ?? 0,
         noFingerprints: albums?.['no_fingerprints'] ?? 0,
         noKey: albums?.['no_key'] ?? 0,
+        badKey: albums?.['bad_key'] ?? 0,
         matchedViaAcoustid: albums?.['matched_via_acoustid'] ?? 0,
       },
       files: { fingerprinted: files?.['fingerprinted'] ?? 0, failed: files?.['failed'] ?? 0 },
       queue: { fingerprintWaiting: queue?.['fingerprint_waiting'] ?? 0, lookupWaiting: queue?.['lookup_waiting'] ?? 0 },
       lookups: { cached: lookups?.['cached'] ?? 0, last24h: lookups?.['last_24h'] ?? 0 },
+      provider: provider
+        ? { parkedUntil: new Date(provider.circuit_open_until).toISOString(), reason: provider.last_error }
+        : null,
     });
   });
 

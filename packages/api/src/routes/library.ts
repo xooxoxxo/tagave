@@ -199,6 +199,17 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
       .where(eq(libraries.id, libraryId));
 
+    // A new AcoustID key lifts the park the worker set when the old one was
+    // rejected, and the albums it could not ask get their turn again.
+    if (typeof body.acoustidKey === 'string' && body.acoustidKey.length > 0) {
+      await db.execute(sql`
+        update provider_state set circuit_open_until = null, last_error = null
+        where provider = 'acoustid' and circuit_open_until > now()`);
+      await db.execute(sql`
+        update local_albums set acoustid_result = null
+        where library_id = ${libraryId} and acoustid_result = 'bad_key'`);
+    }
+
     // Return the view
     const contactString = (mergedSettings as Record<string, any>)['contactString'] ?? null;
     const discogsTokenHint = (mergedSettings as Record<string, any>)['discogsTokenHint'] ?? null;

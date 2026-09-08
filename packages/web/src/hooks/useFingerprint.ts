@@ -12,11 +12,14 @@ export interface FingerprintStats {
     noCandidates: number;
     noFingerprints: number;
     noKey: number;
+    badKey: number;
     matchedViaAcoustid: number;
   };
   files: { fingerprinted: number; failed: number };
   queue: { fingerprintWaiting: number; lookupWaiting: number };
   lookups: { cached: number; last24h: number };
+  /** set while AcoustID is parked (rejected key, quota); the sweep skips until then */
+  provider: { parkedUntil: string; reason: string | null } | null;
 }
 
 export function useFingerprintStats(libraryId: string | undefined, enabled = true) {

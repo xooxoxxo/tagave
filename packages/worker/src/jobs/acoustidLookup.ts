@@ -16,6 +16,13 @@ const MIN_COVERAGE = 0.5;
 const MAX_CANDIDATES = 3;
 /** Bulk/triage tier (api/lib/identifyRequests.ts): ahead of the sweep, behind an owner's click. */
 const IDENTIFY_PRIORITY = 50;
+/** How long the sweep stays parked after AcoustID rejects the key (a new key in Settings clears it). */
+const BAD_KEY_COOLDOWN_MS = 6 * 3600_000;
+
+/** AcoustID error code 4 = "invalid API key" (a user key pasted where an application key belongs). */
+function isBadKey(err: AcoustIdError): boolean {
+  return err.code === 4 || /invalid api key/i.test(err.message);
+}
 
 interface TrackRow {
   audio_file_id: string;
@@ -51,6 +58,8 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
   }
 
   const perTrack: AcoustIdRecording[][] = [];
+  let failed = 0;
+  let lastError: Error | undefined;
   for (const t of tracks) {
     const key = cacheKey('acoustid-lookup', fingerprintHash(t.fingerprint));
     try {
@@ -62,9 +71,26 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
         await openCooldown(ctx.sql, 'acoustid', 60_000, err.message);
         throw err; // pg-boss retries the album after the cooldown
       }
+      if (err instanceof AcoustIdError && isBadKey(err)) {
+        // A wrong key fails every lookup of every album: park the provider for
+        // 6 h (the sweep skips while the circuit is open; saving a new key in
+        // Settings clears it) and leave the album for a retry — it was not
+        // "no candidates", it was never asked.
+        await openCooldown(ctx.sql, 'acoustid', BAD_KEY_COOLDOWN_MS, err.message);
+        await ctx.sql`update local_albums set acoustid_result = 'bad_key' where id = ${album.id}`;
+        ctx.logger.error({ localAlbumId: album.id, err: err.message }, 'acoustid.lookup: AcoustID rejects the API key; fingerprint sweep paused');
+        return;
+      }
+      failed += 1;
+      lastError = err as Error;
       ctx.logger.warn({ localAlbumId: album.id, err: (err as Error).message }, 'acoustid.lookup: track lookup failed');
       perTrack.push([]);
     }
+  }
+  if (failed > 0 && failed === tracks.length) {
+    // nothing was actually looked up (network, outage): let pg-boss retry rather
+    // than recording a verdict the provider never gave
+    throw lastError;
   }
 
   const ranked = rankAcoustIdReleases(perTrack).filter((r) => r.coverage >= MIN_COVERAGE).slice(0, MAX_CANDIDATES);

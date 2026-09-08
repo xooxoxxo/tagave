@@ -181,6 +181,15 @@ export function SettingsProvidersPage() {
               {' · '}{fpStats.lookups.last24h.toLocaleString()} lookups in 24 h
             </p>
           )}
+          {fpStats?.provider && (
+            <p className={styles.error} role="alert">
+              AcoustID is parked until {new Date(fpStats.provider.parkedUntil).toLocaleTimeString()}
+              {fpStats.provider.reason ? `: ${fpStats.provider.reason}` : ''}.
+              {/invalid api key/i.test(fpStats.provider.reason ?? '')
+                ? ' Lookups need an application key (acoustid.org/new-application), not your user key — saving a new key above clears this.'
+                : ' Saving a new key above clears this.'}
+            </p>
+          )}
         </div>
 
         <div className={styles.actions}>

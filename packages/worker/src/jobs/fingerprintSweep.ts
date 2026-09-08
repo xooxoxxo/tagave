@@ -14,6 +14,15 @@ export interface FingerprintSweepJobData {
  * first (no tags, no candidates), weak candidates after.
  */
 export async function fingerprintSweepJob(ctx: WorkerContext, data: FingerprintSweepJobData): Promise<void> {
+  // A parked provider (bad key, quota) means every lookup would fail: fingerprinting
+  // ahead of it only burns NAS reads, so the sweep waits for the circuit to close.
+  const [parked] = (await ctx.sql`
+    select circuit_open_until, last_error from provider_state
+    where provider = 'acoustid' and circuit_open_until > now()`) as unknown as Array<{ circuit_open_until: Date; last_error: string | null }>;
+  if (parked) {
+    ctx.logger.warn({ until: parked.circuit_open_until, reason: parked.last_error }, 'fingerprint.sweep: AcoustID parked, skipping');
+    return;
+  }
   const libraries = data.libraryId
     ? [data.libraryId]
     : ((await ctx.sql`select id from libraries`) as unknown as Array<{ id: string }>).map((r) => r.id);
