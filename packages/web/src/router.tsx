@@ -14,6 +14,7 @@ import {
   PlanPage,
   WorkPage,
   SettingsPage,
+  CollectionPage,
 } from './pages';
 import { useMe } from './hooks';
 import { parseAlbumsSearch } from './pages/albumsSearch';
@@ -166,10 +167,11 @@ const attentionRedirect = new Route({
   beforeLoad: () => redirect({ to: '/work', search: { tab: 'attention' } }),
 });
 
-const collectionRedirect = new Route({
+// Collection is the physical archive: a main surface, not a setting.
+const collectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/collection',
-  beforeLoad: () => redirect({ to: '/settings/collection' }),
+  component: CollectionPage,
 });
 
 const jobsOldRoute = new Route({
@@ -243,7 +245,7 @@ const routeTree = rootRoute.addChildren([
     queueRedirect,
     identifyRedirect,
     attentionRedirect,
-    collectionRedirect,
+    collectionRoute,
     jobsOldRoute,
     scanRootsRedirect,
     tagWritesRedirect,

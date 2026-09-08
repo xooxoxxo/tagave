@@ -297,7 +297,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       const { libraryId, planId } = request.params as { libraryId: string; planId: string };
-      const { field, album } = request.query as { field?: string; album?: string };
+      const { field, album, status: statusQ } = request.query as { field?: string; album?: string; status?: string };
       const db = getDb();
 
       // Verify library ownership
@@ -333,6 +333,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       if (album) {
         conds.push(sql`${tagPlanItems.audioFileId} in (select lt.audio_file_id from local_tracks lt where lt.local_album_id = ${album})`);
       }
+      if (statusQ && ['pending', 'applying', 'applied', 'failed', 'skipped'].includes(statusQ)) {
+        conds.push(eq(tagPlanItems.status, statusQ));
+      }
       const where = and(...conds);
 
       const [[count], rows] = await Promise.all([
@@ -343,6 +346,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             planId: tagPlanItems.tagPlanId,
             audioFileId: tagPlanItems.audioFileId,
             relPath: audioFiles.relPath,
+            status: tagPlanItems.status,
+            error: tagPlanItems.error,
             diffs: tagPlanItems.diff,
           })
           .from(tagPlanItems)
@@ -358,10 +363,53 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         planId: item.planId,
         audioFileId: item.audioFileId,
         relPath: item.relPath,
+        status: (item.status ?? 'pending') as TagPlanItem['status'],
+        ...(item.error ? { error: item.error } : {}),
         diffs: ((item.diffs as any[]) || []).filter((d: any) => !field || d.field === field),
       }));
 
       reply.send({ items: formatted, total: count?.n ?? 0, limit, offset });
+    }
+  );
+
+  /**
+   * GET /api/v1/libraries/:libraryId/tag-plans/:planId/summary
+   * What the plan changes, aggregated: one row per (field, reason) with the
+   * number of files, so a large plan reads as "date: 4,120 overwrite" before
+   * anyone scrolls a table.
+   */
+  fastify.get<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/summary',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+      const lib = await db
+        .select({ id: libraries.id })
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const plan = await db
+        .select({ id: tagPlans.id })
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+      if (plan.length === 0) throw new ApiError(404, 'Not Found', 'Tag plan not found');
+
+      const rows = (await db.execute(sql`
+        select d->>'field' as field, d->>'reason' as reason, count(*)::int as files
+        from tag_plan_items i, jsonb_array_elements(i.diff) d
+        where i.tag_plan_id = ${planId} and d->>'reason' <> 'no-change'
+        group by 1, 2
+        order by 3 desc, 1`)) as unknown as Array<{ field: string; reason: string; files: number }>;
+      const statuses = (await db.execute(sql`
+        select status, count(*)::int as files from tag_plan_items where tag_plan_id = ${planId} group by 1`)) as unknown as Array<{ status: string; files: number }>;
+
+      reply.send({
+        fields: rows.map((r) => ({ field: r.field, reason: r.reason, files: Number(r.files) })),
+        statuses: Object.fromEntries(statuses.map((r) => [r.status, Number(r.files)])),
+      });
     }
   );
 

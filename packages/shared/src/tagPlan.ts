@@ -156,6 +156,8 @@ export const tagPlanItemSchema = z.object({
   planId: z.string().uuid().describe('Tag plan ID'),
   audioFileId: z.string().uuid().describe('Audio file ID'),
   relPath: z.string().optional().describe('Path of the file relative to its scan root (for the preview table)'),
+  status: z.enum(['pending', 'applying', 'applied', 'failed', 'skipped']).optional().describe('Write state of this file within the plan'),
+  error: z.string().optional().describe('Why the write failed or was skipped'),
   diffs: z.array(tagDiffEntrySchema).describe('List of field changes for this file'),
 }).strict().describe('Per-file diffs in a tag plan');
 

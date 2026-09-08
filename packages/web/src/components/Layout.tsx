@@ -36,7 +36,8 @@ export function Layout() {
   const isLibraryActive = location.pathname.startsWith('/albums') || location.pathname.startsWith('/artists');
   const isWorkActive = location.pathname.startsWith('/work') || location.pathname.startsWith('/queue') || location.pathname.startsWith('/identify') || location.pathname.startsWith('/attention');
   const isPlansActive = location.pathname.startsWith('/plans');
-  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/collection') || location.pathname.startsWith('/jobs');
+  const isCollectionActive = location.pathname.startsWith('/collection');
+  const isSettingsActive = location.pathname.startsWith('/settings') || location.pathname.startsWith('/jobs');
 
   return (
     <div className={styles.container}>
@@ -76,6 +77,12 @@ export function Layout() {
             className={isPlansActive ? styles.navLinkActive : styles.navLink}
           >
             Plans
+          </Link>
+          <Link
+            to="/collection"
+            className={isCollectionActive ? styles.navLinkActive : styles.navLink}
+          >
+            Collection
           </Link>
           <Link
             to="/settings"

@@ -10,13 +10,12 @@ import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
-import { CollectionPage } from './CollectionPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import styles from './SettingsPage.module.css';
 
-type SettingsSection = 'library' | 'providers' | 'collection' | 'system';
+type SettingsSection = 'library' | 'providers' | 'system';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -25,12 +24,11 @@ export function SettingsPage() {
   // (typed links), so the section also has to come from the path.
   const pathSection = useLocation().pathname.split('/')[2];
   const raw = params.section || pathSection || 'library';
-  const section = (['library', 'providers', 'collection', 'system'].includes(raw) ? raw : 'library') as SettingsSection;
+  const section = (['library', 'providers', 'system'].includes(raw) ? raw : 'library') as SettingsSection;
 
   const tabs: TabItem[] = [
     { label: 'Library', value: 'library' },
     { label: 'Providers', value: 'providers' },
-    { label: 'Collection', value: 'collection' },
     { label: 'System', value: 'system' },
   ];
 
@@ -53,7 +51,6 @@ export function SettingsPage() {
       <div className={styles.content}>
         {section === 'library' && <LibrarySection />}
         {section === 'providers' && <ProvidersSection />}
-        {section === 'collection' && <CollectionSection />}
         {section === 'system' && <SystemSection />}
       </div>
     </PageShell>
@@ -82,17 +79,6 @@ function ProvidersSection() {
   return (
     <div className={styles.pageWrapper}>
       <SettingsProvidersPage />
-    </div>
-  );
-}
-
-/**
- * Collection section: curated releases and follow state
- */
-function CollectionSection() {
-  return (
-    <div className={styles.pageWrapper}>
-      <CollectionPage />
     </div>
   );
 }

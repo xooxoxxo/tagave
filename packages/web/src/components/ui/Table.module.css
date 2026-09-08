@@ -37,13 +37,11 @@
   background-color: var(--bg-hover);
 }
 
-.trLink {
-  display: block;
-  color: inherit;
-  text-decoration: none;
+.trClickable {
+  cursor: pointer;
   outline: none;
 }
 
-.trLink:focus-visible {
+.trClickable:focus-visible {
   box-shadow: inset 0 0 0 2px rgba(var(--accent-rgb), 0.35);
 }

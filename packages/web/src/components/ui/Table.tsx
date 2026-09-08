@@ -1,5 +1,5 @@
 import { ReactNode, TableHTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from 'react';
-import { Link } from '@tanstack/react-router';
+import { useNavigate } from '@tanstack/react-router';
 import styles from './Table.module.css';
 
 export function Table({
@@ -41,27 +41,26 @@ interface TableRowProps {
   children: ReactNode;
 }
 
+/**
+ * A row that navigates. Cells stay in the parent table (a nested table for
+ * the link broke column alignment against the header), so the row itself is
+ * the link: click or Enter / Space navigates, and it is focusable.
+ */
 export function TableRow({ to, onClick, className, children }: TableRowProps) {
-  const cls = [styles.tr, className].filter(Boolean).join(' ');
-
-  if (to) {
-    return (
-      <tr className={cls}>
-        <td colSpan={999} style={{ padding: 0 }}>
-          <Link to={to} className={styles.trLink}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <tbody>
-                <tr>{children}</tr>
-              </tbody>
-            </table>
-          </Link>
-        </td>
-      </tr>
-    );
-  }
-
+  const navigate = useNavigate();
+  const go = to ? () => { void navigate({ to }); } : onClick;
+  const cls = [styles.tr, go ? styles.trClickable : '', className].filter(Boolean).join(' ');
+  if (!go) return <tr className={cls}>{children}</tr>;
   return (
-    <tr className={cls} onClick={onClick} style={onClick ? { cursor: 'pointer' } : undefined}>
+    <tr
+      className={cls}
+      onClick={go}
+      tabIndex={0}
+      role="link"
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      }}
+    >
       {children}
     </tr>
   );

@@ -89,19 +89,41 @@ export interface TagPlanItemsPage {
 export function useTagPlanItems(
   libraryId: string | undefined,
   planId: string | undefined,
-  opts?: { fieldFilter?: string; albumFilter?: string; limit?: number; offset?: number; enabled?: boolean }
+  opts?: { fieldFilter?: string; albumFilter?: string; statusFilter?: string; limit?: number; offset?: number; enabled?: boolean; refetchInterval?: number | false }
 ) {
   return useQuery({
-    queryKey: ['tag-plan-items', libraryId, planId, opts?.fieldFilter ?? '', opts?.albumFilter ?? '', opts?.limit ?? 100, opts?.offset ?? 0],
+    queryKey: ['tag-plan-items', libraryId, planId, opts?.fieldFilter ?? '', opts?.albumFilter ?? '', opts?.statusFilter ?? '', opts?.limit ?? 100, opts?.offset ?? 0],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (opts?.fieldFilter) params.append('field', opts.fieldFilter);
       if (opts?.albumFilter) params.append('album', opts.albumFilter);
+      if (opts?.statusFilter) params.append('status', opts.statusFilter);
       params.append('limit', String(opts?.limit ?? 100));
       params.append('offset', String(opts?.offset ?? 0));
       return api.get<TagPlanItemsPage>(`/libraries/${libraryId}/tag-plans/${planId}/items?${params.toString()}`);
     },
     enabled: !!libraryId && !!planId && (opts?.enabled ?? true),
+    refetchInterval: opts?.refetchInterval ?? false,
+    placeholderData: (prev) => prev,
+  });
+}
+
+/** Aggregated changes: files per (field, reason), and files per write status. */
+export interface TagPlanSummary {
+  fields: Array<{ field: string; reason: string; files: number }>;
+  statuses: Record<string, number>;
+}
+
+export function useTagPlanSummary(
+  libraryId: string | undefined,
+  planId: string | undefined,
+  opts?: { enabled?: boolean; refetchInterval?: number | false },
+) {
+  return useQuery({
+    queryKey: ['tag-plan-summary', libraryId, planId],
+    queryFn: () => api.get<TagPlanSummary>(`/libraries/${libraryId}/tag-plans/${planId}/summary`),
+    enabled: !!libraryId && !!planId && (opts?.enabled ?? true),
+    refetchInterval: opts?.refetchInterval ?? false,
   });
 }
 

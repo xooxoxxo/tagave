@@ -1,14 +1,15 @@
 /**
- * One tag plan, full page: what it covers, what it would change (per-file
- * diff table), and the buttons for its current state — run the preview,
- * apply, pause, resume, cancel, revert. Reached from the plans list and from
- * the wizard the moment a plan is created; the same page serves plans made
- * earlier. Nothing is written until Apply.
+ * One tag plan, full page. Reads top-down the way a large batch has to be
+ * read: what the plan is, how far it got, which fields it changes (and how
+ * many files each), then one collapsed row per file that opens into the
+ * per-field diff. Actions for the current state sit in the header. Nothing
+ * is written until Apply.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
-import type { TagDiffEntry } from '@liner/shared';
-import { PageShell, Button, Badge, statusTone, Banner, StatCard, Table, Th, Td } from '../components/ui';
+import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
+import { PageShell, Button, Badge, statusTone, Banner, StatCard, Card } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -20,12 +21,20 @@ import {
   useRevertTagPlan,
   useTagPlan,
   useTagPlanItems,
+  useTagPlanSummary,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
+/** How long the page keeps polling after an action while it waits for the worker to flip the status. */
+const AWAIT_MS = 120_000;
+
+type ItemStatus = NonNullable<TagPlanItem['status']>;
+const ITEM_TONE: Record<ItemStatus, 'neutral' | 'info' | 'success' | 'danger' | 'warning'> = {
+  pending: 'neutral', applying: 'info', applied: 'success', failed: 'danger', skipped: 'warning',
+};
 
 function fmtValue(v: string | string[] | null): string {
   if (v === null || v === undefined) return '—';
@@ -51,21 +60,43 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
   }
 }
 
+const reasonLabel = (r: string) => r.replace('policy:', '');
+
 export function PlanPage() {
   const { planId } = useParams({ strict: false }) as { planId: string };
   const { libraryId } = useCurrentLibrary();
+  const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [field, setField] = useState('');
+  const [itemStatus, setItemStatus] = useState('');
   const [offset, setOffset] = useState(0);
   const [pathFilter, setPathFilter] = useState('');
   const [previewRequested, setPreviewRequested] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [allOpen, setAllOpen] = useState(false);
+  // Status at the moment an action was sent; the page polls until it changes
+  // (the worker flips it a few seconds after the 202), or gives up after AWAIT_MS.
+  const [awaiting, setAwaiting] = useState<string | null>(null);
 
-  const plan = useTagPlan(libraryId, planId, { refetchInterval: 0 });
-  const status = plan.data?.status;
-  // Poll while a worker is on it: preview running, applying, paused.
-  const polling = previewRequested || (status !== undefined && BUSY.has(status));
-  const livePlan = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : false });
-  const p = livePlan.data ?? plan.data;
+  const planQ = useTagPlan(libraryId, planId, { refetchInterval: 0 });
+  const status = planQ.data?.status;
+  const polling = previewRequested || awaiting !== null || (status !== undefined && BUSY.has(status));
+  const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : false });
+  const p = liveQ.data ?? planQ.data;
+
+  useEffect(() => {
+    if (awaiting !== null && status !== undefined && status !== awaiting) setAwaiting(null);
+  }, [awaiting, status]);
+  useEffect(() => {
+    if (awaiting === null) return;
+    const t = setTimeout(() => setAwaiting(null), AWAIT_MS);
+    return () => clearTimeout(t);
+  }, [awaiting]);
+  // Items and the summary change together with the plan status.
+  useEffect(() => {
+    void qc.invalidateQueries({ queryKey: ['tag-plan-items', libraryId, planId] });
+    void qc.invalidateQueries({ queryKey: ['tag-plan-summary', libraryId, planId] });
+  }, [status, libraryId, planId, qc]);
 
   const settings = useLibrarySettings(libraryId);
   const roots = useScanRoots(libraryId);
@@ -77,7 +108,15 @@ export function PlanPage() {
   const revertM = useRevertTagPlan(libraryId, planId);
 
   const previewed = !!p && p.status !== 'draft';
-  const items = useTagPlanItems(libraryId, planId, { ...(field ? { fieldFilter: field } : {}), limit: PAGE_SIZE, offset, enabled: previewed });
+  const summary = useTagPlanSummary(libraryId, planId, { enabled: previewed, refetchInterval: polling ? 4000 : false });
+  const items = useTagPlanItems(libraryId, planId, {
+    ...(field ? { fieldFilter: field } : {}),
+    ...(itemStatus ? { statusFilter: itemStatus } : {}),
+    limit: PAGE_SIZE,
+    offset,
+    enabled: previewed,
+    refetchInterval: polling ? 4000 : false,
+  });
 
   // A freshly created plan (or one reverted to draft) previews itself once.
   useEffect(() => {
@@ -96,8 +135,8 @@ export function PlanPage() {
   const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
   const applyTitle = !previewed ? 'Preview has not finished yet'
     : nothingToDo ? 'Nothing to change'
-      : tagWritesDisabled ? 'Tag writes are off in Settings › Tag writes'
-        : noWritableRoots ? 'No scan root allows writes (Settings › Scan roots)'
+      : tagWritesDisabled ? 'Tag writes are off in Settings › Library'
+        : noWritableRoots ? 'No scan root allows writes (Settings › Library)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
 
   const run = (m: { mutateAsync: () => Promise<unknown> }, confirmText?: string) => async () => {
@@ -105,86 +144,104 @@ export function PlanPage() {
     setError(null);
     try {
       await m.mutateAsync();
+      setAwaiting(p?.status ?? null);
     } catch (e) {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
     }
   };
 
-  const fields = useMemo(() => {
-    const s = new Set<string>();
-    for (const it of items.data?.items ?? []) for (const d of it.diffs) s.add(d.field);
-    return [...s].sort();
-  }, [items.data]);
-  const visibleItems = (items.data?.items ?? []).filter((it) => !pathFilter || (it.relPath ?? '').toLowerCase().includes(pathFilter.toLowerCase()));
+  const byField = useMemo(() => {
+    const map = new Map<string, { files: number; reasons: Record<string, number> }>();
+    for (const r of summary.data?.fields ?? []) {
+      const cur = map.get(r.field) ?? { files: 0, reasons: {} };
+      cur.files += r.files;
+      cur.reasons[r.reason] = (cur.reasons[r.reason] ?? 0) + r.files;
+      map.set(r.field, cur);
+    }
+    return [...map.entries()].sort((a, b) => b[1].files - a[1].files || a[0].localeCompare(b[0]));
+  }, [summary.data]);
+  const statusCounts = summary.data?.statuses ?? {};
+
+  const pageItems = items.data?.items ?? [];
+  const visibleItems = pathFilter
+    ? pageItems.filter((it) => (it.relPath ?? '').toLowerCase().includes(pathFilter.toLowerCase()))
+    : pageItems;
   const total = items.data?.total ?? 0;
   const pageEnd = Math.min(offset + PAGE_SIZE, total);
   const done = (progress?.applied ?? 0) + (progress?.failed ?? 0) + (progress?.skipped ?? 0);
   const pct = progress && progress.total > 0 ? Math.round((done / progress.total) * 100) : 0;
 
-  if (!libraryId || plan.isLoading) return <PageShell title="Loading">Loading plan…</PageShell>;
-  if (plan.isError || !p) {
+  const isOpen = (id: string) => (allOpen ? !expanded.has(id) : expanded.has(id));
+  const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
+
+  if (!libraryId || planQ.isLoading) return <PageShell title="Loading">Loading plan…</PageShell>;
+  if (planQ.isError || !p) {
     return (
       <PageShell title="Plan not found">
-        <Link to="/plans" className={styles.back}>← Plans</Link>
-        <p className={styles.error}>This plan could not be loaded.</p>
+        <div className={styles.body}>
+          <Link to="/plans" className={styles.back}>← Plans</Link>
+          <p className={styles.error}>This plan could not be loaded.</p>
+        </div>
       </PageShell>
     );
   }
 
+  const confirmStop = 'Stop applying? Files already written stay written; you can revert them afterwards.';
+
   return (
     <PageShell
-      title={<div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-md)' }}>
         {p.name || 'Untitled plan'}
-        <Badge tone={statusTone(p.status)}>
-          {p.status.replaceAll('_', ' ')}
-        </Badge>
-      </div>}
+        <Badge tone={statusTone(p.status)}>{p.status.replaceAll('_', ' ')}</Badge>
+      </span>}
       subtitle={
-        <div className={styles.meta}>
-          {scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
+        <span className={styles.meta}>
+          <Link to="/plans" className={styles.back}>Plans</Link>
+          {' › '}{scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
           {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
           {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
-        </div>
+        </span>
       }
       actions={
-        <div style={{ display: 'flex', gap: 'var(--space-md)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
           {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
             <Button variant="secondary" onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
               {previewRequested || previewM.isPending ? 'Previewing…' : previewed ? 'Re-run preview' : 'Run preview'}
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending} title={applyTitle}>
-              {applyM.isPending ? 'Starting…' : 'Apply now'}
+            <Button variant="primary" onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+              {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
           {p.status === 'applying' && (
             <>
               <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
-              <Button variant="danger" onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</Button>
+              <Button variant="danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {p.status === 'paused' && (
             <>
-              <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending}>Resume</Button>
-              <Button variant="danger" onClick={run(cancelM, 'Stop applying? Files already written stay written; you can revert them afterwards.')} disabled={cancelM.isPending}>Cancel</Button>
+              <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending || awaiting !== null}>{awaiting !== null ? 'Resuming…' : 'Resume'}</Button>
+              <Button variant="danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
-            <Button variant="danger" onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending}>
-              {revertM.isPending ? 'Starting…' : 'Revert'}
+            <Button variant="danger" onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending || awaiting !== null}>
+              {revertM.isPending || awaiting !== null ? 'Starting…' : 'Revert'}
             </Button>
           )}
         </div>
       }
     >
-      <div style={{ padding: 'var(--page-pad)' }}>
+      <div className={styles.body}>
         {(tagWritesDisabled || noWritableRoots) && (
           <Banner tone="warning">
             <strong>This plan can be previewed but not applied yet.</strong>
             <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
-              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library" style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}>Settings › Tag writes</Link></li>}
-              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library" style={{ color: 'var(--text-primary)', textDecoration: 'underline' }}>Settings › Scan roots</Link></li>}
+              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library">Settings › Library › Tag writes</Link></li>}
+              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Library › Scan roots</Link></li>}
             </ul>
           </Banner>
         )}
@@ -193,39 +250,20 @@ export function PlanPage() {
 
         {!previewed && (
           <Banner tone="info">
-            <p style={{ margin: 0 }}>{previewRequested || previewM.isPending ? 'Computing the preview…' : 'No preview yet.'}</p>
-            <p style={{ margin: '0.25rem 0 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.</p>
+            <strong>{previewRequested || previewM.isPending ? 'Computing the preview…' : 'No preview yet.'}</strong>{' '}
+            Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.
           </Banner>
         )}
 
         {p.status === 'paused' && stats?.lastError && (
-          <Banner tone="danger">{`The last run stopped early: ${stats.lastError}. Resume retries the files that were not written.`}</Banner>
+          <Banner tone="danger">The last run stopped early: {stats.lastError}. Resume retries the files that were not written.</Banner>
         )}
 
-        {previewed && stats && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-md)', marginBottom: 'var(--space-md)' }}>
-            <StatCard label="files change" value={stats.filesTouched.toLocaleString()} />
-            <StatCard label="field changes" value={stats.fieldsModified.toLocaleString()} />
-            <StatCard label="locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />
-            <StatCard label="files skipped" value={stats.filesSkipped.length.toLocaleString()} />
-            {progress && progress.total > 0 && (p.status !== 'previewed') && (
-              <StatCard label="files written" value={progress.applied.toLocaleString()} hint={progress.failed ? `${progress.failed} failed` : undefined} />
-            )}
-          </div>
-        )}
-
-        {previewed && stats && stats.filesSkipped.length > 0 && (
-          <div style={{ marginBottom: 'var(--space-md)', fontSize: 'var(--font-size-sm)', color: 'var(--text-secondary)' }}>
-            Skipped: {Object.entries(stats.filesSkipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.message ?? s.reason]: (acc[s.message ?? s.reason] ?? 0) + 1 }), {}))
-              .map(([reason, n]) => `${n} × ${reason.replaceAll('_', ' ')}`).join(', ')}
-          </div>
-        )}
-
-        {progress && BUSY.has(p.status) && (
-          <div className={styles.progress}>
-            <div className={styles.bar}><div className={styles.fill} style={{ width: `${pct}%` }} /></div>
-            <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
-          </div>
+        {p.status === 'partially_failed' && (
+          <Banner tone="warning">
+            <strong>{(statusCounts['failed'] ?? progress?.failed ?? 0).toLocaleString()} file(s) were not written.</strong>{' '}
+            Filter the list by status "failed" to see why. A new plan over the same scope previews only what is still different.
+          </Banner>
         )}
 
         {p.status === 'applied' && (
@@ -236,17 +274,59 @@ export function PlanPage() {
           <Banner tone="info">Every file in scope already carries the canonical values under this policy. Nothing to apply.</Banner>
         )}
 
+        {previewed && stats && (
+          <div className={styles.stats}>
+            <StatCard label="files change" value={stats.filesTouched.toLocaleString()} />
+            <StatCard label="field changes" value={stats.fieldsModified.toLocaleString()} />
+            <StatCard label="locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />
+            {stats.filesSkipped.length > 0 && <StatCard label="files skipped" value={stats.filesSkipped.length.toLocaleString()} tone="warning" />}
+            {progress && progress.total > 0 && p.status !== 'previewed' && (
+              <StatCard label="files written" value={progress.applied.toLocaleString()} tone={progress.failed ? 'warning' : 'success'} hint={progress.failed ? `${progress.failed.toLocaleString()} failed` : undefined} />
+            )}
+          </div>
+        )}
+
+        {progress && BUSY.has(p.status) && (
+          <div className={styles.progress}>
+            <div className={styles.bar}><div className={styles.fill} style={{ width: `${pct}%` }} /></div>
+            <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
+          </div>
+        )}
+
+        {previewed && !nothingToDo && byField.length > 0 && (
+          <Card title="Changes by field" actions={field ? <Button variant="ghost" size="sm" onClick={() => { setField(''); setOffset(0); }}>Show all fields</Button> : undefined}>
+            <div className={styles.chips}>
+              {byField.map(([f, v]) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={`${styles.chip} ${field === f ? styles.chipActive : ''}`}
+                  onClick={() => { setField(field === f ? '' : f); setOffset(0); }}
+                  title={Object.entries(v.reasons).map(([r, n]) => `${n.toLocaleString()} ${reasonLabel(r)}`).join(' · ')}
+                  aria-pressed={field === f}
+                >
+                  <span className={styles.chipField}>{f}</span>
+                  <span className={styles.chipCount}>{v.files.toLocaleString()}</span>
+                  <span className={styles.chipReason}>{Object.keys(v.reasons).map(reasonLabel).join('/')}</span>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {previewed && !nothingToDo && (
           <>
             <div className={styles.tools}>
-              <label htmlFor="planField" className={styles.label}>Field</label>
-              <select id="planField" className={styles.select} value={field} onChange={(e) => { setField(e.target.value); setOffset(0); }}>
-                <option value="">all fields</option>
-                {fields.map((f) => <option key={f} value={f}>{f}</option>)}
+              <select aria-label="Filter by write status" className={styles.select} value={itemStatus} onChange={(e) => { setItemStatus(e.target.value); setOffset(0); }}>
+                <option value="">all files</option>
+                {(['pending', 'applying', 'applied', 'failed', 'skipped'] as ItemStatus[]).filter((s) => (statusCounts[s] ?? 0) > 0).map((s) => (
+                  <option key={s} value={s}>{s} · {(statusCounts[s] ?? 0).toLocaleString()}</option>
+                ))}
               </select>
               <input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
+              <Button variant="ghost" size="sm" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</Button>
               <span className={styles.count}>
-                {items.isLoading ? 'Loading…' : total === 0 ? 'No rows' : `${offset + 1}–${pageEnd} of ${total.toLocaleString()} files`}
+                {items.isLoading ? 'Loading…' : total === 0 ? 'No files' : `${(offset + 1).toLocaleString()}–${pageEnd.toLocaleString()} of ${total.toLocaleString()} files`}
               </span>
               <span className={styles.pager}>
                 <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>‹</Button>
@@ -254,35 +334,50 @@ export function PlanPage() {
               </span>
             </div>
 
-            <div className={styles.tableWrap}>
-              <Table>
-                <colgroup>
-                  <col className={styles.colFile} /><col className={styles.colField} /><col className={styles.colValue} /><col className={styles.colValue} /><col className={styles.colWhy} />
-                </colgroup>
-                <thead>
-                  <tr><Th>File</Th><Th>Field</Th><Th>Before</Th><Th>After</Th><Th>Why</Th></tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((it) => {
-                    const rows = (it.diffs as TagDiffEntry[]).filter((d) => d.reason !== 'no-change');
-                    if (rows.length === 0) return null;
-                    return rows.map((d, i) => (
-                      <tr key={`${it.id}:${d.field}`} className={i === 0 ? styles.firstRow : undefined}>
-                        {i === 0 && (
-                          <Td rowSpan={rows.length} className={styles.cellPath} title={it.relPath ?? it.audioFileId}>
-                            <span className={styles.pathDir}>{(it.relPath ?? '').split('/').slice(0, -1).join('/')}</span>
-                            <span className={styles.pathFile}>{(it.relPath ?? it.audioFileId).split('/').pop()}</span>
-                          </Td>
-                        )}
-                        <Td className={styles.cellField}>{d.field}</Td>
-                        <Td className={styles.cellValue}>{fmtValue(d.before)}</Td>
-                        <Td className={styles.cellValue}>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</Td>
-                        <Td className={styles.cellWhy}>{d.reason.replace('policy:', '')}</Td>
-                      </tr>
-                    ));
-                  })}
-                </tbody>
-              </Table>
+            <div className={styles.files}>
+              {visibleItems.length === 0 && !items.isLoading && <div className={styles.empty}>No files match.</div>}
+              {visibleItems.map((it) => {
+                const rows = (it.diffs as TagDiffEntry[]).filter((d) => d.reason !== 'no-change');
+                const open = isOpen(it.id);
+                const dir = (it.relPath ?? '').split('/').slice(0, -1).join('/');
+                const name = (it.relPath ?? it.audioFileId).split('/').pop();
+                const st = (it.status ?? 'pending') as ItemStatus;
+                const shown = rows.slice(0, 6);
+                return (
+                  <div key={it.id} className={styles.file}>
+                    <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
+                      <span className={`${styles.caret} ${open ? styles.caretOpen : ''}`}>▶</span>
+                      <span><Badge tone={ITEM_TONE[st]}>{st}</Badge></span>
+                      <span className={styles.path} title={it.relPath ?? it.audioFileId}>
+                        <span className={styles.pathDir}>{dir}</span>
+                        <span className={styles.pathFile}>{name}</span>
+                        {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
+                      </span>
+                      <span className={styles.fileFields}>
+                        <span className={styles.nChanges}>{rows.length} {rows.length === 1 ? 'change' : 'changes'}</span>
+                        {!open && shown.map((d) => <span key={d.field} className={styles.fieldTag}>{d.field}</span>)}
+                        {!open && rows.length > shown.length && <span className={styles.fieldMore}>+{rows.length - shown.length}</span>}
+                      </span>
+                    </button>
+                    {open && (
+                      <table className={styles.diff}>
+                        <colgroup><col className={styles.colField} /><col /><col /><col className={styles.colWhy} /></colgroup>
+                        <thead><tr><th>Field</th><th>Before</th><th>After</th><th>Why</th></tr></thead>
+                        <tbody>
+                          {rows.map((d) => (
+                            <tr key={d.field}>
+                              <td className={styles.cellField}>{d.field}</td>
+                              <td className={styles.cellBefore}>{fmtValue(d.before)}</td>
+                              <td>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
+                              <td className={styles.cellWhy}>{reasonLabel(d.reason)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
