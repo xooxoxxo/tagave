@@ -463,3 +463,173 @@
   color: var(--error);
   padding: var(--space-xl);
 }
+
+.settingsButton {
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.settingsButton:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.settingsButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.followRulesEditor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: slideIn 0.3s ease-out forwards;
+}
+
+.editorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-lg);
+}
+
+.editorTitle {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.closeButton {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-size-lg);
+  padding: 0;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.closeButton:hover {
+  color: var(--text-primary);
+}
+
+.editorContent {
+  background: var(--bg-primary);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  max-width: 500px;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.rulesSection {
+  margin-bottom: var(--space-lg);
+}
+
+.sectionLabel {
+  margin: 0 0 var(--space-md) 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.typeOptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s;
+  user-select: none;
+}
+
+.checkbox:hover {
+  background: var(--bg-secondary);
+}
+
+.checkbox input {
+  width: 1.125rem;
+  height: 1.125rem;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.editorActions {
+  display: flex;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--border);
+}
+
+.resetButton {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  transition: background-color 0.2s;
+}
+
+.resetButton:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.resetButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.saveButton {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  transition: background-color 0.2s;
+}
+
+.saveButton:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.saveButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

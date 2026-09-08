@@ -10,6 +10,8 @@ import {
 } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
+import { normalizeFollowRules } from '@liner/core';
+import { followRulesSchema } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 
 const ENRICH_TTL_DAYS = 7;
@@ -385,5 +387,118 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     }
 
     reply.send({ discographyUpdated: false });
+  });
+
+  /**
+   * PATCH /libraries/:libraryId/artists/:artistId/follow-rules
+   * Update per-artist type filter overrides (includePrimary, excludeSecondary).
+   * Artist must be followed first.
+   */
+  fastify.patch('/libraries/:libraryId/artists/:artistId/follow-rules', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, artistId } = request.params as { libraryId: string; artistId: string };
+    const body = request.body as { includePrimary?: string[]; excludeSecondary?: string[] };
+
+    await ownedLibrary(request.user.id, libraryId);
+    const db = getDb();
+
+    // Verify artist exists
+    const [artist] = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (!artist) throw new ApiError(404, 'Not Found', 'Artist not found');
+
+    // Verify artist is followed
+    const [followRow] = await db.select().from(followedArtists)
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+    if (!followRow) throw new ApiError(403, 'Forbidden', 'Artist must be followed to set type filters');
+
+    // Validate and normalize the provided rules
+    const current = {
+      includePrimary: (followRow.includePrimary ?? ['Album']) as string[],
+      excludeSecondary: (followRow.excludeSecondary ?? ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack']) as string[],
+    };
+
+    const updates: Record<string, unknown> = {};
+    let normalized;
+    try {
+      normalized = normalizeFollowRules({
+        includePrimary: (body.includePrimary ?? current.includePrimary) as any,
+        excludeSecondary: (body.excludeSecondary ?? current.excludeSecondary) as any,
+      });
+    } catch (err) {
+      throw new ApiError(400, 'Bad Request', (err as Error).message);
+    }
+
+    if (body.includePrimary !== undefined) {
+      updates.includePrimary = normalized.includePrimary;
+    }
+    if (body.excludeSecondary !== undefined) {
+      updates.excludeSecondary = normalized.excludeSecondary;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db.update(followedArtists)
+        .set(updates)
+        .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+    }
+
+    // Return the updated arrays
+    const [updated] = await db.select().from(followedArtists)
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+
+    if (!updated) {
+      throw new ApiError(500, 'Internal Server Error', 'Failed to retrieve updated follow rules');
+    }
+
+    reply.send({
+      includePrimary: (updated.includePrimary ?? ['Album']) as string[],
+      excludeSecondary: (updated.excludeSecondary ?? ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack']) as string[],
+    });
+  });
+
+  /**
+   * POST /libraries/:libraryId/artists/:artistId/follow-rules/reset
+   * Reset per-artist type filters to library defaults.
+   * Artist must be followed first.
+   */
+  fastify.post('/libraries/:libraryId/artists/:artistId/follow-rules/reset', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, artistId } = request.params as { libraryId: string; artistId: string };
+
+    const lib = await ownedLibrary(request.user.id, libraryId);
+    const db = getDb();
+
+    // Verify artist exists
+    const [artist] = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (!artist) throw new ApiError(404, 'Not Found', 'Artist not found');
+
+    // Verify artist is followed
+    const [followRow] = await db.select().from(followedArtists)
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+    if (!followRow) throw new ApiError(403, 'Forbidden', 'Artist must be followed to reset type filters');
+
+    // Get library defaults from settings
+    const settings = typeof lib.settings === 'string'
+      ? JSON.parse(lib.settings)
+      : (lib.settings ?? {});
+    const followRulesRaw = (settings as Record<string, any>)['followRules'] ?? null;
+    let libraryDefaults;
+    try {
+      libraryDefaults = normalizeFollowRules(followRulesRaw);
+    } catch {
+      throw new ApiError(400, 'Bad Request', 'Invalid library follow rules configuration');
+    }
+
+    // Copy library defaults to artist row
+    await db.update(followedArtists)
+      .set({
+        includePrimary: libraryDefaults.includePrimary,
+        excludeSecondary: libraryDefaults.excludeSecondary,
+      })
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+
+    reply.send({
+      includePrimary: libraryDefaults.includePrimary,
+      excludeSecondary: libraryDefaults.excludeSecondary,
+    });
   });
 }

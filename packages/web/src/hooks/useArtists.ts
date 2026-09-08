@@ -258,3 +258,45 @@ export function usePatchFollowRules(libraryId: string | undefined) {
     },
   });
 }
+
+/**
+ * Patch per-artist follow rules (mutation)
+ */
+export function usePatchArtistFollowRules(
+  libraryId: string | undefined,
+  artistId: string | undefined
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rules: { includePrimary?: string[]; excludeSecondary?: string[] }) =>
+      api.patch<{ includePrimary: string[]; excludeSecondary: string[] }>(
+        `/libraries/${libraryId}/artists/${artistId}/follow-rules`,
+        rules
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['artist', libraryId, artistId] });
+    },
+  });
+}
+
+/**
+ * Reset per-artist follow rules to library defaults (mutation)
+ */
+export function useResetArtistFollowRules(
+  libraryId: string | undefined,
+  artistId: string | undefined
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () =>
+      api.post<{ includePrimary: string[]; excludeSecondary: string[] }>(
+        `/libraries/${libraryId}/artists/${artistId}/follow-rules/reset`,
+        {}
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['artist', libraryId, artistId] });
+    },
+  });
+}

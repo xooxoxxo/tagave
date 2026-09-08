@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap } from '../hooks';
+import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules } from '../hooks';
 import styles from './ArtistPage.module.css';
 
 export function ArtistPage() {
@@ -17,6 +17,24 @@ export function ArtistPage() {
   const refreshMutation = useRefreshArtist(libraryId, artistId);
   const reopenMutation = useReopenGap(libraryId, artistId);
   const [showRefreshNotification, setShowRefreshNotification] = useState(false);
+  const [showFollowRulesEditor, setShowFollowRulesEditor] = useState(false);
+  const { data: libraryFollowRules } = useFollowRules(libraryId);
+  const patchArtistFollowRulesMutation = usePatchArtistFollowRules(libraryId, artistId);
+  const resetArtistFollowRulesMutation = useResetArtistFollowRules(libraryId, artistId);
+  const [artistIncludePrimary, setArtistIncludePrimary] = useState<string[]>([]);
+  const [artistExcludeSecondary, setArtistExcludeSecondary] = useState<string[]>([]);
+
+  // Initialize artist follow rules from data
+  useEffect(() => {
+    if (artist?.followed) {
+      // For now, we'll show library defaults until we can fetch per-artist rules
+      // When GET artist detail includes follow rules, we'll use those
+      if (libraryFollowRules) {
+        setArtistIncludePrimary(libraryFollowRules.includePrimary);
+        setArtistExcludeSecondary(libraryFollowRules.excludeSecondary);
+      }
+    }
+  }, [artist?.followed, libraryFollowRules]);
 
   // Re-fetch artist data 1-2s after refresh completes
   useEffect(() => {
@@ -107,8 +125,106 @@ export function ArtistPage() {
           >
             {artist.followed ? '✓ Following' : '+ Follow'}
           </button>
+          {artist.followed && (
+            <button
+              className={styles.settingsButton}
+              onClick={() => setShowFollowRulesEditor(!showFollowRulesEditor)}
+              title="Configure type filters for this artist"
+            >
+              ⚙ Type Filters
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Follow rules editor modal */}
+      {showFollowRulesEditor && artist.followed && libraryFollowRules && (
+        <div className={styles.followRulesEditor}>
+          <div className={styles.editorHeader}>
+            <h3 className={styles.editorTitle}>Type Filters</h3>
+            <button
+              className={styles.closeButton}
+              onClick={() => setShowFollowRulesEditor(false)}
+              title="Close"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className={styles.editorContent}>
+            <div className={styles.rulesSection}>
+              <h4 className={styles.sectionLabel}>Include Primary Types</h4>
+              <div className={styles.typeOptions}>
+                {['Album', 'EP', 'Single'].map((type) => (
+                  <label key={type} className={styles.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={artistIncludePrimary.includes(type)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setArtistIncludePrimary([...artistIncludePrimary, type]);
+                        } else {
+                          setArtistIncludePrimary(artistIncludePrimary.filter((t) => t !== type));
+                        }
+                      }}
+                    />
+                    {type}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.rulesSection}>
+              <h4 className={styles.sectionLabel}>Exclude Secondary Types</h4>
+              <div className={styles.typeOptions}>
+                {['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'].map((type) => (
+                  <label key={type} className={styles.checkbox}>
+                    <input
+                      type="checkbox"
+                      checked={artistExcludeSecondary.includes(type)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setArtistExcludeSecondary([...artistExcludeSecondary, type]);
+                        } else {
+                          setArtistExcludeSecondary(artistExcludeSecondary.filter((t) => t !== type));
+                        }
+                      }}
+                    />
+                    {type}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className={styles.editorActions}>
+              <button
+                className={styles.resetButton}
+                onClick={() => {
+                  resetArtistFollowRulesMutation.mutate();
+                  setArtistIncludePrimary(libraryFollowRules.includePrimary);
+                  setArtistExcludeSecondary(libraryFollowRules.excludeSecondary);
+                }}
+                disabled={resetArtistFollowRulesMutation.isPending}
+              >
+                Reset to Defaults
+              </button>
+              <button
+                className={styles.saveButton}
+                onClick={() => {
+                  patchArtistFollowRulesMutation.mutate({
+                    includePrimary: artistIncludePrimary,
+                    excludeSecondary: artistExcludeSecondary,
+                  });
+                  setShowFollowRulesEditor(false);
+                }}
+                disabled={patchArtistFollowRulesMutation.isPending}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bio section */}
       {artist.bio && (
