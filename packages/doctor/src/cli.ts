@@ -34,6 +34,11 @@ function statusIcon(status: string): string {
   }
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function formatCheckLine(check: Check): string {
   const icon = statusIcon(check.status);
   const statusStr = check.status.toUpperCase().padEnd(4);
@@ -60,6 +65,53 @@ async function main() {
     try {
       await resealCredentials(databaseUrl);
       console.log(colorize('Credentials re-sealed successfully', 'green'));
+      process.exit(0);
+    } catch (err) {
+      const message = (err as Error).message || String(err);
+      console.error(colorize(`FATAL: ${message}`, 'red'));
+      process.exit(1);
+    }
+  }
+
+  // Handle backup subcommand
+  if (command === 'backup') {
+    const { runBackup, defaultBackupDir } = await import('./backup.js');
+    let outDir = defaultBackupDir(process.env);
+    let keep: number | undefined;
+    let jsonOut = false;
+    for (let i = 1; i < args.length; i++) {
+      const arg = args[i];
+      const next = args[i + 1];
+      if (arg === '--json') {
+        jsonOut = true;
+      } else if (arg === '--out' && next !== undefined) {
+        outDir = next;
+        i++;
+      } else if (arg === '--keep' && next !== undefined) {
+        const parsed = parseInt(next, 10);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          console.error(colorize('ERROR: --keep expects a positive integer (dumps to keep, including this one)', 'red'));
+          process.exit(2);
+        }
+        keep = parsed;
+        i++;
+      } else {
+        console.error(colorize(`ERROR: unknown option ${arg}; usage: backup [--out DIR] [--keep N] [--json]`, 'red'));
+        process.exit(2);
+      }
+    }
+    try {
+      const result = await runBackup({ databaseUrl, outDir, ...(keep !== undefined ? { keep } : {}) });
+      if (jsonOut) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `${statusIcon('pass')} backup written ${result.path} (${formatBytes(result.bytes)}, ${result.tocEntries} TOC entries, ${(result.durationMs / 1000).toFixed(1)} s)`,
+        );
+        if (result.pruned.length > 0) {
+          console.log(`  pruned ${result.pruned.length} older dump(s): ${result.pruned.join(', ')}`);
+        }
+      }
       process.exit(0);
     } catch (err) {
       const message = (err as Error).message || String(err);
