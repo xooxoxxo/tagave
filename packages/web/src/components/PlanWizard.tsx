@@ -14,6 +14,7 @@ import {
   useApplyTagPlan,
   useLibrarySettings,
   useTagPlan,
+  useTagPlanItems,
   usePauseTagPlan,
   useResumeTagPlan,
   useCancelTagPlan,
