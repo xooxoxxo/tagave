@@ -95,7 +95,23 @@ export const genreMapSchema = z.object({
 export type GenreMap = z.infer<typeof genreMapSchema>;
 
 /**
- * Library settings view per PLT-4 (token configuration) and XO-310 (genres)
+ * Lint rules configuration per TAG-6
+ * Toggle individual quality rules on or off (all true by default)
+ */
+export const lintRulesSchema = z.object({
+  inconsistentAlbumFields: z.boolean().default(true).describe('Flag inconsistent album/albumartist/date/totaltracks'),
+  missingMbIds: z.boolean().default(true).describe('Flag tracks missing MusicBrainz recording or release-track IDs'),
+  trackNumberIssues: z.boolean().default(true).describe('Flag missing or duplicate track numbers'),
+  titleCaseAnomalies: z.boolean().default(true).describe('Flag title case issues (all lowercase or ALL CAPS)'),
+  emptyRequiredFields: z.boolean().default(true).describe('Flag empty required fields (title, artist, album, tracknumber)'),
+  discNumberGaps: z.boolean().default(true).describe('Flag disc number gaps'),
+  noEmbeddedArt: z.boolean().default(true).describe('Flag albums with no embedded art'),
+}).strict();
+
+export type LintRules = z.infer<typeof lintRulesSchema>;
+
+/**
+ * Library settings view per PLT-4 (token configuration) and XO-310 (genres) and TAG-6 (lint rules)
  * Returned by GET /libraries/:id/settings
  */
 export const librarySettingsViewSchema = z.object({
@@ -106,6 +122,7 @@ export const librarySettingsViewSchema = z.object({
   acoustidKeyHint: z.string().nullable().describe('Last 4 characters of the AcoustID key for hint purposes'),
   onboardingCompletedAt: z.string().datetime().nullable().describe('ISO 8601 timestamp when onboarding was completed'),
   genreMap: genreMapSchema.describe('Genre canonicalisation configuration (required)'),
+  lintRules: lintRulesSchema.describe('Lint rule toggles (TAG-6; defaults all true)'),
   tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
   tagWritesEnabled: z.boolean().default(false).describe('Whether tag writes are enabled (default false per spec §12.8)'),
 }).strict();
@@ -113,7 +130,7 @@ export const librarySettingsViewSchema = z.object({
 export type LibrarySettingsView = z.infer<typeof librarySettingsViewSchema>;
 
 /**
- * Library settings patch request per PLT-4 and XO-310
+ * Library settings patch request per PLT-4, XO-310, and TAG-6
  * Body for PATCH /libraries/:id/settings
  */
 export const patchLibrarySettingsSchema = z.object({
@@ -122,6 +139,7 @@ export const patchLibrarySettingsSchema = z.object({
   acoustidKey: z.union([z.string().min(8), z.null()]).optional().describe('AcoustID key (null to clear)'),
   onboardingCompletedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp when onboarding was completed'),
   genreMap: genreMapSchema.optional().describe('Genre canonicalisation configuration'),
+  lintRules: lintRulesSchema.optional().describe('Lint rule toggles (TAG-6)'),
   tagPolicy: tagPoliciesSchema.optional().describe('Tag write policy (preset + per-field overrides)'),
   tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
 }).strict();

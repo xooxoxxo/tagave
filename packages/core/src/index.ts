@@ -120,9 +120,10 @@ export {
   joinMultiValue,
   splitMultiValue,
   resolveFields,
+  lintAlbum,
 } from './tags/index.js';
 
-export type { FormatTagMapping, TagSet, ResolvedField, ResolvedMetadata, ResolutionInput, FieldLock } from './tags/index.js';
+export type { FormatTagMapping, TagSet, ResolvedField, ResolvedMetadata, ResolutionInput, FieldLock, LintFlag, LintToggles, RawTrackTags } from './tags/index.js';
 
 // CUE sheets
 export { decodeCueBytes, parseCueSheet, virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from './cue/index.js';

@@ -48,6 +48,16 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
     const genreMapRaw = (settings as Record<string, any>)['genreMap'] ?? null;
     const genreMap = normalizeGenreMap(genreMapRaw);
+    const lintRulesRaw = (settings as Record<string, any>)['lintRules'] ?? null;
+    const lintRules = lintRulesRaw ?? {
+      inconsistentAlbumFields: true,
+      missingMbIds: true,
+      trackNumberIssues: true,
+      titleCaseAnomalies: true,
+      emptyRequiredFields: true,
+      discNumberGaps: true,
+      noEmbeddedArt: true,
+    };
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -58,6 +68,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeyHint,
         onboardingCompletedAt,
         genreMap,
+        lintRules,
       })
     );
   });
@@ -141,6 +152,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       mergedSettings.genreMap = normalizeGenreMap(body.genreMap);
     }
 
+    if (body.lintRules !== undefined) {
+      mergedSettings.lintRules = body.lintRules;
+    }
+
     await db.update(libraries)
       .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
       .where(eq(libraries.id, libraryId));
@@ -151,6 +166,16 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const acoustidKeyHint = (mergedSettings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
     const genreMap = normalizeGenreMap((mergedSettings as Record<string, any>)['genreMap'] ?? null);
+    const lintRulesRaw = (mergedSettings as Record<string, any>)['lintRules'] ?? null;
+    const lintRules = lintRulesRaw ?? {
+      inconsistentAlbumFields: true,
+      missingMbIds: true,
+      trackNumberIssues: true,
+      titleCaseAnomalies: true,
+      emptyRequiredFields: true,
+      discNumberGaps: true,
+      noEmbeddedArt: true,
+    };
 
     reply.status(200).send(
       librarySettingsViewSchema.parse({
@@ -161,6 +186,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeyHint,
         onboardingCompletedAt,
         genreMap,
+        lintRules,
       })
     );
   });

@@ -18,3 +18,9 @@ export {
 } from './resolveFields.js';
 
 export type { ResolvedField, ResolvedMetadata, ResolutionInput, FieldLock } from './resolveFields.js';
+
+export {
+  lintAlbum,
+} from './lintRules.js';
+
+export type { LintFlag, LintToggles, RawTrackTags } from './lintRules.js';
