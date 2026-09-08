@@ -12,7 +12,6 @@ import {
   AlbumDetailPage,
   PlansPage,
   PlanPage,
-  SettingsProvidersPage,
   WorkPage,
   SettingsPage,
 } from './pages';
@@ -110,7 +109,7 @@ const albumDetailRoute = new Route({
 const settingsProvidersRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/providers',
-  component: SettingsProvidersPage,
+  component: SettingsPage,
 });
 
 // New unified routes

@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import type { TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, Link } from '@tanstack/react-router';
 import { Button, Badge, Banner } from '../components/ui';
 import { useCreateTagPlan, useLibrarySettings } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
@@ -225,19 +225,19 @@ export function PlanWizard({ libraryId, onClose }: PlanWizardProps) {
           </Banner>
         )}
 
-        <div className={styles.body}>
+        <div className={styles.body} hidden={showHelp}>
           {(tagWritesDisabled || noWritableRoots) && (
             <Banner tone="warning">
               <strong>Plans preview, but cannot apply yet.</strong>
               <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
                 {tagWritesDisabled && (
                   <li>
-                    Tag writes are off — <a href="/settings/tag-writes" style={{ color: 'var(--text-primary)' }}>Settings › Tag writes</a>
+                    Tag writes are off — <Link to="/settings/library">Settings › Tag writes</Link>
                   </li>
                 )}
                 {noWritableRoots && (
                   <li>
-                    No scan root allows writes — <a href="/settings/scan-roots" style={{ color: 'var(--text-primary)' }}>Settings › Scan roots</a>
+                    No scan root allows writes — <Link to="/settings/library">Settings › Scan roots</Link>
                   </li>
                 )}
               </ul>
