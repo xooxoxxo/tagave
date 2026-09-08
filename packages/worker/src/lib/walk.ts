@@ -23,7 +23,7 @@
 import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, inArray, like, lt, or, sql as dsql } from 'drizzle-orm';
-import { audioFiles, scanDirs, sidecarFiles } from '@liner/db';
+import { audioFiles, images, scanDirs, sidecarFiles } from '@liner/db';
 import type { WorkerContext } from './context.js';
 import { isAudioFile, sidecarKind, storagePath, extOf, relDirname } from './helpers.js';
 
@@ -372,14 +372,33 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   result.missing = unseen.length;
   result.dirsWithMissing = [...new Set(unseen.map((r) => relDirname(r.relPath)))];
 
-  // Sidecars: replace the scope's inventory.
-  await ctx.db.delete(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, root.id), sidecarScope));
+  // Sidecars: upsert what the walk saw (rows keep their ids, so the images
+  // that came from them stay valid), then drop the rows in scope it did not
+  // see — their images first, because images.origin = 'sidecar' requires the
+  // reference and ON DELETE SET NULL would trip that check.
   for (let i = 0; i < seenSidecars.length; i += INSERT_BATCH) {
     const chunk = seenSidecars.slice(i, i + INSERT_BATCH).map((s) => ({
       libraryId: root.libraryId, scanRootId: root.id, relPath: s.relPath, kind: s.kind,
-      sizeBytes: s.sizeBytes, mtime: s.mtime,
+      sizeBytes: s.sizeBytes, mtime: s.mtime, lastSeenAt: new Date(),
     }));
-    if (chunk.length > 0) await ctx.db.insert(sidecarFiles).values(chunk);
+    if (chunk.length > 0) {
+      await ctx.db.insert(sidecarFiles).values(chunk).onConflictDoUpdate({
+        target: [sidecarFiles.scanRootId, sidecarFiles.relPath],
+        set: {
+          kind: dsql`excluded.kind`,
+          sizeBytes: dsql`excluded.size_bytes`,
+          mtime: dsql`excluded.mtime`,
+          lastSeenAt: new Date(),
+        },
+      });
+    }
+  }
+  const staleSidecars = and(eq(sidecarFiles.scanRootId, root.id), lt(sidecarFiles.lastSeenAt, startedAt), sidecarScope);
+  const staleIds = await ctx.db.select({ id: sidecarFiles.id }).from(sidecarFiles).where(staleSidecars);
+  for (let i = 0; i < staleIds.length; i += UPDATE_BATCH) {
+    const chunk = staleIds.slice(i, i + UPDATE_BATCH).map((r) => r.id);
+    await ctx.db.delete(images).where(inArray(images.sidecarFileId, chunk));
+    await ctx.db.delete(sidecarFiles).where(inArray(sidecarFiles.id, chunk));
   }
 
   // Directory mtimes for the next quick scan; directories that vanished drop out.

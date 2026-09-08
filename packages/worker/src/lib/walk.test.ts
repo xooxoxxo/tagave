@@ -172,6 +172,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
     }
   });
 
+  it('sidecar rows keep their ids across walks, and a removed sidecar takes its image row with it', async () => {
+    const { images } = await import('@liner/db');
+    await writeFile(path.join(rootPath, 'A', 'back.jpg'), 'img2');
+    await bump(path.join(rootPath, 'A'));
+    await walkRoot(ctx, root, { mode: 'full' });
+    const before = await db.select().from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/cover.jpg')));
+    expect(before).toHaveLength(1);
+    const [albumRow] = await db.select({ id: sidecarFiles.id }).from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/back.jpg')));
+    // an image that came from the sidecar (origin = 'sidecar' requires the reference)
+    const imageId = randomUUID();
+    await db.insert(images).values({
+      id: imageId, libraryId, entityType: 'local_album', entityId: randomUUID(), kind: 'front', origin: 'sidecar',
+      sidecarFileId: albumRow.id, licenseNote: 'owner file',
+    });
+
+    // a walk that sees both sidecars must not touch either row (the old delete+insert broke here)
+    await walkRoot(ctx, root, { mode: 'full' });
+    const after = await db.select().from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/cover.jpg')));
+    expect(after[0].id).toBe(before[0].id);
+    expect(await db.select().from(images).where(eq(images.id, imageId))).toHaveLength(1);
+
+    // remove the sidecar the image came from: the image row goes, the walk completes
+    await rm(path.join(rootPath, 'A', 'back.jpg'));
+    await bump(path.join(rootPath, 'A'));
+    const r = await walkRoot(ctx, root, { mode: 'quick' });
+    expect(r.sidecars).toBe(2);
+    expect(await db.select().from(images).where(eq(images.id, imageId))).toHaveLength(0);
+    expect(await db.select().from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/back.jpg')))).toHaveLength(0);
+  });
+
   it('directory mtime is what quick mode trusts', async () => {
     const st = await stat(path.join(rootPath, 'A'));
     const [row] = await db.select().from(scanDirs).where(and(eq(scanDirs.scanRootId, rootId), eq(scanDirs.relPath, 'A')));

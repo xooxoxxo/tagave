@@ -69,6 +69,17 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
 
+/**
+ * pg-boss expires an active job after 15 minutes by default and retries it
+ * twice — a walk of the NFS root takes longer, so the first run was retried
+ * while still walking and three scans ran at once (2026-09-08). Scans get a
+ * day and no retries; scan.sweep re-enqueues on its own schedule.
+ */
+const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: number }> = {
+  'scan.root': { expireInSeconds: 24 * 3600, retryLimit: 0 },
+  'scan.dir': { expireInSeconds: 6 * 3600, retryLimit: 0 },
+};
+
 /** Provider waits are paced at ~1 req/s and capped at 3 lookups; 5 min is far past any honest run. */
 const IDENTIFY_JOB_TIMEOUT_MS = 5 * 60_000;
 
@@ -87,12 +98,19 @@ async function main() {
 
   // Queues must exist before work() in pg-boss v10+.
   const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', ...M1_PLACEHOLDER_QUEUES];
-  for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
+  for (const q of queues) {
+    const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
+    await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
+  }
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
   // policies are (re)applied here on every boot for queues created before.
   for (const [name, policy] of Object.entries(QUEUE_POLICIES)) {
     await client`update pgboss.queue set policy = ${policy} where name = ${name} and policy <> ${policy}`;
+  }
+  for (const [name, o] of Object.entries(LONG_JOB_QUEUES)) {
+    await client`update pgboss.queue set expire_seconds = ${o.expireInSeconds}, retry_limit = ${o.retryLimit}
+                 where name = ${name} and (expire_seconds <> ${o.expireInSeconds} or retry_limit <> ${o.retryLimit})`;
   }
 
   // LINER_QUEUES=identify.album,identify.sweep,artists.resolve,artists.enrich

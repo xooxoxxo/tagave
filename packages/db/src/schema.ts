@@ -204,9 +204,12 @@ export const sidecarFiles = pgTable(
     kind: varchar({ length: 20 }).notNull(),
     sizeBytes: bigint('size_bytes', { mode: 'number' }),
     mtime: bigint({ mode: 'number' }),
+    /** the last walk that saw the file; rows a completed walk did not see are removed (0021) */
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_sidecar_files_library').on(table.libraryId),
+    rootPathKey: uniqueIndex('sidecar_files_root_path_key').on(table.scanRootId, table.relPath),
   })
 );
 
