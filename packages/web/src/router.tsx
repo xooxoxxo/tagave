@@ -9,20 +9,10 @@ import {
   AlbumsPage,
   ArtistsPage,
   ArtistPage,
-  QueuePage,
   AlbumDetailPage,
-  AttentionPage,
-  IdentifyPage,
-  CollectionPage,
   PlansPage,
   PlanPage,
-  SettingsScanRootsPage,
   SettingsProvidersPage,
-  SettingsGenresPage,
-  SettingsFollowRulesPage,
-  SettingsTagWritesPage,
-  SettingsUpdatesPage,
-  JobsPage,
   WorkPage,
   SettingsPage,
 } from './pages';
@@ -143,6 +133,18 @@ const settingsSectionRoute = new Route({
   component: SettingsPage,
 });
 
+const settingsLibraryRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/library',
+  component: SettingsPage,
+});
+
+const settingsSystemRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/settings/system',
+  component: SettingsPage,
+});
+
 // Redirects for old routes
 const queueRedirect = new Route({
   getParentRoute: () => layoutRoute,
@@ -232,6 +234,8 @@ const routeTree = rootRoute.addChildren([
     workRoute,
     settingsRoute,
     settingsSectionRoute,
+    settingsLibraryRoute,
+    settingsSystemRoute,
     settingsProvidersRoute,
     // Redirects for old routes
     queueRedirect,

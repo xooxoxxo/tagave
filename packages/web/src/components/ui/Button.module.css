@@ -55,11 +55,11 @@
 }
 
 .danger:hover:not(:disabled) {
-  background-color: #e53e3e;
+  background-color: color-mix(in srgb, var(--error) 85%, black);
 }
 
 .danger:active:not(:disabled) {
-  background-color: #c53030;
+  background-color: color-mix(in srgb, var(--error) 70%, black);
 }
 
 .ghost {

@@ -28,6 +28,12 @@
   --error: #dc2626;
   --info: #3b82f6;
 
+  --accent-rgb: 42, 127, 249;
+  --success-rgb: 22, 163, 74;
+  --warning-rgb: 234, 140, 85;
+  --error-rgb: 220, 38, 38;
+  --info-rgb: 59, 130, 246;
+
   /* Spacing scale */
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;
@@ -77,7 +83,6 @@
   --border-color-hover: var(--border-secondary);
   --accent-color: var(--accent);
   --accent-color-hover: var(--accent-hover);
-  --accent-rgb: 42, 127, 249;
   --success-color: var(--success);
   --error-color: var(--error);
   --font-size-md: var(--font-size-base);
