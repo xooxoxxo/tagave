@@ -16,6 +16,7 @@ import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
 import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetch.js';
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
+import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
@@ -59,6 +60,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'tags.preview': 'stately',
   'tags.apply': 'stately',
   'tags.revert': 'stately',
+  'facets.refresh': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -80,7 +82,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) await boss.createQueue(q, QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : undefined);
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -230,6 +232,16 @@ async function main() {
     await boss.work<ArtistRefreshJobData>('artist.refresh', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await artistRefreshJob(ctx, job.data);
     });
+  }
+
+  if (wants('facets.refresh')) {
+    await boss.work<FacetsRefreshJobData>('facets.refresh', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await facetsRefreshJob(ctx, job.data);
+    });
+    // Every minute; a no-op unless albums, gaps or the collection changed since
+    // the last build (XO-363). The boot send fills an empty table right away.
+    await boss.schedule('facets.refresh', '* * * * *', {}, { singletonKey: 'facets.refresh' });
+    await boss.send('facets.refresh', { force: true }, { singletonKey: 'facets.refresh:boot' });
   }
 
   if (wants('gaps.recompute')) {

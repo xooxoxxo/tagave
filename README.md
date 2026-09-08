@@ -80,7 +80,7 @@ against the same database:
 ```sh
 pnpm install && pnpm -r build
 DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept \
+LINER_QUEUES=scan.root,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh \
 node packages/worker/dist/index.js
 ```
 

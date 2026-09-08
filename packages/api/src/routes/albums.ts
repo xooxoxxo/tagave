@@ -10,6 +10,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
+import { summaryEligible, summaryFresh, summaryFacets } from '../lib/facetSummary.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -152,6 +153,14 @@ function facetCacheKey(libraryId: string, userId: string, rawQuery: Record<strin
   return `${libraryId}|${userId}|${JSON.stringify(pairs)}`;
 }
 
+function storeFacetCache(cacheKey: string, libraryId: string, body: unknown): void {
+  if (facetCache.size >= FACET_CACHE_MAX) {
+    const oldest = facetCache.keys().next().value;
+    if (oldest !== undefined) facetCache.delete(oldest);
+  }
+  facetCache.set(cacheKey, { at: Date.now(), libraryId, body });
+}
+
 export async function createAlbumRoutes(fastify: FastifyInstance) {
   /**
    * Facet counts for the filter rail (spec BRW-1): each dimension counted
@@ -173,6 +182,16 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       reply.header('x-liner-cache', 'hit');
       return reply.send(hit.body);
     }
+    // XO-363: the worker-maintained album_facets table answers every request
+    // whose filters it covers, unless a bulk action marked it stale.
+    if (summaryEligible(rawQuery) && (await summaryFresh(db, libraryId))) {
+      const body = await summaryFacets(db, libraryId, userId, rawQuery);
+      storeFacetCache(cacheKey, libraryId, body);
+      reply.header('x-liner-cache', 'miss');
+      reply.header('x-liner-facets', 'summary');
+      return reply.send(body);
+    }
+    reply.header('x-liner-facets', 'live');
     const { conds, REVIEW_CLAUSES, ownedSql, openGap } = albumQueryParts(libraryId, userId, rawQuery);
     const where = and(...conds)!;
     // A dimension's own filter is dropped from its own counts, so a checked
@@ -250,11 +269,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
       decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
     };
-    if (facetCache.size >= FACET_CACHE_MAX) {
-      const oldest = facetCache.keys().next().value;
-      if (oldest !== undefined) facetCache.delete(oldest);
-    }
-    facetCache.set(cacheKey, { at: Date.now(), libraryId, body });
+    storeFacetCache(cacheKey, libraryId, body);
     reply.header('x-liner-cache', 'miss');
     reply.send(body);
   });
