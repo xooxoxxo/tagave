@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import {
   tagPlans,
   tagPlanItems,
@@ -8,6 +8,7 @@ import {
   localAlbums,
   localTracks,
   libraries,
+  scanRoots,
 } from '@liner/db';
 import {
   type CreateTagPlan,
@@ -350,6 +351,321 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         jobId,
         singletonKey,
         message: 'Preview job enqueued',
+      });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/apply
+   * Enqueue the tags.apply job for this plan
+   * Returns immediately with job ID; plan status becomes 'applying' then 'applied' when job completes
+   * Refuses with 403 unless settings.tagWritesEnabled === true AND all scan roots are writable
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/apply',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      const libRecord = lib[0]!;
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      // Check refusal conditions: tagWritesEnabled and scan root writability
+      const tagWritesEnabled = (libRecord.settings as any)?.tagWritesEnabled === true;
+
+      if (!tagWritesEnabled) {
+        throw new ApiError(403, 'Forbidden', 'Tag writes are not enabled for this library');
+      }
+
+      // Plan must be in 'previewed' or 'paused' status to apply
+      if (!['previewed', 'paused'].includes(plan.status as string)) {
+        throw new ApiError(400, 'Bad Request', `Cannot apply plan in status '${plan.status}'`);
+      }
+
+      // Get all items in the plan to check scan root writability
+      const items = await db
+        .select({ audioFileId: tagPlanItems.audioFileId })
+        .from(tagPlanItems)
+        .where(eq(tagPlanItems.tagPlanId, planId));
+
+      if (items.length > 0) {
+        // Get all audio files to find their scan roots
+        const audioFileIds = items.map((i) => i.audioFileId);
+        const files = await db
+          .select({ scanRootId: audioFiles.scanRootId })
+          .from(audioFiles)
+          .where(inArray(audioFiles.id, audioFileIds));
+
+        // Get unique scan root IDs
+        const scanRootIds = Array.from(new Set(files.map((f) => f.scanRootId)));
+
+        // Check that all scan roots are writable
+        const roots = await db
+          .select({ id: scanRoots.id, writable: scanRoots.writable })
+          .from(scanRoots)
+          .where(inArray(scanRoots.id, scanRootIds));
+
+        const nonWritableRoots = roots.filter((r) => !r.writable);
+        if (nonWritableRoots.length > 0) {
+          throw new ApiError(403, 'Forbidden', 'Not all scan roots are writable');
+        }
+      }
+
+      // Enqueue the tags.apply job with singletonKey
+      const boss = await getBoss();
+      const singletonKey = `tags.apply:${planId}`;
+      const jobId = await boss.send('tags.apply', { planId }, {
+        singletonKey,
+      });
+
+      reply.status(202).send({
+        jobId,
+        singletonKey,
+        message: 'Apply job enqueued',
+      });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/pause
+   * Pause an applying tag plan
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/pause',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      if (plan.status !== 'applying') {
+        throw new ApiError(400, 'Bad Request', `Cannot pause plan in status '${plan.status}'`);
+      }
+
+      // Update plan status to paused
+      await db
+        .update(tagPlans)
+        .set({ status: 'paused' })
+        .where(eq(tagPlans.id, planId));
+
+      reply.send({ status: 'paused', message: 'Plan paused' });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/resume
+   * Resume a paused tag plan
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/resume',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      if (plan.status !== 'paused') {
+        throw new ApiError(400, 'Bad Request', `Cannot resume plan in status '${plan.status}'`);
+      }
+
+      // Enqueue the tags.apply job to resume processing
+      const boss = await getBoss();
+      const singletonKey = `tags.apply:${planId}`;
+      const jobId = await boss.send('tags.apply', { planId }, {
+        singletonKey,
+      });
+
+      reply.status(202).send({
+        jobId,
+        singletonKey,
+        message: 'Apply job re-enqueued',
+      });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/cancel
+   * Cancel an applying or paused tag plan
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/cancel',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      if (!['applying', 'paused'].includes(plan.status as string)) {
+        throw new ApiError(400, 'Bad Request', `Cannot cancel plan in status '${plan.status}'`);
+      }
+
+      // Update plan status to cancelled
+      await db
+        .update(tagPlans)
+        .set({ status: 'cancelled' })
+        .where(eq(tagPlans.id, planId));
+
+      reply.send({ status: 'cancelled', message: 'Plan cancelled' });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/revert
+   * Enqueue the tags.revert job to build a revert plan from an applied plan
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/revert',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      if (plan.status !== 'applied' && plan.status !== 'partially_failed') {
+        throw new ApiError(400, 'Bad Request', `Cannot revert plan in status '${plan.status}'`);
+      }
+
+      // Enqueue the tags.revert job
+      const boss = await getBoss();
+      const jobId = await boss.send('tags.revert', { planId }, {
+        singletonKey: `tags.revert:${planId}`,
+      });
+
+      reply.status(202).send({
+        jobId,
+        singletonKey: `tags.revert:${planId}`,
+        message: 'Revert job enqueued',
       });
     }
   );

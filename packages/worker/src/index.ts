@@ -22,6 +22,8 @@ import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.j
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
 import { artistsEnrichJob, type ArtistsEnrichJobData } from './jobs/artistsEnrich.js';
 import { tagsPreviewJob } from './jobs/tagsPreview.js';
+import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
+import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -229,6 +231,24 @@ async function main() {
         const planId = (job.data as { planId: string }).planId;
         logger.info({ jobId: job.id, planId }, 'tags.preview start');
         await tagsPreviewJob(ctx, planId);
+      }
+    });
+  }
+
+  if (wants('tags.apply')) {
+    await boss.work<TagsApplyJobData>('tags.apply', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, planId: job.data.planId }, 'tags.apply start');
+        await tagsApplyJob(ctx, job.data);
+      }
+    });
+  }
+
+  if (wants('tags.revert')) {
+    await boss.work<TagsRevertJobData>('tags.revert', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, planId: job.data.planId }, 'tags.revert start');
+        await tagsRevertJob(ctx, job.data);
       }
     });
   }
