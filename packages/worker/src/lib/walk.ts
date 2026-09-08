@@ -354,7 +354,11 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   await flushUnchanged();
   await chain;
 
-  if (!prefix && result.filesSeen === 0 && existing.length > 0) {
+  // Only files the index expects to find count as evidence of a mount;
+  // rows already missing or archived would trip the guard on a root that
+  // was legitimately emptied.
+  const expected = existing.some((r) => r.status === 'present' || r.status === 'error');
+  if (!prefix && result.filesSeen === 0 && expected) {
     result.looksUnmounted = true;
     return result;
   }
