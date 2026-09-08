@@ -16,6 +16,30 @@ WHAT=${1:-all}
 source .deploy.env
 : "${APP_HOST:?}" "${APP_DIR:?}" "${WORKER_HOST:?}" "${WORKER_DIR:?}" "${WORKER_NODE_BIN:?}"
 
+# Worker restart on the worker host (pidfile launchers ~/liner-worker.sh and
+# ~/liner-identify.sh). A graceful stop can overrun when a job is wedged on a
+# provider call — the old generation then outlives its replacement as a ghost
+# that still holds a DB connection (seen 2026-09-08). So: TERM, wait up to
+# 30 s, KILL; then sweep any worker process no pidfile points at; then start.
+# .deploy.env may still set WORKER_RESTART_CMD to override this entirely.
+WORKER_RESTART_DEFAULT='
+for p in liner-worker liner-identify; do
+  pid=$(cat ~/$p.pid 2>/dev/null) || continue
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || continue
+  kill -TERM "$pid"
+  for i in $(seq 1 30); do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+  if kill -0 "$pid" 2>/dev/null; then echo "$p: graceful stop overran 30s, killing $pid"; kill -9 "$pid"; sleep 1; fi
+done
+for pid in $(ps -eo pid,args | awk "/[n]ode packages\/worker\/dist\/index.js/ {print \$1}"); do echo "killing ghost worker $pid"; kill -9 "$pid"; done
+sleep 1
+nohup ~/liner-worker.sh > ~/liner-worker.log 2>&1 & echo $! > ~/liner-worker.pid
+nohup ~/liner-identify.sh > ~/liner-identify.log 2>&1 & echo $! > ~/liner-identify.pid
+sleep 8
+for p in liner-worker liner-identify; do echo -n "$p: "; kill -0 $(cat ~/$p.pid) 2>/dev/null && echo alive || echo DEAD; done
+echo -n "worker processes: "; ps -eo args | grep -c "[n]ode packages/worker/dist/index.js"
+'
+WORKER_RESTART_CMD="${WORKER_RESTART_CMD:-$WORKER_RESTART_DEFAULT}"
+
 COMMIT=$(git rev-parse --short HEAD)
 SRC_DIR=$(pwd)
 if [ -n "$(git status --porcelain)" ]; then
