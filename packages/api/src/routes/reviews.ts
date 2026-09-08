@@ -143,13 +143,16 @@ export async function createReviewRoutes(fastify: FastifyInstance) {
     // that wants the old first-view behaviour passes ?fetch=1. Staleness is
     // reported, not acted on. singletonKey keeps one job per release group.
     const fetchStale = !rg.reviewsFetchedAt || now - rg.reviewsFetchedAt.getTime() > REVIEWS_TTL_MS;
-    if (fetchStale && (request.query as Record<string, unknown>)['fetch'] === '1') {
+    const explicitFetch = (request.query as Record<string, unknown>)['fetch'] === '1';
+    if (fetchStale && explicitFetch) {
       const boss = await getBoss();
       await boss.send('reviews.fetch', { releaseGroupId: rgId }, { singletonKey: `reviews:${rgId}` });
     }
     const inFlightRows = (await db.execute(sql`
       select 1 as x from pgboss.job
-      where name = 'reviews.fetch' and singleton_key = ${'reviews:' + rgId} and state in ('created', 'retry', 'active')
+      where name = 'reviews.fetch'
+        and singleton_key in (${'reviews:' + rgId}, ${'reviews-discogs:' + rgId})
+        and state in ('created', 'retry', 'active')
       limit 1`)) as unknown as unknown[];
     const gathering = inFlightRows.length > 0;
 
@@ -162,7 +165,9 @@ export async function createReviewRoutes(fastify: FastifyInstance) {
       .sort((a, b) =>
         (SOURCE_ORDER[a.source] ?? 9) - (SOURCE_ORDER[b.source] ?? 9)
         || (b.publishedAt ?? '').localeCompare(a.publishedAt ?? ''));
-    if (!fetchStale && external.some((e) => e.source === 'discogs' && e.stale)) {
+    // A stale Discogs rating alone is reported as `stale`; it is refreshed only
+    // on the same explicit ask (?fetch=1 or the /refresh POST), never on view.
+    if (!fetchStale && explicitFetch && external.some((e) => e.source === 'discogs' && e.stale)) {
       const boss = await getBoss();
       await boss.send('reviews.fetch', { releaseGroupId: rgId, only: 'discogs' }, { singletonKey: `reviews-discogs:${rgId}` });
     }
