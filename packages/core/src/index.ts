@@ -49,6 +49,7 @@ export type { CanonicalTrack as MatchingCanonicalTrack, ReleaseCandidate as Matc
 // Providers
 export {
   MusicBrainzProvider,
+MB_BROWSE_LIMIT,
   DiscogsProvider,
   WikidataClient,
   ProviderGateway,
@@ -111,6 +112,7 @@ export type {
   ArtistCredit,
   WeightedTag,
   Edition,
+  EditionsPage,
   MbArtist,
   ReleaseGroupIdentity,
   WikidataBinding,

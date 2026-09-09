@@ -27,8 +27,8 @@ export type {
   WeightedTag,
 } from './types.js';
 
-export { MusicBrainzProvider, extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations } from './musicbrainz.js';
-export type { Edition, MbArtist } from './musicbrainz.js';
+export { MusicBrainzProvider, MB_BROWSE_LIMIT, extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations } from './musicbrainz.js';
+export type { Edition, EditionsPage, MbArtist } from './musicbrainz.js';
 export {
   DiscogsProvider,
   parseDiscogsDuration,

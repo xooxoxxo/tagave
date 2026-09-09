@@ -31,6 +31,16 @@ export type Edition = {
   trackCount?: number | null;
 };
 
+/** One page of a release group's releases from the browse endpoint. */
+export type EditionsPage = {
+  /** null when the page carries no releases (nothing to read the group off) */
+  releaseGroup: { mbid: string; title: string; primaryType?: string | null; secondaryTypes?: string[]; firstReleaseDate?: string | null } | null;
+  editions: Edition[];
+  /** releases in the group across all pages */
+  total: number;
+  offset: number;
+};
+
 /**
  * MusicBrainz artist with extended metadata (spec ENR-7).
  */
@@ -216,15 +226,27 @@ const ReleaseMinimalSchema = z.object({
 });
 
 /**
- * Release group with releases (for editions list).
+ * One page of `/release?release-group=` (for editions list). Every release
+ * carries its group when `release-groups` is included.
  */
-const ReleaseGroupWithReleasesSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  'primary-type': z.string().nullish(),
-  'secondary-types': z.array(z.string()).optional(),
-  'first-release-date': z.string().nullish(),
-  releases: z.array(ReleaseMinimalSchema).optional(),
+const ReleaseBrowsePageSchema = z.object({
+  'release-count': z.number().nullish(),
+  'release-offset': z.number().nullish(),
+  releases: z
+    .array(
+      ReleaseMinimalSchema.extend({
+        'release-group': z
+          .object({
+            id: z.string(),
+            title: z.string(),
+            'primary-type': z.string().nullish(),
+            'secondary-types': z.array(z.string()).optional(),
+            'first-release-date': z.string().nullish(),
+          })
+          .nullish(),
+      })
+    )
+    .optional(),
 });
 
 const ReleaseSchema = z.object({
@@ -933,16 +955,26 @@ export class MusicBrainzProvider implements MetadataProvider {
   }
 
   /**
-   * Get release group editions (all releases in the group without track detail).
-   * Returns the release group metadata and the list of editions.
+   * One page of a release group's releases (editions) from the browse
+   * endpoint (`/release?release-group=`), with labels, media and the group
+   * itself. The release-group lookup rejects `inc=labels` (400 "labels is not
+   * a valid inc parameter for the release-group resource", live 2026-09-09),
+   * so editions are read from the release side, 100 per request, and the
+   * caller pages with `offset` until `total` is reached.
    */
   async getReleaseGroupEditions(
     rgMbid: string,
-    ctx: CallContext
-  ): Promise<{ releaseGroup: { mbid: string; title: string; primaryType?: string | null; secondaryTypes?: string[]; firstReleaseDate?: string | null }; editions: Edition[] }> {
-    const url = new URL(`${MB_BASE_URL}/release-group/${rgMbid}`, 'https://musicbrainz.org');
+    _ctx: CallContext,
+    opts: { offset?: number; limit?: number } = {}
+  ): Promise<EditionsPage> {
+    const limit = Math.max(1, Math.min(opts.limit ?? MB_BROWSE_LIMIT, MB_BROWSE_LIMIT));
+    const offset = Math.max(0, opts.offset ?? 0);
+    const url = new URL(`${MB_BASE_URL}/release`, 'https://musicbrainz.org');
+    url.searchParams.set('release-group', rgMbid);
     url.searchParams.set('fmt', 'json');
-    url.searchParams.set('inc', 'releases+media+labels+artist-credits');
+    url.searchParams.set('inc', 'media+labels+release-groups');
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('offset', String(offset));
 
     const response = await fetch(url.toString(), {
       headers: {
@@ -953,13 +985,14 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     if (response.status === 503) throw new Error(`MusicBrainz rate limited (503): ${(await response.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 140)}`);
     if (!response.ok) {
-      throw mbHttpError(`Failed to fetch MusicBrainz release group ${rgMbid}: ${response.statusText}`, response.status);
+      throw mbHttpError(`Failed to browse MusicBrainz releases of release group ${rgMbid}: ${response.statusText}`, response.status);
     }
 
     const data = await response.json();
-    const rgData = ReleaseGroupWithReleasesSchema.parse(data);
+    const parsed = ReleaseBrowsePageSchema.parse(data);
+    const rels = parsed.releases ?? [];
 
-    const editions: Edition[] = (rgData.releases || []).map((rel) => {
+    const editions: Edition[] = rels.map((rel) => {
       // Build labels array from label-info
       const labels: Array<{ name: string; catalogNumber?: string | null }> = [];
       if (rel['label-info']) {
@@ -985,6 +1018,10 @@ export class MusicBrainzProvider implements MetadataProvider {
         }
       }
 
+      // The browse carries no release-level track-count (the search does): sum the media.
+      const mediaTracks = media.reduce((n, m) => n + (m.trackCount ?? 0), 0);
+      const trackCount = rel['track-count'] || mediaTracks || undefined;
+
       return {
         mbid: rel.id,
         title: rel.title,
@@ -996,19 +1033,25 @@ export class MusicBrainzProvider implements MetadataProvider {
         ...(rel.packaging ? { packaging: rel.packaging } : {}),
         labels,
         media,
-        ...(rel['track-count'] ? { trackCount: rel['track-count'] } : {}),
+        ...(trackCount ? { trackCount } : {}),
       };
     });
 
+    const rgData = rels.find((rel) => rel['release-group'])?.['release-group'] ?? null;
+
     return {
-      releaseGroup: {
-        mbid: rgData.id,
-        title: rgData.title,
-        ...(rgData['primary-type'] ? { primaryType: rgData['primary-type'] } : {}),
-        ...(rgData['secondary-types'] ? { secondaryTypes: rgData['secondary-types'] } : {}),
-        ...(rgData['first-release-date'] ? { firstReleaseDate: rgData['first-release-date'] } : {}),
-      },
+      releaseGroup: rgData
+        ? {
+            mbid: rgData.id,
+            title: rgData.title,
+            ...(rgData['primary-type'] ? { primaryType: rgData['primary-type'] } : {}),
+            ...(rgData['secondary-types'] ? { secondaryTypes: rgData['secondary-types'] } : {}),
+            ...(rgData['first-release-date'] ? { firstReleaseDate: rgData['first-release-date'] } : {}),
+          }
+        : null,
       editions,
+      total: parsed['release-count'] ?? editions.length,
+      offset: parsed['release-offset'] ?? offset,
     };
   }
 }

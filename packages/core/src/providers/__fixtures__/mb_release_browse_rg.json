@@ -1,0 +1,110 @@
+{
+  "release-count": 8,
+  "release-offset": 0,
+  "releases": [
+    {
+      "label-info": [
+        {
+          "catalog-number": "9985320",
+          "label": {
+            "name": "Century Media",
+            "id": "727ad90b-7ef4-48d2-8f16-c34016544822"
+          }
+        }
+      ],
+      "packaging": "Jewel Case",
+      "status": "Official",
+      "disambiguation": "Special Edition CD+DVD",
+      "id": "03179d7c-09d5-4e34-800e-5a024b7dd885",
+      "title": "Juggernaut: Omega",
+      "country": "XE",
+      "media": [
+        {
+          "title": "",
+          "position": 1,
+          "track-count": 7,
+          "format": "CD"
+        },
+        {
+          "track-count": 2,
+          "format": "DVD-Video",
+          "position": 2,
+          "title": ""
+        }
+      ],
+      "release-group": {
+        "id": "ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4",
+        "secondary-types": [],
+        "primary-type": "Album",
+        "first-release-date": "2015-01-23",
+        "title": "Juggernaut: Omega"
+      },
+      "barcode": "5051099853201",
+      "date": "2015-01-23"
+    },
+    {
+      "disambiguation": "",
+      "status": "Official",
+      "label-info": [],
+      "packaging": "None",
+      "id": "6fb2016b-3f93-41f8-8569-21c134442e69",
+      "media": [
+        {
+          "track-count": 7,
+          "format": "Digital Media",
+          "position": 1,
+          "title": ""
+        }
+      ],
+      "title": "Juggernaut: Omega",
+      "barcode": "",
+      "release-group": {
+        "primary-type": "Album",
+        "first-release-date": "2015-01-23",
+        "title": "Juggernaut: Omega",
+        "id": "ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4",
+        "secondary-types": []
+      }
+    },
+    {
+      "media": [
+        {
+          "format": "CD",
+          "track-count": 7,
+          "title": "",
+          "position": 1
+        },
+        {
+          "title": "",
+          "position": 2,
+          "track-count": 2,
+          "format": "DVD-Video"
+        }
+      ],
+      "country": "AU",
+      "title": "Juggernaut: Omega",
+      "barcode": "9397601002191",
+      "date": "2015-01-26",
+      "release-group": {
+        "secondary-types": [],
+        "id": "ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4",
+        "title": "Juggernaut: Omega",
+        "primary-type": "Album",
+        "first-release-date": "2015-01-23"
+      },
+      "disambiguation": "",
+      "status": "Official",
+      "packaging": "Jewel Case",
+      "label-info": [
+        {
+          "catalog-number": "5419648592",
+          "label": {
+            "id": "5899271b-a77a-4081-93a9-0bd05b9b4180",
+            "name": "Roadrunner Records"
+          }
+        }
+      ],
+      "id": "89e57c8d-af2a-4a51-bb61-fc95cd88dc33"
+    }
+  ]
+}

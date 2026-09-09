@@ -144,119 +144,126 @@ describe('Label info handling', () => {
 });
 
 describe('getReleaseGroupEditions', () => {
-  it('should parse release group with multiple editions', async () => {
-    const provider = new MusicBrainzProvider('Test/1.0 (+test)');
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
 
-    // Create a mock release group response
-    const mockRgData = {
-      id: 'rg-uuid-123',
-      title: 'Test Album',
-      'primary-type': 'Album',
-      'secondary-types': ['Compilation'],
-      'first-release-date': '2020-01-15',
-      releases: [
-        {
-          id: 'rel-1',
-          title: 'Test Album',
-          status: 'Official',
-          date: '2020-01-15',
-          country: 'US',
-          barcode: '123456789',
-          packaging: 'Jewel Case',
-          'track-count': 10,
-          media: [
-            {
-              position: '1',
-              format: 'CD',
-              'track-count': 10,
-            },
-          ],
-          'label-info': [
-            {
-              label: { id: 'label-1', name: 'Test Label' },
-              'catalog-number': 'CAT001',
-            },
-          ],
-        },
-        {
-          id: 'rel-2',
-          title: 'Test Album (Deluxe Edition)',
-          disambiguation: 'with bonus tracks',
-          status: 'Official',
-          date: '2021-06-20',
-          country: 'GB',
-          barcode: '987654321',
-          'track-count': 15,
-          media: [
-            {
-              position: '1',
-              format: 'CD',
-              'track-count': 12,
-            },
-            {
-              position: '2',
-              format: 'CD',
-              'track-count': 3,
-            },
-          ],
-          'label-info': [
-            {
-              label: { id: 'label-2', name: 'Test Label UK' },
-              'catalog-number': 'CAT002',
-            },
-            {
-              label: null, // edge case: label without name
-              'catalog-number': 'CATALT',
-            },
-          ],
-        },
+  it('browses /release?release-group= with labels and media, and maps one page', async () => {
+    // Trimmed from a live 2026-09-09 response (Periphery, Juggernaut: Omega; 3 of 8 releases kept).
+    // The release-group lookup rejects inc=labels with 400, so editions must come from the browse.
+    const fixture = loadFixture('mb_release_browse_rg.json');
+    let requested = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input);
+      return new Response(JSON.stringify(fixture), { status: 200, headers: { 'content-type': 'application/json' } });
+    }) as typeof fetch;
+
+    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const page = await provider.getReleaseGroupEditions('ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4', { priority: 'background' });
+
+    const url = new URL(requested);
+    expect(url.pathname).toBe('/ws/2/release');
+    expect(url.searchParams.get('release-group')).toBe('ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4');
+    expect(url.searchParams.get('inc')).toBe('media+labels+release-groups');
+    expect(url.searchParams.get('fmt')).toBe('json');
+    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('offset')).toBe('0');
+
+    expect(page.total).toBe(8);
+    expect(page.offset).toBe(0);
+    expect(page.releaseGroup).toEqual({
+      mbid: 'ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4',
+      title: 'Juggernaut: Omega',
+      primaryType: 'Album',
+      secondaryTypes: [],
+      firstReleaseDate: '2015-01-23',
+    });
+    expect(page.editions).toHaveLength(3);
+
+    const special = page.editions[0]!;
+    expect(special).toEqual({
+      mbid: '03179d7c-09d5-4e34-800e-5a024b7dd885',
+      title: 'Juggernaut: Omega',
+      disambiguation: 'Special Edition CD+DVD',
+      status: 'Official',
+      date: '2015-01-23',
+      country: 'XE',
+      barcode: '5051099853201',
+      packaging: 'Jewel Case',
+      labels: [{ name: 'Century Media', catalogNumber: '9985320' }],
+      media: [
+        { position: 1, format: 'CD', trackCount: 7 },
+        { position: 2, format: 'DVD-Video', trackCount: 2 },
       ],
-    };
+      // the browse carries no release-level track-count: it is the sum of the media
+      trackCount: 9,
+    });
 
-    // Mock fetch to return our test data
-    global.fetch = async () => ({
-      ok: true,
-      status: 200,
-      json: async () => mockRgData,
-    }) as any;
+    const digital = page.editions[1]!;
+    expect(digital.mbid).toBe('6fb2016b-3f93-41f8-8569-21c134442e69');
+    expect(digital.labels).toEqual([]);
+    expect(digital.media).toEqual([{ position: 1, format: 'Digital Media', trackCount: 7 }]);
+    expect(digital.trackCount).toBe(7);
+    expect(digital).not.toHaveProperty('date');
+    expect(digital).not.toHaveProperty('country');
+    expect(digital).not.toHaveProperty('barcode');
+    expect(digital).not.toHaveProperty('disambiguation');
 
-    const result = await provider.getReleaseGroupEditions('rg-uuid-123', { priority: 'interactive' });
+    const au = page.editions[2]!;
+    expect(au.mbid).toBe('89e57c8d-af2a-4a51-bb61-fc95cd88dc33');
+    expect(au.labels).toEqual([{ name: 'Roadrunner Records', catalogNumber: '5419648592' }]);
+    expect(au.country).toBe('AU');
+  });
 
-    expect(result.releaseGroup.mbid).toBe('rg-uuid-123');
-    expect(result.releaseGroup.title).toBe('Test Album');
-    expect(result.releaseGroup.primaryType).toBe('Album');
-    expect(result.releaseGroup.secondaryTypes).toEqual(['Compilation']);
-    expect(result.releaseGroup.firstReleaseDate).toBe('2020-01-15');
+  it('pages with offset, clamps the page size to the MusicBrainz maximum, and reports an empty page', async () => {
+    let requested = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requested = String(input);
+      return new Response(JSON.stringify({ 'release-count': 0, 'release-offset': 200, releases: [] }), { status: 200 });
+    }) as typeof fetch;
 
-    expect(result.editions).toHaveLength(2);
+    const page = await new MusicBrainzProvider('Liner-test/0.1')
+      .getReleaseGroupEditions('ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4', { priority: 'background' }, { offset: 200, limit: 500 });
 
-    // First edition
-    const ed1 = result.editions[0]!;
-    expect(ed1.mbid).toBe('rel-1');
-    expect(ed1.title).toBe('Test Album');
-    expect(ed1.status).toBe('Official');
-    expect(ed1.date).toBe('2020-01-15');
-    expect(ed1.country).toBe('US');
-    expect(ed1.barcode).toBe('123456789');
-    expect(ed1.packaging).toBe('Jewel Case');
-    expect(ed1.trackCount).toBe(10);
-    expect(ed1.labels).toHaveLength(1);
-    expect(ed1.labels[0]!).toEqual({ name: 'Test Label', catalogNumber: 'CAT001' });
-    expect(ed1.media).toHaveLength(1);
-    expect(ed1.media[0]!).toEqual({ position: 1, format: 'CD', trackCount: 10 });
+    const url = new URL(requested);
+    expect(url.searchParams.get('limit')).toBe('100');
+    expect(url.searchParams.get('offset')).toBe('200');
+    expect(page).toEqual({ releaseGroup: null, editions: [], total: 0, offset: 200 });
+  });
 
-    // Second edition (deluxe)
-    const ed2 = result.editions[1]!;
-    expect(ed2.mbid).toBe('rel-2');
-    expect(ed2.title).toBe('Test Album (Deluxe Edition)');
-    expect(ed2.disambiguation).toBe('with bonus tracks');
-    expect(ed2.country).toBe('GB');
-    expect(ed2.media).toHaveLength(2);
-    expect(ed2.media[0]!).toEqual({ position: 1, format: 'CD', trackCount: 12 });
-    expect(ed2.media[1]!).toEqual({ position: 2, format: 'CD', trackCount: 3 });
-    // Second edition has two label-info entries, but only one with a label name
-    expect(ed2.labels).toHaveLength(1);
-    expect(ed2.labels[0]!).toEqual({ name: 'Test Label UK', catalogNumber: 'CAT002' });
+  it('keeps a release-level track-count when the payload carries one, and drops label-info without a label', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      'release-count': 1,
+      'release-offset': 0,
+      releases: [{
+        id: 'rel-1',
+        title: 'Test Album',
+        'track-count': 10,
+        media: [{ position: '1', format: 'CD', 'track-count': 10 }],
+        'label-info': [
+          { label: { id: 'label-1', name: 'Test Label' }, 'catalog-number': 'CAT001' },
+          { label: null, 'catalog-number': 'CATALT' },
+        ],
+        'release-group': { id: 'rg-1', title: 'Test Album' },
+      }],
+    }), { status: 200 })) as typeof fetch;
+
+    const page = await new MusicBrainzProvider('Liner-test/0.1').getReleaseGroupEditions('rg-1', { priority: 'background' });
+    expect(page.releaseGroup).toEqual({ mbid: 'rg-1', title: 'Test Album' });
+    expect(page.editions[0]!.trackCount).toBe(10);
+    expect(page.editions[0]!.labels).toEqual([{ name: 'Test Label', catalogNumber: 'CAT001' }]);
+    expect(page.editions[0]!.media).toEqual([{ position: 1, format: 'CD', trackCount: 10 }]);
+  });
+
+  it('surfaces a 503 as a rate-limit error and attaches the status to other failures', async () => {
+    const provider = new MusicBrainzProvider('Liner-test/0.1');
+
+    globalThis.fetch = (async () => new Response('{"error":"The MusicBrainz web server is currently busy."}', { status: 503, statusText: 'Service Unavailable' })) as typeof fetch;
+    await expect(provider.getReleaseGroupEditions('x', { priority: 'background' })).rejects.toThrow(/rate limited \(503\)/);
+
+    globalThis.fetch = (async () => new Response('{"error":"labels is not a valid inc parameter"}', { status: 400, statusText: 'Bad Request' })) as typeof fetch;
+    await expect(provider.getReleaseGroupEditions('x', { priority: 'background' })).rejects.toMatchObject({ status: 400 });
   });
 });
 
