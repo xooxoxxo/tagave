@@ -35,7 +35,9 @@ export function Layout() {
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
       <aside className={styles.nav}>
         <Link to="/" className={styles.brand}>
-          <img src="/tagave-logo.png" alt="" aria-hidden="true" className={styles.brandMark} width={32} height={32} />
+          {/* The mark alone, not the full lockup: the lockup contains the
+              wordmark, which sits next to this as live text. */}
+          <img src="/tagave-mark.png" alt="" aria-hidden="true" className={styles.brandMark} width={32} height={32} />
           tagave
           <span className={styles.brandCaption}>A home for your music</span>
         </Link>

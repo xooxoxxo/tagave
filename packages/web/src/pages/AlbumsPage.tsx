@@ -412,7 +412,7 @@ export function AlbumsPage() {
                               <p className={styles.albumArtist}>{album.artistCredit}</p>
                               <p className={styles.albumStats}>
                                 <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>{formatLabel(album)}</span>
-                                {' · '}{album.trackCount} tracks
+                                {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
                                 {album.year ? ` · ${album.year}` : ''}
                                 {album.matchKind && album.matchKind !== 'auto_strong' && (
                                   <span className={styles.kindTag}> · {KIND_TAG[album.matchKind] ?? ''}</span>
