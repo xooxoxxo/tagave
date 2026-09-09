@@ -13,6 +13,7 @@ import { ReviewsSection } from '../components/ReviewsSection';
 import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
+import { uniqueGenres } from '../utils/albumPresentation';
 
 interface DetailTrack {
   id: string;
@@ -263,7 +264,7 @@ export function AlbumDetailPage() {
   const [mbidInput, setMbidInput] = useState('');
   // Album first; editions, reviews and the background story live on their own
   // faces and load only when opened, so a page visit costs one detail request.
-  const [tab, setTab] = useState<'album' | 'editions' | 'reviews' | 'activity'>('album');
+  const [tab, setTab] = useState<'album' | 'care' | 'editions' | 'reviews' | 'activity'>('album');
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
@@ -376,6 +377,8 @@ export function AlbumDetailPage() {
     (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags ?? {},
   );
 
+  const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
+
   const describeGap = (g: Gap): string => {
     if (g.kind === 'incomplete_album') {
       const d = g.details as { have?: number; want?: number };
@@ -394,7 +397,7 @@ export function AlbumDetailPage() {
           {album.coverUrl ? (
             <img className={styles.cover} src={album.coverUrl} alt="" />
           ) : (
-            <div className={styles.coverPlaceholder}>{album.trackCount}</div>
+            <div className={styles.coverPlaceholder}><span>No artwork</span></div>
           )}
         </div>
         <div className={styles.headInfo}>
@@ -422,46 +425,22 @@ export function AlbumDetailPage() {
               album.release?.date ?? album.year,
               album.release?.country,
               album.release?.labels?.[0]?.name,
-              `${album.trackCount} tracks`,
+              album.trackCount == null ? 'Track count unavailable' : album.isCueImage ? `${album.trackCount} audio ${(album.trackCount ?? 0) === 1 ? 'file' : 'files'} (CUE image)` : `${album.trackCount ?? 0} ${(album.trackCount ?? 0) === 1 ? 'track' : 'tracks'}`,
               dur(album.totalDurationMs),
               album.formats?.join(', '),
             ].filter(Boolean).join(' · ')}
           </div>
-          {album.genres && (album.genres.effective.length > 0 || album.genres.styles.length > 0) && (
-            <div className={styles.genresRow} title={album.genres.raw.map((r) => `${r.tag} — ${r.source} ${r.kind}`).join('; ')}>
-              {album.genres.effective.map((g) => (
-                <span key={`g-${g}`} className={styles.genreChip}>{g}</span>
-              ))}
-              {album.genres.styles.length > 0 && album.genres.effective.length > 0 && (
-                <span className={styles.genreSeparator}>·</span>
-              )}
-              {album.genres.styles.map((s) => (
-                <span key={`s-${s}`} className={styles.styleChip}>{s}</span>
-              ))}
-            </div>
-          )}
+          {genreLabels.length > 0 && <p className={styles.genreText}>{genreLabels.slice(0, 5).join(' · ')}{genreLabels.length > 5 && <span className={styles.muted}> +{genreLabels.length - 5} more in album details</span>}</p>}
           <div className={styles.badgeRow}>
             <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>
               {STATE_LABEL[album.state] ?? album.state}
             </span>
-            {openGaps.map((g) => (
-              <span key={g.id} className={`${styles.pill} ${styles.pillGap}`} title={describeGap(g)}>
-                {GAP_LABEL[g.kind] ?? g.kind}
-              </span>
-            ))}
+            {openGaps.length > 0 && <button className={styles.issueLink} onClick={() => setTab('care')}>{openGaps.length} library {openGaps.length === 1 ? 'issue' : 'issues'} →</button>}
             {album.match?.releaseGroupOnly && (
               <button className={styles.pillButton} title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
                 any edition ✕
               </button>
             )}
-            {album.match && (
-              <span className={`${styles.pill} ${styles.pillMuted}`} title={album.match.reason ?? ''}>
-                {album.match.decidedBy === 'system' ? 'auto-matched' : 'matched by you'} · {album.match.distance.toFixed(4)}
-                {album.match.decidedAt ? ` · ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}
-              </span>
-            )}
-            {album.coverOrigin && <span className={`${styles.pill} ${styles.pillMuted}`}>cover: {album.coverOrigin}</span>}
-            {album.isCueImage && <span className={`${styles.pill} ${styles.pillMuted}`} title={album.cueRelPath ?? ''}>Cue image</span>}
             {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
               <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs-only</span>
             )}
@@ -509,17 +488,16 @@ export function AlbumDetailPage() {
               </button>
             )}
           </div>
-          <div className={styles.dirPath} title={album.dirPaths?.join('\n')}>{album.dirPaths?.[0]}</div>
-          {((album.release?.genres?.length ?? 0) + (album.release?.styles?.length ?? 0)) > 0 && (
-            <div className={styles.genresRow} title="Genres and styles (Discogs, CC0)">
-              {album.release?.genres?.map((g) => (
-                <span key={`g-${g}`} className={styles.genreChip}>{g}</span>
-              ))}
-              {album.release?.styles?.map((st) => (
-                <span key={`s-${st}`} className={styles.styleChip}>{st}</span>
-              ))}
-            </div>
-          )}
+          <details className={styles.albumFacts}>
+            <summary>Album details</summary>
+            <dl>
+              <div><dt>Genres & styles</dt><dd>{genreLabels.join(', ') || 'Not available'}</dd></div>
+              <div><dt>Local folder</dt><dd>{album.dirPaths?.join(', ') || 'Not available'}</dd></div>
+              <div><dt>Identification</dt><dd>{album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'}</dd></div>
+              {album.coverOrigin && <div><dt>Artwork source</dt><dd>{album.coverOrigin}</dd></div>}
+              {album.isCueImage && <div><dt>CUE sheet</dt><dd>{album.cueRelPath || 'CUE image album'}</dd></div>}
+            </dl>
+          </details>
           <details className={styles.maintenance}><summary>Manage this album</summary>
           <div className={styles.actions}>
             <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
@@ -597,7 +575,8 @@ export function AlbumDetailPage() {
 
       <nav className={styles.tabs} aria-label="Album sections">
         {([
-          ['album', 'Album'],
+          ['album', 'Tracks'],
+          ['care', `Library health${openGaps.length ? ` (${openGaps.length})` : ''}`],
           ['editions', 'Editions'],
           ['reviews', 'Reviews & listening'],
           ['activity', pending ? 'Activity ·' : 'Activity'],
@@ -608,7 +587,7 @@ export function AlbumDetailPage() {
         ))}
       </nav>
 
-      {tab === 'album' && (<>
+      {tab === 'care' && (<>
       {openGaps.length > 0 && (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Needs attention</h2>
@@ -786,6 +765,12 @@ export function AlbumDetailPage() {
         </div>
       )}
 
+      {openGaps.length === 0 && album.missingTracks.length === 0 && album.duplicates.length === 0 && album.candidates.length === 0 && <p className={styles.muted}>No library issues recorded for this album.</p>}
+      </>)}
+
+      {tab === 'album' && (<>
+      {album.tracks.length === 0 && <p className={styles.muted}>No track information is available for this album yet.</p>}
+      <div className={styles.trackScroller}>
       <table className={styles.trackTable}>
         <thead>
           <tr>
@@ -838,6 +823,7 @@ export function AlbumDetailPage() {
           </Fragment>))}
         </tbody>
       </table>
+      </div>
       </>)}
 
       {tab === 'editions' && (

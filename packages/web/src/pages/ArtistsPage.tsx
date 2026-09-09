@@ -1,135 +1,48 @@
-/**
- * Artists browse view (spec BRW-5, M0 grade: derived from local clusters).
- * Resolved artists (with id) navigate to /artists/$artistId; unresolved rows
- * navigate to /albums?artist=name with quiet neutral badge indicating no MusicBrainz id.
- */
+import { Input } from '../components/ui/FormControl';
 import { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { useArtistsList, type ArtistListItem } from '../hooks';
-import { useCurrentLibrary } from '../hooks';
-import { PageShell, Table, Th, Td, TableRow, Badge, Button, EmptyState } from '../components/ui';
+import { Link } from '@tanstack/react-router';
+import { useArtistsList, useCurrentLibrary } from '../hooks';
+import { PageShell, Table, Th, Td, Button, EmptyState } from '../components/ui';
 import styles from './ArtistsPage.module.css';
-
-function useArtists(libraryId: string | undefined, search: string, offset: number) {
-  return useArtistsList(libraryId, { search, offset, limit: 100 });
-}
 
 export function ArtistsPage() {
   const { libraryId } = useCurrentLibrary();
-  const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [offset, setOffset] = useState(0);
-  const { data, isLoading, error } = useArtists(libraryId, search, offset);
-
-  const tabItems = [
-    { label: 'Albums', value: 'albums', onClick: () => navigate({ to: '/albums' }) },
-    { label: 'Artists', value: 'artists', onClick: () => navigate({ to: '/artists' }) },
-  ];
+  const { data, isLoading, error, refetch } = useArtistsList(libraryId, { search, offset, limit: 100 });
 
   return (
-    <PageShell
-      title="Library"
-      tabs={tabItems}
-      activeTab="artists"
-      actions={
-        <input
-          className={styles.searchInput}
-          placeholder="Search artists..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setOffset(0);
-          }}
-        />
-      }
-    >
-      {isLoading && <div className={styles.loading}>Loading artists...</div>}
-      {error && <div className={styles.error}>Failed to load artists</div>}
-
-      {data && data.items.length === 0 && (
-        <EmptyState title="No artists found" text={search ? 'Try adjusting your search.' : ''} />
-      )}
-
-      {data && data.items.length > 0 && (
-        <div className={styles.content}>
-          <Table>
-            <thead>
-              <tr>
-                <Th>Name</Th>
-                <Th className={styles.headerAlignRight}>Albums</Th>
-                <Th className={styles.headerAlignRight}>Tracks</Th>
-                <Th>Years</Th>
-                <Th className={styles.headerAlignRight}></Th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.items.map((artist) => {
-                const isResolved = artist.id !== null && artist.resolved;
-                const yearRange = artist.yearFrom
-                  ? `${artist.yearFrom}${artist.yearTo && artist.yearTo !== artist.yearFrom ? `–${artist.yearTo}` : ''}`
-                  : '';
-
-                const rowContent = (
-                  <>
-                    <Td className={!isResolved ? styles.unresolvedName : ''}>
-                      {artist.name}
-                    </Td>
-                    <Td className={styles.numericCell}>
-                      {artist.albumCount}
-                    </Td>
-                    <Td className={styles.numericCell}>
-                      {artist.trackCount}
-                    </Td>
-                    <Td>{yearRange}</Td>
-                    <Td className={styles.badgeCell}>
-                      
-                    </Td>
-                  </>
-                );
-
-                if (isResolved) {
-                  return (
-                    <TableRow key={artist.id || artist.name} to={`/artists/${artist.id}`}>
-                      {rowContent}
-                    </TableRow>
-                  );
-                }
-
-                return (
-                  <TableRow
-                    key={artist.name}
-                    onClick={() => navigate({ to: '/albums', search: { artist: artist.name } as never })}
-                  >
-                    {rowContent}
-                  </TableRow>
-                );
-              })}
-            </tbody>
-          </Table>
-
-          <div className={styles.pagination}>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setOffset(Math.max(0, offset - 100))}
-              disabled={offset === 0}
-            >
-              Previous
-            </Button>
-            <span className={styles.pageInfo}>
-              {offset + 1}–{offset + data.items.length}
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setOffset(offset + 100)}
-              disabled={!data.nextCursor}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+    <PageShell title="Artists" subtitle="Browse artists in your local library. Identified artists also have a profile and discography.">
+      <div className={styles.toolbar}>
+        <Input className={styles.searchInput} aria-label="Search artists" placeholder="Search artists…" value={search}
+          onChange={e => { setSearch(e.target.value); setOffset(0); }} />
+        {search && <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setOffset(0); }}>Clear search</Button>}
+        {data && <span className={styles.resultCount}>{data.items.length ? `${offset + 1}–${offset + data.items.length}${data.nextCursor ? '' : ` of ${offset + data.items.length}`}` : '0'} artists{search ? ' matching your search' : ''}</span>}
+      </div>
+      {isLoading && <div className={styles.loading} role="status">Loading artists…</div>}
+      {error && <div className={styles.error} role="alert">Couldn’t load artists. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
+      {data && !data.items.length && <EmptyState title={search ? 'No matching artists' : 'No artists in your library yet'} text={search ? 'Try another name or clear your search.' : 'Scan a music folder to build your artist library.'} />}
+      {data && data.items.length > 0 && <div className={styles.content}>
+        <Table>
+          <thead><tr><Th>Artist</Th><Th className={styles.headerAlignRight}>Albums</Th><Th className={styles.headerAlignRight}>Tracks</Th><Th>Release years</Th><Th>Artist information</Th></tr></thead>
+          <tbody>{data.items.map(artist => {
+            const resolved = artist.id !== null && artist.resolved;
+            const years = artist.yearFrom ? `${artist.yearFrom}${artist.yearTo && artist.yearTo !== artist.yearFrom ? `–${artist.yearTo}` : ''}` : 'Not available';
+            return <tr key={artist.id ?? artist.name}>
+              <Td>{resolved ? <Link className={styles.artistLink} to="/artists/$artistId" params={{ artistId: artist.id! }}>{artist.name}</Link> : <Link className={styles.artistLink} to="/albums" search={{ artist: artist.name }}>{artist.name}</Link>}</Td>
+              <Td className={styles.numericCell}>{artist.albumCount.toLocaleString()}</Td>
+              <Td className={styles.numericCell}>{artist.trackCount.toLocaleString()}</Td>
+              <Td>{years}</Td>
+              <Td><span className={styles.artistStatus}>{resolved ? 'Profile & discography' : 'Local tags only'}</span>{!resolved && <span className={styles.statusHint}>Opens albums; artist identity not linked yet</span>}</Td>
+            </tr>;
+          })}</tbody>
+        </Table>
+        {(offset > 0 || data.nextCursor) && <div className={styles.pagination}>
+          <Button variant="secondary" size="sm" onClick={() => setOffset(Math.max(0, offset - 100))} disabled={offset === 0}>Previous artists</Button>
+          <span className={styles.pageInfo}>{offset + 1}–{offset + data.items.length}</span>
+          <Button variant="secondary" size="sm" onClick={() => setOffset(offset + 100)} disabled={!data.nextCursor}>Next artists</Button>
+        </div>}
+      </div>}
     </PageShell>
   );
 }

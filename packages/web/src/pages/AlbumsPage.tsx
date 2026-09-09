@@ -1,3 +1,4 @@
+import { Input, Select } from '../components/ui/FormControl';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -222,7 +223,7 @@ export function AlbumsPage() {
           <button className={styles.toolButton} onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
             {railOpen ? 'Hide filters' : `Filters${activeCount ? ` (${activeCount})` : ''}`}
           </button>
-          <input
+          <Input
             type="text"
             className={styles.searchInput}
             placeholder="Search albums, artists…"
@@ -230,14 +231,14 @@ export function AlbumsPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <select className={styles.select} value={sort} onChange={(e) => setSearch({ sort: e.target.value as AlbumsSearch['sort'] })} aria-label="Sort albums">
+          <Select className={styles.select} value={sort} onChange={(e) => setSearch({ sort: e.target.value as AlbumsSearch['sort'] })} aria-label="Sort albums">
             <option value="artist">Artist A–Z</option>
             <option value="title">Title A–Z</option>
             <option value="year">Year, newest</option>
             <option value="added_date">Recently added</option>
             <option value="rating">Your rating</option>
             <option value="listened">Last listened</option>
-          </select>
+          </Select>
           <span className={styles.countInfo}>
             {facets ? `${total.toLocaleString()} albums` : ''}
           </span>

@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useId } from 'react';
 import { Tabs, TabItem } from './Tabs';
 import styles from './PageShell.module.css';
 
@@ -21,6 +21,7 @@ export function PageShell({
   onTabChange,
   children,
 }: PageShellProps) {
+  const panelId = useId();
   return (
     <div className={styles.pageShell}>
       <header className={styles.header}>
@@ -33,11 +34,11 @@ export function PageShell({
 
       {tabs && tabs.length > 0 && (
         <div className={styles.tabs}>
-          <Tabs items={tabs} value={activeTab} onChange={onTabChange} />
+          <Tabs panelId={panelId} items={tabs} value={activeTab} onChange={onTabChange} />
         </div>
       )}
 
-      <div className={styles.content} id={tabs?.length ? `${activeTab}-panel` : undefined} role={tabs?.length ? "tabpanel" : undefined}>{children}</div>
+      <div className={styles.content} id={tabs?.length ? panelId : undefined} role={tabs?.length ? "tabpanel" : undefined}>{children}</div>
     </div>
   );
 }

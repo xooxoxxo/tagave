@@ -88,7 +88,7 @@ export function PlansPage() {
       count: plans.filter((p) => ['draft', 'previewed', 'applying', 'paused'].includes(p.status)).length,
     },
     {
-      label: 'Done',
+      label: 'Finished',
       value: 'done',
       count: plans.filter((p) => ['applied', 'reverted', 'cancelled', 'partially_failed'].includes(p.status)).length,
     },
@@ -133,8 +133,8 @@ export function PlansPage() {
                 <Th>Scope</Th>
                 <Th>Status</Th>
                 <Th style={{ textAlign: 'right' }}>Files</Th>
-                <Th>Created</Th>
-                <Th>Applied</Th>
+                <Th style={{ textAlign: 'right' }}>Created</Th>
+                <Th style={{ textAlign: 'right' }}>Applied</Th>
               </tr>
             </thead>
             <tbody>
@@ -173,6 +173,7 @@ export function PlansPage() {
           </Table>
 
           <div className={styles.pagination}>
+            {(hasPrev || hasNext) && <>
             <Button
               variant="secondary"
               size="sm"
@@ -181,17 +182,18 @@ export function PlansPage() {
             >
               Prev
             </Button>
+            </>}
             <span className={styles.paginationInfo}>
               {total === 0 ? '0' : `${offset + 1}–${Math.min(offset + limit, total)}`} of {total.toLocaleString()}
             </span>
-            <Button
+            {(hasPrev || hasNext) && <Button
               variant="secondary"
               size="sm"
               onClick={() => setOffset(offset + limit)}
               disabled={!hasNext}
             >
               Next
-            </Button>
+            </Button>}
           </div>
         </>
       )}

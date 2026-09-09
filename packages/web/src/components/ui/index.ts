@@ -7,3 +7,4 @@ export { EmptyState } from './EmptyState';
 export { Banner, type BannerTone } from './Banner';
 export { Tabs, type TabItem } from './Tabs';
 export { PageShell } from './PageShell';
+export { Input, Select, Textarea, TextField, type TextFieldProps } from './FormControl';
