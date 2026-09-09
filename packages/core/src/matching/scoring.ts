@@ -28,6 +28,42 @@ import {
  */
 export const MAX_ALIGN_TRACKS = 500;
 
+/**
+ * A provider release, seen only through what says how many discs it has.
+ * Structural so the matcher does not have to depend on the provider types.
+ */
+export interface MediumCountSource {
+  tracks?: ReadonlyArray<{ mediumNumber?: number | undefined }> | undefined;
+  mediaList?: { length: number } | undefined;
+}
+
+/**
+ * How many media (discs) a candidate release has (XO-379).
+ *
+ * The per-track medium number is the trustworthy signal: MusicBrainz never
+ * fills the release-level media list, and Discogs builds it from format
+ * entries, so a "2xCD" folded into one entry reads as a single medium —
+ * exactly the releases this exists to tell apart. The list is a fallback for
+ * a tracklist that says nothing at all, and `undefined` means "unknown",
+ * never "one".
+ */
+export function mediumCountOf(release: MediumCountSource): number | undefined {
+  let maxMedium = 0;
+  for (const t of release.tracks ?? []) {
+    const m = t.mediumNumber;
+    if (typeof m === 'number' && m > maxMedium) maxMedium = m;
+  }
+  if (maxMedium > 0) return maxMedium;
+  return release.mediaList?.length || undefined;
+}
+
+/** Distinct disc/medium numbers, ascending; a missing number counts as 1. */
+function distinctRanks(values: Array<number | undefined>): number[] {
+  const seen = new Set<number>();
+  for (const v of values) seen.add(v ?? 1);
+  return [...seen].sort((a, b) => a - b);
+}
+
 /** A local track nothing could be paired with. */
 function unaligned(track: LocalTrack): TrackAlignment {
   return {
@@ -43,15 +79,19 @@ function unaligned(track: LocalTrack): TrackAlignment {
  * Align local tracks to canonical tracks using the Hungarian algorithm.
  * Cost is 0.6*titleDistance + 0.4*lengthDistance with grace (10s) and hard cap (30s).
  *
- * When the local cluster knows its disc numbers and the candidate says which
- * medium each track sits on, the alignment runs per medium (disc N against
- * medium N) instead of over one flat list: a two-CD folder pair must not
- * silently align its disc-2 tracks against a one-CD release's tracklist
- * (XO-379, the "Liebe ist für alle da" CD1/CD2 mismatch). Local tracks whose
- * disc has no matching medium — and canonical tracks on a medium no local
- * disc covers — stay unaligned, so they land in unmatchedTracks/missingTracks.
- * With no disc information on the local side the flat alignment is used
- * unchanged.
+ * Normally this is one flat assignment over the whole tracklist. It splits per
+ * medium only when both sides really are multi-disc — the local album holds at
+ * least two distinct disc numbers AND the candidate spans at least two media —
+ * because a two-CD folder pair must not silently align its disc-2 tracks
+ * against a one-CD release's tracklist (XO-379, the "Liebe ist für alle da"
+ * CD1/CD2 mismatch).
+ *
+ * The split pairs discs by RANK, not by number: the sorted distinct local
+ * discs line up against the sorted candidate media, first with first. Absolute
+ * numbers cannot be trusted — a folder tagged "disk.no 2" throughout, or a
+ * CD2-only cluster, would otherwise align against nothing and lose every
+ * match. Ranks with no counterpart on the other side stay unaligned, so they
+ * land in unmatchedTracks / missingTracks.
  *
  * @param localTracks - tracks from the user's files
  * @param canonicalTracks - tracks from the canonical release
@@ -66,12 +106,13 @@ export function alignTracks(
     return localTracks.map(unaligned);
   }
 
-  // Unknown discs (or a candidate that never says which medium a track is on,
-  // e.g. a provider shape built before this existed) => the historical
-  // behaviour, byte for byte.
-  const localHasDiscs = localTracks.some((t) => t.disc !== undefined);
-  const canonicalHasMedia = canonicalTracks.some((t) => t.medium !== undefined);
-  if (!localHasDiscs || !canonicalHasMedia) return alignFlat(localTracks, canonicalTracks);
+  const localDiscs = distinctRanks(localTracks.map((t) => t.disc));
+  const canonicalMedia = distinctRanks(canonicalTracks.map((t) => t.medium));
+  // One disc on either side (or no disc information at all) => the historical
+  // flat alignment, unchanged.
+  if (localDiscs.length < 2 || canonicalMedia.length < 2) {
+    return alignFlat(localTracks, canonicalTracks);
+  }
 
   const byMedium = new Map<number, CanonicalTrack[]>();
   for (const t of canonicalTracks) {
@@ -81,8 +122,7 @@ export function alignTracks(
     else byMedium.set(m, [t]);
   }
 
-  // Local positions per disc; a missing disc number means disc 1 (the
-  // convention local_tracks.disc_no is written with).
+  // Local positions per disc, so the output stays in input order.
   const byDisc = new Map<number, number[]>();
   for (let i = 0; i < localTracks.length; i++) {
     const d = localTracks[i]!.disc ?? 1;
@@ -92,9 +132,11 @@ export function alignTracks(
   }
 
   const out: TrackAlignment[] = new Array(localTracks.length);
-  for (const [disc, positions] of byDisc) {
+  for (let rank = 0; rank < localDiscs.length; rank++) {
+    const positions = byDisc.get(localDiscs[rank]!) ?? [];
     const group = positions.map((i) => localTracks[i]!);
-    const medium = byMedium.get(disc);
+    const mediumNo = canonicalMedia[rank];
+    const medium = mediumNo === undefined ? undefined : byMedium.get(mediumNo);
     const sub = medium && medium.length ? alignFlat(group, medium) : group.map(unaligned);
     for (let k = 0; k < positions.length; k++) {
       out[positions[k]!] = sub[k] ?? unaligned(group[k]!);
@@ -293,13 +335,23 @@ export function scoreRelease(
   totalWeight += weights.tracks;
 
   // Disc count vs medium count (XO-379). A two-CD cluster is not the one-CD
-  // release, however well half of it aligns; scaled like the track count and
-  // weighted the same, so a mismatch shows up as a red chip.
-  if (local.discCount !== undefined && candidate.mediumCount !== undefined
-    && local.discCount > 0 && candidate.mediumCount > 0) {
-    const mediumCountDist =
-      Math.abs(local.discCount - candidate.mediumCount) /
-      Math.max(local.discCount, candidate.mediumCount);
+  // release, however well half of it aligns.
+  //
+  // The component is written only when it has something to say: the local
+  // album must actually know its discs, and one of the two sides must be
+  // multi-disc. In the 1-vs-1 case — the overwhelming majority of a library —
+  // the key stays absent rather than being written as 0, because every numeric
+  // key in the breakdown is a chip and a free green chip everywhere would push
+  // candidates past the chip rule for nothing.
+  const localDiscCount = local.discsKnown === true ? local.discCount : undefined;
+  const candidateMediumCount = candidate.mediumCount;
+  if (localDiscCount !== undefined && candidateMediumCount !== undefined
+    && localDiscCount > 0 && candidateMediumCount > 0
+    && (localDiscCount >= 2 || candidateMediumCount >= 2)) {
+    const mediumCountDist = localDiscCount === candidateMediumCount
+      ? 0
+      : Math.min(1, Math.abs(localDiscCount - candidateMediumCount) /
+        Math.max(localDiscCount, candidateMediumCount));
     breakdown.mediums = mediumCountDist;
     totalScore += mediumCountDist * weights.mediums;
     totalWeight += weights.mediums;

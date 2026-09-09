@@ -24,6 +24,7 @@ export {
   alignTracks,
   scoreRelease,
   scoreCandidates,
+  mediumCountOf,
   DEFAULT_WEIGHTS,
   MATCHING_THRESHOLDS,
   MAX_ALIGN_TRACKS,
@@ -38,6 +39,7 @@ export type {
   DistanceBreakdown,
   TrackAlignment,
   MatchingPreferences,
+  MediumCountSource,
   Assignment,
 } from './matching/index.js';
 

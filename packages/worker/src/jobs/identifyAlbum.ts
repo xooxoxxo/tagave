@@ -4,6 +4,7 @@ import {
 } from '@liner/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
+  mediumCountOf,
   type CanonicalRelease, type ReleaseQuery,
   pickByChipRule, chipCounts,
 } from '@liner/core';
@@ -185,6 +186,15 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       .where(eq(localAlbums.id, album.id));
   }
 
+  // What the files say about discs (XO-379). local_albums.disc_count is 1 for an
+  // album that never mentioned a disc, so it cannot answer "how many discs?" —
+  // the tracks can. No track carrying a disc number means "unknown", and then
+  // neither the alignment nor the medium component gets to guess.
+  const discsKnown = tracks.some((t) => t.discNo != null);
+  const distinctDiscs = new Set(
+    tracks.filter((t) => t.discNo != null).map((t) => t.discNo),
+  ).size;
+
   const local = {
     artist: album.artistGuess ?? '',
     title: album.titleGuess ?? '',
@@ -195,13 +205,10 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
         ...(t.artistGuess ? { artist: t.artistGuess } : {}),
         duration: (t.durationMs ?? 0) / 1000, // core/matching works in seconds
         index: i,
-        // Disc/track within the disc (XO-379): the matcher aligns per medium
-        // when it knows them. disc_no is null for files that carry no disc
-        // information, which means disc 1 — leave it off rather than assume.
-        ...(t.discNo != null ? { disc: t.discNo } : {}),
-        ...(t.trackNo != null ? { position: t.trackNo } : {}),
+        ...(discsKnown && t.discNo != null ? { disc: t.discNo } : {}),
       })),
-    ...(album.discCount ? { discCount: album.discCount } : {}),
+    discsKnown,
+    ...(discsKnown && distinctDiscs > 0 ? { discCount: distinctDiscs } : {}),
     ...(album.yearGuess ? { year: album.yearGuess } : {}),
     ...(embedded.albumMbid ? { embeddedMbId: embedded.albumMbid } : {}),
     ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
@@ -209,17 +216,6 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   };
 
   // core/matching input: seconds + 0-based indices; provider tracks are ms.
-  // How many discs a release has (XO-379): the per-track mediumNumber is the
-  // trustworthy signal — MusicBrainz never fills mediaList, and Discogs builds
-  // it from format entries, so a 2xCD in one entry reads as one medium. The
-  // release-level list is only a fallback for a tracklist that says nothing.
-  const mediumCountOf = (r: CanonicalRelease): number | undefined => {
-    let maxMedium = 0;
-    for (const t of r.tracks ?? []) {
-      if (t.mediumNumber && t.mediumNumber > maxMedium) maxMedium = t.mediumNumber;
-    }
-    return maxMedium > 0 ? maxMedium : (r.mediaList?.length || undefined);
-  };
   const toScorable = (r: CanonicalRelease) => {
     const mediumCount = mediumCountOf(r);
     return {

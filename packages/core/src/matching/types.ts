@@ -12,13 +12,12 @@ export interface LocalTrack {
   duration: number; // seconds
   index: number; // 0-based position in the album's flat, disc-then-track ordered list
   /**
-   * 1-based disc number, when the cluster knows it. Omitted (not 0/null) when
-   * the file carries no disc information — the codebase convention is that an
-   * unknown disc means disc 1, and alignment treats it that way.
+   * 1-based disc number, when the cluster knows it. Omitted on every track when
+   * the album carries no disc information at all (see
+   * {@link LocalAlbumView.discsKnown}); a stray track without one inside an
+   * album that does know its discs counts as disc 1.
    */
   disc?: number;
-  /** 1-based track number *within its disc*, when known (local_tracks.track_no). */
-  position?: number;
 }
 
 /**
@@ -49,7 +48,18 @@ export interface LocalAlbumView {
   media?: string; // e.g., "CD", "Digital Media"
   embeddedMbId?: string;
   embeddedMbRgId?: string;
-  /** Number of distinct discs in the cluster (local_albums.disc_count). */
+  /**
+   * Whether the files said anything about discs at all. `false` (or absent)
+   * means "no disc information", which is NOT the same as "one disc": the
+   * clusterer stores disc_count 1 for an album that never mentioned a disc,
+   * so reading that column as a fact penalised a flat-ripped 2-CD set against
+   * the two-medium release that actually matched it (XO-379).
+   */
+  discsKnown?: boolean;
+  /**
+   * Number of distinct disc numbers across the album's tracks — only
+   * meaningful when {@link discsKnown} is true.
+   */
   discCount?: number;
 }
 
@@ -136,11 +146,7 @@ export const DEFAULT_WEIGHTS = {
   trackArtist: 2.0,
   trackLength: 2.0,
   media: 1.0,
-  // Disc-count mismatch is as load-bearing as track-count mismatch: a
-  // one-CD release is simply not the two-CD edition sitting on disk
-  // (2026-09-09, XO-379). Raised from 1.0 when the component was first
-  // populated — nothing read `mediums` before then.
-  mediums: 2.0,
+  mediums: 1.0,
   year: 1.0,
   mediumIndex: 1.0,
   missingTracks: 0.9,
