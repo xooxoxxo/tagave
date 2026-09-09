@@ -193,22 +193,26 @@ async function main() {
   // Each job is bounded on its own (XO-318): one that hangs is failed alone
   // through boss.fail() and pg-boss retries it later; the batch completes
   // the rest as usual.
-  // XO-379: 8 concurrent jobs. MusicBrainz calls still serialise through the
-  // shared pacer (1 req/s), so MB-bound jobs (AcoustID candidates, MB
-  // fallbacks) cost ~60 s each and used to fill all 3 slots; Discogs-first
-  // sweep jobs need seconds and now get the free slots.
-  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 8, pollingIntervalSeconds: 1 }, async (jobs) => {
-    const results = await Promise.allSettled(jobs.map((job) =>
-      tracked('identify.album', job.id, job.data.localAlbumId, () =>
-        withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `identify.album ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
-    for (const [i, r] of results.entries()) {
-      if (r.status !== 'rejected') continue;
-      const job = jobs[i]!;
-      const err = r.reason as Error;
-      logger.error({ jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify.album failed');
-      await boss.fail('identify.album', job.id, { message: err.message });
-    }
-  });
+  // XO-379: eight independent pollers, one job each. A single work() with
+  // batchSize 8 only fetches the next batch after the whole batch returns, so
+  // seven finished slots idled behind one 170 s MusicBrainz-bound job (2.2
+  // albums/min measured). Separate registrations poll on their own; provider
+  // calls still serialise through the shared pacers, so this adds no traffic.
+  const IDENTIFY_WORKERS = Number(process.env['IDENTIFY_CONCURRENCY'] ?? 8);
+  if (wants('identify.album')) for (let w = 0; w < IDENTIFY_WORKERS; w++) {
+    await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs) => {
+      const results = await Promise.allSettled(jobs.map((job) =>
+        tracked('identify.album', job.id, job.data.localAlbumId, () =>
+          withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `identify.album ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
+      for (const [i, r] of results.entries()) {
+        if (r.status !== 'rejected') continue;
+        const job = jobs[i]!;
+        const err = r.reason as Error;
+        logger.error({ jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify.album failed');
+        await boss.fail('identify.album', job.id, { message: err.message });
+      }
+    });
+  }
 
   if (wants('identify.sweep')) {
     await boss.work<IdentifySweepJobData>('identify.sweep', { batchSize: 1 }, async (jobs) => {

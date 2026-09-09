@@ -463,8 +463,12 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       })
       .where(eq(localAlbums.id, album.id));
     await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
-    // ENR-1: bridge + enrich the release of record.
-    await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
+    // ENR-1: bridge + enrich the release of record — except a Discogs match
+    // from the Discogs-only first pass: its MusicBrainz bridge is the nightly
+    // enrich.sweep (XO-379 pass 2), not a MB call now.
+    if (!(discogsFirst && source === 'discogs_search')) {
+      await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
+    }
   };
 
   // IDN-6: a pinned entry is the owner's decision — match it outright, with
