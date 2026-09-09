@@ -181,11 +181,15 @@ async function main() {
 
   // Run by hand after the disc-aware clustering ships: sweeps the library for
   // the multi-disc layouts, re-clusters them and re-identifies what changed.
+  // The handler's return value becomes the job's output, so the counts a
+  // dryRun pass reports are readable from pgboss.job.output.
   if (wants('cluster.repairDiscs')) await boss.work<ClusterRepairDiscsJobData>('cluster.repairDiscs', { batchSize: 1 }, async (jobs) => {
+    const results = [];
     for (const job of jobs) {
       logger.info({ jobId: job.id, data: job.data }, 'cluster.repairDiscs start');
-      await clusterRepairDiscsJob(ctx, job.data);
+      results.push(await clusterRepairDiscsJob(ctx, job.data));
     }
+    return results.length === 1 ? results[0] : results;
   });
 
   // Three albums in flight: provider calls still go one at a time through

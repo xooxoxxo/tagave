@@ -104,6 +104,95 @@ export function filenameDiscPrefix(basename: string): { disc: number; track: num
   return { disc, track };
 }
 
+/**
+ * Highest disc number an "n-tt" filename prefix is allowed to name. Above it
+ * the leading number is something else: prod's only 20+ "disc" prefixes are
+ * a flat rip numbered "10-10 - Title.mp3" and a 50-CD Elvis box whose discs
+ * are all in the tags anyway.
+ */
+const MAX_PREFIX_DISC = 20;
+
+/**
+ * Do the "n-tt" prefixes inside ONE cluster really name discs?
+ *
+ * The tier exists for box sets ripped flat into a single folder, and it used
+ * to fire on any two distinct leading numbers. That fabricated a disc per
+ * track for the widespread "n-nn" naming where the leading number simply
+ * repeats the track number (prod: Angels & Airwaves "We Don't Need To
+ * Whisper" — "01 - x.mp3", "2-02 - x.mp3", … "10-10 - x.mp3" — became ten
+ * one-track discs). A real multi-disc rip looks nothing like that, so a
+ * prefix set counts only when all four hold:
+ *
+ *   - two or more distinct disc numbers (an unprefixed disc 1 still counts:
+ *     the set qualifies on discs 2 and 3),
+ *   - no disc number above MAX_PREFIX_DISC,
+ *   - every disc group has at least two files and starts at track 1 or 2
+ *     (one file under a number, or a group starting at track 8, is a track
+ *     number wearing a disc's clothes),
+ *   - fewer than half the prefixed files have disc === track.
+ *
+ * False negatives are cheap: the tier is the weakest one, below the disk.no
+ * tag, and every genuine set it rejects on prod (a 4-CD compilation numbered
+ * continuously 1..48, a 10-CD box of one-track mixes) carries disc numbers in
+ * its tags.
+ */
+export function filenameDiscPrefixesApply(basenames: Iterable<string>): boolean {
+  const byDisc = new Map<number, number[]>();
+  let prefixed = 0;
+  let discEqualsTrack = 0;
+  for (const name of basenames) {
+    const p = filenameDiscPrefix(name);
+    if (!p) continue;
+    prefixed += 1;
+    if (p.disc === p.track) discEqualsTrack += 1;
+    const tracks = byDisc.get(p.disc);
+    if (tracks) tracks.push(p.track);
+    else byDisc.set(p.disc, [p.track]);
+  }
+  if (byDisc.size < 2) return false;
+  for (const [disc, tracks] of byDisc) {
+    if (disc > MAX_PREFIX_DISC) return false;
+    if (tracks.length < 2) return false;
+    if (Math.min(...tracks) > 2) return false;
+  }
+  return discEqualsTrack * 2 < prefixed;
+}
+
+/**
+ * The album tag of a disc folder often carries the token too ("… Disc 1",
+ * "… (CD2)"). Once a scope spans discs those tags name one album, so the
+ * token comes off before grouping. Only the unambiguous cd/disc/disk
+ * spellings are stripped: "Mixtape Vol. 2" and "Mixtape Vol. 3" are two
+ * albums, not two discs.
+ */
+export function stripDiscTokenFromTitle(title: string): string {
+  const t = discTokenOfFolder(title);
+  return t && t.kind === 'disc' ? t.title : title;
+}
+
+/**
+ * The scope a cluster.dir job on `dirPath` will actually resolve, as a key:
+ * a bare disc subdir ("…/CD1") and every "… CD1"/"… CD2" sibling of one
+ * album collapse to the same string. Enqueue and dedupe cluster.dir on this,
+ * not on the raw directory, or two sibling jobs race to build one cluster.
+ *
+ * "Vol. n" siblings are deliberately NOT collapsed (see clusterDirJob): a
+ * "Vol. 2" folder is its own album until something else says otherwise.
+ */
+export function clusterScopeKey(dirPath: string): string {
+  if (dirPath === '') return '';
+  const base = relBasename(dirPath);
+  if (discDirNumber(base) !== null) return relDirname(dirPath);
+  const token = discTokenOfFolder(base);
+  if (token && token.kind === 'disc') return relDirname(dirPath) + '\n' + normKey(token.title);
+  return dirPath;
+}
+
+/** pg-boss singleton key for cluster.dir, keyed on the resolved scope. */
+export function clusterSingletonKey(scanRootId: string, dirPath: string): string {
+  return `cluster:${scanRootId}:${clusterScopeKey(dirPath)}`;
+}
+
 const YEAR_RE = /(?:19|20)\d{2}/;
 
 /** First plausible release year found in the string, else null. */

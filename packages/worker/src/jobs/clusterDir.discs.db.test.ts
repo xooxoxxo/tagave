@@ -208,6 +208,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
     await addFile(`${dir}/2-01 - Sacrificed Sons.mp3`, tags);
     await addFile(`${dir}/2-02 - Octavarium.mp3`, tags);
     await addFile(`${dir}/3-01 - Six Degrees.mp3`, tags);
+    await addFile(`${dir}/3-02 - Metropolis.mp3`, tags);
 
     await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
 
@@ -221,8 +222,53 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
       ['2-01 - Sacrificed Sons.mp3', 2, 1],
       ['2-02 - Octavarium.mp3', 2, 2],
       ['3-01 - Six Degrees.mp3', 3, 1],
+      ['3-02 - Metropolis.mp3', 3, 2],
     ]);
     expect(tracks.find((t) => t.track_no === 1 && t.disc_no === 2)!.title_guess).toBe('Sacrificed Sons');
+  });
+
+  it('layout 3: a per-disc numbered "1-01…/2-01…" set becomes two discs', async () => {
+    const dir = 'V/VA/2008 - Cafe del Mar';
+    const tags = { album: 'Cafe del Mar', albumartist: 'Various Artists' };
+    for (let i = 1; i <= 12; i += 1) await addFile(`${dir}/1-${String(i).padStart(2, '0')} - a${i}.mp3`, tags);
+    for (let i = 1; i <= 8; i += 1) await addFile(`${dir}/2-${String(i).padStart(2, '0')} - b${i}.mp3`, tags);
+
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.discCount).toBe(2);
+    expect(rows[0]!.trackCount).toBe(20);
+    const tracks = await trackRows(rows[0]!.id);
+    expect(tracks.filter((t) => t.disc_no === 1)).toHaveLength(12);
+    expect(tracks.filter((t) => t.disc_no === 2)).toHaveLength(8);
+    expect(tracks.filter((t) => t.disc_no === 2).map((t) => t.track_no)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it('layout 3: "n-nn" filenames that just repeat the track number are one disc', async () => {
+    // prod: A/Angels & Airwaves/2006 - We Don't Need To Whisper. The shipped
+    // rule fabricated ten one-track discs out of a ten-track album.
+    const dir = "A/Angels & Airwaves/2006 - We Don't Need To Whisper";
+    const tags = { album: "We Don't Need To Whisper", albumartist: 'Angels & Airwaves' };
+    await addFile(`${dir}/01 - Valkyrie Missle.mp3`, tags);
+    for (const [n, title] of [
+      [2, 'Distraction'], [3, 'Do It For Me Now'], [4, 'The Adventure'], [5, "A Little's Enough"],
+      [6, 'The War'], [7, 'The Gift'], [8, 'It Hurts'], [9, 'Good Day'], [10, 'Start The Machine'],
+    ] as const) {
+      await addFile(`${dir}/${n}-${String(n).padStart(2, '0')} - ${title}.mp3`, tags);
+    }
+
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.discCount).toBe(1);
+    const tracks = await trackRows(rows[0]!.id);
+    expect(tracks).toHaveLength(10);
+    expect(tracks.every((t) => t.disc_no === null)).toBe(true);
+    // The track number still comes out of the prefix, as it always did.
+    expect(tracks.map((t) => t.track_no).sort((a, b) => (a ?? 0) - (b ?? 0)))
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
   it('layout 4 (already working): bare CD1/CD2 subfolders stay one album from either side', async () => {
@@ -268,6 +314,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
   });
 
   it('does not fold "Vol. n" siblings that are separate albums into one', async () => {
+    // prod: "Guardians of Hellenism, Vol. 2" … "Vol. 14" — fourteen albums of a
+    // series under one artist. Merging on the token made them one cluster of
+    // fourteen folders. A "Vol. n" folder is its own scope, and carries no disc
+    // number of its own either.
     for (const vol of [2, 3]) {
       for (let i = 1; i <= 3; i += 1) {
         await addFile(`M/DJ/Mixtape Vol. ${vol}/${String(i).padStart(2, '0')} - v${vol}t${i}.mp3`, {
@@ -276,13 +326,121 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
       }
     }
     await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'M/DJ/Mixtape Vol. 2' });
+    expect(await albums()).toHaveLength(1);
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'M/DJ/Mixtape Vol. 3' });
 
     const rows = await albums();
     expect(rows).toHaveLength(2);
     expect(rows.map((r: any) => r.discCount)).toEqual([1, 1]);
+    expect(rows.map((r: any) => r.dirPaths[0]).sort())
+      .toEqual(['M/DJ/Mixtape Vol. 2', 'M/DJ/Mixtape Vol. 3']);
     for (const r of rows) {
       expect(r.dirPaths).toHaveLength(1);
       expect((await trackRows(r.id)).every((t) => t.disc_no === null)).toBe(true);
     }
+  });
+
+  it('does not fold "Vol. n" siblings even when their album tag is the series name', async () => {
+    for (const vol of [1, 2]) {
+      for (let i = 1; i <= 3; i += 1) {
+        await addFile(`W/White Fence/2012 - Family Perfume Vol. ${vol}/0${i} - t.mp3`, {
+          album: 'Family Perfume', albumartist: 'White Fence', track: i,
+        });
+      }
+    }
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'W/White Fence/2012 - Family Perfume Vol. 1' });
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'W/White Fence/2012 - Family Perfume Vol. 2' });
+
+    const rows = await albums();
+    expect(rows).toHaveLength(2);
+    for (const r of rows) expect(r.dirPaths).toHaveLength(1);
+  });
+
+  // C3 — the "Album/CD1", "Album/CD2" layout where the album TAG carries the
+  // token too. prod: "_OST/Final fantasy VI - Orignal Sound Version" with tags
+  // "… [Disc 1]", "… CD2", "… (Disc 3)" — three clusters instead of one.
+  const ffvi = '_OST/Final fantasy VI - Orignal Sound Version';
+  const seedTaggedDiscSubfolders = async () => {
+    const titles = ['Final Fantasy VI Original Sound Version [Disc 1]',
+      'Final Fantasy VI Original Sound Version CD2',
+      'Final Fantasy VI Original Sound Version (Disc 3)'];
+    for (const [i, album] of titles.entries()) {
+      for (let t = 1; t <= 3; t += 1) {
+        await addFile(`${ffvi}/CD ${i + 1}/${String(t).padStart(2, '0')} - d${i + 1}t${t}.mp3`, {
+          album, albumartist: 'Nobuo Uematsu', title: `d${i + 1}t${t}`, track: t,
+        });
+      }
+    }
+  };
+
+  it('layout 5: disc subfolders whose album tags carry the token are one album', async () => {
+    await seedTaggedDiscSubfolders();
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: `${ffvi}/CD 1` });
+
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.discCount).toBe(3);
+    expect(rows[0]!.trackCount).toBe(9);
+    expect(rows[0]!.titleGuess).toBe('Final Fantasy VI Original Sound Version');
+    expect([...rows[0]!.dirPaths].sort()).toEqual([`${ffvi}/CD 1`, `${ffvi}/CD 2`, `${ffvi}/CD 3`]);
+    const tracks = await trackRows(rows[0]!.id);
+    expect(tracks.filter((t) => t.disc_no === 2)).toHaveLength(3);
+  });
+
+  it('layout 5: the same cluster whichever directory triggers the job', async () => {
+    await seedTaggedDiscSubfolders();
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: `${ffvi}/CD 2` });
+    const first = (await albums())[0]!;
+    // The parent scope itself, and the third disc — all three entry points must
+    // agree on the album key, or each produces its own cluster_key.
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: ffvi });
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: `${ffvi}/CD 3` });
+
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(first.id);
+    expect(rows[0]!.clusterKey).toBe(first.clusterKey);
+    expect(await trackRows(rows[0]!.id)).toHaveLength(9);
+  });
+
+  it('an ordinary single-folder album keeps a disc token in its title', async () => {
+    // The token only comes off when the scope actually spans discs; a lone
+    // folder tagged "… Disc 2" is still that album.
+    const dir = 'H/Have a Nice Life/Deathconsciousness';
+    for (let i = 1; i <= 3; i += 1) {
+      await addFile(`${dir}/0${i} - t.flac`, { album: 'Deathconsciousness Disc 2', albumartist: 'Have a Nice Life', track: i });
+    }
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.titleGuess).toBe('Deathconsciousness Disc 2');
+  });
+
+  // C6 — two sibling folders of one album can be clustered at the same time.
+  it('concurrent sibling jobs upsert one album, never two', async () => {
+    await seedSiblingFolders();
+    await Promise.all([
+      clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: cd1 }),
+      clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: cd2 }),
+    ]);
+
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.discCount).toBe(2);
+    expect(await trackRows(rows[0]!.id)).toHaveLength(16);
+  });
+
+  it('the upsert keeps the album id and state across re-clusters', async () => {
+    await seedSiblingFolders();
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: cd1 });
+    const first = (await albums())[0]!;
+    await client`update local_albums set state = 'matched' where id = ${first.id}`;
+
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: cd2 });
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(first.id);
+    expect(rows[0]!.state).toBe('matched');
+    expect(new Date(rows[0]!.updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(first.updatedAt).getTime());
   });
 });

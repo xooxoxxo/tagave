@@ -1,13 +1,13 @@
 import { readFile, access } from 'node:fs/promises';
-import { and, eq, inArray, like, or } from 'drizzle-orm';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@liner/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {
   clusterKey, discDirNumber, discTokenOfFolder, extractYear, extOf,
-  filenameDiscPrefix, normKey,
-  relBasename, relDirname, titleFromName, trackNoFromName,
+  filenameDiscPrefix, filenameDiscPrefixesApply, normKey,
+  relBasename, relDirname, stripDiscTokenFromTitle, titleFromName, trackNoFromName,
 } from '../lib/helpers.js';
 
 export interface ClusterDirJobData {
@@ -84,25 +84,29 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // scope is the parent and only those siblings are in it — one cluster, one
   // disc per folder. Resolution is a pure function of the stripped title, so
   // every sibling that triggers the job lands on the same scope and key.
+  //
+  // Only the unambiguous cd/disc/disk spellings merge. "Vol. n" is as often a
+  // series as a disc, and merging on it folded whole series into one album on
+  // prod ("Guardians of Hellenism, Vol. 2" … "Vol. 14" — ten folders, ten
+  // albums, one cluster). A "Vol. n" folder is its own album, and carries no
+  // disc number of its own either.
   let siblingDirs: string[] | null = null;
   /** dir → disc number implied by a cd/disc/disk token on the folder name */
   const dirTokenDisc = new Map<string, number>();
-  /** dir → number implied by a "Vol. n" token; only honoured when siblings disagree */
-  const dirTokenVol = new Map<string, number>();
   const scopeToken = scope === '' ? null : discTokenOfFolder(relBasename(scope));
-  if (scopeToken) {
+  if (scopeToken && scopeToken.kind === 'disc') {
     const parent = relDirname(scope);
     const wanted = normKey(scopeToken.title);
-    const group: Array<{ dir: string; disc: number; kind: 'disc' | 'vol' }> = [];
+    const group: Array<{ dir: string; disc: number }> = [];
     for (const d of await subdirsOf(ctx, data.scanRootId, parent)) {
       const t = discTokenOfFolder(relBasename(d));
-      if (t && normKey(t.title) === wanted) group.push({ dir: d, disc: t.disc, kind: t.kind });
+      if (t && t.kind === 'disc' && normKey(t.title) === wanted) group.push({ dir: d, disc: t.disc });
     }
     if (group.length >= 2 && new Set(group.map((g) => g.disc)).size >= 2) {
       scope = parent;
       siblingDirs = group.map((g) => g.dir).sort();
-      for (const g of group) (g.kind === 'vol' ? dirTokenVol : dirTokenDisc).set(g.dir, g.disc);
-    } else if (scopeToken.kind === 'disc') {
+      for (const g of group) dirTokenDisc.set(g.dir, g.disc);
+    } else {
       // A lone "… CD2" folder still names its disc (spec: folder token tier).
       dirTokenDisc.set(scope, scopeToken.disc);
     }
@@ -149,22 +153,12 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
    * Disc number per file (spec: cue sheet > tag disk.no > disc subfolder >
    * folder disc token > "n-tt" filename prefix > unknown). null keeps the
    * existing meaning: "no disc information", read as disc 1 downstream.
-   * The two weakest tiers are gated on the cluster disagreeing with itself —
-   * a "Vol. n" folder only counts when a sibling carries another number, and
-   * an "n-tt" prefix only when the files show two or more distinct discs
-   * (a 3-CD box set whose disc 1 is unprefixed still qualifies on 2 and 3).
+   * The weakest tier is gated on the whole cluster looking like a real box
+   * set — see filenameDiscPrefixesApply; a 3-CD set whose disc 1 is
+   * unprefixed still qualifies on discs 2 and 3.
    */
   const resolveDiscs = (files: FileRow[]): Map<string, number | null> => {
-    const volNums = new Set<number>();
-    const prefixDiscs = new Set<number>();
-    for (const f of files) {
-      const v = dirTokenVol.get(relDirname(f.relPath));
-      if (v !== undefined) volNums.add(v);
-      const p = filenameDiscPrefix(relBasename(f.relPath));
-      if (p) prefixDiscs.add(p.disc);
-    }
-    const volApplies = volNums.size >= 2;
-    const prefixApplies = prefixDiscs.size >= 2;
+    const prefixApplies = filenameDiscPrefixesApply(files.map((f) => relBasename(f.relPath)));
 
     const out = new Map<string, number | null>();
     for (const f of files) {
@@ -172,7 +166,6 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       let disc: number | null = f.virtual?.sheet.discNumber ?? f.tags.disc ?? null;
       if (disc === null) disc = discDirNumber(relBasename(dir));
       if (disc === null) disc = dirTokenDisc.get(dir) ?? null;
-      if (disc === null && volApplies) disc = dirTokenVol.get(dir) ?? null;
       if (disc === null && prefixApplies) disc = filenameDiscPrefix(relBasename(f.relPath))?.disc ?? null;
       out.set(f.id, disc);
     }
@@ -260,16 +253,24 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // same >3-distinct-artists rule the 2026-08 archive cleanup validated on
   // this collection (M0 decisions doc).
   // Cue sheet title serves as album when file has no tag (spec XO-314).
-  // While sibling folders are merged, "Liebe ist fur alle da CD1"/"… CD2"
-  // album tags name the same album — the disc token comes off the tag too, or
-  // the two halves would group apart and never become one cluster. Only the
-  // unambiguous cd/disc/disk spellings are stripped: "Mixtape Vol. 2" and
-  // "Mixtape Vol. 3" are two albums, not two discs.
-  const stripDiscToken = (title: string): string => {
-    if (!siblingDirs) return title;
-    const t = discTokenOfFolder(title);
-    return t && t.kind === 'disc' ? t.title : title;
-  };
+  // Whenever the scope spans discs, "Liebe ist fur alle da CD1"/"… CD2" album
+  // tags name the same album — the disc token comes off the tag too, or the
+  // halves group apart and never become one cluster. That is true of sibling
+  // folders AND of the plain "Album/CD1", "Album/CD2" layout, where the tags
+  // carry the token just as often (prod: "Final Fantasy VI Original Sound
+  // Version [Disc 1]" / "… CD2" / "… (Disc 3)" under one album folder, three
+  // clusters instead of one).
+  //
+  // The test is what the in-scope FILES show, never which directory triggered
+  // the job: cluster_key is derived from the album key, so the job must reach
+  // the same answer whether it was handed "Album", "Album/CD1" or "Album/CD2".
+  const spansDiscDirs = inScope.some((f) => {
+    const dir = relDirname(f.relPath);
+    return dir !== scope && discDirNumber(relBasename(dir)) !== null;
+  });
+  const scopeSpansDiscs = siblingDirs !== null || spansDiscDirs;
+  const stripDiscToken = (title: string): string =>
+    scopeSpansDiscs ? stripDiscTokenFromTitle(title) : title;
 
   interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string> }
   const byAlbum = new Map<string, FileRow[]>();
@@ -352,29 +353,30 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       trackCount,
       totalDurationMs: totalDuration,
       formats: [...formats].sort(),
-      updatedAt: new Date(),
+      // Postgres' clock, not this worker's. cluster.repairDiscs takes its
+      // `since` marker from select now() and then asks which albums were
+      // written after it; a worker whose clock trails the database would stamp
+      // its own re-clusters as older than the sweep that caused them.
+      updatedAt: sql`now()`,
     };
 
-    // Idempotent upsert by cluster_key: unchanged clusters keep id/state/history.
-    const existing = await ctx.db
-      .select({ id: localAlbums.id })
-      .from(localAlbums)
-      .where(and(eq(localAlbums.libraryId, data.libraryId), eq(localAlbums.clusterKey, ckey)))
-      .limit(1);
-    let albumId: string;
-    const existingRow = existing[0];
-    if (existingRow) {
-      albumId = existingRow.id;
-      await ctx.db.update(localAlbums).set(albumValues).where(eq(localAlbums.id, albumId));
-    } else {
-      const ins = await ctx.db
-        .insert(localAlbums)
-        .values({ libraryId: data.libraryId, clusterKey: ckey, state: 'pending', ...albumValues })
-        .returning({ id: localAlbums.id });
-      const row = ins[0];
-      if (!row) throw new Error('local_albums insert returned no row');
-      albumId = row.id;
-    }
+    // Idempotent upsert by (library_id, cluster_key): unchanged clusters keep
+    // id/state/history. It is a real ON CONFLICT (migration 0025 owns the
+    // unique index) because two sibling folders of the same album can be
+    // clustered concurrently — a select-then-insert let both jobs miss and
+    // both insert, leaving two rows nothing could reconcile. state is set on
+    // insert only; an existing album keeps whatever it reached.
+    const ins = await ctx.db
+      .insert(localAlbums)
+      .values({ libraryId: data.libraryId, clusterKey: ckey, state: 'pending', ...albumValues })
+      .onConflictDoUpdate({
+        target: [localAlbums.libraryId, localAlbums.clusterKey],
+        set: albumValues,
+      })
+      .returning({ id: localAlbums.id });
+    const row = ins[0];
+    if (!row) throw new Error('local_albums upsert returned no row');
+    const albumId = row.id;
 
     await replaceTracks(ctx, albumId, g.files, discs);
   }

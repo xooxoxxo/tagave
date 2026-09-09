@@ -249,6 +249,12 @@ export const localAlbums = pgTable(
     clusterKeyIdx: index('idx_local_albums_cluster_key').on(table.clusterKey),
     stateIdx: index('idx_local_albums_state').on(table.state),
     releaseGroupIdx: index('idx_local_albums_release_group_id').on(table.releaseGroupId),
+    // 0025: cluster_key IS the album's identity within a library. Two sibling
+    // folders of one multi-disc album can be clustered concurrently, and a
+    // select-then-insert let both jobs miss and both insert. clusterDirJob
+    // upserts on this index.
+    libraryClusterKeyUniq: uniqueIndex('local_albums_library_cluster_key_uniq')
+      .on(table.libraryId, table.clusterKey),
   })
 );
 
