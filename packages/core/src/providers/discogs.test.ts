@@ -572,7 +572,7 @@ describe('getCollectionFields', () => {
     ] };
     const fetchImpl = (async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })) as unknown as typeof fetch;
     const p = new DiscogsProvider({ userAgent: 'test', fetchImpl });
-    const fields = await p.getCollectionFields('tantuni', { priority: 'background' });
+    const fields = await p.getCollectionFields('testuser', { priority: 'background' });
     expect(fields).toEqual([
       { id: 1, name: 'Media Condition', type: 'dropdown', options: ['Mint (M)', 'Near Mint (NM or M-)'] },
       { id: 3, name: 'Notes', type: 'textarea' },
