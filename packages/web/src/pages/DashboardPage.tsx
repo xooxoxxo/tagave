@@ -35,7 +35,7 @@ export function DashboardPage() {
           {libraryLoading || recent.isLoading ? <div className={styles.albumGrid} aria-label="Loading recent albums" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className={styles.skeleton} />)}</div>
             : !libraryId ? <div className={styles.empty}><h3>Connect your music</h3><p>Set up a library to start exploring your albums.</p><Link to="/onboarding">Set up your library →</Link></div>
             : recent.isError ? <div className={styles.empty} role="alert"><h3>We couldn’t load your albums</h3><p>Your library is still here. Try loading it again.</p><Button variant="secondary" onClick={() => void recent.refetch()}>Try again</Button></div>
-            : !recent.data?.items.length ? <div className={styles.empty}><h3>A home for every record</h3><p>Add a music folder and scan it to bring your albums into Liner.</p><Link to="/settings/library">Add a music folder →</Link></div>
+            : !recent.data?.items.length ? <div className={styles.empty}><h3>A home for every record</h3><p>Add a music folder and scan it to bring your albums into tagave.</p><Link to="/settings/library">Add a music folder →</Link></div>
             : <div className={styles.albumGrid}>{recent.data.items.map(album => <Link key={album.id} to="/albums/$albumId" params={{ albumId: album.id }} className={styles.album}>
               <div className={styles.artwork}>{album.coverUrl ? <img src={album.coverUrl} alt="" loading="lazy" /> : <span aria-hidden="true">♫</span>}</div>
               <h3>{album.title}</h3><p>{album.artistCredit}</p><span className={styles.year}>{album.year ?? 'Year unknown'}</span>

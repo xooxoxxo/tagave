@@ -113,7 +113,7 @@ function SettingsTagWritesContentInner() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Tag preferences</h2>
         <p className={styles.pageHint}>
-          Liner never writes to your files unless this switch is on <em>and</em> the file sits under a scan root marked
+          tagave never writes to your files unless this switch is on <em>and</em> the file sits under a scan root marked
           writable. Writes happen only through tag plans: preview the diff, apply, and revert from the album History tab
           if needed. Each file is written to a temp copy, re-read, checked against its audio-stream hash and renamed
           into place. Artwork is never modified; APE and WavPack are read-only.

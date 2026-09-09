@@ -1,5 +1,5 @@
 /**
- * API response types for the Liner web application
+ * API response types for the tagave web application
  * These complement the shared types and define API-specific structures
  */
 

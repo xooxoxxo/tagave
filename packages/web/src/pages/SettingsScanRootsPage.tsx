@@ -158,7 +158,7 @@ function SettingsScanRootsContentInner() {
   return (
     <div className={styles.content}>
         <h2 className={styles.sectionTitle}>Music folders</h2>
-        <p className={styles.subtitle}>Manage the folders Liner indexes for music files</p>
+        <p className={styles.subtitle}>Manage the folders tagave indexes for music files</p>
 
         {/* Add form */}
       {!showAddForm ? (

@@ -135,7 +135,7 @@ export function OnboardingPage() {
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Set Up Liner</h1>
+        <h1 className={styles.title}>Set Up tagave</h1>
         <p className={styles.subtitle}>
           Complete these steps to start indexing your music library
         </p>
@@ -289,7 +289,7 @@ export function OnboardingPage() {
             </span>
           </div>
           <p className={styles.description}>
-            A personal access token from discogs.com/settings/developers. With it Liner runs Discogs
+            A personal access token from discogs.com/settings/developers. With it tagave runs Discogs
             at 55 requests/minute instead of 25 and receives cover image URLs; without it candidates
             and genres still work, only slower and without images.
           </p>

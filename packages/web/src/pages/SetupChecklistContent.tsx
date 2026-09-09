@@ -261,7 +261,7 @@ export function SetupChecklistContent() {
           </span>
         </div>
         <p className={styles.description}>
-          A personal access token from discogs.com/settings/developers. With it Liner runs Discogs
+          A personal access token from discogs.com/settings/developers. With it tagave runs Discogs
           at 55 requests/minute instead of 25 and receives cover image URLs; without it candidates
           and genres still work, only slower and without images.
         </p>

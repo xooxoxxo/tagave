@@ -1,0 +1,114 @@
+/* Canonical foundations and semantic roles. See DESIGN.md. */
+:root {
+  color-scheme: light;
+  /* Semantic colors shared by every page */
+  --bg-primary: #f7f8f5;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef1ec;
+  --bg-nav: #f0f3ee;
+  --bg-hover: #e7ede7;
+  --bg-active: #dce3db;
+
+  --text-primary: #202b28;
+  --text-secondary: #52605b;
+  --text-tertiary: #5f6c65;
+
+  --border: #dce3db;
+  --border-secondary: #b8c5bb;
+
+  --accent: #246b5c;
+  --accent-hover: #195546;
+  --accent-active: #123f34;
+
+  --success: #246541;
+  --warning: #845017;
+  --error: #a32e2e;
+  --info: #2e6072;
+
+  --accent-rgb: 36, 107, 92;
+  --success-rgb: 40, 114, 75;
+  --warning-rgb: 155, 96, 28;
+  --error-rgb: 181, 56, 56;
+  --info-rgb: 56, 109, 128;
+
+  /* Semantic component roles */
+  --surface-selected: #dce8dc;
+  --text-selected: #254e41;
+  --surface-success: #e4eee5;
+  --surface-warning: #f1e8dc;
+  --surface-danger: #f4e3e1;
+  --surface-info: #e2ecee;
+  --surface-accent: #e3eeea;
+  --control-height: 2.5rem;
+  --control-height-sm: 2rem;
+  --control-padding-x: .75rem;
+  --control-border: var(--border-secondary);
+  --focus-ring: 2px solid var(--accent);
+  --focus-offset: 3px;
+  --opacity-disabled: .6;
+  --space-control: .75rem;
+  --space-section: 1.5rem;
+  --z-toast: 1100;
+  --z-tooltip: 1200;
+
+  /* Spacing scale */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Typography */
+  /* IBM Plex Sans, bundled locally (see main.tsx) — never from a CDN, because
+     this app is self-hosted and must work offline. Chosen over the geometric
+     face in the wordmark on purpose: the interface is dense tables of years,
+     countries, track counts and distances at 12–14px, where a geometric sans
+     sets too wide and confuses 1, l and I. Plex is drawn for interfaces, has
+     true tabular figures, and its mono sibling covers paths and identifiers. */
+  --font-family: 'IBM Plex Sans Variable', 'IBM Plex Sans', -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 2rem;
+
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Border radius */
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* Transitions */
+  --transition-fast: 100ms ease-out;
+  --transition-normal: 150ms ease-out;
+  --transition-slow: 200ms ease-out;
+
+  /* Z-index scale */
+  --z-dropdown: 1000;
+  --z-sticky: 100;
+  --z-backdrop: 999;
+  --z-modal: 1001;
+
+  /* Page layout */
+  --page-pad: clamp(1.25rem, 3vw, 3rem);
+  --content-max: 1400px;
+
+  /* Legacy aliases: several pages were written against these names.
+     They resolve to the canonical tokens above so themes stay in sync. */
+  --border-color: var(--border);
+  --border-color-hover: var(--border-secondary);
+  --accent-color: var(--accent);
+  --accent-color-hover: var(--accent-hover);
+  --success-color: var(--success);
+  --error-color: var(--error);
+  --font-size-md: var(--font-size-base);
+}
+

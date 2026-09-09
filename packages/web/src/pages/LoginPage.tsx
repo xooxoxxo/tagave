@@ -36,7 +36,7 @@ export function LoginPage() {
   return (
     <div className={styles.container}>
       <div className={styles.card}>
-        <h1 className={styles.title}>Liner</h1>
+        <h1 className={styles.title}>tagave</h1>
         <p className={styles.subtitle}>Sign in to your music archive</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>

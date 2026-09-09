@@ -34,16 +34,18 @@ export function Layout() {
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
       <aside className={styles.nav}>
-        <Link to="/" className={styles.brand}><span className={styles.brandMark} aria-hidden="true">≋</span>Liner<span className={styles.brandCaption}>A home for your music</span></Link>
+        <Link to="/" className={styles.brand}>
+          <img src="/tagave-logo.png" alt="" aria-hidden="true" className={styles.brandMark} width={32} height={32} />
+          tagave
+          <span className={styles.brandCaption}>A home for your music</span>
+        </Link>
         <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog">Search your library <kbd>⌘ K</kbd></button>
         <nav className={styles.navLinks} aria-label="Main navigation">
-          <span className={styles.groupLabel}>Your music</span>
           <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
           <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
-          <span className={styles.groupLabel}>Manage library</span>
-          <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))}>Library care</Link>
+          <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care</Link>
           <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
         </nav>
@@ -53,10 +55,12 @@ export function Layout() {
           {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
         </div>
       </aside>
+      <div className={styles.contentArea}>
       <main id="main-content" ref={main} tabIndex={-1} className={styles.main}>
         <div className={styles.page}><Outlet /></div>
-        <footer className={styles.footer}>Liner uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
       </main>
+        <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
+      </div>
       {searchOpen && <SearchModal onClose={closeSearch} />}
     </div>
   );

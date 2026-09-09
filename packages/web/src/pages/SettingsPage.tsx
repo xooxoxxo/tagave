@@ -23,7 +23,7 @@ const sections = [
 export function SettingsPage() {
   const raw = useLocation().pathname.split('/')[2] || 'library';
   const section = sections.some(item => item.value === raw) ? raw : 'library';
-  return <PageShell title="Settings" subtitle="Make Liner at home in your library.">
+  return <PageShell title="Settings" subtitle="Make tagave at home in your library.">
     <div className={styles.layout}>
       <nav className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}</Link></div>)}</nav>
       <div className={styles.content}>

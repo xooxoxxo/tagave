@@ -13,6 +13,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/ibm-plex-sans": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
     "@liner/shared": "workspace:*",
     "@tanstack/match-sorter-utils": "^8.15.1",
     "@tanstack/query-core": "^5.65.1",

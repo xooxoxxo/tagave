@@ -1,7 +1,9 @@
 .container { display: flex; width: 100%; height: 100dvh; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); }
 .nav { width: 224px; flex: 0 0 224px; display: flex; flex-direction: column; gap: 1.75rem; padding: 2.25rem 1.25rem 1.25rem; background: var(--bg-nav); overflow-y: auto; }
-.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; font-size: 1.9rem; font-weight: 650; letter-spacing: -.05em; color: var(--text-primary); padding-inline: .5rem; }
-.brandMark { color: var(--accent); font-size: 2.5rem; line-height: 1; }
+.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; font-size: 1.9rem; font-weight: 650; letter-spacing: -.03em; color: var(--text-primary); padding-inline: .5rem; }
+/* The mark is the agave from the wordmark; the logo file carries its own
+   colour, so no token applies. Sized in rem so it tracks the brand text. */
+.brandMark { width: 2rem; height: 2rem; object-fit: contain; flex: 0 0 auto; }
 .brandCaption { width: 100%; font-size: .72rem; font-weight: 400; letter-spacing: .01em; color: var(--text-secondary); }
 .searchButton { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .65rem; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); font-size: .75rem; font-weight: 400; text-align: left; }
 .searchButton:hover { background: var(--bg-hover); }
@@ -9,27 +11,32 @@
 .navLinks { display: flex; flex-direction: column; gap: .2rem; }
 .groupLabel { margin: 1.25rem .75rem .5rem; font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--text-tertiary); }
 .groupLabel:first-child { margin-top: 0; }
+.navLinks [data-group="manage"] { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; }
 .navLink { padding: .7rem .85rem; color: var(--text-secondary); border-radius: var(--radius-md); font-size: .875rem; }
 .navLink:hover { background: var(--bg-hover); color: var(--text-primary); }
-.navLinkActive { composes: navLink; background: #dce8dc; color: #254e41; font-weight: 600; }
+.navLinkActive { composes: navLink; background: var(--surface-selected); color: var(--text-selected); font-weight: 600; }
 .navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--border); font-size: .75rem; color: var(--text-secondary); }
 .userEmail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logoutBtn { background: none; color: var(--text-secondary); padding: .5rem 0; font-size: .75rem; font-weight: 500; }
 .logoutBtn:hover { background: none; color: var(--accent); }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
-.page { min-height: calc(100% - 80px); }
+.contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.page { min-height: 100%; }
 .page > div { width: 100%; }
-.page:has([data-virtual-page]) { height: calc(100% - 1px); }
-.footer { max-width: var(--content-max); margin: 0 auto; padding: 1.5rem var(--page-pad); font-size: .65rem; line-height: 1.6; color: var(--text-tertiary); }
+.page:has([data-virtual-page]) { height: 100%; }
+.footer { flex-shrink: 0; padding: .55rem 1.5rem; background: var(--bg-tertiary); border-top: 1px solid var(--border); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--text-secondary); }
 .skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem; background: white; transform: translateY(-200%); }
 .skipLink:focus { transform: none; }
 @media (max-width: 900px) {
   .container { flex-direction: column; }
   .nav { flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
   .brand { font-size: 1.5rem; padding: 0; }
-  .brandMark { font-size: 1.8rem; }
+  .brandMark { width: 1.6rem; height: 1.6rem; }
   .brandCaption, .groupLabel { display: none; }
-  .navLinks { grid-column: 1 / -1; flex-direction: row; overflow-x: auto; gap: .25rem; }
+  /* Wrap rather than scroll. A scrolling strip put a permanent scrollbar under
+     the primary navigation and cut the last item ("Settings") in half; seven
+     short labels fit on two rows at any width worth supporting. */
+  .navLinks { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
   .navLink { white-space: nowrap; padding: .5rem .7rem; font-size: .8rem; }
   .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
   .userEmail { display: none; }

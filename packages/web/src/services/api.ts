@@ -1,5 +1,5 @@
 /**
- * Typed API client for Liner backend.
+ * Typed API client for tagave backend.
  * Thin wrapper over fetch with support for:
  * - Automatic 401 → /login redirect (session expired)
  * - 404 on /auth/me with 401 → /setup redirect (no user yet)

@@ -82,7 +82,7 @@ export function SetupPage() {
   return (
     <div className={styles.container}>
       <div className={styles.card}>
-        <h1 className={styles.title}>Set up Liner</h1>
+        <h1 className={styles.title}>Set up tagave</h1>
         <p className={styles.subtitle}>Create your admin account to get started</p>
 
         <form onSubmit={handleSubmit} className={styles.form}>

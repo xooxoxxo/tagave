@@ -79,7 +79,7 @@ export function SettingsProvidersPage() {
         <div className={styles.fieldGroup}>
           <label className={styles.label}>Discogs API Token</label>
           <p className={styles.hint}>
-            A personal access token from discogs.com/settings/developers. With it Liner runs Discogs at 55
+            A personal access token from discogs.com/settings/developers. With it tagave runs Discogs at 55
             requests/minute instead of 25 and receives cover image URLs; without it Discogs candidates and
             genres still work, only slower and without images.
           </p>
