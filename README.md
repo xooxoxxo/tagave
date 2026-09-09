@@ -86,7 +86,7 @@ node packages/worker/dist/index.js
 
 `LINER_QUEUES` limits which queues a process works (default: all). The list
 above is the file worker; a second process with
-`LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup`
+`LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup`
 is the identify worker, and can run anywhere with internet access. `APP_SECRET`
 must match the app's so the worker can open the sealed provider credentials.
 `scripts/deploy.sh` shows one way to keep such a host in step with the app

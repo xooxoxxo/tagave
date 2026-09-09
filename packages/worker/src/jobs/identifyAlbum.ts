@@ -434,11 +434,13 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',
     distance: number, reason: string, source: CandidateSource | null,
   ) => {
-    if (status === 'confirmed') {
-      await ctx.sql`
-        update album_matches set status = 'rejected', reason = 'superseded by manual entry'
-        where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
-    }
+    // One live match per album: a re-identification (manual entry, or a
+    // fingerprint-backed run on an album the sweep matched meanwhile)
+    // supersedes the previous decision instead of tripping the unique index.
+    await ctx.sql`
+      update album_matches set status = 'rejected',
+        reason = ${status === 'confirmed' ? 'superseded by manual entry' : 'superseded by re-identification'}
+      where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
     await ctx.db.insert(albumMatches).values({
       libraryId: album.libraryId,
       localAlbumId: album.id,

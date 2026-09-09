@@ -125,7 +125,9 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
     where name = 'identify.album' and singleton_key = ${'identify:' + album.id} and state = 'created'
     returning id`) as unknown as unknown[];
   if (updated.length === 0) {
-    await ctx.boss.send('identify.album', { localAlbumId: album.id, force: true, acoustidMbids: mbids, acoustidCoverage }, {
+    // own queue with its own pollers: fingerprint-backed identifies are
+    // MusicBrainz-bound and must not occupy the sweep's slots (XO-379)
+    await ctx.boss.send('identify.acoustid', { localAlbumId: album.id, force: true, acoustidMbids: mbids, acoustidCoverage }, {
       singletonKey: `identify:${album.id}`, priority: IDENTIFY_PRIORITY, retryLimit: 3, retryDelay: 60, retryBackoff: true,
     });
   }

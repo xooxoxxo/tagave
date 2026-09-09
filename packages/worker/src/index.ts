@@ -57,6 +57,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'enrich.sweep': 'stately',
   'art.fetch': 'stately',
   'identify.album': 'stately',
+  'identify.acoustid': 'stately',
   'roots.validate': 'stately',
   'scan.root': 'stately',
   'scan.dir': 'stately',
@@ -104,7 +105,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.acoustid', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
     await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
@@ -193,25 +194,32 @@ async function main() {
   // Each job is bounded on its own (XO-318): one that hangs is failed alone
   // through boss.fail() and pg-boss retries it later; the batch completes
   // the rest as usual.
-  // XO-379: eight independent pollers, one job each. A single work() with
-  // batchSize 8 only fetches the next batch after the whole batch returns, so
-  // seven finished slots idled behind one 170 s MusicBrainz-bound job (2.2
-  // albums/min measured). Separate registrations poll on their own; provider
-  // calls still serialise through the shared pacers, so this adds no traffic.
-  const IDENTIFY_WORKERS = Number(process.env['IDENTIFY_CONCURRENCY'] ?? 8);
+  // XO-379: independent pollers, one job each (a single work() with batchSize
+  // N fetches the next batch only after the whole batch returns). Two queues
+  // run the same job: identify.album (sweep/manual/triage; the Discogs-only
+  // first pass takes ~2 s) and identify.acoustid (fingerprint-backed, always
+  // MusicBrainz-bound: ~1–3 min each while MB is busy). Separate pollers keep
+  // the MB-bound jobs from occupying every slot; provider calls still
+  // serialise through the shared pacers, so this adds no traffic.
+  const identifyHandler = (queue: 'identify.album' | 'identify.acoustid') => async (jobs: Array<{ id: string; data: IdentifyAlbumJobData }>) => {
+    const results = await Promise.allSettled(jobs.map((job) =>
+      tracked(queue, job.id, job.data.localAlbumId, () =>
+        withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `${queue} ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
+    for (const [i, r] of results.entries()) {
+      if (r.status !== 'rejected') continue;
+      const job = jobs[i]!;
+      const err = r.reason as Error;
+      logger.error({ queue, jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify job failed');
+      await boss.fail(queue, job.id, { message: err.message });
+    }
+  };
+  const IDENTIFY_WORKERS = Number(process.env['IDENTIFY_CONCURRENCY'] ?? 5);
+  const ACOUSTID_IDENTIFY_WORKERS = Number(process.env['ACOUSTID_IDENTIFY_CONCURRENCY'] ?? 3);
   if (wants('identify.album')) for (let w = 0; w < IDENTIFY_WORKERS; w++) {
-    await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs) => {
-      const results = await Promise.allSettled(jobs.map((job) =>
-        tracked('identify.album', job.id, job.data.localAlbumId, () =>
-          withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `identify.album ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
-      for (const [i, r] of results.entries()) {
-        if (r.status !== 'rejected') continue;
-        const job = jobs[i]!;
-        const err = r.reason as Error;
-        logger.error({ jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify.album failed');
-        await boss.fail('identify.album', job.id, { message: err.message });
-      }
-    });
+    await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.album'));
+  }
+  if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
+    await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));
   }
 
   if (wants('identify.sweep')) {

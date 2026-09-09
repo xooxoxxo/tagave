@@ -82,7 +82,7 @@ services:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
-      LINER_QUEUES: identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
+      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
