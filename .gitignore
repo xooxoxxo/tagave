@@ -11,3 +11,8 @@ coverage/
 # python sidecar (packages/tagwriter-py)
 __pycache__/
 packages/tagwriter-py/.venv/
+
+# Agent scratch: session worktrees and impeccable's local state.
+# Both are machine-local and must never reach a public repo.
+.claude/
+.impeccable/
