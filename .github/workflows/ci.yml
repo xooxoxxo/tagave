@@ -122,7 +122,6 @@ jobs:
           file: docker/${{ matrix.image }}.Dockerfile
           platforms: linux/amd64
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
-          tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.tags.outputs.labels }}
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -141,7 +140,7 @@ jobs:
 
       - name: Upload digest artifact
         if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: digest-${{ matrix.image }}-linux-amd64
           path: /tmp/digests/${{ matrix.image }}-linux-amd64.txt
@@ -196,7 +195,6 @@ jobs:
           file: docker/${{ matrix.image }}.Dockerfile
           platforms: linux/arm64
           outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
-          tags: ${{ steps.tags.outputs.tags }}
           labels: ${{ steps.tags.outputs.labels }}
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -215,7 +213,7 @@ jobs:
 
       - name: Upload digest artifact
         if: steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: digest-${{ matrix.image }}-linux-arm64
           path: /tmp/digests/${{ matrix.image }}-linux-arm64.txt
@@ -244,10 +242,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all digests
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           path: /tmp/digests
-          pattern: digests-*
+          pattern: digest-*
 
       - name: Build metadata
         id: meta
