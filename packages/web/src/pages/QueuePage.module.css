@@ -1,236 +1,350 @@
-.container {
+/* Review queue: a triage table, not a card list. See QueuePage.tsx. */
+
+.container { padding: var(--space-lg) var(--page-pad); }
+.header { margin-bottom: var(--space-lg); }
+.title { font-size: var(--font-size-2xl); font-weight: 650; letter-spacing: -.03em; margin: 0; }
+
+.loading,
+.emptyState {
+  padding: var(--space-2xl) var(--space-md);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* The screen is a column: identity, decision, evidence, actions.
+   min-width: 0 everywhere a child could otherwise refuse to shrink. */
+.review {
   display: flex;
   flex-direction: column;
-  height: 100%;
   gap: var(--space-md);
-  padding: var(--space-lg);
+  min-width: 0;
+  padding-bottom: var(--space-2xl);
 }
 
-.header {
+/* ---- album identity ------------------------------------------------- */
+
+.albumBar {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-lg);
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-lg);
+  min-width: 0;
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border);
 }
 
-.title {
-  font-size: var(--font-size-2xl);
-  margin: 0;
-  font-weight: 600;
-}
-
-.counter {
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.keysHint {
-  margin-left: auto;
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-}
-
-.helpBox {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.emptyState {
-  padding: var(--space-2xl);
-  color: var(--text-secondary);
-}
-
-.panes {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.2fr);
-  gap: var(--space-lg);
-}
-
-.localPane,
-.candidatesPane {
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  background: var(--bg-secondary);
-}
-
-.paneTitle {
-  font-size: var(--font-size-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-tertiary);
-  margin: 0 0 var(--space-md);
-}
-
-.albumHead {
-  margin-bottom: var(--space-md);
-}
+.albumIdentity { min-width: 0; }
 
 .albumName {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-}
-
-.albumArtist {
-  color: var(--text-secondary);
-}
-
-.dirPath {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-  font-family: ui-monospace, monospace;
-  overflow-wrap: anywhere;
-  margin-top: var(--space-xs);
-}
-
-.badges {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-  margin-top: var(--space-xs);
-}
-
-.trackList {
-  list-style: none;
   margin: 0;
-  padding: 0;
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }
 
-.trackRow {
-  display: flex;
-  gap: var(--space-md);
-  padding: 0.3rem 0;
-  border-bottom: 1px solid var(--border);
+.albumMeta {
+  margin: .15rem 0 0;
   font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
 }
 
-.trackNo {
-  width: 2ch;
+.albumPath {
+  margin: .15rem 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
-.trackTitle {
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.trackDur {
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.candidate,
-.candidateSelected {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  margin-bottom: var(--space-md);
-  cursor: pointer;
-}
-
-.candidateSelected {
-  border-color: var(--accent);
-  background: var(--bg-tertiary);
-}
-
-.candHead {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-md);
-  font-weight: 600;
-}
-
-.candDistance {
-  color: var(--accent);
-  font-variant-numeric: tabular-nums;
-}
-
-.candMeta {
-  color: var(--text-secondary);
+.progress {
+  margin: 0;
+  flex: 0 0 auto;
   font-size: var(--font-size-sm);
-  margin-top: var(--space-xs);
-}
-
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs);
-  margin-top: var(--space-sm);
-}
-
-.chipGood,
-.chipNear,
-.chipBad {
-  font-size: 0.7rem;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid transparent;
-}
-
-.chipGood { background: rgba(22, 163, 74, 0.15); color: var(--success); }
-.chipNear { background: rgba(234, 140, 85, 0.15); color: var(--warning); }
-.chipBad  { background: rgba(220, 38, 38, 0.15); color: var(--error); }
-
-.noCandidates {
   color: var(--text-secondary);
-  padding: var(--space-md) 0;
+  font-variant-numeric: tabular-nums;
 }
+.progress strong { color: var(--text-primary); font-weight: 600; }
+.progressSep { margin: 0 .4rem; color: var(--text-tertiary); }
 
-.actions {
-  display: flex;
-  gap: var(--space-md);
-  margin-top: var(--space-md);
-}
+/* ---- candidate table ------------------------------------------------ */
 
-.actions button {
-  padding: 0.5rem 1rem;
-  border-radius: var(--radius-md);
+/* Only this wrapper scrolls sideways. The page itself never does.
+   position: relative is load-bearing, not decoration: the visually-hidden
+   caption and link labels inside the table are position: absolute, and without
+   a positioned ancestor their containing block is the viewport. They then
+   escape this container's clipping and stretch the document's scroll width to
+   the table's full width, so the whole page scrolled sideways because of text
+   nobody can see. Measured: 782px document scroll against a 614px viewport,
+   back to 614px the moment this line exists. */
+.tableWrap {
+  position: relative;
+  min-width: 0;
+  overflow-x: auto;
   border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-tertiary);
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.actions button:first-child {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
-}
-
-.actions button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-
-.candProvider {
-  display: inline-block;
-  padding: 0.2rem 0.5rem;
-  border-radius: 3px;
-  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
   font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-secondary);
-  margin-right: 0.5rem;
+  white-space: nowrap;
 }
 
-.candLink {
+.row,
+.rowSelected { cursor: pointer; }
+.row > td,
+.rowSelected > td {
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.table tbody tr:last-child > td { border-bottom: 0; }
+
+.row:hover > td { background: var(--bg-hover); }
+
+.rowSelected > td {
+  background: var(--surface-selected);
+  color: var(--text-selected);
+}
+/* The selected row is marked structurally as well as by colour, so the state
+   survives a colour-blind reader and a greyscale screenshot. */
+.rowSelected > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+.colNum { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.colSource,
+.colLinks { white-space: nowrap; }
+.colScores { width: 1%; white-space: nowrap; }
+
+.provider { font-size: var(--font-size-xs); color: var(--text-secondary); }
+.rowSelected .provider { color: inherit; }
+
+.release { min-width: 12rem; }
+.releaseTitle { display: block; overflow-wrap: anywhere; }
+.releaseArtist {
+  display: block;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+.rowSelected .releaseArtist { color: inherit; opacity: .8; }
+
+.status { color: var(--text-secondary); white-space: nowrap; }
+.rowSelected .status { color: inherit; }
+
+.delta { margin-left: .35rem; font-size: var(--font-size-xs); color: var(--warning); }
+.rowSelected .delta { color: inherit; font-weight: 600; }
+
+.distance { color: var(--text-secondary); }
+.rowSelected .distance { color: inherit; }
+
+/* ---- score strip ---------------------------------------------------- */
+
+.scoreStrip { display: inline-flex; gap: 2px; }
+
+.cellGood,
+.cellNear,
+.cellBad,
+.cellNone {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+.cellGood { background: var(--success); }
+.cellNear { background: var(--warning); }
+.cellBad { background: var(--error); }
+.cellNone { background: transparent; border: 1px solid var(--border-secondary); }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--border);
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.legendKey { display: inline-flex; align-items: center; gap: .3rem; }
+
+.link {
+  display: inline-block;
+  padding: 0 .25rem;
   color: var(--accent);
   text-decoration: none;
-  margin: 0 0.25rem;
+}
+.rowSelected .link { color: inherit; }
+.link:hover { text-decoration: underline; }
+.link:focus-visible { outline: var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-sm); }
+
+.noCandidates {
+  padding: var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
-.candLink:hover {
+/* ---- track evidence -------------------------------------------------- */
+
+.tracks {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.tracksSummary {
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+}
+.tracksSummary:hover { background: var(--bg-hover); color: var(--text-primary); }
+.tracksSummary:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+/* Wraps into columns instead of running down a stretched panel. */
+.trackList {
+  margin: 0;
+  padding: 0 var(--space-md) var(--space-md);
+  list-style: none;
+  columns: 2;
+  column-gap: var(--space-xl);
+}
+@media (min-width: 1100px) { .trackList { columns: 3; } }
+@media (max-width: 640px) { .trackList { columns: 1; } }
+
+.trackRow {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: baseline;
+  break-inside: avoid;
+  padding: .2rem 0;
+  font-size: var(--font-size-xs);
+  min-width: 0;
+}
+.trackNo { flex: 0 0 1.5rem; text-align: right; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+.trackTitle { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trackDur { flex: 0 0 auto; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+/* ---- actions --------------------------------------------------------- */
+
+.actionBar {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm) var(--space-lg);
+  min-width: 0;
+  padding: var(--space-sm) 0;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+}
+
+.actionButtons { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+
+.primary,
+.secondary {
+  height: var(--control-height);
+  padding: 0 var(--space-md);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+.primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.primary:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
+.secondary { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--control-border); }
+.secondary:hover { background: var(--bg-hover); }
+.secondary:active { background: var(--bg-active); }
+.primary:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+.primary:focus-visible,
+.secondary:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+
+.shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+}
+.shortcuts kbd {
+  display: inline-block;
+  min-width: 1.35rem;
+  padding: .1rem .3rem;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+  font: inherit;
+  text-align: center;
+  color: var(--text-primary);
+}
+.shortcutSep { width: 1px; height: 1rem; margin: 0 .35rem; background: var(--border); }
+
+.helpToggle {
+  margin-left: .35rem;
+  padding: .1rem .35rem;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
   text-decoration: underline;
 }
+.helpToggle:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
-@media (max-width: 900px) { .panes { grid-template-columns: minmax(0, 1fr); } .header { flex-wrap: wrap; } .keysHint { margin-left: 0; } }
+.helpBox {
+  padding: var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  color: var(--text-secondary);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primary,
+  .secondary { transition: none; }
+}
