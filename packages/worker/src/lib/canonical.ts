@@ -79,6 +79,59 @@ export function buildMediaJsonb(
 }
 
 /**
+ * Build canonical track rows for stable upsert.
+ * Deduplicates by (mediumNo, position) keeping first occurrence.
+ *
+ * 0026: (release, medium, position) is the track's stable identity across re-fetches.
+ */
+export function canonicalTrackRows(
+  releaseId: string,
+  tracks: CanonicalTrack[],
+): Array<{
+  releaseId: string;
+  mediumNo: number;
+  position: number;
+  number: string | null;
+  title: string;
+  artistCredit: string[];
+  recordingId: null;
+  lengthMs: number;
+  isDataTrack: boolean;
+  isVideo: boolean;
+  recordingMbid: string | null;
+  trackMbid: string | null;
+}> {
+  // Dedup by (mediumNo, position), keeping first occurrence
+  const seen = new Set<string>();
+  const rows: Array<any> = [];
+
+  for (const t of tracks) {
+    const mediumNo = t.mediumNumber ?? 1;
+    const key = `${mediumNo}:${t.position}`;
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      rows.push({
+        releaseId,
+        mediumNo,
+        position: t.position,
+        number: null, // position is the canonical key
+        title: t.title.slice(0, 255),
+        artistCredit: t.artists,
+        recordingId: null, // never write recording_id (0026, unchanged)
+        lengthMs: Math.round(t.duration ?? 0),
+        isDataTrack: t.isDataTrack ?? false,
+        isVideo: t.isVideoTrack ?? false,
+        recordingMbid: t.recordingId ?? null,
+        trackMbid: t.trackId ?? null,
+      });
+    }
+  }
+
+  return rows;
+}
+
+/**
  * Upsert canonical release (MusicBrainz or Discogs).
  * Returns { releaseId, releaseGroupId } as DB UUIDs.
  */
@@ -248,22 +301,92 @@ export async function upsertCanonical(
 
   const relId = relInsert.id;
 
-  // Upsert canonical tracks
+  // Upsert canonical tracks with stable identity (0026)
   if (release.tracks && release.tracks.length > 0) {
-    await ctx.db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, relId));
-    await ctx.db.insert(canonicalTracks).values(
-      release.tracks.map((t: CanonicalTrack) => ({
-        releaseId: relId,
-        mediumNo: t.mediumNumber,
-        position: t.position,
-        title: t.title.slice(0, 255),
-        artistCredit: t.artists,
-        recordingId: null,
-        lengthMs: Math.round(t.duration ?? 0),
-        isDataTrack: t.isDataTrack ?? false,
-        isVideo: t.isVideoTrack ?? false,
-      })),
-    );
+    const rows = canonicalTrackRows(relId, release.tracks);
+
+    // Check for duplicates (mediumNo, position) in the payload
+    const keysSeen = new Set<string>();
+    let hasDuplicates = false;
+    for (const row of rows) {
+      const key = `${row.mediumNo}:${row.position}`;
+      if (keysSeen.has(key)) {
+        hasDuplicates = true;
+      } else {
+        keysSeen.add(key);
+      }
+    }
+
+    if (hasDuplicates) {
+      ctx.logger.warn(
+        { releaseId: relId, trackCount: rows.length, originalCount: release.tracks.length },
+        'canonical tracks has duplicate (mediumNo, position)',
+      );
+    }
+
+    // Multi-row insert with ON CONFLICT: if a row with this (release, medium, position)
+    // exists, update title, artist_credit, length_ms, is_data_track, is_video,
+    // and fill missing recording/track mbids from the new payload.
+    // Never null an existing id with an incoming null (older cached payload may lack ids).
+    const mediumNos = rows.map(r => r.mediumNo);
+    const positions = rows.map(r => r.position);
+    const numbers = rows.map(r => r.number ?? null);
+    const titles = rows.map(r => r.title);
+    const artistCredits = rows.map(r => JSON.stringify(r.artistCredit));
+    const lengthMsList = rows.map(r => r.lengthMs);
+    const isDataTracks = rows.map(r => r.isDataTrack ? 1 : 0);
+    const isVideos = rows.map(r => r.isVideo ? 1 : 0);
+    const recordingMbids = rows.map(r => r.recordingMbid);
+    const trackMbids = rows.map(r => r.trackMbid);
+
+    await ctx.sql`
+      insert into canonical_tracks (release_id, medium_no, position, number, title, artist_credit, recording_id, length_ms, is_data_track, is_video, recording_mbid, track_mbid)
+      select
+        ${relId}::uuid,
+        m.medium_no,
+        m.position,
+        m.number,
+        m.title,
+        m.artist_credit::jsonb,
+        null::uuid,
+        m.length_ms,
+        (m.is_data_track::int)::boolean,
+        (m.is_video::int)::boolean,
+        case when m.recording_mbid is null then null else m.recording_mbid::varchar(36) end,
+        case when m.track_mbid is null then null else m.track_mbid::varchar(36) end
+      from unnest(
+        ${mediumNos}::int[],
+        ${positions}::int[],
+        ${numbers}::text[],
+        ${titles}::text[],
+        ${artistCredits}::text[],
+        ${lengthMsList}::int[],
+        ${isDataTracks}::int[],
+        ${isVideos}::int[],
+        ${recordingMbids}::text[],
+        ${trackMbids}::text[]
+      ) as m(medium_no, position, number, title, artist_credit, length_ms, is_data_track, is_video, recording_mbid, track_mbid)
+      on conflict (release_id, medium_no, position) do update set
+        title = excluded.title,
+        artist_credit = excluded.artist_credit,
+        length_ms = excluded.length_ms,
+        is_data_track = excluded.is_data_track,
+        is_video = excluded.is_video,
+        recording_mbid = coalesce(excluded.recording_mbid, canonical_tracks.recording_mbid),
+        track_mbid = coalesce(excluded.track_mbid, canonical_tracks.track_mbid)
+    `;
+
+    // Delete rows of this release that are no longer in the new set
+    await ctx.sql`
+      delete from canonical_tracks ct
+      where ct.release_id = ${relId}::uuid
+        and ct.position is not null
+        and not exists (
+          select 1 from unnest(${mediumNos}::int[], ${positions}::int[])
+          as k(medium_no, position)
+          where k.medium_no = ct.medium_no and k.position = ct.position
+        )
+    `;
   }
 
   return { releaseId: relId, releaseGroupId: rgId };

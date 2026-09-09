@@ -40,6 +40,7 @@ describe('resolveFields', () => {
     position: 5,
     mediumNo: 1,
     mbid: '550e8400-e29b-41d4-a716-446655440003',
+    trackMbid: '550e8400-e29b-41d4-a716-446655440099',
     artistCredit: [{ name: 'Track Artist', mbid: '550e8400-e29b-41d4-a716-446655440004' }],
     isrc: 'USTEST1234567',
   };
@@ -377,5 +378,53 @@ describe('resolveFields', () => {
     const result = resolveFields(input);
 
     expect(result.compilation!.value).toBeUndefined();
+  });
+
+  it('should resolve musicbrainz_releasetrackid from track.trackMbid', () => {
+    const input: ResolutionInput = {
+      release: mockRelease,
+      releaseGroup: mockReleaseGroup,
+      track: mockTrack,
+      artistCredits: mockArtistCredits,
+      effectiveGenres: mockEffectiveGenres,
+    };
+
+    const result = resolveFields(input);
+
+    expect(result.musicbrainz_releasetrackid!.value).toBe('550e8400-e29b-41d4-a716-446655440099');
+    expect(result.musicbrainz_releasetrackid!.reason).toContain('from release track');
+  });
+
+  it('should return undefined for musicbrainz_releasetrackid when trackMbid is absent', () => {
+    const { trackMbid: _, ...trackWithoutMbid } = mockTrack;
+    const input: ResolutionInput = {
+      release: mockRelease,
+      releaseGroup: mockReleaseGroup,
+      track: trackWithoutMbid,
+      artistCredits: mockArtistCredits,
+      effectiveGenres: mockEffectiveGenres,
+    };
+
+    const result = resolveFields(input);
+
+    expect(result.musicbrainz_releasetrackid!.value).toBeUndefined();
+    expect(result.musicbrainz_releasetrackid!.reason).toContain('no MusicBrainz release track ID available');
+  });
+
+  it('should resolve musicbrainz_recordingid from track.mbid independently', () => {
+    const input: ResolutionInput = {
+      release: mockRelease,
+      releaseGroup: mockReleaseGroup,
+      track: mockTrack,
+      artistCredits: mockArtistCredits,
+      effectiveGenres: mockEffectiveGenres,
+    };
+
+    const result = resolveFields(input);
+
+    expect(result.musicbrainz_recordingid!.value).toBe('550e8400-e29b-41d4-a716-446655440003');
+    expect(result.musicbrainz_releasetrackid!.value).toBe('550e8400-e29b-41d4-a716-446655440099');
+    // Both should be present and different
+    expect(result.musicbrainz_recordingid!.value).not.toEqual(result.musicbrainz_releasetrackid!.value);
   });
 });

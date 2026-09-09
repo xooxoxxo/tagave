@@ -88,16 +88,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     await db.insert(releases).values({
       id: releaseId, releaseGroupId, mbid: 'rel-mbid-1', title: 'Canonical Album', date: '2001-05-05', country: 'GB', status: 'Official',
       trackCount: 2, labels: [{ name: 'Harvest', catalogNumber: 'SHVL 804' }], media: [{ position: 1, format: 'CD', trackCount: 2 }],
+      tracksRefreshedAt: new Date(), // skip ensureTrackMbids fetch in tests
     });
     await db.insert(canonicalTracks).values([
-      { releaseId, mediumNo: 1, position: 1, number: '1', title: 'Canon One', artistCredit: [{ name: 'Canon Artist', mbid: 'artist-mbid-1' }] },
-      { releaseId, mediumNo: 1, position: 2, number: '2', title: 'Canon Two', artistCredit: [{ name: 'Canon Artist', mbid: 'artist-mbid-1' }] },
+      { releaseId, mediumNo: 1, position: 1, number: '1', title: 'Canon One', artistCredit: [{ name: 'Canon Artist', mbid: 'artist-mbid-1' }], recordingMbid: 'rec-mbid-1', trackMbid: 'track-mbid-1' },
+      { releaseId, mediumNo: 1, position: 2, number: '2', title: 'Canon Two', artistCredit: [{ name: 'Canon Artist', mbid: 'artist-mbid-1' }], recordingMbid: 'rec-mbid-2', trackMbid: 'track-mbid-2' },
     ]);
 
     albumId = randomUUID();
     await db.insert(localAlbums).values({
       id: albumId, libraryId, clusterKey: `prev-${albumId}`, dirPaths: ['Canon/Album'], titleGuess: 'Old Album', artistGuess: 'Canon Artist',
-      state: 'matched', releaseId, releaseGroupId, trackCount: 2, discCount: 1,
+      state: 'matched', releaseId, releaseGroupId, trackCount: 2, discCount: 1, tracksLinkedAt: null,
     });
     fileA = randomUUID();
     fileB = randomUUID();
@@ -157,14 +158,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
     expect(plan.status).toBe('previewed');
     const stats = plan.stats as any;
-    expect(stats.filesTouched).toBe(2); // file B matches everything except its empty title, which fill completes
+    expect(stats.filesTouched).toBe(2); // both fileA and fileB have diffs now (with track mbids)
     expect(stats.filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'audio_file_error', message: 'album not identified' }]);
 
     const items = await itemsOf(planId);
     expect(items).toHaveLength(2);
     const b = items.find((i: any) => i.audioFileId === fileB)!;
-    expect(Object.keys(diffMap(b))).toEqual(['title']);
+    const bDiffKeys = Object.keys(diffMap(b)).sort();
+    expect(bDiffKeys).toEqual(['musicbrainz_recordingid', 'musicbrainz_releasetrackid', 'title']);
     expect(diffMap(b).title).toMatchObject({ before: null, after: 'Canon Two', reason: 'policy:fill' });
+    expect(diffMap(b).musicbrainz_recordingid).toMatchObject({ before: null, after: 'rec-mbid-2', reason: 'policy:overwrite' });
+    expect(diffMap(b).musicbrainz_releasetrackid).toMatchObject({ before: null, after: 'track-mbid-2', reason: 'policy:overwrite' });
     const a = items.find((i: any) => i.audioFileId === fileA)!;
     const d = diffMap(a);
     expect(d.musicbrainz_albumid).toMatchObject({ before: null, after: 'rel-mbid-1', reason: 'policy:overwrite' });
@@ -175,6 +179,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     expect(d.date.after).toBe('2001-05-05');
     expect(d.label.after).toBe('Harvest');
     expect(d.catalognumber.after).toBe('SHVL 804');
+    // 0026: track mbids from canonical tracks linked by position
+    expect(d.musicbrainz_recordingid).toMatchObject({ before: null, after: 'rec-mbid-1', reason: 'policy:overwrite' });
+    expect(d.musicbrainz_releasetrackid).toMatchObject({ before: null, after: 'track-mbid-1', reason: 'policy:overwrite' });
     // fill: existing title stays, existing genre stays
     expect(d.title).toBeUndefined();
     expect(d.genre).toBeUndefined();
@@ -182,7 +189,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     expect(d.barcode).toBeUndefined();
     // tracknumber already 1 → no row
     expect(d.tracknumber).toBeUndefined();
-    expect(stats.fieldsModified).toBe(Object.keys(d).length + 1);
+    // fileA has more fields changed now (added mbids); fileB also has mbids now
+    const aDiffCount = Object.keys(d).length;
+    const bDiffCount = bDiffKeys.length;
+    expect(stats.fieldsModified).toBe(aDiffCount + bDiffCount);
     // the journal's before is the canonical-field map, not raw music-metadata
     expect((a.before as any).album).toBe('Old Album');
     expect((a.before as any).common).toBeUndefined();

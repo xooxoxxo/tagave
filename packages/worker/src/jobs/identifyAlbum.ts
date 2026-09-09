@@ -15,6 +15,7 @@ import {
   libraryProviderSettings, getProviders, discogsCall, mbCall, type Providers,
 } from '../lib/providers.js';
 import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
+import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
 
 export interface IdentifyAlbumJobData {
   localAlbumId: string;
@@ -190,23 +191,15 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   // album that never mentioned a disc, so it cannot answer "how many discs?" —
   // the tracks can. No track carrying a disc number means "unknown", and then
   // neither the alignment nor the medium component gets to guess.
-  const discsKnown = tracks.some((t) => t.discNo != null);
-  // Same convention as the alignment: a missing number is disc 1, so a set
-  // tagged {null, 2} counts two discs.
-  const distinctDiscs = new Set(tracks.map((t) => t.discNo ?? 1)).size;
+  // Use localTrackViews to build matching tracks (0026, shared with trackLinks)
+  const trackView = localTrackViews(tracks);
+  const discsKnown = trackView.discsKnown;
+  const distinctDiscs = trackView.discCount;
 
   const local = {
     artist: album.artistGuess ?? '',
     title: album.titleGuess ?? '',
-    tracks: tracks
-      .sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0))
-      .map((t, i) => ({
-        title: t.titleGuess ?? '',
-        ...(t.artistGuess ? { artist: t.artistGuess } : {}),
-        duration: (t.durationMs ?? 0) / 1000, // core/matching works in seconds
-        index: i,
-        ...(discsKnown && t.discNo != null ? { disc: t.discNo } : {}),
-      })),
+    tracks: trackView.tracks,
     discsKnown,
     ...(discsKnown && distinctDiscs > 0 ? { discCount: distinctDiscs } : {}),
     ...(album.yearGuess ? { year: album.yearGuess } : {}),
@@ -466,6 +459,12 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     // enrich.sweep (XO-379 pass 2), not a MB call now.
     if (!(discogsFirst && source === 'discogs_search')) {
       await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
+    }
+    // 0026: link local tracks to canonical tracks
+    try {
+      await linkAlbumTracks(ctx, album.id, { releaseId: releaseDb });
+    } catch (err) {
+      ctx.logger.warn({ err, localAlbumId: album.id }, 'identify: track linking failed');
     }
   };
 

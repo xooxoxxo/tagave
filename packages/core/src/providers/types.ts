@@ -97,6 +97,7 @@ export interface CanonicalTrack {
   position: number; // 1-based
   mediumNumber: number; // 1-based
   recordingId?: string | undefined; // MusicBrainz recording MBID
+  trackId?: string | undefined; // MusicBrainz track MBID (release-specific)
   isrc?: string | undefined;
   isDataTrack?: boolean | undefined;
   isVideoTrack?: boolean | undefined;

@@ -241,6 +241,8 @@ export const localAlbums = pgTable(
     identifiedAt: timestamp('identified_at', { withTimezone: true }),
     /** first MusicBrainz release id found in the album's file tags (IDN-1a fast path); feeds the fast-path metrics */
     embeddedMbid: varchar('embedded_mbid', { length: 36 }),
+    // 0026: when all local_tracks have been linked to canonical_tracks
+    tracksLinkedAt: timestamp('tracks_linked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -255,6 +257,10 @@ export const localAlbums = pgTable(
     // upserts on this index.
     libraryClusterKeyUniq: uniqueIndex('local_albums_library_cluster_key_uniq')
       .on(table.libraryId, table.clusterKey),
+    // 0026: find albums needing track linking
+    unlinkedIdx: index('idx_local_albums_unlinked')
+      .on(table.libraryId)
+      .where(sql`state = 'matched' and tracks_linked_at is null`),
   })
 );
 
@@ -271,7 +277,8 @@ export const localTracks = pgTable(
     titleGuess: varchar('title_guess', { length: 255 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     durationMs: integer('duration_ms'),
-    canonicalTrackId: uuid('canonical_track_id'),
+    // 0026: FK reference to canonical_tracks; stable per (release, medium, position)
+    canonicalTrackId: uuid('canonical_track_id').references(() => canonicalTracks.id, { onDelete: 'set null' }),
     recordingId: uuid('recording_id'),
     matchDistance: numeric('match_distance', { precision: 5, scale: 4 }),
     state: varchar({ length: 20 }).default('unmatched'),
@@ -287,6 +294,8 @@ export const localTracks = pgTable(
   (table) => ({
     albumIdx: index('idx_local_tracks_album').on(table.localAlbumId),
     audioFileIdx: index('idx_local_tracks_audio_file').on(table.audioFileId),
+    // 0026: index for finding linked tracks
+    canonicalTrackIdx: index('idx_local_tracks_canonical_track').on(table.canonicalTrackId),
     originCheck: check('origin_check', sql`origin in ('file', 'cue')`),
   })
 );
@@ -411,6 +420,8 @@ export const releases = pgTable(
     sourceOfTruth: varchar('source_of_truth', { length: 20 }).default('musicbrainz'),
     bridgeAttemptedAt: timestamp('bridge_attempted_at', { withTimezone: true }),
     fetchedAt: timestamp('fetched_at', { withTimezone: true }),
+    // 0026: when canonical tracks had track_mbid ids refreshed from MB
+    tracksRefreshedAt: timestamp('tracks_refreshed_at', { withTimezone: true }),
   },
   (table) => ({
     releaseGroupIdx: index('idx_releases_release_group').on(table.releaseGroupId),
@@ -426,7 +437,8 @@ export const canonicalTracks = pgTable(
     releaseId: uuid('release_id')
       .notNull()
       .references(() => releases.id, { onDelete: 'cascade' }),
-    mediumNo: integer('medium_no'),
+    // 0026: mediumNo is the track's identity within a release; always 1 for single-medium
+    mediumNo: integer('medium_no').notNull().default(1),
     position: integer(),
     number: varchar({ length: 20 }),
     title: varchar({ length: 255 }).notNull(),
@@ -435,9 +447,17 @@ export const canonicalTracks = pgTable(
     lengthMs: integer('length_ms'),
     isDataTrack: boolean('is_data_track').default(false),
     isVideo: boolean('is_video').default(false),
+    // 0026: MusicBrainz recording and track mbids (36-char UUIDs)
+    recordingMbid: varchar('recording_mbid', { length: 36 }),
+    trackMbid: varchar('track_mbid', { length: 36 }),
   },
   (table) => ({
     releaseIdx: index('idx_canonical_tracks_release').on(table.releaseId),
+    // 0026: canonical_track's identity: (release, medium, position) is stable across re-fetches
+    uniqueIdx: uniqueIndex('canonical_tracks_release_medium_position_uniq')
+      .on(table.releaseId, table.mediumNo, table.position),
+    // 0026: fast lookup by recording mbid
+    recordingMbidIdx: index('idx_canonical_tracks_recording_mbid').on(table.recordingMbid),
   })
 );
 

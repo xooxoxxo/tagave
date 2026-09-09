@@ -33,6 +33,7 @@ import { tagsPreviewJob } from './jobs/tagsPreview.js';
 import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
+import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -75,6 +76,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'fingerprint.album': 'stately',
   'fingerprint.sweep': 'stately',
   'acoustid.lookup': 'stately',
+  'tracks.link': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -107,7 +109,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.acoustid', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.acoustid', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
     await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
@@ -316,6 +318,17 @@ async function main() {
     await boss.work<ArtistRefreshJobData>('artist.refresh', { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await artistRefreshJob(ctx, job.data);
     });
+  }
+
+  if (wants('tracks.link')) {
+    await boss.work<TracksLinkJobData>('tracks.link', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        logger.info({ jobId: job.id, data: job.data }, 'tracks.link start');
+        await tracksLinkJob(ctx, job.data);
+      }
+    });
+    // Sweep every 5 minutes to link unlinked albums
+    await boss.schedule('tracks.link', '*/5 * * * *', { sweep: true }, { singletonKey: 'tracks.link:sweep' });
   }
 
   // IDN-5 (XO-372): fingerprints on the file worker (needs the mount and fpcalc),

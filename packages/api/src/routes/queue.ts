@@ -209,6 +209,11 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       .where(eq(localAlbums.id, albumId));
     const boss = await getBoss();
     await boss.send('enrich.release', { releaseId: cand.releaseId }, { singletonKey: `enrich:${cand.releaseId}` });
+    try {
+      await boss.send('tracks.link', { localAlbumId: albumId }, { singletonKey: `tracks.link:${albumId}` });
+    } catch (err) {
+      request.log.warn({ err }, 'tracks.link enqueue failed (queue not created yet?)');
+    }
     reply.send({ ok: true, state: 'matched' });
   });
 

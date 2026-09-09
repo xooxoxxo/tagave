@@ -595,3 +595,62 @@ describe('browseArtistReleaseGroups', () => {
     await expect(provider.browseArtistReleaseGroups('x', { priority: 'background' })).rejects.toMatchObject({ status: 404 });
   });
 });
+
+describe('mbTrackToCanonical via getRelease', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('carries the recording MBID and the release-specific track MBID (XO-374)', async () => {
+    // MusicBrainz gives a track two different ids: `id` is the track's identity
+    // ON THIS RELEASE (Picard's musicbrainz_releasetrackid) and `recording.id`
+    // is the recording shared across releases (musicbrainz_recordingid).
+    const release = {
+      id: '11111111-1111-1111-1111-111111111111',
+      title: 'Test Release',
+      'release-group': { id: '22222222-2222-2222-2222-222222222222', title: 'Test RG' },
+      'artist-credit': [{ artist: { id: '33333333-3333-3333-3333-333333333333', name: 'Test Artist' }, name: 'Test Artist' }],
+      media: [
+        {
+          position: 1,
+          format: 'CD',
+          'track-count': 2,
+          tracks: [
+            {
+              id: 'aaaaaaaa-0000-0000-0000-000000000001',
+              title: 'First',
+              position: '1',
+              number: '1',
+              length: 210000,
+              recording: { id: 'bbbbbbbb-0000-0000-0000-000000000001', title: 'First', length: 210000 },
+            },
+            {
+              // no track id: the mapper must simply omit trackId, not write null
+              title: 'Second',
+              position: '2',
+              number: '2',
+              length: 180000,
+              recording: { id: 'bbbbbbbb-0000-0000-0000-000000000002', title: 'Second', length: 180000 },
+            },
+          ],
+        },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const mapped = await provider.getRelease('11111111-1111-1111-1111-111111111111', { priority: 'background' });
+
+    expect(mapped.tracks?.[0]).toMatchObject({
+      title: 'First',
+      position: 1,
+      mediumNumber: 1,
+      recordingId: 'bbbbbbbb-0000-0000-0000-000000000001',
+      trackId: 'aaaaaaaa-0000-0000-0000-000000000001',
+    });
+    expect(mapped.tracks?.[1]?.recordingId).toBe('bbbbbbbb-0000-0000-0000-000000000002');
+    expect(mapped.tracks?.[1]).not.toHaveProperty('trackId');
+  });
+});

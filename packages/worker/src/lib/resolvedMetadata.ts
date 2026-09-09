@@ -80,6 +80,7 @@ export async function resolveMetadataForFile(
     .select({
       id: localTracks.id,
       localAlbumId: localTracks.localAlbumId,
+      canonicalTrackId: localTracks.canonicalTrackId,
       discNo: localTracks.discNo,
       trackNo: localTracks.trackNo,
       origin: localTracks.origin,
@@ -101,25 +102,37 @@ export async function resolveMetadataForFile(
   const [releaseGroup] = await ctx.db.select().from(releaseGroups).where(eq(releaseGroups.id, releaseRow.releaseGroupId));
   if (!releaseGroup) return { ok: false, reason: 'release_missing' };
 
-  // The matched canonical track: same medium + position as the local track
-  // (disc 1 when the file carries no disc number), else the same ordinal when
-  // the counts line up. identify does not persist per-track alignment yet.
-  const tracks = await ctx.db
-    .select()
-    .from(canonicalTracks)
-    .where(eq(canonicalTracks.releaseId, album.releaseId));
-  const byPos = new Map(tracks.map((t) => [`${t.mediumNo ?? 1}:${t.position ?? 0}`, t]));
-  let canonicalTrack = track.trackNo ? byPos.get(`${track.discNo ?? 1}:${track.trackNo}`) ?? null : null;
-  if (!canonicalTrack && track.trackNo && (album.discCount ?? 1) === 1) {
-    const ordered = [...tracks].sort((a, b) => (a.mediumNo ?? 1) - (b.mediumNo ?? 1) || (a.position ?? 0) - (b.position ?? 0));
-    const albumTracks = await ctx.db
-      .select({ audioFileId: localTracks.audioFileId, discNo: localTracks.discNo, trackNo: localTracks.trackNo })
-      .from(localTracks)
-      .where(eq(localTracks.localAlbumId, album.id));
-    if (albumTracks.length === ordered.length) {
-      const mine = [...albumTracks].sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0));
-      const idx = mine.findIndex((t) => t.audioFileId === audioFileId);
-      if (idx >= 0) canonicalTrack = ordered[idx] ?? null;
+  // 0026: use canonicalTrackId link if present; fall back to position-based lookup
+  let canonicalTrack: typeof canonicalTracks.$inferSelect | null = null;
+
+  if (track.canonicalTrackId) {
+    // Direct link (0026)
+    const [linked] = await ctx.db
+      .select()
+      .from(canonicalTracks)
+      .where(eq(canonicalTracks.id, track.canonicalTrackId));
+    if (linked) canonicalTrack = linked;
+  }
+
+  // Fallback: position-based lookup (old behavior when link is missing)
+  if (!canonicalTrack) {
+    const tracks = await ctx.db
+      .select()
+      .from(canonicalTracks)
+      .where(eq(canonicalTracks.releaseId, album.releaseId));
+    const byPos = new Map(tracks.map((t) => [`${t.mediumNo ?? 1}:${t.position ?? 0}`, t]));
+    if (track.trackNo) canonicalTrack = byPos.get(`${track.discNo ?? 1}:${track.trackNo}`) ?? null;
+    if (!canonicalTrack && track.trackNo && (album.discCount ?? 1) === 1) {
+      const ordered = [...tracks].sort((a, b) => (a.mediumNo ?? 1) - (b.mediumNo ?? 1) || (a.position ?? 0) - (b.position ?? 0));
+      const albumTracks = await ctx.db
+        .select({ audioFileId: localTracks.audioFileId, discNo: localTracks.discNo, trackNo: localTracks.trackNo })
+        .from(localTracks)
+        .where(eq(localTracks.localAlbumId, album.id));
+      if (albumTracks.length === ordered.length) {
+        const mine = [...albumTracks].sort((a, b) => (a.discNo ?? 1) - (b.discNo ?? 1) || (a.trackNo ?? 0) - (b.trackNo ?? 0));
+        const idx = mine.findIndex((t) => t.audioFileId === audioFileId);
+        if (idx >= 0) canonicalTrack = ordered[idx] ?? null;
+      }
     }
   }
 
@@ -187,6 +200,8 @@ export async function resolveMetadataForFile(
             ...(canonicalTrack.position !== null && canonicalTrack.position !== undefined ? { position: canonicalTrack.position } : {}),
             ...(canonicalTrack.mediumNo ? { mediumNo: canonicalTrack.mediumNo } : {}),
             artistCredit: creditsOf(canonicalTrack.artistCredit).length ? creditsOf(canonicalTrack.artistCredit) : albumCredits,
+            ...(canonicalTrack.recordingMbid ? { mbid: canonicalTrack.recordingMbid } : {}),
+            ...(canonicalTrack.trackMbid ? { trackMbid: canonicalTrack.trackMbid } : {}),
           },
         }
       : {}),

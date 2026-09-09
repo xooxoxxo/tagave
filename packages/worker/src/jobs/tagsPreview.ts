@@ -27,6 +27,7 @@ import { CanonicalField, type TagPlanScope, type TagPolicies, type TagDiffEntry,
 import type { WorkerContext } from '../lib/context.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
+import { linkAlbumTracks, ensureTrackMbids } from '../lib/trackLinks.js';
 
 export { currentFieldsFrom };
 
@@ -148,6 +149,29 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
   const writableRoots = new Set(
     (await db.select({ id: scanRoots.id }).from(scanRoots).where(and(eq(scanRoots.libraryId, libraryId), eq(scanRoots.writable, true)))).map((r) => r.id),
   );
+
+  // 0026: before resolving, ensure tracks are linked and track mbids are fresh
+  // Find distinct matched albums that contain files in scope
+  const albumsInScope = await db
+    .select({ id: localAlbums.id, releaseId: localAlbums.releaseId, tracksLinkedAt: localAlbums.tracksLinkedAt })
+    .from(localAlbums)
+    .where(and(eq(localAlbums.libraryId, libraryId), eq(localAlbums.state, 'matched')));
+
+  // Link albums that haven't been linked yet
+  for (const album of albumsInScope) {
+    if (album.releaseId && !album.tracksLinkedAt) {
+      await linkAlbumTracks(ctx, album.id);
+    }
+  }
+
+  // Ensure track mbids are fresh for each distinct release
+  const releaseIdsSeen = new Set<string>();
+  for (const album of albumsInScope) {
+    if (album.releaseId && !releaseIdsSeen.has(album.releaseId)) {
+      releaseIdsSeen.add(album.releaseId);
+      await ensureTrackMbids(ctx, libraryId, album.releaseId);
+    }
+  }
 
   let filesTouched = 0;
   let fieldsModified = 0;

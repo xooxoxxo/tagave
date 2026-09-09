@@ -330,6 +330,11 @@ function mbTrackToCanonical(
     position: parseInt(mbTrack.position ?? mbTrack.number ?? '0', 10),
     mediumNumber,
     recordingId: recording?.id,
+    // The track id is the RELEASE-specific one and differs from the recording
+    // id; Picard writes it as musicbrainz_releasetrackid. TrackSchema.id is
+    // nullish, so it has to be spread conditionally under
+    // exactOptionalPropertyTypes (XO-374).
+    ...(mbTrack.id ? { trackId: mbTrack.id } : {}),
     isrc: recording?.isrcs?.[0],
   };
 }

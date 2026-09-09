@@ -76,7 +76,8 @@ export interface ResolutionInput {
     position?: number;
     artistCredit?: Array<{ name: string; joinPhrase?: string; mbid?: string }>;
     isrc?: string | string[];
-    mbid?: string;
+    mbid?: string; // recording MBID
+    trackMbid?: string; // release-specific track MBID
   };
   /** Artist credits from release or release group. */
   artistCredits?: Array<{ name: string; joinPhrase?: string; mbid?: string }>;
@@ -301,14 +302,12 @@ export function resolveFields(input: ResolutionInput): ResolvedMetadata {
 
       case 'musicbrainz_recordingid':
         value = track?.mbid;
-        reason = track?.mbid ? 'from recording' : 'no MusicBrainz recording ID available';
+        reason = track?.mbid ? 'from release track' : 'no MusicBrainz recording ID available';
         break;
 
       case 'musicbrainz_releasetrackid':
-        // This would be the track's UUID in the canonical_tracks table
-        // Not typically stored or returned in this context, left undefined
-        value = undefined;
-        reason = 'MusicBrainz release track ID not available in this context';
+        value = track?.trackMbid;
+        reason = track?.trackMbid ? 'from release track' : 'no MusicBrainz release track ID available';
         break;
 
       // External identifiers
