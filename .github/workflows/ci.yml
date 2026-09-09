@@ -72,3 +72,278 @@ jobs:
       - name: Release smoke
         if: startsWith(github.ref, 'refs/tags/v')
         run: ./scripts/smoke.sh
+
+  build-amd64:
+    needs: gates
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [app, worker]
+
+    permissions:
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Image tags — ${{ matrix.image }}
+        id: tags
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push ${{ matrix.image }} (linux/amd64)
+        id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4  # v6.15.0
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/amd64
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.tags.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
+            LINER_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export digest
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          echo "Exporting digest for ${{ matrix.image }} on linux/amd64: $digest"
+          echo "$digest" > "/tmp/digests/${{ matrix.image }}-linux-amd64.txt"
+
+      - name: Upload digest artifact
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-linux-amd64
+          path: /tmp/digests/${{ matrix.image }}-linux-amd64.txt
+          retention-days: 1
+
+  build-arm64:
+    needs: gates
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        image: [app, worker]
+
+    permissions:
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Image tags — ${{ matrix.image }}
+        id: tags
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push ${{ matrix.image }} (linux/arm64)
+        id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4  # v6.15.0
+        with:
+          context: .
+          file: docker/${{ matrix.image }}.Dockerfile
+          platforms: linux/arm64
+          outputs: type=image,name=ghcr.io/${{ github.repository_owner }}/tagave-${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: ${{ steps.tags.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILT_AT=${{ steps.meta.outputs.built_at }}
+            LINER_VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export digest
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          echo "Exporting digest for ${{ matrix.image }} on linux/arm64: $digest"
+          echo "$digest" > "/tmp/digests/${{ matrix.image }}-linux-arm64.txt"
+
+      - name: Upload digest artifact
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image }}-linux-arm64
+          path: /tmp/digests/${{ matrix.image }}-linux-arm64.txt
+          retention-days: 1
+
+  merge:
+    needs: [gates, build-amd64, build-arm64]
+    # Run if build-amd64 succeeded. build-arm64 may be skipped (on main) or successful (on tags).
+    if: github.event_name == 'push' && needs.build-amd64.result == 'success' && (needs.build-arm64.result == 'success' || needs.build-arm64.result == 'skipped')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2  # v3.10.0
+
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Image tags — app
+        id: tags_app
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tagave-app
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Image tags — worker
+        id: tags_worker
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tagave-worker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Merge app manifests
+        run: |
+          set -euo pipefail
+          refs=""
+          # Collect available digests from artifacts
+          if [ -f /tmp/digests/digest-app-linux-amd64/app-linux-amd64.txt ]; then
+            amd64_digest=$(cat /tmp/digests/digest-app-linux-amd64/app-linux-amd64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-app@${amd64_digest}"
+          fi
+          if [ -f /tmp/digests/digest-app-linux-arm64/app-linux-arm64.txt ]; then
+            arm64_digest=$(cat /tmp/digests/digest-app-linux-arm64/app-linux-arm64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-app@${arm64_digest}"
+          fi
+
+          if [ -z "$refs" ]; then
+            echo "No digests found for app image"
+            exit 1
+          fi
+
+          # Build tag arguments for docker buildx imagetools create
+          tags="${{ steps.tags_app.outputs.tags }}"
+          tag_args=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args="${tag_args} -t ${tag}"
+          done <<< "$tags"
+
+          # shellcheck disable=SC2086
+          docker buildx imagetools create ${tag_args} ${refs}
+
+      - name: Merge worker manifests
+        run: |
+          set -euo pipefail
+          refs=""
+          # Collect available digests from artifacts
+          if [ -f /tmp/digests/digest-worker-linux-amd64/worker-linux-amd64.txt ]; then
+            amd64_digest=$(cat /tmp/digests/digest-worker-linux-amd64/worker-linux-amd64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-worker@${amd64_digest}"
+          fi
+          if [ -f /tmp/digests/digest-worker-linux-arm64/worker-linux-arm64.txt ]; then
+            arm64_digest=$(cat /tmp/digests/digest-worker-linux-arm64/worker-linux-arm64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-worker@${arm64_digest}"
+          fi
+
+          if [ -z "$refs" ]; then
+            echo "No digests found for worker image"
+            exit 1
+          fi
+
+          # Build tag arguments for docker buildx imagetools create
+          tags="${{ steps.tags_worker.outputs.tags }}"
+          tag_args=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args="${tag_args} -t ${tag}"
+          done <<< "$tags"
+
+          # shellcheck disable=SC2086
+          docker buildx imagetools create ${tag_args} ${refs}
+
+      - name: Create the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE=""
+          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            $PRERELEASE
