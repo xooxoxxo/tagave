@@ -30,12 +30,18 @@ export interface IdentifyAlbumJobData {
   /** IDN-5: release MBIDs the AcoustID lookup ranked for this album; fetched
    * and scored beside the search candidates, never trusted blindly */
   acoustidMbids?: string[];
+  /** IDN-5: per release MBID, the share of the album's tracks whose fingerprint
+   * matched a recording on it (acoustid.lookup's coverage) */
+  acoustidCoverage?: Record<string, number>;
 }
 
 /** spec §10.3 budget: MB lookups per album; Discogs is consulted only when
  * MB did not produce a strong candidate, and then fetches at most two. */
 const MAX_LOOKUPS_PER_ALBUM = 3;
 const MAX_DISCOGS_FETCHES = 2;
+/** IDN-5: a release that explains this share of the album's fingerprints, with
+ * track parity (±1), is the album — whatever the tags say. */
+const ACOUSTID_ACCEPT_COVERAGE = 0.8;
 
 /** provenance of a candidate / decision (match_candidates.source, album_matches.source) */
 export type CandidateSource = 'mbid' | 'mb_search' | 'discogs_search' | 'user_mbid' | 'user_discogs' | 'acoustid';
@@ -259,10 +265,18 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     const inBand = scoredNow.filter((c) => c.distance <= MATCHING_THRESHOLDS.medium);
     return inBand.length > 0 && pickByChipRule(inBand.map((c) => ({ breakdown: c.breakdown, distance: c.distance }))) >= 0;
   };
-  // Sweep tier (owner, 2026-09-09: "first sweep with discogs, musicbrainz
-  // later"): Discogs answers 55/min while MusicBrainz's busy ceiling holds
-  // identify at ~2 albums/min. Manual and triage tiers keep MB first; the
-  // embedded-MBID fast path is one MB call and stays.
+  // IDN-5: fingerprint evidence outranks tags. A release that explains ≥ 80 %
+  // of the album's fingerprints with track parity (±1) is accepted even when
+  // the tag-based distance is poor (per-composer artist tags, kanji titles).
+  const acceptedByFingerprint = (r: { id: string; tracks?: unknown[] }): boolean =>
+    (data.acoustidCoverage?.[r.id] ?? 0) >= ACOUSTID_ACCEPT_COVERAGE
+    && Math.abs((r.tracks?.length ?? 0) - local.tracks.length) <= 1;
+  // Sweep tier (owner, 2026-09-09: "first sweep with discogs and do
+  // musicbrainz later"): the first pass over an album asks Discogs only —
+  // 55/min against MusicBrainz's shared 1 req/s slot — and an album Discogs
+  // could not settle waits for its second pass, which runs MB first as before.
+  // Manual and triage tiers keep MB first; the embedded-MBID fast path is one
+  // MB call and stays.
   const discogsFirst = !!data.discogsFirst && !pinned && !embedded.albumMbid;
   let discogsDone = false;
   try {
@@ -270,9 +284,14 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       await discogsPass();
       discogsDone = true;
     }
+    // AcoustID candidates, best coverage first: one MusicBrainz fetch at a time
+    // and stop as soon as one would be accepted — every MB call queues on the
+    // shared 1 req/s slot, and fetching all three cost ~2 min per album.
     for (const mbid of data.acoustidMbids ?? []) {
       try {
-        take(await mbRelease(ctx, p, mbid), 'acoustid');
+        const r = await mbRelease(ctx, p, mbid);
+        take(r, 'acoustid');
+        if (acceptedByFingerprint(r) || bestIsAcceptable()) break;
       } catch (err) {
         ctx.logger.warn({ mbid, err: (err as Error).message }, 'identify: acoustid candidate fetch failed');
       }
@@ -308,9 +327,9 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       }
     }
 
-    // MusicBrainz cascade: when nothing was found, the fast path was weak, or a
-    // Discogs-first pass produced nothing the decision would accept.
-    const needMb = fetched.length === 0 || fastPathWeak || (discogsDone && !bestIsAcceptable());
+    // MusicBrainz cascade: when nothing was found or the fast path was weak —
+    // never on a Discogs-only first pass (MB gets that album on its next pass).
+    const needMb = !discogsDone && (fetched.length === 0 || fastPathWeak);
     if (!pinned && needMb) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
@@ -351,7 +370,18 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     if (!mbBest || mbBest.distance > MATCHING_THRESHOLDS.strong) await discogsPass();
   }
 
+  // A Discogs-only pass that settled nothing leaves the album pending for its
+  // MusicBrainz pass (identify_attempts ≥ 1 → the sweep sends it MB-first);
+  // whatever Discogs found stays as candidates for the album page.
+  const discogsLater = async (scoredCount: number, best: number | undefined) => {
+    await ctx.db.update(localAlbums)
+      .set({ identifyReason: 'discogs_pass', updatedAt: new Date() })
+      .where(eq(localAlbums.id, album.id));
+    ctx.logger.info({ album: album.titleGuess, candidates: scoredCount, best }, 'identify: discogs pass, MusicBrainz later');
+  };
+
   if (fetched.length === 0) {
+    if (discogsDone) { await discogsLater(0, undefined); return; }
     await giveUp('no_candidates');
     return;
   }
@@ -424,6 +454,26 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     await goLive(topDb, 'confirmed', 'user', top.distance,
       data.pinnedMbid ? 'manual MBID entry (IDN-6)' : 'manual Discogs entry (IDN-6)',
       data.pinnedMbid ? 'user_mbid' : 'user_discogs');
+    return;
+  }
+
+  // IDN-5: accept on fingerprint evidence before the tag-based decision.
+  const viaFingerprint = scored
+    .filter((s) => sourceOf.get(s.id) === 'acoustid' && acceptedByFingerprint(s))
+    .sort((a, b) => (data.acoustidCoverage?.[b.id] ?? 0) - (data.acoustidCoverage?.[a.id] ?? 0) || a.distance - b.distance)[0];
+  const viaFingerprintDb = viaFingerprint ? releaseDbIds.get(viaFingerprint.id) : undefined;
+  if (viaFingerprint && viaFingerprintDb) {
+    const cov = Math.round((data.acoustidCoverage?.[viaFingerprint.id] ?? 0) * 100);
+    ctx.logger.info({ album: album.titleGuess, coverage: cov, distance: viaFingerprint.distance }, 'identify: acoustid auto-accept');
+    await goLive(viaFingerprintDb, 'auto', 'system', viaFingerprint.distance,
+      `acoustid auto-accept: ${cov}% of tracks fingerprint-matched, ${viaFingerprint.tracks?.length ?? 0} vs ${local.tracks.length} tracks (distance ${viaFingerprint.distance.toFixed(4)})`,
+      'acoustid');
+    return;
+  }
+
+  // Discogs-only first pass: settle only what the decision would accept.
+  if (discogsDone && !bestIsAcceptable()) {
+    await discogsLater(scored.length, scored[0]?.distance);
     return;
   }
 

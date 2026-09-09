@@ -115,13 +115,17 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
   // The identify queue is 'stately' with one job per album: fold the MBIDs into
   // a job that is already waiting (a plain send would be deduped and lose them),
   // otherwise queue a fresh one at the triage tier.
-  const payload = JSON.stringify({ acoustidMbids: mbids, force: true });
+  // coverage per release (share of the album's tracks whose fingerprint matched a
+  // recording on it) lets identify.album accept on fingerprint evidence when the
+  // tags are garbage (soundtracks tagged per composer, romaji vs kanji titles)
+  const acoustidCoverage = Object.fromEntries(ranked.map((r) => [r.mbid, Number(r.coverage.toFixed(2))]));
+  const payload = JSON.stringify({ acoustidMbids: mbids, acoustidCoverage, force: true });
   const updated = (await ctx.sql`
     update pgboss.job set data = data || ${payload}::jsonb, priority = greatest(priority, ${IDENTIFY_PRIORITY})
     where name = 'identify.album' and singleton_key = ${'identify:' + album.id} and state = 'created'
     returning id`) as unknown as unknown[];
   if (updated.length === 0) {
-    await ctx.boss.send('identify.album', { localAlbumId: album.id, force: true, acoustidMbids: mbids }, {
+    await ctx.boss.send('identify.album', { localAlbumId: album.id, force: true, acoustidMbids: mbids, acoustidCoverage }, {
       singletonKey: `identify:${album.id}`, priority: IDENTIFY_PRIORITY, retryLimit: 3, retryDelay: 60, retryBackoff: true,
     });
   }
