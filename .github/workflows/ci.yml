@@ -221,8 +221,17 @@ jobs:
 
   merge:
     needs: [gates, build-amd64, build-arm64]
-    # Run if build-amd64 succeeded. build-arm64 may be skipped (on main) or successful (on tags).
-    if: github.event_name == 'push' && needs.build-amd64.result == 'success' && (needs.build-arm64.result == 'success' || needs.build-arm64.result == 'skipped')
+    # build-arm64 is skipped on main (it is tag-only), and a job whose `needs`
+    # contains a skipped job is itself skipped unless the condition carries a
+    # status function. Without the leading !cancelled() the explicit tests below
+    # are never even evaluated: the first main run built both amd64 images, then
+    # skipped this job, so the images were pushed by digest with no tag on them
+    # and no `edge` ever appeared. Green run, nothing usable.
+    if: >-
+      !cancelled()
+      && github.event_name == 'push'
+      && needs.build-amd64.result == 'success'
+      && (needs.build-arm64.result == 'success' || needs.build-arm64.result == 'skipped')
     runs-on: ubuntu-latest
 
     permissions:
