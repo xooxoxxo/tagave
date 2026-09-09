@@ -131,11 +131,15 @@ export function alignTracks(
     else byDisc.set(d, [i]);
   }
 
+  // Pair by disc number when every local disc exists as a medium (discs
+  // [1, 3] of a 3-CD box go to media 1 and 3); otherwise by rank, which is
+  // what an unnumbered or renumbered rip needs.
+  const byNumber = localDiscs.every((d) => byMedium.has(d));
   const out: TrackAlignment[] = new Array(localTracks.length);
   for (let rank = 0; rank < localDiscs.length; rank++) {
     const positions = byDisc.get(localDiscs[rank]!) ?? [];
     const group = positions.map((i) => localTracks[i]!);
-    const mediumNo = canonicalMedia[rank];
+    const mediumNo = byNumber ? localDiscs[rank] : canonicalMedia[rank];
     const medium = mediumNo === undefined ? undefined : byMedium.get(mediumNo);
     const sub = medium && medium.length ? alignFlat(group, medium) : group.map(unaligned);
     for (let k = 0; k < positions.length; k++) {
@@ -345,9 +349,12 @@ export function scoreRelease(
   // candidates past the chip rule for nothing.
   const localDiscCount = local.discsKnown === true ? local.discCount : undefined;
   const candidateMediumCount = candidate.mediumCount;
+  // Only a local set that positively knows it spans several discs gets to
+  // judge the candidate's medium count. A rip that says "disc 1" (or nothing)
+  // against a 2xLP modelled as two media is still the same music; the flat
+  // alignment decides that case and no chip is written.
   if (localDiscCount !== undefined && candidateMediumCount !== undefined
-    && localDiscCount > 0 && candidateMediumCount > 0
-    && (localDiscCount >= 2 || candidateMediumCount >= 2)) {
+    && localDiscCount >= 2 && candidateMediumCount > 0) {
     const mediumCountDist = localDiscCount === candidateMediumCount
       ? 0
       : Math.min(1, Math.abs(localDiscCount - candidateMediumCount) /

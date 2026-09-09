@@ -191,9 +191,9 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   // the tracks can. No track carrying a disc number means "unknown", and then
   // neither the alignment nor the medium component gets to guess.
   const discsKnown = tracks.some((t) => t.discNo != null);
-  const distinctDiscs = new Set(
-    tracks.filter((t) => t.discNo != null).map((t) => t.discNo),
-  ).size;
+  // Same convention as the alignment: a missing number is disc 1, so a set
+  // tagged {null, 2} counts two discs.
+  const distinctDiscs = new Set(tracks.map((t) => t.discNo ?? 1)).size;
 
   const local = {
     artist: album.artistGuess ?? '',

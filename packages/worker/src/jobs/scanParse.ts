@@ -4,7 +4,7 @@ import { parseFile } from 'music-metadata';
 import { eq, inArray } from 'drizzle-orm';
 import { audioFiles, scanRoots } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
-import { relDirname, tagsDigest } from '../lib/helpers.js';
+import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 
 export interface ScanParseJobData {
@@ -116,7 +116,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
       'cluster.dir',
       { libraryId: info.libraryId, scanRootId: info.scanRootId, dirPath },
       {
-        singletonKey: `cluster:${info.scanRootId}:${dirPath}`,
+        singletonKey: clusterSingletonKey(info.scanRootId, dirPath),
         singletonSeconds: 30,
         startAfter: 30,
       },

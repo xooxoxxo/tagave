@@ -295,3 +295,46 @@ describe('mediumCountOf', () => {
     expect(mediumCountOf({ tracks: [{ mediumNumber: 3 }, { mediumNumber: 1 }] })).toBe(3);
   });
 });
+
+describe('medium component gate and pairing (round 3)', () => {
+  const t = (title: string, index: number, extra: Record<string, number> = {}) => ({ title, duration: 200 + index, index, ...extra });
+
+  it('writes no chip for a one-disc rip against a release modelled as two media (2xLP)', () => {
+    // Prod: "Munki" — 17 tracks tagged disc 1, MusicBrainz splits them over
+    // media 1 and 2. Same music; the flat alignment pairs everything and the
+    // medium component must stay out of it.
+    const local = Array.from({ length: 6 }, (_, i) => t(`Song ${i}`, i, { disc: 1 }));
+    const release = {
+      id: 'rel-2lp', releaseGroupId: 'rg', title: 'Munki', artists: ['JAMC'], source: 'musicbrainz' as const,
+      mediumCount: 2,
+      tracks: Array.from({ length: 6 }, (_, i) => t(`Song ${i}`, i, { medium: i < 3 ? 1 : 2 })),
+    };
+    const out = scoreRelease({ artist: 'JAMC', title: 'Munki', tracks: local, discsKnown: true, discCount: 1 }, release);
+    expect(out.breakdown.mediums).toBeUndefined();
+    expect(out.breakdown.unmatchedTracks).toBeUndefined();
+    expect(out.distance).toBe(0);
+  });
+
+  it('pairs discs by number when every local disc exists as a medium', () => {
+    // Discs 1 and 3 of a 3-CD box: disc 3 must meet medium 3, not medium 2.
+    const local = [
+      t('A1', 0, { disc: 1 }), t('A2', 1, { disc: 1 }),
+      t('C1', 2, { disc: 3 }), t('C2', 3, { disc: 3 }),
+    ];
+    const canonical = [
+      t('A1', 0, { medium: 1 }), t('A2', 1, { medium: 1 }),
+      t('B1', 2, { medium: 2 }), t('B2', 3, { medium: 2 }),
+      t('C1', 4, { medium: 3 }), t('C2', 5, { medium: 3 }),
+    ];
+    const out = alignTracks(local, canonical);
+    expect(out.map((a) => a.canonicalIndex)).toEqual([0, 1, 4, 5]);
+    expect(out.every((a) => a.distance < 0.01)).toBe(true);
+  });
+
+  it('falls back to rank pairing when local disc numbers do not exist as media', () => {
+    const local = [t('A1', 0, { disc: 3 }), t('B1', 1, { disc: 4 })];
+    const canonical = [t('A1', 0, { medium: 1 }), t('B1', 1, { medium: 2 })];
+    const out = alignTracks(local, canonical);
+    expect(out.map((a) => a.canonicalIndex)).toEqual([0, 1]);
+  });
+});

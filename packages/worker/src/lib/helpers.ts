@@ -179,6 +179,30 @@ export function stripDiscTokenFromTitle(title: string): string {
  * "Vol. n" siblings are deliberately NOT collapsed (see clusterDirJob): a
  * "Vol. 2" folder is its own album until something else says otherwise.
  */
+/**
+ * Whether the disc numbers in a group's file tags describe real discs. Some
+ * rips write each file's own track number into disk.no ("01", "2-02", "3-03"
+ * … with disk.no 1..10), which would fabricate a disc per track. Distrust the
+ * tag tier when at least two disc values appear and either half of the tagged
+ * files have disc == track, a value is absurd, or most discs hold one file.
+ */
+export function tagDiscsPlausible(entries: Iterable<{ disc: number | null; track: number | null }>): boolean {
+  const perDisc = new Map<number, number>();
+  let tagged = 0;
+  let discEqualsTrack = 0;
+  for (const e of entries) {
+    if (e.disc === null || e.disc === undefined) continue;
+    tagged += 1;
+    if (e.track !== null && e.track !== undefined && e.disc === e.track) discEqualsTrack += 1;
+    perDisc.set(e.disc, (perDisc.get(e.disc) ?? 0) + 1);
+  }
+  if (perDisc.size < 2) return true;
+  if ([...perDisc.keys()].some((d) => d < 1 || d > 30)) return false;
+  if (discEqualsTrack * 2 >= tagged) return false;
+  const singles = [...perDisc.values()].filter((n) => n === 1).length;
+  return singles * 2 <= perDisc.size;
+}
+
 export function clusterScopeKey(dirPath: string): string {
   if (dirPath === '') return '';
   const base = relBasename(dirPath);

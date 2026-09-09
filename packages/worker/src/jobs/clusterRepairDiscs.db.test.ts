@@ -134,7 +134,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     expect(clusters[0]!.data).toMatchObject({ libraryId, scanRootId: rootId });
     expect(result).toMatchObject({
       phase: 'scan', dryRun: false, scopes: 3, enqueued: 3,
-      counts: { 'folder-token': 1, 'tag-disc': 1, 'filename-prefix': 1 },
+      counts: { 'folder-token': 1, 'disc-subdir': 0, 'tag-disc': 1, 'filename-prefix': 1 },
     });
 
     const followUp = sent.filter((s) => s.name === 'cluster.repairDiscs');
@@ -156,7 +156,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
       phase: 'scan',
       dryRun: true,
       scopes: 3,
-      counts: { 'folder-token': 1, 'tag-disc': 1, 'filename-prefix': 1 },
+      counts: { 'folder-token': 1, 'disc-subdir': 0, 'tag-disc': 1, 'filename-prefix': 1 },
       enqueued: 0,
     });
     const after = (await client`select count(*)::int n from local_albums where library_id = ${libraryId}`)[0].n;

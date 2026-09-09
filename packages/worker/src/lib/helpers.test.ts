@@ -4,6 +4,7 @@ import {
   extractYear, extOf, filenameDiscPrefix, filenameDiscPrefixesApply, isAudioFile, normKey,
   relBasename, relDirname, sidecarKind, storagePath, stripDiscTokenFromTitle, tagsDigest,
   titleFromName, trackNoFromName,
+  tagDiscsPlausible,
 } from './helpers.js';
 
 describe('discDirNumber', () => {
@@ -261,5 +262,27 @@ describe('rel path helpers', () => {
     expect(relDirname('A/B/c.mp3')).toBe('A/B');
     expect(relDirname('c.mp3')).toBe('');
     expect(relBasename('A/B/c.mp3')).toBe('c.mp3');
+  });
+});
+
+describe('tagDiscsPlausible', () => {
+  it('rejects disk.no that repeats each file\'s track number (Angels & Airwaves shape)', () => {
+    const entries = Array.from({ length: 10 }, (_, i) => ({ disc: i + 1, track: i + 1 }));
+    expect(tagDiscsPlausible(entries)).toBe(false);
+  });
+  it('accepts a real two-disc tag set', () => {
+    const entries = [
+      ...Array.from({ length: 12 }, (_, i) => ({ disc: 1, track: i + 1 })),
+      ...Array.from({ length: 8 }, (_, i) => ({ disc: 2, track: i + 1 })),
+    ];
+    expect(tagDiscsPlausible(entries)).toBe(true);
+  });
+  it('is neutral when only one disc value or none appears', () => {
+    expect(tagDiscsPlausible([{ disc: 1, track: 1 }, { disc: 1, track: 2 }])).toBe(true);
+    expect(tagDiscsPlausible([{ disc: null, track: 1 }])).toBe(true);
+  });
+  it('rejects absurd values and one-file discs', () => {
+    expect(tagDiscsPlausible([{ disc: 1, track: 1 }, { disc: 99, track: 2 }, { disc: 1, track: 3 }])).toBe(false);
+    expect(tagDiscsPlausible([{ disc: 1, track: 5 }, { disc: 2, track: 7 }, { disc: 3, track: 9 }])).toBe(false);
   });
 });

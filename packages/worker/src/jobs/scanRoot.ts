@@ -4,6 +4,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
+import { clusterSingletonKey } from '../lib/helpers.js';
 
 export interface ScanRootJobData {
   scanRootId: string;
@@ -147,7 +148,7 @@ export async function enqueueReclusters(
     await ctx.boss.send(
       'cluster.dir',
       { libraryId: root.libraryId, scanRootId: root.id, dirPath },
-      { singletonKey: `cluster:${root.id}:${dirPath}`, singletonSeconds: 30, startAfter: opts.startAfter ?? 30 },
+      { singletonKey: clusterSingletonKey(root.id, dirPath), singletonSeconds: 30, startAfter: opts.startAfter ?? 30 },
     );
   }
 }

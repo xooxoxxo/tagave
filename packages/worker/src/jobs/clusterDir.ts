@@ -6,7 +6,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {
   clusterKey, discDirNumber, discTokenOfFolder, extractYear, extOf,
-  filenameDiscPrefix, filenameDiscPrefixesApply, normKey,
+  filenameDiscPrefix, filenameDiscPrefixesApply, tagDiscsPlausible, normKey,
   relBasename, relDirname, stripDiscTokenFromTitle, titleFromName, trackNoFromName,
 } from '../lib/helpers.js';
 
@@ -159,11 +159,13 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
    */
   const resolveDiscs = (files: FileRow[]): Map<string, number | null> => {
     const prefixApplies = filenameDiscPrefixesApply(files.map((f) => relBasename(f.relPath)));
+    // Tags that put each file's track number into disk.no are not discs.
+    const tagsPlausible = tagDiscsPlausible(files.map((f) => ({ disc: f.tags.disc, track: f.tags.track })));
 
     const out = new Map<string, number | null>();
     for (const f of files) {
       const dir = relDirname(f.relPath);
-      let disc: number | null = f.virtual?.sheet.discNumber ?? f.tags.disc ?? null;
+      let disc: number | null = f.virtual?.sheet.discNumber ?? (tagsPlausible ? f.tags.disc : null) ?? null;
       if (disc === null) disc = discDirNumber(relBasename(dir));
       if (disc === null) disc = dirTokenDisc.get(dir) ?? null;
       if (disc === null && prefixApplies) disc = filenameDiscPrefix(relBasename(f.relPath))?.disc ?? null;

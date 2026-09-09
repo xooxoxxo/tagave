@@ -1,7 +1,7 @@
 import type { WorkerContext } from '../lib/context.js';
 import {
   clusterScopeKey, clusterSingletonKey, discTokenOfFolder, filenameDiscPrefixesApply,
-  relBasename, relDirname,
+  relBasename, relDirname, discDirNumber,
 } from '../lib/helpers.js';
 
 export interface ClusterRepairDiscsJobData {
@@ -38,7 +38,7 @@ const IDENTIFY_CAP = 5_000;
 /** Above this the scope list is dropped from the job data rather than bloating it. */
 const MAX_DIRS_IN_DATA = 5_000;
 
-type Layout = 'folder-token' | 'tag-disc' | 'filename-prefix';
+type Layout = 'folder-token' | 'disc-subdir' | 'tag-disc' | 'filename-prefix';
 
 /**
  * What the run found and did. pg-boss stores a handler's return value as the
@@ -125,7 +125,12 @@ export async function clusterRepairDiscsJob(
       and af.status in ('present', 'error')
       and (${rootId}::uuid is null or af.scan_root_id = ${rootId}::uuid)`) as unknown as DirRow[];
   for (const r of dirs) {
-    if (r.dir !== '' && discTokenOfFolder(relBasename(r.dir))) add(r.scan_root_id, r.dir, 'folder-token');
+    if (r.dir === '') continue;
+    if (discTokenOfFolder(relBasename(r.dir))) add(r.scan_root_id, r.dir, 'folder-token');
+    // A bare "CD1" / "Disc 2" subfolder: the parent is the scope. These were
+    // already one cluster unless the album tags carried the disc token too,
+    // which split them; re-clustering the parent applies the tag stripping.
+    else if (discDirNumber(relBasename(r.dir)) !== null) add(r.scan_root_id, relDirname(r.dir), 'disc-subdir');
   }
 
   // Layout 2: disk.no >= 2 in the tags of a cluster that thinks it holds one
@@ -173,7 +178,7 @@ export async function clusterRepairDiscsJob(
     if (filenameDiscPrefixesApply(g.names)) add(g.scanRootId, g.dir, 'filename-prefix');
   }
 
-  const counts: Record<Layout, number> = { 'folder-token': 0, 'tag-disc': 0, 'filename-prefix': 0 };
+  const counts: Record<Layout, number> = { 'folder-token': 0, 'disc-subdir': 0, 'tag-disc': 0, 'filename-prefix': 0 };
   for (const c of candidates.values()) for (const l of c.layouts) counts[l] += 1;
   const limit = data.limit ?? DEFAULT_LIMIT;
   const picked = [...candidates.values()].slice(0, limit);
@@ -244,7 +249,7 @@ async function identifyChangedClusters(
     phase: 'identify',
     dryRun: data.dryRun === true,
     scopes: data.dirPaths?.length ?? 0,
-    counts: { 'folder-token': 0, 'tag-disc': 0, 'filename-prefix': 0 },
+    counts: { 'folder-token': 0, 'disc-subdir': 0, 'tag-disc': 0, 'filename-prefix': 0 },
     enqueued: 0,
     albums: 0,
     sent: 0,
@@ -260,6 +265,9 @@ async function identifyChangedClusters(
     where library_id = ${data.libraryId}
       and (updated_at >= ${data.since}::timestamptz or created_at >= ${data.since}::timestamptz)
       and (${!scoped}::boolean or dir_paths && ${data.dirPaths ?? []}::text[])
+      -- a decision the owner made by hand is not ours to redo
+      and not exists (select 1 from album_matches am
+                      where am.local_album_id = local_albums.id and am.decided_by = 'user' and am.status = 'confirmed')
     order by updated_at
     limit ${IDENTIFY_CAP}`) as unknown as Array<{ id: string }>;
   if (albums.length === 0) {

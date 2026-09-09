@@ -62,6 +62,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'scan.root': 'stately',
   'scan.dir': 'stately',
   'scan.sweep': 'stately',
+  // Sibling disc folders resolve to one scope; two jobs on it must not interleave.
+  'cluster.dir': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
   'artists.refresh': 'stately',
