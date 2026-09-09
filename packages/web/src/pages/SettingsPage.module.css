@@ -1,46 +1,10 @@
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xl);
-  padding: var(--space-xl);
-  max-width: 900px;
-  margin: 0 auto;
-  width: 100%;
-}
-
-.sections {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2xl);
-}
-
-.subsection {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
-.sectionTitle {
-  font-size: var(--font-size-xl);
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-md);
-}
-
-.sectionDescription {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.pageWrapper {
-  display: flex;
-  flex-direction: column;
-}
-
-.pageContent {
-  display: flex;
-  flex-direction: column;
-}
+.layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
+.sectionNav { display: flex; flex-direction: column; gap: .2rem; }
+.groupLabel { font-size: .7rem; letter-spacing: .025em; color: var(--text-tertiary); margin: 1.5rem .75rem .6rem; }
+.sectionNav > div:first-child .groupLabel { margin-top: 0; }
+.sectionLink { display: block; padding: .7rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
+.sectionLink:hover { background: var(--bg-hover); }
+.activeSection { composes: sectionLink; color: var(--accent); background: #e4ece1; font-weight: 600; }
+.content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
+.sectionDescription { color: var(--text-secondary); font-size: .875rem; }
+@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--border); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }

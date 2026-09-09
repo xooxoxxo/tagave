@@ -1,5 +1,5 @@
 /**
- * Tag plans page — list existing plans and create new ones (XO-358)
+ * Tag changes page — list existing plans and create new ones (XO-358)
  */
 
 import { useState } from 'react';
@@ -42,7 +42,7 @@ export function PlansPage() {
     : undefined;
 
   if (!libraryId) {
-    return <PageShell title="Tag plans">Loading...</PageShell>;
+    return <PageShell title="Tag changes">Loading...</PageShell>;
   }
 
   const plans = plansResponse?.items ?? [];
@@ -96,7 +96,7 @@ export function PlansPage() {
 
   return (
     <PageShell
-      title="Tag plans"
+      title="Tag changes"
       subtitle="Preview and apply tag corrections"
       actions={
         <Button variant="primary" onClick={() => setShowWizard(true)}>

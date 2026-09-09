@@ -1,10 +1,5 @@
-/**
- * Settings page: unified surface with sections for library, providers, collection, system
- * Renders sub-pages based on the section parameter (/settings/$section)
- */
-
-import { useParams, useNavigate, useLocation } from '@tanstack/react-router';
-import { PageShell, TabItem } from '../components/ui';
+import { Link, useLocation } from '@tanstack/react-router';
+import { PageShell } from '../components/ui';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
@@ -15,101 +10,32 @@ import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import styles from './SettingsPage.module.css';
 
-type SettingsSection = 'library' | 'providers' | 'system';
-
+const sections = [
+  { value: 'library', label: 'Music folders', group: 'Your library' },
+  { value: 'metadata', label: 'Tag preferences' },
+  { value: 'genre-mapping', label: 'Genre mapping' },
+  { value: 'following', label: 'Follow rules' },
+  { value: 'providers', label: 'Integrations', group: 'Connections & system' },
+  { value: 'system', label: 'System status' },
+  { value: 'activity', label: 'Background activity' },
+  { value: 'setup-checklist', label: 'Setup checklist' },
+];
 export function SettingsPage() {
-  const navigate = useNavigate();
-  const params = useParams({ strict: false }) as { section?: string };
-  // /settings/providers and /settings/system are registered as literal routes
-  // (typed links), so the section also has to come from the path.
-  const pathSection = useLocation().pathname.split('/')[2];
-  const raw = params.section || pathSection || 'library';
-  const section = (['library', 'providers', 'system'].includes(raw) ? raw : 'library') as SettingsSection;
-
-  const tabs: TabItem[] = [
-    { label: 'Library', value: 'library' },
-    { label: 'Providers', value: 'providers' },
-    { label: 'System', value: 'system' },
-  ];
-
-  const handleTabChange = (value: string) => {
-    if (value === 'library') {
-      navigate({ to: '/settings' });
-    } else {
-      navigate({ to: `/settings/${value}` });
-    }
-  };
-
-  return (
-    <PageShell
-      title="Settings"
-      subtitle="Configure your library and application"
-      tabs={tabs}
-      activeTab={section}
-      onTabChange={handleTabChange}
-    >
+  const raw = useLocation().pathname.split('/')[2] || 'library';
+  const section = sections.some(item => item.value === raw) ? raw : 'library';
+  return <PageShell title="Settings" subtitle="Make Liner at home in your library.">
+    <div className={styles.layout}>
+      <nav className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}</Link></div>)}</nav>
       <div className={styles.content}>
-        {section === 'library' && <LibrarySection />}
-        {section === 'providers' && <ProvidersSection />}
-        {section === 'system' && <SystemSection />}
+        {section === 'library' && <SettingsScanRootsContent />}
+        {section === 'metadata' && <SettingsTagWritesContent />}
+        {section === 'genre-mapping' && <SettingsGenresContent />}
+        {section === 'following' && <SettingsFollowRulesContent />}
+        {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
+        {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Application versions and connected workers.</p><SettingsUpdatesPage /></>}
+        {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
+        {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
       </div>
-    </PageShell>
-  );
-}
-
-/**
- * Library section: scan roots, tag writes, genres, follow rules
- */
-function LibrarySection() {
-  // Each content block carries its own heading and intro.
-  return (
-    <div className={styles.sections}>
-      <section className={styles.subsection}><SettingsScanRootsContent /></section>
-      <section className={styles.subsection}><SettingsTagWritesContent /></section>
-      <section className={styles.subsection}><SettingsGenresContent /></section>
-      <section className={styles.subsection}><SettingsFollowRulesContent /></section>
     </div>
-  );
-}
-
-/**
- * Providers section: authentication and API keys
- */
-function ProvidersSection() {
-  return (
-    <div className={styles.pageWrapper}>
-      <SettingsProvidersPage />
-    </div>
-  );
-}
-
-/**
- * System section: setup checklist, updates, and jobs
- */
-function SystemSection() {
-  return (
-    <div className={styles.sections}>
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Setup Checklist</h2>
-        <p className={styles.sectionDescription}>Complete initial configuration steps</p>
-        <SetupChecklistContent />
-      </section>
-
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Updates</h2>
-        <p className={styles.sectionDescription}>Application and worker updates</p>
-        <div className={styles.pageContent}>
-          <SettingsUpdatesPage />
-        </div>
-      </section>
-
-      <section className={styles.subsection}>
-        <h2 className={styles.sectionTitle}>Jobs</h2>
-        <p className={styles.sectionDescription}>Background scan and processing jobs</p>
-        <div className={styles.pageContent}>
-          <JobsPage />
-        </div>
-      </section>
-    </div>
-  );
+  </PageShell>;
 }

@@ -39,7 +39,7 @@
 
 .banner {
   border: 1px solid var(--accent);
-  background: rgba(42, 127, 249, 0.12);
+  background: rgba(var(--accent-rgb), 0.12);
   color: var(--text-primary);
 }
 

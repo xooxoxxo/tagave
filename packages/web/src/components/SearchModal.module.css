@@ -1,12 +1,12 @@
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(35, 48, 39, 0.25);
   display: flex;
   justify-content: center;
   align-items: flex-start;
   padding-top: 12vh;
-  z-index: 100;
+  z-index: var(--z-modal);
 }
 
 .modal {
@@ -17,7 +17,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 16px 48px rgba(35, 48, 39, 0.15);
   overflow: hidden;
 }
 
@@ -76,3 +76,6 @@
   padding: 1.2rem 1.1rem;
   color: var(--text-secondary);
 }
+
+.closeButton { align-self: flex-end; margin: .5rem .75rem 0; padding: .2rem .5rem; min-height: 2rem; background: transparent; color: var(--text-secondary); font-size: .75rem; }
+.closeButton:hover { background: var(--bg-hover); }

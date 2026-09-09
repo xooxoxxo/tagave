@@ -37,16 +37,15 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     return () => clearTimeout(t);
   }, [q]);
 
-  const { data } = useQuery({
+  const { data, isFetching, isError, refetch } = useQuery({
     queryKey: ['search', libraryId, debounced],
     queryFn: () =>
       api.get<SearchResult>(`/libraries/${libraryId}/search?q=${encodeURIComponent(debounced)}`),
     enabled: !!libraryId && debounced.trim().length >= 2,
-    placeholderData: (prev) => prev,
   });
 
   const rows: Row[] = useMemo(() => {
-    if (!data) return [];
+    if (!data || q.trim().length < 2 || q !== debounced) return [];
     return [
       ...data.albums.map<Row>((a) => ({
         type: 'album', id: a.id,
@@ -64,7 +63,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
         secondary: `${t.artist ?? 'Unknown'} — ${t.albumTitle}`,
       })),
     ];
-  }, [data]);
+  }, [data, q, debounced]);
 
   useEffect(() => setSelected(0), [rows.length, debounced]);
 
@@ -79,10 +78,17 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Tab') {
+      const focusable = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('input, button'));
+      const index = focusable.indexOf(document.activeElement as HTMLElement);
+      e.preventDefault();
+      focusable[(index + (e.shiftKey ? -1 : 1) + focusable.length) % focusable.length]?.focus();
+    }
+    else if (e.key === 'Escape') onClose();
+    else if (e.target !== inputRef.current) return;
     else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setSelected((s) => Math.min(s + 1, rows.length - 1));
+      setSelected((s) => Math.max(0, Math.min(s + 1, rows.length - 1)));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setSelected((s) => Math.max(s - 1, 0));
@@ -102,21 +108,33 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className={styles.overlay} onClick={onClose}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Search your library" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+        <button className={styles.closeButton} onClick={onClose} aria-label="Close search">Close <span aria-hidden="true">×</span></button>
         <input
           ref={inputRef}
+          aria-label="Search albums, artists, and tracks"
+          role="combobox"
+          aria-expanded={rows.length > 0}
+          aria-controls="search-results"
+          aria-autocomplete="list"
+          aria-activedescendant={rows[selected] ? `search-result-${selected}` : undefined}
           className={styles.input}
           placeholder="Search albums, artists, tracks..."
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <div className={styles.results}>
+        {isFetching && <p className={styles.empty} role="status">Searching…</p>}
+        {isError && <p className={styles.empty} role="alert">Search is unavailable. <button onClick={() => void refetch()}>Retry</button></p>}
+        <div className={styles.results} id="search-results" role="listbox" aria-label="Search results">
           {sections.map((s) => (
             <div key={s.label}>
               <div className={styles.sectionLabel}>{s.label}</div>
               {s.rows.map(({ row, index }) => (
                 <div
                   key={index}
+                  id={`search-result-${index}`}
+                  role="option"
+                  aria-selected={index === selected}
                   className={index === selected ? styles.rowSelected : styles.row}
                   onMouseEnter={() => setSelected(index)}
                   onClick={() => open(row)}
@@ -127,7 +145,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           ))}
-          {debounced.trim().length >= 2 && rows.length === 0 && (
+          {!isFetching && !isError && q === debounced && debounced.trim().length >= 2 && rows.length === 0 && (
             <div className={styles.empty}>No results for "{debounced}"</div>
           )}
           {debounced.trim().length < 2 && (

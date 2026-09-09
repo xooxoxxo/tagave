@@ -125,7 +125,7 @@ function SettingsGenresContentInner() {
   return (
     <div className={styles.content}>
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Genre Configuration</h2>
+        <h2 className={styles.sectionTitle}>Genre mapping</h2>
 
         <div className={styles.fieldGroup}>
           <label htmlFor="whitelist" className={styles.label}>

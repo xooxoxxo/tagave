@@ -14,8 +14,8 @@ import { FilterRail } from '../components/FilterRail';
 import { activeFilterCount, albumsQueryOf, toggleMulti, type AlbumsSearch } from './albumsSearch';
 import styles from './AlbumsPage.module.css';
 
-const MIN_CARD = 160;
-const GRID_GAP = 16;
+const MIN_CARD = 200;
+const GRID_GAP = 24;
 /** Card chrome around the square cover: padding, gap, title (2 lines), artist, stats. */
 const CARD_CHROME = 106;
 const LIST_ROW = 46;
@@ -70,13 +70,13 @@ export function AlbumsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useAlbumsInfinite(libraryId, query, sort);
+  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useAlbumsInfinite(libraryId, query, sort);
   const { data: facets } = useAlbumFacets(libraryId, query);
   const { data: savedViews } = useSavedViews(libraryId);
   const createView = useCreateSavedView(libraryId);
   const deleteView = useDeleteSavedView(libraryId);
   const bulk = useBulkAlbums(libraryId);
-  const [railOpen, setRailOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(false);
 
   const items = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
   const total = facets?.total ?? items.length;
@@ -156,7 +156,8 @@ export function AlbumsPage() {
   }, []);
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
-  const cols = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (MIN_CARD + GRID_GAP))) || 1;
+  const minCard = gridWidth < 600 ? 140 : MIN_CARD;
+  const cols = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (minCard + GRID_GAP))) || 1;
   const cardWidth = cols > 0 && gridWidth > 0 ? Math.floor((gridWidth - (cols - 1) * GRID_GAP) / cols) : MIN_CARD;
   const rowHeight = view === 'list' ? LIST_ROW : cardWidth + CARD_CHROME + GRID_GAP;
   const rowCount = view === 'list' ? items.length : Math.ceil(items.length / cols);
@@ -178,7 +179,7 @@ export function AlbumsPage() {
 
   useEffect(() => { virtualizer.measure(); }, [rowHeight, virtualizer]);
 
-  if (!libraryId) return <div className={styles.container}>Loading library...</div>;
+  if (!libraryId) return <div className={styles.container} data-virtual-page>Loading library...</div>;
 
   const open = (albumId: string) => navigate({ to: `/albums/${albumId}` });
   const clearAll = () => navigate({ to: '/albums', search: { ...(search.sort && { sort: search.sort }), ...(search.view && { view: search.view }) } as never });
@@ -209,24 +210,27 @@ export function AlbumsPage() {
       return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch({ [k]: undefined } as SearchPatch) }];
     });
 
-  const showEmpty = !isLoading && items.length === 0;
+  const showEmpty = !isLoading && !error && items.length === 0;
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-virtual-page>
       <header className={styles.header}>
+        <h1 className={styles.title}>Albums</h1>
+        <p className={styles.intro}>Every record, a world to explore.</p>
         <div className={styles.toolbar}>
-          <h1 className={styles.title}>Albums</h1>
-          <button className={styles.toolButton} onClick={() => setRailOpen((o) => !o)} aria-pressed={railOpen}>
+
+          <button className={styles.toolButton} onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
             {railOpen ? 'Hide filters' : `Filters${activeCount ? ` (${activeCount})` : ''}`}
           </button>
           <input
             type="text"
             className={styles.searchInput}
-            placeholder="Search albums, artists..."
+            placeholder="Search albums, artists…"
+            aria-label="Search albums and artists"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
-          <select className={styles.select} value={sort} onChange={(e) => setSearch({ sort: e.target.value as AlbumsSearch['sort'] })} title="Sort">
+          <select className={styles.select} value={sort} onChange={(e) => setSearch({ sort: e.target.value as AlbumsSearch['sort'] })} aria-label="Sort albums">
             <option value="artist">Artist A–Z</option>
             <option value="title">Title A–Z</option>
             <option value="year">Year, newest</option>
@@ -238,8 +242,8 @@ export function AlbumsPage() {
             {facets ? `${total.toLocaleString()} albums` : ''}
           </span>
           <div className={styles.viewToggle} role="group" aria-label="View mode">
-            <button className={view === 'grid' ? styles.toolButtonActive : styles.toolButton} onClick={() => setSearch({ view: undefined })}>Grid</button>
-            <button className={view === 'list' ? styles.toolButtonActive : styles.toolButton} onClick={() => setSearch({ view: 'list' })}>List</button>
+            <button className={view === 'grid' ? styles.toolButtonActive : styles.toolButton} aria-pressed={view === 'grid'} onClick={() => setSearch({ view: undefined })}>Grid</button>
+            <button className={view === 'list' ? styles.toolButtonActive : styles.toolButton} aria-pressed={view === 'list'} onClick={() => setSearch({ view: 'list' })}>List</button>
           </div>
         </div>
 
@@ -300,7 +304,7 @@ export function AlbumsPage() {
         )}
 
         <div className={styles.main}>
-          {error && <div className={styles.error}>Failed to load albums</div>}
+          {error && <div className={styles.error} role="alert">Couldn’t load albums. <button className={styles.toolButton} onClick={() => void refetch()}>Try again</button></div>}
           {isLoading && <div className={styles.loading}>Loading albums...</div>}
 
           {showEmpty && (

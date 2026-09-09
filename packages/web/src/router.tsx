@@ -16,7 +16,7 @@ import {
   SettingsPage,
   CollectionPage,
 } from './pages';
-import { useMe } from './hooks';
+import { api } from './services/api';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 
 /**
@@ -177,7 +177,7 @@ const collectionRoute = new Route({
 const jobsOldRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
-  beforeLoad: () => redirect({ to: '/settings/system' }),
+  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'activity' } }),
 });
 
 const scanRootsRedirect = new Route({
@@ -189,19 +189,19 @@ const scanRootsRedirect = new Route({
 const tagWritesRedirect = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/tag-writes',
-  beforeLoad: () => redirect({ to: '/settings/library' }),
+  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'metadata' } }),
 });
 
 const genresRedirect = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/genres',
-  beforeLoad: () => redirect({ to: '/settings/library' }),
+  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'genre-mapping' } }),
 });
 
 const followRulesRedirect = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/follow-rules',
-  beforeLoad: () => redirect({ to: '/settings/library' }),
+  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'following' } }),
 });
 
 const updatesRedirect = new Route({
@@ -215,9 +215,8 @@ const logoutRoute = new Route({
   path: '/logout',
   beforeLoad: async () => {
     // Trigger logout mutation
-    const { useLogout } = await import('./hooks');
-    const logout = useLogout();
-    logout.mutate();
+    await api.post('/auth/logout');
+    window.location.replace('/login');
   },
 });
 

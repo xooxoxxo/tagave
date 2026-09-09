@@ -59,17 +59,17 @@ export function WorkPage() {
   const tabs: TabItem[] = useMemo(
     () => [
       {
-        label: 'Review',
+        label: 'Review matches',
         value: 'review',
         ...(queueCount > 0 && { count: queueCount }),
       },
       {
-        label: 'Identify',
+        label: 'Identify albums',
         value: 'identify',
         ...(needsReviewCount > 0 && { count: needsReviewCount }),
       },
       {
-        label: 'Attention',
+        label: 'Resolve gaps',
         value: 'attention',
         ...(attentionTotal > 0 && { count: attentionTotal }),
       },
@@ -94,8 +94,8 @@ export function WorkPage() {
 
   return (
     <PageShell
-      title="Work"
-      subtitle="Review, identify, and attention tasks"
+      title="Library care"
+      subtitle="Find the right matches. Fill the gaps. Keep your collection in good shape."
       tabs={tabs}
       activeTab={activeTab}
       onTabChange={handleTabChange}

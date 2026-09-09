@@ -62,6 +62,7 @@ export function Tabs({ items, value, onChange }: TabsProps) {
             if (el) tabRefs.current.set(item.value, el);
           }}
           role="tab"
+          tabIndex={item.value === value ? 0 : -1}
           aria-selected={item.value === value}
           aria-controls={`${item.value}-panel`}
           className={[

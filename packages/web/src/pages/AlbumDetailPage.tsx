@@ -271,7 +271,7 @@ export function AlbumDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['albums'] });
     }, delayMs);
 
-  const { data: album, isLoading } = useQuery({
+  const { data: album, isLoading, isError, refetch } = useQuery({
     queryKey: ['album', albumId],
     queryFn: () => api.get<AlbumDetail>(`/libraries/${libraryId}/albums/${albumId}`),
     enabled: !!libraryId && !!albumId,
@@ -357,6 +357,8 @@ export function AlbumDetailPage() {
     onSuccess: () => refresh(),
   });
 
+  if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><button onClick={() => void refetch()}>Try again</button><Link to="/albums">Back to albums</Link></div>;
+
   if (isLoading || !album) return <div className={styles.container}>Loading album...</div>;
 
   const durationDrift = (t: DetailTrack) =>
@@ -386,6 +388,7 @@ export function AlbumDetailPage() {
 
   return (
     <div className={styles.container}>
+      <Link to="/albums" className={styles.backLink}>← All albums</Link>
       <div className={styles.header}>
         <div className={styles.coverBox}>
           {album.coverUrl ? (
@@ -517,6 +520,7 @@ export function AlbumDetailPage() {
               ))}
             </div>
           )}
+          <details className={styles.maintenance}><summary>Manage this album</summary>
           <div className={styles.actions}>
             <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
               {reidentify.isPending ? 'Queued…' : 'Re-identify'}
@@ -563,6 +567,7 @@ export function AlbumDetailPage() {
           )}
           <div className={styles.mbidRow}>
             <input
+              aria-label="Release URL or ID for manual matching"
               className={styles.mbidInput}
               placeholder={pending ? 'A request is queued — cancel it to submit another' : 'Paste a MusicBrainz or Discogs release URL / ID to match manually'}
               value={mbidInput}
@@ -586,6 +591,7 @@ export function AlbumDetailPage() {
             )}
             {matchMbid.isSuccess && !pending && <span className={styles.mbidOk}>Queued</span>}
           </div>
+          </details>
         </div>
       </div>
 
@@ -626,7 +632,7 @@ export function AlbumDetailPage() {
                         </Link>
                       )}
                       {f.action === 'split' && album.mixed && (
-                        <span className={styles.flagHint} title="Split by format sits with the header actions">→ Split by format above</span>
+                        <span className={styles.flagHint} title="Split by format sits with the header actions">→ Manage this album → Split by format</span>
                       )}
                     </span>
                   ))}

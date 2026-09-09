@@ -51,8 +51,8 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .statValue {
@@ -73,17 +73,17 @@
 }
 
 .stat-info {
-  border-left: 4px solid var(--info);
+  border-color: var(--border);
 }
 
 .stat-success {
-  border-left: 4px solid var(--success);
+  border-color: var(--border);
 }
 
 .stat-warning {
-  border-left: 4px solid var(--warning);
+  border-color: var(--border);
 }
 
 .stat-danger {
-  border-left: 4px solid var(--error);
+  border-color: var(--border);
 }

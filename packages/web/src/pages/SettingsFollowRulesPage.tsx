@@ -84,7 +84,7 @@ function SettingsFollowRulesContentInner() {
   return (
     <div className={styles.content}>
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Follow Rules</h2>
+        <h2 className={styles.sectionTitle}>Follow rules</h2>
 
         <p className={styles.pageHint}>
           Default inclusion: primary type Album; optional EP and Single. Default exclusion: Compilation, Live, Remix, DJ-mix, Mixtape/Street, Demo, Soundtrack. Auto-follow when artist has ≥ albums in library. These apply to new follows, refresh, and auto-follow; per-artist overrides available on artist page.

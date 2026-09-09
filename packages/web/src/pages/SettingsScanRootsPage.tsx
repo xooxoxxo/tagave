@@ -157,13 +157,13 @@ function SettingsScanRootsContentInner() {
 
   return (
     <div className={styles.content}>
-        <h2 className={styles.sectionTitle}>Scan Roots</h2>
+        <h2 className={styles.sectionTitle}>Music folders</h2>
         <p className={styles.subtitle}>Manage the folders Liner indexes for music files</p>
 
         {/* Add form */}
       {!showAddForm ? (
         <button className={styles.addButton} onClick={() => setShowAddForm(true)}>
-          + Add Scan Root
+          + Add music folder
         </button>
       ) : (
         <form onSubmit={handleAddRoot} className={styles.form}>
@@ -252,7 +252,7 @@ function SettingsScanRootsContentInner() {
         <div className={styles.loading}>Loading scan roots...</div>
       ) : scanRoots.length === 0 ? (
         <div className={styles.emptyState}>
-          <p>No scan roots configured yet. Add one to start indexing your library.</p>
+          <p>No music folders yet. Add a folder to start building your library.</p>
         </div>
       ) : (
         <div className={styles.rootsList}>

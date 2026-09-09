@@ -474,3 +474,5 @@
 }
 .requestAlbum:hover { text-decoration: underline; }
 .requestMeta { flex: 1; color: var(--text-secondary); }
+
+@media (max-width: 700px) { .headerStrip { grid-template-columns: minmax(0, 1fr); } .headerTitle { flex-wrap: wrap; gap: 1rem; } }

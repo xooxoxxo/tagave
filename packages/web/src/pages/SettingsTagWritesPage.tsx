@@ -111,7 +111,7 @@ function SettingsTagWritesContentInner() {
   return (
     <div className={styles.content}>
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Tag writes</h2>
+        <h2 className={styles.sectionTitle}>Tag preferences</h2>
         <p className={styles.pageHint}>
           Liner never writes to your files unless this switch is on <em>and</em> the file sits under a scan root marked
           writable. Writes happen only through tag plans: preview the diff, apply, and revert from the album History tab

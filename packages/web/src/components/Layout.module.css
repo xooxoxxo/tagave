@@ -1,152 +1,38 @@
-.container {
-  display: flex;
-  width: 100%;
-  height: 100vh;
-  overflow: hidden;
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-}
-
-.nav {
-  width: 240px;
-  background-color: var(--bg-nav);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  padding: 1.5rem 1rem;
-  overflow-y: auto;
-}
-
-.navBrand {
-  display: flex;
-  align-items: center;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid var(--border);
-}
-
-.brand {
-  font-size: 1.5rem;
-  font-weight: 700;
-  text-decoration: none;
-  color: var(--text-primary);
-  letter-spacing: -0.02em;
-  transition: opacity 150ms ease-out;
-}
-
-.brand:hover {
-  opacity: 0.8;
-}
-
-.navLinks {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.navLink {
-  padding: 0.75rem 1rem;
-  text-decoration: none;
-  color: var(--text-secondary);
-  border-radius: 6px;
-  transition: all 150ms ease-out;
-  font-size: 0.95rem;
-}
-
-.navLink:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.navLinkActive {
-  composes: navLink;
-  background-color: var(--bg-active);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.navUser {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border);
-  margin-top: auto;
-}
-
-.userEmail {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.logoutBtn {
-  padding: 0.5rem 0.75rem;
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  text-decoration: none;
-  font-size: 0.85rem;
-  transition: all 150ms ease-out;
-  text-align: center;
-  cursor: pointer;
-}
-
-.logoutBtn:hover {
-  background-color: var(--bg-hover);
-}
-
-.main {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-}
-
-.searchButton {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0 var(--space-md);
-  padding: 0.3rem 0.7rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: var(--font-size-sm);
-}
-
-.kbd {
-  font-family: inherit;
-  font-size: var(--font-size-xs);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 0 0.3rem;
-  background: var(--bg-secondary);
-}
-
-
-.contentWrapper {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.footer {
-  padding: 1rem;
-  border-top: 1px solid var(--border);
-  background-color: var(--bg-secondary);
-  text-align: center;
-  font-size: var(--font-size-xs);
-  flex-shrink: 0;
-}
-
-.footerText {
-  color: var(--text-tertiary);
-  line-height: 1.5;
+.container { display: flex; width: 100%; height: 100dvh; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); }
+.nav { width: 224px; flex: 0 0 224px; display: flex; flex-direction: column; gap: 1.75rem; padding: 2.25rem 1.25rem 1.25rem; background: var(--bg-nav); overflow-y: auto; }
+.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; font-size: 1.9rem; font-weight: 650; letter-spacing: -.05em; color: var(--text-primary); padding-inline: .5rem; }
+.brandMark { color: var(--accent); font-size: 2.5rem; line-height: 1; }
+.brandCaption { width: 100%; font-size: .72rem; font-weight: 400; letter-spacing: .01em; color: var(--text-secondary); }
+.searchButton { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .65rem; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); font-size: .75rem; font-weight: 400; text-align: left; }
+.searchButton:hover { background: var(--bg-hover); }
+.searchButton kbd { font: inherit; white-space: nowrap; opacity: .75; }
+.navLinks { display: flex; flex-direction: column; gap: .2rem; }
+.groupLabel { margin: 1.25rem .75rem .5rem; font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--text-tertiary); }
+.groupLabel:first-child { margin-top: 0; }
+.navLink { padding: .7rem .85rem; color: var(--text-secondary); border-radius: var(--radius-md); font-size: .875rem; }
+.navLink:hover { background: var(--bg-hover); color: var(--text-primary); }
+.navLinkActive { composes: navLink; background: #dce8dc; color: #254e41; font-weight: 600; }
+.navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--border); font-size: .75rem; color: var(--text-secondary); }
+.userEmail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logoutBtn { background: none; color: var(--text-secondary); padding: .5rem 0; font-size: .75rem; font-weight: 500; }
+.logoutBtn:hover { background: none; color: var(--accent); }
+.main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
+.page { min-height: calc(100% - 80px); }
+.page > div { width: 100%; }
+.page:has([data-virtual-page]) { height: calc(100% - 1px); }
+.footer { max-width: var(--content-max); margin: 0 auto; padding: 1.5rem var(--page-pad); font-size: .65rem; line-height: 1.6; color: var(--text-tertiary); }
+.skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem; background: white; transform: translateY(-200%); }
+.skipLink:focus { transform: none; }
+@media (max-width: 900px) {
+  .container { flex-direction: column; }
+  .nav { flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
+  .brand { font-size: 1.5rem; padding: 0; }
+  .brandMark { font-size: 1.8rem; }
+  .brandCaption, .groupLabel { display: none; }
+  .navLinks { grid-column: 1 / -1; flex-direction: row; overflow-x: auto; gap: .25rem; }
+  .navLink { white-space: nowrap; padding: .5rem .7rem; font-size: .8rem; }
+  .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
+  .userEmail { display: none; }
+  .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
+  .main { min-height: 0; }
 }

@@ -2,9 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
-  padding: var(--space-lg);
-  overflow-y: auto;
-  height: 100%;
+  padding: var(--page-pad);
+  min-height: 100%;
 }
 
 /* ---- header ---- */
@@ -25,7 +24,7 @@
   height: 220px;
   object-fit: cover;
   border-radius: var(--radius-lg);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 24px rgba(35, 54, 40, 0.12);
 }
 
 .coverPlaceholder {
@@ -612,3 +611,17 @@ td.num {
 .attribution a:hover {
   text-decoration: underline;
 }
+
+.container { max-width: var(--content-max); margin: 0 auto; gap: 2rem; }
+.header { gap: clamp(1.5rem, 4vw, 4rem); }
+.coverBox { width: clamp(200px, 24vw, 300px); }
+.cover, .coverPlaceholder { width: 100%; height: auto; aspect-ratio: 1; border-radius: 6px; }
+.title { font-size: clamp(2rem, 3.5vw, 3.5rem); font-weight: 550; letter-spacing: -.045em; }
+.headInfo { gap: .85rem; }
+.maintenance { margin-top: .5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+.maintenance summary { cursor: pointer; color: var(--accent); font-size: .875rem; font-weight: 600; }
+.maintenance[open] summary { margin-bottom: 1rem; }
+.maintenance .mbidRow { margin-top: 1rem; }
+@media (max-width: 640px) { .header { flex-direction: column; } .coverBox { width: min(65vw, 280px); } .headInfo { width: 100%; } .mbidRow { flex-wrap: wrap; } }
+
+.backLink { font-size: .85rem; align-self: flex-start; }

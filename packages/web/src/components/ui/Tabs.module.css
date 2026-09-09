@@ -27,6 +27,7 @@
 }
 
 .tab:hover {
+  background: transparent;
   color: var(--text-primary);
 }
 

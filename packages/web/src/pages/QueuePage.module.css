@@ -232,3 +232,5 @@
 .candLink:hover {
   text-decoration: underline;
 }
+
+@media (max-width: 900px) { .panes { grid-template-columns: minmax(0, 1fr); } .header { flex-wrap: wrap; } .keysHint { margin-left: 0; } }

@@ -32,12 +32,12 @@ export function PageShell({
       </header>
 
       {tabs && tabs.length > 0 && (
-        <div style={{ paddingLeft: 'var(--page-pad)', paddingRight: 'var(--page-pad)' }}>
+        <div className={styles.tabs}>
           <Tabs items={tabs} value={activeTab} onChange={onTabChange} />
         </div>
       )}
 
-      <div className={styles.content}>{children}</div>
+      <div className={styles.content} id={tabs?.length ? `${activeTab}-panel` : undefined} role={tabs?.length ? "tabpanel" : undefined}>{children}</div>
     </div>
   );
 }
