@@ -25,7 +25,9 @@ Take a verified dump of the database using custom `pg_dump` format, checked with
 docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
 ```
 
-Dumps land in `/cache/backups/tagave-<timestamp>.pgdump` inside the app container. Use `--out DIR` or set `LINER_BACKUP_DIR` to change the location.
+Dumps land in `/cache/backups/liner-<timestamp>.pgdump` inside the app container.
+The `liner-` prefix is the old project name and is still what the code writes;
+it is a filename, not a display string, so it has deliberately not been renamed. Use `--out DIR` or set `LINER_BACKUP_DIR` to change the location.
 
 Copy dumps off the host. The cache volume is not a backup location:
 
@@ -36,7 +38,7 @@ docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
 Restore into an empty database:
 
 ```sh
-pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/tagave-<timestamp>.pgdump
+pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
 ```
 
 Run `backup` before every upgrade, and put it on a nightly timer once you rely on the catalog.

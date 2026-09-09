@@ -28,21 +28,22 @@ When you need to rotate the secret (for example, after a compromise), you must r
    openssl rand -hex 32
    ```
 
-2. Set both the old and new secrets in your environment:
+2. Run the reseal command, passing both secrets inline:
    ```sh
-   export LINER_OLD_APP_SECRET=<old_secret>
-   export APP_SECRET=<new_secret>
-   ```
-
-3. Run the reseal command:
-   ```sh
+   LINER_OLD_APP_SECRET=<old_secret> APP_SECRET=<new_secret> \
    node packages/doctor/dist/cli.js reseal
    ```
 
    Or in Docker:
    ```sh
-   docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js reseal
+   docker compose -f docker-compose.prod.yml exec \
+     -e LINER_OLD_APP_SECRET=<old_secret> -e APP_SECRET=<new_secret> \
+     app node packages/doctor/dist/cli.js reseal
    ```
+
+   Pass them inline rather than exporting them. An exported secret stays in the
+   environment of every later command in that shell, and most shells record the
+   line in history.
 
 4. Update `.env` to remove `LINER_OLD_APP_SECRET` and keep only the new `APP_SECRET`.
 
