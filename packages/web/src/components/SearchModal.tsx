@@ -26,6 +26,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
   const [debounced, setDebounced] = useState('');
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
       ...data.albums.map<Row>((a) => ({
         type: 'album', id: a.id,
         primary: a.title,
-        secondary: `${a.artist ?? 'Unknown'}${a.year ? ` · ${a.year}` : ''} · ${a.trackCount} tracks`,
+        secondary: `${a.artist ?? 'Unknown'}${a.year ? ` · ${a.year}` : ''} · ${a.trackCount} ${a.trackCount === 1 ? 'track' : 'tracks'}`,
       })),
       ...data.artists.map<Row>((a) => ({
         type: 'artist', id: a.id,
@@ -66,6 +67,15 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
   }, [data, q, debounced]);
 
   useEffect(() => setSelected(0), [rows.length, debounced]);
+
+  // Scroll selected row into view
+  useEffect(() => {
+    if (!resultsRef.current || rows.length === 0) return;
+    const selectedElement = resultsRef.current.querySelector(
+      `#search-result-${selected}`
+    ) as HTMLElement | null;
+    selectedElement?.scrollIntoView({ block: 'nearest' });
+  }, [selected, rows.length]);
 
   const open = (row: Row) => {
     onClose();
@@ -106,52 +116,64 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
     ].filter((s) => s.rows.length > 0);
   }, [rows]);
 
+  const shouldShowResults = q.trim().length >= 2 && (rows.length > 0 || !isFetching);
+  const hasSearched = q === debounced && q.trim().length >= 2;
+
   return (
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Search your library" onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
-        <button className={styles.closeButton} onClick={onClose} aria-label="Close search">Close <span aria-hidden="true">×</span></button>
-        <input
-          ref={inputRef}
-          aria-label="Search albums, artists, and tracks"
-          role="combobox"
-          aria-expanded={rows.length > 0}
-          aria-controls="search-results"
-          aria-autocomplete="list"
-          aria-activedescendant={rows[selected] ? `search-result-${selected}` : undefined}
-          className={styles.input}
-          placeholder="Search albums, artists, tracks..."
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        {isFetching && <p className={styles.empty} role="status">Searching…</p>}
-        {isError && <p className={styles.empty} role="alert">Search is unavailable. <button onClick={() => void refetch()}>Retry</button></p>}
-        <div className={styles.results} id="search-results" role="listbox" aria-label="Search results">
-          {sections.map((s) => (
-            <div key={s.label}>
-              <div className={styles.sectionLabel}>{s.label}</div>
-              {s.rows.map(({ row, index }) => (
-                <div
-                  key={index}
-                  id={`search-result-${index}`}
-                  role="option"
-                  aria-selected={index === selected}
-                  className={index === selected ? styles.rowSelected : styles.row}
-                  onMouseEnter={() => setSelected(index)}
-                  onClick={() => open(row)}
-                >
-                  <span className={styles.primary}>{row.primary}</span>
-                  <span className={styles.secondary}>{row.secondary}</span>
-                </div>
-              ))}
-            </div>
-          ))}
-          {!isFetching && !isError && q === debounced && debounced.trim().length >= 2 && rows.length === 0 && (
-            <div className={styles.empty}>No results for "{debounced}"</div>
-          )}
-          {debounced.trim().length < 2 && (
-            <div className={styles.empty}>Type at least 2 characters…</div>
-          )}
+        <div className={styles.inputContainer}>
+          <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            ref={inputRef}
+            aria-label="Search albums, artists, and tracks"
+            role="combobox"
+            aria-expanded={rows.length > 0}
+            aria-controls="search-results"
+            aria-autocomplete="list"
+            aria-activedescendant={rows[selected] ? `search-result-${selected}` : undefined}
+            className={styles.input}
+            placeholder="Search albums, artists, tracks…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+          />
+          <div className={styles.escHint}>esc</div>
+          {isFetching && <div className={styles.loadingBar} role="status" aria-label="Searching" />}
         </div>
+        {isError && (
+          <div className={styles.error} role="alert">
+            Search is unavailable. <button onClick={() => void refetch()}>Retry</button>
+          </div>
+        )}
+        {shouldShowResults && (
+          <div className={styles.results} id="search-results" role="listbox" aria-label="Search results" ref={resultsRef}>
+            {sections.map((s) => (
+              <div key={s.label}>
+                <div className={styles.sectionLabel}>{s.label}</div>
+                {s.rows.map(({ row, index }) => (
+                  <div
+                    key={index}
+                    id={`search-result-${index}`}
+                    role="option"
+                    aria-selected={index === selected}
+                    className={index === selected ? styles.rowSelected : styles.row}
+                    onMouseEnter={() => setSelected(index)}
+                    onClick={() => open(row)}
+                  >
+                    <span className={styles.primary}>{row.primary}</span>
+                    <span className={styles.secondary}>{row.secondary}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {hasSearched && rows.length === 0 && !isFetching && (
+              <div className={styles.noResults}>No results for "{debounced}"</div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
