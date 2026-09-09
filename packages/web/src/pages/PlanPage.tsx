@@ -6,9 +6,9 @@ import { Input, Select } from '../components/ui/FormControl';
  * per-field diff. Actions for the current state sit in the header. Nothing
  * is written until Apply.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
 import { PageShell, Button, Badge, statusTone, Banner, StatCard, Card } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
@@ -20,6 +20,7 @@ import {
   usePreviewTagPlan,
   useResumeTagPlan,
   useRevertTagPlan,
+  useDeleteTagPlan,
   useTagPlan,
   useTagPlanItems,
   useTagPlanSummary,
@@ -31,6 +32,8 @@ const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
 /** How long the page keeps polling after an action while it waits for the worker to flip the status. */
 const AWAIT_MS = 120_000;
+/** How long to wait for a draft preview job to report progress before showing timeout state. */
+const PREVIEW_TIMEOUT_MS = 30_000;
 
 type ItemStatus = NonNullable<TagPlanItem['status']>;
 const ITEM_TONE: Record<ItemStatus, 'neutral' | 'info' | 'success' | 'danger' | 'warning'> = {
@@ -74,6 +77,7 @@ const FIELD_LABELS: Record<string, string> = {
 export function PlanPage() {
   const { planId } = useParams({ strict: false }) as { planId: string };
   const { libraryId } = useCurrentLibrary();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [field, setField] = useState('');
@@ -81,11 +85,16 @@ export function PlanPage() {
   const [offset, setOffset] = useState(0);
   const [pathFilter, setPathFilter] = useState('');
   const [previewRequested, setPreviewRequested] = useState(false);
+  const [previewTimedOut, setPreviewTimedOut] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [allOpen, setAllOpen] = useState(false);
   // Status at the moment an action was sent; the page polls until it changes
   // (the worker flips it a few seconds after the 202), or gives up after AWAIT_MS.
   const [awaiting, setAwaiting] = useState<string | null>(null);
+  // For delete confirmation: two-step inline (first click shows "Really delete?")
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Track whether we've fired auto-preview for this mount to prevent re-firing
+  const previewAutoFiredRef = useRef(false);
 
   const planQ = useTagPlan(libraryId, planId, { refetchInterval: 0 });
   const status = planQ.data?.status;
@@ -115,6 +124,7 @@ export function PlanPage() {
   const resumeM = useResumeTagPlan(libraryId, planId);
   const cancelM = useCancelTagPlan(libraryId, planId);
   const revertM = useRevertTagPlan(libraryId, planId);
+  const deleteM = useDeleteTagPlan(libraryId, planId);
 
   const previewed = !!p && p.status !== 'draft';
   const summary = useTagPlanSummary(libraryId, planId, { enabled: previewed, refetchInterval: polling ? 4000 : false });
@@ -128,13 +138,46 @@ export function PlanPage() {
   });
 
   // A freshly created plan (or one reverted to draft) previews itself once.
+  // Use progress.total to detect if a job is already running rather than just status.
   useEffect(() => {
-    if (!previewRequested && p?.status === 'draft' && !previewM.isPending) {
-      setPreviewRequested(true);
-      previewM.mutateAsync().catch((e: Error) => setError(e.message));
+    if (p?.status === 'draft') {
+      const previewJobRunning = (p.progress?.total ?? 0) > 0;
+
+      // Once per plan, not once per mount. A ref is created fresh on every
+      // mount, so navigating away and back re-fired the preview; three visits
+      // to one plan queued three jobs against the same files. Key the guard to
+      // the plan id in session storage so a remount, a back button or a second
+      // tab all count as the same request. The server refuses duplicates too;
+      // this just stops us asking.
+      const guardKey = `tagave:previewed:${planId}`;
+      const alreadyAsked = (() => {
+        try { return sessionStorage.getItem(guardKey) === '1'; } catch { return previewAutoFiredRef.current; }
+      })();
+
+      if (!previewJobRunning && !alreadyAsked && !previewAutoFiredRef.current && !previewM.isPending) {
+        previewAutoFiredRef.current = true;
+        try { sessionStorage.setItem(guardKey, '1'); } catch { /* private mode: the ref still guards this mount */ }
+        setPreviewRequested(true);
+        previewM.mutateAsync().catch((e: Error) => setError(e.message));
+      }
+    } else {
+      // Plan left draft state; clear the guard so a later revert to draft
+      // auto-previews once again.
+      previewAutoFiredRef.current = false;
+      try { sessionStorage.removeItem(`tagave:previewed:${planId}`); } catch { /* nothing to clear */ }
+      setPreviewRequested(false);
+      setPreviewTimedOut(false);
     }
-    if (previewRequested && p && p.status !== 'draft') setPreviewRequested(false);
-  }, [previewRequested, p, previewM]);
+  }, [p?.status, p?.progress?.total, previewM, planId]);
+
+  // Timeout for draft previews: after PREVIEW_TIMEOUT_MS with no progress, show timeout state
+  useEffect(() => {
+    if (previewRequested && p?.status === 'draft') {
+      const t = setTimeout(() => setPreviewTimedOut(true), PREVIEW_TIMEOUT_MS);
+      return () => clearTimeout(t);
+    }
+    setPreviewTimedOut(false);
+  }, [previewRequested, p?.status]);
 
   const stats = p?.stats;
   const progress = p?.progress;
@@ -213,10 +256,10 @@ export function PlanPage() {
         </span>
       }
       actions={
-        <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
           {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
-            <Button variant="secondary" loading={previewM.isPending} onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
-              {previewRequested || previewM.isPending ? 'Previewing…' : previewed ? 'Re-run preview' : 'Run preview'}
+            <Button variant="secondary" loading={previewM.isPending} onClick={run(previewM)} disabled={previewM.isPending || (previewRequested && !previewTimedOut)}>
+              {previewM.isPending ? 'Previewing…' : previewRequested && !previewTimedOut ? 'Previewing…' : previewTimedOut ? 'Preview timed out' : previewed ? 'Re-run preview' : 'Run preview'}
             </Button>
           )}
           {p.status === 'previewed' && (
@@ -241,6 +284,39 @@ export function PlanPage() {
               {revertM.isPending || awaiting !== null ? 'Starting…' : 'Revert'}
             </Button>
           )}
+          {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
+            <Button
+              variant="danger"
+              loading={deleteM.isPending}
+              onClick={async () => {
+                if (!confirmDelete) {
+                  setConfirmDelete(true);
+                  return;
+                }
+                setError(null);
+                try {
+                  await deleteM.mutateAsync();
+                  await navigate({ to: '/plans' });
+                } catch (e) {
+                  setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+                  setConfirmDelete(false);
+                }
+              }}
+              disabled={deleteM.isPending}
+            >
+              {deleteM.isPending ? 'Deleting…' : confirmDelete ? 'Really delete?' : 'Delete'}
+            </Button>
+          )}
+          {confirmDelete && (
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmDelete(false)}
+              disabled={deleteM.isPending}
+              size="sm"
+            >
+              Cancel
+            </Button>
+          )}
         </div>
       }
     >
@@ -258,9 +334,23 @@ export function PlanPage() {
         {error && <Banner tone="danger">{error}</Banner>}
 
         {!previewed && (
-          <Banner tone="info">
-            <strong>{previewRequested || previewM.isPending ? 'Computing the preview…' : 'No preview yet.'}</strong>{' '}
-            Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.
+          <Banner tone={previewTimedOut ? 'warning' : 'info'}>
+            {previewTimedOut ? (
+              <>
+                <strong>Preview did not report back within {PREVIEW_TIMEOUT_MS / 1000} seconds.</strong>{' '}
+                It may still be computing on the file worker. Check the Jobs page to see if it's running there, or click "Preview timed out" to try again.
+              </>
+            ) : previewRequested || previewM.isPending ? (
+              <>
+                <strong>Computing the preview…</strong>{' '}
+                Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.
+              </>
+            ) : (
+              <>
+                <strong>No preview yet.</strong>{' '}
+                Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.
+              </>
+            )}
           </Banner>
         )}
 

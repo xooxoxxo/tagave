@@ -455,9 +455,38 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(400, 'Bad Request', `Cannot preview plan in status '${plan.status}'`);
       }
 
-      // Enqueue the tags.preview job with singletonKey
+      // Enqueue the tags.preview job with singletonKey.
+      //
+      // The guard below is the one that matters. The plan page auto-previews a
+      // draft when it mounts, so every visit to a plan whose preview has not
+      // finished used to queue another job: one production plan collected three
+      // in a day, all against the same files. singletonKey alone does not stop
+      // this, because a queue policy only constrains jobs in one state, so a
+      // fresh send lands behind an active one rather than being dropped.
+      //
+      // Ask the queue directly instead. If a preview for this plan is already
+      // waiting or running, return that job and say so, so a client that asks
+      // twice is harmless.
       const boss = await getBoss();
       const singletonKey = `tag_plan:${planId}`;
+
+      const existing = (await db.execute(sql`
+        select id::text as id, state from pgboss.job
+         where name = 'tags.preview'
+           and data->>'planId' = ${planId}
+           and state in ('created', 'active', 'retry')
+         order by created_on desc limit 1`)) as unknown as Array<{ id: string; state: string }>;
+
+      if (existing[0]) {
+        reply.status(202).send({
+          jobId: existing[0].id,
+          singletonKey,
+          alreadyRunning: true,
+          message: `Preview already ${existing[0].state === 'active' ? 'running' : 'queued'} for this plan`,
+        });
+        return;
+      }
+
       const jobId = await boss.send('tags.preview', { planId }, {
         singletonKey,
       });
@@ -465,6 +494,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       reply.status(202).send({
         jobId,
         singletonKey,
+        alreadyRunning: false,
         message: 'Preview job enqueued',
       });
     }
@@ -782,6 +812,57 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         singletonKey: `tags.revert:${planId}`,
         message: 'Revert job enqueued',
       });
+    }
+  );
+
+  /**
+   * DELETE /api/v1/libraries/:libraryId/tag-plans/:planId
+   * Delete a tag plan and its items
+   * Refuses with 409 if the plan is currently applying
+   */
+  fastify.delete<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      // Refuse to delete a plan that is currently applying
+      if (plan.status === 'applying') {
+        throw new ApiError(409, 'Conflict', 'Cannot delete a plan while it is currently applying');
+      }
+
+      // Delete the plan and its items (items cascade due to foreign key)
+      await db.delete(tagPlans).where(eq(tagPlans.id, planId));
+
+      reply.status(204).send();
     }
   );
 }

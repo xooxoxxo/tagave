@@ -213,6 +213,21 @@ export function useRevertTagPlan(libraryId: string | undefined, planId: string |
 }
 
 /**
+ * Delete a tag plan (DELETE /libraries/:libraryId/tag-plans/:planId)
+ */
+export function useDeleteTagPlan(libraryId: string | undefined, planId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api.delete(`/libraries/${libraryId}/tag-plans/${planId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+    },
+  });
+}
+
+/**
  * Check if tag writes are enabled (GET /libraries/:libraryId/settings)
  */
 export function useLibrarySettings(libraryId: string | undefined) {

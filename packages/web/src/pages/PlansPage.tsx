@@ -9,7 +9,7 @@ import { api } from '../services/api';
 import type { TagPlan } from '@liner/shared';
 import { PageShell, Button, Badge, statusTone, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
-import { useTagPlans } from '../hooks/usePlanWizard';
+import { useTagPlans, useDeleteTagPlan } from '../hooks/usePlanWizard';
 import { PlanWizard } from '../components/PlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlansPage.module.css';
@@ -19,6 +19,7 @@ export function PlansPage() {
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done'>('all');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset });
   const navigate = useNavigate();
   const { album: albumParam } = useSearch({ strict: false }) as { album?: string };
@@ -94,6 +95,96 @@ export function PlansPage() {
     },
   ];
 
+  // Render a single plan row with delete button
+  const PlanRow = ({ plan }: { plan: TagPlan }) => {
+    const deleteM = useDeleteTagPlan(libraryId, plan.id);
+    const isConfirming = confirmDeleteId === plan.id;
+
+    const handleDelete = async () => {
+      if (!isConfirming) {
+        setConfirmDeleteId(plan.id);
+        return;
+      }
+      try {
+        await deleteM.mutateAsync();
+        setConfirmDeleteId(null);
+      } catch (e) {
+        console.error('Delete failed:', e);
+        setConfirmDeleteId(null);
+      }
+    };
+
+    const canDelete = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(plan.status);
+
+    const cells = (
+      <>
+        <Td>{plan.name || 'Untitled plan'}</Td>
+        <Td className={styles.cellScope}>{scopeLabel(plan)}</Td>
+        <Td>
+          <Badge tone={statusTone(plan.status)}>
+            {plan.status.replaceAll('_', ' ')}
+          </Badge>
+        </Td>
+        <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+          {plan.stats?.filesTouched ?? '—'}
+        </Td>
+        <Td className={styles.cellDate}>
+          <span title={formatDateTime(plan.createdAt || '')}>
+            {formatRelativeTime(plan.createdAt || '')}
+          </span>
+        </Td>
+        <Td className={styles.cellDate}>
+          {plan.appliedAt ? (
+            <span title={formatDateTime(plan.appliedAt || '')}>
+              {formatRelativeTime(plan.appliedAt || '')}
+            </span>
+          ) : (
+            '—'
+          )}
+        </Td>
+        {canDelete && (
+          <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end', alignItems: 'center' }}>
+              {/* Quiet until it is armed. A destructive action on every row
+                  should not outweigh "Create plan", which is the thing the
+                  page is actually for; it turns red only once it means it. */}
+              <Button
+                variant={isConfirming ? 'danger' : 'ghost'}
+                size="sm"
+                loading={deleteM.isPending}
+                onClick={handleDelete}
+                disabled={deleteM.isPending}
+                title={isConfirming ? 'Click again to delete permanently' : 'Delete this plan'}
+              >
+                {deleteM.isPending ? 'Deleting…' : isConfirming ? 'Really?' : 'Delete'}
+              </Button>
+              {isConfirming && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirmDeleteId(null)}
+                  disabled={deleteM.isPending}
+                >
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </Td>
+        )}
+      </>
+    );
+
+    return isConfirming ? (
+      <TableRow key={plan.id}>
+        {cells}
+      </TableRow>
+    ) : (
+      <TableRow key={plan.id} to={`/plans/${plan.id}`}>
+        {cells}
+      </TableRow>
+    );
+  };
+
   return (
     <PageShell
       title="Tag changes"
@@ -135,39 +226,13 @@ export function PlansPage() {
                 <Th style={{ textAlign: 'right' }}>Files</Th>
                 <Th style={{ textAlign: 'right' }}>Created</Th>
                 <Th style={{ textAlign: 'right' }}>Applied</Th>
+                <Th style={{ textAlign: 'right', width: 'auto' }} />
               </tr>
             </thead>
             <tbody>
               {filteredPlans.map((plan) => {
                 if (!plan) return null;
-                return (
-                  <TableRow key={plan.id} to={`/plans/${plan.id}`}>
-                    <Td>{plan.name || 'Untitled plan'}</Td>
-                    <Td className={styles.cellScope}>{scopeLabel(plan)}</Td>
-                    <Td>
-                      <Badge tone={statusTone(plan.status)}>
-                        {plan.status.replaceAll('_', ' ')}
-                      </Badge>
-                    </Td>
-                    <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                      {plan.stats?.filesTouched ?? '—'}
-                    </Td>
-                    <Td className={styles.cellDate}>
-                      <span title={formatDateTime(plan.createdAt || '')}>
-                        {formatRelativeTime(plan.createdAt || '')}
-                      </span>
-                    </Td>
-                    <Td className={styles.cellDate}>
-                      {plan.appliedAt ? (
-                        <span title={formatDateTime(plan.appliedAt || '')}>
-                          {formatRelativeTime(plan.appliedAt || '')}
-                        </span>
-                      ) : (
-                        '—'
-                      )}
-                    </Td>
-                  </TableRow>
-                );
+                return <PlanRow key={plan.id} plan={plan} />;
               })}
             </tbody>
           </Table>
