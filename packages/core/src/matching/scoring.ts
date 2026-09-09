@@ -28,86 +28,15 @@ import {
  */
 export const MAX_ALIGN_TRACKS = 500;
 
-/** A local track nothing could be paired with. */
-function unaligned(track: LocalTrack): TrackAlignment {
-  return {
-    localIndex: track.index,
-    canonicalIndex: null,
-    distance: 1,
-    title: { local: track.title },
-    duration: { local: track.duration },
-  };
-}
-
 /**
  * Align local tracks to canonical tracks using the Hungarian algorithm.
  * Cost is 0.6*titleDistance + 0.4*lengthDistance with grace (10s) and hard cap (30s).
  *
- * When the local cluster knows its disc numbers and the candidate says which
- * medium each track sits on, the alignment runs per medium (disc N against
- * medium N) instead of over one flat list: a two-CD folder pair must not
- * silently align its disc-2 tracks against a one-CD release's tracklist
- * (XO-379, the "Liebe ist für alle da" CD1/CD2 mismatch). Local tracks whose
- * disc has no matching medium — and canonical tracks on a medium no local
- * disc covers — stay unaligned, so they land in unmatchedTracks/missingTracks.
- * With no disc information on the local side the flat alignment is used
- * unchanged.
- *
  * @param localTracks - tracks from the user's files
  * @param canonicalTracks - tracks from the canonical release
- * @returns Array of alignments, one per local track, in input order
+ * @returns Array of alignments for each local track
  */
 export function alignTracks(
-  localTracks: LocalTrack[],
-  canonicalTracks: CanonicalTrack[]
-): TrackAlignment[] {
-  if (!localTracks.length || !canonicalTracks.length
-    || Math.max(localTracks.length, canonicalTracks.length) > MAX_ALIGN_TRACKS) {
-    return localTracks.map(unaligned);
-  }
-
-  // Unknown discs (or a candidate that never says which medium a track is on,
-  // e.g. a provider shape built before this existed) => the historical
-  // behaviour, byte for byte.
-  const localHasDiscs = localTracks.some((t) => t.disc !== undefined);
-  const canonicalHasMedia = canonicalTracks.some((t) => t.medium !== undefined);
-  if (!localHasDiscs || !canonicalHasMedia) return alignFlat(localTracks, canonicalTracks);
-
-  const byMedium = new Map<number, CanonicalTrack[]>();
-  for (const t of canonicalTracks) {
-    const m = t.medium ?? 1; // a mediumless track on a multi-medium release is disc 1
-    const bucket = byMedium.get(m);
-    if (bucket) bucket.push(t);
-    else byMedium.set(m, [t]);
-  }
-
-  // Local positions per disc; a missing disc number means disc 1 (the
-  // convention local_tracks.disc_no is written with).
-  const byDisc = new Map<number, number[]>();
-  for (let i = 0; i < localTracks.length; i++) {
-    const d = localTracks[i]!.disc ?? 1;
-    const bucket = byDisc.get(d);
-    if (bucket) bucket.push(i);
-    else byDisc.set(d, [i]);
-  }
-
-  const out: TrackAlignment[] = new Array(localTracks.length);
-  for (const [disc, positions] of byDisc) {
-    const group = positions.map((i) => localTracks[i]!);
-    const medium = byMedium.get(disc);
-    const sub = medium && medium.length ? alignFlat(group, medium) : group.map(unaligned);
-    for (let k = 0; k < positions.length; k++) {
-      out[positions[k]!] = sub[k] ?? unaligned(group[k]!);
-    }
-  }
-  return out;
-}
-
-/**
- * Flat Hungarian alignment over two tracklists (one medium, or a whole
- * release when discs are unknown).
- */
-function alignFlat(
   localTracks: LocalTrack[],
   canonicalTracks: CanonicalTrack[]
 ): TrackAlignment[] {
@@ -291,19 +220,6 @@ export function scoreRelease(
   breakdown.tracks = trackCountDist;
   totalScore += trackCountDist * weights.tracks;
   totalWeight += weights.tracks;
-
-  // Disc count vs medium count (XO-379). A two-CD cluster is not the one-CD
-  // release, however well half of it aligns; scaled like the track count and
-  // weighted the same, so a mismatch shows up as a red chip.
-  if (local.discCount !== undefined && candidate.mediumCount !== undefined
-    && local.discCount > 0 && candidate.mediumCount > 0) {
-    const mediumCountDist =
-      Math.abs(local.discCount - candidate.mediumCount) /
-      Math.max(local.discCount, candidate.mediumCount);
-    breakdown.mediums = mediumCountDist;
-    totalScore += mediumCountDist * weights.mediums;
-    totalWeight += weights.mediums;
-  }
 
   // Per-track title distance (average across aligned tracks)
   const alignedTitles = alignments.filter((a) => a.canonicalIndex !== null);

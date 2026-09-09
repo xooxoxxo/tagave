@@ -10,15 +10,7 @@ export interface LocalTrack {
   title: string;
   artist?: string;
   duration: number; // seconds
-  index: number; // 0-based position in the album's flat, disc-then-track ordered list
-  /**
-   * 1-based disc number, when the cluster knows it. Omitted (not 0/null) when
-   * the file carries no disc information — the codebase convention is that an
-   * unknown disc means disc 1, and alignment treats it that way.
-   */
-  disc?: number;
-  /** 1-based track number *within its disc*, when known (local_tracks.track_no). */
-  position?: number;
+  index: number; // 0-based track number
 }
 
 /**
@@ -28,10 +20,8 @@ export interface CanonicalTrack {
   title: string;
   artist?: string;
   duration: number; // seconds
-  index: number; // 0-based position in the release's flat tracklist
+  index: number; // 0-based track number
   recordingId?: string;
-  /** 1-based medium (disc) this track sits on, when the provider says. */
-  medium?: number;
 }
 
 /**
@@ -49,8 +39,6 @@ export interface LocalAlbumView {
   media?: string; // e.g., "CD", "Digital Media"
   embeddedMbId?: string;
   embeddedMbRgId?: string;
-  /** Number of distinct discs in the cluster (local_albums.disc_count). */
-  discCount?: number;
 }
 
 /**
@@ -71,8 +59,6 @@ export interface CanonicalRelease {
   label?: string;
   source: 'musicbrainz' | 'discogs';
   sourceId?: string; // Discogs master ID or release ID
-  /** Number of media (discs) on the release, when known. */
-  mediumCount?: number;
 }
 
 /**
@@ -136,11 +122,7 @@ export const DEFAULT_WEIGHTS = {
   trackArtist: 2.0,
   trackLength: 2.0,
   media: 1.0,
-  // Disc-count mismatch is as load-bearing as track-count mismatch: a
-  // one-CD release is simply not the two-CD edition sitting on disk
-  // (2026-09-09, XO-379). Raised from 1.0 when the component was first
-  // populated — nothing read `mediums` before then.
-  mediums: 2.0,
+  mediums: 1.0,
   year: 1.0,
   mediumIndex: 1.0,
   missingTracks: 0.9,
