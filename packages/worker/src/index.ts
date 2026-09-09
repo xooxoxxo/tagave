@@ -231,6 +231,12 @@ async function main() {
       { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
   }
 
+  if (wants('enrich.sweep')) {
+    // XO-379 pass 2: the MusicBrainz bridge runs at night, hourly 02:00–06:00,
+    // Discogs-only releases first (url-rels, then barcode / catalogue number).
+    // 400 per run ≈ 2,000 releases a night at MB's pace.
+    await boss.schedule('enrich.sweep', '0 2-6 * * *', { limit: 400 }, { singletonKey: 'enrich.sweep' });
+  }
   if (wants('enrich.sweep')) await boss.work<EnrichSweepJobData>('enrich.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await enrichSweepJob(ctx, job.data);
   });

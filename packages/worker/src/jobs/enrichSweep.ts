@@ -7,15 +7,25 @@ import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
 
 export interface EnrichSweepJobData {
-  libraryId: string;
+  /** one library, or every library when absent (the nightly schedule) */
+  libraryId?: string;
   /** cap on releases to enqueue this sweep (default 500) */
   limit?: number;
 }
 
 export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobData): Promise<void> {
+  const libraries = data.libraryId
+    ? [data.libraryId]
+    : ((await ctx.sql`select id from libraries`) as unknown as Array<{ id: string }>).map((r) => r.id);
+  for (const libraryId of libraries) await sweepLibrary(ctx, { ...data, libraryId });
+}
+
+async function sweepLibrary(ctx: WorkerContext, data: EnrichSweepJobData & { libraryId: string }): Promise<void> {
   const limit = data.limit ?? 500;
-  // MB releases missing a Discogs id, or Discogs-only releases missing an
-  // MBID (reverse bridge), oldest attempt first.
+  // Discogs-only releases missing an MBID first (XO-379 pass 2: the reverse
+  // bridge is what unlocks reviews, editions, artist pages and links for a
+  // Discogs-first match), then MB releases missing a Discogs id; oldest
+  // attempt first within each.
   const rows = await ctx.sql`
     select r.id
     from releases r
@@ -24,7 +34,7 @@ export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobDat
         where la.release_id = r.id and la.library_id = ${data.libraryId} and la.state = 'matched')
       and (r.discogs_release_id is null or r.mbid is null)
       and (r.bridge_attempted_at is null or r.bridge_attempted_at < now() - interval '30 days')
-    order by r.bridge_attempted_at nulls first, r.fetched_at
+    order by (r.mbid is null) desc, r.bridge_attempted_at nulls first, r.fetched_at
     limit ${limit}` as unknown as Array<{ id: string }>;
 
   for (const r of rows) {

@@ -80,7 +80,8 @@ async function sweepLibrary(ctx: WorkerContext, libraryId: string, limit: number
       .orderBy(localAlbums.identifyAttempts, localAlbums.createdAt)
       .limit(limit);
     for (const row of pending) {
-      const id = await ctx.boss.send('identify.album', { localAlbumId: row.id }, {
+      // XO-379: the sweep tier asks Discogs first; manual/triage jobs keep MB first
+      const id = await ctx.boss.send('identify.album', { localAlbumId: row.id, discogsFirst: true }, {
         singletonKey: `identify:${row.id}`,
         retryLimit: 3,
         retryDelay: 60,

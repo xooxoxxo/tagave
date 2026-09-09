@@ -27,4 +27,13 @@ describe('alignTracks size guard', () => {
     const out = alignTracks(local(3), canonical(MAX_ALIGN_TRACKS));
     expect(out.filter((a) => a.canonicalIndex !== null)).toHaveLength(3);
   });
+
+  it('judges by title alone when the candidate carries no durations (Discogs)', () => {
+    const noDurations = canonical(6).map((t) => ({ ...t, duration: 0 }));
+    const out = alignTracks(local(6), noDurations);
+    expect(out.every((a) => a.canonicalIndex === a.localIndex && a.distance < 0.01)).toBe(true);
+    // a wrong title still costs, so an unrelated tracklist does not align for free
+    const wrong = noDurations.map((t, i) => ({ ...t, title: `Other ${i}` }));
+    expect(alignTracks(local(6), wrong).every((a) => a.distance > 0.3)).toBe(true);
+  });
 });

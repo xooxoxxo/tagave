@@ -63,6 +63,15 @@ export function alignTracks(
       // Calculate title distance
       const titleDist = stringDistance(localTrack.title, canTrack.title);
 
+      // Unknown canonical duration (most Discogs releases carry none): the
+      // duration says nothing, so the cost is the title alone — a 0 s
+      // "duration" used to hit the hard cap and forbid every assignment,
+      // which is why Discogs matches scored ~10× worse than MusicBrainz ones.
+      if (!canTrack.duration || !localTrack.duration) {
+        row.push(titleDist);
+        continue;
+      }
+
       // Calculate duration distance (normalized to 0-1)
       const durationDiff = Math.abs(localTrack.duration - canTrack.duration);
 

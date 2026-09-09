@@ -14,7 +14,7 @@ import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
 import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import {
-  mbRelease, discogsRelease, discogsMaster, discogsSearch, persistFetched,
+  mbRelease, mbSearch, discogsRelease, discogsMaster, discogsSearch, persistFetched,
 } from './identifyAlbum.js';
 
 export interface EnrichReleaseJobData {
@@ -73,6 +73,42 @@ export function pickCatnoHit(
       const score = fuzzyBridgeScore(mbMeta, hitMeta);
       if (score >= 0.7) return hit;
     }
+  }
+  return undefined;
+}
+
+/**
+ * XO-379 pass 2: the MusicBrainz release for a Discogs release when no url
+ * relation names it — by barcode, then by catalogue number. Exact identifier
+ * lookups, never a fuzzy title search; a hit must agree on track count (when
+ * the search reports one) and on year within one.
+ */
+export async function mbByIdentifiers(
+  ctx: WorkerContext,
+  p: Providers,
+  dg: CanonicalRelease,
+): Promise<{ mbid: string; source: 'barcode' | 'catno' } | undefined> {
+  // search hits carry no tracklist; the media list (when present) still counts tracks
+  const trackCountOf = (r: CanonicalRelease): number =>
+    r.tracks?.length || r.mediaList?.reduce((n, m) => n + (m.trackCount ?? 0), 0) || 0;
+  const wantTracks = trackCountOf(dg);
+  const plausible = (r: CanonicalRelease): boolean => {
+    const tc = trackCountOf(r);
+    if (wantTracks && tc && tc !== wantTracks) return false;
+    if (dg.year && r.year && Math.abs(r.year - dg.year) > 1) return false;
+    return true;
+  };
+  if (dg.barcode) {
+    const hits = (await mbSearch(ctx, p, { albumTitle: '', barcode: dg.barcode })).map((h) => h.release);
+    const hit = pickBarcodeHit(hits.filter(plausible), dg.barcode);
+    if (hit) return { mbid: hit.id, source: 'barcode' };
+  }
+  const catno = dg.catalogNumber ?? dg.labels?.find((l) => l.catalogNumber)?.catalogNumber;
+  if (catno) {
+    const hits = (await mbSearch(ctx, p, { albumTitle: '', catalogNumber: catno })).map((h) => h.release);
+    const meta = { title: dg.title, artists: dg.artists, ...(dg.year !== undefined ? { year: dg.year } : {}) };
+    const hit = pickCatnoHit(hits.filter(plausible), catno, meta);
+    if (hit) return { mbid: hit.id, source: 'catno' };
   }
   return undefined;
 }
@@ -351,15 +387,36 @@ export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJo
       const urlLookup = await cached(ctx.sql, 'musicbrainz', cacheKey('url', discogsUrl), TTLs.mbUrl,
         () => mbCall(ctx, () => p.mb.lookupUrl(discogsUrl, bg)));
 
-      if (urlLookup.releaseMbids.length === 0) {
+      let mbid = urlLookup.releaseMbids[0];
+      let bridgeSource = 'provider_relationship';
+      let bridgeConfidence = 1;
+      if (!mbid) {
+        // XO-379 pass 2: no url relation — ask MB by the identifiers the
+        // Discogs release carries (barcode, then catalogue number).
+        const dg = await discogsRelease(ctx, p, release.discogsReleaseId);
+        const found = await mbByIdentifiers(ctx, p, dg);
+        if (found) {
+          mbid = found.mbid;
+          bridgeSource = found.source;
+          bridgeConfidence = 0.9;
+        }
+      }
+      if (!mbid) {
         // No MB release found; mark attempted and done
         await ctx.db.update(releases).set({ bridgeAttemptedAt: new Date() }).where(eq(releases.id, data.releaseId));
         return;
       }
 
-      // Take the first MBID
-      const mbid = urlLookup.releaseMbids[0]!;
       const mbRel = await mbRelease(ctx, p, mbid);
+      if (bridgeSource !== 'provider_relationship') {
+        // an identifier hit must still be the same edition: same track count
+        const dgTracks = (await discogsRelease(ctx, p, release.discogsReleaseId)).tracks?.length ?? 0;
+        if (dgTracks && (mbRel.tracks?.length ?? 0) !== dgTracks) {
+          ctx.logger.info({ releaseId: data.releaseId, mbid, bridgeSource, dgTracks, mbTracks: mbRel.tracks?.length }, 'enrich: identifier hit rejected, track count differs');
+          await ctx.db.update(releases).set({ bridgeAttemptedAt: new Date() }).where(eq(releases.id, data.releaseId));
+          return;
+        }
+      }
 
       // Persist the MB release + relink
       const newIds = await persistFetched(ctx, mbRel);
@@ -434,13 +491,14 @@ export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJo
         ...(dgRel.genres ? { genres: dgRel.genres } : {}),
         ...(dgRel.styles ? { styles: dgRel.styles } : {}),
         ...(primary ? { primaryImage: primary } : {}),
-        confidence: 1,
-        source: 'provider_relationship',
+        confidence: bridgeConfidence,
+        source: bridgeSource,
       });
 
       ctx.logger.info({
         releaseId: data.releaseId,
         mbid,
+        bridgeSource,
         newReleaseId: newIds.releaseId,
       }, 'enrich: discogs-only → mb reverse bridge');
 

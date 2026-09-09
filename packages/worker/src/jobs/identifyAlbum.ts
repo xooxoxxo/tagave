@@ -25,6 +25,8 @@ export interface IdentifyAlbumJobData {
   /** IDN-6 manual entry: Discogs release or master (master → its main
    * release), same semantics as pinnedMbid */
   pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
+  /** XO-379 sweep tier: ask Discogs first, MusicBrainz only when Discogs found nothing acceptable */
+  discogsFirst?: boolean;
   /** IDN-5: release MBIDs the AcoustID lookup ranked for this album; fetched
    * and scored beside the search candidates, never trusted blindly */
   acoustidMbids?: string[];
@@ -75,7 +77,7 @@ export function mbRelease(ctx: WorkerContext, p: Providers, mbid: string): Promi
   return cached(ctx.sql, 'musicbrainz', cacheKey('release', mbid), TTLs.mbRelease,
     () => mbCall(ctx, () => p.mb.getRelease(mbid, bg)));
 }
-function mbSearch(ctx: WorkerContext, p: Providers, q: ReleaseQuery) {
+export function mbSearch(ctx: WorkerContext, p: Providers, q: ReleaseQuery) {
   return cached(ctx.sql, 'musicbrainz', cacheKey('search', JSON.stringify(q)), TTLs.discogsSearch,
     () => mbCall(ctx, () => p.mb.searchReleases(q, bg)));
 }
@@ -231,7 +233,43 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     sourceOf.set(r.id, source);
   };
   let fastPathWeak = false;
+
+  // IDN-1c / XO-379: Discogs candidates. Discogs errors never fail the job.
+  const discogsPass = async () => {
+    try {
+      const hits = await discogsSearch(ctx, p, {
+        albumTitle: album.titleGuess as string,
+        artistName: album.artistGuess as string,
+        ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
+      });
+      for (const cand of hits.slice(0, MAX_DISCOGS_FETCHES)) {
+        take(await discogsRelease(ctx, p, cand.release.id), 'discogs_search');
+      }
+    } catch (err) {
+      ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: Discogs error (continuing)');
+    }
+  };
+  // "Acceptable" = what the decision below would auto-accept: strong, or in
+  // the review band with the owner's chip rule satisfied.
+  const bestIsAcceptable = () => {
+    if (!fetched.length) return false;
+    const scoredNow = scoreCandidates(local, fetched.map(toScorable));
+    const top = scoredNow[0]!;
+    if (top.distance <= MATCHING_THRESHOLDS.strong && (top.tracks?.length ?? 0) === local.tracks.length) return true;
+    const inBand = scoredNow.filter((c) => c.distance <= MATCHING_THRESHOLDS.medium);
+    return inBand.length > 0 && pickByChipRule(inBand.map((c) => ({ breakdown: c.breakdown, distance: c.distance }))) >= 0;
+  };
+  // Sweep tier (owner, 2026-09-09: "first sweep with discogs, musicbrainz
+  // later"): Discogs answers 55/min while MusicBrainz's busy ceiling holds
+  // identify at ~2 albums/min. Manual and triage tiers keep MB first; the
+  // embedded-MBID fast path is one MB call and stays.
+  const discogsFirst = !!data.discogsFirst && !pinned && !embedded.albumMbid;
+  let discogsDone = false;
   try {
+    if (discogsFirst) {
+      await discogsPass();
+      discogsDone = true;
+    }
     for (const mbid of data.acoustidMbids ?? []) {
       try {
         take(await mbRelease(ctx, p, mbid), 'acoustid');
@@ -270,7 +308,10 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       }
     }
 
-    if (!pinned && (fetched.length === 0 || fastPathWeak)) {
+    // MusicBrainz cascade: when nothing was found, the fast path was weak, or a
+    // Discogs-first pass produced nothing the decision would accept.
+    const needMb = fetched.length === 0 || fastPathWeak || (discogsDone && !bestIsAcceptable());
+    if (!pinned && needMb) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
       let found = await mbSearch(ctx, p, {
@@ -303,24 +344,11 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     throw err; // pg-boss retry with backoff
   }
 
-  // IDN-1c: Discogs when MB found nothing or nothing strong. Discogs errors
-  // never fail the job — MB candidates are still decided below.
-  if (!pinned) {
+  // IDN-1c (MB-first tiers): Discogs when MB found nothing or nothing strong;
+  // MB candidates are still decided below.
+  if (!pinned && !discogsDone) {
     const mbBest = fetched.length ? scoreCandidates(local, fetched.map(toScorable))[0] : undefined;
-    if (!mbBest || mbBest.distance > MATCHING_THRESHOLDS.strong) {
-      try {
-        const hits = await discogsSearch(ctx, p, {
-          albumTitle: album.titleGuess as string,
-          artistName: album.artistGuess as string,
-          ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
-        });
-        for (const cand of hits.slice(0, MAX_DISCOGS_FETCHES)) {
-          take(await discogsRelease(ctx, p, cand.release.id), 'discogs_search');
-        }
-      } catch (err) {
-        ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: Discogs error (continuing with MB)');
-      }
-    }
+    if (!mbBest || mbBest.distance > MATCHING_THRESHOLDS.strong) await discogsPass();
   }
 
   if (fetched.length === 0) {
@@ -426,14 +454,20 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
       return;
     }
     // Owner policy (2026-09-05): the top candidate in the band is what the
-    // owner accepts by hand anyway — take it; mismatches surface via gaps
-    // and the grid's match-kind filter instead of the queue.
+    // owner accepts by hand anyway — take it. Tightened 2026-09-09 (XO-379,
+    // after a one-CD folder auto-took a 2-CD edition at 0.2488 with 2 reds):
+    // nothing red, and no more media than the local cluster has discs.
     if (best && bestDb) {
       const cc2 = chipCounts(best.breakdown);
-      await goLive(bestDb, 'auto', 'system', best.distance,
-        `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, ${cc2.reds} red)`,
-        sourceOf.get(best.id) ?? null);
-      return;
+      const mediaCount = fetched.find((r) => r.id === best.id)?.mediaList?.length ?? 0;
+      const localDiscs = new Set(tracks.map((t) => t.discNo ?? 1)).size;
+      if (cc2.reds === 0 && (mediaCount === 0 || mediaCount <= localDiscs)) {
+        await goLive(bestDb, 'auto', 'system', best.distance,
+          `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, 0 red)`,
+          sourceOf.get(best.id) ?? null);
+        return;
+      }
+      ctx.logger.info({ album: album.titleGuess, distance: best.distance, reds: cc2.reds, mediaCount, localDiscs }, 'identify: top candidate held for review');
     }
     await giveUp('ambiguous');
   } else {
