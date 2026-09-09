@@ -195,7 +195,13 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
         ...(t.artistGuess ? { artist: t.artistGuess } : {}),
         duration: (t.durationMs ?? 0) / 1000, // core/matching works in seconds
         index: i,
+        // Disc/track within the disc (XO-379): the matcher aligns per medium
+        // when it knows them. disc_no is null for files that carry no disc
+        // information, which means disc 1 — leave it off rather than assume.
+        ...(t.discNo != null ? { disc: t.discNo } : {}),
+        ...(t.trackNo != null ? { position: t.trackNo } : {}),
       })),
+    ...(album.discCount ? { discCount: album.discCount } : {}),
     ...(album.yearGuess ? { year: album.yearGuess } : {}),
     ...(embedded.albumMbid ? { embeddedMbId: embedded.albumMbid } : {}),
     ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
@@ -203,24 +209,40 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
   };
 
   // core/matching input: seconds + 0-based indices; provider tracks are ms.
-  const toScorable = (r: CanonicalRelease) => ({
-    id: r.id,
-    releaseGroupId: r.releaseGroupId,
-    title: r.title,
-    artists: r.artists,
-    tracks: (r.tracks ?? []).map((t, i) => ({
-      title: t.title,
-      ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
-      duration: (t.duration ?? 0) / 1000,
-      index: i,
-      ...(t.recordingId ? { recordingId: t.recordingId } : {}),
-    })),
-    ...(r.year ? { year: r.year } : {}),
-    ...(r.country ? { country: r.country } : {}),
-    ...(r.barcode ? { barcode: r.barcode } : {}),
-    ...(r.label ? { label: r.label } : {}),
-    source: r.source,
-  });
+  // How many discs a release has (XO-379): the per-track mediumNumber is the
+  // trustworthy signal — MusicBrainz never fills mediaList, and Discogs builds
+  // it from format entries, so a 2xCD in one entry reads as one medium. The
+  // release-level list is only a fallback for a tracklist that says nothing.
+  const mediumCountOf = (r: CanonicalRelease): number | undefined => {
+    let maxMedium = 0;
+    for (const t of r.tracks ?? []) {
+      if (t.mediumNumber && t.mediumNumber > maxMedium) maxMedium = t.mediumNumber;
+    }
+    return maxMedium > 0 ? maxMedium : (r.mediaList?.length || undefined);
+  };
+  const toScorable = (r: CanonicalRelease) => {
+    const mediumCount = mediumCountOf(r);
+    return {
+      id: r.id,
+      releaseGroupId: r.releaseGroupId,
+      title: r.title,
+      artists: r.artists,
+      tracks: (r.tracks ?? []).map((t, i) => ({
+        title: t.title,
+        ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
+        duration: (t.duration ?? 0) / 1000,
+        index: i,
+        ...(t.recordingId ? { recordingId: t.recordingId } : {}),
+        ...(t.mediumNumber ? { medium: t.mediumNumber } : {}),
+      })),
+      ...(mediumCount !== undefined ? { mediumCount } : {}),
+      ...(r.year ? { year: r.year } : {}),
+      ...(r.country ? { country: r.country } : {}),
+      ...(r.barcode ? { barcode: r.barcode } : {}),
+      ...(r.label ? { label: r.label } : {}),
+      source: r.source,
+    };
+  };
 
   // Candidate generation (IDN-1): pinned (IDN-6) short-circuits, then
   // embedded MBID, then MB search cascade, then Discogs (IDN-1c). Every
