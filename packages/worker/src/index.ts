@@ -183,7 +183,11 @@ async function main() {
   // Each job is bounded on its own (XO-318): one that hangs is failed alone
   // through boss.fail() and pg-boss retries it later; the batch completes
   // the rest as usual.
-  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 3, pollingIntervalSeconds: 1 }, async (jobs) => {
+  // XO-379: 8 concurrent jobs. MusicBrainz calls still serialise through the
+  // shared pacer (1 req/s), so MB-bound jobs (AcoustID candidates, MB
+  // fallbacks) cost ~60 s each and used to fill all 3 slots; Discogs-first
+  // sweep jobs need seconds and now get the free slots.
+  if (wants('identify.album')) await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 8, pollingIntervalSeconds: 1 }, async (jobs) => {
     const results = await Promise.allSettled(jobs.map((job) =>
       tracked('identify.album', job.id, job.data.localAlbumId, () =>
         withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `identify.album ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
