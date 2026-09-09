@@ -533,9 +533,16 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     // nothing red, and no more media than the local cluster has discs.
     if (best && bestDb) {
       const cc2 = chipCounts(best.breakdown);
-      const mediaCount = fetched.find((r) => r.id === best.id)?.mediaList?.length ?? 0;
-      const localDiscs = new Set(tracks.map((t) => t.discNo ?? 1)).size;
-      if (cc2.reds === 0 && (mediaCount === 0 || mediaCount <= localDiscs)) {
+      // Media guard (peer's discsKnown semantics): only when the local set
+      // carries disc numbers at all — 17,740 untagged albums must not block a
+      // correct two-medium candidate; mediumCountOf reads MB's per-track
+      // medium numbers and falls back to Discogs' media list.
+      const bestRelease = fetched.find((r) => r.id === best.id);
+      const mediaCount = bestRelease ? mediumCountOf(bestRelease) ?? 0 : 0;
+      const localDiscNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
+      const discsKnown = localDiscNos.length > 0;
+      const localDiscs = discsKnown ? new Set(localDiscNos).size : 0;
+      if (cc2.reds === 0 && (!discsKnown || mediaCount === 0 || mediaCount <= localDiscs)) {
         await goLive(bestDb, 'auto', 'system', best.distance,
           `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, 0 red)`,
           sourceOf.get(best.id) ?? null);
