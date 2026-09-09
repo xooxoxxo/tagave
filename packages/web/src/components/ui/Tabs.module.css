@@ -16,6 +16,8 @@
   gap: var(--space-sm);
   padding: var(--space-md) 0;
   border: none;
+  border-radius: 0;
+  min-height: 2.75rem;
   background: none;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
@@ -23,7 +25,13 @@
   cursor: pointer;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
-  transition: all var(--transition-normal);
+  transition: color var(--transition-normal), border-bottom-color var(--transition-normal);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
+  }
 }
 
 .tab:hover {
@@ -56,9 +64,11 @@
   min-width: 1.5rem;
   padding: 0 0.375rem;
   background-color: var(--bg-tertiary);
-  border-radius: var(--radius-full);
+  border-radius: 4px;
   font-size: var(--font-size-xs);
-  font-weight: 700;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
+
+.tab:active { background: transparent; transform: none; }

@@ -35,10 +35,10 @@
   color: var(--text-secondary);
   margin: 0 0 1.5rem 0;
   line-height: 1.6;
-  background: var(--bg-secondary);
+  background: var(--surface-info);
   padding: 1rem;
   border-radius: 4px;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
 }
 
 .statusList {
@@ -128,11 +128,17 @@
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-primary);
-  transition: border-color 150ms ease, background 150ms ease;
+  transition: border-color var(--transition-normal), background-color var(--transition-normal);
 }
 
 .radioLabel:hover {
   background: var(--bg-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radioLabel {
+    transition: none;
+  }
 }
 
 .radioActive {
@@ -190,7 +196,7 @@
   cursor: pointer;
   text-decoration: none;
   white-space: nowrap;
-  transition: all 150ms ease;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
 }
 
 .button {
@@ -214,6 +220,14 @@
 .linkButton:hover {
   background: var(--bg-tertiary);
   border-color: var(--border-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .resetButton,
+  .linkButton {
+    transition: none;
+  }
 }
 
 .actions {

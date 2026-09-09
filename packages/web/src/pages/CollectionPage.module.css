@@ -371,7 +371,7 @@
 }
 
 .chipFailed {
-  background: #ef4444;
+  background: var(--error);
   color: white;
 }
 

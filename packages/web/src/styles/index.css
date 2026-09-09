@@ -1,93 +1,9 @@
+@import "./tokens.css";
 /**
  * Global design system tokens and baseline styles
  * Light, artwork-led library design system
  */
 
-:root {
-  color-scheme: light;
-  /* Semantic colors shared by every page */
-  --bg-primary: #f7f8f5;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #eef1ec;
-  --bg-nav: #f0f3ee;
-  --bg-hover: #e7ede7;
-  --bg-active: #dce3db;
-
-  --text-primary: #202b28;
-  --text-secondary: #52605b;
-  --text-tertiary: #69756f;
-
-  --border: #dce3db;
-  --border-secondary: #b8c5bb;
-
-  --accent: #246b5c;
-  --accent-hover: #195546;
-  --accent-active: #123f34;
-
-  --success: #28724b;
-  --warning: #9b601c;
-  --error: #b53838;
-  --info: #386d80;
-
-  --accent-rgb: 36, 107, 92;
-  --success-rgb: 40, 114, 75;
-  --warning-rgb: 155, 96, 28;
-  --error-rgb: 181, 56, 56;
-  --info-rgb: 56, 109, 128;
-
-  /* Spacing scale */
-  --space-xs: 0.25rem;
-  --space-sm: 0.5rem;
-  --space-md: 1rem;
-  --space-lg: 1.5rem;
-  --space-xl: 2rem;
-  --space-2xl: 3rem;
-
-  /* Typography */
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.875rem;
-  --font-size-base: 1rem;
-  --font-size-lg: 1.125rem;
-  --font-size-xl: 1.25rem;
-  --font-size-2xl: clamp(1.9rem, 3vw, 2.75rem);
-
-  --line-height-tight: 1.3;
-  --line-height-normal: 1.5;
-  --line-height-relaxed: 1.75;
-
-  /* Border radius */
-  --radius-sm: 5px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
-  --radius-full: 9999px;
-
-  /* Transitions */
-  --transition-fast: 100ms ease-out;
-  --transition-normal: 150ms ease-out;
-  --transition-slow: 200ms ease-out;
-
-  /* Z-index scale */
-  --z-dropdown: 1000;
-  --z-sticky: 100;
-  --z-backdrop: 999;
-  --z-modal: 1001;
-
-  /* Page layout */
-  --page-pad: clamp(1.25rem, 3vw, 3rem);
-  --content-max: 1400px;
-
-  /* Legacy aliases: several pages were written against these names.
-     They resolve to the canonical tokens above so themes stay in sync. */
-  --border-color: var(--border);
-  --border-color-hover: var(--border-secondary);
-  --accent-color: var(--accent);
-  --accent-color-hover: var(--accent-hover);
-  --success-color: var(--success);
-  --error-color: var(--error);
-  --font-size-md: var(--font-size-base);
-}
 
 
 * {
@@ -161,7 +77,7 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 0.5rem 0.75rem;
-  transition: all var(--transition-normal);
+  transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 input:hover,
@@ -175,7 +91,7 @@ textarea:focus,
 select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(36, 107, 92, 0.1);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
 }
 
 input:disabled,
@@ -186,7 +102,7 @@ select:disabled {
 }
 
 /* Buttons */
-button {
+:where(button) {
   font-family: inherit;
   font-size: inherit;
   padding: 0.5rem 1rem;
@@ -196,18 +112,18 @@ button {
   color: white;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-normal);
+  transition: background-color var(--transition-normal);
 }
 
-button:hover {
+:where(button:hover) {
   background-color: var(--accent-hover);
 }
 
-button:active {
+:where(button:active) {
   background-color: var(--accent-active);
 }
 
-button:disabled {
+:where(button:disabled) {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -269,13 +185,15 @@ a:active {
   border-width: 0;
 }
 
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-h1 { letter-spacing: -0.045em; text-wrap: balance; }
+:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
+h1 { letter-spacing: -0.03em; text-wrap: balance; }
 h2, h3 { letter-spacing: -0.02em; }
 button, input, select { min-height: 2.5rem; }
 input[type="checkbox"], input[type="radio"] { min-height: auto; accent-color: var(--accent); }
-button { transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
-button:active:not(:disabled) { transform: translateY(1px); }
+:where(button) { transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
+:where(button:active:not(:disabled)) { transform: translateY(1px); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+input::placeholder, textarea::placeholder { color: var(--text-tertiary); opacity: 1; }

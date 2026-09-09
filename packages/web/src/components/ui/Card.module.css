@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-lg);
-  padding: var(--page-pad);
+  padding: var(--space-lg);
   border-bottom: 1px solid var(--border);
 }
 
@@ -29,7 +29,7 @@
 }
 
 .padded {
-  padding: var(--page-pad);
+  padding: var(--space-lg);
 }
 
 .content {
@@ -41,7 +41,7 @@
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--page-pad);
+  padding: var(--space-lg);
   display: flex;
   flex-direction: column;
   gap: var(--space-md);

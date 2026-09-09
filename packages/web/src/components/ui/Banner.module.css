@@ -1,8 +1,8 @@
 .banner {
   padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
-  border-left-width: 3px;
+
   color: var(--text-primary);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
@@ -11,25 +11,21 @@
 .banner a { color: var(--text-primary); }
 
 .tone-info {
-  background-color: rgba(var(--info-rgb), 0.1);
+  background-color: var(--surface-info);
   border-color: rgba(var(--info-rgb), 0.3);
-  border-left-color: var(--info);
 }
 
 .tone-success {
-  background-color: rgba(var(--success-rgb), 0.1);
+  background-color: var(--surface-success);
   border-color: rgba(var(--success-rgb), 0.3);
-  border-left-color: var(--success);
 }
 
 .tone-warning {
-  background-color: rgba(var(--warning-rgb), 0.1);
+  background-color: var(--surface-warning);
   border-color: rgba(var(--warning-rgb), 0.3);
-  border-left-color: var(--warning);
 }
 
 .tone-danger {
-  background-color: rgba(var(--error-rgb), 0.1);
+  background-color: var(--surface-danger);
   border-color: rgba(var(--error-rgb), 0.3);
-  border-left-color: var(--error);
 }

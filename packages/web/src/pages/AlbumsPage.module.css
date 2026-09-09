@@ -26,34 +26,13 @@
   flex-wrap: wrap;
 }
 
-.searchInput {
-  padding: 0.5rem 0.75rem;
-  font-size: var(--font-size-base);
-  flex: 1 1 220px;
-  max-width: 400px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  transition: all var(--transition-normal);
-}
+.searchInput { flex: 1 1 220px; max-width: 400px; }
 
-.searchInput:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
-}
 
-.searchInput::placeholder {
-  color: var(--text-tertiary);
-}
 
-.select {
-  padding: 0.45rem 0.6rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
+
+
+.select { flex-shrink: 0; }
 
 .countInfo {
   color: var(--text-tertiary);
@@ -67,7 +46,7 @@
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  color: var(--text-primary);
   font-size: var(--font-size-sm);
   cursor: pointer;
   white-space: nowrap;
@@ -260,7 +239,7 @@
   justify-content: center;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #e4ebe2, #ccdace);
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   text-align: center;
@@ -269,7 +248,7 @@
 .fileCount {
   font-size: 2rem;
   font-weight: 700;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-secondary);
 }
 
 .cardCheckbox,
@@ -347,7 +326,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--error);
   z-index: 1;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
 }
@@ -359,7 +338,7 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--info);
   z-index: 1;
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
 }
@@ -371,7 +350,7 @@
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.75);
-  color: #f5c518;
+  color: var(--warning);
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   z-index: 1;
@@ -426,7 +405,7 @@
   height: 34px;
   border-radius: var(--radius-sm);
   object-fit: cover;
-  background: linear-gradient(135deg, #e4ebe2, #ccdace);
+  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
 }
 
 .listTitle {
@@ -467,7 +446,7 @@
   flex: none;
   width: 6rem;
   text-align: right;
-  color: #f5c518;
+  color: var(--warning);
   white-space: nowrap;
 }
 
@@ -480,12 +459,12 @@
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: #e5484d;
+  background: var(--error);
   vertical-align: middle;
 }
 
 .incomplete {
-  color: #f5c518;
+  color: var(--warning);
 }
 
 .formatTag,
@@ -527,7 +506,7 @@
 }
 
 .error {
-  background-color: rgba(220, 38, 38, 0.1);
+  background-color: var(--surface-danger);
   border-color: var(--error);
   color: var(--error);
 }
@@ -557,7 +536,7 @@
 .albumCard, .albumCardSelected { background: transparent; border-color: transparent; border-radius: 8px; }
 .albumCard:hover { background: var(--bg-secondary); border-color: var(--border); }
 .albumCardSelected { background: var(--bg-active); border-color: var(--accent); }
-.fileCount { color: #627a65; }
+.fileCount { color: var(--text-secondary); }
 .albumCover { border-radius: 5px; }
 .listBadges, .incomplete { color: var(--warning); }
 @media (max-width: 640px) {
@@ -566,3 +545,9 @@
   .listState, .listYear, .listTracks, .listBadges, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
 }
 @media (hover: none) { .cardCheckbox { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .albumCard,
+  .albumCardSelected {
+    transition: none;
+  }
+}

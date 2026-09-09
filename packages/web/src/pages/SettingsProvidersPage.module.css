@@ -70,7 +70,7 @@
   color: var(--text-primary);
   font-weight: 500;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
 }
 
 .button {
@@ -101,6 +101,14 @@
   cursor: not-allowed;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .configButton,
+  .clearButton,
+  .button {
+    transition: none;
+  }
+}
+
 .tokenConfigured {
   display: flex;
   align-items: center;
@@ -114,7 +122,7 @@
 .tokenHint {
   flex: 1;
   color: var(--text-secondary);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .actions {

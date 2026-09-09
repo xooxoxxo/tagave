@@ -1,3 +1,4 @@
+import { Input, Select } from '../components/ui/FormControl';
 /**
  * One tag plan, full page. Reads top-down the way a large batch has to be
  * read: what the plan is, how far it got, which fields it changes (and how
@@ -61,6 +62,14 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
 }
 
 const reasonLabel = (r: string) => r.replace('policy:', '');
+const FIELD_LABELS: Record<string, string> = {
+  album: 'Album title', albumartist: 'Album artist', albumartistsort: 'Album artist sort name',
+  artist: 'Track artist', artistsort: 'Artist sort name', date: 'Release date', discnumber: 'Disc number',
+  discogs_release_id: 'Discogs release ID', genre: 'Genre', label: 'Record label', media: 'Media format',
+  musicbrainz_albumid: 'MusicBrainz release ID', musicbrainz_releasegroupid: 'MusicBrainz release group ID',
+  releasecountry: 'Release country', releasestatus: 'Release status', releasetype: 'Release type', totaltracks: 'Total tracks',
+};
+
 
 export function PlanPage() {
   const { planId } = useParams({ strict: false }) as { planId: string };
@@ -135,8 +144,8 @@ export function PlanPage() {
   const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
   const applyTitle = !previewed ? 'Preview has not finished yet'
     : nothingToDo ? 'Nothing to change'
-      : tagWritesDisabled ? 'Tag writes are off in Settings › Library'
-        : noWritableRoots ? 'No scan root allows writes (Settings › Library)'
+      : tagWritesDisabled ? 'Tag writes are off in Settings › Tag preferences'
+        : noWritableRoots ? 'No scan root allows writes (Settings › Tag preferences)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
 
   const run = (m: { mutateAsync: () => Promise<unknown> }, confirmText?: string) => async () => {
@@ -180,7 +189,7 @@ export function PlanPage() {
     return (
       <PageShell title="Plan not found">
         <div className={styles.body}>
-          <Link to="/plans" className={styles.back}>← Plans</Link>
+          <Link to="/plans" className={styles.back}>← Tag changes</Link>
           <p className={styles.error}>This plan could not be loaded.</p>
         </div>
       </PageShell>
@@ -191,14 +200,14 @@ export function PlanPage() {
 
   return (
     <PageShell
-      title={<span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-md)' }}>
+      title={<span className={styles.title}>
         {p.name || 'Untitled plan'}
         <Badge tone={statusTone(p.status)}>{p.status.replaceAll('_', ' ')}</Badge>
       </span>}
       subtitle={
         <span className={styles.meta}>
-          <Link to="/plans" className={styles.back}>Plans</Link>
-          {' › '}{scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
+          <Link to="/plans" className={styles.back}>Tag changes</Link>
+          {' › '}{p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
           {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
           {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
         </span>
@@ -206,12 +215,12 @@ export function PlanPage() {
       actions={
         <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap' }}>
           {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
-            <Button variant="secondary" onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
+            <Button variant="secondary" loading={previewM.isPending} onClick={run(previewM)} disabled={previewM.isPending || previewRequested}>
               {previewRequested || previewM.isPending ? 'Previewing…' : previewed ? 'Re-run preview' : 'Run preview'}
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
@@ -228,7 +237,7 @@ export function PlanPage() {
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
-            <Button variant="danger" onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending || awaiting !== null}>
+            <Button variant="danger" loading={revertM.isPending} onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending || awaiting !== null}>
               {revertM.isPending || awaiting !== null ? 'Starting…' : 'Revert'}
             </Button>
           )}
@@ -240,8 +249,8 @@ export function PlanPage() {
           <Banner tone="warning">
             <strong>This plan can be previewed but not applied yet.</strong>
             <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
-              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library">Settings › Library › Tag writes</Link></li>}
-              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Library › Scan roots</Link></li>}
+              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library">Settings › Tag preferences › Tag writes</Link></li>}
+              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Tag preferences › Scan roots</Link></li>}
             </ul>
           </Banner>
         )}
@@ -267,7 +276,7 @@ export function PlanPage() {
         )}
 
         {p.status === 'applied' && (
-          <Banner tone="success">Applied. Check a file in your player; each album's History tab shows the write and offers the same revert.</Banner>
+          <Banner tone="success">Tag changes applied. Review the files below. Revert restores the tags saved before this change.</Banner>
         )}
 
         {nothingToDo && (
@@ -276,19 +285,21 @@ export function PlanPage() {
 
         {previewed && stats && (
           <div className={styles.stats}>
-            <StatCard label="files change" value={stats.filesTouched.toLocaleString()} />
-            <StatCard label="field changes" value={stats.fieldsModified.toLocaleString()} />
-            <StatCard label="locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />
+            <StatCard label="Files affected" value={stats.filesTouched.toLocaleString()} />
+            <StatCard label="Field changes" value={stats.fieldsModified.toLocaleString()} />
+            <StatCard label="Locked fields preserved" value={stats.lockedFieldsRespected.toLocaleString()} />
             {stats.filesSkipped.length > 0 && <StatCard label="files skipped" value={stats.filesSkipped.length.toLocaleString()} tone="warning" />}
             {progress && progress.total > 0 && p.status !== 'previewed' && (
-              <StatCard label="files written" value={progress.applied.toLocaleString()} tone={progress.failed ? 'warning' : 'success'} hint={progress.failed ? `${progress.failed.toLocaleString()} failed` : undefined} />
+              <StatCard label="Files written" value={progress.applied.toLocaleString()} tone={progress.failed ? 'warning' : 'success'} hint={progress.failed ? `${progress.failed.toLocaleString()} failed` : undefined} />
             )}
           </div>
         )}
 
         {progress && BUSY.has(p.status) && (
           <div className={styles.progress}>
-            <div className={styles.bar}><div className={styles.fill} style={{ width: `${pct}%` }} /></div>
+            <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pct)}>
+              <div className={styles.fill} style={{ ['--scale' as string]: `${pct / 100}` }} />
+            </div>
             <span>{done.toLocaleString()} / {progress.total.toLocaleString()} files{p.status === 'paused' ? ' · paused' : ''}</span>
           </div>
         )}
@@ -303,9 +314,10 @@ export function PlanPage() {
                   className={`${styles.chip} ${field === f ? styles.chipActive : ''}`}
                   onClick={() => { setField(field === f ? '' : f); setOffset(0); }}
                   title={Object.entries(v.reasons).map(([r, n]) => `${n.toLocaleString()} ${reasonLabel(r)}`).join(' · ')}
+                  aria-label={`Filter files by ${FIELD_LABELS[f] ?? f}`}
                   aria-pressed={field === f}
                 >
-                  <span className={styles.chipField}>{f}</span>
+                  <span className={styles.chipField}>{FIELD_LABELS[f] ?? f}</span>
                   <span className={styles.chipCount}>{v.files.toLocaleString()}</span>
                   <span className={styles.chipReason}>{Object.keys(v.reasons).map(reasonLabel).join('/')}</span>
                 </button>
@@ -317,13 +329,13 @@ export function PlanPage() {
         {previewed && !nothingToDo && (
           <>
             <div className={styles.tools}>
-              <select aria-label="Filter by write status" className={styles.select} value={itemStatus} onChange={(e) => { setItemStatus(e.target.value); setOffset(0); }}>
+              <Select aria-label="Filter by write status" className={styles.select} value={itemStatus} onChange={(e) => { setItemStatus(e.target.value); setOffset(0); }}>
                 <option value="">all files</option>
                 {(['pending', 'applying', 'applied', 'failed', 'skipped'] as ItemStatus[]).filter((s) => (statusCounts[s] ?? 0) > 0).map((s) => (
                   <option key={s} value={s}>{s} · {(statusCounts[s] ?? 0).toLocaleString()}</option>
                 ))}
-              </select>
-              <input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
+              </Select>
+              <Input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
               <Button variant="ghost" size="sm" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</Button>
               <span className={styles.count}>
                 {items.isLoading ? 'Loading…' : total === 0 ? 'No files' : `${(offset + 1).toLocaleString()}–${pageEnd.toLocaleString()} of ${total.toLocaleString()} files`}

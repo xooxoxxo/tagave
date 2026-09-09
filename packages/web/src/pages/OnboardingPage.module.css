@@ -45,8 +45,8 @@
 
 .step.done {
   opacity: 0.7;
-  background-color: rgba(34, 197, 94, 0.05);
-  border-color: rgba(34, 197, 94, 0.3);
+  background-color: var(--surface-success);
+  border-color: var(--border);
 }
 
 .stepHeader {
@@ -76,21 +76,21 @@
 }
 
 .pill.required {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: rgb(239, 68, 68);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background-color: var(--surface-danger);
+  color: var(--error);
+  border: 1px solid var(--error);
 }
 
 .pill.optional {
-  background-color: rgba(59, 130, 246, 0.1);
-  color: rgb(59, 130, 246);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background-color: var(--surface-info);
+  color: var(--info);
+  border: 1px solid var(--info);
 }
 
 .pill.completed {
-  background-color: rgba(34, 197, 94, 0.1);
-  color: rgb(34, 197, 94);
-  border: 1px solid rgba(34, 197, 94, 0.3);
+  background-color: var(--surface-success);
+  color: var(--success);
+  border: 1px solid var(--success);
 }
 
 .description {
@@ -124,7 +124,7 @@
 .input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
 }
 
 .button,
@@ -141,7 +141,7 @@
   color: var(--text-primary);
   font-weight: 500;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: opacity 150ms ease, background-color 150ms ease, border-color 150ms ease;
   font-size: 0.95rem;
 }
 
@@ -182,7 +182,7 @@
   display: block;
   color: var(--text-secondary);
   font-size: 0.95rem;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .form {
@@ -273,7 +273,7 @@
 .rootPath {
   font-size: 0.8rem;
   color: var(--text-secondary);
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .validationPill {
@@ -288,30 +288,30 @@
 }
 
 .validationPill.pending {
-  background-color: rgba(59, 130, 246, 0.1);
-  color: rgb(59, 130, 246);
-  border-color: rgba(59, 130, 246, 0.3);
+  background-color: var(--surface-info);
+  color: var(--info);
+  border-color: var(--info);
 }
 
 .validationPill.ok {
-  background-color: rgba(34, 197, 94, 0.1);
-  color: rgb(34, 197, 94);
-  border-color: rgba(34, 197, 94, 0.3);
+  background-color: var(--surface-success);
+  color: var(--success);
+  border-color: var(--success);
 }
 
 .validationPill.missing,
 .validationPill.not_directory,
 .validationPill.unreadable {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: rgb(239, 68, 68);
-  border-color: rgba(239, 68, 68, 0.3);
+  background-color: var(--surface-danger);
+  color: var(--error);
+  border-color: var(--error);
 }
 
 .note {
   margin: 0;
   padding: 0.75rem;
-  background-color: rgba(59, 130, 246, 0.05);
-  border-left: 2px solid rgb(59, 130, 246);
+  background-color: var(--surface-info);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 0.9rem;
   border-radius: 2px;
@@ -324,6 +324,18 @@
 
 .link:hover {
   text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .configButton,
+  .clearButton,
+  .addButton,
+  .cancelButton,
+  .primaryButton,
+  .secondaryButton {
+    transition: none;
+  }
 }
 
 .footer {

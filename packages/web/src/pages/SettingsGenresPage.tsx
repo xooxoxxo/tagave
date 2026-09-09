@@ -226,7 +226,7 @@ function SettingsGenresContentInner() {
                     <div key={item.genre} className={styles.histogramRow}>
                       <div className={styles.genreLabel}>{item.genre}</div>
                       <div className={styles.barContainer}>
-                        <div className={styles.bar} style={{ width: `${width}%` }} />
+                        <div className={styles.bar} style={{ ['--scale' as string]: `${width / 100}` }} />
                       </div>
                       <div className={styles.count}>{item.albums}</div>
                     </div>

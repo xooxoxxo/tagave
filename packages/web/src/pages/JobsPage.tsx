@@ -143,11 +143,17 @@ export function JobsPage() {
                       </div>
                       {job.progress && (
                         <div className={styles.progress}>
-                          <div className={styles.progressBar}>
+                          <div
+                            className={styles.progressBar}
+                            role="progressbar"
+                            aria-valuemin={0}
+                            aria-valuemax={job.progress.total || 1}
+                            aria-valuenow={job.progress.done || 0}
+                          >
                             <div
                               className={styles.progressFill}
                               style={{
-                                width: `${(((job.progress.done || 0) / (job.progress.total || 1)) * 100) || 0}%`,
+                                ['--scale' as string]: `${((job.progress.done || 0) / (job.progress.total || 1)) || 0}`,
                               }}
                             />
                           </div>
@@ -194,12 +200,16 @@ export function JobsPage() {
                     </div>
                     {job.progress && (
                       <div className={styles.progress}>
-                        <div className={styles.progressBar}>
+                        <div
+                          className={styles.progressBar}
+                          role="progressbar"
+                          aria-valuemin={0}
+                          aria-valuemax={job.progress.total}
+                          aria-valuenow={job.progress.current}
+                        >
                           <div
                             className={styles.progressFill}
-                            style={{
-                              width: `${(job.progress.current / job.progress.total) * 100}%`,
-                            }}
+                            style={{ ['--scale' as string]: `${job.progress.current / job.progress.total}` }}
                           />
                         </div>
                         <p className={styles.progressText}>

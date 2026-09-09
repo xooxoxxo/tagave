@@ -35,10 +35,10 @@
   color: var(--text-secondary);
   margin: 0 0 2rem 0;
   line-height: 1.6;
-  background: var(--bg-secondary);
+  background: var(--surface-info);
   padding: 1rem;
   border-radius: 4px;
-  border-left: 3px solid var(--accent);
+  border: 1px solid var(--border);
 }
 
 .fieldGroup {
@@ -74,11 +74,17 @@
   user-select: none;
   padding: 0.5rem;
   border-radius: 4px;
-  transition: background 150ms ease;
+  transition: background-color var(--transition-normal);
 }
 
 .checkboxLabel:hover {
   background: var(--bg-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkboxLabel {
+    transition: none;
+  }
 }
 
 .checkbox {
@@ -120,7 +126,7 @@
   color: var(--text-primary);
   font-weight: 500;
   cursor: pointer;
-  transition: all 150ms ease;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
 }
 
 .button {
@@ -147,6 +153,13 @@
 .resetButton:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .resetButton {
+    transition: none;
+  }
 }
 
 .actions {

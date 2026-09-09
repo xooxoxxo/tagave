@@ -270,7 +270,7 @@
 }
 
 .ownershipMissing {
-  background: rgba(234, 140, 85, 0.85);
+  background: rgba(var(--warning-rgb), 0.85);
 }
 
 .ownershipIgnored {
@@ -434,4 +434,19 @@
   margin-top: var(--space-lg);
   padding-top: var(--space-lg);
   border-top: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bioLink,
+  .linkChip,
+  .albumCard,
+  .closeButton,
+  .checkbox,
+  .enriching,
+  .refreshing,
+  .toast,
+  .followRulesEditor {
+    transition: none;
+    animation: none;
+  }
 }

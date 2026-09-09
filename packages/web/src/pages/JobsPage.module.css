@@ -49,7 +49,6 @@
 .jobCard {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   display: flex;
@@ -58,15 +57,15 @@
 }
 
 .jobCard.statusRunning {
-  border-left-color: var(--info);
+  background-color: var(--surface-info);
 }
 
 .jobCard.statusCompleted {
-  border-left-color: var(--success);
+  background-color: var(--surface-success);
 }
 
 .jobCard.statusFailed {
-  border-left-color: var(--error);
+  background-color: var(--surface-danger);
 }
 
 .jobHeader {
@@ -132,9 +131,20 @@
 
 .progressFill {
   height: 100%;
+  width: 100%;
   background: linear-gradient(90deg, var(--info), var(--accent));
   border-radius: var(--radius-full);
-  transition: width var(--transition-slow);
+  transform-origin: left;
+  transform: scaleX(var(--scale, 1));
+  transition: transform var(--transition-slow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressFill,
+  .btn,
+  .link {
+    transition: none;
+  }
 }
 
 .progressText {
@@ -182,7 +192,7 @@
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
 }
 
 .btn:hover:not(:disabled) {
@@ -205,7 +215,7 @@
   font-size: var(--font-size-sm);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: border-color var(--transition-fast);
 }
 
 .link:hover {
@@ -217,6 +227,6 @@
   font-size: var(--font-size-xs);
   color: var(--error);
   padding: var(--space-md);
-  background-color: rgba(220, 38, 38, 0.1);
+  background-color: var(--surface-danger);
   border-radius: var(--radius-sm);
 }
