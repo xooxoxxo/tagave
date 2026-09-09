@@ -11,6 +11,7 @@ import { scanSweepJob, type ScanSweepJobData } from './jobs/scanSweep.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
+import { clusterRepairDiscsJob, type ClusterRepairDiscsJobData } from './jobs/clusterRepairDiscs.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
@@ -103,7 +104,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
+  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
     await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
@@ -175,6 +176,15 @@ async function main() {
 
   if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
     await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));
+  });
+
+  // Run by hand after the disc-aware clustering ships: sweeps the library for
+  // the multi-disc layouts, re-clusters them and re-identifies what changed.
+  if (wants('cluster.repairDiscs')) await boss.work<ClusterRepairDiscsJobData>('cluster.repairDiscs', { batchSize: 1 }, async (jobs) => {
+    for (const job of jobs) {
+      logger.info({ jobId: job.id, data: job.data }, 'cluster.repairDiscs start');
+      await clusterRepairDiscsJob(ctx, job.data);
+    }
   });
 
   // Three albums in flight: provider calls still go one at a time through

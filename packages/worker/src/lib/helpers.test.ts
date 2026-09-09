@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clusterKey, discDirNumber, extractYear, extOf, isAudioFile, normKey,
+  clusterKey, discDirNumber, discTokenOfFolder, extractYear, extOf,
+  filenameDiscPrefix, isAudioFile, normKey,
   relBasename, relDirname, sidecarKind, storagePath, tagsDigest,
   titleFromName, trackNoFromName,
 } from './helpers.js';
@@ -23,6 +24,54 @@ describe('discDirNumber', () => {
   });
 });
 
+describe('discTokenOfFolder', () => {
+  it('splits a trailing disc token off an album folder name', () => {
+    expect(discTokenOfFolder('Album CD1')).toEqual({ title: 'Album', disc: 1, kind: 'disc' });
+    expect(discTokenOfFolder('Album (Disc 2)')).toEqual({ title: 'Album', disc: 2, kind: 'disc' });
+    expect(discTokenOfFolder('Album - Disc 2')).toEqual({ title: 'Album', disc: 2, kind: 'disc' });
+    expect(discTokenOfFolder('Album [CD 2]')).toEqual({ title: 'Album', disc: 2, kind: 'disc' });
+    expect(discTokenOfFolder('Album Vol. 2')).toEqual({ title: 'Album', disc: 2, kind: 'vol' });
+    expect(discTokenOfFolder('2009 - Album CD2')).toEqual({ title: '2009 - Album', disc: 2, kind: 'disc' });
+  });
+  it('keeps the rest of a decorated title', () => {
+    expect(discTokenOfFolder('Manala (Deluxe Edition) CD2')?.title).toBe('Manala (Deluxe Edition)');
+    expect(discTokenOfFolder('Doomain Limited Edition 2 CDs CD 1')?.title).toBe('Doomain Limited Edition 2 CDs');
+    expect(discTokenOfFolder('A Smooth Transition (From Trip Hop to Nu Jazz) Disc1')?.disc).toBe(1);
+  });
+  it('tolerates an unclosed bracket (real folder names drop it)', () => {
+    expect(discTokenOfFolder('The Life & Times Of Laddio Bolocko (Disc 2'))
+      .toEqual({ title: 'The Life & Times Of Laddio Bolocko', disc: 2, kind: 'disc' });
+  });
+  it('rejects names without a disc token', () => {
+    expect(discTokenOfFolder('Album 2')).toBeNull();
+    expect(discTokenOfFolder('CD Project')).toBeNull();
+    expect(discTokenOfFolder('Disco Inferno')).toBeNull();
+    expect(discTokenOfFolder('Volume One')).toBeNull();
+  });
+  it('rejects a bare disc directory (discDirNumber owns those)', () => {
+    expect(discTokenOfFolder('CD1')).toBeNull();
+    expect(discTokenOfFolder('Disc 2')).toBeNull();
+    expect(discTokenOfFolder('Vol. 4')).toBeNull();
+  });
+});
+
+describe('filenameDiscPrefix', () => {
+  it('parses n-tt prefixes', () => {
+    expect(filenameDiscPrefix('2-01 Title.flac')).toEqual({ disc: 2, track: 1 });
+    expect(filenameDiscPrefix('1.03 x.mp3')).toEqual({ disc: 1, track: 3 });
+    expect(filenameDiscPrefix('2_11 x.flac')).toEqual({ disc: 2, track: 11 });
+    expect(filenameDiscPrefix('10-01 - Make Me Know It.mp3')).toEqual({ disc: 10, track: 1 });
+  });
+  it('rejects plain track numbers and years', () => {
+    expect(filenameDiscPrefix('201 x.flac')).toBeNull();
+    expect(filenameDiscPrefix('01 - x.flac')).toBeNull();
+    expect(filenameDiscPrefix('1969 - x.flac')).toBeNull();
+    expect(filenameDiscPrefix('x.flac')).toBeNull();
+    expect(filenameDiscPrefix('0-01 x.flac')).toBeNull();
+    expect(filenameDiscPrefix('2-011 x.flac')).toBeNull();
+  });
+});
+
 describe('extractYear', () => {
   it('finds release years', () => {
     expect(extractYear('2004 - Rubber Factory')).toBe(2004);
@@ -42,6 +91,12 @@ describe('trackNoFromName / titleFromName', () => {
   it('derives titles without the prefix', () => {
     expect(titleFromName('01 - Foo.mp3')).toBe('Foo');
     expect(titleFromName('Foo Bar.flac')).toBe('Foo Bar');
+  });
+  it('reads the track number out of an n-tt prefix', () => {
+    expect(trackNoFromName('2-01 Title.flac')).toBe(2); // legacy parser, disc-blind
+    expect(filenameDiscPrefix('2-01 Title.flac')?.track).toBe(1);
+    expect(titleFromName('2-01 Title.flac')).toBe('Title');
+    expect(titleFromName('2-07 - Anesthetize.mp3')).toBe('Anesthetize');
   });
 });
 

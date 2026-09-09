@@ -5,7 +5,8 @@ import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {
-  clusterKey, discDirNumber, extractYear, extOf, normKey,
+  clusterKey, discDirNumber, discTokenOfFolder, extractYear, extOf,
+  filenameDiscPrefix, normKey,
   relBasename, relDirname, titleFromName, trackNoFromName,
 } from '../lib/helpers.js';
 
@@ -71,14 +72,48 @@ function tagsOf(tagsRaw: unknown): FileTags {
  * become one cluster.
  */
 export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData): Promise<void> {
-  // Disc dir → operate on the parent scope.
+  // Disc dir ("CD1") → operate on the parent scope.
   const base = relBasename(data.dirPath);
-  const scope = data.dirPath !== '' && discDirNumber(base) !== null
+  let scope = data.dirPath !== '' && discDirNumber(base) !== null
     ? relDirname(data.dirPath)
     : data.dirPath;
 
-  // Files directly in scope + files exactly one level below (disc subdirs).
+  // A disc token appended to the album folder itself ("… CD1", "… (Disc 2)")
+  // splits one album across sibling folders. When the parent holds two or more
+  // such siblings with the same stripped title and different numbers, the
+  // scope is the parent and only those siblings are in it — one cluster, one
+  // disc per folder. Resolution is a pure function of the stripped title, so
+  // every sibling that triggers the job lands on the same scope and key.
+  let siblingDirs: string[] | null = null;
+  /** dir → disc number implied by a cd/disc/disk token on the folder name */
+  const dirTokenDisc = new Map<string, number>();
+  /** dir → number implied by a "Vol. n" token; only honoured when siblings disagree */
+  const dirTokenVol = new Map<string, number>();
+  const scopeToken = scope === '' ? null : discTokenOfFolder(relBasename(scope));
+  if (scopeToken) {
+    const parent = relDirname(scope);
+    const wanted = normKey(scopeToken.title);
+    const group: Array<{ dir: string; disc: number; kind: 'disc' | 'vol' }> = [];
+    for (const d of await subdirsOf(ctx, data.scanRootId, parent)) {
+      const t = discTokenOfFolder(relBasename(d));
+      if (t && normKey(t.title) === wanted) group.push({ dir: d, disc: t.disc, kind: t.kind });
+    }
+    if (group.length >= 2 && new Set(group.map((g) => g.disc)).size >= 2) {
+      scope = parent;
+      siblingDirs = group.map((g) => g.dir).sort();
+      for (const g of group) (g.kind === 'vol' ? dirTokenVol : dirTokenDisc).set(g.dir, g.disc);
+    } else if (scopeToken.kind === 'disc') {
+      // A lone "… CD2" folder still names its disc (spec: folder token tier).
+      dirTokenDisc.set(scope, scopeToken.disc);
+    }
+  }
+
+  // Files directly in scope + files exactly one level below (disc subdirs);
+  // with sibling folders, the same two levels under each sibling.
   const prefix = scope === '' ? '' : scope + '/';
+  const pathFilter = siblingDirs
+    ? or(...siblingDirs.map((d) => like(audioFiles.relPath, likeEscape(d + '/') + '%')))
+    : prefix === '' ? undefined : like(audioFiles.relPath, likeEscape(prefix) + '%');
   const candidates = await ctx.db
     .select({
       id: audioFiles.id,
@@ -91,19 +126,58 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     .where(and(
       eq(audioFiles.scanRootId, data.scanRootId),
       or(eq(audioFiles.status, 'present'), eq(audioFiles.status, 'error')),
-      prefix === '' ? undefined : like(audioFiles.relPath, prefix.replaceAll('%', '\\%').replaceAll('_', '\\_') + '%'),
+      pathFilter,
     ));
+
+  const sibSet = siblingDirs ? new Set(siblingDirs) : null;
+  const inScopeDir = (dir: string): boolean => {
+    if (sibSet) {
+      return sibSet.has(dir)
+        || (sibSet.has(relDirname(dir)) && discDirNumber(relBasename(dir)) !== null);
+    }
+    return dir === scope
+      || (relDirname(dir) === scope && discDirNumber(relBasename(dir)) !== null);
+  };
 
   const inScope: FileRow[] = [];
   for (const r of candidates) {
-    const dir = relDirname(r.relPath);
-    if (dir === scope) {
-      inScope.push(toFileRow(r));
-    } else if (relDirname(dir) === scope && discDirNumber(relBasename(dir)) !== null) {
-      inScope.push(toFileRow(r));
-    }
+    if (inScopeDir(relDirname(r.relPath))) inScope.push(toFileRow(r));
   }
   if (inScope.length === 0) return;
+
+  /**
+   * Disc number per file (spec: cue sheet > tag disk.no > disc subfolder >
+   * folder disc token > "n-tt" filename prefix > unknown). null keeps the
+   * existing meaning: "no disc information", read as disc 1 downstream.
+   * The two weakest tiers are gated on the cluster disagreeing with itself —
+   * a "Vol. n" folder only counts when a sibling carries another number, and
+   * an "n-tt" prefix only when the files show two or more distinct discs
+   * (a 3-CD box set whose disc 1 is unprefixed still qualifies on 2 and 3).
+   */
+  const resolveDiscs = (files: FileRow[]): Map<string, number | null> => {
+    const volNums = new Set<number>();
+    const prefixDiscs = new Set<number>();
+    for (const f of files) {
+      const v = dirTokenVol.get(relDirname(f.relPath));
+      if (v !== undefined) volNums.add(v);
+      const p = filenameDiscPrefix(relBasename(f.relPath));
+      if (p) prefixDiscs.add(p.disc);
+    }
+    const volApplies = volNums.size >= 2;
+    const prefixApplies = prefixDiscs.size >= 2;
+
+    const out = new Map<string, number | null>();
+    for (const f of files) {
+      const dir = relDirname(f.relPath);
+      let disc: number | null = f.virtual?.sheet.discNumber ?? f.tags.disc ?? null;
+      if (disc === null) disc = discDirNumber(relBasename(dir));
+      if (disc === null) disc = dirTokenDisc.get(dir) ?? null;
+      if (disc === null && volApplies) disc = dirTokenVol.get(dir) ?? null;
+      if (disc === null && prefixApplies) disc = filenameDiscPrefix(relBasename(f.relPath))?.disc ?? null;
+      out.set(f.id, disc);
+    }
+    return out;
+  };
 
   // Load and parse cue files (spec XO-314). Get scan root path for file I/O.
   const roots = await ctx.db
@@ -186,6 +260,17 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // same >3-distinct-artists rule the 2026-08 archive cleanup validated on
   // this collection (M0 decisions doc).
   // Cue sheet title serves as album when file has no tag (spec XO-314).
+  // While sibling folders are merged, "Liebe ist fur alle da CD1"/"… CD2"
+  // album tags name the same album — the disc token comes off the tag too, or
+  // the two halves would group apart and never become one cluster. Only the
+  // unambiguous cd/disc/disk spellings are stripped: "Mixtape Vol. 2" and
+  // "Mixtape Vol. 3" are two albums, not two discs.
+  const stripDiscToken = (title: string): string => {
+    if (!siblingDirs) return title;
+    const t = discTokenOfFolder(title);
+    return t && t.kind === 'disc' ? t.title : title;
+  };
+
   interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string> }
   const byAlbum = new Map<string, FileRow[]>();
   const loose: FileRow[] = [];
@@ -196,7 +281,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       loose.push(f);
       continue;
     }
-    const albumKey = normKey(albumTag);
+    const albumKey = normKey(stripDiscToken(albumTag));
     const arr = byAlbum.get(albumKey);
     if (arr) arr.push(f);
     else byAlbum.set(albumKey, [f]);
@@ -239,15 +324,13 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     const ckey = clusterKey(data.libraryId, dirPaths, g.albumKey, g.artistKey);
 
     const sample = g.files.find((f) => f.tags.album) ?? g.files[0]!;
+    const discs = resolveDiscs(g.files);
     const discNos = new Set<number>();
     let totalDuration = 0;
     const formats = new Set<string>();
     let trackCount = 0;
     for (const f of g.files) {
-      const parentDisc = discDirNumber(relBasename(relDirname(f.relPath)));
-      // Disc number: cue sheet > file tag > parent disc dir > 1
-      const sheetDisc = f.virtual?.sheet.discNumber ?? null;
-      discNos.add(sheetDisc ?? f.tags.disc ?? parentDisc ?? 1);
+      discNos.add(discs.get(f.id) ?? 1);
       totalDuration += f.durationMs ?? 0;
       formats.add(f.format);
       // Track count: sum of virtual tracks per file, or 1 if plain file
@@ -255,7 +338,9 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     }
 
     const albumValues = {
-      titleGuess: sample.tags.album ?? sample.virtual?.sheet.title ?? null,
+      titleGuess: sample.tags.album
+        ? stripDiscToken(sample.tags.album)
+        : sample.virtual?.sheet.title ?? null,
       artistGuess: g.artistKey === 'various artists' && !sample.tags.albumartist
         ? 'Various Artists'
         : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
@@ -291,16 +376,16 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       albumId = row.id;
     }
 
-    await replaceTracks(ctx, albumId, g.files);
+    await replaceTracks(ctx, albumId, g.files, discs);
   }
 
   // Loose tracks: local_tracks rows with no album (spec LIB-6).
-  if (loose.length > 0) await replaceTracks(ctx, null, loose);
+  if (loose.length > 0) await replaceTracks(ctx, null, loose, resolveDiscs(loose));
 
   // Pinned files keep their override album; refresh their track rows there.
   for (const [fileId, albumId] of pinned) {
     const f = inScope.find((x) => x.id === fileId);
-    if (f) await replaceTracks(ctx, albumId ?? null, [f]);
+    if (f) await replaceTracks(ctx, albumId ?? null, [f], resolveDiscs([f]));
   }
 
   // Clusters in scope that lost every track to regrouping are dead weight;
@@ -312,10 +397,59 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       and ${scope === '' ? ctx.sql`true` : ctx.sql`la.dir_paths && ARRAY[${scope}]::text[]`}
       and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)`;
 
+  // Merging sibling folders supersedes the per-folder clusters they used to
+  // form, and those are exactly the ones the query above cannot reach: a new
+  // cluster_key means a new row, the old row keeps whatever state it reached
+  // (the two-CD bug left both halves 'matched' against a one-disc release),
+  // and its dir_paths name the sibling folder, never the parent scope. So the
+  // directories this run actually touched are swept for zero-track clusters in
+  // any state — nothing owns those files any more.
+  const touchedDirs = new Set<string>([scope, ...(siblingDirs ?? [])]);
+  for (const f of inScope) touchedDirs.add(relDirname(f.relPath));
+  const superseded = (await ctx.sql`
+    delete from local_albums la
+    where la.library_id = ${data.libraryId}
+      and la.dir_paths && ${[...touchedDirs]}::text[]
+      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
+    returning la.id, la.state, la.title_guess`) as unknown as Array<{ id: string; state: string; title_guess: string | null }>;
+  if (superseded.length > 0) {
+    ctx.logger.info({ scope, retired: superseded }, 'retired superseded local albums');
+  }
+
   ctx.logger.debug(
-    { scope, groups: groups.size, loose: loose.length, pinned: pinned.size },
+    { scope, siblingDirs, groups: groups.size, loose: loose.length, pinned: pinned.size },
     'clustered directory',
   );
+}
+
+/** LIKE is used for path prefixes; the archive has folders with '%' and '_'. */
+function likeEscape(s: string): string {
+  return s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+}
+
+/**
+ * Directories one level under `parent` that hold audio files (directly or in
+ * a disc subfolder). Postgres does the distinct, so an artist folder costs one
+ * small result set rather than every row under it.
+ */
+async function subdirsOf(ctx: WorkerContext, scanRootId: string, parent: string): Promise<string[]> {
+  const prefix = parent === '' ? '' : parent + '/';
+  const rows = (await ctx.sql`
+    select distinct case when strpos(rel_path, '/') = 0 then ''
+                         else regexp_replace(rel_path, '/[^/]*$', '') end as dir
+    from audio_files
+    where scan_root_id = ${scanRootId}
+      and status in ('present', 'error')
+      and rel_path like ${likeEscape(prefix) + '%'}`) as unknown as Array<{ dir: string }>;
+  const out = new Set<string>();
+  for (const r of rows) {
+    let d = r.dir;
+    if (parent !== '' && !d.startsWith(prefix)) continue;
+    // Walk up to the child of `parent` (a file may sit in "…/Album CD1/CD1").
+    while (d !== '' && relDirname(d) !== parent) d = relDirname(d);
+    if (d !== '' && relDirname(d) === parent) out.add(d);
+  }
+  return [...out];
 }
 
 function toFileRow(r: { id: string; relPath: string; durationMs: number | null; tagsRaw: unknown }): FileRow {
@@ -328,8 +462,20 @@ function toFileRow(r: { id: string; relPath: string; durationMs: number | null; 
   };
 }
 
-async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: FileRow[]): Promise<void> {
+async function replaceTracks(
+  ctx: WorkerContext,
+  albumId: string | null,
+  files: FileRow[],
+  discs: Map<string, number | null>,
+): Promise<void> {
   await ctx.db.delete(localTracks).where(inArray(localTracks.audioFileId, files.map((f) => f.id)));
+
+  // null disc_no keeps meaning "no disc information" for an ordinary
+  // single-disc album. Inside a cluster that spans discs the distinction is
+  // gone — an unnumbered file is disc 1 of the set (a box set whose disc 1
+  // carries no "n-tt" prefix) — so it is written out, and every reader sees a
+  // disc number on every track of a multi-disc album.
+  const multiDisc = new Set([...discs.values()].map((d) => d ?? 1)).size >= 2;
 
   const rows: Array<{
     localAlbumId: string | null;
@@ -347,7 +493,7 @@ async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: 
 
   for (const f of files) {
     const name = relBasename(f.relPath);
-    const parentDisc = discDirNumber(relBasename(relDirname(f.relPath)));
+    const discNo = discs.get(f.id) ?? (multiDisc ? 1 : null);
 
     if (f.virtual) {
       // Virtual tracks: one row per track from the cue sheet
@@ -356,7 +502,7 @@ async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: 
         rows.push({
           localAlbumId: albumId,
           audioFileId: f.id,
-          discNo: vt.sheet.discNumber ?? f.tags.disc ?? parentDisc ?? null,
+          discNo,
           trackNo: track.number,
           titleGuess: track.title ?? `Track ${track.number}`,
           artistGuess: track.performer ?? f.tags.artist ?? f.tags.albumartist ?? null,
@@ -372,8 +518,8 @@ async function replaceTracks(ctx: WorkerContext, albumId: string | null, files: 
       rows.push({
         localAlbumId: albumId,
         audioFileId: f.id,
-        discNo: f.tags.disc ?? parentDisc ?? null,
-        trackNo: f.tags.track ?? trackNoFromName(name),
+        discNo,
+        trackNo: f.tags.track ?? filenameDiscPrefix(name)?.track ?? trackNoFromName(name),
         titleGuess: f.tags.title ?? titleFromName(name),
         artistGuess: f.tags.artist ?? f.tags.albumartist ?? null,
         durationMs: f.durationMs,

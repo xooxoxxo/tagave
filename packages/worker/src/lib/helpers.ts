@@ -61,6 +61,49 @@ export function discDirNumber(basename: string): number | null {
   return parseInt(m[1], 10);
 }
 
+/**
+ * A disc token appended to an album folder name: "Album CD1",
+ * "Album (Disc 2)", "Album - Disc 2", "Album [CD 2]", "Album Vol. 2".
+ * The closing bracket is optional on purpose — real folders drop it
+ * ("The Life & Times Of Laddio Bolocko (Disc 2").
+ */
+const FOLDER_DISC_TOKEN_RE =
+  /^(.+?)(?:[\s._-]+|\s*[([{]\s*)(cd|disc|disk|vol(?:ume)?)\.?[\s._-]*(\d{1,3})\s*[)\]}]?$/i;
+
+/**
+ * Splits a trailing disc token off a folder name. `kind` separates the
+ * unambiguous spellings (cd/disc/disk) from "Vol. 2", which is just as often
+ * part of a real album title — the caller only honours a 'vol' token when a
+ * sibling folder carries a different volume number (spec: disc precedence).
+ */
+export function discTokenOfFolder(
+  basename: string,
+): { title: string; disc: number; kind: 'disc' | 'vol' } | null {
+  const m = FOLDER_DISC_TOKEN_RE.exec(basename.trim());
+  if (!m || !m[1] || !m[2] || !m[3]) return null;
+  const title = m[1].replace(/[\s._\-([{]+$/, '').trim();
+  if (!title) return null;
+  const disc = parseInt(m[3], 10);
+  if (!(disc > 0)) return null;
+  return { title, disc, kind: /^vol/i.test(m[2]) ? 'vol' : 'disc' };
+}
+
+/**
+ * "n-tt" filename prefix: "2-01 Title" is track 1 of disc 2. The track part
+ * must be exactly two digits followed by a non-digit, so "201 Title" (a bare
+ * three-digit track number) and "1969 - Title" are not disc prefixes.
+ */
+const FILE_DISC_PREFIX_RE = /^(\d{1,2})[-._](\d{2})(?!\d)/;
+
+export function filenameDiscPrefix(basename: string): { disc: number; track: number } | null {
+  const m = FILE_DISC_PREFIX_RE.exec(basename.trim());
+  if (!m || !m[1] || !m[2]) return null;
+  const disc = parseInt(m[1], 10);
+  const track = parseInt(m[2], 10);
+  if (!(disc > 0) || !(track > 0)) return null;
+  return { disc, track };
+}
+
 const YEAR_RE = /(?:19|20)\d{2}/;
 
 /** First plausible release year found in the string, else null. */
@@ -80,10 +123,16 @@ export function trackNoFromName(basename: string): number | null {
   return n > 0 && n < 1000 ? n : null;
 }
 
-/** Title guess from a filename: strip extension and leading track number. */
+/** Title guess from a filename: strip extension and leading track number
+ * (or "n-tt" disc-and-track prefix). */
 export function titleFromName(basename: string): string {
-  const stem = basename.replace(/\.[^.]+$/, '');
-  const stripped = stem.replace(TRACK_PREFIX_RE, '').trim();
+  const stem = basename.trim().replace(/\.[^.]+$/, '');
+  let stripped: string;
+  if (filenameDiscPrefix(stem)) {
+    stripped = stem.replace(FILE_DISC_PREFIX_RE, '').replace(/^[\s._\-)\]]+/, '').trim();
+  } else {
+    stripped = stem.replace(TRACK_PREFIX_RE, '').trim();
+  }
   return stripped || stem;
 }
 
