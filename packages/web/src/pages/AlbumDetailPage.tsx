@@ -4,7 +4,7 @@
  * needed to act without leaving: gaps with dismiss, missing tracks,
  * candidate accept/exclude, duplicate copies, art refetch, as-is/ignore.
  */
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
@@ -791,10 +791,15 @@ export function AlbumDetailPage() {
           </tr>
         </thead>
         <tbody>
-          {album.tracks.map((t) => (
-            <tr key={t.id} className={t.file.status === 'error' ? styles.trackError : ''}>
+          {album.tracks.map((t, i) => (<Fragment key={t.id}>
+            {/* multi-disc sets: one header row per disc (tracks arrive sorted by disc, then number) */}
+            {(album.discCount ?? 1) > 1 && (i === 0 || (album.tracks[i - 1]?.discNo ?? 1) !== (t.discNo ?? 1)) && (
+              <tr className={styles.discHeader}>
+                <td colSpan={album.release ? 5 : 4}>Disc {t.discNo ?? 1}</td>
+              </tr>
+            )}
+            <tr className={t.file.status === 'error' ? styles.trackError : ''}>
               <td className={styles.num}>
-                {t.discNo && (album.discCount ?? 1) > 1 ? `${t.discNo}-` : ''}
                 {t.trackNo ?? '–'}
               </td>
               <td>
@@ -824,7 +829,7 @@ export function AlbumDetailPage() {
                 ].filter(Boolean).join(' · ')}
               </td>
             </tr>
-          ))}
+          </Fragment>))}
         </tbody>
       </table>
       </>)}

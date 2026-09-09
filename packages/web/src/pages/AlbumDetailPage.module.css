@@ -490,6 +490,16 @@
   margin-top: var(--space-xs);
 }
 
+.discHeader td {
+  padding-top: var(--space-md);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  border-bottom: 1px solid var(--border-secondary);
+}
+
 .num {
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
