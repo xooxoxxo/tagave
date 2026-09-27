@@ -39,12 +39,16 @@ export async function refreshLibraryFacets(
            (select greatest(max(created_at), max(removed_at)) from collection_items where library_id = ${libraryId}) as collection_changed
     from (select 1) x
     left join facet_state fs on fs.library_id = ${libraryId}`) as unknown as Array<{
-    computed_at: Date | null; dirty_at: Date | null;
-    albums_changed: Date | null; gaps_changed: Date | null; collection_changed: Date | null;
+    computed_at: Date | string | null; dirty_at: Date | string | null;
+    albums_changed: Date | string | null; gaps_changed: Date | string | null; collection_changed: Date | string | null;
   }>;
-  const computedAt = st?.computed_at ?? null;
+  // drizzle's driver swaps the timestamp parsers on the shared client, so raw
+  // queries hand these back as strings
+  const toDate = (v: Date | string | null | undefined): Date | null => (v ? new Date(v) : null);
+  const computedAt = toDate(st?.computed_at);
   const changed = [st?.dirty_at, st?.albums_changed, st?.gaps_changed, st?.collection_changed]
-    .filter((d): d is Date => d instanceof Date);
+    .map(toDate)
+    .filter((d): d is Date => d !== null);
   const stale = force || !computedAt
     || changed.some((d) => d.getTime() > computedAt.getTime())
     || Date.now() - computedAt.getTime() > MAX_AGE_MS;
