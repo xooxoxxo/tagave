@@ -853,22 +853,48 @@ export function AlbumDetailPage() {
                   Refresh
                 </button>
               )}
+              {!editions?.fetchedAt && !editions?.fetching && editions?.editions.length! > 0 && (
+                <button
+                  className={styles.linkButton}
+                  onClick={() => refreshEditions.mutate(albumId)}
+                  disabled={refreshEditions.isPending}
+                  title="Fetch the complete list of editions from MusicBrainz"
+                >
+                  {refreshEditions.isPending ? 'Queuing…' : 'Fetch from MusicBrainz'}
+                </button>
+              )}
             </div>
           </div>
           {!album.releaseGroupId ? (
             <p className={styles.muted}>Editions belong to a release group — match this album first.</p>
           ) : !editions ? (
             <p className={styles.muted}>Loading…</p>
-          ) : !editions.fetchedAt && !editions.fetching ? (
+          ) : editions.editions.length === 0 ? (
+            <>
+              <p className={styles.muted}>
+                {editions.fetching
+                  ? 'Fetching editions from MusicBrainz…'
+                  : 'No editions found.'}
+              </p>
+              {!editions.fetchedAt && !editions.fetching && (
+                <button
+                  className={styles.linkButton}
+                  onClick={() => refreshEditions.mutate(albumId)}
+                  disabled={refreshEditions.isPending}
+                >
+                  {refreshEditions.isPending ? 'Queuing…' : 'Fetch from MusicBrainz'}
+                </button>
+              )}
+            </>
+          ) : (<>
+          {!editions.fetchedAt && !editions.fetching && (
             <p className={styles.muted}>
-              The editions of this release group have not been fetched yet.{' '}
+              Showing {editions.editions.length} edition{editions.editions.length === 1 ? '' : 's'} we know about.{' '}
               <button className={styles.linkButton} onClick={() => refreshEditions.mutate(albumId)} disabled={refreshEditions.isPending}>
-                {refreshEditions.isPending ? 'Queuing…' : 'Fetch editions from MusicBrainz'}
+                {refreshEditions.isPending ? 'Queuing…' : 'Fetch the full list from MusicBrainz'}
               </button>
             </p>
-          ) : editions.editions.length === 0 ? (
-            <p className={styles.muted}>{editions.fetching ? 'Fetching…' : 'MusicBrainz lists no other editions for this release group.'}</p>
-          ) : (<>
+          )}
           <table className={styles.candTable}>
             <thead>
               <tr>
