@@ -28,9 +28,7 @@ services:
     environment:
       # On worker host: connect to postgres on the primary host
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD}@${WORKER_DATABASE_HOST}:5432/${POSTGRES_DB:-liner}
-    depends_on:
-      # Don't wait for local postgres (it doesn't exist)
-      - "off"
+    depends_on: {}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h ${WORKER_DATABASE_HOST} -U ${POSTGRES_USER:-liner}"]
       interval: 10s
@@ -43,9 +41,7 @@ services:
     environment:
       # On worker host: connect to postgres on the primary host
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD}@${WORKER_DATABASE_HOST}:5432/${POSTGRES_DB:-liner}
-    depends_on:
-      # Don't wait for local postgres (it doesn't exist)
-      - "off"
+    depends_on: {}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h ${WORKER_DATABASE_HOST} -U ${POSTGRES_USER:-liner}"]
       interval: 10s
