@@ -816,6 +816,95 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/add-items
+   * Add albums to an existing tag plan (merge scope if both are albumIds).
+   * Invalidates preview so it recomputes with the merged scope.
+   * Only works on draft/previewed plans.
+   */
+  fastify.post<{ Params: { libraryId: string; planId: string }; Body: { scope: TagPlanScope } }>(
+    '/tag-plans/:planId/add-items',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const { scope: newScope } = request.body as { scope: TagPlanScope };
+      const db = getDb();
+
+      // Verify library ownership
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(
+          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        );
+
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      // Verify plan exists and belongs to library
+      const plans = await db
+        .select()
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+
+      if (plans.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+
+      const plan = plans[0]!;
+
+      // Only draft/previewed plans can accept new items
+      if (!['draft', 'previewed'].includes(plan.status)) {
+        throw new ApiError(400, 'Bad Request', `Cannot add items to plan in status '${plan.status}'`);
+      }
+
+      // Merge scopes: both must be albumIds type
+      const existingScope = typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope;
+
+      if (existingScope.type !== 'albumIds') {
+        throw new ApiError(400, 'Bad Request', 'Cannot add items to plans with non-album scope (only albumIds plans support merging)');
+      }
+
+      if (newScope.type !== 'albumIds') {
+        throw new ApiError(400, 'Bad Request', 'Can only add items from albumIds scope');
+      }
+
+      // Merge: union of album IDs, removing duplicates
+      const mergedIds = Array.from(new Set([...existingScope.albumIds, ...newScope.albumIds]));
+
+      // If no new albums, return success (idempotent)
+      if (mergedIds.length === existingScope.albumIds.length) {
+        reply.status(200).send({
+          message: 'No new albums to add (already in plan)',
+          planId,
+          albumCount: mergedIds.length,
+        });
+        return;
+      }
+
+      // Update plan scope and reset preview
+      await db
+        .update(tagPlans)
+        .set({
+          scope: { type: 'albumIds', albumIds: mergedIds },
+          status: 'draft',
+          stats: {},
+        })
+        .where(eq(tagPlans.id, planId));
+
+      reply.status(200).send({
+        message: 'Items added to plan; preview invalidated',
+        planId,
+        albumCount: mergedIds.length,
+        previousCount: existingScope.albumIds.length,
+      });
+    }
+  );
+
+  /**
    * DELETE /api/v1/libraries/:libraryId/tag-plans/:planId
    * Delete a tag plan and its items
    * Refuses with 409 if the plan is currently applying

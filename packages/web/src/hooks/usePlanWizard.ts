@@ -242,3 +242,22 @@ export function useLibrarySettings(libraryId: string | undefined) {
     staleTime: 1000 * 60, // 1 minute
   });
 }
+
+/**
+ * Add items to an existing tag plan (POST /libraries/:libraryId/tag-plans/:planId/add-items)
+ * Merges scope (for albumIds only) and invalidates preview
+ */
+export function useAddToTagPlan(libraryId: string | undefined, planId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (scope: TagPlanScope) =>
+      api.post<{ message: string; planId: string; albumCount: number }>(
+        `/libraries/${libraryId}/tag-plans/${planId}/add-items`,
+        { scope }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+    },
+  });
+}
