@@ -237,6 +237,20 @@
 }
 
 
+/* plan choice (first step when open plans exist) */
+.choiceText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.choiceMeta {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 /* scope pickers (step 1) */
 .scopeBlock {
   display: flex;

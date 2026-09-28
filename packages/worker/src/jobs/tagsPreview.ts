@@ -232,6 +232,23 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
   }
 
   const stats: TagPlanStats = { filesTouched, fieldsModified, lockedFieldsRespected, filesSkipped };
-  await db.update(tagPlans).set({ status: 'previewed', stats }).where(eq(tagPlans.id, planId));
+  // Only mark the plan previewed if its scope is still the one this run read
+  // (albums added mid-run would otherwise look previewed when they are not)
+  // and nothing has moved it past preview. The request that changed the
+  // scope queued the preview that replaces this one.
+  const scopeJson = typeof plan.scope === 'string' ? plan.scope : JSON.stringify(plan.scope);
+  const marked = await db
+    .update(tagPlans)
+    .set({ status: 'previewed', stats })
+    .where(and(
+      eq(tagPlans.id, planId),
+      inArray(tagPlans.status, ['draft', 'previewed']),
+      sql`${tagPlans.scope} = ${scopeJson}::jsonb`,
+    ))
+    .returning({ id: tagPlans.id });
+  if (marked.length === 0) {
+    ctx.logger.info({ planId }, 'tags.preview superseded: the plan changed while it ran');
+    return;
+  }
   ctx.logger.info({ planId, files: fileIds.length, ...stats, filesSkipped: filesSkipped.length }, 'tags.preview done');
 }

@@ -237,4 +237,45 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     const bFill = fillItems.find((i: any) => i.audioFileId === fileB)!;
     expect(diffMap(bFill).title).toMatchObject({ before: null, after: 'Canon Two', reason: 'policy:fill' });
   });
+
+  it('does not mark the plan previewed when albums were added while it ran', async () => {
+    const grown = randomUUID();
+    planIds.push(grown);
+    await db.insert(tagPlans).values({
+      id: grown, libraryId, name: 'grown', scope: { type: 'albumIds', albumIds: [albumId] },
+      policy: { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' }, status: 'draft', stats: {}, createdBy: userId,
+    });
+    // Albums are added (as POST add-items does) the moment the job writes its first row.
+    let added = false;
+    const racingDb = new Proxy(db, {
+      get(target, prop) {
+        if (prop === 'insert') {
+          return (table: unknown) => {
+            const builder = target.insert(table);
+            if (table !== tagPlanItems || added) return builder;
+            added = true;
+            return {
+              values: async (v: unknown) => {
+                await target.update(tagPlans).set({ scope: { type: 'albumIds', albumIds: [albumId, strayAlbum] }, status: 'draft', stats: {} }).where(eq(tagPlans.id, grown));
+                return builder.values(v);
+              },
+            };
+          };
+        }
+        const v = Reflect.get(target, prop, target);
+        return typeof v === 'function' ? v.bind(target) : v;
+      },
+    });
+    await tagsPreviewJob({ ...ctx, db: racingDb }, grown);
+    expect(added).toBe(true);
+    const [stale] = await db.select().from(tagPlans).where(eq(tagPlans.id, grown));
+    expect(stale.status).toBe('draft');
+    expect(stale.stats).toEqual({});
+
+    // The preview queued by the add sees both albums and finishes normally.
+    await tagsPreviewJob(ctx, grown);
+    const [fresh] = await db.select().from(tagPlans).where(eq(tagPlans.id, grown));
+    expect(fresh.status).toBe('previewed');
+    expect((fresh.stats as any).filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'audio_file_error', message: 'album not identified' }]);
+  });
 });
