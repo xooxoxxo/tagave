@@ -391,7 +391,7 @@ async function main() {
       for (const job of jobs) {
         const planId = (job.data as { planId: string }).planId;
         logger.info({ jobId: job.id, planId }, 'tags.preview start');
-        await tagsPreviewJob(ctx, planId);
+        await tagsPreviewJob(ctx, planId, { pgbossId: job.id });
       }
     });
   }

@@ -17,6 +17,7 @@ import {
   createTagPlanSchema,
   type TagPlan,
   type TagPlanItem,
+  type TagPlanPreviewJob,
   type TagPlanScope,
   type TagPolicies,
 } from '@liner/shared';
@@ -34,6 +35,51 @@ import { albumQueryParts } from './albums.js';
  * - GET /api/v1/libraries/:libraryId/tag-plans/:planId/items (filtered items)
  * - POST /api/v1/libraries/:libraryId/tag-plans/:planId/preview (enqueue preview job)
  */
+/** Raw rows read timestamps (and sometimes jsonb) as strings on the shared client; accept both. */
+const isoOf = (v: unknown): string | undefined => (v == null ? undefined : new Date(v as string | Date).toISOString());
+
+/**
+ * The newest tags.preview job for a plan: pg-boss says whether it is queued,
+ * running or done; the worker's job_runs row (matched by pg-boss id) says
+ * what it is doing and how many files it has compared.
+ */
+export async function latestPreviewJob(db: ReturnType<typeof getDb>, planId: string): Promise<TagPlanPreviewJob | undefined> {
+  const rows = (await db.execute(sql`
+    select j.id::text as job_id, j.state as boss_state, j.created_on, j.started_on, j.completed_on,
+           r.id::text as run_id, r.progress, r.error
+      from pgboss.job j
+      left join job_runs r on r.pgboss_id = j.id::text and r.type = 'tags.preview'
+     where j.name = 'tags.preview' and j.data->>'planId' = ${planId}
+     order by j.created_on desc, r.created_at desc nulls last
+     limit 1`)) as unknown as Array<{
+    job_id: string; boss_state: string; created_on: unknown; started_on: unknown; completed_on: unknown;
+    run_id: string | null; progress: unknown; error: string | null;
+  }>;
+  const row = rows[0];
+  if (!row) return undefined;
+  const state: TagPlanPreviewJob['state'] =
+    row.boss_state === 'completed' ? 'completed'
+    : row.boss_state === 'failed' || row.boss_state === 'cancelled' ? 'failed'
+    : row.boss_state === 'active' ? 'running'
+    : 'queued'; // created, retry
+  const raw = typeof row.progress === 'string' ? JSON.parse(row.progress) : row.progress;
+  const progress = (raw ?? {}) as { done?: unknown; total?: unknown; message?: unknown };
+  const startedAt = isoOf(row.started_on);
+  const finishedAt = isoOf(row.completed_on);
+  return {
+    jobId: row.job_id,
+    state,
+    queuedAt: isoOf(row.created_on)!,
+    ...(startedAt ? { startedAt } : {}),
+    ...(finishedAt ? { finishedAt } : {}),
+    ...(row.run_id ? { jobRunId: row.run_id } : {}),
+    ...(typeof progress.message === 'string' && progress.message ? { message: progress.message } : {}),
+    ...(typeof progress.done === 'number' ? { done: progress.done } : {}),
+    ...(typeof progress.total === 'number' && progress.total > 0 ? { total: progress.total } : {}),
+    ...(row.error ? { error: row.error } : {}),
+  };
+}
+
 /**
  * Readable scope per plan: artist name for artist scopes (one query for the
  * page), album counts otherwise. The raw scope keeps the ids.
@@ -287,7 +333,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         progress['total'] = (progress['total'] ?? 0) + c.n;
       }
 
-      const formatted: TagPlan & { progress: Record<string, number> } = {
+      // A draft is waiting on its preview; say what that job is doing so the
+      // page can show it instead of a bare spinner (and link to it).
+      const previewJob = plan.status === 'draft' ? await latestPreviewJob(db, planId) : undefined;
+
+      const formatted: TagPlan & { progress: Record<string, number>; previewJob?: TagPlanPreviewJob } = {
         id: plan.id,
         libraryId: plan.libraryId,
         name: plan.name,
@@ -299,6 +349,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         createdAt: plan.createdAt.toISOString(),
         appliedAt: plan.appliedAt?.toISOString(),
         progress,
+        ...(previewJob ? { previewJob } : {}),
       };
 
       reply.send(formatted);

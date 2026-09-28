@@ -28,6 +28,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
 import { linkAlbumTracks, ensureTrackMbids } from '../lib/trackLinks.js';
+import { reportProgress, type ProgressUpdate } from './progress.js';
 
 export { currentFieldsFrom };
 
@@ -133,10 +134,67 @@ async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, sco
 
 void releaseGroupArtists; // referenced via raw SQL above; keeps the import meaningful for readers
 
-export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promise<void> {
-  const db = ctx.db;
-  const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
+/** How often the preview rewrites its job_runs row while it walks files. */
+const PROGRESS_EVERY_MS = 1_000;
+
+/**
+ * The preview's row in job_runs, so Settings › Background activity lists it
+ * and the plan page can show what it is doing while the owner waits.
+ * Best effort: a failed progress write is logged, never fails the preview.
+ */
+function previewProgress(ctx: WorkerContext, libraryId: string, planId: string, pgbossId: string | undefined) {
+  let rowId: string | null = null;
+  let lastAt = 0;
+  const write = async (u: Pick<ProgressUpdate, 'state' | 'done' | 'total' | 'message' | 'error'>) => {
+    try {
+      rowId = await reportProgress(ctx, rowId, {
+        libraryId, type: 'tags.preview', subjectType: 'tag_plan', subjectId: planId,
+        ...(pgbossId ? { pgbossId } : {}),
+        ...u,
+      });
+    } catch (err) {
+      ctx.logger.warn({ err: (err as Error).message, planId }, 'tags.preview progress write failed');
+    }
+  };
+  const n = (x: number) => x.toLocaleString('en');
+  const throttled = async (fn: () => Promise<void>) => {
+    const now = Date.now();
+    if (now - lastAt < PROGRESS_EVERY_MS) return;
+    lastAt = now;
+    await fn();
+  };
+  return {
+    step: (message: string) => write({ state: 'running', message }),
+    /** Rewrites the row at most once per PROGRESS_EVERY_MS, so a long step still shows movement. */
+    albums: (done: number, total: number) => throttled(() =>
+      write({ state: 'running', done, total, message: `Checking track links: ${n(done)} of ${n(total)} albums` })),
+    /** Rewrites the row at most once per PROGRESS_EVERY_MS. */
+    files: (done: number, total: number) => throttled(() =>
+      write({ state: 'running', done, total, message: `Comparing tags: ${n(done)} of ${n(total)} files` })),
+    done: (total: number) => write({ state: 'completed', done: total, total, message: `Compared ${n(total)} files` }),
+    /** The plan changed mid-run; the preview queued by that change replaces this one. */
+    superseded: () => write({ state: 'completed', message: 'Stopped early: the plan changed, so a newer check replaces this one' }),
+    fail: (err: unknown) => write({ state: 'failed', error: err instanceof Error ? err.message : String(err) }),
+  };
+}
+type PreviewProgress = ReturnType<typeof previewProgress>;
+
+export async function tagsPreviewJob(ctx: WorkerContext, planId: string, opts: { pgbossId?: string } = {}): Promise<void> {
+  const [plan] = await ctx.db.select().from(tagPlans).where(eq(tagPlans.id, planId));
   if (!plan) throw new Error(`Tag plan ${planId} not found`);
+  const progress = previewProgress(ctx, plan.libraryId, planId, opts.pgbossId);
+  try {
+    await runPreview(ctx, plan, progress);
+  } catch (err) {
+    await progress.fail(err);
+    throw err;
+  }
+}
+
+async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect, progress: PreviewProgress): Promise<void> {
+  const db = ctx.db;
+  const planId = plan.id;
+  await progress.step('Finding the files in scope');
 
   const libraryId = plan.libraryId;
   const scope = plan.scope as TagPlanScope;
@@ -151,26 +209,31 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
   );
 
   // 0026: before resolving, ensure tracks are linked and track mbids are fresh
-  // Find distinct matched albums that contain files in scope
-  const albumsInScope = await db
-    .select({ id: localAlbums.id, releaseId: localAlbums.releaseId, tracksLinkedAt: localAlbums.tracksLinkedAt })
-    .from(localAlbums)
-    .where(and(eq(localAlbums.libraryId, libraryId), eq(localAlbums.state, 'matched')));
+  // for the matched albums that hold files in scope, and only those. This
+  // used to select every matched album in the library, so a one-album plan
+  // walked every matched album and release in turn, a few sequential queries
+  // each plus a "tracks already have ids" marker write for most releases.
+  // On a large library that alone outlasts the plan page's 30 s wait. One
+  // array parameter, not a list, so a whole-library scope stays one query
+  // under the bind-parameter limit.
+  const albumsInScope = fileIds.length === 0 ? [] : (await ctx.sql`
+    select la.id::text as id, la.release_id::text as "releaseId", (la.tracks_linked_at is not null) as linked
+      from local_albums la
+     where la.library_id = ${libraryId}
+       and la.state = 'matched'
+       and la.release_id is not null
+       and la.id in (select lt.local_album_id from local_tracks lt where lt.audio_file_id = any(${fileIds}::uuid[]))
+  `) as unknown as Array<{ id: string; releaseId: string; linked: boolean }>;
 
   // Link albums that haven't been linked yet
-  for (const album of albumsInScope) {
-    if (album.releaseId && !album.tracksLinkedAt) {
-      await linkAlbumTracks(ctx, album.id);
-    }
+  for (const [i, album] of albumsInScope.entries()) {
+    await progress.albums(i, albumsInScope.length);
+    if (!album.linked) await linkAlbumTracks(ctx, album.id);
   }
 
   // Ensure track mbids are fresh for each distinct release
-  const releaseIdsSeen = new Set<string>();
-  for (const album of albumsInScope) {
-    if (album.releaseId && !releaseIdsSeen.has(album.releaseId)) {
-      releaseIdsSeen.add(album.releaseId);
-      await ensureTrackMbids(ctx, libraryId, album.releaseId);
-    }
+  for (const releaseId of new Set(albumsInScope.map((a) => a.releaseId))) {
+    await ensureTrackMbids(ctx, libraryId, releaseId);
   }
 
   let filesTouched = 0;
@@ -179,7 +242,8 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
   const filesSkipped: TagPlanStats['filesSkipped'] = [];
   const fields = Object.values(CanonicalField) as CanonicalField[];
 
-  for (const audioFileId of fileIds) {
+  for (const [i, audioFileId] of fileIds.entries()) {
+    await progress.files(i, fileIds.length);
     try {
       const [file] = await db.select().from(audioFiles).where(eq(audioFiles.id, audioFileId));
       if (!file) {
@@ -248,7 +312,9 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
     .returning({ id: tagPlans.id });
   if (marked.length === 0) {
     ctx.logger.info({ planId }, 'tags.preview superseded: the plan changed while it ran');
+    await progress.superseded();
     return;
   }
+  await progress.done(fileIds.length);
   ctx.logger.info({ planId, files: fileIds.length, ...stats, filesSkipped: filesSkipped.length }, 'tags.preview done');
 }

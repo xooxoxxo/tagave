@@ -218,6 +218,8 @@ export {
   type TagPlanStats,
   tagPlanSchema,
   type TagPlan,
+  tagPlanPreviewJobSchema,
+  type TagPlanPreviewJob,
   createTagPlanSchema,
   type CreateTagPlan,
   tagPlanItemSchema,

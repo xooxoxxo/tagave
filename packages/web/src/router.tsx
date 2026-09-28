@@ -134,6 +134,11 @@ const settingsSectionRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/$section',
   component: SettingsPage,
+  // ?job=<job_runs id> points Background activity at one job (a plan's
+  // preview and the activity list itself link here): JobsPage reads it with
+  // useSearch, asks the API to include it and scrolls to it, highlighted.
+  validateSearch: (search: Record<string, unknown>): { job?: string } =>
+    typeof search['job'] === 'string' && search['job'] ? { job: search['job'] } : {},
 });
 
 const settingsLibraryRoute = new Route({
