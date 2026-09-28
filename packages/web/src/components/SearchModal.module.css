@@ -1,3 +1,6 @@
+/* The ⌘K palette is one surface: input and results share the modal's
+   background, with no border, outline or track between them. Colours come
+   only from tokens, so it follows the app theme. */
 .overlay {
   position: fixed;
   inset: 0;
@@ -23,9 +26,9 @@
 
 .inputContainer {
   position: relative;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
-  background: var(--bg-secondary);
 }
 
 .searchIcon {
@@ -39,12 +42,19 @@
   stroke-width: 2;
 }
 
+/* The input is focused whenever the palette is open, so a focus ring here
+   would only ever show as a clipped accent line under the input (the modal
+   clips the other three sides). That includes the global input:focus halo
+   in index.css (box-shadow + accent border). The caret marks focus instead. */
 .input {
   flex: 1;
-  padding: 0.85rem 0.85rem 0.85rem 2.8rem;
+  min-width: 0;
+  padding: 0.85rem 3.25rem 0.85rem 2.8rem;
   font-size: var(--font-size-base);
   background: transparent;
   border: none;
+  border-radius: 0;
+  box-shadow: none;
   color: var(--text-primary);
   outline: none;
   font-family: var(--font-family);
@@ -54,13 +64,12 @@
   color: var(--text-tertiary);
 }
 
-.input:focus {
-  outline: none;
-}
-
+.input:hover,
+.input:focus,
 .input:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: var(--focus-offset);
+  border: none;
+  box-shadow: none;
+  outline: none;
 }
 
 .escHint {
@@ -74,44 +83,62 @@
   pointer-events: none;
 }
 
+/* Shown only while a search is in flight: a short, faint sweep inset from
+   the edges rather than a full-width rule. */
 .loadingBar {
   position: absolute;
   bottom: 0;
-  left: 0;
-  right: 0;
+  left: 0.85rem;
+  right: 0.85rem;
   height: 2px;
+  border-radius: var(--radius-full);
   background: var(--accent);
+  opacity: 0.5;
   animation: loadingPulse 1.5s ease-in-out infinite;
 }
 
 @keyframes loadingPulse {
   0%, 100% {
-    opacity: 0.3;
+    opacity: 0.15;
   }
   50% {
-    opacity: 1;
+    opacity: 0.6;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .loadingBar {
     animation: none;
-    opacity: 0.5;
+    opacity: 0.4;
   }
 }
 
+/* Inset from the modal's right and bottom edges so the scrollbar never runs
+   under the rounded corner; the left padding mirrors the right inset. */
 .results {
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 0.5rem 0;
-  max-height: calc(60vh - 3.5rem);
-  scrollbar-gutter: stable;
+  margin: 0 0.375rem 0.375rem 0;
+  padding: 0.25rem 0 0.25rem 0.375rem;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-secondary) var(--bg-secondary);
+  scrollbar-color: var(--border-secondary) transparent;
+}
+
+/* Browsers without scrollbar-color use the global ::-webkit-scrollbar rules,
+   whose track is --bg-primary; keep the track on the modal's surface. */
+.results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.results::-webkit-scrollbar-thumb {
+  background: var(--border-secondary);
+  border-radius: var(--radius-full);
 }
 
 .sectionLabel {
-  padding: 0.5rem 0.85rem 0.25rem;
+  padding: 0.5rem 0.5rem 0.25rem;
   font-size: var(--font-size-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -124,7 +151,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
-  padding: 0.4rem 0.85rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: background var(--transition-fast);
 }
@@ -135,11 +163,6 @@
 
 .rowSelected {
   background: var(--bg-tertiary);
-}
-
-.rowSelected:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: -2px;
 }
 
 .primary {
@@ -160,18 +183,18 @@
 }
 
 .noResults {
-  padding: 1rem 0.85rem;
+  padding: 1rem 0.5rem;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   text-align: center;
 }
 
 .error {
-  padding: 0.75rem 0.85rem;
+  flex-shrink: 0;
+  padding: 0.5rem 0.85rem 0.75rem;
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
   text-align: center;
-  border-bottom: 1px solid var(--border);
 }
 
 .error button {
@@ -191,67 +214,4 @@
 .error button:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  .overlay {
-    background: rgba(0, 0, 0, 0.5);
-  }
-
-  .modal {
-    background: var(--bg-secondary);
-    border-color: var(--border);
-  }
-
-  .inputContainer {
-    background: var(--bg-secondary);
-  }
-
-  .input {
-    background: transparent;
-    color: var(--text-primary);
-  }
-
-  .searchIcon,
-  .escHint {
-    color: var(--text-tertiary);
-  }
-
-  .loadingBar {
-    background: var(--accent);
-  }
-
-  .results {
-    scrollbar-color: var(--border-secondary) var(--bg-secondary);
-  }
-
-  .sectionLabel,
-  .secondary {
-    color: var(--text-tertiary);
-  }
-
-  .row:hover {
-    background: var(--bg-hover);
-  }
-
-  .rowSelected {
-    background: var(--bg-tertiary);
-  }
-
-  .noResults,
-  .error {
-    color: var(--text-secondary);
-  }
-
-  .error {
-    border-bottom-color: var(--border);
-  }
-
-  .error button {
-    color: var(--accent);
-  }
-
-  .error button:hover {
-    color: var(--accent-hover);
-  }
 }

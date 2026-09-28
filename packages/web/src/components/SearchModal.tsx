@@ -169,7 +169,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
                 ))}
               </div>
             ))}
-            {hasSearched && rows.length === 0 && !isFetching && (
+            {hasSearched && rows.length === 0 && !isFetching && !isError && (
               <div className={styles.noResults}>No results for "{debounced}"</div>
             )}
           </div>
