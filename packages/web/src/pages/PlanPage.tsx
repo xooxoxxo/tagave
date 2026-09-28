@@ -111,6 +111,15 @@ const FIELD_LABELS: Record<string, string> = {
   discogs_master_id: 'Discogs master ID',
 };
 
+// Hover text for a file row: the first few field names, then a count.
+// The full list is one click away in the expanded diff.
+const FIELD_LIST_MAX = 6;
+function shortFieldList(fields: string[]): string {
+  const labels = fields.map((f) => FIELD_LABELS[f] ?? f);
+  if (labels.length <= FIELD_LIST_MAX) return labels.join(', ');
+  return `${labels.slice(0, FIELD_LIST_MAX).join(', ')} and ${labels.length - FIELD_LIST_MAX} more`;
+}
+
 
 export function PlanPage() {
   const { planId } = useParams({ strict: false }) as { planId: string };
@@ -566,7 +575,7 @@ export function PlanPage() {
                 const dir = (it.relPath ?? '').split('/').slice(0, -1).join('/');
                 const name = (it.relPath ?? it.audioFileId).split('/').pop();
                 const st = (it.status ?? 'pending') as ItemStatus;
-                const fieldList = rows.map((d) => FIELD_LABELS[d.field] ?? d.field).join(', ');
+                const fieldList = shortFieldList(rows.map((d) => d.field));
                 return (
                   <div key={it.id} className={styles.file}>
                     <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
@@ -578,7 +587,14 @@ export function PlanPage() {
                         {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
                       </span>
                       <span className={styles.fileFields}>
-                        <span className={styles.nChanges} tabIndex={0} title={fieldList} role="button" aria-label={`${rows.length} ${rows.length === 1 ? 'change' : 'changes'}: ${fieldList}`}>{rows.length} {rows.length === 1 ? 'change' : 'changes'}</span>
+                        {rows.length === 0 ? (
+                          <span className={styles.nChanges}>No changes</span>
+                        ) : (
+                          <span className={styles.nChanges} title={fieldList}>
+                            {rows.length} {rows.length === 1 ? 'change' : 'changes'}
+                            <span className="visually-hidden">: {fieldList}</span>
+                          </span>
+                        )}
                       </span>
                     </button>
                     {open && (
