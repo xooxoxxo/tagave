@@ -16,6 +16,8 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import {
   audioFiles,
+  fieldLocks,
+  libraries,
   localAlbums,
   localTracks,
   releaseGroupArtists,
@@ -173,6 +175,49 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
     }
   }
 
+  // OPTIMIZATION: Batch-load all field locks for the library at once, avoiding
+  // a per-file query. Scopes can be audio file IDs, local track IDs, or album IDs.
+  const allAudioFileIds = new Set(fileIds);
+  const allTrackIds = new Set<string>();
+  const allAlbumIds = new Set<string>();
+  const fileToTrackToAlbum = new Map<string, { trackId: string; albumId: string }>();
+
+  // First pass: enumerate all track and album IDs for scope
+  const tracksInScope = await db
+    .select({ audioFileId: localTracks.audioFileId, id: localTracks.id, localAlbumId: localTracks.localAlbumId })
+    .from(localTracks)
+    .where(inArray(localTracks.audioFileId, Array.from(allAudioFileIds)));
+  for (const t of tracksInScope) {
+    if (t.id && t.localAlbumId) {
+      allTrackIds.add(t.id);
+      allAlbumIds.add(t.localAlbumId);
+      fileToTrackToAlbum.set(t.audioFileId, { trackId: t.id, albumId: t.localAlbumId });
+    }
+  }
+
+  // Batch load all field locks
+  const lockRows = await db
+    .select()
+    .from(fieldLocks)
+    .where(and(
+      eq(fieldLocks.libraryId, libraryId),
+      inArray(fieldLocks.scopeId, [
+        ...Array.from(allAudioFileIds),
+        ...Array.from(allTrackIds),
+        ...Array.from(allAlbumIds),
+      ]),
+    ));
+  const locksMap = new Map<string, Array<typeof fieldLocks.$inferSelect>>();
+  for (const lock of lockRows) {
+    const key = `${lock.scope}:${lock.scopeId}`;
+    if (!locksMap.has(key)) locksMap.set(key, []);
+    locksMap.get(key)!.push(lock);
+  }
+
+  // Cache library settings once to avoid per-file queries
+  const [libRecord] = await db.select({ settings: libraries.settings }).from(libraries).where(eq(libraries.id, libraryId));
+  const libSettingsCache = libRecord ? (typeof libRecord.settings === 'string' ? JSON.parse(libRecord.settings) : libRecord.settings ?? {}) as Record<string, unknown> : {};
+
   let filesTouched = 0;
   let fieldsModified = 0;
   let lockedFieldsRespected = 0;
@@ -190,7 +235,9 @@ export async function tagsPreviewJob(ctx: WorkerContext, planId: string): Promis
         filesSkipped.push({ audioFileId, reason: 'scan_root_not_writable' });
         continue;
       }
-      const resolution = await resolveMetadataForFile(ctx, libraryId, audioFileId);
+
+      // Pass pre-loaded locks and library settings to avoid per-file queries
+      const resolution = await resolveMetadataForFile(ctx, libraryId, audioFileId, locksMap, fileToTrackToAlbum, libSettingsCache);
       if (!resolution.ok) {
         filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: resolution.reason.replaceAll('_', ' ') });
         continue;

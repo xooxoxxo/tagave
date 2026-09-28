@@ -10,6 +10,9 @@
 .meta { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .error { color: var(--error); margin: 0; }
 
+.bannerLink { color: var(--accent); text-decoration: underline; text-underline-offset: 0.25em; }
+.bannerLink:hover { color: var(--accent); opacity: 0.8; }
+
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

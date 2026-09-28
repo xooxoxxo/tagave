@@ -70,11 +70,19 @@ export type FileResolutionResult =
  * effective genres through the library's genre map, and active file- and
  * album-level locks. Files whose album is not identified resolve to nothing —
  * there is no canonical truth to write.
+ *
+ * Optional parameters for batch optimization:
+ * - preloadedLocks: map of 'scope:scopeId' -> array of field lock rows
+ * - fileToTrackAlbum: map of audioFileId -> {trackId, albumId}
+ * - libSettingsCache: library settings object (to avoid per-file query)
  */
 export async function resolveMetadataForFile(
   ctx: WorkerContext,
   libraryId: string,
   audioFileId: string,
+  preloadedLocks?: Map<string, Array<typeof fieldLocks.$inferSelect>>,
+  fileToTrackAlbum?: Map<string, { trackId: string; albumId: string }>,
+  libSettingsCache?: Record<string, unknown>,
 ): Promise<FileResolutionResult> {
   const [track] = await ctx.db
     .select({
@@ -137,8 +145,13 @@ export async function resolveMetadataForFile(
   }
 
   // Effective genres through the library's map (Settings › Genres).
-  const [lib] = await ctx.db.select({ settings: libraries.settings }).from(libraries).where(eq(libraries.id, libraryId));
-  const settings = (typeof lib?.settings === 'string' ? JSON.parse(lib.settings) : lib?.settings ?? {}) as Record<string, unknown>;
+  let settings: Record<string, unknown>;
+  if (libSettingsCache) {
+    settings = libSettingsCache;
+  } else {
+    const [lib] = await ctx.db.select({ settings: libraries.settings }).from(libraries).where(eq(libraries.id, libraryId));
+    settings = (typeof lib?.settings === 'string' ? JSON.parse(lib.settings) : lib?.settings ?? {}) as Record<string, unknown>;
+  }
   const genreMap = normalizeGenreMap((settings['genreMap'] as Parameters<typeof normalizeGenreMap>[0]) ?? null);
   const tagRows = (await ctx.sql`
     select tag, kind, source, weight from entity_tags
@@ -151,13 +164,24 @@ export async function resolveMetadataForFile(
   // Locks (ENR-5): field_locks scopes are 'album' (local album id) and
   // 'track' (local track id or audio file id); a track lock wins over an album
   // lock — resolveFields knows them as 'file' and 'album'.
-  const lockRows = await ctx.db
-    .select()
-    .from(fieldLocks)
-    .where(and(
-      eq(fieldLocks.libraryId, libraryId),
-      inArray(fieldLocks.scopeId, [audioFileId, track.id, album.id]),
-    ));
+  let lockRows: Array<typeof fieldLocks.$inferSelect>;
+  if (preloadedLocks) {
+    // Use pre-loaded locks from batch query
+    lockRows = [
+      ...(preloadedLocks.get(`track:${audioFileId}`) ?? []),
+      ...(preloadedLocks.get(`track:${track.id}`) ?? []),
+      ...(preloadedLocks.get(`album:${album.id}`) ?? []),
+    ];
+  } else {
+    // Fall back to per-file query (original behavior)
+    lockRows = await ctx.db
+      .select()
+      .from(fieldLocks)
+      .where(and(
+        eq(fieldLocks.libraryId, libraryId),
+        inArray(fieldLocks.scopeId, [audioFileId, track.id, album.id]),
+      ));
+  }
   const locks: NonNullable<ResolutionInput['locks']> = lockRows
     .filter((l) => (l.scope === 'track' && (l.scopeId === audioFileId || l.scopeId === track.id)) || (l.scope === 'album' && l.scopeId === album.id))
     .map((l) => ({

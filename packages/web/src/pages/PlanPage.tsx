@@ -259,7 +259,7 @@ export function PlanPage() {
         <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
           {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
             <Button variant="secondary" loading={previewM.isPending} onClick={run(previewM)} disabled={previewM.isPending || (previewRequested && !previewTimedOut)}>
-              {previewM.isPending ? 'Previewing…' : previewRequested && !previewTimedOut ? 'Previewing…' : previewTimedOut ? 'Preview timed out' : previewed ? 'Re-run preview' : 'Run preview'}
+              {previewM.isPending ? 'Previewing…' : previewRequested && !previewTimedOut ? 'Previewing…' : previewTimedOut ? 'Retry preview' : previewed ? 'Re-run preview' : 'Run preview'}
             </Button>
           )}
           {p.status === 'previewed' && (
@@ -338,7 +338,7 @@ export function PlanPage() {
             {previewTimedOut ? (
               <>
                 <strong>Preview did not report back within {PREVIEW_TIMEOUT_MS / 1000} seconds.</strong>{' '}
-                It may still be computing on the file worker. Check the Jobs page to see if it's running there, or click "Preview timed out" to try again.
+                <Link to="/jobs" className={styles.bannerLink}>Check the Jobs page</Link> to see if it's still running, or use the "Retry preview" button below.
               </>
             ) : previewRequested || previewM.isPending ? (
               <>
