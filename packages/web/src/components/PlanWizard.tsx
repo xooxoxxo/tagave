@@ -8,7 +8,7 @@ import { useState, useCallback, useEffect } from 'react';
 import type { TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { Button, Badge, Banner } from '../components/ui';
-import { useCreateTagPlan, useLibrarySettings } from '../hooks/usePlanWizard';
+import { useCreateTagPlan, useLibrarySettings, useAddToTagPlan, useTagPlans } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
@@ -57,7 +57,8 @@ interface WizardStep2State {
   overrides?: Record<string, 'overwrite' | 'fill' | 'never'>;
 }
 
-type WizardStep = 1 | 2;
+type WizardStep = 0 | 1 | 2;
+type WizardMode = 'new-plan' | 'add-to-plan';
 
 interface PlanWizardProps {
   libraryId: string;
@@ -67,8 +68,11 @@ interface PlanWizardProps {
 }
 
 export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps) {
-  const [step, setStep] = useState<WizardStep>(initialScope ? 2 : 1);
+  // If initialScope is provided, skip the mode selection and go straight to new-plan flow at step 2
+  const [mode, setMode] = useState<WizardMode | null>(initialScope ? 'new-plan' : null);
+  const [step, setStep] = useState<WizardStep>(initialScope ? 2 : 0);
   const [planName, setPlanName] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [step1, setStep1] = useState<WizardStep1State>(
     initialScope
       ? { scopeType: 'albumIds', albumIds: initialScope.albumIds, ...(initialScope.albumLabels ? { albumLabels: initialScope.albumLabels } : {}) }
@@ -79,6 +83,9 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     id3Version: '2.4',
     multiValueSeparator: '; ',
   });
+
+  const { data: plansResponse } = useTagPlans(libraryId, { limit: 100 });
+  const openPlans = (plansResponse?.items ?? []).filter((p) => ['draft', 'previewed'].includes(p.status));
   // A plan is named after what it covers unless the user types a name;
   // "New tag plan" x 12 in the list told nobody anything.
   const suggestedName = (() => {
@@ -115,6 +122,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
   }, [policySeeded, settings.data]);
   const navigate = useNavigate();
   const createPlanMutation = useCreateTagPlan(libraryId);
+  const addToExistingPlanMutation = useAddToTagPlan(libraryId, selectedPlanId ?? undefined);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -129,13 +137,19 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
         setShowHelp((s) => !s);
       }
       if (e.key === 'Enter') {
-        // Enter advances; on the last step it creates the plan
-        if (step === 1 && step1.scopeType) setStep(2);
-        else if (step === 2) void handleCreatePlan();
+        // Enter advances; on the last step it creates/adds to plan
+        if (step === 0 && mode) {
+          if (mode === 'new-plan') setStep(1);
+          else if (mode === 'add-to-plan' && selectedPlanId) void handleAddToExistingPlan();
+        } else if (step === 1 && step1.scopeType) setStep(2);
+        else if (step === 2) {
+          if (mode === 'new-plan') void handleCreatePlan();
+          else if (mode === 'add-to-plan') void handleAddToExistingPlan();
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [step, step1, onClose]
+    [step, step1, mode, selectedPlanId, onClose]
   );
 
   useEffect(() => {
@@ -204,11 +218,37 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     }
   };
 
+  const handleAddToExistingPlan = async () => {
+    if (!selectedPlanId) {
+      setStep1Error('Please select a plan');
+      return;
+    }
+
+    const scope = buildScope();
+    if (!scope) {
+      setStep1Error('Invalid scope configuration');
+      return;
+    }
+
+    if (scope.type !== 'albumIds') {
+      setStep1Error('Can only add albums to existing plans');
+      return;
+    }
+
+    try {
+      await addToExistingPlanMutation.mutateAsync(scope);
+      onClose();
+      void navigate({ to: '/plans/$planId', params: { planId: selectedPlanId } });
+    } catch (error) {
+      setStep1Error((error as { detail?: string; message?: string })?.detail ?? (error as Error).message ?? 'Failed to add items to plan');
+    }
+  };
+
   return (
     <div className={styles.overlay}>
-      <div className={styles.modal} role="dialog" aria-modal="true" aria-label="New tag plan">
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={mode === 'add-to-plan' ? 'Add to existing plan' : 'New tag plan'}>
         <div className={styles.header}>
-          <h2 className={styles.title}>New tag plan</h2>
+          <h2 className={styles.title}>{mode === 'add-to-plan' ? 'Add to existing plan' : 'New tag plan'}</h2>
           <div className={styles.headerActions}>
             <button
               type="button"
@@ -250,7 +290,35 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
             </Banner>
           )}
 
-        {!showHelp && step === 1 && (
+        {!showHelp && step === 0 && !mode && (
+          <Step0ModeSelector
+            onSelectMode={(m) => {
+              setMode(m);
+              setStep(m === 'new-plan' ? 1 : 1);
+            }}
+          />
+        )}
+
+        {!showHelp && mode === 'add-to-plan' && step === 1 && (
+          <Step1AddToExistingPlan
+            libraryId={libraryId}
+            openPlans={openPlans}
+            selectedPlanId={selectedPlanId}
+            onSelectPlan={setSelectedPlanId}
+            state={step1}
+            onChange={setStep1}
+            error={step1Error}
+            onNext={handleAddToExistingPlan}
+            onBack={() => {
+              setMode(null);
+              setStep(0);
+              setSelectedPlanId(null);
+            }}
+            isLoading={addToExistingPlanMutation.isPending}
+          />
+        )}
+
+        {!showHelp && mode === 'new-plan' && step === 1 && (
           <Step1ScopePicker
             libraryId={libraryId}
             state={step1}
@@ -258,10 +326,16 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
             error={step1Error}
             onNext={() => setStep(2)}
             canProceed={canProceedStep1}
+            onBack={() => {
+              if (!initialScope) {
+                setMode(null);
+                setStep(0);
+              }
+            }}
           />
         )}
 
-        {!showHelp && step === 2 && (
+        {!showHelp && mode === 'new-plan' && step === 2 && (
           <Step2PolicyPicker
             state={step2}
             onChange={setStep2}
@@ -276,6 +350,134 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
 
 
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Step 0: Mode selector — new plan vs add to existing */
+function Step0ModeSelector({ onSelectMode }: { onSelectMode: (mode: WizardMode) => void }) {
+  return (
+    <div className={styles.step}>
+      <p className={styles.stepTitle}>What would you like to do?</p>
+
+      <fieldset className={styles.fieldset}>
+        <label className={styles.radioLabel}>
+          <input type="radio" name="mode" value="new-plan" onChange={() => onSelectMode('new-plan')} autoFocus />
+          Create a new tag plan
+          <p className={styles.hint}>Define a scope and policy from scratch</p>
+        </label>
+
+        <label className={styles.radioLabel}>
+          <input type="radio" name="mode" value="add-to-plan" onChange={() => onSelectMode('add-to-plan')} />
+          Add to an existing plan
+          <p className={styles.hint}>Merge albums into a draft or previewed plan</p>
+        </label>
+      </fieldset>
+
+      <div className={styles.stepActions}>
+        <Button variant="primary" onClick={() => {}}>
+          Next
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** Step 1: Select plan and albums to add (add-to-plan mode) */
+function Step1AddToExistingPlan({
+  libraryId,
+  openPlans,
+  selectedPlanId,
+  onSelectPlan,
+  state,
+  onChange,
+  error,
+  onNext,
+  onBack,
+  isLoading,
+}: {
+  libraryId: string;
+  openPlans: any[];
+  selectedPlanId: string | null;
+  onSelectPlan: (id: string) => void;
+  state: WizardStep1State;
+  onChange: (state: WizardStep1State) => void;
+  error: string | null;
+  onNext: () => void;
+  onBack: () => void;
+  isLoading: boolean;
+}) {
+  const canProceed = selectedPlanId && (state.albumIds?.length ?? 0) > 0;
+
+  return (
+    <div className={styles.step}>
+      <p className={styles.stepTitle}>Step 1: Select plan and albums</p>
+
+      <div className={styles.formGroup}>
+        <label className={styles.label}>Existing plan</label>
+        <select
+          className={styles.select}
+          value={selectedPlanId ?? ''}
+          onChange={(e) => onSelectPlan(e.target.value)}
+          autoFocus
+        >
+          <option value="">Choose a plan…</option>
+          {openPlans.map((plan) => (
+            <option key={plan.id} value={plan.id}>
+              {plan.name || 'Untitled plan'} · {plan.scopeLabel}
+            </option>
+          ))}
+        </select>
+        {openPlans.length === 0 && (
+          <p className={styles.hint} style={{ color: 'var(--text-secondary)' }}>
+            No open plans available. Create a new plan first.
+          </p>
+        )}
+      </div>
+
+      {selectedPlanId && (
+        <>
+          <fieldset className={styles.fieldset}>
+            <legend className={styles.legend}>Albums to add</legend>
+            <label className={styles.radioLabel}>
+              <input
+                type="radio"
+                name="scopeType"
+                value="albumIds"
+                checked={state.scopeType === 'albumIds'}
+                onChange={() => onChange({ ...state, scopeType: 'albumIds' })}
+              />
+              Selected albums
+            </label>
+
+            {state.scopeType === 'albumIds' && (
+              <div className={styles.scopeDetail}>
+                <AlbumPicker
+                  libraryId={libraryId}
+                  selectedIds={state.albumIds ?? []}
+                  labels={state.albumLabels ?? {}}
+                  onChange={(albumIds, albumLabels) => onChange({ ...state, albumIds, albumLabels })}
+                />
+              </div>
+            )}
+          </fieldset>
+        </>
+      )}
+
+      {error && <Banner tone="danger">{error}</Banner>}
+
+      <div className={styles.stepActions}>
+        <Button variant="secondary" onClick={onBack}>
+          Back
+        </Button>
+        <Button
+          variant="primary"
+          onClick={onNext}
+          disabled={!canProceed || isLoading}
+        >
+          {isLoading ? 'Adding…' : 'Add to plan'}
+        </Button>
       </div>
     </div>
   );
@@ -427,6 +629,7 @@ function Step1ScopePicker({
   error,
   onNext,
   canProceed,
+  onBack,
 }: {
   libraryId: string;
   state: WizardStep1State;
@@ -434,6 +637,7 @@ function Step1ScopePicker({
   error: string | null;
   onNext: () => void;
   canProceed: boolean;
+  onBack?: () => void;
 }) {
   const pick = (scopeType: WizardStep1State['scopeType']) => onChange({ ...state, scopeType });
   return (
@@ -508,6 +712,11 @@ function Step1ScopePicker({
       {error && <Banner tone="danger">{error}</Banner>}
 
       <div className={styles.stepActions}>
+        {onBack && (
+          <Button variant="secondary" onClick={onBack}>
+            Back
+          </Button>
+        )}
         <Button variant="primary" onClick={onNext} disabled={!canProceed}>
           Next
         </Button>
