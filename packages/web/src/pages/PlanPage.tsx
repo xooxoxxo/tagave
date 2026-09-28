@@ -444,7 +444,7 @@ export function PlanPage() {
                 const dir = (it.relPath ?? '').split('/').slice(0, -1).join('/');
                 const name = (it.relPath ?? it.audioFileId).split('/').pop();
                 const st = (it.status ?? 'pending') as ItemStatus;
-                const shown = rows.slice(0, 6);
+                const fieldList = rows.map((d) => FIELD_LABELS[d.field] ?? d.field).join(', ');
                 return (
                   <div key={it.id} className={styles.file}>
                     <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
@@ -456,9 +456,7 @@ export function PlanPage() {
                         {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
                       </span>
                       <span className={styles.fileFields}>
-                        <span className={styles.nChanges}>{rows.length} {rows.length === 1 ? 'change' : 'changes'}</span>
-                        {!open && shown.map((d) => <span key={d.field} className={styles.fieldTag}>{d.field}</span>)}
-                        {!open && rows.length > shown.length && <span className={styles.fieldMore}>+{rows.length - shown.length}</span>}
+                        <span className={styles.nChanges} title={fieldList}>{rows.length} {rows.length === 1 ? 'change' : 'changes'}</span>
                       </span>
                     </button>
                     {open && (
