@@ -262,8 +262,8 @@ const ReleaseSchema = z.object({
   'label-info': z
     .array(
       z.object({
-        // MB omits `label` for catalogue-number-only entries (seen live on
-        // the g9 identify worker); a required object here failed whole jobs.
+        // MB omits `label` for catalogue-number-only entries; a required
+        // object here failed whole jobs.
         label: LabelSchema.nullish(),
         'catalog-number': z.string().nullish(),
       })

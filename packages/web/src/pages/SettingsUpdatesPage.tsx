@@ -56,7 +56,7 @@ export function SettingsUpdatesPage() {
       )}
       {data.mismatch && (
         <div className={styles.warn}>
-          A worker runs a different build than the app. Workers on the g9 host deploy separately (<code>scripts/deploy.sh workers</code>) — redeploy the lagging side.
+          A worker runs a different build than the app. To update workers on a separate host: SSH to the worker host, pull the latest image, and restart the worker service.
         </div>
       )}
 
@@ -143,26 +143,25 @@ export function SettingsUpdatesPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>How to update</h2>
         <p className={styles.hint}>
-          One-click updates arrive with the containerised workers (XO-296): the app pulls the new image tag and restarts itself. Until then, updates are two commands from the dev checkout — migrations run on boot, forward-only.
+          Updates pull the new image and restart services. Migrations run on boot. All changes are forward-only.
         </p>
         <ol className={styles.steps}>
           <li>
-            <strong>Snapshot first.</strong>
-            <pre className={styles.code}>docker exec liner-postgres-1 pg_dump -U liner -Fc liner &gt; liner-$(date +%F).pgdump</pre>
+            <strong>Back up your database.</strong>
+            <pre className={styles.code}>docker compose exec postgres pg_dump -U liner -Fc liner &gt; backup-$(date +%F).pgdump</pre>
           </li>
           <li>
-            <strong>App container</strong> (web + API, on the VM):
-            <pre className={styles.code}>cd ~/Workspace/liner &amp;&amp; DEPLOY_FROM_HEAD=1 scripts/deploy.sh app</pre>
+            <strong>Update the app and web service:</strong>
+            <pre className={styles.code}>docker compose pull &amp;&amp; docker compose up -d</pre>
           </li>
           <li>
-            <strong>Workers</strong> (g9 host; restarts both processes, in-flight identify jobs retry):
-            <pre className={styles.code}>DEPLOY_FROM_HEAD=1 scripts/deploy.sh workers</pre>
+            <strong>If workers are on a separate host:</strong> SSH to the worker host and run the same two commands.
           </li>
           <li>
-            <strong>Verify</strong>: this page shows every process at the same build; <code>liner-doctor doctor</code> reports <em>Build Versions</em>.
+            <strong>Verify</strong>: this page shows every process at the same build. Go to <a href="/settings/system-status">System Status</a> to verify all services are healthy.
           </li>
           <li>
-            <strong>Roll back</strong>: <code>git checkout &lt;previous sha&gt;</code> and run the same two deploys — migrations already applied stay applied (they are forward-only by design), so only roll back to a build that knows them.
+            <strong>If the update fails</strong>: restore from your backup using <code>docker compose exec postgres psql -U liner &lt; backup-file.pgdump</code>.
           </li>
         </ol>
       </section>

@@ -43,30 +43,35 @@ catalogue.
 
 ## Quick start
 
-You need Docker and Compose v2.
+**Prerequisites**: Docker 20.10+ and Docker Compose v2
 
+**Installation** (one command):
 ```sh
-cp .env.example .env
-openssl rand -hex 32                 # paste this as APP_SECRET
-$EDITOR .env                         # also uncomment MUSIC_DIR and point it at your library
-docker compose -f docker-compose.prod.yml --profile workers up -d
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"
 ```
 
-Then open <http://localhost:3100> and follow the setup.
+The installer will:
+- Check your prerequisites
+- Ask where your music library is located (local path, NFS, or SMB)
+- Ask if you want workers on this host or a separate machine
+- Generate secrets and configuration
+- Start the services
 
-One thing worth knowing before you start: scanning and tag writing happen in a
-worker process that has to see your files, which is why `MUSIC_DIR` matters and
-why a scan root stays `pending` until a worker is running. [Installation](docs/install.md)
-explains the two ways to arrange that.
+Then open **http://localhost:3100/setup** (or your hostname) and complete the setup wizard.
+
+See [Installation guide](docs/installation.md) for manual setup and [Split topology](docs/split-topology.md) if you want workers on a different host.
 
 ## Documentation
 
 | | |
 |---|---|
-| [Installation](docs/install.md) | Getting it running, and connecting it to your music |
+| [Installation](docs/installation.md) | Getting it running, and connecting it to your music |
+| [Upgrading](docs/upgrading.md) | Version updates and migrations |
+| [Backup & Restore](docs/backup-restore.md) | Database backup strategies and recovery |
+| [Split Topology](docs/split-topology.md) | Running workers on a different host |
+| [Troubleshooting](docs/troubleshooting.md) | Common issues and how to fix them |
 | [Features](docs/features.md) | What the app does, in more detail |
 | [Tag correction](docs/tag-correction.md) | How writes work, and what stops them going wrong |
-| [Operations](docs/operations.md) | Backups, upgrades, health checks, moving workers |
 | [Security](docs/security.md) | `APP_SECRET`, rotation, TLS |
 | [Architecture](docs/architecture.md) | How the pieces fit, and how to develop on it |
 | [Design system](docs/design/system.md) | Visual language and component contracts |

@@ -39,13 +39,10 @@ services:
       postgres:
         condition: service_healthy
 
-  # Workers (XO-296). Both run behind the "workers" profile so a plain
-  # `docker compose up -d` keeps today's topology (workers as bare node on the
-  # g9 host); cut over with `docker compose --profile workers up -d` once this
-  # host is in the NAS export. The library is mounted at the same path the scan
-  # root was registered with, so no rows change at cutover. Queue lists mirror
-  # the g9 launcher scripts: the file worker owns everything that touches the
-  # music mount, the identify worker everything that spends provider budget.
+  # Workers: both run behind the "workers" profile. Start with
+  # `docker compose --profile workers up -d`. The file worker owns
+  # everything that touches the music mount; the identify worker
+  # owns everything that spends provider budget (MusicBrainz, Discogs, etc.).
   worker-files:
     profiles: ["workers"]
     build:
