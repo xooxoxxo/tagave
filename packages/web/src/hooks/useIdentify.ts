@@ -158,17 +158,24 @@ export function useKickSweep(libraryId: string | undefined) {
 
 /**
  * Background activity (GET /jobs, refetch 15 s): plain-words job views plus
- * a summary. Routine checks are left out unless asked for; `job` makes sure a
- * deep-linked job is in the list.
+ * a summary. Tasks that need the owner always come back in full (`attention`);
+ * the rest is the first `limit` entries. Routine checks are left out unless
+ * asked for; `job` makes sure a deep-linked job is in the list.
  */
-export function useJobs(libraryId: string | undefined, opts: { includeRoutine?: boolean; job?: string | undefined } = {}) {
-  const params = new URLSearchParams({ limit: '100', offset: '0' });
+export function useJobs(
+  libraryId: string | undefined,
+  opts: { includeRoutine?: boolean; job?: string | undefined; limit?: number } = {},
+) {
+  const limit = opts.limit ?? 100;
+  const params = new URLSearchParams({ limit: String(limit), offset: '0' });
   if (opts.includeRoutine) params.set('include', 'routine');
   if (opts.job) params.set('job', opts.job);
   return useQuery({
-    queryKey: ['jobs', libraryId, !!opts.includeRoutine, opts.job ?? null],
+    queryKey: ['jobs', libraryId, !!opts.includeRoutine, opts.job ?? null, limit],
     queryFn: () => api.get<JobsListResponse>(`/libraries/${libraryId}/jobs?${params.toString()}`),
     enabled: !!libraryId,
+    // keep the list on screen while "Show more" or the routine toggle loads
+    placeholderData: (prev) => prev,
     refetchInterval: 15_000,
   });
 }

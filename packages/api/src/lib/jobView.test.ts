@@ -161,6 +161,61 @@ describe('deriveJobViews', () => {
     expect(v).toMatchObject({ status: 'running', progress: { done: 5, total: 10 } });
   });
 
+  it('keeps a scan running when Scan now is pressed during it (the request is merged, not a later run)', () => {
+    const [request, live] = views([
+      row({ state: 'created', createdAt: h(0.05) }),
+      row({ state: 'running', startedAt: h(0.5), createdAt: h(0.5), progress: { done: 10, total: 0 } }),
+    ]);
+    expect(request).toBeNull();
+    expect(live).toMatchObject({ status: 'running', retrying: false, needsAttention: false, summary: '10 files checked so far.' });
+  });
+
+  it('drops a request made while a scan was going even after that scan finished', () => {
+    const [request, finished] = views([
+      row({ state: 'created', createdAt: h(0.5) }),
+      row({ state: 'completed', startedAt: h(1), finishedAt: h(0.2) }),
+    ]);
+    expect(request).toBeNull();
+    expect(finished!.status).toBe('done');
+  });
+
+  it('still shows a request made after the last scan ended as waiting', () => {
+    const [request] = views([
+      row({ state: 'created', createdAt: h(0.1) }),
+      row({ state: 'completed', startedAt: h(2), finishedAt: h(1) }),
+    ]);
+    expect(request!.status).toBe('waiting');
+  });
+
+  it('keeps a days-long artist linking run running (the worker reuses its row)', () => {
+    const [v] = views([row({ type: 'artists.resolve', subjectType: null, subjectId: null, state: 'running', startedAt: h(200), progress: { done: 5, total: 10 } })]);
+    expect(v).toMatchObject({ status: 'running', needsAttention: false, retryable: false });
+  });
+
+  it('never lets one folder rescan settle or stop another in the same root', () => {
+    const [newer, failed, older] = views([
+      row({ type: 'scan.dir', state: 'completed', startedAt: h(1), finishedAt: h(0.9) }),
+      row({ type: 'scan.dir', state: 'failed', error: 'EACCES', startedAt: h(2), finishedAt: h(2) }),
+      row({ type: 'scan.dir', state: 'running', startedAt: h(3) }),
+    ]);
+    expect(newer!.status).toBe('done');
+    expect(failed).toMatchObject({ status: 'failed', resolvedAt: null, needsAttention: true, routine: false, retryable: false });
+    expect(older).toMatchObject({ status: 'running', needsAttention: false });
+  });
+
+  it('settles a failed folder rescan once a later scan of the whole root finishes', () => {
+    const [, failed] = views([
+      row({ state: 'completed', startedAt: h(1), finishedAt: h(0.5) }),
+      row({ type: 'scan.dir', state: 'failed', error: 'EACCES', finishedAt: h(2) }),
+    ]);
+    expect(failed).toMatchObject({ resolvedAt: h(0.5), needsAttention: false, routine: true });
+    const [, other] = views([
+      row({ state: 'completed', subjectId: '11111111-1111-4111-8111-111111111111', finishedAt: h(0.5) }),
+      row({ type: 'scan.dir', state: 'failed', error: 'EACCES', finishedAt: h(2) }),
+    ]);
+    expect(other).toMatchObject({ resolvedAt: null, needsAttention: true });
+  });
+
   it('drops a scan request the worker merged into a later run', () => {
     const out = views([row({ state: 'running', startedAt: h(0.1) }), row({ state: 'created', createdAt: h(0.2) })]);
     expect(out[1]).toBeNull();

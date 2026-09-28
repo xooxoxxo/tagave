@@ -120,12 +120,20 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
     const views = await loadViews(db, libraryId, focus);
     const shown = includeRoutine ? views : views.filter((v) => !v.routine || v.id === focus);
-    // newest activity first: a long run that just finished outranks a short one started after it
-    const visible = [...shown].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    // what is happening now first, then newest activity (a long run that just
+    // finished outranks a short one started after it)
+    const live = (v: JobView) => (v.status === 'running' || v.status === 'waiting' ? 0 : 1);
+    const ordered = [...shown].sort((a, b) => live(a) - live(b) || (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const attention = ordered.filter((v) => v.needsAttention);
+    const rest = ordered.filter((v) => !v.needsAttention);
+    const page = rest.slice(offset, offset + limit);
+    const focused = focus ? rest.find((v) => v.id === focus) : undefined;
+    if (focused && !page.includes(focused)) page.push(focused);
     const body: JobsListResponse = {
-      data: visible.slice(offset, offset + limit),
+      attention,
+      data: page,
       summary: summarizeJobs(views, views.length - shown.length),
-      pagination: { limit, offset, total: visible.length },
+      pagination: { limit, offset, total: rest.length },
     };
     reply.status(200).send(body);
   });

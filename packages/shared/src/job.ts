@@ -254,6 +254,10 @@ export interface JobsSummary {
 }
 
 export interface JobsListResponse {
+  /** every task that needs the owner, never paged (so the summary count and this list agree) */
+  attention: JobView[];
+  /** everything else, running and waiting first, then newest first; paged. A deep-linked
+   * task (?job=) beyond the page is appended so the link always lands. */
   data: JobView[];
   summary: JobsSummary;
   pagination: { limit: number; offset: number; total: number };

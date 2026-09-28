@@ -27,8 +27,13 @@ export const ROUTINE_JOB_TYPES = [
 
 /** A running row that has not finished after this long was abandoned. */
 export const STALE_AFTER_MS = 12 * 3600_000;
-/** Rows that legitimately stay "running" for days (updated in place). */
-const LONG_RUNNING = new Set(['identify.sweep']);
+/**
+ * Rows that legitimately stay "running" for days: the worker updates them in
+ * place and never moves startedAt (identify.sweep tops up forever;
+ * artists.resolve reuses its newest row and sets it back to running while
+ * release groups are pending). job_runs has no updated_at to judge them by.
+ */
+const LONG_RUNNING = new Set(['identify.sweep', 'artists.resolve']);
 
 /** A job_runs row as the route loads it, plus the scan root's name when it has one. */
 export interface JobRow {
@@ -161,8 +166,17 @@ export function isQuietQuickScan(type: string, message: string | null): boolean 
   return /^quick: \d+ seen, 0 added, 0 changed, 0 missing\b/.test(message);
 }
 
-/** Same work, run again: a later row of the same type and subject. */
-const workKey = (r: JobRow) => `${r.type}|${r.subjectId ?? ''}`;
+/**
+ * Same work, run again: a later row of the same type and subject. scan.dir
+ * rows use the scan root as their subject and job_runs does not keep the
+ * folder, so two folder rescans are never the same work: each is its own key.
+ */
+const workKey = (r: JobRow) => (r.type === 'scan.dir' ? `scan.dir|${r.id}` : `${r.type}|${r.subjectId ?? ''}`);
+
+/** A row the worker actually picked up (not a request still waiting in pg-boss). */
+function hasStarted(r: JobRow): boolean {
+  return r.startedAt != null || ['running', 'paused', 'completed', 'failed', 'cancelled'].includes(r.state);
+}
 
 /** The pg-boss job that starts this work again, or null when it cannot be restarted from here. */
 export function retryRequest(
@@ -191,27 +205,80 @@ export function retryRequest(
 }
 
 /**
+ * A "created"/"queued" row the API inserted while an older run of the same
+ * work was already going: pg-boss merged the request (singletonKey) into that
+ * run, so nothing will ever pick this row up. It is noise, not a later run.
+ */
+function mergedRequests(rows: JobRow[], now: number): Set<number> {
+  const merged = new Set<number>();
+  const byKey = new Map<string, number[]>();
+  rows.forEach((r, i) => {
+    const k = workKey(r);
+    const list = byKey.get(k);
+    if (list) list.push(i); else byKey.set(k, [i]);
+  });
+  for (const idx of byKey.values()) {
+    for (const i of idx) {
+      const req = rows[i]!;
+      if (req.state !== 'created' && req.state !== 'queued') continue;
+      const askedAt = ms(req.createdAt);
+      if (askedAt === null) continue;
+      // older rows of the same work (the array is newest first)
+      const absorbed = idx.some((j) => {
+        if (j <= i) return false;
+        const run = rows[j]!;
+        if (!hasStarted(run) || run.state === 'created' || run.state === 'queued') return false;
+        const began = ms(run.startedAt) ?? ms(run.createdAt);
+        if (began === null || began > askedAt) return false;
+        const ended = ms(run.finishedAt);
+        if (ended !== null) return ended >= askedAt; // it was still going when the request came in
+        return (run.state === 'running' || run.state === 'paused') && !isStale(run, now);
+      });
+      if (absorbed) merged.add(i);
+    }
+  }
+  return merged;
+}
+
+function isStale(row: JobRow, now: number): boolean {
+  const since = ms(row.startedAt) ?? ms(row.createdAt) ?? now;
+  return !LONG_RUNNING.has(row.type) && now - since > STALE_AFTER_MS;
+}
+
+/**
  * Rows (newest first) → views. `null` for a row that is only noise: an API
- * "created" row whose work a later run picked up (pg-boss merged the request).
+ * "created" row whose work a run picked up (pg-boss merged the request into a
+ * later run, or into one already going when it was made).
  */
 export function deriveJobViews(rows: JobRow[], libraryId: string, now: number = Date.now()): Array<JobView | null> {
   // Newest → oldest: by the time a row is read, every later row of the same
   // work has been recorded.
   const later = new Map<string, Later>();
+  const merged = mergedRequests(rows, now);
   const out: Array<JobView | null> = new Array(rows.length).fill(null);
+  const empty: Later = { any: false, nextActive: false, started: false, completedAt: null };
 
   for (let i = 0; i < rows.length; i++) {
+    if (merged.has(i)) continue; // invisible, and says nothing to older rows
     const row = rows[i]!;
     const key = workKey(row);
-    const seen = later.get(key) ?? { any: false, nextActive: false, completedAt: null };
+    let seen = later.get(key) ?? empty;
+    if (row.type === 'scan.dir') {
+      // Only a later completed scan of the whole root covers a folder rescan.
+      const root = later.get(`scan.root|${row.subjectId ?? ''}`);
+      seen = root?.completedAt ? { any: true, nextActive: false, started: false, completedAt: root.completedAt } : empty;
+    }
     const view = viewOf(row, libraryId, now, seen);
     out[i] = view;
+    if (row.type === 'scan.dir') continue; // never the context of another row
+    const own = later.get(key) ?? empty;
     // record this row for the older ones that follow in the array
     later.set(key, {
       any: true,
       // a merged request (null view) is invisible: keep what the next row said
-      nextActive: view ? view.status === 'running' || view.status === 'waiting' : seen.nextActive,
-      completedAt: seen.completedAt
+      nextActive: view ? view.status === 'running' || view.status === 'waiting' : own.nextActive,
+      started: own.started || hasStarted(row),
+      completedAt: own.completedAt
         ?? (row.state === 'completed' ? toIso(row.finishedAt) ?? toIso(row.startedAt) ?? toIso(row.createdAt) : null),
     });
   }
@@ -223,6 +290,8 @@ interface Later {
   any: boolean;
   /** the next newer attempt is running or waiting to start */
   nextActive: boolean;
+  /** a later row of the same work was actually picked up by the worker */
+  started: boolean;
   /** when the newest completed one finished */
   completedAt: string | null;
 }
@@ -232,8 +301,7 @@ function viewOf(row: JobRow, libraryId: string, now: number, later: Later): JobV
   const startedAt = toIso(row.startedAt);
   const finishedAt = toIso(row.finishedAt);
   const p = parseProgress(row.progress);
-  const since = ms(row.startedAt) ?? ms(row.createdAt) ?? now;
-  const stale = !LONG_RUNNING.has(row.type) && now - since > STALE_AFTER_MS;
+  const stale = isStale(row, now);
 
   let status: JobViewStatus;
   let neverStarted = false;
@@ -246,7 +314,9 @@ function viewOf(row: JobRow, libraryId: string, now: number, later: Later): JobV
       break;
     case 'running':
     case 'paused':
-      status = later.any || stale ? 'interrupted' : 'running';
+      // A later request still waiting to start does not end this run; only a
+      // later run the worker actually began does.
+      status = later.started || stale ? 'interrupted' : 'running';
       break;
     case 'completed': status = 'done'; break;
     case 'failed': status = 'failed'; break;

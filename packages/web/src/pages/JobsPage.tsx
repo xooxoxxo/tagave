@@ -16,6 +16,9 @@ import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from
 import { formatEta, formatRelativeTime } from '../utils/time';
 import styles from './JobsPage.module.css';
 
+/** How many recent entries load at a time. */
+const PAGE = 100;
+
 const n = (v: number) => v.toLocaleString('en-US');
 const plural = (count: number, one: string, many = `${one}s`) => `${n(count)} ${count === 1 ? one : many}`;
 
@@ -44,9 +47,10 @@ export function JobsPage() {
   const search = useSearch({ strict: false }) as { job?: unknown };
   const focusId = typeof search.job === 'string' && search.job ? search.job : undefined;
   const [showRoutine, setShowRoutine] = useState(false);
+  const [limit, setLimit] = useState(PAGE);
 
   const { data: stats } = useIdentifyStats(libraryId);
-  const { data: jobs, isLoading, isError } = useJobs(libraryId, { includeRoutine: showRoutine, job: focusId });
+  const { data: jobs, isLoading, isError, isFetching } = useJobs(libraryId, { includeRoutine: showRoutine, job: focusId, limit });
   const retry = useRetryJob(libraryId);
   const [retryNote, setRetryNote] = useState<Record<string, string>>({});
 
@@ -59,12 +63,11 @@ export function JobsPage() {
   if (!libraryId || isLoading) return <p className={styles.muted}>Loading activity…</p>;
   if (isError || !jobs) return <Banner tone="danger">Could not load background activity. Reload the page to try again.</Banner>;
 
-  const all = jobs.data;
-  const attention = all.filter((j) => j.needsAttention);
-  // what is happening now first, then newest first (the API order)
-  const live = (j: JobView) => (j.status === 'running' || j.status === 'waiting' ? 0 : 1);
-  const recent = all.filter((j) => !j.needsAttention).sort((a, b) => live(a) - live(b));
-  const focusMissing = focusId !== undefined && !all.some((j) => j.id === focusId);
+  // the API sends every task that needs the owner, and the rest running first, then newest first
+  const attention = jobs.attention;
+  const recent = jobs.data;
+  const more = Math.max(0, jobs.pagination.total - jobs.pagination.offset - jobs.pagination.limit);
+  const focusMissing = focusId !== undefined && !attention.some((j) => j.id === focusId) && !recent.some((j) => j.id === focusId);
   const clearFocus = () => void navigate({ to: '/settings/$section', params: { section: 'activity' }, search: {} });
 
   const onRetry = (job: JobView) => {
@@ -77,7 +80,8 @@ export function JobsPage() {
 
   return (
     <div className={styles.page}>
-      <Summary summary={jobs.summary} running={all.filter((j) => j.status === 'running')} />
+      <Summary summary={jobs.summary} running={recent.filter((j) => j.status === 'running')}
+        anyRetryable={attention.some((j) => j.retryable)} />
 
       {focusMissing && (
         <Banner tone="warning">
@@ -115,7 +119,7 @@ export function JobsPage() {
         <div className={styles.sectionHead}>
           <h3 id="jobs-recent" className={styles.sectionTitle}>Recent activity</h3>
           {(showRoutine || jobs.summary.routineHidden > 0) && (
-            <Button size="sm" variant="ghost" onClick={() => setShowRoutine((v) => !v)} aria-pressed={showRoutine}>
+            <Button size="sm" variant="ghost" onClick={() => { setShowRoutine((v) => !v); setLimit(PAGE); }} aria-pressed={showRoutine}>
               {showRoutine ? 'Hide routine entries' : `Show ${plural(jobs.summary.routineHidden, 'hidden entry', 'hidden entries')}`}
             </Button>
           )}
@@ -128,17 +132,33 @@ export function JobsPage() {
         ) : (
           <p className={styles.muted}>Nothing else has run in the last 30 days.</p>
         )}
+        {more > 0 && (
+          <div className={styles.more}>
+            <span className={styles.muted}>{plural(more, 'older entry', 'older entries')} not shown.</span>
+            <Button size="sm" variant="secondary" onClick={() => setLimit((l) => l + PAGE)} loading={isFetching}>
+              Show {n(Math.min(more, PAGE))} more
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );
 }
 
-function Summary({ summary, running }: { summary: { running: number; waiting: number; needsAttention: number; lastFinishedAt: string | null }; running: JobView[] }) {
+function Summary({ summary, running, anyRetryable }: {
+  summary: { running: number; waiting: number; needsAttention: number; lastFinishedAt: string | null };
+  running: JobView[];
+  anyRetryable: boolean;
+}) {
   if (summary.needsAttention > 0) {
     return (
       <Banner tone="danger">
         <strong>{plural(summary.needsAttention, 'task')} {summary.needsAttention === 1 ? 'needs' : 'need'} your attention.</strong>{' '}
-        See what went wrong below and retry once it is fixed.
+        {anyRetryable
+          ? 'See what went wrong below; once the cause is fixed, press Retry where it is offered.'
+          : summary.needsAttention === 1
+            ? 'See what went wrong below. It cannot be restarted from this page.'
+            : 'See what went wrong below. They cannot be restarted from this page.'}
       </Banner>
     );
   }
@@ -175,7 +195,9 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
     <section className={styles.card} aria-labelledby="jobs-identify">
       <div className={styles.cardHead}>
         <h3 id="jobs-identify" className={styles.sectionTitle}>Album identification</h3>
-        <Badge tone={running ? 'info' : 'success'}>{running ? 'Running' : 'Finished'}</Badge>
+        {running ? <Badge tone="info">Running</Badge>
+          : states.pending > 0 ? <Badge tone="neutral">Waiting</Badge>
+          : <Badge tone="success">Finished</Badge>}
       </div>
 
       {running ? (

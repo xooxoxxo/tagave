@@ -41,6 +41,15 @@
   margin: 0;
 }
 
+.more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  font-size: var(--font-size-sm);
+}
+
 .inlineLink {
   background: none;
   border: 0;
