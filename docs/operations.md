@@ -67,7 +67,7 @@ If you started with a worker on another machine and want the `workers` profile t
    docker compose -f docker-compose.prod.yml --profile workers up -d
    ```
 
-4. Verify. The first heartbeat lands about 30 seconds after boot. `Worker Heartbeat` and `Build Versions` must both pass, and Settings › Updates must list both workers at the app's sha:
+4. Verify. The first heartbeat lands as soon as a worker is ready. `Worker Heartbeat` and `Build Versions` must both pass, and Settings › Updates must list both workers at the app's sha:
    ```sh
    curl -s http://localhost:3100/api/v1/health        # "2 live worker(s) detected"
    docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js doctor --offline

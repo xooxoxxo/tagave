@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, desc, gte, notInArray } from 'drizzle-orm';
+import { eq, and, desc, gte, notInArray, sql } from 'drizzle-orm';
 import { libraries, jobRuns, scanRoots } from '@liner/db';
-import type { JobView, JobsListResponse } from '@liner/shared';
+import type { JobView, JobsListResponse, JobsSummary } from '@liner/shared';
 import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -98,6 +98,24 @@ function ensureListener(fastify: FastifyInstance): Promise<void> {
   return listening;
 }
 
+/**
+ * What waits in pg-boss right now. Jobs delayed to a later start (retries
+ * backing off, scheduled singletons) are not "waiting to start" yet. The
+ * queue is shared by the whole install, not per library; a tagave install
+ * has one owner. Zero when pg-boss has not created its schema yet.
+ */
+export async function queueCounts(db: ReturnType<typeof getDb>): Promise<JobsSummary['queue']> {
+  try {
+    const rows = await db.execute(sql`
+      select count(*) filter (where state in ('created', 'retry') and start_after <= now())::int as waiting,
+             count(*) filter (where state = 'active')::int as active
+        from pgboss.job`) as unknown as Array<{ waiting: number; active: number }>;
+    return { waiting: Number(rows[0]?.waiting ?? 0), active: Number(rows[0]?.active ?? 0) };
+  } catch {
+    return { waiting: 0, active: 0 };
+  }
+}
+
 export async function createJobRoutes(fastify: FastifyInstance) {
   // Background activity (Settings › Background activity): plain-words views
   // of the last 30 days, heartbeats never, routine checks only on request.
@@ -132,7 +150,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
     const body: JobsListResponse = {
       attention,
       data: page,
-      summary: summarizeJobs(views, views.length - shown.length),
+      summary: summarizeJobs(views, views.length - shown.length, await queueCounts(db)),
       pagination: { limit, offset, total: rest.length },
     };
     reply.status(200).send(body);

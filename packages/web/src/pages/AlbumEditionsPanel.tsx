@@ -74,7 +74,7 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
             </button>
           </p>
         )}
-        <table className={styles.candTable}>
+        <table className={`${styles.candTable} ${styles.editionsTable}`}>
           <thead>
             <tr>
               <th>Date</th>
@@ -88,28 +88,33 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
           <tbody>
             {rows.map((e) => (
               <tr key={e.releaseId} className={e.owned ? styles.ownedRow : ''}>
-                <td className={styles.num}>{e.date ?? '–'}</td>
-                <td>{e.country ?? '–'}</td>
-                <td>
-                  {e.labels.length > 0
-                    ? e.labels.map((l) => (
-                      <span key={l.name} className={styles.cellLine}>
-                        {l.name}
-                        {l.catalogNumber && ` / ${l.catalogNumber}`}
+                <td className={styles.num} data-label="Date">{e.date ?? '–'}</td>
+                <td data-label="Country">{e.country ?? '–'}</td>
+                <td data-label="Label">
+                  {/* one wrapper, so the phone layout's label sits beside all the lines */}
+                  <span>
+                    {e.labels.length > 0
+                      ? e.labels.map((l) => (
+                        <span key={l.name} className={styles.cellLine}>
+                          {l.name}
+                          {l.catalogNumber && ` / ${l.catalogNumber}`}
+                        </span>
+                      ))
+                      : '–'}
+                  </span>
+                </td>
+                <td data-label="Format">
+                  <span>
+                    {e.media.map((m, i) => (
+                      <span key={i} className={styles.cellLine}>
+                        {m.format}
+                        {m.trackCount ? ` × ${m.trackCount}` : ''}
                       </span>
-                    ))
-                    : '–'}
+                    ))}
+                  </span>
                 </td>
-                <td>
-                  {e.media.map((m, i) => (
-                    <span key={i} className={styles.cellLine}>
-                      {m.format}
-                      {m.trackCount ? ` × ${m.trackCount}` : ''}
-                    </span>
-                  ))}
-                </td>
-                <td className={styles.num}>{e.trackCount}</td>
-                <td className={styles.gapActions}>{rowAction(e)}</td>
+                <td className={styles.num} data-label="Tracks">{e.trackCount}</td>
+                <td className={`${styles.gapActions} ${styles.editionAction}`}>{rowAction(e)}</td>
               </tr>
             ))}
           </tbody>

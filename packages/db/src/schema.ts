@@ -1144,3 +1144,19 @@ export const searchDocuments = pgTable(
     libraryIdx: index('idx_search_documents_library').on(table.libraryId),
   })
 );
+
+/**
+ * One row per worker process, refreshed every 30 s (0027). Not per library:
+ * workers run before the first library exists.
+ */
+export const workerHeartbeats = pgTable(
+  'worker_heartbeats',
+  {
+    workerId: text('worker_id').primaryKey(),
+    seenAt: timestamp('seen_at', { withTimezone: true }).notNull().defaultNow(),
+    info: jsonb().notNull().default('{}'),
+  },
+  (table) => ({
+    seenAtIdx: index('idx_worker_heartbeats_seen_at').on(table.seenAt),
+  })
+);

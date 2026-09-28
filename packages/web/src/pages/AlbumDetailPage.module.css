@@ -677,3 +677,27 @@ td.num {
   .qualityFlagAction { white-space: normal; }
   .qualityFlagHint { max-width: none; text-align: left; }
 }
+
+/* Editions on a phone: six columns do not fit in the card, and the switch
+   button ended up off screen. Each edition becomes a short labelled list
+   with its action on the right. */
+@media (max-width: 640px) {
+  .editionsTable thead { display: none; }
+  .editionsTable, .editionsTable tbody { display: block; }
+  .editionsTable tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--space-md);
+    row-gap: 0.125rem;
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .editionsTable tr:last-child { border-bottom: 0; }
+  .editionsTable td { grid-column: 1; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
+  .editionsTable td[data-label] { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: var(--space-sm); text-align: left; }
+  .editionsTable td[data-label]::before { content: attr(data-label); color: var(--text-tertiary); font-size: var(--font-size-xs); line-height: 1.6; }
+  .editionsTable .editionAction { grid-column: 2; grid-row: 1 / span 5; align-self: center; }
+  /* the row is the grid now: colour it once instead of each cell */
+  .editionsTable .ownedRow { background: var(--surface-success); padding-inline: var(--space-sm); }
+  .editionsTable .ownedRow td { background: transparent; }
+}

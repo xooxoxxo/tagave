@@ -26,6 +26,13 @@ export const scanRootSchema = z.object({
 export type ScanRoot = z.infer<typeof scanRootSchema>;
 
 /**
+ * validationMessage the worker stores on an 'ok' root that has nothing in it.
+ * Docker on macOS mounts a folder it does not share with its VM as an empty
+ * directory, with no error; this is how that case reaches the UI.
+ */
+export const SCAN_ROOT_EMPTY_MESSAGE = 'folder is empty';
+
+/**
  * Create scan root request
  */
 export const createScanRootSchema = z.object({

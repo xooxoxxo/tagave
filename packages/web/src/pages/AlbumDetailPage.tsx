@@ -16,7 +16,7 @@ import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlags } from '../utils/qualityFlags';
-import { Button, LinkButton } from '../components/ui';
+import { Button, EmptyState, LinkButton } from '../components/ui';
 
 interface DetailTrack {
   id: string;
@@ -331,6 +331,12 @@ export function AlbumDetailPage() {
   // quality problem counts on its own, every other open gap counts once
   const otherGaps = openGaps.filter((g) => g.kind !== 'quality');
   const issueCount = qualityFlags.length + otherGaps.length;
+  // A quality gap whose flags describe nothing we can show would render an
+  // empty group; matched albums keep their candidates but do not show them.
+  const shownOpenGaps = openGaps.filter((g) => g.kind !== 'quality' || qualityFlags.length > 0);
+  const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
+  const careEmpty = shownOpenGaps.length === 0 && dismissedGaps.length === 0
+    && album.missingTracks.length === 0 && album.duplicates.length === 0 && !showCandidates;
   const issueNoun = issueCount === 1 ? 'issue' : 'issues';
 
   const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
@@ -543,10 +549,10 @@ export function AlbumDetailPage() {
       </nav>
 
       {tab === 'care' && (<>
-      {(openGaps.length > 0 || dismissedGaps.length > 0) && (
+      {(shownOpenGaps.length > 0 || dismissedGaps.length > 0) && (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>{issueCount > 0 ? `Needs attention (${issueCount})` : 'Hidden issues'}</h2>
-          {openGaps.map((g) =>
+          {shownOpenGaps.map((g) =>
             g.kind === 'quality' ? (
               <div key={g.id} className={styles.qualityGapGroup}>
                 <div className={styles.qualityGapHeader}>
@@ -664,7 +670,7 @@ export function AlbumDetailPage() {
         </div>
       )}
 
-      {album.candidates.length > 0 && album.state !== 'matched' && (
+      {showCandidates && (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>
             Match candidates ({visibleCandidates.length})
@@ -674,6 +680,7 @@ export function AlbumDetailPage() {
               </button>
             )}
           </h2>
+          <div className={styles.trackScroller}>
           <table className={styles.candTable}>
             <thead>
               <tr>
@@ -739,10 +746,16 @@ export function AlbumDetailPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
-      {openGaps.length === 0 && dismissedGaps.length === 0 && album.missingTracks.length === 0 && album.duplicates.length === 0 && album.candidates.length === 0 && <p className={styles.muted}>No library issues recorded for this album.</p>}
+      {careEmpty && (
+        <EmptyState
+          title="Nothing needs attention"
+          text="No missing tracks, no other copies of this album, and no problems found in its tags, artwork or files."
+        />
+      )}
       </>)}
 
       {tab === 'album' && (<>

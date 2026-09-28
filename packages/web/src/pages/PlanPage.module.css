@@ -122,3 +122,22 @@
 
 .title { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
 @media (max-width: 640px) { .stats { grid-template-columns: 1fr 1fr; } .stats > div + div { border-left: 0; } .input { min-width: 0; width: 100%; } .fileRow { grid-template-columns: 1rem 4rem minmax(0, 1fr); } .fileFields { grid-column: 3; justify-content: flex-start; } }
+
+/* On a phone the four columns do not fit (Field and Why alone take the
+   width), so each change becomes a small block: the field on top, then
+   labelled Before / After / Why lines. */
+@media (max-width: 640px) {
+  .diff, .diff tbody, .diff tr, .diff td { display: block; width: auto; }
+  .diff colgroup, .diff thead { display: none; }
+  .diff tbody { border-top: 1px solid var(--border); }
+  .diff tr { padding: var(--space-sm) var(--space-md); border-bottom: 1px solid var(--border); }
+  .diff tr:last-child { border-bottom: 0; }
+  .diff td { padding: 0.125rem 0; border-bottom: 0; }
+  .diff td[data-label] { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: var(--space-sm); }
+  .diff td[data-label]::before {
+    content: attr(data-label); color: var(--text-tertiary); font-size: var(--font-size-xs);
+    text-transform: uppercase; letter-spacing: 0.04em; line-height: 1.6;
+  }
+  .cellField { white-space: normal; overflow-wrap: anywhere; color: var(--text-primary); font-weight: 600; }
+  .cellWhy { white-space: normal; }
+}

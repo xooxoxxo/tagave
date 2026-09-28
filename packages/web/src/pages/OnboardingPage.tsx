@@ -21,10 +21,11 @@ import {
 } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
 import { useSystemChecks } from '../hooks/useSystem';
+import { useUpdates } from '../hooks/useUpdates';
 import { api } from '../services/api';
 import { Banner, Button, Card, Input, TextField } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
-import { folderAdvice, workerLive, validateContact } from './setupWizard';
+import { folderAdvice, folderCheckerLive, workerLive, validateContact } from './setupWizard';
 import styles from './OnboardingPage.module.css';
 
 const LIVE_MS = 5000;
@@ -64,6 +65,10 @@ export function OnboardingPage() {
   });
   const live = workerLive(system.data?.checks);
   const heartbeat = system.data?.checks.find((c) => c.id === 'workerHeartbeat');
+  // Which queues the live workers take: a folder only gets checked by the
+  // worker that scans. Only asked while a folder is waiting.
+  const updates = useUpdates(anyPending ? libraryId : undefined);
+  const checkerLive = anyPending ? folderCheckerLive(updates.data?.workers) : undefined;
 
   const firstAlbum = useQuery({
     queryKey: ['onboarding', 'first-album', libraryId],
@@ -156,7 +161,7 @@ export function OnboardingPage() {
     <div className={styles.container}>
       <header className={styles.header}>
         <h1 className={styles.title}>Set up tagave</h1>
-        <SetupSteps current={readyRoots.length > 0 ? 'First album' : 'Music folder'} />
+        <SetupSteps current={scanStarted || readyRoots.length > 0 ? 'First album' : 'Music folder'} />
       </header>
 
       {live === false && (
@@ -200,7 +205,7 @@ export function OnboardingPage() {
           {scanRoots.length > 0 && (
             <ul className={styles.roots}>
               {scanRoots.map((root) => {
-                const advice = folderAdvice(root, { workerLive: live });
+                const advice = folderAdvice(root, { workerLive: live, checkerLive });
                 const canRecheck = root.validationStatus !== 'ok' && advice.tone !== 'info';
                 return (
                   <li key={root.id} className={styles.root}>
@@ -278,7 +283,9 @@ export function OnboardingPage() {
 
       <Card title="First album">
         <div className={styles.stack}>
-          {readyRoots.length === 0 ? (
+          {/* A library that has been scanned shows its progress even while a
+              folder check is pending again (they re-run every ten minutes). */}
+          {!scanStarted && readyRoots.length === 0 ? (
             <p className={styles.description}>Add a music folder the worker can read, then start the first scan here.</p>
           ) : !scanStarted ? (
             <>

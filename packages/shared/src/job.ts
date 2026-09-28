@@ -251,6 +251,12 @@ export interface JobsSummary {
   routineHidden: number;
   /** when the newest finished task ended, or null */
   lastFinishedAt: string | null;
+  /**
+   * The background queue itself. Most small tasks (reading one folder,
+   * grouping files into an album) never get an activity row, so the counts
+   * above can be zero while thousands of them wait here.
+   */
+  queue: { waiting: number; active: number };
 }
 
 export interface JobsListResponse {

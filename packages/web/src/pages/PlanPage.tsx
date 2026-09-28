@@ -589,9 +589,9 @@ export function PlanPage() {
                           {rows.map((d) => (
                             <tr key={d.field}>
                               <td className={styles.cellField}>{d.field}</td>
-                              <td className={styles.cellBefore}>{fmtValue(d.before)}</td>
-                              <td>{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
-                              <td className={styles.cellWhy}>{reasonLabel(d.reason)}</td>
+                              <td className={styles.cellBefore} data-label="Before">{fmtValue(d.before)}</td>
+                              <td data-label="After">{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
+                              <td className={styles.cellWhy} data-label="Why">{reasonLabel(d.reason)}</td>
                             </tr>
                           ))}
                         </tbody>

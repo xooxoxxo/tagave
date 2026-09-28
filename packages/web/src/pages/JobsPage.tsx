@@ -9,11 +9,12 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import type { JobView } from '@liner/shared';
+import type { JobView, JobsSummary } from '@liner/shared';
 import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
 import type { IdentifyStatsResponse } from '../hooks';
 import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from '../components/ui';
 import { formatEta, formatRelativeTime } from '../utils/time';
+import { summaryMessage } from './jobsSummary';
 import styles from './JobsPage.module.css';
 
 /** How many recent entries load at a time. */
@@ -81,7 +82,8 @@ export function JobsPage() {
   return (
     <div className={styles.page}>
       <Summary summary={jobs.summary} running={recent.filter((j) => j.status === 'running')}
-        anyRetryable={attention.some((j) => j.retryable)} />
+        anyRetryable={attention.some((j) => j.retryable)}
+        pendingAlbums={stats && stats.sweep?.state !== 'running' ? stats.states.pending : undefined} />
 
       {focusMissing && (
         <Banner tone="warning">
@@ -145,37 +147,22 @@ export function JobsPage() {
   );
 }
 
-function Summary({ summary, running, anyRetryable }: {
-  summary: { running: number; waiting: number; needsAttention: number; lastFinishedAt: string | null };
+function Summary({ summary, running, anyRetryable, pendingAlbums }: {
+  summary: JobsSummary;
   running: JobView[];
   anyRetryable: boolean;
+  pendingAlbums: number | undefined;
 }) {
-  if (summary.needsAttention > 0) {
-    return (
-      <Banner tone="danger">
-        <strong>{plural(summary.needsAttention, 'task')} {summary.needsAttention === 1 ? 'needs' : 'need'} your attention.</strong>{' '}
-        {anyRetryable
-          ? 'See what went wrong below; once the cause is fixed, press Retry where it is offered.'
-          : summary.needsAttention === 1
-            ? 'See what went wrong below. It cannot be restarted from this page.'
-            : 'See what went wrong below. They cannot be restarted from this page.'}
-      </Banner>
-    );
-  }
-  if (summary.running > 0 || summary.waiting > 0) {
-    const names = running.map((j) => j.label).slice(0, 3).join(', ');
-    return (
-      <Banner tone="info">
-        <strong>Working.</strong>{' '}
-        {names ? `${names}${running.length > 3 ? ' and more' : ''}.` : ''}
-        {summary.waiting > 0 ? ` ${plural(summary.waiting, 'task')} waiting to start.` : ''}
-      </Banner>
-    );
-  }
+  const m = summaryMessage({
+    summary,
+    runningNames: running.map((j) => j.label),
+    anyRetryable,
+    pendingAlbums,
+    relative: formatRelativeTime,
+  });
   return (
-    <Banner tone="success">
-      <strong>All caught up.</strong>{' '}
-      {summary.lastFinishedAt ? `Nothing is running; the last task finished ${formatRelativeTime(summary.lastFinishedAt)}.` : 'Nothing is running.'}
+    <Banner tone={m.tone}>
+      <strong>{m.lead}</strong>{m.text ? ` ${m.text}` : ''}
     </Banner>
   );
 }

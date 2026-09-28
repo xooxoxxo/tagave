@@ -3,7 +3,7 @@
  * validation (the same rules the server applies), which system checks gate
  * setup, and what to tell the owner about a music folder the worker checked.
  */
-import { setupRequestSchema, type SetupRequest, type ScanRoot } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, setupRequestSchema, type SetupRequest, type ScanRoot } from '@liner/shared';
 
 /** The whole journey, across /setup and /onboarding. */
 export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album'] as const;
@@ -72,6 +72,16 @@ export function setupBlocked(checks: SystemCheck[]): boolean {
   return checks.some((c) => (c.id === 'database' || c.id === 'migrations') && c.status === 'fail');
 }
 
+/**
+ * Whether a live worker takes folder checks. roots.validate runs on the
+ * worker that serves scan.root; '*' means a worker without LINER_QUEUES.
+ * Undefined while the list of workers is not known.
+ */
+export function folderCheckerLive(workers: Array<{ queues: string[] }> | undefined): boolean | undefined {
+  if (!workers) return undefined;
+  return workers.some((w) => w.queues.includes('*') || w.queues.includes('scan.root'));
+}
+
 export function workerLive(checks: SystemCheck[] | undefined): boolean | undefined {
   const heartbeat = checks?.find((c) => c.id === 'workerHeartbeat');
   if (!heartbeat) return undefined;
@@ -94,12 +104,21 @@ export const PENDING_GRACE_MS = 20_000;
  */
 export function folderAdvice(
   root: Pick<ScanRoot, 'path' | 'validationStatus' | 'validationMessage' | 'probeWritable' | 'writable' | 'createdAt'>,
-  opts: { workerLive?: boolean | undefined; now?: number } = {},
+  opts: { workerLive?: boolean | undefined; checkerLive?: boolean | undefined; now?: number } = {},
 ): FolderAdvice {
   const path = root.path;
   switch (root.validationStatus) {
     case 'pending': {
       const waited = (opts.now ?? Date.now()) - Date.parse(root.createdAt);
+      // Workers are running, but none of them takes folder checks (they are
+      // done by the worker that scans, the one that can see the files).
+      if (opts.workerLive !== false && opts.checkerLive === false) {
+        return {
+          tone: 'warning',
+          title: 'No running worker checks folders',
+          text: 'Workers are running, but none of them reads music folders, so this folder waits. Folders are checked by the file worker, the one that scans (with the installer, worker-files). Start it (see the system check above), and this folder is checked within a few seconds.',
+        };
+      }
       if (opts.workerLive === false || (opts.workerLive === undefined && waited > PENDING_GRACE_MS * 3)) {
         return {
           tone: 'warning',
@@ -128,6 +147,13 @@ export function folderAdvice(
         text: `${path} exists, but the user the worker runs as cannot list it. Give that user read access (for example "chmod -R o+rX" on the folder). On an SMB mount, set uid, gid or file_mode and dir_mode in the mount options so the worker user can read it. Then press Re-check.`,
       };
     case 'ok':
+      if (root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE) {
+        return {
+          tone: 'warning',
+          title: 'The worker sees an empty folder',
+          text: `${path} exists on the worker host but has nothing in it, so a scan will find no music. If your music is in that folder on your computer, Docker is not passing it through. On a Mac, Docker only sees folders it shares with its virtual machine (colima shares just your home folder): move the music under your home folder, or add its folder to Docker's file sharing settings, then run the installer again (or restart the worker) and press Re-check.`,
+        };
+      }
       if (root.writable && root.probeWritable === false) {
         return {
           tone: 'warning',

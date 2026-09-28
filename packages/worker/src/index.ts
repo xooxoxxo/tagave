@@ -421,35 +421,35 @@ async function main() {
   }
   logger.info({ queues: queues.length }, 'job handlers registered');
 
-  // Heartbeat: the API's /health reads the freshest worker.heartbeat row.
+  // Heartbeat: the API's /health reads the live worker_heartbeats rows.
   // It carries the build identity and the served queues so Settings › Updates
   // can show a worker lagging the app (XO-313), plus the worst event-loop lag
   // of the last interval (XO-318).
   const servedQueues = only ? [...only] : ['*'];
-  const heartbeat = setInterval(() => {
-    void (async () => {
-      try {
-        const loopLagMs = watchdog.maxLagMs();
-        if (loopLagMs > 5_000) logger.warn({ loopLagMs }, 'event loop lag');
-        await ctx.sql`
-          insert into job_runs (id, library_id, type, state, progress, created_at)
-          select gen_random_uuid(), l.id, 'worker.heartbeat', 'completed',
-                 ${JSON.stringify({
-                   workerId, at: new Date().toISOString(),
-                   version: build.version, sha: build.sha, builtAt: build.builtAt,
-                   queues: servedQueues, host: process.env['HOSTNAME'] ?? null, loopLagMs,
-                 })}::jsonb, now()
-          from libraries l limit 1
-          on conflict do nothing`;
-        await ctx.sql`
-          delete from job_runs
-          where type = 'worker.heartbeat'
-            and created_at < now() - interval '10 minutes'`;
-      } catch (err) {
-        logger.warn({ err: (err as Error).message }, 'heartbeat failed');
-      }
-    })();
-  }, 30_000);
+  // Written to worker_heartbeats, not job_runs: it must work before the
+  // first library exists (a fresh install, before the owner account).
+  const beat = async () => {
+    try {
+      const loopLagMs = watchdog.maxLagMs();
+      if (loopLagMs > 5_000) logger.warn({ loopLagMs }, 'event loop lag');
+      const info = JSON.stringify({
+        workerId, at: new Date().toISOString(),
+        version: build.version, sha: build.sha, builtAt: build.builtAt,
+        queues: servedQueues, host: process.env['HOSTNAME'] ?? null, loopLagMs,
+      });
+      await ctx.sql`
+        insert into worker_heartbeats (worker_id, seen_at, info)
+        values (${workerId}, now(), ${info}::jsonb)
+        on conflict (worker_id) do update set seen_at = excluded.seen_at, info = excluded.info`;
+      await ctx.sql`delete from worker_heartbeats where seen_at < now() - interval '10 minutes'`;
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'heartbeat failed');
+    }
+  };
+  // Beat once now, so the system check sees a worker as soon as it is ready
+  // rather than 30 s later.
+  void beat();
+  const heartbeat = setInterval(() => void beat(), 30_000);
 
   let shuttingDown = false;
   const shutdown = async () => {

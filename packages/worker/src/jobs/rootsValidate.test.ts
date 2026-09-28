@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { classifyProbe } from './rootsValidate.js';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SCAN_ROOT_EMPTY_MESSAGE } from '@liner/shared';
+import { classifyProbe, probeRoot } from './rootsValidate.js';
 
 describe('classifyProbe', () => {
   it('returns ok when no error and is directory', () => {
@@ -41,5 +45,31 @@ describe('classifyProbe', () => {
     err.code = 'EIO';
     const result = classifyProbe(err, null);
     expect(result.status).toBe('unreadable');
+  });
+});
+
+describe('probeRoot', () => {
+  it('flags an empty folder, which is how a mount Docker does not share looks', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liner-probe-'));
+    try {
+      const probe = await probeRoot(dir, true);
+      expect(probe.status).toBe('ok');
+      expect(probe.message).toBe(SCAN_ROOT_EMPTY_MESSAGE);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not flag a folder with something in it', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'liner-probe-'));
+    try {
+      await writeFile(join(dir, 'a.flac'), '');
+      const probe = await probeRoot(dir, true);
+      expect(probe.status).toBe('ok');
+      expect(probe.message).toBeNull();
+      expect(probe.probeWritable).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

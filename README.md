@@ -49,8 +49,9 @@ You need Docker and Compose v2. One command installs it from the published image
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"
 ```
 
-Then open <http://localhost:3100> and follow the setup. [Installation](docs/install.md)
-covers the options, including a file worker on the computer that holds your music.
+Then open <http://localhost:3100> and follow the setup. From a clone,
+`./install-tagave.sh` does the same. [Installation](docs/install.md) covers the
+options, including a file worker on the computer that holds your music.
 
 To build from source instead:
 

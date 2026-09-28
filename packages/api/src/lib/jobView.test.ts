@@ -262,6 +262,7 @@ describe('summarizeJobs', () => {
       row({ state: 'failed', error: 'old, fixed later', finishedAt: h(3) }),
       row({ type: 'collection.sync', subjectType: null, subjectId: null, state: 'failed', error: 'Discogs said no', finishedAt: h(2) }),
     ]).filter((v): v is JobView => v !== null);
-    expect(summarizeJobs(out, 4)).toEqual({ running: 1, waiting: 1, needsAttention: 1, routineHidden: 4, lastFinishedAt: h(1) });
+    expect(summarizeJobs(out, 4)).toEqual({ running: 1, waiting: 1, needsAttention: 1, routineHidden: 4, lastFinishedAt: h(1), queue: { waiting: 0, active: 0 } });
+    expect(summarizeJobs(out, 4, { waiting: 7374, active: 2 }).queue).toEqual({ waiting: 7374, active: 2 });
   });
 });

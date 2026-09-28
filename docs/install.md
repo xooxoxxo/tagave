@@ -14,6 +14,10 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/ins
 
 It asks where your music is, generates the app secret and database password, writes everything to `~/tagave`, starts tagave and waits until it answers. Then open <http://localhost:3100> and create your account. When the setup asks for a scan root, enter `/mnt/music`: that is your music folder as the file worker sees it.
 
+The same script is in the repository, so from a clone `./install-tagave.sh` does the same with the same options.
+
+On a Mac, keep the music folder inside your home folder, or add its folder to Docker's file sharing settings first. Docker runs in a virtual machine there and only sees the folders it shares (colima shares just your home folder); any other folder reaches the worker empty and scans find nothing. The installer checks this after it starts and says so.
+
 Every question has a flag, so it also runs unattended (`--help` lists them all). Options go after a placeholder word:
 
 ```sh

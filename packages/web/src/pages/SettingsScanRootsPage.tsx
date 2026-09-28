@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { ScanRoot } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, type ScanRoot } from '@liner/shared';
 import styles from './SettingsScanRootsPage.module.css';
 
 /**
@@ -269,7 +269,15 @@ function SettingsScanRootsContentInner() {
                       Pending validation
                     </span>
                   )}
-                  {root.validationStatus === 'ok' && (
+                  {root.validationStatus === 'ok' && root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE && (
+                    <span
+                      className={`${styles.badge} ${styles.validationError}`}
+                      title="The worker sees nothing in this folder, so scans find no music. Check that Docker shares it with the worker."
+                    >
+                      Empty
+                    </span>
+                  )}
+                  {root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && (
                     <span
                       className={`${styles.badge} ${styles.validationOk}`}
                       title={root.probeWritable === false ? 'Mounted read-only' : 'Path validated'}

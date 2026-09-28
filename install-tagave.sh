@@ -778,6 +778,33 @@ start_services() {
     case "$ROLE:$worker" in app:worker-files|files:worker-identify) continue ;; esac
     wait_for_worker "$worker"
   done
+  [ "$ROLE" = "app" ] || check_music_visible
+}
+
+# Docker on macOS (Docker Desktop, colima) runs containers in a VM and only
+# sees the host folders it shares with that VM; colima shares only $HOME by
+# default. A folder outside those is mounted as an empty directory without
+# any error, and every scan then finds nothing. Compare the two sides.
+check_music_visible() {
+  local host_entry inside
+  host_entry="$(find "$MUSIC_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1 || true)"
+  [ -n "$host_entry" ] || return 0
+  inside="$(compose exec -T worker-files find /mnt/music -mindepth 1 -maxdepth 1 2>/dev/null | head -n 1 || true)"
+  if [ -n "$inside" ]; then
+    ok "The file worker can see your music"
+    return 0
+  fi
+  warn "The file worker sees an empty /mnt/music, but $MUSIC_DIR has files in it."
+  say "  Docker is not sharing that folder with its virtual machine, so scans will find nothing."
+  if [ "$(uname -s)" = "Darwin" ]; then
+    say "  Move the music under your home folder ($HOME), or add the folder to Docker's"
+    say "  shared folders (Docker Desktop: Settings > Resources > File sharing;"
+    say "  colima: the mounts list in ~/.colima/default/colima.yaml, then colima restart)."
+  else
+    say "  Check that the folder is not on a mount Docker cannot see (a rootless or snap Docker"
+    say "  only sees some paths)."
+  fi
+  say "  Then run this installer again."
 }
 
 # A worker has no health endpoint; it logs "worker ready" once connected and

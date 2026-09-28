@@ -1,6 +1,7 @@
 import { access, opendir, stat } from 'node:fs/promises';
 import { eq, and } from 'drizzle-orm';
 import { scanRoots } from '@liner/db';
+import { SCAN_ROOT_EMPTY_MESSAGE } from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface RootsValidateJobData {
@@ -53,11 +54,16 @@ export interface RootProbe {
 export async function probeRoot(rootPath: string, writableIntent: boolean): Promise<RootProbe> {
   let err: NodeJS.ErrnoException | null = null;
   let isDirectory: boolean | null = null;
+  let empty = false;
   try {
     isDirectory = (await stat(rootPath)).isDirectory();
     if (isDirectory) {
       const d = await opendir(rootPath);
-      await d.close();
+      try {
+        empty = (await d.read()) === null;
+      } finally {
+        await d.close();
+      }
     }
   } catch (e) {
     err = e as NodeJS.ErrnoException;
@@ -72,6 +78,10 @@ export async function probeRoot(rootPath: string, writableIntent: boolean): Prom
     probeWritable = false;
     if (writableIntent) msg = 'mounted read-only';
   }
+  // An empty root outranks read-only: it usually means the mount is wrong
+  // (a folder Docker does not share shows up empty), and every scan of it
+  // finds nothing.
+  if (empty) msg = SCAN_ROOT_EMPTY_MESSAGE;
   return { status: 'ok', message: msg, probeWritable };
 }
 

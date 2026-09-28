@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SETUP_STEPS,
   folderAdvice,
+  folderCheckerLive,
   infrastructureChecks,
   normalizeAccount,
   setupBlocked,
@@ -98,6 +99,13 @@ describe('folderAdvice', () => {
     expect(advice.text).toMatch(/Start the worker/);
   });
 
+  it('says so when the running workers do not check folders', () => {
+    const advice = folderAdvice({ ...root, validationStatus: 'pending' }, { workerLive: true, checkerLive: false, now });
+    expect(advice.tone).toBe('warning');
+    expect(advice.title).toMatch(/No running worker checks folders/);
+    expect(advice.text).not.toMatch(/is looking at the folder/);
+  });
+
   it('explains a missing path in terms of the worker host, for split installs', () => {
     const advice = folderAdvice({ ...root, validationStatus: 'missing' }, { now });
     expect(advice.tone).toBe('danger');
@@ -120,10 +128,27 @@ describe('folderAdvice', () => {
     expect(folderAdvice({ ...root, validationStatus: 'ok', probeWritable: false, writable: false }, { now }).tone).toBe('success');
   });
 
+  it('warns about an empty folder, which is what an unshared Docker mount looks like', () => {
+    const advice = folderAdvice({ ...root, validationStatus: 'ok', validationMessage: 'folder is empty', probeWritable: false }, { now });
+    expect(advice.tone).toBe('warning');
+    expect(advice.title).toMatch(/empty/);
+    expect(advice.text).toMatch(/home folder/);
+  });
+
   it('never renders undefined', () => {
     for (const status of ['pending', 'ok', 'missing', 'not_directory', 'unreadable'] as const) {
       const advice = folderAdvice({ ...root, validationStatus: status }, { now });
       expect(`${advice.title} ${advice.text}`).not.toContain('undefined');
     }
+  });
+});
+
+describe('folderCheckerLive', () => {
+  it('counts the worker that scans, or one that serves every queue', () => {
+    expect(folderCheckerLive(undefined)).toBeUndefined();
+    expect(folderCheckerLive([])).toBe(false);
+    expect(folderCheckerLive([{ queues: ['tags.preview', 'editions.fetch'] }])).toBe(false);
+    expect(folderCheckerLive([{ queues: ['identify.album'] }, { queues: ['scan.root', 'scan.dir'] }])).toBe(true);
+    expect(folderCheckerLive([{ queues: ['*'] }])).toBe(true);
   });
 });

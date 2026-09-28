@@ -1,16 +1,17 @@
 /**
  * Background activity in plain words (Settings › Background activity).
  *
- * job_runs is a worker-owned mirror: heartbeats every 30 s, hourly sweeps
+ * job_runs is a worker-owned mirror: hourly sweeps
  * that usually find nothing, rows the API inserts as "created" that the
  * worker never adopts (it writes its own row), and "running" rows left behind
  * when a worker restarts mid-job. Shown raw, that is a wall of
- * "worker.heartbeat / completed". This module turns rows into what the owner
+ * routine rows. This module turns rows into what the owner
  * can act on: what ran, how it went, what needs them, what they can retry.
  */
 import type { JobView, JobViewStatus, JobsSummary } from '@liner/shared';
 
-/** Worker bookkeeping, never shown (the health page reads it). */
+/** Worker bookkeeping, never shown. Heartbeats live in worker_heartbeats since
+ * 0027; older installs may still hold these rows until the migration clears them. */
 export const HIDDEN_JOB_TYPES = ['worker.heartbeat'] as const;
 
 /**
@@ -370,7 +371,11 @@ function viewOf(row: JobRow, libraryId: string, now: number, later: Later): JobV
 }
 
 /** Counts for the top of the page, over every derived view (routine included). */
-export function summarizeJobs(views: JobView[], routineHidden: number): JobsSummary {
+export function summarizeJobs(
+  views: JobView[],
+  routineHidden: number,
+  queue: JobsSummary['queue'] = { waiting: 0, active: 0 },
+): JobsSummary {
   let running = 0, waiting = 0, needsAttention = 0;
   let lastFinishedAt: string | null = null;
   for (const v of views) {
@@ -379,5 +384,5 @@ export function summarizeJobs(views: JobView[], routineHidden: number): JobsSumm
     else if (v.needsAttention) needsAttention++;
     if (v.status === 'done' && (!lastFinishedAt || v.at > lastFinishedAt)) lastFinishedAt = v.at;
   }
-  return { running, waiting, needsAttention, routineHidden, lastFinishedAt };
+  return { running, waiting, needsAttention, routineHidden, lastFinishedAt, queue };
 }

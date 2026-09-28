@@ -30,6 +30,13 @@ describe('remediationFor', () => {
     expect(remediationFor({ id: 'workerHeartbeat', status: 'warn', detail: '' })).toMatch(/Fewer workers/);
   });
 
+  it('gives the installer command before the source-checkout one for a missing worker', () => {
+    const text = remediationFor({ id: 'workerHeartbeat', status: 'fail', detail: '' }) ?? '';
+    expect(text).toContain('~/tagave');
+    expect(text.indexOf('`docker compose up -d`')).toBeGreaterThanOrEqual(0);
+    expect(text.indexOf('`docker compose up -d`')).toBeLessThan(text.indexOf('docker-compose.prod.yml'));
+  });
+
   it('returns null for a check it does not know', () => {
     expect(remediationFor({ id: 'nope', status: 'fail', detail: '' })).toBeNull();
   });

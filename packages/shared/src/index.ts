@@ -27,6 +27,7 @@ export {
 export {
   scanRootSchema,
   type ScanRoot,
+  SCAN_ROOT_EMPTY_MESSAGE,
   createScanRootSchema,
   type CreateScanRootRequest,
   patchScanRootSchema,

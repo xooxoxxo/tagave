@@ -186,11 +186,9 @@ export async function checkWorkerHeartbeat(
     try {
       // Find the freshest worker heartbeat rows within the last 120 seconds per workerId
       const result = await sql`
-        select distinct (progress->>'workerId') as worker_id, created_at
-        from job_runs
-        where type = 'worker.heartbeat'
-          and created_at > now() - interval '120 seconds'
-        order by created_at desc
+        select worker_id
+        from worker_heartbeats
+        where seen_at > now() - interval '120 seconds'
       `;
 
       const workerIds = new Set(result.map((r) => r['worker_id'] as string).filter(Boolean));
@@ -716,10 +714,9 @@ export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
     const sql = postgres(databaseUrl, { max: 1 });
     try {
       const rows = await sql`
-        select distinct on (progress->>'workerId') progress->>'workerId' as worker_id, progress->>'sha' as sha
-        from job_runs
-        where type = 'worker.heartbeat' and created_at > now() - interval '120 seconds'
-        order by progress->>'workerId', created_at desc`;
+        select worker_id, info->>'sha' as sha
+        from worker_heartbeats
+        where seen_at > now() - interval '120 seconds'`;
       if (rows.length === 0) {
         return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `no live workers; this process is ${me.version} @ ${me.sha ?? 'unknown'} (${me.source})`, durationMs: Date.now() - start };
       }

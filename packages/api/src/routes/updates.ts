@@ -51,10 +51,10 @@ async function saveUpdates(libraryId: string, updates: UpdatesSettings): Promise
 
 async function liveWorkers(): Promise<WorkerVersion[]> {
   const rows = (await getDb().execute(sql`
-    select distinct on (progress->>'workerId') progress, created_at
-    from job_runs
-    where type = 'worker.heartbeat' and created_at > now() - make_interval(secs => ${LIVE_WINDOW_SECONDS})
-    order by progress->>'workerId', created_at desc`)) as unknown as Array<{ progress: Record<string, unknown>; created_at: Date | string }>;
+    select info as progress, seen_at as created_at
+    from worker_heartbeats
+    where seen_at > now() - make_interval(secs => ${LIVE_WINDOW_SECONDS})
+    order by worker_id`)) as unknown as Array<{ progress: Record<string, unknown>; created_at: Date | string }>;
   return rows.map((r) => {
     const p = r.progress ?? {};
     return {

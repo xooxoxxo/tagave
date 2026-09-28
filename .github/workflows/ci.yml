@@ -162,7 +162,9 @@ jobs:
 
   build-arm64:
     needs: gates
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    # main too, so `edge` is multi-arch: without it the installer's default
+    # before the first release ran x86-64 emulated on every Apple Silicon Mac.
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
@@ -235,12 +237,13 @@ jobs:
 
   merge:
     needs: [gates, build-amd64, build-arm64]
-    # build-arm64 is skipped on main (it is tag-only), and a job whose `needs`
-    # contains a skipped job is itself skipped unless the condition carries a
-    # status function. Without the leading !cancelled() the explicit tests below
-    # are never even evaluated: the first main run built both amd64 images, then
-    # skipped this job, so the images were pushed by digest with no tag on them
-    # and no `edge` ever appeared. Green run, nothing usable.
+    # A job whose `needs` contains a skipped job is itself skipped unless the
+    # condition carries a status function. Without the leading !cancelled() the
+    # explicit tests below are never even evaluated: when build-arm64 was
+    # tag-only, the first main run built both amd64 images, then skipped this
+    # job, so the images were pushed by digest with no tag on them and no `edge`
+    # ever appeared. Green run, nothing usable. Kept so a skipped arm64 build
+    # (for example a disabled runner) still publishes amd64.
     if: >-
       !cancelled()
       && github.event_name == 'push'
