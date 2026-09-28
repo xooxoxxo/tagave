@@ -1,11 +1,13 @@
 # tagave split install: publish Postgres so a file worker on another computer
 # can reach it. Only the computer that runs the database uses this file.
 #
-# Postgres listens on DB_BIND (all interfaces by default) with the generated
-# password from .env. Allow only the worker computer through your firewall, or
-# set DB_BIND to the one local address the worker can reach.
+# Postgres listens on DB_BIND, one address of this computer (the installer
+# uses the advertise address), with the generated password from .env. On
+# Linux, Docker publishes ports past ufw and firewalld, so a firewall rule
+# does not limit who reaches it: the bind address does. docs/install.md
+# ("The database link") covers DOCKER-USER rules and VPN links.
 
 services:
   postgres:
     ports:
-      - "${DB_BIND:-0.0.0.0}:${DB_PORT:-5432}:5432"
+      - "${DB_BIND:?DB_BIND is missing from .env: the address Postgres listens on}:${DB_PORT:-5432}:5432"

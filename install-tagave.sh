@@ -32,7 +32,9 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 TAGAVE_REPO="${TAGAVE_REPO:-xooxoxxo/tagave}"
-TAGAVE_REF="${TAGAVE_REF:-main}"
+# Git ref the compose files come from when the script is piped in. Unset, it
+# follows the image version (release 0.2.0 -> tag v0.2.0, edge -> main).
+TAGAVE_REF="${TAGAVE_REF:-}"
 TAGAVE_REGISTRY="${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}"
 
 ROLE="${TAGAVE_ROLE:-}"
@@ -51,6 +53,7 @@ ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
 PLATFORM=""
 REPLACE_SECRETS=0
+VERSION_FROM_ENV_FILE=0
 
 PROJECT_NAME="tagave"
 COMPOSE_MAIN="compose.yml"
@@ -88,7 +91,8 @@ Usage: install-tagave.sh [options]
   Split install, database computer (--role app):
   --advertise-address A    address the file worker uses to reach this computer
   --db-port N              port Postgres is published on (default: 5432)
-  --db-bind ADDR           local address Postgres listens on (default: 0.0.0.0)
+  --db-bind ADDR           local address Postgres listens on (default: the
+                           advertise address; 0.0.0.0 means every network)
 
   Split install, music computer (--role files):
   --from FILE              files-worker.env written by the app computer
@@ -102,7 +106,8 @@ Usage: install-tagave.sh [options]
 Each option can also be set as an environment variable: TAGAVE_ROLE,
 TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
 TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
-TAGAVE_FROM, TAGAVE_BEHIND_HTTPS=1, TAGAVE_YES=1.
+TAGAVE_FROM, TAGAVE_BEHIND_HTTPS=1, TAGAVE_YES=1. TAGAVE_REF picks the git
+ref the compose files are downloaded from (default: the release being installed).
 EOF
 }
 
@@ -219,6 +224,23 @@ detect_address() {
   printf '%s' "$addr"
 }
 
+is_ipv4() {
+  printf '%s' "$1" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$'
+}
+
+# This computer's IPv4 addresses, one per line (none when it cannot tell).
+local_addresses() {
+  {
+    if command -v ip >/dev/null 2>&1; then
+      ip -o -4 addr show 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+    elif command -v ifconfig >/dev/null 2>&1; then
+      ifconfig 2>/dev/null | awk '$1 == "inet" {sub("addr:", "", $2); print $2}'
+    fi
+  } | grep -v '^127\.' | sort -u || true
+}
+
+is_local_address() { local_addresses | grep -qxF "$1"; }
+
 detect_timezone() {
   local tz=""
   if [ -n "${TZ:-}" ]; then
@@ -234,7 +256,26 @@ detect_timezone() {
 # </dev/null: when the script arrives on stdin, stdin is the rest of it.
 compose() { (cd "$INSTALL_DIR" && docker compose "$@" </dev/null); }
 
-image_exists() { docker manifest inspect "$1" >/dev/null 2>&1; }
+# manifest IMAGE: prints the image manifest. On failure it prints nothing,
+# returns 1 and leaves docker's error in $MANIFEST_ERR_FILE for
+# explain_missing_image.
+MANIFEST_ERR_FILE=""
+manifest() { docker manifest inspect "$1" 2>"${MANIFEST_ERR_FILE:-/dev/null}"; }
+
+image_exists() { manifest "$1" >/dev/null; }
+
+# Stops with the reason the last manifest lookup failed. A registry answers a
+# private image and a missing one alike ("unauthorized", "denied" or
+# "manifest unknown"), so only a network failure is told apart.
+explain_missing_image() {
+  local image="$1" err=""
+  [ -z "$MANIFEST_ERR_FILE" ] || err="$(cat "$MANIFEST_ERR_FILE" 2>/dev/null || true)"
+  case "$err" in
+    *'no such host'*|*'dial tcp'*|*'i/o timeout'*|*'network is unreachable'*|*'connection refused'*|*'TLS handshake timeout'*)
+      die "could not reach ${image%%/*}. Check this computer's internet connection (docker said: $err)" ;;
+  esac
+  die "the tagave image $image is not public or not published. This is not a problem with your computer: see https://github.com/$TAGAVE_REPO/blob/main/docs/install.md for other ways to install. If you were given access to the images, run 'docker login ${image%%/*}' and try again."
+}
 
 # ---------------------------------------------------------------------------
 # Steps
@@ -282,7 +323,10 @@ collect_answers() {
     [ -n "$ROLE" ]      || ROLE="$(env_get TAGAVE_ROLE "$existing")"
     [ -n "$MUSIC_DIR" ] || MUSIC_DIR="$(env_get MUSIC_DIR "$existing")"
     [ -n "$PORT" ]      || PORT="$(env_get TAGAVE_PORT "$existing")"
-    [ -n "$VERSION" ]   || VERSION="$(env_get TAGAVE_VERSION "$existing")"
+    if [ -z "$VERSION" ]; then
+      VERSION="$(env_get TAGAVE_VERSION "$existing")"
+      [ -z "$VERSION" ] || VERSION_FROM_ENV_FILE=1
+    fi
     [ -n "$TIMEZONE" ]  || TIMEZONE="$(env_get TZ "$existing")"
     [ -n "$DB_HOST" ]   || DB_HOST="$(env_get DB_HOST "$existing")"
     [ -n "$DB_PORT" ]   || DB_PORT="$(env_get DB_PORT "$existing")"
@@ -320,6 +364,8 @@ collect_answers() {
       DB_PORT="${arg_db_port:-${from_value:-$DB_PORT}}"
       from_value="$(env_get TAGAVE_VERSION "$FROM_FILE")"
       VERSION="${arg_version:-${from_value:-$VERSION}}"
+      # The file worker runs the app computer's version, edge included.
+      VERSION_FROM_ENV_FILE=0
     fi
     ask DB_HOST "Address of the app computer" ""
     [ -n "$DB_HOST" ] || die "a file worker needs the app computer's address: pass --from $WORKER_ENV_NAME or --db-host"
@@ -331,7 +377,7 @@ collect_answers() {
     ask ADVERTISE_ADDRESS "Address the music computer uses to reach this one" "$(detect_address)"
     ask DB_PORT "Port to publish the database on" "5432"
     is_port "$DB_PORT" || die "database port must be a number from 1 to 65535, not '$DB_PORT'"
-    [ -n "$DB_BIND" ] || DB_BIND="0.0.0.0"
+    settle_db_bind
   fi
 
   if [ "$ROLE" != "files" ]; then
@@ -362,6 +408,33 @@ collect_answers() {
   check_value "address" "$ADVERTISE_ADDRESS$DB_HOST$DB_BIND"
 }
 
+# Where the published Postgres listens. Docker publishes ports past ufw and
+# firewalld on Linux, so "allow only the music computer in the firewall" does
+# not work; listening on one address is what limits who can connect.
+settle_db_bind() {
+  local default_bind=""
+  if [ -z "$DB_BIND" ]; then
+    if is_ipv4 "$ADVERTISE_ADDRESS" && is_local_address "$ADVERTISE_ADDRESS"; then
+      default_bind="$ADVERTISE_ADDRESS"
+    fi
+    if [ -n "$TTY" ]; then
+      say "  The database listens on one address of this computer, so only networks"
+      say "  that address is on can reach it. Pick your home network or VPN address"
+      say "  (0.0.0.0 means every network this computer is on)."
+    fi
+    ask DB_BIND "Address the database listens on" "$default_bind"
+  fi
+  [ -n "$DB_BIND" ] \
+    || die "pick the address the database listens on with --db-bind (an address of this computer that the music computer can reach, such as its home network or Tailscale address)."
+  if [ "$DB_BIND" = "0.0.0.0" ]; then
+    warn "The database will listen on every network this computer is on. On Linux, Docker opens published ports past ufw and firewalld, so a firewall rule will not keep others out; see docs/install.md."
+  elif ! is_ipv4 "$DB_BIND"; then
+    die "--db-bind needs an IPv4 address of this computer, not '$DB_BIND'"
+  elif local_addresses | grep -q . && ! is_local_address "$DB_BIND"; then
+    die "$DB_BIND is not an address of this computer, so Docker cannot listen on it. Addresses here: $(local_addresses | tr '\n' ' ')"
+  fi
+}
+
 check_music_dir() {
   [ "$ROLE" != "app" ] || return 0
   if [ "$MUSIC_DIR" = "$INSTALL_DIR/music" ]; then
@@ -378,6 +451,22 @@ check_music_dir() {
 # for x86-64 only and this computer is ARM: Docker then runs them emulated.
 resolve_version() {
   local tag=""
+
+  # For tests (scripts/test-installer.sh): trust --version without asking the
+  # registry, so the configuration can be checked offline.
+  if [ "${TAGAVE_SKIP_IMAGE_CHECK:-0}" = "1" ]; then
+    [ -n "$VERSION" ] || die "TAGAVE_SKIP_IMAGE_CHECK=1 needs --version"
+    ok "Version $VERSION (not checked against the registry)"
+    return 0
+  fi
+  # An install that recorded edge before any release existed moves to the
+  # stable release once one is published; an explicit --version stays put.
+  if [ "$VERSION" = "edge" ] && [ "$VERSION_FROM_ENV_FILE" = "1" ] && [ "$ROLE" != "files" ] \
+     && image_exists "$TAGAVE_REGISTRY/tagave-app:latest"; then
+    VERSION=""
+    say "  A stable release is out now; moving this install from edge to it."
+  fi
+
   if [ -n "$VERSION" ]; then
     tag="$VERSION"
   elif image_exists "$TAGAVE_REGISTRY/tagave-app:latest"; then
@@ -386,14 +475,14 @@ resolve_version() {
     tag="edge"
     warn "No stable release is published yet, so this installs the development build (edge)."
   else
-    die "could not find the tagave images at $TAGAVE_REGISTRY. Check the internet connection."
+    explain_missing_image "$TAGAVE_REGISTRY/tagave-app:edge"
   fi
 
   local app_manifest worker_manifest
-  app_manifest="$(docker manifest inspect "$TAGAVE_REGISTRY/tagave-app:$tag" 2>/dev/null || true)"
-  worker_manifest="$(docker manifest inspect "$TAGAVE_REGISTRY/tagave-worker:$tag" 2>/dev/null || true)"
-  [ -n "$app_manifest" ] && [ -n "$worker_manifest" ] \
-    || die "no tagave release is published with the tag '$tag'. See https://github.com/$TAGAVE_REPO/releases"
+  app_manifest="$(manifest "$TAGAVE_REGISTRY/tagave-app:$tag" || true)"
+  [ -n "$app_manifest" ] || explain_missing_image "$TAGAVE_REGISTRY/tagave-app:$tag"
+  worker_manifest="$(manifest "$TAGAVE_REGISTRY/tagave-worker:$tag" || true)"
+  [ -n "$worker_manifest" ] || explain_missing_image "$TAGAVE_REGISTRY/tagave-worker:$tag"
   VERSION="$tag"
   ok "Version $VERSION"
 
@@ -420,22 +509,56 @@ fetch_compose_files() {
     [ -f "$src/$COMPOSE_MAIN" ] || src=""
   fi
 
+  local ref=""
+  [ -n "$src" ] || ref="$(compose_ref)"
   for name in "$COMPOSE_MAIN" "$COMPOSE_DB"; do
     if [ -n "$src" ]; then
       cp "$src/$name" "$INSTALL_DIR/$name.tmp"
-    else
-      local url="https://raw.githubusercontent.com/$TAGAVE_REPO/$TAGAVE_REF/deploy/$name"
-      if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" -o "$INSTALL_DIR/$name.tmp" || die "could not download $url"
-      elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$INSTALL_DIR/$name.tmp" "$url" || die "could not download $url"
-      else
-        die "curl or wget is needed to download $url"
-      fi
+    elif ! download "https://raw.githubusercontent.com/$TAGAVE_REPO/$ref/deploy/$name" "$INSTALL_DIR/$name.tmp"; then
+      # A release from before the installer has no deploy/ folder.
+      { [ "$ref" != "main" ] && [ -z "$TAGAVE_REF" ]; } \
+        || die "could not download deploy/$name from $TAGAVE_REPO at $ref"
+      warn "Release $ref has no deploy/$name; using the one from main."
+      ref="main"
+      download "https://raw.githubusercontent.com/$TAGAVE_REPO/main/deploy/$name" "$INSTALL_DIR/$name.tmp" \
+        || die "could not download deploy/$name from $TAGAVE_REPO"
     fi
     mv "$INSTALL_DIR/$name.tmp" "$INSTALL_DIR/$name"
   done
-  ok "$COMPOSE_MAIN, $COMPOSE_DB"
+  if [ -n "$src" ]; then
+    ok "$COMPOSE_MAIN, $COMPOSE_DB (from $src)"
+  else
+    ok "$COMPOSE_MAIN, $COMPOSE_DB (from $ref)"
+  fi
+}
+
+# download URL FILE
+download() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$1" -o "$2"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$2" "$1"
+  else
+    die "curl or wget is needed to download $1"
+  fi
+}
+
+# The git ref whose deploy/ files match the images of VERSION: the release
+# tag for a release, main for edge and anything else.
+compose_ref() {
+  local tag=""
+  if [ -n "$TAGAVE_REF" ]; then printf '%s' "$TAGAVE_REF"; return 0; fi
+  case "$VERSION" in
+    [0-9]*.[0-9]*.[0-9]*) printf 'v%s' "$VERSION" ;;
+    latest)
+      if command -v curl >/dev/null 2>&1; then
+        tag="$(curl -fsSL "https://api.github.com/repos/$TAGAVE_REPO/releases/latest" 2>/dev/null \
+          | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1 || true)"
+      fi
+      printf '%s' "${tag:-main}"
+      ;;
+    *) printf 'main' ;;
+  esac
 }
 
 # Decides APP_SECRET and POSTGRES_PASSWORD. Existing ones always win, except
@@ -612,7 +735,7 @@ check_db_reachable() {
     " "$DB_HOST" "$DB_PORT" >/dev/null 2>&1; then
     ok "The database at $DB_HOST:$DB_PORT answers"
   else
-    die "cannot reach the database at $DB_HOST:$DB_PORT. Check that the app computer is on, that its firewall lets this computer in on port $DB_PORT, and that the address is right."
+    die "cannot reach the database at $DB_HOST:$DB_PORT. Check that the app computer is on, that its database listens on an address this computer can reach (DB_BIND in its .env), and that the address and port are right."
   fi
 }
 
@@ -637,7 +760,7 @@ wait_for() {
 
 start_services() {
   step "Starting tagave"
-  compose pull || die "downloading the images failed (see above). Check the internet connection and run this again."
+  compose pull || die "downloading the images failed (see above). Fix that, then run this again."
   compose up -d || die "docker compose could not start tagave (see above)."
 
   if [ "$ROLE" != "files" ]; then
@@ -704,7 +827,9 @@ show_summary() {
     say "  Next, on the computer that can see your music:"
     say "    1. Copy $INSTALL_DIR/$WORKER_ENV_NAME there (it holds secrets; delete it afterwards)."
     say "    2. Run:  install-tagave.sh --role files --from $WORKER_ENV_NAME --music /path/to/music"
-    say "  The database now listens on port $DB_PORT. Let only that computer through your firewall."
+    say "  The database now listens on $DB_BIND port $DB_PORT."
+    say "  On Linux a firewall rule does not cover it (Docker opens published ports"
+    say "  past ufw and firewalld); docs/install.md shows how to limit it."
     say "  Until the file worker runs, scans wait in the queue."
   fi
   if [ "$ROLE" = "files" ]; then
@@ -728,6 +853,9 @@ main() {
   say "${C_BOLD}tagave installer${C_OFF}"
   check_value "install directory" "$INSTALL_DIR"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+
+  MANIFEST_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/tagave-manifest.XXXXXX")"
+  trap 'rm -f "$MANIFEST_ERR_FILE"' EXIT
 
   check_prerequisites
   collect_answers

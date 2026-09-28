@@ -73,6 +73,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: ./scripts/smoke.sh
 
+  # The one-command installer: lint it, then run it unattended with --no-start
+  # for every role against this checkout's deploy/ files and check what it
+  # writes (compose accepts it, .env is mode 600, the split halves agree).
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: shellcheck
+        run: shellcheck install-tagave.sh scripts/test-installer.sh
+
+      - name: Installer, every role
+        run: ./scripts/test-installer.sh
+
   build-amd64:
     needs: gates
     if: github.event_name == 'push'

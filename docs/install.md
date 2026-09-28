@@ -34,7 +34,7 @@ When the music lives on a different computer than the one that should run the ap
    bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)" _ --role app
    ```
 
-   It publishes Postgres (port 5432) for the file worker and writes `~/tagave/files-worker.env`. Let only the music computer through your firewall on that port.
+   It publishes Postgres (port 5432) for the file worker and writes `~/tagave/files-worker.env`. Postgres listens only on the address you give with `--advertise-address` (or `--db-bind`), so only computers on that network can reach it. See [The database link](#the-database-link) before you pick one.
 
 2. Copy `files-worker.env` to the computer with the music, then run there:
 
@@ -46,6 +46,19 @@ When the music lives on a different computer than the one that should run the ap
    It checks that the database answers before starting the worker. Delete the copied `files-worker.env` afterwards; it holds secrets.
 
 A network share (NFS, SMB) has to be mounted on the worker's computer first; give the folder it is mounted on.
+
+### The database link
+
+In a split install the file worker talks to Postgres over the network. That connection is protected by the generated 64-character password, but it is not encrypted, and three things decide who can reach it:
+
+- **The bind address.** The installer makes Postgres listen on one address of the app computer: the advertise address by default, or `--db-bind`. A home network address (`192.168.x.x`) keeps it off other networks the computer is on. `--db-bind 0.0.0.0` listens on every network and is only safe on a computer that sits on nothing but your home network.
+- **Firewalls do not cover it on Linux.** Docker writes its own iptables rules for published ports, and they run before ufw and firewalld. A `ufw allow from <music computer>` rule does nothing for port 5432. To filter by source, add a rule to Docker's `DOCKER-USER` chain, for example:
+
+  ```sh
+  sudo iptables -I DOCKER-USER -p tcp --dport 5432 ! -s <music computer address> -j DROP
+  ```
+
+- **Across networks you do not trust, use a VPN.** When the two computers are not on the same private network, connect them with [Tailscale](https://tailscale.com) or WireGuard and use the VPN address as `--advertise-address`. The VPN encrypts the link, and Postgres then listens only on the VPN.
 
 ## Manual install (build from source)
 
@@ -108,7 +121,7 @@ Then start the stack with the `workers` profile:
 docker compose -f docker-compose.prod.yml --profile workers up -d
 ```
 
-This adds two services: `worker-files` (scanning, clustering, cover art; your library is mounted read-only at `/mnt/music`) and `worker-identify` (MusicBrainz and Discogs lookups, enrichment, reviews; no file access).
+This adds two services: `worker-files` (scanning, clustering, cover art, tag plans; your library is mounted read-only at `/mnt/music`) and `worker-identify` (MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes, track linking; no file access).
 
 When you register a scan root in the setup, use the container path `/mnt/music` (not your host path).
 
@@ -124,23 +137,23 @@ pnpm install && pnpm -r build
 
 Then run one or both worker processes:
 
-**File worker** (scanning, clustering, cover art):
+**File worker** (scanning, clustering, cover art, tag plans):
 
 ```sh
 DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep \
+LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert \
 node packages/worker/dist/index.js
 ```
 
-**Identify worker** (MusicBrainz/Discogs lookups, enrichment, reviews; can run anywhere with internet):
+**Identify worker** (MusicBrainz/Discogs lookups, enrichment, reviews, artist refreshes, track linking; can run anywhere with internet):
 
 ```sh
 DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup \
+LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup \
 node packages/worker/dist/index.js
 ```
 
-The `LINER_QUEUES` env var limits which job queues a process claims from (default: all). `APP_SECRET` must match the app's so the worker can decrypt stored provider credentials.
+The `LINER_QUEUES` env var limits which job queues a process claims from (default: all). Between them the workers must cover every queue; a queue no worker lists never runs. `APP_SECRET` must match the app's so the worker can decrypt stored provider credentials.
 
 See `scripts/deploy.sh` for one way to keep a worker host in step with the app (rsync, build, migrate, pidfile restart).
 
