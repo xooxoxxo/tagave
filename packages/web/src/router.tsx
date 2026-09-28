@@ -177,7 +177,8 @@ const collectionRoute = new Route({
 const jobsOldRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/jobs',
-  beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'activity' } }),
+  // keep ?job=<id> deep links working from the old address
+  beforeLoad: ({ search }) => redirect({ to: '/settings/$section', params: { section: 'activity' }, search }),
 });
 
 const scanRootsRedirect = new Route({

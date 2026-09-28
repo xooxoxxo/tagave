@@ -203,3 +203,62 @@ export type SseEvent =
   | ScanStatsEvent
   | QueueChangedEvent
   | ProviderStateEvent;
+
+/**
+ * Background activity as the owner sees it (GET /libraries/{lib}/jobs).
+ * The API turns raw job_runs rows into plain words so the page never has to
+ * guess: every field is present, nullable fields are null, never undefined.
+ */
+export type JobViewStatus = 'waiting' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
+
+export interface JobView {
+  id: string;
+  /** raw job_runs.type, for filtering; not for display */
+  type: string;
+  /** what the task does, in plain words ("Scan Music", "Identify albums") */
+  label: string;
+  status: JobViewStatus;
+  /** one plain sentence about the outcome or current progress, or null */
+  summary: string | null;
+  /** the error the task stopped with, or null */
+  error: string | null;
+  /** counted progress when the task reports one, else null */
+  progress: { done: number; total: number } | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  /** the most recent timestamp we know for this task */
+  at: string;
+  /** hidden by default: a scheduled check that ran as expected (a quick scan that found no changes counts),
+   * or an old failure that a later run already dealt with */
+  routine: boolean;
+  /** POST .../jobs/{id}/retry can start this work again */
+  retryable: boolean;
+  /** a failed or interrupted task whose work a later run finished; null otherwise */
+  resolvedAt: string | null;
+  /** a failed or interrupted task whose work is running or queued again */
+  retrying: boolean;
+  /** failed or interrupted, and no later run of the same work exists: the owner should look */
+  needsAttention: boolean;
+}
+
+export interface JobsSummary {
+  running: number;
+  waiting: number;
+  /** failed or interrupted tasks that no later run has fixed */
+  needsAttention: number;
+  /** routine entries left out of `data` (0 when they are included) */
+  routineHidden: number;
+  /** when the newest finished task ended, or null */
+  lastFinishedAt: string | null;
+}
+
+export interface JobsListResponse {
+  /** every task that needs the owner, never paged (so the summary count and this list agree) */
+  attention: JobView[];
+  /** everything else, running and waiting first, then newest first; paged. A deep-linked
+   * task (?job=) beyond the page is appended so the link always lands. */
+  data: JobView[];
+  summary: JobsSummary;
+  pagination: { limit: number; offset: number; total: number };
+}

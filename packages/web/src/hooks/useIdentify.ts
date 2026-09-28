@@ -3,6 +3,7 @@
  */
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import type { JobsListResponse } from '@liner/shared';
 import { api } from '../services/api';
 
 export interface IdentifyStatsResponse {
@@ -89,25 +90,7 @@ export interface TriageResponse {
   offset: number;
 }
 
-export interface JobInfo {
-  id: string;
-  type: string;
-  state: string;
-  progress: { done: number; total: number; etaS?: number; message?: string };
-  startedAt: string | undefined;
-  finishedAt: string | undefined;
-  error: string | null;
-  createdAt: string;
-}
-
-export interface JobsResponse {
-  data: JobInfo[];
-  pagination: {
-    limit: number;
-    offset: number;
-    total: number;
-  };
-}
+export type { JobView as JobInfo, JobsListResponse as JobsResponse } from '@liner/shared';
 
 /**
  * Identify stats with 30s refetch (G1 metrics, queue depth, rate, ETA, series, sweep status)
@@ -174,13 +157,25 @@ export function useKickSweep(libraryId: string | undefined) {
 }
 
 /**
- * Jobs list (GET /jobs, limit 50, refetch 15 s)
+ * Background activity (GET /jobs, refetch 15 s): plain-words job views plus
+ * a summary. Tasks that need the owner always come back in full (`attention`);
+ * the rest is the first `limit` entries. Routine checks are left out unless
+ * asked for; `job` makes sure a deep-linked job is in the list.
  */
-export function useJobs(libraryId: string | undefined) {
+export function useJobs(
+  libraryId: string | undefined,
+  opts: { includeRoutine?: boolean; job?: string | undefined; limit?: number } = {},
+) {
+  const limit = opts.limit ?? 100;
+  const params = new URLSearchParams({ limit: String(limit), offset: '0' });
+  if (opts.includeRoutine) params.set('include', 'routine');
+  if (opts.job) params.set('job', opts.job);
   return useQuery({
-    queryKey: ['jobs', libraryId],
-    queryFn: () => api.get<JobsResponse>(`/libraries/${libraryId}/jobs?limit=50&offset=0`),
+    queryKey: ['jobs', libraryId, !!opts.includeRoutine, opts.job ?? null, limit],
+    queryFn: () => api.get<JobsListResponse>(`/libraries/${libraryId}/jobs?${params.toString()}`),
     enabled: !!libraryId,
+    // keep the list on screen while "Show more" or the routine toggle loads
+    placeholderData: (prev) => prev,
     refetchInterval: 15_000,
   });
 }
@@ -318,6 +313,19 @@ export function useCancelIdentifyRequest(libraryId: string | undefined) {
       queryClient.invalidateQueries({ queryKey: ['identify-requests', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['album', albumId] });
+    },
+  });
+}
+
+/** Start a failed or interrupted job's work again (POST /jobs/:id/retry). */
+export function useRetryJob(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) =>
+      api.post<{ queued: boolean; jobId: string | null }>(`/libraries/${libraryId}/jobs/${jobId}/retry`),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
     },
   });
 }
