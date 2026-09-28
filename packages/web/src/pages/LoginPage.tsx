@@ -2,9 +2,10 @@
  * Login page (PLT-1)
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useLogin } from '../hooks/useAuth';
+import { useSetupRequired } from '../hooks/useSystem';
 import { LoginRequest } from '@liner/shared';
 import styles from './LoginPage.module.css';
 
@@ -17,6 +18,12 @@ export function LoginPage() {
     password: '',
   });
   const [showPassword, setShowPassword] = useState(false);
+
+  // A fresh install has no account to sign in to: start first-run setup.
+  const setupRequired = useSetupRequired();
+  useEffect(() => {
+    if (setupRequired.data === true) navigate({ to: '/setup' });
+  }, [setupRequired.data, navigate]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

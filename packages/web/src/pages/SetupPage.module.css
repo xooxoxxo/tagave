@@ -1,69 +1,65 @@
 .container {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   min-height: 100dvh;
-  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
-  padding: var(--space-md);
+  background: var(--bg-primary);
+  padding: clamp(var(--space-md), 6vh, var(--space-2xl)) var(--space-md);
 }
 
 .card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 3rem 2.5rem;
+  padding: clamp(var(--space-lg), 4vw, 2.5rem);
   width: 100%;
-  max-width: 420px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  max-width: 560px;
 }
 
 .title {
   font-size: var(--font-size-2xl);
-  margin-bottom: var(--space-sm);
-  text-align: center;
+  margin: 0 0 var(--space-md);
   letter-spacing: -0.01em;
 }
 
-.subtitle {
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.heading {
+  font-size: var(--font-size-xl);
+  margin: 0;
+}
+
+.lead {
+  margin: 0;
   color: var(--text-secondary);
-  text-align: center;
-  margin-bottom: 2rem;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.muted {
+  margin: 0;
+  color: var(--text-secondary);
   font-size: var(--font-size-sm);
 }
 
 .form {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
-  margin-bottom: 2rem;
+  gap: var(--space-lg);
 }
 
-.field {
+.passwordField {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.label {
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.label input {
-  flex: 1;
-  margin-top: 0.5rem;
-}
-
-.hint {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  font-weight: 400;
+  gap: var(--space-xs);
 }
 
 .togglePassword {
+  align-self: flex-start;
   padding: 0;
   background: none;
   border: none;
@@ -71,255 +67,16 @@
   font-size: var(--font-size-xs);
   font-weight: 500;
   cursor: pointer;
-  transition: color var(--transition-normal);
 }
 
 .togglePassword:hover {
   color: var(--accent-hover);
 }
 
-.error {
-  color: var(--error);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-tight);
-}
-
-.serverError {
-  background-color: var(--surface-danger);
-  border: 1px solid var(--error);
-  color: var(--error);
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-}
-
-.submitBtn {
-  padding: 0.75rem 1rem;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  min-height: 44px;
-}
-
-.submitBtn:disabled {
-  opacity: 0.7;
-}
-
-.footer {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  text-align: center;
-  line-height: var(--line-height-relaxed);
-}
-
-.progressBar {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background-color: var(--border);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  overflow: hidden;
-}
-
-.progressFill {
-  height: 100%;
-  background-color: var(--accent);
-  transition: width 0.3s ease;
-}
-
-.buttonGroup {
+.actions {
   display: flex;
-  gap: 1rem;
-  margin-top: 2rem;
-}
-
-.primaryBtn {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  min-height: 44px;
-  background-color: var(--accent);
-  color: var(--bg-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background-color var(--transition-normal);
-}
-
-.primaryBtn:hover {
-  background-color: var(--accent-hover);
-}
-
-.primaryBtn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.secondaryBtn {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  min-height: 44px;
-  background-color: transparent;
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-normal);
-}
-
-.secondaryBtn:hover {
-  background-color: var(--surface-hover);
-  border-color: var(--border-hover);
-}
-
-.secondaryBtn:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-
-.radioGroup {
-  display: flex;
-  align-items: flex-start;
-  padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  transition: background-color var(--transition-normal);
-}
-
-.radioGroup:hover {
-  background-color: var(--surface-hover);
-}
-
-.radioLabel {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-start;
-  cursor: pointer;
-  width: 100%;
-}
-
-.radioLabel input[type="radio"] {
-  margin-top: 0.25rem;
-  cursor: pointer;
-  accent-color: var(--accent);
-}
-
-.radioText {
-  font-weight: 500;
-}
-
-.radioHint {
-  display: block;
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  margin-top: 0.25rem;
-}
-
-.checkboxGroup {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.checkboxLabel {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  cursor: pointer;
-}
-
-.checkboxLabel input[type="checkbox"] {
-  cursor: pointer;
-  accent-color: var(--accent);
-}
-
-.checkboxText {
-  font-weight: 500;
-}
-
-.nestedGroup {
-  margin-left: 1.5rem;
-  margin-top: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.errorBox {
-  background-color: var(--surface-danger);
-  border: 1px solid var(--error);
-  border-radius: var(--radius-md);
-  padding: 1rem;
-  margin-top: 1rem;
-}
-
-.errorTitle {
-  font-weight: 600;
-  color: var(--error);
-  margin-bottom: 0.5rem;
-}
-
-.errorMessage {
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-  margin-bottom: 0.75rem;
-}
-
-.errorHint {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  margin: 0.5rem 0;
-}
-
-.code {
-  display: block;
-  background-color: var(--bg-primary);
-  padding: 0.75rem;
-  border-radius: var(--radius-sm);
-  font-family: monospace;
-  font-size: var(--font-size-xs);
-  color: var(--text-primary);
-  word-break: break-all;
-  margin-top: 0.5rem;
-}
-
-.success {
-  background-color: var(--surface-success);
-  border: 1px solid var(--success);
-  color: var(--success);
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  margin-top: 1rem;
-}
-
-.link {
-  display: inline-block;
-  font-size: var(--font-size-xs);
-  color: var(--accent);
-  text-decoration: none;
-  margin-top: 0.5rem;
-  transition: color var(--transition-normal);
-}
-
-.link:hover {
-  color: var(--accent-hover);
-  text-decoration: underline;
-}
-
-.healthCheck {
-  background-color: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 1.5rem;
-}
-
-.healthCheck p {
-  font-size: var(--font-size-sm);
-  margin: 0.5rem 0;
-  color: var(--text-primary);
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  margin-top: var(--space-sm);
 }

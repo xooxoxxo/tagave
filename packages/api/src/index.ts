@@ -15,6 +15,7 @@ import { createUpdateRoutes } from './routes/updates.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
+import { createSystemRoutes } from './routes/system.js';
 import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
@@ -248,6 +249,9 @@ app.register(async (instance) => {
 
   // Bulk actions on a grid selection (§14.2)
   instance.register(createBulkRoutes, { prefix: '/api/v1' });
+
+  // System checks with a fix per failure (status page, first-run wizard)
+  instance.register(createSystemRoutes, { prefix: '/api/v1' });
 
   // Build identity + release feed (PLT-5 / XO-313)
   instance.register(createUpdateRoutes, { prefix: '/api/v1' });

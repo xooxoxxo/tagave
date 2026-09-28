@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { runDoctor } from './index.js';
+import { runDoctor, remediationFor } from './index.js';
 import type { Check } from './checks.js';
 
 // Color support for TTY
@@ -161,6 +161,8 @@ async function main() {
       // Print checks
       for (const check of result.checks) {
         console.log(formatCheckLine(check));
+        const fix = remediationFor(check);
+        if (fix) console.log(`    fix: ${fix}`);
       }
 
       // Print summary

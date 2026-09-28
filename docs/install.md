@@ -36,12 +36,14 @@ The app listens on `http://localhost:3100` by default. Port is configurable via 
 
 ## First-run setup
 
-1. Open http://localhost:3100
-2. Click **Setup** to create the library owner account (email, password, display name)
-3. Enter a **contact string** (e.g., `name@example.com`; required for external API lookups)
-4. Add a **scan root**, the path to your music library on the worker host
-5. (Optional) Add a Discogs token for cover images and higher rate limits (25→55 requests/min)
-6. Start your first scan
+Open http://localhost:3100. A fresh install opens the setup wizard, which walks through four steps:
+
+1. **System check**: the database, its schema and the workers. Anything that fails says how to fix it. The account cannot be created while the database or its schema fails; a missing worker only holds up scanning.
+2. **Owner account**: email, name, password (at least 8 characters) and a **contact** for MusicBrainz and Discogs (an email address or a website; required for external lookups).
+3. **Music folder**: the path to your library **as the worker sees it** (with the bundled Compose workers, `/mnt/music`). The worker checks the folder and the wizard shows what it found, with a fix for a missing path, a permission problem or a read-only mount.
+4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
+
+Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `liner-doctor doctor` prints the same checks and fixes. Set `EXPECT_WORKERS` in the app environment to the number of worker processes you run (default 1) so the status page warns when one is missing.
 
 ## Connect your music
 
