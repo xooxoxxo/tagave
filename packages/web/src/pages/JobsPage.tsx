@@ -1,357 +1,269 @@
 /**
- * Jobs dashboard showing running and historical jobs
- * Operator-focused view with summary, failed jobs surfaced, internal jobs hidden
+ * Background activity (Settings › Background activity).
+ *
+ * Summary first: is anything running, does anything need the owner. Then
+ * album identification in plain numbers with a way into the review queue,
+ * then the tasks that failed (with the error and a retry), then a compact
+ * list of recent work. Worker heartbeats never show; scheduled checks that
+ * ran as expected stay folded away. `?job=<id>` highlights one task.
  */
-
-import { Link, useSearch } from '@tanstack/react-router';
-import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useCancelJob, usePauseJob } from '../hooks';
-import { formatRelativeTime } from '../utils/time';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import type { JobView } from '@liner/shared';
+import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
+import type { IdentifyStatsResponse } from '../hooks';
+import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from '../components/ui';
+import { formatEta, formatRelativeTime } from '../utils/time';
 import styles from './JobsPage.module.css';
 
-// Job types that are internal/noise (heartbeats, periodic schedules)
-const INTERNAL_JOB_TYPES = new Set([
-  'worker.heartbeat',
-  'worker.health',
-  'system.tick',
-  'schedule.minute',
-  'schedule.hourly',
-  'schedule.daily',
-]);
+const n = (v: number) => v.toLocaleString('en-US');
+const plural = (count: number, one: string, many = `${one}s`) => `${n(count)} ${count === 1 ? one : many}`;
 
-interface JobInfoForDisplay {
-  id: string;
-  type: string;
-  state: string;
-  progress?: { done: number; total: number; message?: string };
-  startedAt?: string | undefined;
-  finishedAt?: string | undefined;
-  error?: string | null;
-  createdAt: string;
+function statusBadge(job: JobView): { tone: BadgeTone; text: string } {
+  if (job.resolvedAt) return { tone: 'neutral', text: 'Fixed later' };
+  if (job.retrying) return { tone: 'info', text: 'Retrying' };
+  if ((job.status === 'failed' || job.status === 'interrupted') && !job.needsAttention) return { tone: 'neutral', text: 'Tried again' };
+  switch (job.status) {
+    case 'running': return { tone: 'info', text: 'Running' };
+    case 'waiting': return { tone: 'neutral', text: 'Waiting' };
+    case 'done': return { tone: 'success', text: 'Done' };
+    case 'failed': return { tone: 'danger', text: 'Failed' };
+    case 'interrupted': return { tone: 'warning', text: 'Stopped' };
+    case 'cancelled': return { tone: 'neutral', text: 'Cancelled' };
+  }
 }
 
-function getJobDescription(job: JobInfoForDisplay): string {
-  const typeMap: Record<string, string> = {
-    'identify.sweep': 'Album identification',
-    'identify.album': 'Identify album',
-    'scan.root': 'Scan folder',
-    'tag.write': 'Write tags',
-  };
-  return typeMap[job.type] || job.type;
-}
-
-function formatDuration(startedAt: string | undefined, finishedAt: string | undefined): string {
-  if (!startedAt) return '—';
-  const start = new Date(startedAt).getTime();
-  const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
-  const seconds = Math.floor((end - start) / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  return `${Math.floor(seconds / 3600)}h`;
+function problemMessage(err: unknown): string {
+  const e = err as { detail?: string; title?: string } | null;
+  return e?.detail || e?.title || 'Something went wrong. Try again in a moment.';
 }
 
 export function JobsPage() {
   const { libraryId } = useCurrentLibrary();
-  const search = useSearch({ strict: false }) as { jobId?: string };
-  const focusJobId = search.jobId;
+  const navigate = useNavigate();
+  const search = useSearch({ strict: false }) as { job?: unknown };
+  const focusId = typeof search.job === 'string' && search.job ? search.job : undefined;
+  const [showRoutine, setShowRoutine] = useState(false);
 
-  const { data: identifyStats, isLoading: statsLoading } = useIdentifyStats(libraryId);
-  const { data: jobsData, isLoading: jobsLoading } = useJobs(libraryId);
-  const kickSweep = useKickSweep(libraryId);
-  const cancelJob = useCancelJob(libraryId);
-  const pauseJob = usePauseJob(libraryId);
+  const { data: stats } = useIdentifyStats(libraryId);
+  const { data: jobs, isLoading, isError } = useJobs(libraryId, { includeRoutine: showRoutine, job: focusId });
+  const retry = useRetryJob(libraryId);
+  const [retryNote, setRetryNote] = useState<Record<string, string>>({});
 
-  if (!libraryId) {
-    return <div className={styles.container}>Loading...</div>;
-  }
+  // Bring the linked task into view once it has rendered.
+  useEffect(() => {
+    if (!focusId || !jobs) return;
+    document.getElementById(`job-${focusId}`)?.scrollIntoView({ block: 'center' });
+  }, [focusId, jobs]);
 
-  const isLoading = statsLoading || jobsLoading;
-  const allJobs = jobsData?.data || [];
+  if (!libraryId || isLoading) return <p className={styles.muted}>Loading activity…</p>;
+  if (isError || !jobs) return <Banner tone="danger">Could not load background activity. Reload the page to try again.</Banner>;
 
-  // Filter out internal jobs
-  const userVisibleJobs = allJobs.filter((job) => !INTERNAL_JOB_TYPES.has(job.type));
+  const all = jobs.data;
+  const attention = all.filter((j) => j.needsAttention);
+  // what is happening now first, then newest first (the API order)
+  const live = (j: JobView) => (j.status === 'running' || j.status === 'waiting' ? 0 : 1);
+  const recent = all.filter((j) => !j.needsAttention).sort((a, b) => live(a) - live(b));
+  const focusMissing = focusId !== undefined && !all.some((j) => j.id === focusId);
+  const clearFocus = () => void navigate({ to: '/settings/$section', params: { section: 'activity' }, search: {} });
 
-  // Organize jobs by status
-  const runningJobs = userVisibleJobs.filter((j) => j.state === 'running');
-  const failedJobs = userVisibleJobs.filter((j) => j.state === 'failed');
-  const completedJobs = userVisibleJobs.filter((j) => j.state === 'completed').slice(0, 20);
-
-  // Identify sweep status
-  const sweepActive = identifyStats?.sweep?.state === 'running';
-  const sweepCompleted = identifyStats?.sweep?.state === 'completed';
-
-  // Format sweep summary
-  const sweepSummary = identifyStats && identifyStats.sweep ? (() => {
-    const { states, total } = identifyStats;
-    if (sweepCompleted || (identifyStats.sweep.state !== 'running' && identifyStats.sweep.progress.done === identifyStats.sweep.progress.total)) {
-      return `All ${total?.toLocaleString() || '—'} albums identified: ${states.matched?.toLocaleString() || '0'} matched, ${states.needsReview?.toLocaleString() || '0'} need review.`;
-    }
-    if (sweepActive) {
-      const progress = identifyStats.sweep.progress;
-      const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
-      return `Identifying albums: ${progress.done?.toLocaleString() || '0'} of ${progress.total?.toLocaleString() || '—'} (${pct}%)`;
-    }
-    return `Identification idle: ${states.matched?.toLocaleString() || '0'} matched, ${states.needsReview?.toLocaleString() || '0'} need review.`;
-  })() : null;
-
-  // Is anything running or stuck?
-  const isActivelyProcessing = runningJobs.length > 0 || sweepActive;
-  const hasFailures = failedJobs.length > 0 || identifyStats?.queue.failed || 0 > 0;
+  const onRetry = (job: JobView) => {
+    setRetryNote((m) => ({ ...m, [job.id]: '' }));
+    retry.mutate(job.id, {
+      onSuccess: (res) => setRetryNote((m) => ({ ...m, [job.id]: res.queued ? 'Started again.' : 'Already queued; it will start soon.' })),
+      onError: (err) => setRetryNote((m) => ({ ...m, [job.id]: problemMessage(err) })),
+    });
+  };
 
   return (
-    <div className={styles.container}>
-      {isLoading ? (
-        <div className={styles.loading}>Loading jobs...</div>
-      ) : (
-        <>
-          {/* Status summary */}
-          <section className={styles.summarySection}>
-            {isActivelyProcessing && (
-              <div className={`${styles.summaryCard} ${styles.summaryActive}`}>
-                <div className={styles.summaryIcon}>⏱</div>
-                <div className={styles.summaryContent}>
-                  <h3 className={styles.summaryTitle}>Processing active</h3>
-                  <p className={styles.summaryText}>
-                    {runningJobs.length > 0 && `${runningJobs.length} job${runningJobs.length === 1 ? '' : 's'} running`}
-                    {runningJobs.length > 0 && sweepActive && ' · '}
-                    {sweepActive && 'Album identification running'}
-                  </p>
-                </div>
-              </div>
-            )}
+    <div className={styles.page}>
+      <Summary summary={jobs.summary} running={all.filter((j) => j.status === 'running')} />
 
-            {hasFailures && (
-              <div className={`${styles.summaryCard} ${styles.summaryWarning}`}>
-                <div className={styles.summaryIcon}>⚠</div>
-                <div className={styles.summaryContent}>
-                  <h3 className={styles.summaryTitle}>Issues to review</h3>
-                  <p className={styles.summaryText}>
-                    {failedJobs.length > 0 && `${failedJobs.length} job${failedJobs.length === 1 ? '' : 's'} failed`}
-                  </p>
-                </div>
-              </div>
-            )}
+      {focusMissing && (
+        <Banner tone="warning">
+          The task from your link is not in the activity list any more.{' '}
+          <button type="button" className={styles.inlineLink} onClick={clearFocus}>Show everything</button>
+        </Banner>
+      )}
 
-            {!isActivelyProcessing && !hasFailures && (
-              <div className={`${styles.summaryCard} ${styles.summaryIdle}`}>
-                <div className={styles.summaryIcon}>✓</div>
-                <div className={styles.summaryContent}>
-                  <h3 className={styles.summaryTitle}>All caught up</h3>
-                  <p className={styles.summaryText}>No active jobs or issues.</p>
-                </div>
-              </div>
-            )}
-          </section>
+      {stats && <Identification stats={stats} libraryId={libraryId} />}
 
-          {/* Identification sweep */}
-          {identifyStats && identifyStats.sweep && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Album identification</h2>
-              <div className={styles.sweepCard}>
-                <div className={styles.sweepHeader}>
-                  <div className={styles.sweepInfo}>
-                    <p className={styles.sweepStatus}>{sweepSummary}</p>
-                  </div>
-                  <span className={`${styles.badge} ${sweepActive ? styles.statusRunning : styles.statusCompleted}`}>
-                    {sweepActive ? 'Running' : 'Idle'}
-                  </span>
-                </div>
-
-                {sweepActive && (
-                  <div className={styles.progress}>
-                    <div
-                      className={styles.progressBar}
-                      role="progressbar"
-                      aria-valuemin={0}
-                      aria-valuemax={identifyStats.sweep.progress.total || 1}
-                      aria-valuenow={identifyStats.sweep.progress.done || 0}
-                    >
-                      <div
-                        className={styles.progressFill}
-                        style={{
-                          width: identifyStats.sweep.progress.total
-                            ? `${((identifyStats.sweep.progress.done / identifyStats.sweep.progress.total) * 100) || 0}%`
-                            : '0%',
-                        }}
-                      />
-                    </div>
-                  </div>
+      {attention.length > 0 && (
+        <section className={styles.section} aria-labelledby="jobs-attention">
+          <h3 id="jobs-attention" className={styles.sectionTitle}>Needs your attention</h3>
+          <JobTable
+            jobs={attention}
+            focusId={focusId}
+            action={(job) => (
+              <div className={styles.actionCell}>
+                {job.retryable ? (
+                  <Button size="sm" variant="secondary" onClick={() => onRetry(job)}
+                    loading={retry.isPending && retry.variables === job.id}>
+                    Retry
+                  </Button>
+                ) : (
+                  <span className={styles.muted}>Can't be restarted here</span>
                 )}
-
-                <div className={styles.sweepActions}>
-                  <button
-                    className={styles.btn}
-                    onClick={() => kickSweep.mutate()}
-                    disabled={kickSweep.isPending || sweepActive}
-                    title={sweepActive ? 'Identification is already running' : 'Start identification now'}
-                  >
-                    {kickSweep.isPending ? 'Starting...' : 'Start now'}
-                  </button>
-                  <Link to="/identify" className={styles.link}>
-                    Review queue
-                  </Link>
-                </div>
+                {retryNote[job.id] && <span className={styles.note} role="status">{retryNote[job.id]}</span>}
               </div>
-            </section>
-          )}
+            )}
+          />
+        </section>
+      )}
 
-          {/* Failed jobs */}
-          {failedJobs.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Failed jobs</h2>
-              <div className={styles.tableWrapper}>
-                <table className={styles.jobsTable}>
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Error</th>
-                      <th>When</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {failedJobs.map((job) => (
-                      <tr
-                        key={job.id}
-                        className={`${styles.jobRow} ${focusJobId === job.id ? styles.highlighted : ''}`}
-                      >
-                        <td className={styles.jobNameCell}>
-                          <div className={styles.jobName}>{getJobDescription(job)}</div>
-                        </td>
-                        <td className={styles.errorCell}>
-                          {job.error ? (
-                            <span className={styles.errorText} title={job.error}>
-                              {job.error.substring(0, 60)}
-                              {job.error.length > 60 ? '…' : ''}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className={styles.timeCell}>
-                          {job.finishedAt ? formatRelativeTime(job.finishedAt) : '—'}
-                        </td>
-                        <td className={styles.actionsCell}>
-                          <button
-                            className={styles.actionBtn}
-                            title="Clear this job"
-                            onClick={() => cancelJob.mutate(job.id)}
-                            disabled={cancelJob.isPending}
-                          >
-                            {cancelJob.isPending && cancelJob.variables === job.id ? 'Clearing...' : 'Clear'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+      <section className={styles.section} aria-labelledby="jobs-recent">
+        <div className={styles.sectionHead}>
+          <h3 id="jobs-recent" className={styles.sectionTitle}>Recent activity</h3>
+          {(showRoutine || jobs.summary.routineHidden > 0) && (
+            <Button size="sm" variant="ghost" onClick={() => setShowRoutine((v) => !v)} aria-pressed={showRoutine}>
+              {showRoutine ? 'Hide routine entries' : `Show ${plural(jobs.summary.routineHidden, 'hidden entry', 'hidden entries')}`}
+            </Button>
           )}
+        </div>
+        {!showRoutine && jobs.summary.routineHidden > 0 && (
+          <p className={styles.hint}>Hidden: scheduled checks that ran as expected, and old failures a later run fixed.</p>
+        )}
+        {recent.length > 0 ? (
+          <JobTable jobs={recent} focusId={focusId} />
+        ) : (
+          <p className={styles.muted}>Nothing else has run in the last 30 days.</p>
+        )}
+      </section>
+    </div>
+  );
+}
 
-          {/* Running jobs */}
-          {runningJobs.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Running jobs</h2>
-              <div className={styles.tableWrapper}>
-                <table className={styles.jobsTable}>
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Progress</th>
-                      <th>Duration</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runningJobs.map((job) => (
-                      <tr
-                        key={job.id}
-                        className={`${styles.jobRow} ${focusJobId === job.id ? styles.highlighted : ''}`}
-                      >
-                        <td className={styles.jobNameCell}>
-                          <div className={styles.jobName}>{getJobDescription(job)}</div>
-                        </td>
-                        <td className={styles.progressCell}>
-                          {job.progress && job.progress.total > 0 ? (
-                            <div className={styles.inlineProgress}>
-                              <div className={styles.progressBarInline}>
-                                <div
-                                  className={styles.progressFillInline}
-                                  style={{
-                                    width: `${Math.min((job.progress.done / job.progress.total) * 100, 100)}%`,
-                                  }}
-                                />
-                              </div>
-                              <span className={styles.progressLabel}>
-                                {job.progress.done}/{job.progress.total}
-                              </span>
-                            </div>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className={styles.timeCell}>
-                          {formatDuration(job.startedAt, job.finishedAt)}
-                        </td>
-                        <td className={styles.actionsCell}>
-                          <button
-                            className={styles.actionBtn}
-                            title="Pause this job"
-                            onClick={() => pauseJob.mutate(job.id)}
-                            disabled={pauseJob.isPending}
-                          >
-                            {pauseJob.isPending && pauseJob.variables === job.id ? 'Pausing...' : 'Pause'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+function Summary({ summary, running }: { summary: { running: number; waiting: number; needsAttention: number; lastFinishedAt: string | null }; running: JobView[] }) {
+  if (summary.needsAttention > 0) {
+    return (
+      <Banner tone="danger">
+        <strong>{plural(summary.needsAttention, 'task')} {summary.needsAttention === 1 ? 'needs' : 'need'} your attention.</strong>{' '}
+        See what went wrong below and retry once it is fixed.
+      </Banner>
+    );
+  }
+  if (summary.running > 0 || summary.waiting > 0) {
+    const names = running.map((j) => j.label).slice(0, 3).join(', ');
+    return (
+      <Banner tone="info">
+        <strong>Working.</strong>{' '}
+        {names ? `${names}${running.length > 3 ? ' and more' : ''}.` : ''}
+        {summary.waiting > 0 ? ` ${plural(summary.waiting, 'task')} waiting to start.` : ''}
+      </Banner>
+    );
+  }
+  return (
+    <Banner tone="success">
+      <strong>All caught up.</strong>{' '}
+      {summary.lastFinishedAt ? `Nothing is running; the last task finished ${formatRelativeTime(summary.lastFinishedAt)}.` : 'Nothing is running.'}
+    </Banner>
+  );
+}
 
-          {/* Completed jobs */}
-          {completedJobs.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Recent completed</h2>
-              <div className={styles.tableWrapper}>
-                <table className={styles.jobsTable}>
-                  <thead>
-                    <tr>
-                      <th>Job</th>
-                      <th>Completed</th>
-                      <th>Duration</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {completedJobs.map((job) => (
-                      <tr key={job.id} className={styles.jobRow}>
-                        <td className={styles.jobNameCell}>
-                          <div className={styles.jobName}>{getJobDescription(job)}</div>
-                        </td>
-                        <td className={styles.timeCell}>
-                          {job.finishedAt ? formatRelativeTime(job.finishedAt) : '—'}
-                        </td>
-                        <td className={styles.timeCell}>
-                          {formatDuration(job.startedAt, job.finishedAt)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; libraryId: string }) {
+  const kick = useKickSweep(libraryId);
+  const { states, total, rate, etaSeconds, sweep } = stats;
+  const running = sweep?.state === 'running';
+  const done = sweep?.progress.done ?? 0;
+  const sweepTotal = sweep?.progress.total || total;
+  const pct = running && sweepTotal > 0 ? Math.min(100, Math.round((done / sweepTotal) * 100)) : 0;
+  const finishedAt = !running ? sweep?.finishedAt ?? null : null;
 
-          {/* Empty state */}
-          {userVisibleJobs.length === 0 && !identifyStats?.sweep && (
-            <div className={styles.emptyState}>
-              <p>No jobs yet. Scans and identification will appear here.</p>
-            </div>
+  if (total === 0) return null;
+
+  return (
+    <section className={styles.card} aria-labelledby="jobs-identify">
+      <div className={styles.cardHead}>
+        <h3 id="jobs-identify" className={styles.sectionTitle}>Album identification</h3>
+        <Badge tone={running ? 'info' : 'success'}>{running ? 'Running' : 'Finished'}</Badge>
+      </div>
+
+      {running ? (
+        <>
+          <p className={styles.lead}>Checking your albums: {n(done)} of {n(sweepTotal)} done ({pct}%).</p>
+          <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={sweepTotal} aria-valuenow={done} aria-label="Albums checked">
+            <div className={styles.barFill} style={{ width: `${pct}%` }} />
+          </div>
+          {rate.perMin > 0 && (
+            <p className={styles.hint}>
+              About {plural(Math.round(rate.perMin), 'album')} a minute
+              {etaSeconds && etaSeconds > 0 ? `, done in ${formatEta(etaSeconds).replace('~', 'about ')}` : ''}.
+            </p>
           )}
         </>
+      ) : (
+        <p className={styles.lead}>
+          {states.pending > 0
+            ? `${plural(states.pending, 'album')} still waiting to be checked.`
+            : `All ${plural(total, 'album')} have been checked${finishedAt ? ` (finished ${formatRelativeTime(finishedAt)})` : ''}.`}
+        </p>
       )}
-    </div>
+
+      <dl className={styles.counts}>
+        <div><dt>Identified</dt><dd>{n(states.matched)}</dd></div>
+        <div><dt>Need your review</dt><dd>{n(states.needsReview)}</dd></div>
+        <div><dt>No match found</dt><dd>{n(states.unidentified)}</dd></div>
+      </dl>
+
+      <div className={styles.actions}>
+        {states.needsReview > 0 && (
+          <LinkButton to="/work" search={{ tab: 'review' }} size="sm">Review {plural(states.needsReview, 'match', 'matches')}</LinkButton>
+        )}
+        {states.unidentified > 0 && (
+          <LinkButton to="/work" search={{ tab: 'identify' }} size="sm" variant="secondary">See albums with no match</LinkButton>
+        )}
+        {!running && states.pending > 0 && (
+          <Button size="sm" variant="secondary" onClick={() => kick.mutate()} loading={kick.isPending} disabled={kick.isSuccess}>
+            {kick.isSuccess ? 'Started' : 'Check waiting albums now'}
+          </Button>
+        )}
+      </div>
+      {kick.isError && <p className={styles.error} role="alert">{problemMessage(kick.error)}</p>}
+    </section>
+  );
+}
+
+function JobTable({ jobs, focusId, action }: { jobs: JobView[]; focusId: string | undefined; action?: (job: JobView) => ReactNode }) {
+  return (
+    <Table className={styles.table}>
+      <thead>
+        <tr>
+          <Th>Task</Th>
+          <Th>Status</Th>
+          <Th>When</Th>
+          {action && <Th><span className={styles.srOnly}>Action</span></Th>}
+        </tr>
+      </thead>
+      <tbody>
+        {jobs.map((job) => {
+          const badge = statusBadge(job);
+          return (
+            <tr key={job.id} id={`job-${job.id}`} className={[styles.row, job.id === focusId ? styles.focused : ''].filter(Boolean).join(' ')}
+              aria-current={job.id === focusId ? 'true' : undefined}>
+              <Td className={styles.taskCell}>
+                <div className={styles.task}>
+                  <span className={styles.taskName}>{job.label}</span>
+                  {job.summary && <span className={styles.taskSummary}>{job.summary}</span>}
+                  {job.progress && (
+                    <span className={styles.miniBar} aria-hidden="true">
+                      <span style={{ width: `${Math.round((job.progress.done / job.progress.total) * 100)}%` }} />
+                    </span>
+                  )}
+                  {job.error && !job.resolvedAt && <span className={styles.errorText} title={job.error}>{job.error}</span>}
+                </div>
+              </Td>
+              <Td className={styles.statusCell}><Badge tone={badge.tone}>{badge.text}</Badge></Td>
+              <Td className={styles.whenCell}>
+                <Link to="/settings/$section" params={{ section: 'activity' }} search={{ job: job.id }} className={styles.whenLink}
+                  title={`${new Date(job.at).toLocaleString()} (link to this task)`}>
+                  {formatRelativeTime(job.at)}
+                </Link>
+              </Td>
+              {action && <Td className={styles.actionTd}>{action(job)}</Td>}
+            </tr>
+          );
+        })}
+      </tbody>
+    </Table>
   );
 }

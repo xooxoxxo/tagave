@@ -1,358 +1,307 @@
-.container {
+/* Background activity (Settings › Background activity) */
+
+.page {
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
-  padding: var(--space-xl);
-  width: 100%;
+  min-width: 0;
 }
 
 .section {
   display: flex;
   flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-md);
+  flex-wrap: wrap;
 }
 
 .sectionTitle {
-  font-size: var(--font-size-lg);
   margin: 0;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-primary);
 }
 
-/* Summary section */
-.summarySection {
+.muted {
+  color: var(--text-tertiary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.hint {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+.inlineLink {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Identification card */
+
+.card {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  margin-bottom: var(--space-lg);
-}
-
-.summaryCard {
-  display: flex;
-  gap: var(--space-md);
-  align-items: flex-start;
   padding: var(--space-lg);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--border);
-}
-
-.summaryActive {
-  background-color: var(--surface-info);
-  border-color: var(--info);
-}
-
-.summaryWarning {
-  background-color: var(--surface-warning);
-  border-color: var(--warning);
-}
-
-.summaryIdle {
-  background-color: var(--surface-success);
-  border-color: var(--success);
-}
-
-.summaryIcon {
-  font-size: var(--font-size-2xl);
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.summaryContent {
-  flex: 1;
-}
-
-.summaryTitle {
-  margin: 0 0 var(--space-xs) 0;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.summaryText {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-}
-
-/* Sweep card */
-.sweepCard {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+}
+
+.cardHead {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-md);
 }
 
-.sweepHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-lg);
-}
-
-.sweepInfo {
-  flex: 1;
-}
-
-.sweepStatus {
+.lead {
   margin: 0;
-  font-size: var(--font-size-sm);
   color: var(--text-primary);
-  line-height: 1.5;
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
 }
 
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-xs);
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  padding: 0.25rem 0.75rem;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.badge.statusRunning {
-  background-color: var(--surface-info);
-  border-color: var(--info);
-  color: var(--info);
-}
-
-.badge.statusCompleted {
-  background-color: var(--surface-success);
-  border-color: var(--success);
-  color: var(--success);
-}
-
-.progress {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-}
-
-.progressBar {
-  width: 100%;
+.bar {
   height: 6px;
-  background-color: var(--bg-tertiary);
   border-radius: var(--radius-full);
+  background-color: var(--bg-tertiary);
   overflow: hidden;
 }
 
-.progressFill {
+.barFill {
   height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg, var(--info), var(--accent));
-  border-radius: var(--radius-full);
+  background-color: var(--accent);
   transition: width var(--transition-slow);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .progressFill,
-  .btn,
-  .link,
-  .actionBtn {
-    transition: none;
-  }
-}
-
-.sweepActions {
-  display: flex;
+.counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-md);
-  align-items: center;
+  margin: 0;
 }
 
-.btn {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+.counts div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
 }
 
-.btn:hover:not(:disabled) {
-  border-color: var(--accent);
-  background-color: var(--bg-secondary);
+.counts dt {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
 }
 
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.link {
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: transparent;
-  color: var(--info);
-  text-decoration: none;
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color var(--transition-fast);
-}
-
-.link:hover {
-  border-color: var(--info);
-  background-color: var(--info);
-  color: var(--bg-primary);
-}
-
-/* Table layout */
-.tableWrapper {
-  overflow-x: auto;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.jobsTable {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-}
-
-.jobsTable thead {
-  background-color: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-}
-
-.jobsTable th {
-  text-align: left;
-  padding: var(--space-md);
+.counts dd {
+  margin: 0;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
-  font-size: var(--font-size-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
 }
 
-.jobsTable tbody tr {
-  border-bottom: 1px solid var(--border);
-  transition: background-color var(--transition-fast);
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
 }
 
-.jobsTable tbody tr:hover {
-  background-color: var(--bg-tertiary);
-}
-
-.jobsTable tbody tr.highlighted {
-  background-color: var(--surface-info);
-}
-
-.jobsTable td {
-  padding: var(--space-md);
-  color: var(--text-primary);
-}
-
-.jobRow {
-  align-items: center;
-}
-
-.jobNameCell {
-  flex: 1;
-  min-width: 180px;
-}
-
-.jobName {
+.error {
   margin: 0;
-  font-weight: 500;
+  color: var(--error);
+  font-size: var(--font-size-sm);
+}
+
+/* Job tables: compact rows */
+
+.table td,
+.table th {
+  padding: var(--space-sm) var(--space-md);
+  vertical-align: top;
+}
+
+.row {
+  scroll-margin: var(--space-2xl);
+}
+
+.focused {
+  background-color: var(--surface-selected);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.taskCell {
+  min-width: 0;
+}
+
+.task {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.taskName {
+  font-weight: 600;
   color: var(--text-primary);
 }
 
-.progressCell {
-  width: 250px;
-}
-
-.errorCell {
-  flex: 1;
-  min-width: 200px;
+.taskSummary {
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
 }
 
 .errorText {
   color: var(--error);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  word-break: break-word;
-}
-
-.timeCell {
-  width: 120px;
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-}
-
-.actionsCell {
-  width: 100px;
-  text-align: right;
-}
-
-.inlineProgress {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
-}
-
-.progressBarInline {
-  flex: 1;
-  min-width: 60px;
-  height: 4px;
-  background-color: var(--bg-tertiary);
-  border-radius: var(--radius-full);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
-.progressFillInline {
-  height: 100%;
-  background: linear-gradient(90deg, var(--info), var(--accent));
+.miniBar {
+  display: block;
+  width: 120px;
+  max-width: 100%;
+  height: 4px;
+  margin-top: 2px;
   border-radius: var(--radius-full);
-  transition: width var(--transition-slow);
-}
-
-.progressLabel {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  min-width: 50px;
-}
-
-.actionBtn {
-  padding: 0.25rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   background-color: var(--bg-tertiary);
-  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.miniBar span {
+  display: block;
+  height: 100%;
+  background-color: var(--accent);
+}
+
+.statusCell {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.whenCell {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.whenLink {
+  color: var(--text-tertiary);
   font-size: var(--font-size-xs);
-  font-weight: 500;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  text-decoration: none;
 }
 
-.actionBtn:hover {
-  border-color: var(--accent);
-  background-color: var(--bg-secondary);
+.whenLink:hover,
+.whenLink:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 
-.loading,
-.emptyState {
-  padding: var(--space-xl);
-  text-align: center;
-  background-color: var(--bg-secondary);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
+.actionTd {
+  width: 1%;
+  text-align: right;
 }
 
-.emptyState p {
-  margin: 0;
+.actionCell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+.note {
+  font-size: var(--font-size-xs);
   color: var(--text-secondary);
-  font-size: var(--font-size-sm);
+  white-space: normal;
+  max-width: 16rem;
+  text-align: right;
+}
+
+/* Phone width: each task becomes a two-line block, no sideways scrolling. */
+@media (max-width: 640px) {
+  .counts {
+    grid-template-columns: 1fr;
+    gap: var(--space-xs);
+  }
+
+  .counts div {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .table thead {
+    display: none;
+  }
+
+  .table,
+  .table tbody {
+    display: block;
+  }
+
+  .table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'task task'
+      'status when'
+      'action action';
+    column-gap: var(--space-sm);
+    row-gap: var(--space-xs);
+    padding: var(--space-sm) 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    display: block;
+    padding: 0 var(--space-sm);
+    border-bottom: 0;
+    width: auto;
+  }
+
+  .taskCell { grid-area: task; }
+  .statusCell { grid-area: status; }
+  .whenCell { grid-area: when; align-self: center; }
+  .actionTd { grid-area: action; text-align: left; }
+
+  .actionCell {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .note {
+    text-align: left;
+  }
 }

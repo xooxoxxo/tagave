@@ -1,16 +1,76 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, desc } from 'drizzle-orm';
-import { libraries, jobRuns } from '@liner/db';
+import { eq, and, desc, gte, notInArray } from 'drizzle-orm';
+import { libraries, jobRuns, scanRoots } from '@liner/db';
+import type { JobView, JobsListResponse } from '@liner/shared';
 import { getDb, getSql } from '../db.js';
+import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { HIDDEN_JOB_TYPES, deriveJobViews, retryRequest, summarizeJobs, type JobRow } from '../lib/jobView.js';
 
-/** job_runs.progress is jsonb: the driver hands it over as an object, older code paths stored a string. */
-function parseProgress(value: unknown): Record<string, unknown> {
-  if (value == null) return { done: 0, total: 0 };
-  if (typeof value === 'string') {
-    try { return JSON.parse(value) as Record<string, unknown>; } catch { return { done: 0, total: 0 }; }
+/** How far back the activity page looks, and at most how many rows it reads. */
+const WINDOW_DAYS = 30;
+const WINDOW_ROWS = 1000;
+
+type Db = ReturnType<typeof getDb>;
+
+const rowColumns = {
+  id: jobRuns.id,
+  type: jobRuns.type,
+  subjectType: jobRuns.subjectType,
+  subjectId: jobRuns.subjectId,
+  state: jobRuns.state,
+  progress: jobRuns.progress,
+  startedAt: jobRuns.startedAt,
+  finishedAt: jobRuns.finishedAt,
+  error: jobRuns.error,
+  createdAt: jobRuns.createdAt,
+  subjectName: scanRoots.displayName,
+};
+
+/**
+ * The library's recent job_runs rows, newest first, without worker
+ * heartbeats. Routine rows stay in: they tell older failures that a later
+ * run went fine. `jobId` is added when it falls outside the window.
+ */
+export async function loadJobRows(db: Db, libraryId: string, jobId?: string): Promise<JobRow[]> {
+  const since = new Date(Date.now() - WINDOW_DAYS * 86_400_000);
+  const rows: JobRow[] = await db
+    .select(rowColumns)
+    .from(jobRuns)
+    .leftJoin(scanRoots, and(eq(jobRuns.subjectType, 'scan_root'), eq(scanRoots.id, jobRuns.subjectId)))
+    .where(and(
+      eq(jobRuns.libraryId, libraryId),
+      notInArray(jobRuns.type, [...HIDDEN_JOB_TYPES]),
+      gte(jobRuns.createdAt, since),
+    ))
+    .orderBy(desc(jobRuns.createdAt))
+    .limit(WINDOW_ROWS);
+  if (jobId && UUID.test(jobId) && !rows.some((r) => r.id === jobId)) {
+    const extra = await db
+      .select(rowColumns)
+      .from(jobRuns)
+      .leftJoin(scanRoots, and(eq(jobRuns.subjectType, 'scan_root'), eq(scanRoots.id, jobRuns.subjectId)))
+      .where(and(eq(jobRuns.id, jobId), eq(jobRuns.libraryId, libraryId), notInArray(jobRuns.type, [...HIDDEN_JOB_TYPES])));
+    // older than everything in the window, so it goes last (the rows are newest first)
+    rows.push(...extra);
   }
-  return value as Record<string, unknown>;
+  return rows;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function ownLibrary(db: Db, userId: string, libraryId: string): Promise<void> {
+  const lib = await db
+    .select({ id: libraries.id })
+    .from(libraries)
+    .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+  if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+}
+
+/** Every visible view for the library, derived with the context of later runs. */
+async function loadViews(db: Db, libraryId: string, jobId?: string): Promise<JobView[]> {
+  const rows = await loadJobRows(db, libraryId, jobId);
+  return deriveJobViews(rows, libraryId).filter((v): v is JobView => v !== null);
 }
 
 const subscribers = new Map<string, Set<FastifyReply>>();
@@ -39,63 +99,38 @@ function ensureListener(fastify: FastifyInstance): Promise<void> {
 }
 
 export async function createJobRoutes(fastify: FastifyInstance) {
-  // Get all jobs for a library
+  // Background activity (Settings › Background activity): plain-words views
+  // of the last 30 days, heartbeats never, routine checks only on request.
+  //   ?include=routine  also list scheduled checks that finished normally
+  //   ?job=<id>         make sure this job is in the list (deep link)
   fastify.get('/libraries/:libraryId/jobs', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
       throw new ApiError(401, 'Unauthorized', 'Authentication required');
     }
 
     const { libraryId } = request.params as { libraryId: string };
-    const { status, limit = '50', offset = '0' } = request.query as Record<string, string>;
+    const query = request.query as Record<string, string | undefined>;
+    const limit = Math.min(Math.max(parseInt(query['limit'] ?? '50', 10) || 50, 1), 500);
+    const offset = Math.max(parseInt(query['offset'] ?? '0', 10) || 0, 0);
+    const includeRoutine = query['include'] === 'routine';
+    const focus = query['job'];
 
     const db = getDb();
+    await ownLibrary(db, request.user.id, libraryId);
 
-    // Verify library ownership
-    const lib = await db
-      .select()
-      .from(libraries)
-      .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
-      );
-
-    if (lib.length === 0) {
-      throw new ApiError(404, 'Not Found', 'Library not found');
-    }
-
-    // Query job runs
-    const jobs = await db
-      .select()
-      .from(jobRuns)
-      .where(status ? and(eq(jobRuns.libraryId, libraryId), eq(jobRuns.state, status)) : eq(jobRuns.libraryId, libraryId))
-      .orderBy(desc(jobRuns.createdAt))
-      .limit(Math.min(parseInt(limit, 10), 500))
-      .offset(parseInt(offset, 10));
-
-    const totalResult = await db
-      .select()
-      .from(jobRuns)
-      .where(eq(jobRuns.libraryId, libraryId));
-
-    reply.status(200).send({
-      data: jobs.map((job) => ({
-        id: job.id,
-        type: job.type,
-        state: job.state,
-        progress: parseProgress(job.progress),
-        startedAt: job.startedAt?.toISOString(),
-        finishedAt: job.finishedAt?.toISOString(),
-        error: job.error,
-        createdAt: job.createdAt.toISOString(),
-      })),
-      pagination: {
-        limit: parseInt(limit, 10),
-        offset: parseInt(offset, 10),
-        total: totalResult.length,
-      },
-    });
+    const views = await loadViews(db, libraryId, focus);
+    const shown = includeRoutine ? views : views.filter((v) => !v.routine || v.id === focus);
+    // newest activity first: a long run that just finished outranks a short one started after it
+    const visible = [...shown].sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+    const body: JobsListResponse = {
+      data: visible.slice(offset, offset + limit),
+      summary: summarizeJobs(views, views.length - shown.length),
+      pagination: { limit, offset, total: visible.length },
+    };
+    reply.status(200).send(body);
   });
 
-  // Get single job
+  // One job, in the same shape as the list.
   fastify.get(
     '/libraries/:libraryId/jobs/:jobId',
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -104,48 +139,81 @@ export async function createJobRoutes(fastify: FastifyInstance) {
       }
 
       const { libraryId, jobId } = request.params as { libraryId: string; jobId: string };
-
       const db = getDb();
+      await ownLibrary(db, request.user.id, libraryId);
 
-      // Verify library ownership
-      const lib = await db
-        .select()
-        .from(libraries)
-        .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
-        );
+      const view = (await loadViews(db, libraryId, jobId)).find((v) => v.id === jobId);
+      if (!view) throw new ApiError(404, 'Not Found', 'Job not found');
+      reply.status(200).send(view);
+    }
+  );
 
-      if (lib.length === 0) {
-        throw new ApiError(404, 'Not Found', 'Library not found');
+  // Start a failed or interrupted job's work again. Only work that can be
+  // rebuilt from the row (a folder scan, a library-wide check) is offered.
+  fastify.post(
+    '/libraries/:libraryId/jobs/:jobId/retry',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
       }
 
-      // Get job
-      const jobs = await db
-        .select()
-        .from(jobRuns)
-        .where(
-          and(eq(jobRuns.id, jobId), eq(jobRuns.libraryId, libraryId))
-        );
+      const { libraryId, jobId } = request.params as { libraryId: string; jobId: string };
+      const db = getDb();
+      await ownLibrary(db, request.user.id, libraryId);
 
-      if (jobs.length === 0) {
-        throw new ApiError(404, 'Not Found', 'Job not found');
+      const rows = await loadJobRows(db, libraryId, jobId);
+      const row = rows.find((r) => r.id === jobId);
+      const view = deriveJobViews(rows, libraryId).find((v) => v?.id === jobId) ?? null;
+      if (!row || !view) throw new ApiError(404, 'Not Found', 'Job not found');
+
+      if (view.status !== 'failed' && view.status !== 'interrupted') {
+        throw new ApiError(409, 'Conflict', 'This task did not fail, so there is nothing to retry.');
+      }
+      if (view.resolvedAt) {
+        throw new ApiError(409, 'Conflict', 'A later run already finished this work.');
+      }
+      if (view.retrying) {
+        throw new ApiError(409, 'Conflict', 'This work is already running again.');
+      }
+      if (!view.needsAttention) {
+        throw new ApiError(409, 'Conflict', 'This work was tried again later; retry the newer attempt instead.');
+      }
+      const req = retryRequest(row, libraryId);
+      if (!req) {
+        throw new ApiError(400, 'Bad Request', 'This kind of task cannot be restarted from here.');
       }
 
-      const job = jobs[0];
-      if (!job) {
-        // Invariant: this should never happen since we checked jobs.length > 0 above
-        throw new ApiError(404, 'Not Found', 'Job not found');
+      if (row.type === 'scan.root') {
+        const [root] = await db
+          .select({ validationStatus: scanRoots.validationStatus })
+          .from(scanRoots)
+          .where(and(eq(scanRoots.id, row.subjectId!), eq(scanRoots.libraryId, libraryId)));
+        if (!root) throw new ApiError(409, 'Conflict', 'This music folder has been removed.');
+        if (root.validationStatus !== 'ok') {
+          throw new ApiError(409, 'Conflict', 'tagave cannot read this music folder right now. Check it under Settings › Music folders.');
+        }
       }
-      reply.status(200).send({
-        id: job.id,
-        type: job.type,
-        state: job.state,
-        progress: parseProgress(job.progress),
-        startedAt: job.startedAt?.toISOString(),
-        finishedAt: job.finishedAt?.toISOString(),
-        error: job.error,
-        createdAt: job.createdAt.toISOString(),
-      });
+
+      const boss = await getBoss();
+      await boss.createQueue(req.queue);
+      const pgbossId = await boss.send(req.queue, req.data, { singletonKey: req.singletonKey });
+
+      // Show the retry as waiting until the worker writes its own row.
+      let newJobId: string | null = null;
+      if (pgbossId) {
+        const [inserted] = await db.insert(jobRuns).values({
+          libraryId,
+          type: row.type,
+          subjectType: row.subjectType,
+          subjectId: row.subjectId,
+          state: 'created',
+          progress: { done: 0, total: 0 },
+          pgbossId,
+        }).returning({ id: jobRuns.id });
+        newJobId = inserted?.id ?? null;
+      }
+
+      reply.status(202).send({ queued: pgbossId !== null, jobId: newJobId });
     }
   );
 
@@ -241,7 +309,7 @@ export async function createJobRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Job not found');
       }
 
-      if (job.state === 'finished' || job.state === 'failed') {
+      if (job.state === 'completed' || job.state === 'failed' || job.state === 'cancelled') {
         throw new ApiError(
           400,
           'Bad Request',

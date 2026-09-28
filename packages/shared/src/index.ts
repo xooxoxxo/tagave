@@ -169,6 +169,10 @@ export {
   type ProviderStateEvent,
   sseEventSchema,
   type SseEvent,
+  type JobViewStatus,
+  type JobView,
+  type JobsSummary,
+  type JobsListResponse,
 } from './job.js';
 
 // Pagination
