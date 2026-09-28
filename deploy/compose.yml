@@ -21,6 +21,7 @@ x-worker-env: &worker-env
   DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${POSTGRES_DB:-liner}
   APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
   CACHE_DIR: /cache
+  # Empty: the nightly gap and collection jobs run for every library.
   LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   TZ: ${TZ:-UTC}
@@ -48,6 +49,7 @@ services:
     profiles: ["app"]
     image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:-latest}
     environment:
+      NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
       APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
       CACHE_DIR: /cache
@@ -73,15 +75,16 @@ services:
       start_period: 60s
       retries: 5
 
-  # MusicBrainz and Discogs lookups, enrichment, reviews. Needs the internet,
-  # never your files, so it stays next to the database.
+  # MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes and
+  # track linking. Needs the internet, never your files, so it stays next to
+  # the database.
   worker-identify:
     profiles: ["app"]
     image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
     environment:
       <<: *worker-env
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
-      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
+      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
     volumes:
       - cache:/cache
     restart: unless-stopped
@@ -89,17 +92,23 @@ services:
       postgres:
         condition: service_healthy
 
-  # Scanning, clustering, cover art, fingerprints: everything that reads the
-  # music folder. Register the scan root as /mnt/music in the app.
+  # Scanning, clustering, cover art, fingerprints, tag plans: everything that
+  # touches the music folder. Register the scan
+  # root as /mnt/music in the app.
+  #
+  # Between them the two workers must list every queue the worker knows, or
+  # jobs on the missing ones wait forever; packages/worker/src/deployQueues.test.ts
+  # checks that.
   worker-files:
     profiles: ["files"]
     image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
     environment:
       <<: *worker-env
-      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep
+      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
     volumes:
       - cache:/cache
-      # read-only: tagave never needs to write here until tag writing is on.
+      # read-only: tag previews only read. Applying a tag plan needs a
+      # writable mount and the Python tag writer, which this image lacks.
       # The installer always sets MUSIC_DIR; ./music is only a placeholder so
       # the database computer of a split install does not need one.
       - ${MUSIC_DIR:-./music}:/mnt/music:ro
