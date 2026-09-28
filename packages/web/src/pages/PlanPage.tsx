@@ -27,6 +27,7 @@ import {
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
+import { derivePreviewState, progressSignature } from './planPreviewState';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -34,6 +35,8 @@ const BUSY = new Set(['applying', 'paused']);
 const AWAIT_MS = 120_000;
 /** How long to wait for a draft preview job to report progress before showing timeout state. */
 const PREVIEW_TIMEOUT_MS = 30_000;
+/** How long a running preview may go without new progress before the page says it looks stuck. */
+const PREVIEW_STALE_MS = 90_000;
 
 type ItemStatus = NonNullable<TagPlanItem['status']>;
 const ITEM_TONE: Record<ItemStatus, 'neutral' | 'info' | 'success' | 'danger' | 'warning'> = {
@@ -87,6 +90,7 @@ export function PlanPage() {
   const [previewRequested, setPreviewRequested] = useState(false);
   const [previewTimedOut, setPreviewTimedOut] = useState(false);
   const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [runningStale, setRunningStale] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [allOpen, setAllOpen] = useState(false);
   // Status at the moment an action was sent; the page polls until it changes
@@ -163,7 +167,12 @@ export function PlanPage() {
         previewAutoFiredRef.current = true;
         try { sessionStorage.setItem(guardKey, '1'); } catch { /* private mode: the ref still guards this mount */ }
         setPreviewRequested(true);
-        previewM.mutateAsync().catch((e: Error) => setError(e.message));
+        previewM.mutateAsync().catch((e: { detail?: string; message?: string }) => {
+          // Same as a click that fails: nothing is on its way, so the button
+          // comes back and no timeout warning follows.
+          setPreviewRequested(false);
+          setError(e?.detail ?? e?.message ?? 'The preview could not be started.');
+        });
       }
     } else {
       // Plan left draft state; clear the guard so a later revert to draft
@@ -198,19 +207,33 @@ export function PlanPage() {
     }
   };
 
-  // Only the job this page asked for counts once it has asked (an older
-  // failed run must not paint a fresh request as failed). A slow preview that
-  // is visibly working is not a timeout: the warning is for a job that never
-  // started, or never showed up, and for one that failed.
-  const requestedJobId = previewM.data?.jobId;
-  const current = job && (!requestedJobId || job.jobId === requestedJobId) ? job : undefined;
-  const previewFailed = !previewM.isPending && current?.state === 'failed';
-  const previewStalled = previewTimedOut && current?.state !== 'running';
-  const previewBusy = previewM.isPending
-    || (!previewStalled && !previewFailed && (previewRequested || current?.state === 'queued' || current?.state === 'running'));
-  const previewButtonLabel = previewBusy ? 'Previewing…'
-    : previewStalled || previewFailed ? 'Retry preview'
-      : previewed ? 'Re-run preview' : 'Run preview';
+  // A running job whose progress has not moved for PREVIEW_STALE_MS: the
+  // clock restarts on every change the page sees. A worker that dies mid-run
+  // leaves the job "running" until the queue expires it, so without this the
+  // banner would keep saying "Computing" over a frozen message.
+  const jobSignature = job?.state === 'running' ? progressSignature(job) : '';
+  useEffect(() => {
+    setRunningStale(false);
+    if (!jobSignature) return;
+    const t = setTimeout(() => setRunningStale(true), PREVIEW_STALE_MS);
+    return () => clearTimeout(t);
+  }, [jobSignature]);
+
+  const {
+    current,
+    failed: previewFailed,
+    stalled: previewStalled,
+    busy: previewBusy,
+    buttonLabel: previewButtonLabel,
+  } = derivePreviewState({
+    job,
+    requestedJobId: previewM.data?.jobId,
+    requestPending: previewM.isPending,
+    requested: previewRequested,
+    timedOut: previewTimedOut,
+    runningStale,
+    previewed,
+  });
   const jobLink = (label: string) => (
     <Link
       to="/settings/$section"
@@ -381,10 +404,16 @@ export function PlanPage() {
                 <strong>The preview stopped with an error{current?.error ? `: ${current.error}` : '.'}</strong>{' '}
                 Nothing was written. {jobLink('See the job in Background activity')}, or use Retry preview above.
               </>
+            ) : previewStalled === 'no-progress' && current ? (
+              <>
+                <strong>The preview has not reported progress for over a minute.</strong>{' '}
+                {current.message ? `Last update: ${current.message}. ` : ''}The background worker may have stopped.{' '}
+                {jobLink('Check Background activity')}, or use Retry preview above.
+              </>
             ) : previewStalled ? (
               <>
                 <strong>
-                  {current?.state === 'queued'
+                  {previewStalled === 'queued' && current
                     ? `The preview was queued ${formatRelativeTime(current.queuedAt)} and the background worker has not started it yet.`
                     : `The preview did not report back within ${PREVIEW_TIMEOUT_MS / 1000} seconds.`}
                 </strong>{' '}

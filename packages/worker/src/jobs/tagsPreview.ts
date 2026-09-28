@@ -157,15 +157,20 @@ function previewProgress(ctx: WorkerContext, libraryId: string, planId: string, 
     }
   };
   const n = (x: number) => x.toLocaleString('en');
+  const throttled = async (fn: () => Promise<void>) => {
+    const now = Date.now();
+    if (now - lastAt < PROGRESS_EVERY_MS) return;
+    lastAt = now;
+    await fn();
+  };
   return {
     step: (message: string) => write({ state: 'running', message }),
+    /** Rewrites the row at most once per PROGRESS_EVERY_MS, so a long step still shows movement. */
+    albums: (done: number, total: number) => throttled(() =>
+      write({ state: 'running', done, total, message: `Checking track links: ${n(done)} of ${n(total)} albums` })),
     /** Rewrites the row at most once per PROGRESS_EVERY_MS. */
-    files: async (done: number, total: number) => {
-      const now = Date.now();
-      if (now - lastAt < PROGRESS_EVERY_MS) return;
-      lastAt = now;
-      await write({ state: 'running', done, total, message: `Comparing tags: ${n(done)} of ${n(total)} files` });
-    },
+    files: (done: number, total: number) => throttled(() =>
+      write({ state: 'running', done, total, message: `Comparing tags: ${n(done)} of ${n(total)} files` })),
     done: (total: number) => write({ state: 'completed', done: total, total, message: `Compared ${n(total)} files` }),
     fail: (err: unknown) => write({ state: 'failed', error: err instanceof Error ? err.message : String(err) }),
   };
@@ -204,10 +209,11 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   // 0026: before resolving, ensure tracks are linked and track mbids are fresh
   // for the matched albums that hold files in scope, and only those. This
   // used to select every matched album in the library, so a one-album plan
-  // walked ~20k releases and refetched each unchecked one from MusicBrainz at
-  // the provider's rate limit (a 15-file preview on 2026-09-28 spent 83 s
-  // there). One array parameter, not a list, so a whole-library scope stays
-  // one query under the bind-parameter limit.
+  // walked every matched album and release in turn, a few sequential queries
+  // each plus a "tracks already have ids" marker write for most releases.
+  // On a large library that alone outlasts the plan page's 30 s wait. One
+  // array parameter, not a list, so a whole-library scope stays one query
+  // under the bind-parameter limit.
   const albumsInScope = fileIds.length === 0 ? [] : (await ctx.sql`
     select la.id::text as id, la.release_id::text as "releaseId", (la.tracks_linked_at is not null) as linked
       from local_albums la
@@ -217,12 +223,9 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
        and la.id in (select lt.local_album_id from local_tracks lt where lt.audio_file_id = any(${fileIds}::uuid[]))
   `) as unknown as Array<{ id: string; releaseId: string; linked: boolean }>;
 
-  if (albumsInScope.length > 0) {
-    await progress.step(`Checking track links for ${albumsInScope.length.toLocaleString('en')} album(s)`);
-  }
-
   // Link albums that haven't been linked yet
-  for (const album of albumsInScope) {
+  for (const [i, album] of albumsInScope.entries()) {
+    await progress.albums(i, albumsInScope.length);
     if (!album.linked) await linkAlbumTracks(ctx, album.id);
   }
 

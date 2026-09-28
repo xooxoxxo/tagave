@@ -185,6 +185,20 @@ export function useJobs(libraryId: string | undefined) {
   });
 }
 
+/**
+ * One job by its activity-log id (GET /jobs/:id), for a link that points at
+ * it: it may be older than the newest 50 the list shows. Polls while it runs.
+ */
+export function useJob(libraryId: string | undefined, jobId: string | undefined) {
+  return useQuery({
+    queryKey: ['jobs', libraryId, jobId],
+    queryFn: () => api.get<JobInfo>(`/libraries/${libraryId}/jobs/${jobId}`),
+    enabled: !!libraryId && !!jobId,
+    retry: false,
+    refetchInterval: (q) => (q.state.data?.state === 'running' || q.state.data?.state === 'created' ? 3_000 : false),
+  });
+}
+
 interface QueueChangedEvent {
   type: string;
   libraryId: string;

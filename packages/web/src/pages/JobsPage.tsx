@@ -3,11 +3,69 @@
  * M0: Basic view of scan jobs
  */
 
-import { Link } from '@tanstack/react-router';
-import { useCurrentLibrary, useScanRoots, useIdentifyStats, useKickSweep, useJobs } from '../hooks';
+import { useEffect, useRef } from 'react';
+import { Link, useSearch } from '@tanstack/react-router';
+import { useCurrentLibrary, useScanRoots, useIdentifyStats, useKickSweep, useJobs, useJob, type JobInfo } from '../hooks';
 import { formatDateTime } from '../utils';
+import { jobStateLabel, jobTypeLabel } from '../utils/jobLabels';
 import { formatEta, formatRelativeTime } from '../utils/time';
 import styles from './JobsPage.module.css';
+
+/** One entry from the activity log (job_runs). */
+function JobRunCard({ job, selected = false }: { job: JobInfo; selected?: boolean }) {
+  const statusClass =
+    job.state === 'running'
+      ? styles.statusRunning
+      : job.state === 'completed'
+        ? styles.statusCompleted
+        : job.state === 'failed'
+          ? styles.statusFailed
+          : '';
+  return (
+    <div className={`${styles.jobCard} ${statusClass} ${selected ? styles.selected : ''}`}>
+      <div className={styles.jobHeader}>
+        <h3 className={styles.jobTitle}>{jobTypeLabel(job.type)}</h3>
+        <span className={`${styles.badge} ${statusClass}`}>{jobStateLabel(job.state)}</span>
+      </div>
+      {job.progress && (job.progress.message || job.progress.total > 0) && (
+        <div className={styles.progress}>
+          <div
+            className={styles.progressBar}
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={job.progress.total || 1}
+            aria-valuenow={job.progress.done || 0}
+          >
+            <div
+              className={styles.progressFill}
+              style={{
+                ['--scale' as string]: `${((job.progress.done || 0) / (job.progress.total || 1)) || 0}`,
+              }}
+            />
+          </div>
+          <p className={styles.progressText}>
+            {job.progress.message ? job.progress.message : `${job.progress.done} / ${job.progress.total}`}
+          </p>
+        </div>
+      )}
+      <div className={styles.jobMeta}>
+        {job.startedAt && (
+          <span className={styles.metaTag}>
+            Started {formatRelativeTime(job.startedAt)}
+          </span>
+        )}
+        {job.finishedAt && (
+          <span className={styles.metaTag}>
+            Finished {formatDateTime(job.finishedAt)}
+          </span>
+        )}
+      </div>
+      {job.error && (
+        <p className={styles.error}>{job.error}</p>
+      )}
+    </div>
+  );
+}
 
 export function JobsPage() {
   const { libraryId } = useCurrentLibrary();
@@ -15,6 +73,15 @@ export function JobsPage() {
   const { data: identifyStats } = useIdentifyStats(libraryId);
   const { data: jobsData } = useJobs(libraryId);
   const kickSweep = useKickSweep(libraryId);
+  // ?jobId= points this page at one job (a tag plan's preview links here).
+  // Fetched on its own, since it may be older than the newest jobs listed.
+  const { jobId } = useSearch({ strict: false }) as { jobId?: string };
+  const selectedQ = useJob(libraryId, jobId);
+  const selectedRef = useRef<HTMLElement>(null);
+  const hasSelected = !!selectedQ.data;
+  useEffect(() => {
+    if (hasSelected) selectedRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [hasSelected, jobId]);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading...</div>;
@@ -61,6 +128,19 @@ export function JobsPage() {
         <div className={styles.loading}>Loading jobs...</div>
       ) : (
         <>
+          {jobId && (
+            <section className={styles.section} ref={selectedRef} aria-live="polite">
+              <h2 className={styles.sectionTitle}>The job you followed</h2>
+              {selectedQ.data ? (
+                <div className={styles.jobsList}><JobRunCard job={selectedQ.data} selected /></div>
+              ) : selectedQ.isError ? (
+                <p className={styles.jobType}>That job is no longer in the activity log. Recent jobs are listed below.</p>
+              ) : (
+                <p className={styles.jobType}>Loading the job…</p>
+              )}
+            </section>
+          )}
+
           {/* Identification sweep section */}
           {identifyStats && (
             <section className={styles.section}>
@@ -121,65 +201,10 @@ export function JobsPage() {
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>Recent jobs</h2>
               <div className={styles.jobsList}>
-                {jobsData.data.slice(0, 10).map((job) => {
-                  const statusClass =
-                    job.state === 'running'
-                      ? styles.statusRunning
-                      : job.state === 'completed'
-                        ? styles.statusCompleted
-                        : job.state === 'failed'
-                          ? styles.statusFailed
-                          : '';
-                  return (
-                    <div key={job.id} className={`${styles.jobCard} ${statusClass}`}>
-                      <div className={styles.jobHeader}>
-                        <div>
-                          <h3 className={styles.jobTitle}>{job.type}</h3>
-                          <p className={styles.jobType}>{job.state}</p>
-                        </div>
-                        <span className={`${styles.badge} ${statusClass}`}>
-                          {job.state}
-                        </span>
-                      </div>
-                      {job.progress && (
-                        <div className={styles.progress}>
-                          <div
-                            className={styles.progressBar}
-                            role="progressbar"
-                            aria-valuemin={0}
-                            aria-valuemax={job.progress.total || 1}
-                            aria-valuenow={job.progress.done || 0}
-                          >
-                            <div
-                              className={styles.progressFill}
-                              style={{
-                                ['--scale' as string]: `${((job.progress.done || 0) / (job.progress.total || 1)) || 0}`,
-                              }}
-                            />
-                          </div>
-                          <p className={styles.progressText}>
-                            {job.progress.message ? job.progress.message : `${job.progress.done} / ${job.progress.total}`}
-                          </p>
-                        </div>
-                      )}
-                      <div className={styles.jobMeta}>
-                        {job.startedAt && (
-                          <span className={styles.metaTag}>
-                            Started {formatRelativeTime(job.startedAt)}
-                          </span>
-                        )}
-                        {job.finishedAt && (
-                          <span className={styles.metaTag}>
-                            Finished {formatDateTime(job.finishedAt)}
-                          </span>
-                        )}
-                      </div>
-                      {job.error && (
-                        <p className={styles.error}>{job.error}</p>
-                      )}
-                    </div>
-                  );
-                })}
+                {jobsData.data
+                  .filter((job) => job.id !== jobId)
+                  .slice(0, 10)
+                  .map((job) => <JobRunCard key={job.id} job={job} />)}
               </div>
             </section>
           )}

@@ -135,7 +135,8 @@ const settingsSectionRoute = new Route({
   path: '/settings/$section',
   component: SettingsPage,
   // ?jobId=<job_runs id> points Background activity at one job (a plan's
-  // preview links here); the activity list reads it with useSearch.
+  // preview links here): JobsPage reads it with useSearch, fetches that job
+  // and shows it first, outlined.
   validateSearch: (search: Record<string, unknown>): { jobId?: string } =>
     typeof search['jobId'] === 'string' && search['jobId'] ? { jobId: search['jobId'] } : {},
 });
