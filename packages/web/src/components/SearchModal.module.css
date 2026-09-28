@@ -25,7 +25,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
 }
 
 .searchIcon {
@@ -102,8 +102,11 @@
 
 .results {
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0.5rem 0;
   max-height: calc(60vh - 3.5rem);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .sectionLabel {
