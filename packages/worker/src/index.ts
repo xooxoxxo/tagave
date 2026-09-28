@@ -34,6 +34,7 @@ import { tagsApplyJob, type TagsApplyJobData } from './jobs/tagsApply.js';
 import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
+import { libraryIdsFor, pinnedLibraryId } from './lib/libraries.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -248,8 +249,13 @@ async function main() {
       for (const job of jobs) await editionsFetchJob(ctx, job.data);
     });
 
-    await boss.work<CollectionSyncJobData>('collection.sync', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await collectionSyncJob(ctx, job.data);
+    // The daily schedule sends no libraryId: the sync then runs per library.
+    await boss.work<Partial<CollectionSyncJobData>>('collection.sync', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        for (const libraryId of await libraryIdsFor(ctx, job.data.libraryId)) {
+          await collectionSyncJob(ctx, { ...job.data, libraryId });
+        }
+      }
     });
 
     await boss.work<CollectionPushJobData>('collection.push', { batchSize: 1 }, async (jobs) => {
@@ -260,9 +266,10 @@ async function main() {
       for (const job of jobs) await collectionRemoveJob(ctx, job.data);
     });
 
-    // Schedule daily collection.sync at 04:15 for default library (spec COL-1)
-    await boss.schedule('collection.sync', '15 4 * * *',
-      { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
+    // Daily collection.sync at 04:15 (spec COL-1), for every library unless
+    // LINER_LIBRARY_ID pins one.
+    const syncLibrary = pinnedLibraryId();
+    await boss.schedule('collection.sync', '15 4 * * *', syncLibrary ? { libraryId: syncLibrary } : {}, {});
   }
 
   if (wants('enrich.sweep')) {
@@ -365,12 +372,18 @@ async function main() {
   }
 
   if (wants('gaps.recompute')) {
-    await boss.work<GapsRecomputeJobData>('gaps.recompute', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await gapsRecomputeJob(ctx, job.data);
+    // The nightly schedule sends no libraryId: the recompute then runs per library.
+    await boss.work<Partial<GapsRecomputeJobData>>('gaps.recompute', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        for (const libraryId of await libraryIdsFor(ctx, job.data.libraryId)) {
+          await gapsRecomputeJob(ctx, { ...job.data, libraryId });
+        }
+      }
     });
-    // nightly at 03:15 (spec: nightly + after identification batches)
-    await boss.schedule('gaps.recompute', '15 3 * * *',
-      { libraryId: process.env.LINER_LIBRARY_ID ?? '01a05c38-c7d3-7d58-b32a-0f0ecc428e64' }, {});
+    // nightly at 03:15 (spec: nightly + after identification batches), for
+    // every library unless LINER_LIBRARY_ID pins one.
+    const gapsLibrary = pinnedLibraryId();
+    await boss.schedule('gaps.recompute', '15 3 * * *', gapsLibrary ? { libraryId: gapsLibrary } : {}, {});
   }
 
   if (wants('tags.preview')) {

@@ -1,0 +1,125 @@
+# tagave: compose file for installs from the published images.
+#
+# install-tagave.sh copies this file into the install directory and writes a
+# .env next to it that picks which services run on this computer (through
+# COMPOSE_PROFILES), so plain `docker compose ps|logs|pull|up -d` work there
+# without extra flags.
+#
+#   profile "app"    database, web app and the identify worker
+#   profile "files"  the file worker, which reads your music folder
+#
+# One computer runs both profiles. In a split install the computer with the
+# database runs "app" (plus compose.db-published.yml, so the file worker can
+# reach Postgres), and the computer that can see the music runs "files" with
+# DB_HOST pointing at the first one.
+#
+# Building from source instead? Use docker-compose.prod.yml at the repo root.
+
+name: ${COMPOSE_PROJECT_NAME:-tagave}
+
+x-worker-env: &worker-env
+  DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${POSTGRES_DB:-liner}
+  APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
+  CACHE_DIR: /cache
+  # Empty: the nightly gap and collection jobs run for every library.
+  LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  TZ: ${TZ:-UTC}
+
+services:
+  postgres:
+    profiles: ["app"]
+    image: postgres:16
+    command: postgres -c max_connections=300
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-liner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}
+      POSTGRES_DB: ${POSTGRES_DB:-liner}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    profiles: ["app"]
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:-latest}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
+      CACHE_DIR: /cache
+      # true while the app is reached over plain http; set false once it sits
+      # behind an https reverse proxy so session cookies get the secure flag.
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - cache:/cache
+    ports:
+      - "${TAGAVE_PORT:-3100}:3000"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # The image has node but no curl. /api/v1/health answers 503 only when
+      # the database or the migration ledger is broken.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  # MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes and
+  # track linking. Needs the internet, never your files, so it stays next to
+  # the database.
+  worker-identify:
+    profiles: ["app"]
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
+      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+    volumes:
+      - cache:/cache
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Scanning, clustering, cover art, fingerprints, tag plans: everything that
+  # touches the music folder. Register the scan
+  # root as /mnt/music in the app.
+  #
+  # Between them the two workers must list every queue the worker knows, or
+  # jobs on the missing ones wait forever; packages/worker/src/deployQueues.test.ts
+  # checks that.
+  worker-files:
+    profiles: ["files"]
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+    volumes:
+      - cache:/cache
+      # read-only: tag previews only read. Applying a tag plan needs a
+      # writable mount and the Python tag writer, which this image lacks.
+      # The installer always sets MUSIC_DIR; ./music is only a placeholder so
+      # the database computer of a split install does not need one.
+      - ${MUSIC_DIR:-./music}:/mnt/music:ro
+    restart: unless-stopped
+    depends_on:
+      # On a split install Postgres lives on another computer, so this
+      # dependency only applies when the "app" profile runs here too.
+      postgres:
+        condition: service_healthy
+        required: false
+
+volumes:
+  pgdata:
+  cache:
