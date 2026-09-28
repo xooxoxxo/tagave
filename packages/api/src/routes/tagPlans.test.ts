@@ -1,351 +1,245 @@
 /**
- * Tests for tag plans API endpoints, especially add-to-existing-plan
+ * POST /tag-plans/:planId/add-items and GET /tag-plans?acceptsAlbums=true,
+ * driven through the real route with fastify.inject against the test
+ * database. pg-boss never runs in tests: sends are recorded, and a stand-in
+ * pgboss.job table (the columns the route reads) holds queued jobs, the same
+ * way clusterRepairDiscs.db.test.ts does it.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
-import { tagPlans, tagPlanItems, audioFiles, libraries, users, localAlbums } from '@liner/db';
-import { makeDb } from '@liner/db';
-import type { TagPlanScope } from '@liner/shared';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { eq, inArray } from 'drizzle-orm';
+import { audioFiles, libraries, localAlbums, scanRoots, tagPlanItems, tagPlans, users } from '@liner/db';
 
-/**
- * Unit tests: scope merging logic
- */
-describe('Tag plan scope merging (unit)', () => {
-  it('merges album IDs from two albumIds scopes correctly', () => {
-    const existing: TagPlanScope = { type: 'albumIds', albumIds: ['a', 'b', 'c'] };
-    const newScope: TagPlanScope = { type: 'albumIds', albumIds: ['c', 'd', 'e'] };
+const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
+vi.mock('../boss.js', () => ({
+  getBoss: async () => ({
+    send: async (name: string, data: unknown, opts: unknown) => { sent.push({ name, data, opts }); return 'job-id'; },
+  }),
+}));
 
-    // Simulate the merge logic
-    if (existing.type === 'albumIds' && newScope.type === 'albumIds') {
-      const merged = Array.from(new Set([...existing.albumIds, ...newScope.albumIds]));
-      expect(merged).toContain('a');
-      expect(merged).toContain('b');
-      expect(merged).toContain('c');
-      expect(merged).toContain('d');
-      expect(merged).toContain('e');
-      expect(merged).toHaveLength(5);
-    }
+describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', () => {
+  let app: FastifyInstance;
+  let db: any;
+  let client: any;
+  const ownerId = randomUUID();
+  const strangerId = randomUUID();
+  const libraryId = randomUUID();
+  const otherLibraryId = randomUUID();
+  const rootId = randomUUID();
+  const fileId = randomUUID();
+  const [album1, album2, album3, foreignAlbum] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+  const planIds: string[] = [];
+
+  const policy = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
+
+  async function makePlan(status: string, scope: unknown = { type: 'albumIds', albumIds: [album1] }): Promise<string> {
+    const id = randomUUID();
+    planIds.push(id);
+    await db.insert(tagPlans).values({
+      id, libraryId, name: `plan ${status}`, scope, policy, status,
+      stats: status === 'previewed' ? { filesTouched: 1, fieldsModified: 2, lockedFieldsRespected: 0, filesSkipped: [] } : {},
+      createdBy: ownerId,
+    });
+    return id;
+  }
+
+  const planRow = async (id: string) => (await db.select().from(tagPlans).where(eq(tagPlans.id, id)))[0];
+  const itemsOf = async (id: string) => db.select().from(tagPlanItems).where(eq(tagPlanItems.tagPlanId, id));
+  const previewSends = (id: string) => sent.filter((j) => j.name === 'tags.preview' && j.data.planId === id);
+
+  const add = (planId: string, payload: unknown, as: string = ownerId) =>
+    app.inject({
+      method: 'POST',
+      url: `/libraries/${libraryId}/tag-plans/${planId}/add-items`,
+      headers: { 'x-test-user': as },
+      payload: payload as any,
+    });
+
+  beforeAll(async () => {
+    const url = process.env.TEST_DATABASE_URL!;
+    const { initDb } = await import('../db.js');
+    const made = await initDb(url);
+    db = made.db;
+    client = made.client;
+    await client`do $$ begin
+      if not exists (select 1 from pg_namespace where nspname = 'pgboss') then create schema pgboss; end if;
+    end $$`;
+    await client`create table if not exists pgboss.job (
+      id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
+
+    await db.insert(users).values([
+      { id: ownerId, email: `owner-${ownerId}@test.com`, passwordHash: 'x' },
+      { id: strangerId, email: `stranger-${strangerId}@test.com`, passwordHash: 'x' },
+    ]);
+    await db.insert(libraries).values([
+      { id: libraryId, name: 'Plans', ownerUserId: ownerId, settings: {} },
+      { id: otherLibraryId, name: 'Other', ownerUserId: strangerId, settings: {} },
+    ]);
+    await db.insert(localAlbums).values([
+      { id: album1, libraryId, clusterKey: `a1-${album1}`, dirPaths: ['A/1'], state: 'matched' },
+      { id: album2, libraryId, clusterKey: `a2-${album2}`, dirPaths: ['A/2'], state: 'matched' },
+      { id: album3, libraryId, clusterKey: `a3-${album3}`, dirPaths: ['A/3'], state: 'matched' },
+      { id: foreignAlbum, libraryId: otherLibraryId, clusterKey: `f-${foreignAlbum}`, dirPaths: ['F'], state: 'matched' },
+    ]);
+    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/plans-root', displayName: 'plans', writable: true, validationStatus: 'ok' });
+    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: 'A/1/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
+
+    const { errorHandler } = await import('../middleware/errorHandler.js');
+    const { createTagPlansRoutes } = await import('./tagPlans.js');
+    app = Fastify({ logger: false });
+    await errorHandler(app);
+    app.addHook('preHandler', async (request) => {
+      const id = request.headers['x-test-user'];
+      request.user = typeof id === 'string' ? ({ id, email: `${id}@test.com` } as any) : undefined;
+    });
+    await app.register(createTagPlansRoutes, { prefix: '/libraries/:libraryId' });
+    await app.ready();
   });
 
-  it('removes duplicates when merging album IDs', () => {
-    const existing: TagPlanScope = { type: 'albumIds', albumIds: ['a', 'b'] };
-    const newScope: TagPlanScope = { type: 'albumIds', albumIds: ['b'] };
-
-    if (existing.type === 'albumIds' && newScope.type === 'albumIds') {
-      const merged = Array.from(new Set([...existing.albumIds, ...newScope.albumIds]));
-      expect(merged).toEqual(['a', 'b']);
+  afterAll(async () => {
+    await app?.close();
+    if (planIds.length) {
+      await client`delete from pgboss.job where data->>'planId' = any(${planIds})`;
+      await db.delete(tagPlanItems).where(inArray(tagPlanItems.tagPlanId, planIds));
+      await db.delete(tagPlans).where(inArray(tagPlans.id, planIds));
     }
+    await db.delete(scanRoots).where(eq(scanRoots.id, rootId)); // cascades the audio file
+    await db.delete(localAlbums).where(inArray(localAlbums.libraryId, [libraryId, otherLibraryId]));
+    await db.delete(libraries).where(inArray(libraries.id, [libraryId, otherLibraryId]));
+    await db.delete(users).where(inArray(users.id, [ownerId, strangerId]));
+    await client?.end({ timeout: 5 });
   });
 
-  it('detects idempotent additions (no new albums)', () => {
-    const existing: TagPlanScope = { type: 'albumIds', albumIds: ['a', 'b', 'c'] };
-    const newScope: TagPlanScope = { type: 'albumIds', albumIds: ['b', 'c'] };
+  let previewed: string;
+  beforeEach(async () => {
+    sent.length = 0;
+    previewed = await makePlan('previewed');
+    await db.insert(tagPlanItems).values({
+      tagPlanId: previewed, audioFileId: fileId, before: { title: 'a' }, after: { title: 'b' },
+      diff: [{ field: 'title', before: 'a', after: 'b', reason: 'policy:overwrite' }], status: 'pending',
+    });
+  });
 
-    if (existing.type === 'albumIds' && newScope.type === 'albumIds') {
-      const merged = Array.from(new Set([...existing.albumIds, ...newScope.albumIds]));
-      const isIdempotent = merged.length === existing.albumIds.length;
-      expect(isIdempotent).toBe(true);
+  it('adds an album to a previewed plan: back to draft, old preview dropped, a new preview queued', async () => {
+    const res = await add(previewed, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ planId: previewed, added: 1, albumCount: 2, status: 'draft', previewQueued: true });
+
+    const plan = await planRow(previewed);
+    expect(plan.status).toBe('draft');
+    expect(plan.stats).toEqual({});
+    expect(plan.scope).toEqual({ type: 'albumIds', albumIds: [album1, album2] });
+    expect(await itemsOf(previewed)).toHaveLength(0);
+    expect(previewSends(previewed)).toEqual([
+      { name: 'tags.preview', data: { planId: previewed }, opts: { singletonKey: `tag_plan:${previewed}` } },
+    ]);
+  });
+
+  it('adding albums already in the plan changes nothing', async () => {
+    const res = await add(previewed, { scope: { type: 'albumIds', albumIds: [album1, album1] } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ added: 0, albumCount: 1, status: 'previewed', previewQueued: false });
+
+    const plan = await planRow(previewed);
+    expect(plan.status).toBe('previewed');
+    expect((plan.stats as any).filesTouched).toBe(1);
+    expect(await itemsOf(previewed)).toHaveLength(1);
+    expect(previewSends(previewed)).toHaveLength(0);
+  });
+
+  it('a draft plan grows too; every add asks for a preview under the one singleton key', async () => {
+    const draft = await makePlan('draft');
+    expect((await add(draft, { scope: { type: 'albumIds', albumIds: [album2] } })).statusCode).toBe(200);
+    expect((await add(draft, { scope: { type: 'albumIds', albumIds: [album3] } })).statusCode).toBe(200);
+    expect((await planRow(draft)).scope).toEqual({ type: 'albumIds', albumIds: [album1, album2, album3] });
+    // The queue is stately: sends under one key collapse into the one waiting
+    // preview, which reads the final scope when it starts.
+    expect(previewSends(draft).map((j) => j.opts.singletonKey)).toEqual([`tag_plan:${draft}`, `tag_plan:${draft}`]);
+  });
+
+  it.each(['applied', 'applying', 'paused', 'partially_failed', 'cancelled', 'reverted'])('refuses a plan that is %s', async (status) => {
+    const closed = await makePlan(status);
+    const res = await add(closed, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().detail).toBe('This plan has already been applied or is being applied. Start a new plan instead.');
+    const plan = await planRow(closed);
+    expect(plan.status).toBe(status);
+    expect(plan.scope).toEqual({ type: 'albumIds', albumIds: [album1] });
+  });
+
+  it('refuses a previewed plan whose apply job is queued but has not started', async () => {
+    await client`insert into pgboss.job (id, name, state, priority, singleton_key, data)
+                 values (${randomUUID()}, 'tags.apply', 'created', 0, ${'tags.apply:' + previewed}, ${JSON.stringify({ planId: previewed })}::jsonb)`;
+    const res = await add(previewed, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.statusCode).toBe(409);
+    const plan = await planRow(previewed);
+    expect(plan.status).toBe('previewed');
+    expect(await itemsOf(previewed)).toHaveLength(1);
+  });
+
+  it('refuses a plan scoped to an artist or the whole library', async () => {
+    const artistPlan = await makePlan('draft', { type: 'artist', artistId: randomUUID() });
+    const libraryPlan = await makePlan('previewed', { type: 'library' });
+    for (const id of [artistPlan, libraryPlan]) {
+      const res = await add(id, { scope: { type: 'albumIds', albumIds: [album2] } });
+      expect(res.statusCode).toBe(409);
     }
+    expect((await planRow(libraryPlan)).status).toBe('previewed');
+  });
+
+  it('refuses albums from another library', async () => {
+    const res = await add(previewed, { scope: { type: 'albumIds', albumIds: [album2, foreignAlbum] } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().detail).toBe('Some of these albums are not in this library.');
+    expect((await planRow(previewed)).scope).toEqual({ type: 'albumIds', albumIds: [album1] });
+  });
+
+  it.each([
+    ['no body', undefined],
+    ['no scope', {}],
+    ['a non-album scope', { scope: { type: 'library' } }],
+    ['albumIds as a string', { scope: { type: 'albumIds', albumIds: album2 } }],
+    ['an empty list', { scope: { type: 'albumIds', albumIds: [] } }],
+    ['ids that are not uuids', { scope: { type: 'albumIds', albumIds: ['nope'] } }],
+  ])('rejects %s with 400', async (_label, payload) => {
+    const res = await add(previewed, payload);
+    expect(res.statusCode).toBe(400);
+    expect((await planRow(previewed)).status).toBe('previewed');
+  });
+
+  it('404s for a library the user does not own, and for an unknown plan', async () => {
+    expect((await add(previewed, { scope: { type: 'albumIds', albumIds: [album2] } }, strangerId)).statusCode).toBe(404);
+    expect((await add(randomUUID(), { scope: { type: 'albumIds', albumIds: [album2] } })).statusCode).toBe(404);
+    expect((await planRow(previewed)).status).toBe('previewed');
+  });
+
+  it('401s without a session', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/libraries/${libraryId}/tag-plans/${previewed}/add-items`,
+      payload: { scope: { type: 'albumIds', albumIds: [album2] } },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('lists only plans albums can be added to with ?acceptsAlbums=true', async () => {
+    const applied = await makePlan('applied');
+    const artistPlan = await makePlan('draft', { type: 'artist', artistId: randomUUID() });
+    const draft = await makePlan('draft');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/libraries/${libraryId}/tag-plans?acceptsAlbums=true&limit=200`,
+      headers: { 'x-test-user': ownerId },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const ids = body.items.map((p: { id: string }) => p.id);
+    expect(ids).toContain(previewed);
+    expect(ids).toContain(draft);
+    expect(ids).not.toContain(applied);
+    expect(ids).not.toContain(artistPlan);
+    expect(body.items.every((p: { status: string; scope: { type: string } }) => ['draft', 'previewed'].includes(p.status) && p.scope.type === 'albumIds')).toBe(true);
+    expect(body.total).toBe(body.items.length);
   });
 });
-
-/**
- * Integration tests: POST /tag-plans/:planId/add-items endpoint
- */
-describe.skipIf(!process.env.TEST_DATABASE_URL)(
-  'Tag plan add-items endpoint (integration)',
-  () => {
-    let db: any;
-    let userId: string;
-    let libraryId: string;
-    let planId: string;
-    const albumId1 = randomUUID();
-    const albumId2 = randomUUID();
-    const albumId3 = randomUUID();
-
-    beforeEach(async () => {
-      const databaseUrl = process.env.TEST_DATABASE_URL;
-      if (!databaseUrl) {
-        throw new Error('TEST_DATABASE_URL not set');
-      }
-
-      const { db: dbInstance } = await makeDb(databaseUrl);
-      db = dbInstance;
-
-      // Create test user
-      userId = randomUUID();
-      await db.insert(users).values({
-        id: userId,
-        email: `test-${userId}@test.com`,
-        passwordHash: 'test-hash',
-        createdAt: new Date(),
-      });
-
-      // Create test library
-      libraryId = randomUUID();
-      await db.insert(libraries).values({
-        id: libraryId,
-        name: 'Test Library',
-        ownerUserId: userId,
-        createdAt: new Date(),
-      });
-
-      // Create test albums in the library
-      await db.insert(localAlbums).values([
-        {
-          id: albumId1,
-          libraryId,
-          title: 'Album 1',
-          artistCredit: 'Artist A',
-          createdAt: new Date(),
-        },
-        {
-          id: albumId2,
-          libraryId,
-          title: 'Album 2',
-          artistCredit: 'Artist B',
-          createdAt: new Date(),
-        },
-        {
-          id: albumId3,
-          libraryId,
-          title: 'Album 3',
-          artistCredit: 'Artist C',
-          createdAt: new Date(),
-        },
-      ]);
-
-      // Create a draft tag plan with albums 1 and 2
-      planId = randomUUID();
-      await db.insert(tagPlans).values({
-        id: planId,
-        libraryId,
-        name: 'Test Plan',
-        scope: { type: 'albumIds', albumIds: [albumId1, albumId2] },
-        policy: {
-          preset: 'canonical_ids_and_fill',
-          id3Version: '2.4',
-          multiValueSeparator: '; ',
-        },
-        status: 'draft',
-        stats: {},
-        createdBy: userId,
-        createdAt: new Date(),
-      });
-    });
-
-    afterEach(async () => {
-      if (db) {
-        // Cleanup in reverse order of dependencies
-        await db.delete(tagPlanItems).where(eq(tagPlanItems.tagPlanId, planId));
-        await db.delete(tagPlans).where(eq(tagPlans.id, planId));
-        await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-        await db.delete(libraries).where(eq(libraries.id, libraryId));
-        await db.delete(users).where(eq(users.id, userId));
-      }
-    });
-
-    it('successfully merges new albums into a draft plan', async () => {
-      const newScope: TagPlanScope = { type: 'albumIds', albumIds: [albumId3] };
-
-      // Simulate the endpoint logic
-      const existingPlan = await db
-        .select()
-        .from(tagPlans)
-        .where(eq(tagPlans.id, planId));
-
-      expect(existingPlan).toHaveLength(1);
-      const plan = existingPlan[0]!;
-
-      // Verify plan status is draft
-      expect(plan.status).toBe('draft');
-
-      // Verify plan exists and is draft/previewed
-      if (!['draft', 'previewed'].includes(plan.status)) {
-        throw new Error(`Cannot add items to plan in status '${plan.status}'`);
-      }
-
-      // Get existing scope
-      const existingScope = typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope;
-
-      // Verify scope types
-      expect(existingScope.type).toBe('albumIds');
-      expect(newScope.type).toBe('albumIds');
-
-      // Merge albums
-      const mergedIds = Array.from(
-        new Set([...existingScope.albumIds, ...newScope.albumIds])
-      );
-
-      // Verify merge
-      expect(mergedIds).toContain(albumId1);
-      expect(mergedIds).toContain(albumId2);
-      expect(mergedIds).toContain(albumId3);
-      expect(mergedIds).toHaveLength(3);
-
-      // Verify not idempotent (new albums added)
-      expect(mergedIds.length).toBeGreaterThan(existingScope.albumIds.length);
-
-      // Update the plan in DB
-      await db.update(tagPlans).set({
-        scope: { type: 'albumIds', albumIds: mergedIds },
-        status: 'draft',
-        stats: {},
-      }).where(eq(tagPlans.id, planId));
-
-      // Verify the update
-      const updatedPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
-      const updatedScope = typeof updatedPlan[0]!.scope === 'string'
-        ? JSON.parse(updatedPlan[0]!.scope)
-        : updatedPlan[0]!.scope;
-
-      expect(updatedScope.albumIds).toHaveLength(3);
-      expect(updatedScope.albumIds).toContain(albumId3);
-    });
-
-    it('returns 200 (idempotent) when adding albums already in the plan', async () => {
-      const newScope: TagPlanScope = { type: 'albumIds', albumIds: [albumId1, albumId2] };
-
-      const existingPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
-      const plan = existingPlan[0]!;
-      const existingScope = typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope;
-
-      const mergedIds = Array.from(
-        new Set([...existingScope.albumIds, ...newScope.albumIds])
-      );
-
-      // Verify no new albums
-      expect(mergedIds.length).toBe(existingScope.albumIds.length);
-
-      // The endpoint returns 200 idempotent for no-change additions
-      // Verify the albums are the same
-      expect(new Set(mergedIds)).toEqual(new Set(existingScope.albumIds));
-    });
-
-    it('rejects adding to a plan with non-albumIds scope', async () => {
-      // Create a library-scoped plan
-      const libraryPlanId = randomUUID();
-      await db.insert(tagPlans).values({
-        id: libraryPlanId,
-        libraryId,
-        name: 'Library Plan',
-        scope: { type: 'library' },
-        policy: {
-          preset: 'canonical_ids_and_fill',
-          id3Version: '2.4',
-          multiValueSeparator: '; ',
-        },
-        status: 'draft',
-        stats: {},
-        createdBy: userId,
-        createdAt: new Date(),
-      });
-
-      const existingPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, libraryPlanId));
-      const plan = existingPlan[0]!;
-      const existingScope = typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope;
-
-      // Verify scope is not albumIds
-      expect(existingScope.type).not.toBe('albumIds');
-
-      // Cleanup
-      await db.delete(tagPlans).where(eq(tagPlans.id, libraryPlanId));
-    });
-
-    it('rejects adding non-albumIds scope to a plan', async () => {
-      const nonAlbumScope: TagPlanScope = { type: 'library' };
-
-      const existingPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
-      const plan = existingPlan[0]!;
-
-      // Verify existing plan is albumIds
-      expect(plan.status).toBe('draft');
-
-      // Verify new scope is not albumIds
-      expect(nonAlbumScope.type).not.toBe('albumIds');
-    });
-
-    it('rejects adding to a plan in applied status', async () => {
-      // Create an applied plan
-      const appliedPlanId = randomUUID();
-      await db.insert(tagPlans).values({
-        id: appliedPlanId,
-        libraryId,
-        name: 'Applied Plan',
-        scope: { type: 'albumIds', albumIds: [albumId1] },
-        policy: {
-          preset: 'canonical_ids_and_fill',
-          id3Version: '2.4',
-          multiValueSeparator: '; ',
-        },
-        status: 'applied',
-        stats: {},
-        createdBy: userId,
-        createdAt: new Date(),
-        appliedAt: new Date(),
-      });
-
-      const existingPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, appliedPlanId));
-      const plan = existingPlan[0]!;
-
-      // Verify plan status is applied
-      expect(plan.status).toBe('applied');
-
-      // Endpoint should reject: only draft/previewed can accept new items
-      expect(['draft', 'previewed']).not.toContain(plan.status);
-
-      // Cleanup
-      await db.delete(tagPlans).where(eq(tagPlans.id, appliedPlanId));
-    });
-
-    it('accepts adding to a previewed plan', async () => {
-      // Create a previewed plan
-      const previewedPlanId = randomUUID();
-      await db.insert(tagPlans).values({
-        id: previewedPlanId,
-        libraryId,
-        name: 'Previewed Plan',
-        scope: { type: 'albumIds', albumIds: [albumId1] },
-        policy: {
-          preset: 'canonical_ids_and_fill',
-          id3Version: '2.4',
-          multiValueSeparator: '; ',
-        },
-        status: 'previewed',
-        stats: { filesTouched: 10, fieldsModified: 5, lockedFieldsRespected: 0, filesSkipped: [] },
-        createdBy: userId,
-        createdAt: new Date(),
-      });
-
-      const existingPlan = await db.select().from(tagPlans).where(eq(tagPlans.id, previewedPlanId));
-      const plan = existingPlan[0]!;
-
-      // Verify plan status is previewed
-      expect(plan.status).toBe('previewed');
-
-      // Endpoint should accept previewed status
-      expect(['draft', 'previewed']).toContain(plan.status);
-
-      // Verify preview stats are cleared after merge (stats reset)
-      const newScope: TagPlanScope = { type: 'albumIds', albumIds: [albumId2] };
-      const existingScope = typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope;
-      const mergedIds = Array.from(
-        new Set([...existingScope.albumIds, ...newScope.albumIds])
-      );
-
-      await db.update(tagPlans).set({
-        scope: { type: 'albumIds', albumIds: mergedIds },
-        status: 'draft', // Reset to draft as endpoint does
-        stats: {}, // Clear stats
-      }).where(eq(tagPlans.id, previewedPlanId));
-
-      const updated = await db.select().from(tagPlans).where(eq(tagPlans.id, previewedPlanId));
-      expect(updated[0]!.status).toBe('draft');
-      expect(updated[0]!.stats).toEqual({});
-
-      // Cleanup
-      await db.delete(tagPlans).where(eq(tagPlans.id, previewedPlanId));
-    });
-  }
-);

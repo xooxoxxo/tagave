@@ -1,14 +1,17 @@
 /**
- * Tag plan wizard — 2-step form for creating tag plans (XO-358)
+ * Tag plan wizard (XO-358)
+ * When plans exist that have not been applied yet, it first asks whether to
+ * add to one of them or start a new plan (from the album page the album is
+ * already chosen). A new plan then takes two steps:
  * Step 1: Scope picker (library/artist/albums/query)
  * Step 2: Policy preset picker
  */
 
 import { useState, useCallback, useEffect } from 'react';
-import type { TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
+import type { TagPlan, TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { Button, Badge, Banner } from '../components/ui';
-import { useCreateTagPlan, useLibrarySettings, useAddToTagPlan, useTagPlans } from '../hooks/usePlanWizard';
+import { useCreateTagPlan, useLibrarySettings, useAddToTagPlan, useOpenTagPlans } from '../hooks/usePlanWizard';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
@@ -57,7 +60,7 @@ interface WizardStep2State {
   overrides?: Record<string, 'overwrite' | 'fill' | 'never'>;
 }
 
-type WizardStep = 0 | 1 | 2;
+type WizardStep = 1 | 2;
 type WizardMode = 'new-plan' | 'add-to-plan';
 
 interface PlanWizardProps {
@@ -67,10 +70,28 @@ interface PlanWizardProps {
   initialScope?: { albumIds: string[]; albumLabels?: Record<string, string> };
 }
 
+/** Plain words for why adding to a plan failed; the server's text stays in the log. */
+function addToPlanErrorMessage(error: unknown): string {
+  switch ((error as { status?: number } | null)?.status) {
+    case 409: return 'That plan can no longer take albums: it has been applied, or it is not a list of albums. Start a new plan instead.';
+    case 404: return 'That plan no longer exists. Pick another one or start a new plan.';
+    case 400: return 'This album could not be added to that plan. Reload the page and try again.';
+    default: return 'Could not add to the plan. Try again.';
+  }
+}
+
+function createPlanErrorMessage(error: unknown): string {
+  const e = error as { status?: number; detail?: string } | null;
+  // The create route's 400s are written for people ("The filter matches no albums").
+  if (e?.status === 400 && e.detail && e.detail !== 'Request validation failed') return e.detail;
+  return 'Could not create the plan. Try again.';
+}
+
 export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps) {
-  // If initialScope is provided, skip the mode selection and go straight to new-plan flow at step 2
-  const [mode, setMode] = useState<WizardMode | null>(initialScope ? 'new-plan' : null);
-  const [step, setStep] = useState<WizardStep>(initialScope ? 2 : 0);
+  // null until the user picks: add to an open plan, or start a new one. When
+  // there is no open plan to add to, the choice is skipped (see effectiveMode).
+  const [mode, setMode] = useState<WizardMode | null>(null);
+  const [step, setStep] = useState<WizardStep>(initialScope ? 2 : 1);
   const [planName, setPlanName] = useState('');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [step1, setStep1] = useState<WizardStep1State>(
@@ -84,8 +105,20 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     multiValueSeparator: '; ',
   });
 
-  const { data: plansResponse } = useTagPlans(libraryId, { limit: 100 });
-  const openPlans = (plansResponse?.items ?? []).filter((p) => ['draft', 'previewed'].includes(p.status));
+  const openPlansQ = useOpenTagPlans(libraryId);
+  const openPlans: TagPlan[] = openPlansQ.data?.items ?? [];
+  const openPlansTotal = openPlansQ.data?.total ?? 0;
+  // A failed list is treated as "nothing to add to": starting a new plan still works.
+  const openPlansSettled = openPlansQ.isSuccess || openPlansQ.isError;
+  const hasOpenPlans = openPlans.length > 0;
+  const effectiveMode: WizardMode | null = mode ?? (openPlansSettled && !hasOpenPlans ? 'new-plan' : null);
+  const backToChoice = hasOpenPlans
+    ? () => {
+        setMode(null);
+        setStep(initialScope ? 2 : 1);
+        setStep1Error(null);
+      }
+    : undefined;
   // A plan is named after what it covers unless the user types a name;
   // "New tag plan" x 12 in the list told nobody anything.
   const suggestedName = (() => {
@@ -122,42 +155,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
   }, [policySeeded, settings.data]);
   const navigate = useNavigate();
   const createPlanMutation = useCreateTagPlan(libraryId);
-  const addToExistingPlanMutation = useAddToTagPlan(libraryId, selectedPlanId ?? undefined);
-
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      // Typing into a search box must not toggle help or jump a step.
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.key === '?') {
-        setShowHelp((s) => !s);
-      }
-      if (e.key === 'Enter') {
-        // Enter advances; on the last step it creates/adds to plan
-        if (step === 0 && mode) {
-          if (mode === 'new-plan') setStep(1);
-          else if (mode === 'add-to-plan' && selectedPlanId) void handleAddToExistingPlan();
-        } else if (step === 1 && step1.scopeType) {
-          if (mode === 'new-plan') setStep(2);
-          else if (mode === 'add-to-plan') void handleAddToExistingPlan();
-        } else if (step === 2) {
-          if (mode === 'new-plan') void handleCreatePlan();
-          else if (mode === 'add-to-plan') void handleAddToExistingPlan();
-        }
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [step, step1, mode, selectedPlanId, onClose]
-  );
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
+  const addToPlanMutation = useAddToTagPlan(libraryId);
 
   const canProceedStep1 =
     step1.scopeType === 'library' ||
@@ -199,7 +197,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
   const handleCreatePlan = async () => {
     const scope = buildScope();
     if (!scope) {
-      setStep1Error('Invalid scope configuration');
+      setStep1Error('Pick what the plan should cover first.');
       return;
     }
 
@@ -216,41 +214,70 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
       onClose();
       void navigate({ to: '/plans/$planId', params: { planId: result.id } });
     } catch (error) {
-      setStep1Error((error as { detail?: string; message?: string })?.detail ?? (error as Error).message ?? 'Failed to create plan');
+      setStep1Error(createPlanErrorMessage(error));
     }
   };
 
-  const handleAddToExistingPlan = async () => {
-    if (!selectedPlanId) {
-      setStep1Error('Please select a plan');
+  const handleAddToPlan = async (planId: string | null) => {
+    const albumIds = step1.scopeType === 'albumIds' ? step1.albumIds ?? [] : [];
+    if (!planId) {
+      setStep1Error('Pick a plan first.');
       return;
     }
-
-    const scope = buildScope();
-    if (!scope) {
-      setStep1Error('Invalid scope configuration');
+    if (albumIds.length === 0) {
+      setStep1Error('Pick at least one album to add.');
       return;
     }
-
-    if (scope.type !== 'albumIds') {
-      setStep1Error('Can only add albums to existing plans');
-      return;
-    }
-
     try {
-      await addToExistingPlanMutation.mutateAsync(scope);
+      await addToPlanMutation.mutateAsync({ planId, albumIds });
+      // The plan page follows the fresh preview the server queued.
       onClose();
-      void navigate({ to: '/plans/$planId', params: { planId: selectedPlanId } });
+      void navigate({ to: '/plans/$planId', params: { planId } });
     } catch (error) {
-      setStep1Error((error as { detail?: string; message?: string })?.detail ?? (error as Error).message ?? 'Failed to add items to plan');
+      setStep1Error(addToPlanErrorMessage(error));
     }
   };
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      // Typing into a search box must not toggle help or jump a step.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === '?') {
+        setShowHelp((s) => !s);
+      }
+      if (e.key === 'Enter' && effectiveMode === 'new-plan') {
+        // Enter advances; on the last step it creates the plan. The choice
+        // and add steps submit through their own buttons.
+        if (step === 1 && canProceedStep1) setStep(2);
+        else if (step === 2) void handleCreatePlan();
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [step, step1, effectiveMode, canProceedStep1, onClose]
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
+  const title = effectiveMode === 'add-to-plan' ? 'Add to a plan' : effectiveMode === 'new-plan' ? 'New tag plan' : initialScope ? 'Fix tags' : 'Tag plan';
+  const albumLabel = initialScope
+    ? initialScope.albumIds.length === 1
+      ? initialScope.albumLabels?.[initialScope.albumIds[0]!] ?? 'this album'
+      : `these ${initialScope.albumIds.length} albums`
+    : null;
 
   return (
     <div className={styles.overlay}>
-      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={mode === 'add-to-plan' ? 'Add to existing plan' : 'New tag plan'}>
+      <div className={styles.modal} role="dialog" aria-modal="true" aria-label={title}>
         <div className={styles.header}>
-          <h2 className={styles.title}>{mode === 'add-to-plan' ? 'Add to existing plan' : 'New tag plan'}</h2>
+          <h2 className={styles.title}>{title}</h2>
           <div className={styles.headerActions}>
             <button
               type="button"
@@ -292,35 +319,51 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
             </Banner>
           )}
 
-        {!showHelp && step === 0 && !mode && (
-          <Step0ModeSelector
-            onSelectMode={(m) => {
-              setMode(m);
-              setStep(m === 'new-plan' ? 1 : 1);
-            }}
-          />
+        {!showHelp && effectiveMode === null && !openPlansSettled && (
+          <p className={styles.stepSubtitle}>Loading your plans…</p>
         )}
 
-        {!showHelp && mode === 'add-to-plan' && step === 1 && (
-          <Step1AddToExistingPlan
-            libraryId={libraryId}
+        {!showHelp && effectiveMode === null && openPlansSettled && (
+          <StepChoosePlan
+            albumLabel={albumLabel}
+            albumIds={initialScope?.albumIds ?? []}
             openPlans={openPlans}
-            selectedPlanId={selectedPlanId}
-            onSelectPlan={setSelectedPlanId}
-            state={step1}
-            onChange={setStep1}
+            openPlansTotal={openPlansTotal}
             error={step1Error}
-            onNext={handleAddToExistingPlan}
-            onBack={() => {
-              setMode(null);
-              setStep(0);
-              setSelectedPlanId(null);
+            isLoading={addToPlanMutation.isPending}
+            onAddTo={(planId) => {
+              setStep1Error(null);
+              if (initialScope) {
+                void handleAddToPlan(planId);
+              } else {
+                setSelectedPlanId(planId);
+                setMode('add-to-plan');
+              }
             }}
-            isLoading={addToExistingPlanMutation.isPending}
+            onNew={() => {
+              setStep1Error(null);
+              setMode('new-plan');
+            }}
           />
         )}
 
-        {!showHelp && mode === 'new-plan' && step === 1 && (
+        {!showHelp && effectiveMode === 'add-to-plan' && (
+          <StepPickAlbumsForPlan
+            libraryId={libraryId}
+            plan={openPlans.find((p) => p.id === selectedPlanId) ?? null}
+            state={step1}
+            onChange={(s) => setStep1({ ...s, scopeType: 'albumIds' })}
+            error={step1Error}
+            onNext={() => void handleAddToPlan(selectedPlanId)}
+            onBack={() => {
+              setSelectedPlanId(null);
+              backToChoice?.();
+            }}
+            isLoading={addToPlanMutation.isPending}
+          />
+        )}
+
+        {!showHelp && effectiveMode === 'new-plan' && step === 1 && (
           <Step1ScopePicker
             libraryId={libraryId}
             state={step1}
@@ -328,22 +371,18 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
             error={step1Error}
             onNext={() => setStep(2)}
             canProceed={canProceedStep1}
-            onBack={() => {
-              if (!initialScope) {
-                setMode(null);
-                setStep(0);
-              }
-            }}
+            {...(backToChoice ? { onBack: backToChoice } : {})}
           />
         )}
 
-        {!showHelp && mode === 'new-plan' && step === 2 && (
+        {!showHelp && effectiveMode === 'new-plan' && step === 2 && (
           <Step2PolicyPicker
             state={step2}
             onChange={setStep2}
             planName={planName}
             suggestedName={suggestedName}
             onPlanNameChange={setPlanName}
+            error={step1Error}
             onNext={handleCreatePlan}
             onBack={() => setStep(1)}
             isLoading={createPlanMutation.isPending}
@@ -357,35 +396,111 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
   );
 }
 
-/** Step 0: Mode selector — new plan vs add to existing */
-function Step0ModeSelector({ onSelectMode }: { onSelectMode: (mode: WizardMode) => void }) {
+const PLAN_STATUS_LABEL: Record<string, string> = { draft: 'Preview not run yet', previewed: 'Preview ready' };
+
+/**
+ * First step when there are plans that have not been applied yet: add to one
+ * of them, or start a new plan. From the album page the album is already
+ * chosen, so picking a plan adds it straight away.
+ */
+function StepChoosePlan({
+  albumLabel,
+  albumIds,
+  openPlans,
+  openPlansTotal,
+  error,
+  isLoading,
+  onAddTo,
+  onNew,
+}: {
+  /** "Artist — Title" when opened from an album page; null from the plans page */
+  albumLabel: string | null;
+  /** the albums being fixed, to mark plans that already include them */
+  albumIds: string[];
+  openPlans: TagPlan[];
+  openPlansTotal: number;
+  error: string | null;
+  isLoading: boolean;
+  onAddTo: (planId: string) => void;
+  onNew: () => void;
+}) {
+  const [choice, setChoice] = useState<string | null>(null);
+  const addingTo = choice && choice !== 'new' ? choice : null;
   return (
     <div className={styles.step}>
-      <p className={styles.stepTitle}>What would you like to do?</p>
+      <p className={styles.stepTitle}>
+        {albumLabel ? <>Where should the tag fixes for {albumLabel} go?</> : 'Start a new plan, or add albums to one you have not applied yet?'}
+      </p>
 
       <fieldset className={styles.fieldset}>
-        <label className={styles.radioLabel}>
-          <input type="radio" name="mode" value="new-plan" onChange={() => onSelectMode('new-plan')} autoFocus />
-          Create a new tag plan
-          <p className={styles.hint}>Define a scope and policy from scratch</p>
-        </label>
+        <legend className={styles.legend}>Add to a plan you have not applied yet</legend>
+        {openPlans.map((plan, i) => (
+          <label key={plan.id} className={styles.radioLabel}>
+            <input
+              type="radio"
+              name="plan-choice"
+              value={plan.id}
+              checked={choice === plan.id}
+              onChange={() => setChoice(plan.id)}
+              autoFocus={i === 0}
+            />
+            <span className={styles.choiceText}>
+              <span>{plan.name || 'Untitled plan'}</span>
+              <span className={styles.choiceMeta}>
+                {[
+                  plan.scopeLabel,
+                  PLAN_STATUS_LABEL[plan.status],
+                  albumIds.length > 0 && plan.scope.type === 'albumIds' && albumIds.every((id) => plan.scope.type === 'albumIds' && plan.scope.albumIds.includes(id))
+                    ? 'Already includes this album'
+                    : null,
+                ].filter(Boolean).join(' · ')}
+              </span>
+            </span>
+          </label>
+        ))}
+        {openPlansTotal > openPlans.length && (
+          <p className={styles.choiceMeta}>
+            Showing the {openPlans.length} newest of {openPlansTotal.toLocaleString()} plans you have not applied yet.
+          </p>
+        )}
+      </fieldset>
 
+      <fieldset className={styles.fieldset}>
+        <legend className={styles.legend}>Or</legend>
         <label className={styles.radioLabel}>
-          <input type="radio" name="mode" value="add-to-plan" onChange={() => onSelectMode('add-to-plan')} />
-          Add to an existing plan
-          <p className={styles.hint}>Merge albums into a draft or previewed plan</p>
+          <input type="radio" name="plan-choice" value="new" checked={choice === 'new'} onChange={() => setChoice('new')} />
+          <span className={styles.choiceText}>
+            <span>Start a new plan</span>
+            <span className={styles.choiceMeta}>
+              {albumLabel ? 'Choose how the tags are fixed for this album on its own.' : 'Choose which albums it covers and how tags are fixed.'}
+            </span>
+          </span>
         </label>
       </fieldset>
+
+      {error && <Banner tone="danger">{error}</Banner>}
+
+      <div className={styles.stepActions}>
+        <Button
+          variant="primary"
+          disabled={!choice || isLoading}
+          loading={isLoading}
+          onClick={() => {
+            if (choice === 'new') onNew();
+            else if (addingTo) onAddTo(addingTo);
+          }}
+        >
+          {choice === 'new' ? 'Next' : albumLabel ? (isLoading ? 'Adding…' : 'Add to plan') : 'Next'}
+        </Button>
+      </div>
     </div>
   );
 }
 
-/** Step 1: Select plan and albums to add (add-to-plan mode) */
-function Step1AddToExistingPlan({
+/** From the plans page: pick the albums to add to the chosen plan. */
+function StepPickAlbumsForPlan({
   libraryId,
-  openPlans,
-  selectedPlanId,
-  onSelectPlan,
+  plan,
   state,
   onChange,
   error,
@@ -394,9 +509,7 @@ function Step1AddToExistingPlan({
   isLoading,
 }: {
   libraryId: string;
-  openPlans: any[];
-  selectedPlanId: string | null;
-  onSelectPlan: (id: string) => void;
+  plan: TagPlan | null;
   state: WizardStep1State;
   onChange: (state: WizardStep1State) => void;
   error: string | null;
@@ -404,62 +517,19 @@ function Step1AddToExistingPlan({
   onBack: () => void;
   isLoading: boolean;
 }) {
-  const canProceed = selectedPlanId && (state.albumIds?.length ?? 0) > 0;
+  const canProceed = !!plan && (state.albumIds?.length ?? 0) > 0;
 
   return (
     <div className={styles.step}>
-      <p className={styles.stepTitle}>Step 1: Select plan and albums</p>
+      <p className={styles.stepTitle}>Albums to add to {plan?.name || 'this plan'}</p>
+      <p className={styles.stepSubtitle}>The plan's preview runs again with these albums included.</p>
 
-      <div className={styles.formGroup}>
-        <label className={styles.label}>Existing plan</label>
-        <select
-          className={styles.select}
-          value={selectedPlanId ?? ''}
-          onChange={(e) => onSelectPlan(e.target.value)}
-          autoFocus
-        >
-          <option value="">Choose a plan…</option>
-          {openPlans.map((plan) => (
-            <option key={plan.id} value={plan.id}>
-              {plan.name || 'Untitled plan'} · {plan.scopeLabel}
-            </option>
-          ))}
-        </select>
-        {openPlans.length === 0 && (
-          <p className={styles.hint} style={{ color: 'var(--text-secondary)' }}>
-            No open plans available. Create a new plan first.
-          </p>
-        )}
-      </div>
-
-      {selectedPlanId && (
-        <>
-          <fieldset className={styles.fieldset}>
-            <legend className={styles.legend}>Albums to add</legend>
-            <label className={styles.radioLabel}>
-              <input
-                type="radio"
-                name="scopeType"
-                value="albumIds"
-                checked={state.scopeType === 'albumIds'}
-                onChange={() => onChange({ ...state, scopeType: 'albumIds' })}
-              />
-              Selected albums
-            </label>
-
-            {state.scopeType === 'albumIds' && (
-              <div className={styles.scopeDetail}>
-                <AlbumPicker
-                  libraryId={libraryId}
-                  selectedIds={state.albumIds ?? []}
-                  labels={state.albumLabels ?? {}}
-                  onChange={(albumIds, albumLabels) => onChange({ ...state, albumIds, albumLabels })}
-                />
-              </div>
-            )}
-          </fieldset>
-        </>
-      )}
+      <AlbumPicker
+        libraryId={libraryId}
+        selectedIds={state.albumIds ?? []}
+        labels={state.albumLabels ?? {}}
+        onChange={(albumIds, albumLabels) => onChange({ ...state, albumIds, albumLabels })}
+      />
 
       {error && <Banner tone="danger">{error}</Banner>}
 
@@ -467,11 +537,7 @@ function Step1AddToExistingPlan({
         <Button variant="secondary" onClick={onBack}>
           Back
         </Button>
-        <Button
-          variant="primary"
-          onClick={onNext}
-          disabled={!canProceed || isLoading}
-        >
+        <Button variant="primary" onClick={onNext} disabled={!canProceed || isLoading} loading={isLoading}>
           {isLoading ? 'Adding…' : 'Add to plan'}
         </Button>
       </div>
@@ -727,6 +793,7 @@ function Step2PolicyPicker({
   planName,
   suggestedName,
   onPlanNameChange,
+  error,
   onNext,
   onBack,
   isLoading,
@@ -736,6 +803,7 @@ function Step2PolicyPicker({
   planName: string;
   suggestedName: string;
   onPlanNameChange: (name: string) => void;
+  error: string | null;
   onNext: () => void;
   onBack: () => void;
   isLoading: boolean;
@@ -820,6 +888,8 @@ function Step2PolicyPicker({
           <option value="2.3">ID3 v2.3 (legacy players)</option>
         </select>
       </div>
+
+      {error && <Banner tone="danger">{error}</Banner>}
 
       <div className={styles.stepActions}>
         <Button variant="secondary" onClick={onBack}>

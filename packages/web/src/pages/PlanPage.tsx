@@ -24,6 +24,7 @@ import {
   useTagPlan,
   useTagPlanItems,
   useTagPlanSummary,
+  previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
@@ -149,7 +150,7 @@ export function PlanPage() {
       // the plan id in session storage so a remount, a back button or a second
       // tab all count as the same request. The server refuses duplicates too;
       // this just stops us asking.
-      const guardKey = `tagave:previewed:${planId}`;
+      const guardKey = previewGuardKey(planId);
       const alreadyAsked = (() => {
         try { return sessionStorage.getItem(guardKey) === '1'; } catch { return previewAutoFiredRef.current; }
       })();
@@ -164,7 +165,7 @@ export function PlanPage() {
       // Plan left draft state; clear the guard so a later revert to draft
       // auto-previews once again.
       previewAutoFiredRef.current = false;
-      try { sessionStorage.removeItem(`tagave:previewed:${planId}`); } catch { /* nothing to clear */ }
+      try { sessionStorage.removeItem(previewGuardKey(planId)); } catch { /* nothing to clear */ }
       setPreviewRequested(false);
       setPreviewTimedOut(false);
     }

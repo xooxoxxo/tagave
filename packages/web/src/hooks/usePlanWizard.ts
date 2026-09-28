@@ -4,7 +4,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   TagPlan,
-  TagPlanScope,
   TagPolicies,
   TagPlanItem,
   CreateTagPlan,
@@ -243,21 +242,52 @@ export function useLibrarySettings(libraryId: string | undefined) {
   });
 }
 
+/** How many open plans the wizard lists; the rest are counted, not shown. */
+export const OPEN_PLANS_LIMIT = 200;
+
 /**
- * Add items to an existing tag plan (POST /libraries/:libraryId/tag-plans/:planId/add-items)
- * Merges scope (for albumIds only) and invalidates preview
+ * Plans an album can still be added to: not applied yet and scoped to a list
+ * of albums (GET /tag-plans?acceptsAlbums=true), newest first.
  */
-export function useAddToTagPlan(libraryId: string | undefined, planId: string | undefined) {
+export function useOpenTagPlans(libraryId: string | undefined) {
+  return useQuery({
+    queryKey: ['tag-plans', libraryId, 'accepts-albums'],
+    queryFn: () =>
+      api.get<TagPlansResponse>(`/libraries/${libraryId}/tag-plans?acceptsAlbums=true&limit=${OPEN_PLANS_LIMIT}`),
+    enabled: !!libraryId,
+  });
+}
+
+export interface AddToTagPlanResponse {
+  planId: string;
+  added: number;
+  albumCount: number;
+  status: string;
+  previewQueued: boolean;
+}
+
+/** The plan page's once-per-plan auto-preview guard (see PlanPage). */
+export const previewGuardKey = (planId: string) => `tagave:previewed:${planId}`;
+
+/**
+ * Add albums to a plan that has not been applied yet
+ * (POST /libraries/:libraryId/tag-plans/:planId/add-items). The server puts
+ * the plan back to draft and queues a fresh preview; clearing the plan page's
+ * guard lets that page follow the new preview instead of showing the old one.
+ */
+export function useAddToTagPlan(libraryId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (scope: TagPlanScope) =>
-      api.post<{ message: string; planId: string; albumCount: number }>(
-        `/libraries/${libraryId}/tag-plans/${planId}/add-items`,
-        { scope }
-      ),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
-      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+    mutationFn: ({ planId, albumIds }: { planId: string; albumIds: string[] }) =>
+      api.post<AddToTagPlanResponse>(`/libraries/${libraryId}/tag-plans/${planId}/add-items`, {
+        scope: { type: 'albumIds', albumIds },
+      }),
+    onSuccess: (_data, { planId }) => {
+      try { sessionStorage.removeItem(previewGuardKey(planId)); } catch { /* storage blocked: nothing to clear */ }
+      void queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan-items', libraryId, planId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan-summary', libraryId, planId] });
     },
   });
 }

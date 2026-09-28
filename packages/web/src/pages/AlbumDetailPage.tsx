@@ -606,7 +606,7 @@ export function AlbumDetailPage() {
                         </button>
                       )}
                       {f.action === 'tags' && (
-                        <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })} className={styles.flagAction} title="Open the tag wizard on this album">
+                        <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })} className={styles.flagAction} title="Fix this album's tags in a new plan, or add it to a plan you have not applied yet">
                           Fix tags
                         </Link>
                       )}
