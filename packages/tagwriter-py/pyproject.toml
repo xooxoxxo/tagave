@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "liner-tagwriter"
 version = "0.1.0"
 description = "Mutagen-based tag writer sidecar for Liner music archive"
-requires-python = ">=3.13"
+requires-python = ">=3.11"
 dependencies = [
     "mutagen>=1.47",
 ]

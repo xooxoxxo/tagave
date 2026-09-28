@@ -22,10 +22,13 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# Audio tooling the M5 fingerprinting job needs (fpcalc from libchromaprint-tools).
+# Audio tooling: fpcalc (libchromaprint-tools) for fingerprinting, and Python
+# for the mutagen tag writer that tags.apply / tags.revert run.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libchromaprint-tools \
+    python3 \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm in runtime
@@ -34,6 +37,10 @@ RUN npm install -g pnpm@10.30.1
 # pnpm's per-package node_modules symlink farms make selective copies
 # fragile (the earlier selective COPY never booted); ship the built workspace.
 COPY --from=builder /app ./
+
+# tagWriter.ts prefers this venv over the system python3.
+RUN python3 -m venv packages/tagwriter-py/.venv \
+    && packages/tagwriter-py/.venv/bin/pip install --no-cache-dir 'mutagen>=1.47'
 
 # Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
 ARG GIT_SHA=unknown
