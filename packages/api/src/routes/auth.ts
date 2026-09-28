@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { hash, verify } from 'argon2';
 import { uuidv7 } from 'uuidv7';
 import type { SQL } from 'drizzle-orm';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { users, libraries } from '@liner/db';
 import { getDb } from '../db.js';
 import { setupRequestSchema, loginRequestSchema, sessionUserSchema } from '@liner/shared/auth';
@@ -17,18 +17,21 @@ function isSecureConnection(request: FastifyRequest): boolean {
 }
 
 export async function createAuthRoutes(fastify: FastifyInstance) {
-  // Check if setup is required (no admin user exists)
+  // Is the owner account still to be created? The login page sends a fresh
+  // install to /setup on `true`. A database error is a 503, never a guess:
+  // treating it as "setup required" would open the wizard on a broken
+  // install instead of showing what is wrong.
   fastify.get('/setup-required', async (request: FastifyRequest, reply: FastifyReply) => {
-    const db = getDb();
-
     try {
-      const existingUsers = await db.select().from(users);
-      const setupRequired = existingUsers.length === 0;
-
-      reply.status(200).send({ setupRequired });
+      const rows = await getDb().select({ one: sql<number>`1` }).from(users).limit(1);
+      return reply.status(200).send({ setupRequired: rows.length === 0 });
     } catch (err) {
-      // If there's an error checking users, assume setup is required
-      reply.status(200).send({ setupRequired: true });
+      request.log.error({ err }, 'setup-required: user lookup failed');
+      return reply.status(503).send({
+        status: 503,
+        title: 'Service Unavailable',
+        detail: 'The app cannot read its database. Check that Postgres is running and that DATABASE_URL is right.',
+      });
     }
   });
 

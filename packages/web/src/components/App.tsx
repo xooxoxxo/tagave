@@ -17,8 +17,10 @@ export function App() {
         // Not authenticated and not on auth page - redirect to login
         navigate({ to: '/login' });
       } else if (user && isAuthPage) {
-        // Authenticated and on auth page - redirect to dashboard
-        navigate({ to: '/' });
+        // Authenticated and on an auth page. The account was just created on
+        // /setup: first-run setup continues on /onboarding (music folder,
+        // first scan). From /login, the dashboard.
+        navigate({ to: location.pathname === '/setup' ? '/onboarding' : '/' });
       }
     }
   }, [user, isLoading, isError, location.pathname, navigate]);

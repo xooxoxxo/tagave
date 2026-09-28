@@ -1,160 +1,24 @@
-.container {
+.section {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
-  max-width: 900px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
 }
 
-.header {
-  margin-bottom: 1rem;
-}
-
-.header h1 {
-  font-size: var(--font-size-2xl);
-  margin-bottom: 0.5rem;
-}
-
-.subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-}
-
-.loading {
-  font-size: var(--font-size-base);
-  color: var(--text-secondary);
-  text-align: center;
-  padding: 2rem;
-}
-
-.errorBox {
-  background-color: var(--surface-danger);
-  border: 1px solid var(--error);
-  border-radius: var(--radius-lg);
-  padding: 2rem;
-  text-align: center;
-}
-
-.errorTitle {
-  font-weight: 600;
-  color: var(--error);
-  margin-bottom: 0.5rem;
-}
-
-.errorMessage {
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-  margin-bottom: 1rem;
-}
-
-.refreshBtn {
-  padding: 0.75rem 1.5rem;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  background-color: var(--accent);
-  color: var(--bg-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: background-color var(--transition-normal);
-}
-
-.refreshBtn:hover {
-  background-color: var(--accent-hover);
-}
-
-.serviceGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1.5rem;
-}
-
-.serviceCard {
-  background-color: var(--surface-hover);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  transition: all var(--transition-normal);
-}
-
-.serviceCard:hover {
-  border-color: var(--border-hover);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.serviceHeader {
+.head {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1rem;
+  justify-content: space-between;
+  gap: var(--space-md);
 }
 
-.statusIcon {
-  font-size: var(--font-size-xl);
-  font-weight: 700;
-  min-width: 1.5rem;
-  text-align: center;
-}
-
-.statusOk {
-  color: var(--success);
-}
-
-.statusWarning {
-  color: var(--warning);
-}
-
-.statusError {
-  color: var(--error);
-}
-
-.serviceName {
-  font-size: var(--font-size-base);
-  font-weight: 600;
+.title {
   margin: 0;
+  font-size: var(--font-size-lg);
 }
 
-.serviceDetail {
-  font-size: var(--font-size-xs);
+.muted {
+  margin: 0;
   color: var(--text-secondary);
-  margin: 0.25rem 0 0 2rem;
-}
-
-.serviceMessage {
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-  margin: 0.75rem 0 0 2rem;
-}
-
-.actions {
-  display: flex;
-  gap: 1rem;
-  margin-top: 1rem;
-  flex-wrap: wrap;
-}
-
-.actionBtn {
-  padding: 0.75rem 1.5rem;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  background-color: var(--accent);
-  color: var(--bg-primary);
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  text-decoration: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color var(--transition-normal);
-}
-
-.actionBtn:hover {
-  background-color: var(--accent-hover);
-}
-
-.lastUpdated {
   font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  text-align: center;
-  margin-top: 1rem;
 }

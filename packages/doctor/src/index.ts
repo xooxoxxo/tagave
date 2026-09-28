@@ -12,6 +12,7 @@ import {
 } from './checks.js';
 
 export type { Check, CheckStatus } from './checks.js';
+export { remediationFor } from './remediation.js';
 
 export interface DoctorOptions {
   databaseUrl: string;

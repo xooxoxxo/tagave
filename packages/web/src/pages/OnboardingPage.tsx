@@ -1,13 +1,33 @@
 /**
- * First-run onboarding checklist (spec PLT-4)
- * Guided setup: contact string → scan root → Discogs token → AcoustID key → start scan
+ * First-run setup (spec PLT-4), steps 3–4 of 4, after the owner account
+ * exists: a music folder the worker can read, then a first scan followed
+ * live until the first album is identified. Everything is read back from the
+ * server, so a reload picks up where the owner left off.
  */
 
-import { useEffect, useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useStartScan } from '../hooks';
+import { useState } from 'react';
+import { Link, useNavigate } from '@tanstack/react-router';
+import { useQuery } from '@tanstack/react-query';
+import type { AlbumSummary } from '@liner/shared';
+import {
+  useCurrentLibrary,
+  useScanRoots,
+  useCreateScanRoot,
+  useStartScan,
+  useValidateScanRoot,
+  useKickSweep,
+  type IdentifyStatsResponse,
+  type JobInfo,
+} from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
+import { useSystemChecks } from '../hooks/useSystem';
+import { api } from '../services/api';
+import { Banner, Button, Card, Input, TextField } from '../components/ui';
+import { SetupSteps } from '../components/SetupSteps';
+import { folderAdvice, workerLive, validateContact } from './setupWizard';
 import styles from './OnboardingPage.module.css';
+
+const LIVE_MS = 5000;
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -16,440 +36,390 @@ export function OnboardingPage() {
   const updateSettings = useUpdateLibrarySettings(libraryId);
   const { data: scanRoots = [] } = useScanRoots(libraryId);
   const createScanRoot = useCreateScanRoot(libraryId);
+  const validateRoot = useValidateScanRoot(libraryId);
   const startScan = useStartScan(libraryId);
+  const kickSweep = useKickSweep(libraryId);
 
-  // Form states
   const [contactString, setContactString] = useState('');
-  const [showAddRoot, setShowAddRoot] = useState(false);
+  const [contactError, setContactError] = useState<string | undefined>();
   const [rootPath, setRootPath] = useState('');
-  const [rootDisplayName, setRootDisplayName] = useState('');
+  const [rootName, setRootName] = useState('');
   const [rootWritable, setRootWritable] = useState(true);
+  const [rootError, setRootError] = useState<string | undefined>();
+  const [addingAnother, setAddingAnother] = useState(false);
   const [discogsToken, setDiscogsToken] = useState('');
   const [acoustidKey, setAcoustidKey] = useState('');
-  const [showDiscogsConfig, setShowDiscogsConfig] = useState(false);
-  const [showAcoustidConfig, setShowAcoustidConfig] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
 
-  // Initialize contact string from settings
-  useEffect(() => {
-    if (settings?.contactString) {
-      setContactString(settings.contactString);
-    }
-  }, [settings?.contactString]);
+  const readyRoots = scanRoots.filter((r) => r.validationStatus === 'ok');
+  const scanStarted = !!settings?.onboardingCompletedAt || scanRoots.some((r) => !!r.lastScanAt);
+
+  // Worker liveness decides what a folder that is still "checking" means;
+  // re-read it while there is no worker or a folder is waiting.
+  const anyPending = scanRoots.some((r) => r.validationStatus === 'pending');
+  const system = useSystemChecks({
+    refetchInterval: (data) => (workerLive(data?.checks) === false || anyPending ? 10_000 : false),
+  });
+  const live = workerLive(system.data?.checks);
+  const heartbeat = system.data?.checks.find((c) => c.id === 'workerHeartbeat');
+
+  const firstAlbum = useQuery({
+    queryKey: ['onboarding', 'first-album', libraryId],
+    queryFn: () =>
+      api
+        .get<{ items: AlbumSummary[] }>(`/libraries/${libraryId}/albums?filter=matched&sort=added_date&limit=1`)
+        .then((r) => r.items[0] ?? null),
+    enabled: !!libraryId && scanStarted,
+    refetchInterval: (q) => (q.state.data ? false : LIVE_MS),
+  });
+  const identified = firstAlbum.data ?? null;
+
+  const stats = useQuery({
+    queryKey: ['identify-stats', libraryId],
+    queryFn: () => api.get<IdentifyStatsResponse>(`/libraries/${libraryId}/identify/stats`),
+    enabled: !!libraryId && scanStarted,
+    refetchInterval: identified ? false : LIVE_MS,
+  });
+
+  const scanJob = useQuery({
+    queryKey: ['onboarding', 'scan-job', libraryId],
+    queryFn: () =>
+      api
+        .get<{ data: JobInfo[] }>(`/libraries/${libraryId}/jobs?limit=20`)
+        .then((r) => r.data.find((j) => j.type === 'scan.root') ?? null),
+    enabled: !!libraryId && scanStarted,
+    refetchInterval: (q) => (q.state.data?.state === 'completed' || q.state.data?.state === 'failed' ? false : LIVE_MS),
+  });
 
   if (settingsLoading || !libraryId) {
-    return <div className={styles.container}>Loading setup...</div>;
+    return <div className={styles.container} role="status">Loading setup…</div>;
   }
 
-  const validatedRoots = scanRoots.filter((r) => r.validationStatus === 'ok');
-  const pendingRoots = scanRoots.filter((r) => r.validationStatus === 'pending');
-  const completedAt = settings?.onboardingCompletedAt;
+  const needsContact = !settings?.contactString;
 
-  // Step statuses
-  const step1Done = !!contactString;
-  const step2Done = scanRoots.length > 0 && scanRoots.some((r) => r.validationStatus === 'ok');
-  const step3Done = settings?.discogsTokenSet;
-  const step4Done = settings?.acoustidKeySet;
-  const step5Enabled = validatedRoots.length > 0;
-  const step5Done = completedAt;
-
-  const handleSaveContactString = async () => {
-    if (contactString !== settings?.contactString) {
-      await updateSettings.mutateAsync({ contactString });
-    }
+  const saveContact = async () => {
+    const error = validateContact(contactString);
+    setContactError(error);
+    if (!error) await updateSettings.mutateAsync({ contactString: contactString.trim() });
   };
 
-  const handleAddRoot = async (e: React.FormEvent) => {
+  const addRoot = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rootPath.trim() || !rootDisplayName.trim()) return;
-
+    const path = rootPath.trim();
+    if (!path.startsWith('/')) {
+      setRootError('Enter a full path that starts with /, as the worker sees it.');
+      return;
+    }
+    setRootError(undefined);
     await createScanRoot.mutateAsync({
-      path: rootPath,
-      displayName: rootDisplayName,
+      path,
+      displayName: rootName.trim() || path.split('/').filter(Boolean).pop() || path,
       writable: rootWritable,
       enabled: true,
       pollIntervalS: 21600,
     });
-
     setRootPath('');
-    setRootDisplayName('');
-    setRootWritable(true);
-    setShowAddRoot(false);
+    setRootName('');
+    setAddingAnother(false);
   };
 
-  const handleSaveDiscogsToken = async () => {
-    if (discogsToken) {
-      await updateSettings.mutateAsync({ discogsToken });
-      setDiscogsToken('');
-      setShowDiscogsConfig(false);
+  const startFirstScan = async () => {
+    const root = readyRoots.find((r) => !r.lastScanAt) ?? readyRoots[0];
+    if (!root) return;
+    try {
+      setScanError(null);
+      await startScan.mutateAsync(root.id);
+      await updateSettings.mutateAsync({ onboardingCompletedAt: new Date().toISOString() });
+    } catch (error) {
+      const detail = (error as { detail?: string })?.detail;
+      setScanError(detail || 'The scan could not be started. Try again in a moment.');
     }
   };
 
-  const handleClearDiscogsToken = async () => {
-    await updateSettings.mutateAsync({ discogsToken: null });
-  };
-
-  const handleSaveAcoustidKey = async () => {
-    if (acoustidKey) {
-      await updateSettings.mutateAsync({ acoustidKey });
-      setAcoustidKey('');
-      setShowAcoustidConfig(false);
-    }
-  };
-
-  const handleClearAcoustidKey = async () => {
-    await updateSettings.mutateAsync({ acoustidKey: null });
-  };
-
-  const handleStartFirstScan = async () => {
-    // Start scan for the first root that hasn't been scanned yet
-    const rootToScan = validatedRoots.find((r) => !r.lastScanAt) || validatedRoots[0];
-    if (rootToScan) {
-      try {
-        setScanError(null);
-        await startScan.mutateAsync(rootToScan.id);
-        // Mark onboarding as completed
-        await updateSettings.mutateAsync({
-          onboardingCompletedAt: new Date().toISOString(),
-        });
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to start scan. Please try again.';
-        setScanError(errorMessage);
-      }
-    }
-  };
-
-  const handleFinish = async () => {
-    if (!completedAt) {
-      await updateSettings.mutateAsync({
-        onboardingCompletedAt: new Date().toISOString(),
-      });
+  const finish = async () => {
+    if (!settings?.onboardingCompletedAt) {
+      await updateSettings.mutateAsync({ onboardingCompletedAt: new Date().toISOString() });
     }
     navigate({ to: '/' });
   };
 
-  const handleSkip = () => {
-    navigate({ to: '/' });
-  };
+  const showRootForm = scanRoots.length === 0 || addingAnother;
+  const job = scanJob.data;
+  const found = stats.data?.total ?? 0;
+  const matched = stats.data?.states.matched ?? 0;
 
   return (
     <div className={styles.container}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Set Up tagave</h1>
-        <p className={styles.subtitle}>
-          Complete these steps to start indexing your music library
-        </p>
+        <h1 className={styles.title}>Set up tagave</h1>
+        <SetupSteps current={readyRoots.length > 0 ? 'First album' : 'Music folder'} />
       </header>
 
-      <div className={styles.checklist}>
-        {/* Step 1: Contact String */}
-        <div className={`${styles.step} ${step1Done ? styles.done : ''}`}>
-          <div className={styles.stepHeader}>
-            <h2 className={styles.stepTitle}>Contact String</h2>
-            <span className={`${styles.pill} ${step1Done ? styles.completed : styles.required}`}>
-              {step1Done ? 'Done' : 'Required'}
-            </span>
-          </div>
-          <p className={styles.description}>
-            Sent in the User-Agent of every provider request (MusicBrainz, Discogs, Wikidata).
-            <strong> Required:</strong> no provider calls happen until it is set.
-          </p>
-          <div className={styles.control}>
-            <input
-              type="text"
-              className={styles.input}
-              placeholder="Your Name / App (your-email@example.com)"
+      {live === false && (
+        <Banner tone="warning">
+          <strong>No worker is running.</strong> Music folders are checked and scanned by the worker, so nothing moves until
+          one starts. {heartbeat?.remediation ?? ''}{' '}
+          <Link to="/settings/$section" params={{ section: 'system' }}>See all system checks</Link>
+        </Banner>
+      )}
+
+      {needsContact && (
+        <Card title="Contact for metadata services">
+          <div className={styles.stack}>
+            <p className={styles.description}>
+              MusicBrainz and Discogs ask every app to say who is calling. No lookups run until this is set.
+            </p>
+            <TextField
+              label="Email address or website"
               value={contactString}
               onChange={(e) => setContactString(e.target.value)}
+              error={contactError}
+              placeholder="you@example.com or https://example.com"
             />
-            <button
-              onClick={handleSaveContactString}
-              disabled={
-                contactString === settings?.contactString ||
-                !contactString ||
-                updateSettings.isPending
-              }
-              className={styles.button}
-            >
-              {updateSettings.isPending ? 'Saving...' : 'Save'}
-            </button>
+            <div className={styles.actions}>
+              <Button onClick={() => void saveContact()} loading={updateSettings.isPending} disabled={!contactString.trim()}>
+                Save
+              </Button>
+            </div>
           </div>
-        </div>
+        </Card>
+      )}
 
-        {/* Step 2: Scan Root */}
-        <div className={`${styles.step} ${step2Done ? styles.done : ''}`}>
-          <div className={styles.stepHeader}>
-            <h2 className={styles.stepTitle}>Add a Scan Root</h2>
-            <span className={`${styles.pill} ${step2Done ? styles.completed : styles.required}`}>
-              {step2Done ? 'Done' : 'Required'}
-            </span>
-          </div>
+      <Card title="Music folder">
+        <div className={styles.stack}>
           <p className={styles.description}>
-            The path must exist on the worker host where your music is mounted.
-            <strong> Required:</strong> at least one valid scan root to run a scan.
+            The folder that holds your music. The worker reads it, so enter the path as the worker sees it: if the worker
+            runs in Docker, that is the path inside the worker container (with the bundled Compose file, /mnt/music), not
+            the path on your NAS or computer.
           </p>
 
-          {/* Existing roots */}
           {scanRoots.length > 0 && (
-            <div className={styles.rootsList}>
-              {scanRoots.map((root) => (
-                <div key={root.id} className={styles.rootItem}>
-                  <div className={styles.rootInfo}>
-                    <span className={styles.rootName}>{root.displayName}</span>
-                    <span className={styles.rootPath}>{root.path}</span>
-                  </div>
-                  <span
-                    className={`${styles.validationPill} ${styles[root.validationStatus]}`}
-                  >
-                    {root.validationStatus === 'pending' && 'Validating...'}
-                    {root.validationStatus === 'ok' && 'Valid'}
-                    {root.validationStatus === 'missing' && 'Path not found'}
-                    {root.validationStatus === 'not_directory' && 'Not a directory'}
-                    {root.validationStatus === 'unreadable' && 'Not readable'}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <ul className={styles.roots}>
+              {scanRoots.map((root) => {
+                const advice = folderAdvice(root, { workerLive: live });
+                const canRecheck = root.validationStatus !== 'ok' && advice.tone !== 'info';
+                return (
+                  <li key={root.id} className={styles.root}>
+                    <div className={styles.rootHead}>
+                      <span className={styles.rootName}>{root.displayName}</span>
+                      <code className={styles.rootPath}>{root.path}</code>
+                    </div>
+                    <Banner tone={advice.tone}>
+                      <strong>{advice.title}.</strong> {advice.text}
+                    </Banner>
+                    {canRecheck && (
+                      <div className={styles.actions}>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          loading={validateRoot.isPending && validateRoot.variables === root.id}
+                          onClick={() => validateRoot.mutate(root.id)}
+                        >
+                          Re-check
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           )}
 
-          {/* Add form */}
-          {!showAddRoot ? (
-            <button
-              onClick={() => setShowAddRoot(true)}
-              className={styles.addButton}
-            >
-              + Add Scan Root
-            </button>
-          ) : (
-            <form onSubmit={handleAddRoot} className={styles.form}>
-              <div className={styles.field}>
-                <label className={styles.label}>Path (absolute)</label>
-                <input
-                  type="text"
-                  placeholder="/music or /mnt/music"
-                  value={rootPath}
-                  onChange={(e) => setRootPath(e.target.value)}
-                  className={styles.input}
-                />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>Display Name</label>
-                <input
-                  type="text"
-                  placeholder="My Music"
-                  value={rootDisplayName}
-                  onChange={(e) => setRootDisplayName(e.target.value)}
-                  className={styles.input}
-                />
-              </div>
-              <div className={styles.checkboxField}>
-                <input
-                  type="checkbox"
-                  id="writable"
-                  checked={rootWritable}
-                  onChange={(e) => setRootWritable(e.target.checked)}
-                  className={styles.checkbox}
-                />
-                <label htmlFor="writable" className={styles.checkboxLabel}>
-                  Allow tag writes (enable metadata updates)
-                </label>
-              </div>
-              <div className={styles.formActions}>
-                <button
-                  type="submit"
-                  disabled={!rootPath.trim() || !rootDisplayName.trim() || createScanRoot.isPending}
-                  className={styles.button}
-                >
-                  {createScanRoot.isPending ? 'Creating...' : 'Add'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowAddRoot(false)}
-                  className={styles.cancelButton}
-                >
-                  Cancel
-                </button>
+          {showRootForm ? (
+            <form onSubmit={addRoot} className={styles.stack}>
+              <TextField
+                label="Path on the worker"
+                required
+                value={rootPath}
+                onChange={(e) => setRootPath(e.target.value)}
+                error={rootError}
+                placeholder="/music"
+              />
+              <TextField
+                label="Name"
+                value={rootName}
+                onChange={(e) => setRootName(e.target.value)}
+                hint="Optional. Shown in the app instead of the path."
+                placeholder="My music"
+              />
+              <label className={styles.checkbox}>
+                <input type="checkbox" checked={rootWritable} onChange={(e) => setRootWritable(e.target.checked)} />
+                Allow tagave to write tags into these files later (nothing is written without your approval)
+              </label>
+              {createScanRoot.error && (
+                <Banner tone="danger">
+                  {(createScanRoot.error as { detail?: string }).detail || 'The folder could not be added. Try again.'}
+                </Banner>
+              )}
+              <div className={styles.actions}>
+                {addingAnother && (
+                  <Button variant="secondary" onClick={() => setAddingAnother(false)}>
+                    Cancel
+                  </Button>
+                )}
+                <Button type="submit" loading={createScanRoot.isPending} disabled={!rootPath.trim()}>
+                  Add folder
+                </Button>
               </div>
             </form>
-          )}
-
-          {pendingRoots.length > 0 && (
-            <p className={styles.note}>
-              Validating {pendingRoots.length} root{pendingRoots.length > 1 ? 's' : ''}...
-            </p>
-          )}
-        </div>
-
-        {/* Step 3: Discogs Token */}
-        <div className={`${styles.step} ${step3Done ? styles.done : ''}`}>
-          <div className={styles.stepHeader}>
-            <h2 className={styles.stepTitle}>Discogs Token (Optional)</h2>
-            <span className={`${styles.pill} ${step3Done ? styles.completed : styles.optional}`}>
-              {step3Done ? 'Done' : 'Optional'}
-            </span>
-          </div>
-          <p className={styles.description}>
-            A personal access token from discogs.com/settings/developers. With it tagave runs Discogs
-            at 55 requests/minute instead of 25 and receives cover image URLs; without it candidates
-            and genres still work, only slower and without images.
-          </p>
-
-          <div className={styles.control}>
-            {settings?.discogsTokenSet ? (
-              <>
-                <span className={styles.configured}>
-                  Token configured ({settings.discogsTokenHint ? `••••${settings.discogsTokenHint}` : 'unknown'})
-                </span>
-                <button
-                  onClick={handleClearDiscogsToken}
-                  disabled={updateSettings.isPending}
-                  className={styles.clearButton}
-                >
-                  {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setShowDiscogsConfig(!showDiscogsConfig)}
-                  className={styles.configButton}
-                >
-                  {showDiscogsConfig ? 'Cancel' : 'Configure Token'}
-                </button>
-                {showDiscogsConfig && (
-                  <>
-                    <input
-                      type="password"
-                      placeholder="Paste your Discogs API token"
-                      value={discogsToken}
-                      onChange={(e) => setDiscogsToken(e.target.value)}
-                      className={styles.input}
-                    />
-                    <button
-                      onClick={handleSaveDiscogsToken}
-                      disabled={!discogsToken || updateSettings.isPending}
-                      className={styles.button}
-                    >
-                      {updateSettings.isPending ? 'Saving...' : 'Save'}
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Step 4: AcoustID Key */}
-        <div className={`${styles.step} ${step4Done ? styles.done : ''}`}>
-          <div className={styles.stepHeader}>
-            <h2 className={styles.stepTitle}>AcoustID Key (Optional)</h2>
-            <span className={`${styles.pill} ${step4Done ? styles.completed : styles.optional}`}>
-              {step4Done ? 'Done' : 'Optional'}
-            </span>
-          </div>
-          <p className={styles.description}>
-            Fingerprint-based identification of untagged files using the AcoustID service.
-            <strong> Coming in a later milestone</strong> — the key is stored now for future use.
-          </p>
-
-          <div className={styles.control}>
-            {settings?.acoustidKeySet ? (
-              <>
-                <span className={styles.configured}>
-                  Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
-                </span>
-                <button
-                  onClick={handleClearAcoustidKey}
-                  disabled={updateSettings.isPending}
-                  className={styles.clearButton}
-                >
-                  {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
-                  className={styles.configButton}
-                >
-                  {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
-                </button>
-                {showAcoustidConfig && (
-                  <>
-                    <input
-                      type="password"
-                      placeholder="Paste your AcoustID API key"
-                      value={acoustidKey}
-                      onChange={(e) => setAcoustidKey(e.target.value)}
-                      className={styles.input}
-                    />
-                    <button
-                      onClick={handleSaveAcoustidKey}
-                      disabled={!acoustidKey || updateSettings.isPending}
-                      className={styles.button}
-                    >
-                      {updateSettings.isPending ? 'Saving...' : 'Save'}
-                    </button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Step 5: Start First Scan */}
-        <div className={`${styles.step} ${step5Done ? styles.done : ''}`}>
-          <div className={styles.stepHeader}>
-            <h2 className={styles.stepTitle}>Start First Scan</h2>
-            <span className={`${styles.pill} ${step5Done ? styles.completed : styles.required}`}>
-              {step5Done ? 'Done' : 'Required'}
-            </span>
-          </div>
-          <p className={styles.description}>
-            <strong>Enabled when at least one scan root is validated.</strong> Albums appear on the
-            dashboard as folders are indexed. You can monitor progress in the{' '}
-            <a href="/jobs" className={styles.link}>
-              Jobs
-            </a>{' '}
-            page.
-          </p>
-
-          {scanError && (
-            <div className={styles.error}>
-              {scanError}
-            </div>
-          )}
-
-          {step5Done ? (
-            <div className={styles.control}>
-              <span className={styles.configured}>Scanning in progress...</span>
-              <a href="/jobs" className={styles.link}>
-                View jobs
-              </a>
-            </div>
           ) : (
-            <button
-              onClick={handleStartFirstScan}
-              disabled={!step5Enabled || startScan.isPending}
-              className={`${styles.button} ${!step5Enabled ? styles.disabled : ''}`}
-            >
-              {startScan.isPending ? 'Starting scan...' : 'Start First Scan'}
-            </button>
+            <div className={styles.actions}>
+              <Button variant="ghost" onClick={() => setAddingAnother(true)}>
+                Add another folder
+              </Button>
+            </div>
           )}
         </div>
-      </div>
+      </Card>
 
-      {/* Footer */}
-      <footer className={styles.footer}>
-        <div className={styles.footerButtons}>
-          <button onClick={handleFinish} className={styles.primaryButton}>
-            Finish
-          </button>
-          <button onClick={handleSkip} className={styles.secondaryButton}>
-            Do this later
-          </button>
+      <Card title="First album">
+        <div className={styles.stack}>
+          {readyRoots.length === 0 ? (
+            <p className={styles.description}>Add a music folder the worker can read, then start the first scan here.</p>
+          ) : !scanStarted ? (
+            <>
+              <p className={styles.description}>
+                The scan reads the folder and groups files into albums. Identification then matches each album to
+                MusicBrainz and Discogs in the background.
+              </p>
+              {scanError && <Banner tone="danger">{scanError}</Banner>}
+              <div className={styles.actions}>
+                <Button onClick={() => void startFirstScan()} loading={startScan.isPending}>
+                  Start first scan
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <dl className={styles.progress}>
+                <div>
+                  <dt>Scan</dt>
+                  <dd>{scanLine(job)}</dd>
+                </div>
+                <div>
+                  <dt>Albums found</dt>
+                  <dd>{stats.data ? found : '…'}</dd>
+                </div>
+                <div>
+                  <dt>Identified</dt>
+                  <dd>{stats.data ? matched : '…'}</dd>
+                </div>
+              </dl>
+
+              {identified ? (
+                <Banner tone="success">
+                  <strong>Your first album is identified:</strong>{' '}
+                  <Link to="/albums/$albumId" params={{ albumId: identified.id }}>
+                    {identified.title}
+                  </Link>{' '}
+                  by {identified.artistCredit}. The rest of the library follows in the background.
+                </Banner>
+              ) : job?.state === 'failed' ? (
+                <Banner tone="danger">
+                  The scan stopped: {job.error ?? 'no reason was recorded'}. Check the folder above, then start a new scan
+                  from Settings › Music folders.{' '}
+                  <Link to="/settings/$section" params={{ section: 'activity' }}>Open background activity</Link>
+                </Banner>
+              ) : job?.state === 'completed' && found === 0 && stats.data ? (
+                <Banner tone="warning">
+                  The scan finished without finding any albums. Check that the folder holds audio files in album
+                  folders, and that it is the folder the worker sees.
+                </Banner>
+              ) : found > 0 ? (
+                <Banner tone="info">
+                  Identifying albums. The first result usually arrives within a few minutes.{' '}
+                  <Button variant="secondary" size="sm" loading={kickSweep.isPending} onClick={() => kickSweep.mutate()}>
+                    Start identifying now
+                  </Button>
+                </Banner>
+              ) : (
+                <Banner tone="info">Scanning. Albums appear here as folders are read.</Banner>
+              )}
+            </>
+          )}
         </div>
+      </Card>
+
+      <Card title="Optional: faster lookups">
+        <div className={styles.stack}>
+          <p className={styles.description}>
+            Both are optional and can be added later under Settings › Integrations.
+          </p>
+          <div className={styles.field}>
+            <span className={styles.label}>Discogs token</span>
+            <p className={styles.description}>
+              A personal access token from discogs.com/settings/developers lets tagave make Discogs lookups more than twice
+              as fast and fetch cover images.
+            </p>
+            {settings?.discogsTokenSet ? (
+              <div className={styles.row}>
+                <span className={styles.configured}>Saved{settings.discogsTokenHint ? ` (ends in ${settings.discogsTokenHint})` : ''}</span>
+                <Button variant="ghost" size="sm" onClick={() => updateSettings.mutate({ discogsToken: null })}>
+                  Remove
+                </Button>
+              </div>
+            ) : (
+              <div className={styles.row}>
+                <Input type="password" aria-label="Discogs token" value={discogsToken} onChange={(e) => setDiscogsToken(e.target.value)} placeholder="Paste your Discogs token" />
+                <Button
+                  variant="secondary"
+                  disabled={!discogsToken}
+                  onClick={() => updateSettings.mutate({ discogsToken }, { onSuccess: () => setDiscogsToken('') })}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
+          </div>
+          <div className={styles.field}>
+            <span className={styles.label}>AcoustID key</span>
+            <p className={styles.description}>
+              Identifies untagged files by their sound. Get a key at acoustid.org.
+            </p>
+            {settings?.acoustidKeySet ? (
+              <div className={styles.row}>
+                <span className={styles.configured}>Saved{settings.acoustidKeyHint ? ` (ends in ${settings.acoustidKeyHint})` : ''}</span>
+                <Button variant="ghost" size="sm" onClick={() => updateSettings.mutate({ acoustidKey: null })}>
+                  Remove
+                </Button>
+              </div>
+            ) : (
+              <div className={styles.row}>
+                <Input type="password" aria-label="AcoustID key" value={acoustidKey} onChange={(e) => setAcoustidKey(e.target.value)} placeholder="Paste your AcoustID key" />
+                <Button
+                  variant="secondary"
+                  disabled={!acoustidKey}
+                  onClick={() => updateSettings.mutate({ acoustidKey }, { onSuccess: () => setAcoustidKey('') })}
+                >
+                  Save
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <footer className={styles.footer}>
+        <Button onClick={() => void finish()} variant={identified ? 'primary' : 'secondary'}>
+          {identified ? 'Go to my library' : 'Finish later'}
+        </Button>
       </footer>
     </div>
   );
+}
+
+function scanLine(job: JobInfo | null | undefined): string {
+  if (!job) return 'Waiting for the worker to start';
+  switch (job.state) {
+    case 'created':
+      return 'Waiting for the worker to start';
+    case 'running':
+      return job.progress?.done ? `Reading files: ${job.progress.done.toLocaleString()} so far` : 'Reading files';
+    case 'completed':
+      return job.progress?.done ? `Finished: ${job.progress.done.toLocaleString()} files read` : 'Finished';
+    case 'failed':
+      return 'Stopped';
+    default:
+      return job.state;
+  }
 }

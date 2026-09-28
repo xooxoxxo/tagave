@@ -8,6 +8,7 @@ import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
+import { SystemStatus } from './Settings/SystemStatus';
 import styles from './SettingsPage.module.css';
 
 const sections = [
@@ -32,7 +33,7 @@ export function SettingsPage() {
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
-        {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Application versions and connected workers.</p><SettingsUpdatesPage /></>}
+        {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails, then application versions and connected workers.</p><SystemStatus /><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
       </div>
