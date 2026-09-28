@@ -2,7 +2,7 @@
  * Provider pacer shared across worker processes through provider_state
  * (spec §10.2.1: one limiter per provider, shared by every job). A process-
  * local promise chain serialises calls inside one process; the DB row
- * serialises across processes (g9 file worker + identify worker, api).
+ * serialises across processes (file worker, identify worker, api).
  */
 import type { Sql } from './context.js';
 

@@ -36,7 +36,7 @@ export async function fpcalcFingerprint(path: string, opts: { lengthS?: number; 
  * Fingerprint one slice of a file — a virtual track of a cue image: ffmpeg
  * decodes `lengthS` seconds from `startS` to raw PCM on a pipe and fpcalc reads
  * the stream. fpcalc reports no duration for a stream, so the caller passes the
- * track's own duration to AcoustID. ~0.6 s per track on g9.
+ * track's own duration to AcoustID. Performance depends on hardware.
  */
 export async function fpcalcSliceFingerprint(
   path: string,

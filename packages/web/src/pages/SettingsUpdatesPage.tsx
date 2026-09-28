@@ -5,6 +5,7 @@
  * checked once a day when the page is opened, or on demand.
  */
 import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
 import type { ReleaseNote, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
@@ -12,6 +13,21 @@ import { useCheckUpdates, useSetUpdatesFeed, useUpdates } from '../hooks/useUpda
 import styles from './SettingsUpdatesPage.module.css';
 
 const DAY_MS = 24 * 3600 * 1000;
+
+// Update commands for the shipped docker-compose.prod.yml. It builds from the
+// checkout (no published image to pull), so an update is pull + rebuild; the
+// build args are what the "same build" check above compares.
+const COMPOSE = 'docker compose -f docker-compose.prod.yml';
+const REBUILD = `GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%TZ) \\
+  ${COMPOSE} --profile workers up -d --build`;
+const BACKUP_CMD = `${COMPOSE} exec -T postgres pg_dump -U liner -Fc liner > tagave-$(date +%F).pgdump`;
+const UPDATE_CMD = `git pull\n${REBUILD}`;
+const ROLLBACK_CMD = [
+  'git checkout <previous version>',
+  `${COMPOSE} --profile workers stop app worker-files worker-identify`,
+  `${COMPOSE} exec -T postgres pg_restore -U liner -d liner --clean --if-exists < tagave-<date>.pgdump`,
+  REBUILD,
+].join('\n');
 
 function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : '–';
@@ -56,7 +72,7 @@ export function SettingsUpdatesPage() {
       )}
       {data.mismatch && (
         <div className={styles.warn}>
-          A worker runs a different build than the app. Workers on the g9 host deploy separately (<code>scripts/deploy.sh workers</code>) — redeploy the lagging side.
+          A worker runs a different build than the app. Bring the lagging side to the same version and restart it, as described under How to update below.
         </div>
       )}
 
@@ -103,7 +119,7 @@ export function SettingsUpdatesPage() {
         <h2 className={styles.sectionTitle}>Release feed</h2>
         <p className={styles.hint}>
           A GitHub Releases API URL, e.g. <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Checked daily when this page is open and on demand;
-          responses are cached by ETag. Until the repository is published there is nothing to point at — leave it empty.
+          responses are cached by ETag. Leave it empty to turn update checks off.
         </p>
         <div className={styles.row}>
           <input
@@ -143,26 +159,26 @@ export function SettingsUpdatesPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>How to update</h2>
         <p className={styles.hint}>
-          One-click updates arrive with the containerised workers (XO-296): the app pulls the new image tag and restarts itself. Until then, updates are two commands from the dev checkout — migrations run on boot, forward-only.
+          Run these in the folder you installed from, on the machine that runs the app. Database changes are applied when the app starts and only go forward: an older version cannot use a database a newer one has changed, so take the backup first.
         </p>
         <ol className={styles.steps}>
           <li>
-            <strong>Snapshot first.</strong>
-            <pre className={styles.code}>docker exec liner-postgres-1 pg_dump -U liner -Fc liner &gt; liner-$(date +%F).pgdump</pre>
+            <strong>Back up the database.</strong>
+            <pre className={styles.code}>{BACKUP_CMD}</pre>
           </li>
           <li>
-            <strong>App container</strong> (web + API, on the VM):
-            <pre className={styles.code}>cd ~/Workspace/liner &amp;&amp; DEPLOY_FROM_HEAD=1 scripts/deploy.sh app</pre>
+            <strong>Get the new version and rebuild.</strong> This restarts the app and, if they run on this machine, both workers.
+            <pre className={styles.code}>{UPDATE_CMD}</pre>
           </li>
           <li>
-            <strong>Workers</strong> (g9 host; restarts both processes, in-flight identify jobs retry):
-            <pre className={styles.code}>DEPLOY_FROM_HEAD=1 scripts/deploy.sh workers</pre>
+            <strong>Workers on another machine</strong> need the same version: update that copy to the same commit, run <code>pnpm install &amp;&amp; pnpm -r build</code>, then restart both worker processes.
           </li>
           <li>
-            <strong>Verify</strong>: this page shows every process at the same build; <code>liner-doctor doctor</code> reports <em>Build Versions</em>.
+            <strong>Check.</strong> The table above lists every process at the same build, and <Link to="/settings/system">System status</Link> shows no failures.
           </li>
           <li>
-            <strong>Roll back</strong>: <code>git checkout &lt;previous sha&gt;</code> and run the same two deploys — migrations already applied stay applied (they are forward-only by design), so only roll back to a build that knows them.
+            <strong>If something goes wrong</strong>, go back to the version you had and restore the backup from step 1:
+            <pre className={styles.code}>{ROLLBACK_CMD}</pre>
           </li>
         </ol>
       </section>
