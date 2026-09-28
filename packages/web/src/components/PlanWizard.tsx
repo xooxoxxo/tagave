@@ -141,8 +141,10 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
         if (step === 0 && mode) {
           if (mode === 'new-plan') setStep(1);
           else if (mode === 'add-to-plan' && selectedPlanId) void handleAddToExistingPlan();
-        } else if (step === 1 && step1.scopeType) setStep(2);
-        else if (step === 2) {
+        } else if (step === 1 && step1.scopeType) {
+          if (mode === 'new-plan') setStep(2);
+          else if (mode === 'add-to-plan') void handleAddToExistingPlan();
+        } else if (step === 2) {
           if (mode === 'new-plan') void handleCreatePlan();
           else if (mode === 'add-to-plan') void handleAddToExistingPlan();
         }
@@ -374,12 +376,6 @@ function Step0ModeSelector({ onSelectMode }: { onSelectMode: (mode: WizardMode) 
           <p className={styles.hint}>Merge albums into a draft or previewed plan</p>
         </label>
       </fieldset>
-
-      <div className={styles.stepActions}>
-        <Button variant="primary" onClick={() => {}}>
-          Next
-        </Button>
-      </div>
     </div>
   );
 }
