@@ -396,6 +396,84 @@
   white-space: nowrap;
 }
 
+/* Quality gap: collection of individual quality issues */
+.qualityGapGroup {
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--border);
+}
+
+.qualityGapHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.qualityGapTitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--warning);
+}
+
+/* Each quality issue row */
+.qualityFlag {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--border);
+}
+
+.qualityFlagContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.qualityFlagLabel {
+  font-weight: 500;
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+}
+
+.qualityFlagDetail {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  margin-top: 0.2rem;
+  line-height: 1.4;
+}
+
+.qualityFlagAction {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.qualityFlagAction button,
+.qualityFlagAction a {
+  padding: 0.4rem 0.9rem;
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.qualityFlagNoAction {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.qualityFlagHint {
+  font-size: var(--font-size-sm);
+  color: var(--text-tertiary);
+}
+
+/* Legacy/compact styles for narrow screens */
 .flagList {
   flex: 1;
   min-width: 0;
@@ -643,6 +721,16 @@ td.num {
 .albumFacts dt { color: var(--text-secondary); }
 .albumFacts dd { margin: 0; overflow-wrap: anywhere; }
 .maintenance { margin: 0; padding-top: .75rem; }
+/* Quality flags display */
+.qualityGapHeader { flex-direction: column; align-items: flex-start; gap: .5rem; }
+.qualityGapTitle { font-size: .875rem; }
+.qualityFlag { flex-direction: column; align-items: flex-start; }
+.qualityFlagContent { width: 100%; }
+.qualityFlagAction { width: 100%; justify-content: flex-start; }
+.qualityFlagAction button,
+.qualityFlagAction a { width: 100%; justify-content: center; }
+
+/* Legacy styles */
 .flagList { display: flex; flex-direction: column; gap: .5rem; }
 .flagItem { display: flex; justify-content: space-between; gap: .75rem; white-space: normal; }
 .flagChip { padding: 0; border-radius: 0; background: transparent; color: var(--text-primary); white-space: normal; }

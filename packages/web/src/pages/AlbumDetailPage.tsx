@@ -201,8 +201,8 @@ type FlagAction = 'art' | 'tags' | 'split';
 interface FlagChip {
   key: string;
   label: string;
-  detail?: string;
-  action?: FlagAction;
+  detail?: string | undefined;
+  action?: FlagAction | undefined;
 }
 
 const FLAG_ACTION: Record<string, FlagAction> = {
@@ -236,23 +236,92 @@ function humanize(key: string): string {
 }
 
 /**
- * One chip per quality flag. Audio flags are `true` or a count; the TAG-6 lint
- * rules store an object with one list (track indexes, issue strings, field
- * names), which becomes "<label> · n tracks" with the list in the tooltip.
+ * Describe each quality flag with explanation of what's wrong and why.
+ * Audio flags are `true` or a count; lint rules have details about affected items.
  */
 function describeQualityFlags(flags: Record<string, unknown>): FlagChip[] {
+  const explanations: Record<string, { explain: (count?: number) => string }> = {
+    noCover: {
+      explain: () => 'Album artwork missing. Add one to improve recognition and collection appearance.',
+    },
+    noEmbeddedArt: {
+      explain: () => 'No artwork embedded in audio files. Shows in players; optional if external art exists.',
+    },
+    missingMbIds: {
+      explain: (count = 1) => `Missing MusicBrainz track IDs on ${count} ${count === 1 ? 'track' : 'tracks'}. Needed for accurate matching and lookups.`,
+    },
+    trackNumberIssues: {
+      explain: (count = 1) => `Track numbers incomplete on ${count} ${count === 1 ? 'track' : 'tracks'}. Essential for playback order.`,
+    },
+    emptyRequiredFields: {
+      explain: (count = 1) => `Required tag missing on ${count} ${count === 1 ? 'track' : 'tracks'}. Affects search and organization.`,
+    },
+    inconsistentAlbumFields: {
+      explain: (count = 1) => `Album field inconsistent across ${count} ${count === 1 ? 'track' : 'tracks'}. Impairs identification and metadata quality.`,
+    },
+    titleCaseAnomalies: {
+      explain: (count = 1) => `Title capitalization odd on ${count} ${count === 1 ? 'item' : 'items'}. Style consistency issue.`,
+    },
+    discNumberGaps: {
+      explain: (count = 1) => `Disc numbering has ${count} ${count === 1 ? 'gap' : 'gaps'}. Breaks multi-disc album structure.`,
+    },
+    parseErrors: {
+      explain: (count = 1) => `Cannot read tags on ${count} ${count === 1 ? 'file' : 'files'}. File may be corrupted or in unsupported format.`,
+    },
+    mixedLossless: {
+      explain: () => 'Mix of lossless and lossy files. Split by format to organize by quality.',
+    },
+    lowBitrate: {
+      explain: (count = 1) => `Lossy file${count === 1 ? '' : 's'} below 192 kbps on ${count} ${count === 1 ? 'track' : 'tracks'}. Acceptable but lower quality.`,
+    },
+  };
+
   return Object.entries(flags).map(([key, value]) => {
-    const label = FLAG_LABEL[key] ?? humanize(key);
+    const baseLabel = FLAG_LABEL[key] ?? humanize(key);
     const action = FLAG_ACTION[key] ? { action: FLAG_ACTION[key] } : {};
-    if (value === true || value == null) return { key, label, ...action };
-    if (typeof value === 'number') return { key, label: `${label} · ${value}`, ...action };
-    if (typeof value !== 'object') return { key, label: `${label} · ${String(value)}`, ...action };
+    const explainer = explanations[key];
+
+    // Handle simple boolean flags
+    if (value === true || value == null) {
+      return {
+        key,
+        label: baseLabel,
+        detail: explainer?.explain(),
+        ...action,
+      };
+    }
+
+    // Handle count-based flags
+    if (typeof value === 'number') {
+      return {
+        key,
+        label: baseLabel,
+        detail: explainer?.explain(value),
+        ...action,
+      };
+    }
+
+    // Handle object-based flags (with detailed items)
+    if (typeof value !== 'object') {
+      return {
+        key,
+        label: `${baseLabel} · ${String(value)}`,
+        ...action,
+      };
+    }
+
     const obj = value as Record<string, unknown>;
     const items = Object.values(obj).filter(Array.isArray).flat() as unknown[];
-    const noun = 'issues' in obj ? 'issues' : 'fields' in obj ? 'fields' : 'gap' in obj ? 'gaps' : 'tracks';
-    const shown = items.slice(0, 8).map((x) => (typeof x === 'number' ? `track ${x + 1}` : typeof x === 'string' ? x : JSON.stringify(x)));
-    const detail = shown.join('\n') + (items.length > 8 ? `\n… ${items.length - 8} more` : '');
-    return { key, label: items.length > 0 ? `${label} · ${items.length} ${noun}` : label, ...(detail ? { detail } : {}), ...action };
+    if (items.length === 0) {
+      return { key, label: baseLabel, detail: explainer?.explain(), ...action };
+    }
+
+    return {
+      key,
+      label: baseLabel,
+      detail: explainer?.explain(items.length),
+      ...action,
+    };
   });
 }
 
@@ -576,7 +645,7 @@ export function AlbumDetailPage() {
       <nav className={styles.tabs} aria-label="Album sections">
         {([
           ['album', 'Tracks'],
-          ['care', `Library health${openGaps.length ? ` (${openGaps.length})` : ''}`],
+          ['care', `Library health${openGaps.length > 0 ? ` (${qualityFlags.length + openGaps.filter(g => g.kind !== 'quality').length})` : ''}`],
           ['editions', 'Editions'],
           ['reviews', 'Reviews & listening'],
           ['activity', pending ? 'Activity ·' : 'Activity'],
@@ -592,45 +661,71 @@ export function AlbumDetailPage() {
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>Needs attention</h2>
           {openGaps.map((g) => (
-            <div key={g.id} className={styles.gapRow}>
-              <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+            <div key={g.id}>
               {g.kind === 'quality' ? (
-                <span className={styles.flagList}>
-                  {qualityFlags.map((f) => (
-                    <span key={f.key} className={styles.flagItem}>
-                      <span className={styles.flagChip} title={f.detail}>{f.label}</span>
-                      {/* one way out per chip: the thing that clears it */}
-                      {f.action === 'art' && (
-                        <button type="button" className={styles.flagAction} onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
-                          {fetchArt.isPending ? 'Queued…' : 'Fetch art'}
-                        </button>
-                      )}
-                      {f.action === 'tags' && (
-                        <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })} className={styles.flagAction} title="Open the tag wizard on this album">
-                          Fix tags
-                        </Link>
-                      )}
-                      {f.action === 'split' && album.mixed && (
-                        <span className={styles.flagHint} title="Split by format sits with the header actions">→ Manage this album → Split by format</span>
-                      )}
+                /* Quality flags: each issue as its own row with clear explanation and action */
+                <div className={styles.qualityGapGroup}>
+                  <div className={styles.qualityGapHeader}>
+                    <h3 className={styles.qualityGapTitle}>Quality issues ({qualityFlags.length})</h3>
+                    <span className={styles.gapActions}>
+                      <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this entire group; it will not count as a gap">
+                        Dismiss all
+                      </button>
+                      <button
+                        className="secondary"
+                        title="The data is wrong (feeds the false-positive metric)"
+                        onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
+                      >
+                        Wrong data
+                      </button>
                     </span>
+                  </div>
+                  {qualityFlags.map((f) => (
+                    <div key={f.key} className={styles.qualityFlag}>
+                      <div className={styles.qualityFlagContent}>
+                        <div className={styles.qualityFlagLabel}>{f.label}</div>
+                        {f.detail && <div className={styles.qualityFlagDetail}>{f.detail}</div>}
+                      </div>
+                      <div className={styles.qualityFlagAction}>
+                        {f.action === 'art' && (
+                          <button type="button" className="secondary" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
+                            {fetchArt.isPending ? 'Queued…' : 'Fetch art'}
+                          </button>
+                        )}
+                        {f.action === 'tags' && (
+                          <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })}>
+                            Fix tags
+                          </Link>
+                        )}
+                        {f.action === 'split' && album.mixed && (
+                          <span className={styles.qualityFlagHint} title="Split by format sits with the header actions">→ Manage → Split by format</span>
+                        )}
+                        {!f.action && (
+                          <span className={styles.qualityFlagNoAction}>No action available</span>
+                        )}
+                      </div>
+                    </div>
                   ))}
-                </span>
+                </div>
               ) : (
-                <span className={styles.gapDetail}>{describeGap(g)}</span>
+                /* Other gaps: incomplete, duplicate, missing */
+                <div className={styles.gapRow}>
+                  <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+                  <span className={styles.gapDetail}>{describeGap(g)}</span>
+                  <span className={styles.gapActions}>
+                    <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this; it will not count as a gap">
+                      Dismiss
+                    </button>
+                    <button
+                      className="secondary"
+                      title="The data is wrong (feeds the false-positive metric)"
+                      onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
+                    >
+                      Wrong data
+                    </button>
+                  </span>
+                </div>
               )}
-              <span className={styles.gapActions}>
-                <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this; it will not count as a gap">
-                  Dismiss
-                </button>
-                <button
-                  className="secondary"
-                  title="The data is wrong (feeds the false-positive metric)"
-                  onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
-                >
-                  Wrong data
-                </button>
-              </span>
             </div>
           ))}
           {dismissedGaps.map((g) => (
