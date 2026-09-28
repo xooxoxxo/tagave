@@ -1,10 +1,55 @@
 # Installation
 
-tagave runs in Docker and Compose v2. This guide covers setup, starting the stack, and connecting your music library.
+tagave runs in Docker and Compose v2. The installer below sets everything up from the published images; the manual steps after it build from source instead.
 
 ## Prerequisites
 
-You need Docker and Docker Compose v2 (or later). Compose v2 comes with recent Docker Desktop installs; on Linux, `docker compose` (without a hyphen) is the modern command.
+You need Docker and Docker Compose 2.20 or later. Compose comes with recent Docker Desktop installs; on Linux, `docker compose` (without a hyphen) is the modern command.
+
+## One-command install
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"
+```
+
+It asks where your music is, generates the app secret and database password, writes everything to `~/tagave`, starts tagave and waits until it answers. Then open <http://localhost:3100> and create your account. When the setup asks for a scan root, enter `/mnt/music`: that is your music folder as the file worker sees it.
+
+Every question has a flag, so it also runs unattended (`--help` lists them all). Options go after a placeholder word:
+
+```sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)" _ --yes --music /srv/music
+```
+
+Running it again is safe. It keeps the secrets already in `~/tagave/.env`, backs up any `.env` it changes, and refuses to invent a new database password when a database already exists. To update, run `docker compose pull && docker compose up -d` in `~/tagave`, or run the installer again.
+
+`~/tagave/.env` holds the secrets that open your database and your stored provider tokens. It is written readable only by you; keep a copy somewhere safe.
+
+### Music on another computer
+
+When the music lives on a different computer than the one that should run the app and database, install in two parts. The file worker, which reads the music, runs next to it; everything else runs on the first computer.
+
+1. On the computer for the app and database:
+
+   ```sh
+   bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)" _ --role app
+   ```
+
+   It publishes Postgres (port 5432) for the file worker and writes `~/tagave/files-worker.env`. Let only the music computer through your firewall on that port.
+
+2. Copy `files-worker.env` to the computer with the music, then run there:
+
+   ```sh
+   bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)" _ \
+     --role files --from files-worker.env --music /path/to/music
+   ```
+
+   It checks that the database answers before starting the worker. Delete the copied `files-worker.env` afterwards; it holds secrets.
+
+A network share (NFS, SMB) has to be mounted on the worker's computer first; give the folder it is mounted on.
+
+## Manual install (build from source)
+
+The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.
 
 ## Generate your app secret
 

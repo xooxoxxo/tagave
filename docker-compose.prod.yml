@@ -1,28 +1,18 @@
-version: "3.8"
-
-# Production Configuration for Tagave
-# This file is used for production deployments with all services on the primary host
-# or as a base for multi-host deployments
-#
-# Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-
 services:
   postgres:
     image: postgres:16
-    container_name: tagave-postgres
     command: postgres -c max_connections=300
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-liner}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB:-liner}
+      POSTGRES_USER: liner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-liner}
+      POSTGRES_DB: liner
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-liner}"]
+      test: ["CMD-SHELL", "pg_isready -U liner"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -35,76 +25,66 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-liner}
-      APP_SECRET: ${APP_SECRET}
-      CACHE_DIR: ${CACHE_DIR:-/cache}
-      ALLOW_INSECURE_HTTP: "false"
-      PUBLIC_URL: ${PUBLIC_URL:-https://localhost}
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
+      ALLOW_INSECURE_HTTP: "true"
       NODE_ENV: production
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      HOSTNAME: ${HOSTNAME:-tagave}
-      TZ: ${TIMEZONE:-UTC}
     volumes:
       - cache:/cache
     ports:
-      - "${APP_PORT:-3100}:3000"
+      - "${LINER_PORT:-3100}:3000"
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/_health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
-  # File worker: handles scan operations
-  # Runs scan.root, scan.dir, scan.sweep, scan.parse, clustering, and art caching
+  # Workers (XO-296). Both run behind the "workers" profile so a plain
+  # `docker compose up -d` keeps today's topology (workers as bare node on the
+  # g9 host); cut over with `docker compose --profile workers up -d` once this
+  # host is in the NAS export. The library is mounted at the same path the scan
+  # root was registered with, so no rows change at cutover. Queue lists mirror
+  # the g9 launcher scripts: the file worker owns everything that touches the
+  # music mount, the identify worker everything that spends provider budget.
   worker-files:
+    profiles: ["workers"]
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
-    container_name: tagave-worker-files
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-liner}
-      APP_SECRET: ${APP_SECRET}
-      CACHE_DIR: ${CACHE_DIR:-/cache}
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
       LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      HOSTNAME: ${HOSTNAME:-tagave}
-      TZ: ${TIMEZONE:-UTC}
     volumes:
       - cache:/cache
-      # Music library: mounted read-only until tag writing is enabled
+      # read-only until M2 tag writing is switched on for this root
       - ${MUSIC_DIR:-/mnt/music}:/mnt/music:ro
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
-  # Identify worker: handles identification and enrichment
-  # Runs identify.album, identify.acoustid, enrich.release, artist resolution, reviews, etc.
   worker-identify:
+    profiles: ["workers"]
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
-    container_name: tagave-worker-identify
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-liner}
-      APP_SECRET: ${APP_SECRET}
-      CACHE_DIR: ${CACHE_DIR:-/cache}
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?set in .env}
+      CACHE_DIR: /cache
       LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      HOSTNAME: ${HOSTNAME:-tagave}
-      TZ: ${TIMEZONE:-UTC}
     volumes:
       - cache:/cache
     restart: unless-stopped
@@ -114,6 +94,4 @@ services:
 
 volumes:
   pgdata:
-    driver: local
   cache:
-    driver: local

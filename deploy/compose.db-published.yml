@@ -1,0 +1,11 @@
+# tagave split install: publish Postgres so a file worker on another computer
+# can reach it. Only the computer that runs the database uses this file.
+#
+# Postgres listens on DB_BIND (all interfaces by default) with the generated
+# password from .env. Allow only the worker computer through your firewall, or
+# set DB_BIND to the one local address the worker can reach.
+
+services:
+  postgres:
+    ports:
+      - "${DB_BIND:-0.0.0.0}:${DB_PORT:-5432}:5432"

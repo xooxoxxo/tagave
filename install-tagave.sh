@@ -1,597 +1,752 @@
 #!/usr/bin/env bash
 #
-# Tagave Installer
-# Interactive setup for self-hosted music catalogue
+# tagave installer: sets up tagave from the published container images.
 #
-# Usage:
-#   bash -c "$(curl -L https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"
-#   OR
-#   bash ./install-tagave.sh
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"
 #
+# Options go after a placeholder word:  bash -c "$(curl ...)" _ --role app
+#
+# or, from a checkout:  ./install-tagave.sh
+#
+# Three roles, one per computer:
+#
+#   all    everything on this computer (the default)
+#   app    database, web app and identify worker; the file worker runs on the
+#          computer that can see your music (split install, part 1)
+#   files  only the file worker, next to your music; it connects to the
+#          database on the app computer (split install, part 2)
+#
+# Every question has a flag, so the installer also runs unattended:
+#
+#   ./install-tagave.sh --yes --music /srv/music
+#   ./install-tagave.sh --yes --role app --advertise-address 192.168.1.10
+#   ./install-tagave.sh --yes --role files --from files-worker.env --music /mnt/nas/music
+#
+# Re-running it is safe: secrets already in .env are kept, never replaced.
+# Run with --help for every option.
 
 set -euo pipefail
 
-# ============================================================================
-# Configuration & Defaults
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Defaults (each can also come from the environment)
+# ---------------------------------------------------------------------------
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INSTALL_DIR="${INSTALL_DIR:-.}"
-ENV_FILE="${INSTALL_DIR}/.env"
-COMPOSE_FILE="${INSTALL_DIR}/docker-compose.yml"
-COMPOSE_WORKERS_FILE="${INSTALL_DIR}/docker-compose.workers.yml"
+TAGAVE_REPO="${TAGAVE_REPO:-xooxoxxo/tagave}"
+TAGAVE_REF="${TAGAVE_REF:-main}"
+TAGAVE_REGISTRY="${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}"
 
-# ============================================================================
-# Color Output (portable, works on macOS and Linux)
-# ============================================================================
+ROLE="${TAGAVE_ROLE:-}"
+INSTALL_DIR="${TAGAVE_DIR:-$HOME/tagave}"
+MUSIC_DIR="${TAGAVE_MUSIC_DIR:-}"
+PORT="${TAGAVE_PORT:-}"
+VERSION="${TAGAVE_VERSION:-}"
+TIMEZONE="${TAGAVE_TZ:-}"
+ADVERTISE_ADDRESS="${TAGAVE_ADVERTISE_ADDRESS:-}"
+DB_HOST="${TAGAVE_DB_HOST:-}"
+DB_PORT="${TAGAVE_DB_PORT:-}"
+DB_BIND="${TAGAVE_DB_BIND:-}"
+FROM_FILE="${TAGAVE_FROM:-}"
+BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
+ASSUME_YES="${TAGAVE_YES:-0}"
+NO_START=0
+PLATFORM=""
+REPLACE_SECRETS=0
 
-RED=$'\033[0;31m'
-GREEN=$'\033[0;32m'
-YELLOW=$'\033[1;33m'
-BLUE=$'\033[0;34m'
-NC=$'\033[0m' # No Color
+PROJECT_NAME="tagave"
+COMPOSE_MAIN="compose.yml"
+COMPOSE_DB="compose.db-published.yml"
+WORKER_ENV_NAME="files-worker.env"
 
-log_header() {
-    echo "${BLUE}=== $1 ===${NC}"
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
+if [ -t 1 ]; then
+  C_RED=$'\033[0;31m'; C_GREEN=$'\033[0;32m'; C_YELLOW=$'\033[0;33m'; C_BOLD=$'\033[1m'; C_OFF=$'\033[0m'
+else
+  C_RED=''; C_GREEN=''; C_YELLOW=''; C_BOLD=''; C_OFF=''
+fi
+
+say()     { printf '%s\n' "$*"; }
+step()    { printf '\n%s%s%s\n' "$C_BOLD" "$*" "$C_OFF"; }
+ok()      { printf '%s  ok%s  %s\n' "$C_GREEN" "$C_OFF" "$*"; }
+warn()    { printf '%s  !!%s  %s\n' "$C_YELLOW" "$C_OFF" "$*" >&2; }
+die()     { printf '%serror:%s %s\n' "$C_RED" "$C_OFF" "$*" >&2; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Usage: install-tagave.sh [options]
+
+  --role all|app|files     what runs on this computer (default: all)
+  --dir PATH               install directory (default: ~/tagave)
+  --music PATH             your music folder on this computer (roles all, files)
+  --port N                 web app port on this computer (default: 3100)
+  --version TAG            image tag to run, e.g. 0.2.0 (default: latest release)
+  --timezone ZONE          e.g. Europe/Berlin (default: this computer's, or UTC)
+  --behind-https           the app will sit behind an https reverse proxy
+
+  Split install, database computer (--role app):
+  --advertise-address A    address the file worker uses to reach this computer
+  --db-port N              port Postgres is published on (default: 5432)
+  --db-bind ADDR           local address Postgres listens on (default: 0.0.0.0)
+
+  Split install, music computer (--role files):
+  --from FILE              files-worker.env written by the app computer
+  --db-host A              address of the app computer (if not using --from)
+  --replace-secrets        let --from replace secrets already in this .env
+
+  --yes, -y                never ask; use flags, environment and defaults
+  --no-start               write the configuration and check it, start nothing
+  --help, -h               this text
+
+Each option can also be set as an environment variable: TAGAVE_ROLE,
+TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
+TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
+TAGAVE_FROM, TAGAVE_BEHIND_HTTPS=1, TAGAVE_YES=1.
+EOF
 }
 
-log_success() {
-    echo "${GREEN}✓ $1${NC}"
+# ---------------------------------------------------------------------------
+# Arguments
+# ---------------------------------------------------------------------------
+
+need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || die "$1 needs a value (see --help)"; }
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --role)              need_arg "$@"; ROLE="$2"; shift 2 ;;
+    --dir)               need_arg "$@"; INSTALL_DIR="$2"; shift 2 ;;
+    --music)             need_arg "$@"; MUSIC_DIR="$2"; shift 2 ;;
+    --port)              need_arg "$@"; PORT="$2"; shift 2 ;;
+    --version)           need_arg "$@"; VERSION="$2"; shift 2 ;;
+    --timezone)          need_arg "$@"; TIMEZONE="$2"; shift 2 ;;
+    --advertise-address) need_arg "$@"; ADVERTISE_ADDRESS="$2"; shift 2 ;;
+    --db-host)           need_arg "$@"; DB_HOST="$2"; shift 2 ;;
+    --db-port)           need_arg "$@"; DB_PORT="$2"; shift 2 ;;
+    --db-bind)           need_arg "$@"; DB_BIND="$2"; shift 2 ;;
+    --from)              need_arg "$@"; FROM_FILE="$2"; shift 2 ;;
+    --behind-https)      BEHIND_HTTPS=1; shift ;;
+    --replace-secrets)   REPLACE_SECRETS=1; shift ;;
+    --yes|-y)            ASSUME_YES=1; shift ;;
+    --no-start)          NO_START=1; shift ;;
+    --help|-h)           usage; exit 0 ;;
+    *)                   die "unknown option: $1 (see --help)" ;;
+  esac
+done
+
+# Questions go to the terminal even when the script itself arrives on stdin
+# (curl ... | bash). Without a terminal, or with --yes, nothing is asked.
+TTY=""
+if [ "$ASSUME_YES" != "1" ] && { : </dev/tty; } 2>/dev/null; then
+  TTY=/dev/tty
+fi
+
+# ask VAR "Question" default — sets VAR unless it already has a value.
+ask() {
+  local var="$1" question="$2" default="${3:-}" answer=""
+  if [ -n "${!var}" ]; then return 0; fi
+  if [ -n "$TTY" ]; then
+    if [ -n "$default" ]; then
+      printf '%s [%s]: ' "$question" "$default" >"$TTY"
+    else
+      printf '%s: ' "$question" >"$TTY"
+    fi
+    IFS= read -r answer <"$TTY" || answer=""
+  fi
+  answer="${answer:-$default}"
+  printf -v "$var" '%s' "$answer"
 }
 
-log_warning() {
-    echo "${YELLOW}⚠ $1${NC}"
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+# Reads KEY from an env file without executing it. Strips one pair of
+# surrounding single or double quotes.
+env_get() {
+  local key="$1" file="$2" line value
+  [ -f "$file" ] || return 0
+  line="$(grep -E "^${key}=" "$file" | tail -n 1 || true)"
+  value="${line#*=}"
+  case "$value" in
+    \'*\') value="${value#\'}"; value="${value%\'}" ;;
+    \"*\") value="${value#\"}"; value="${value%\"}" ;;
+  esac
+  printf '%s' "$value"
 }
 
-log_error() {
-    echo "${RED}✗ $1${NC}"
+# 32 random bytes as base64 (44 characters): the app secret.
+generate_secret() {
+  local secret
+  secret="$(openssl rand -base64 32 | tr -d '\n')"
+  [ -n "$secret" ] || die "could not generate a secret with openssl"
+  printf '%s' "$secret"
 }
 
-log_info() {
-    echo "  $1"
+# 32 random bytes as hex (64 characters): the database password. It sits
+# inside a postgres:// URL, where base64's + / = would need escaping.
+generate_password() {
+  local secret
+  secret="$(openssl rand -hex 32 | tr -d '\n')"
+  [ -n "$secret" ] || die "could not generate a password with openssl"
+  printf '%s' "$secret"
 }
 
-# ============================================================================
-# Prerequisites Check
-# ============================================================================
+# A value we are about to write into .env: one line, no single quote.
+check_value() {
+  local name="$1" value="$2"
+  case "$value" in
+    *"'"*) die "$name cannot contain a single quote: $value" ;;
+  esac
+  case "$value" in
+    *$'\n'*) die "$name cannot span several lines" ;;
+  esac
+}
+
+is_port() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
+
+detect_address() {
+  local addr=""
+  if command -v hostname >/dev/null 2>&1 && hostname -I >/dev/null 2>&1; then
+    addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  fi
+  if [ -z "$addr" ] && command -v ipconfig >/dev/null 2>&1; then
+    addr="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+  fi
+  if [ -z "$addr" ]; then
+    addr="$(hostname 2>/dev/null || echo localhost)"
+  fi
+  printf '%s' "$addr"
+}
+
+detect_timezone() {
+  local tz=""
+  if [ -n "${TZ:-}" ]; then
+    tz="$TZ"
+  elif [ -r /etc/timezone ]; then
+    tz="$(head -n 1 /etc/timezone)"
+  elif [ -L /etc/localtime ]; then
+    tz="$(readlink /etc/localtime | sed -n 's#.*/zoneinfo/##p')"
+  fi
+  printf '%s' "${tz:-UTC}"
+}
+
+# </dev/null: when the script arrives on stdin, stdin is the rest of it.
+compose() { (cd "$INSTALL_DIR" && docker compose "$@" </dev/null); }
+
+image_exists() { docker manifest inspect "$1" >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------------------
+# Steps
+# ---------------------------------------------------------------------------
 
 check_prerequisites() {
-    log_header "Checking Prerequisites"
+  step "Checking this computer"
 
-    local missing=0
+  command -v docker >/dev/null 2>&1 \
+    || die "Docker is not installed. Install it from https://docs.docker.com/get-docker/ and run this again."
+  docker info >/dev/null 2>&1 \
+    || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
+  ok "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '')"
 
-    # Check Docker
-    if ! command -v docker &> /dev/null; then
-        log_error "Docker not found. Please install Docker 20.10+ from https://docs.docker.com/get-docker/"
-        missing=1
+  local compose_version major minor
+  compose_version="$(docker compose version --short 2>/dev/null || true)"
+  [ -n "$compose_version" ] \
+    || die "Docker Compose v2 is missing. Install the docker-compose-plugin package (or Docker Desktop)."
+  compose_version="${compose_version#v}"
+  major="${compose_version%%.*}"
+  minor="${compose_version#*.}"; minor="${minor%%.*}"
+  case "$major$minor" in *[!0-9]*|'') major=0; minor=0 ;; esac
+  if [ "$major" -lt 2 ] || { [ "$major" -eq 2 ] && [ "$minor" -lt 20 ]; }; then
+    die "Docker Compose $compose_version is too old; tagave needs 2.20 or newer."
+  fi
+  ok "Docker Compose $compose_version"
+
+  command -v openssl >/dev/null 2>&1 || die "openssl is needed to generate secrets. Install it and run this again."
+
+  local parent free_kb
+  parent="$INSTALL_DIR"
+  while [ ! -d "$parent" ]; do parent="$(dirname "$parent")"; done
+  free_kb="$(df -Pk "$parent" | awk 'NR==2 {print $4}')"
+  if [ -n "$free_kb" ] && [ "$free_kb" -lt 5242880 ]; then
+    warn "Less than 5 GB free at $parent. Images, database and cover art need room to grow."
+  fi
+}
+
+collect_answers() {
+  local existing="$INSTALL_DIR/.env"
+  local arg_db_host="$DB_HOST" arg_db_port="$DB_PORT" arg_version="$VERSION"
+
+  # A previous install supplies the defaults for everything it recorded.
+  if [ -f "$existing" ]; then
+    [ -n "$ROLE" ]      || ROLE="$(env_get TAGAVE_ROLE "$existing")"
+    [ -n "$MUSIC_DIR" ] || MUSIC_DIR="$(env_get MUSIC_DIR "$existing")"
+    [ -n "$PORT" ]      || PORT="$(env_get TAGAVE_PORT "$existing")"
+    [ -n "$VERSION" ]   || VERSION="$(env_get TAGAVE_VERSION "$existing")"
+    [ -n "$TIMEZONE" ]  || TIMEZONE="$(env_get TZ "$existing")"
+    [ -n "$DB_HOST" ]   || DB_HOST="$(env_get DB_HOST "$existing")"
+    [ -n "$DB_PORT" ]   || DB_PORT="$(env_get DB_PORT "$existing")"
+    [ -n "$DB_BIND" ]   || DB_BIND="$(env_get DB_BIND "$existing")"
+    [ -n "$ADVERTISE_ADDRESS" ] || ADVERTISE_ADDRESS="$(env_get TAGAVE_ADVERTISE_ADDRESS "$existing")"
+    if [ -z "$BEHIND_HTTPS" ] && [ "$(env_get ALLOW_INSECURE_HTTP "$existing")" = "false" ]; then
+      BEHIND_HTTPS=1
+    fi
+  fi
+
+  step "Setup"
+  if [ -z "$ROLE" ] && [ -n "$TTY" ]; then
+    say "  What should run on this computer?"
+    say "    all    everything (most people want this)"
+    say "    app    database and web app; the file worker runs on the computer with your music"
+    say "    files  only the file worker, connecting to an app computer set up earlier"
+  fi
+  ask ROLE "Role (all, app or files)" "all"
+  case "$ROLE" in all|app|files) ;; *) die "role must be all, app or files, not '$ROLE'" ;; esac
+
+  if [ "$ROLE" = "files" ]; then
+    if [ -z "$FROM_FILE" ] && [ -z "$DB_HOST" ] && [ -n "$TTY" ]; then
+      say "  The app computer wrote $WORKER_ENV_NAME into its install folder. Copy it here"
+      say "  and give its path, or leave empty to enter the app computer's address yourself."
+      ask FROM_FILE "Path to $WORKER_ENV_NAME" ""
+    fi
+    if [ -n "$FROM_FILE" ]; then
+      [ -f "$FROM_FILE" ] || die "$FROM_FILE does not exist"
+      # The file from the app computer beats what an earlier install
+      # recorded here; an explicit flag beats both.
+      local from_value
+      from_value="$(env_get DB_HOST "$FROM_FILE")"
+      DB_HOST="${arg_db_host:-${from_value:-$DB_HOST}}"
+      from_value="$(env_get DB_PORT "$FROM_FILE")"
+      DB_PORT="${arg_db_port:-${from_value:-$DB_PORT}}"
+      from_value="$(env_get TAGAVE_VERSION "$FROM_FILE")"
+      VERSION="${arg_version:-${from_value:-$VERSION}}"
+    fi
+    ask DB_HOST "Address of the app computer" ""
+    [ -n "$DB_HOST" ] || die "a file worker needs the app computer's address: pass --from $WORKER_ENV_NAME or --db-host"
+    ask DB_PORT "Database port on the app computer" "5432"
+    is_port "$DB_PORT" || die "database port must be a number from 1 to 65535, not '$DB_PORT'"
+  fi
+
+  if [ "$ROLE" = "app" ]; then
+    ask ADVERTISE_ADDRESS "Address the music computer uses to reach this one" "$(detect_address)"
+    ask DB_PORT "Port to publish the database on" "5432"
+    is_port "$DB_PORT" || die "database port must be a number from 1 to 65535, not '$DB_PORT'"
+    [ -n "$DB_BIND" ] || DB_BIND="0.0.0.0"
+  fi
+
+  if [ "$ROLE" != "files" ]; then
+    ask PORT "Web app port" "3100"
+    is_port "$PORT" || die "port must be a number from 1 to 65535, not '$PORT'"
+  fi
+
+  if [ "$ROLE" != "app" ]; then
+    local default_music=""
+    [ -d /mnt/music ] && default_music="/mnt/music"
+    if [ -n "$TTY" ] && [ -z "$MUSIC_DIR" ]; then
+      say "  Your music folder on this computer. A network share (NFS, SMB) has to be"
+      say "  mounted on this computer first; give the folder it is mounted on."
+    fi
+    ask MUSIC_DIR "Music folder" "$default_music"
+    if [ -z "$MUSIC_DIR" ]; then
+      MUSIC_DIR="$INSTALL_DIR/music"
+      warn "No music folder given. Using the empty folder $MUSIC_DIR; point MUSIC_DIR in .env at your library later."
+    fi
+    case "$MUSIC_DIR" in /*) ;; *) MUSIC_DIR="$(cd "$MUSIC_DIR" 2>/dev/null && pwd || echo "$PWD/$MUSIC_DIR")" ;; esac
+  fi
+
+  ask TIMEZONE "Timezone" "$(detect_timezone)"
+
+  check_value "install directory" "$INSTALL_DIR"
+  check_value "music folder" "$MUSIC_DIR"
+  check_value "timezone" "$TIMEZONE"
+  check_value "address" "$ADVERTISE_ADDRESS$DB_HOST$DB_BIND"
+}
+
+check_music_dir() {
+  [ "$ROLE" != "app" ] || return 0
+  if [ "$MUSIC_DIR" = "$INSTALL_DIR/music" ]; then
+    mkdir -p "$MUSIC_DIR"
+  elif [ ! -d "$MUSIC_DIR" ]; then
+    die "the music folder $MUSIC_DIR does not exist. Check the path, or mount the share first."
+  elif [ ! -r "$MUSIC_DIR" ] || [ ! -x "$MUSIC_DIR" ]; then
+    die "the music folder $MUSIC_DIR is not readable."
+  fi
+  ok "Music folder $MUSIC_DIR"
+}
+
+# Both images must exist under the tag. Sets PLATFORM when they are built
+# for x86-64 only and this computer is ARM: Docker then runs them emulated.
+resolve_version() {
+  local tag=""
+  if [ -n "$VERSION" ]; then
+    tag="$VERSION"
+  elif image_exists "$TAGAVE_REGISTRY/tagave-app:latest"; then
+    tag="latest"
+  elif image_exists "$TAGAVE_REGISTRY/tagave-app:edge"; then
+    tag="edge"
+    warn "No stable release is published yet, so this installs the development build (edge)."
+  else
+    die "could not find the tagave images at $TAGAVE_REGISTRY. Check the internet connection."
+  fi
+
+  local app_manifest worker_manifest
+  app_manifest="$(docker manifest inspect "$TAGAVE_REGISTRY/tagave-app:$tag" 2>/dev/null || true)"
+  worker_manifest="$(docker manifest inspect "$TAGAVE_REGISTRY/tagave-worker:$tag" 2>/dev/null || true)"
+  [ -n "$app_manifest" ] && [ -n "$worker_manifest" ] \
+    || die "no tagave release is published with the tag '$tag'. See https://github.com/$TAGAVE_REPO/releases"
+  VERSION="$tag"
+  ok "Version $VERSION"
+
+  PLATFORM=""
+  case "$(uname -m)" in
+    arm64|aarch64)
+      if ! printf '%s' "$app_manifest$worker_manifest" | grep -q '"arm64"'; then
+        PLATFORM="linux/amd64"
+        warn "This build has no ARM version yet; Docker will run the x86-64 one emulated, which is slower."
+      fi
+      ;;
+  esac
+}
+
+fetch_compose_files() {
+  step "Writing files to $INSTALL_DIR"
+  mkdir -p "$INSTALL_DIR"
+
+  # From a checkout, use the files next to this script. Piped in through
+  # curl, there is no script file, so fetch them from the same ref.
+  local src="" name
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deploy"
+    [ -f "$src/$COMPOSE_MAIN" ] || src=""
+  fi
+
+  for name in "$COMPOSE_MAIN" "$COMPOSE_DB"; do
+    if [ -n "$src" ]; then
+      cp "$src/$name" "$INSTALL_DIR/$name.tmp"
     else
-        local docker_version=$(docker --version | grep -oE '[0-9]+\.[0-9]+' | head -1)
-        log_success "Docker ${docker_version} found"
+      local url="https://raw.githubusercontent.com/$TAGAVE_REPO/$TAGAVE_REF/deploy/$name"
+      if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$INSTALL_DIR/$name.tmp" || die "could not download $url"
+      elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$INSTALL_DIR/$name.tmp" "$url" || die "could not download $url"
+      else
+        die "curl or wget is needed to download $url"
+      fi
     fi
+    mv "$INSTALL_DIR/$name.tmp" "$INSTALL_DIR/$name"
+  done
+  ok "$COMPOSE_MAIN, $COMPOSE_DB"
+}
 
-    # Check Docker Compose v2
-    if ! command -v docker &> /dev/null || ! docker compose version &> /dev/null; then
-        log_error "Docker Compose v2 not found. Ensure Docker Desktop or docker-compose-plugin is installed."
-        missing=1
-    else
-        local compose_version=$(docker compose version --short)
-        log_success "Docker Compose ${compose_version} found"
+# Decides APP_SECRET and POSTGRES_PASSWORD. Existing ones always win, except
+# on a file worker explicitly told to take new ones from --from.
+settle_secrets() {
+  local existing="$INSTALL_DIR/.env"
+  APP_SECRET="$(env_get APP_SECRET "$existing")"
+  POSTGRES_PASSWORD="$(env_get POSTGRES_PASSWORD "$existing")"
+  POSTGRES_USER="$(env_get POSTGRES_USER "$existing")"
+  POSTGRES_DB="$(env_get POSTGRES_DB "$existing")"
+  POSTGRES_USER="${POSTGRES_USER:-liner}"
+  POSTGRES_DB="${POSTGRES_DB:-liner}"
+
+  if [ "$ROLE" = "files" ] && [ -n "$FROM_FILE" ]; then
+    local new_secret new_password new_user new_db
+    new_secret="$(env_get APP_SECRET "$FROM_FILE")"
+    new_password="$(env_get POSTGRES_PASSWORD "$FROM_FILE")"
+    new_user="$(env_get POSTGRES_USER "$FROM_FILE")"
+    new_db="$(env_get POSTGRES_DB "$FROM_FILE")"
+    [ -n "$new_secret" ] && [ -n "$new_password" ] \
+      || die "$FROM_FILE has no APP_SECRET or POSTGRES_PASSWORD; copy it again from the app computer"
+    if { [ -n "$APP_SECRET" ] && [ "$APP_SECRET" != "$new_secret" ]; } \
+       || { [ -n "$POSTGRES_PASSWORD" ] && [ "$POSTGRES_PASSWORD" != "$new_password" ]; }; then
+      [ "$REPLACE_SECRETS" = "1" ] \
+        || die "$INSTALL_DIR/.env already holds different secrets than $FROM_FILE. Re-run with --replace-secrets to use the new ones (the old .env is kept as a backup)."
+      warn "Replacing the secrets in .env with the ones from $FROM_FILE."
     fi
+    APP_SECRET="$new_secret"
+    POSTGRES_PASSWORD="$new_password"
+    POSTGRES_USER="${new_user:-liner}"
+    POSTGRES_DB="${new_db:-liner}"
+    return 0
+  fi
 
-    # Check available RAM (at least 2GB)
-    if command -v free &> /dev/null; then
-        local available_mb=$(free -m | awk 'NR==2 {print $7}')
-        if [ "$available_mb" -lt 1500 ]; then
-            log_warning "Less than 2 GB available RAM (${available_mb} MB). Consider closing applications."
-        else
-            log_success "Sufficient RAM available (${available_mb} MB)"
-        fi
+  if [ "$ROLE" = "files" ]; then
+    [ -n "$APP_SECRET" ] && [ -n "$POSTGRES_PASSWORD" ] \
+      || die "a file worker needs the app computer's secrets: pass --from $WORKER_ENV_NAME"
+    return 0
+  fi
+
+  # A database volume without a password on record means the password that
+  # opens it is lost from this folder; a new one would not match it.
+  if [ -z "$POSTGRES_PASSWORD" ] && docker volume inspect "${PROJECT_NAME}_pgdata" >/dev/null 2>&1; then
+    die "a tagave database already exists (docker volume ${PROJECT_NAME}_pgdata) but $existing has no POSTGRES_PASSWORD. Restore the .env you installed with; the installer will not create a new password that cannot open that database."
+  fi
+
+  if [ -z "$APP_SECRET" ]; then
+    APP_SECRET="$(generate_secret)" && [ -n "$APP_SECRET" ] || die "generating the app secret failed"
+    ok "Generated a new app secret"
+  else
+    ok "Kept the app secret already in .env"
+  fi
+  if [ -z "$POSTGRES_PASSWORD" ]; then
+    POSTGRES_PASSWORD="$(generate_password)" && [ -n "$POSTGRES_PASSWORD" ] || die "generating the database password failed"
+    ok "Generated a new database password"
+  else
+    ok "Kept the database password already in .env"
+  fi
+}
+
+# Writes stdin to a file readable only by the owner: created under umask 077
+# next to the target, then moved into place. A previous, different version is
+# kept as a private .bak copy; an identical one is left alone.
+write_private() {
+  local target="$1" tmp backup
+  tmp="$target.tmp.$$"
+  ( umask 077; cat >"$tmp" )
+  chmod 600 "$tmp"
+  if [ -f "$target" ]; then
+    if cmp -s "$tmp" "$target"; then
+      rm -f "$tmp"
+      chmod 600 "$target"
+      return 0
     fi
-
-    # Check available disk (at least 5GB)
-    local available_gb=$(df -Bg "$INSTALL_DIR" | awk 'NR==2 {print $4}' | sed 's/G//')
-    if [ "$available_gb" -lt 5 ]; then
-        log_error "Less than 5 GB available disk space. Free up space and try again."
-        missing=1
-    else
-        log_success "Sufficient disk space available (${available_gb} GB)"
-    fi
-
-    if [ $missing -eq 1 ]; then
-        log_error "Please fix missing prerequisites and run the installer again."
-        exit 1
-    fi
+    backup="$target.bak.$(date +%Y%m%d-%H%M%S)"
+    ( umask 077; cp "$target" "$backup" )
+    chmod 600 "$backup"
+    say "     previous $(basename "$target") saved as $(basename "$backup")"
+  fi
+  mv "$tmp" "$target"
 }
 
-# ============================================================================
-# Interactive Prompts
-# ============================================================================
+write_env() {
+  local env_file="$INSTALL_DIR/.env" profiles files insecure
+  case "$ROLE" in
+    all)   profiles="app,files"; files="$COMPOSE_MAIN" ;;
+    app)   profiles="app";       files="$COMPOSE_MAIN:$COMPOSE_DB" ;;
+    files) profiles="files";     files="$COMPOSE_MAIN" ;;
+  esac
+  [ -n "$APP_SECRET" ] && [ -n "$POSTGRES_PASSWORD" ] \
+    || die "refusing to write .env without an app secret and a database password"
+  insecure="true"
+  if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
 
-prompt_hostname() {
-    log_header "System Hostname"
-    log_info "This hostname is used for service discovery and logging."
-    log_info "Examples: music.local, tagave, homelab"
+  {
+    cat <<EOF
+# tagave configuration, written by install-tagave.sh.
+# It holds the secrets that open your database and your stored provider
+# tokens: keep a copy somewhere safe and never share it. Re-running the
+# installer keeps these secrets.
 
-    local default="tagave.local"
-    read -p "Hostname or domain [$default]: " hostname
-    hostname="${hostname:-$default}"
+# which services run on this computer (docker compose reads the first three lines)
+COMPOSE_PROJECT_NAME=$PROJECT_NAME
+COMPOSE_FILE=$files
+COMPOSE_PROFILES=$profiles
+TAGAVE_ROLE=$ROLE
 
-    echo "$hostname"
-}
+# images: change TAGAVE_VERSION, then docker compose pull && docker compose up -d
+TAGAVE_REGISTRY=$TAGAVE_REGISTRY
+TAGAVE_VERSION=$VERSION
 
-prompt_timezone() {
-    log_header "Timezone"
-    log_info "Used for scheduled jobs and log timestamps."
-    log_info "Examples: America/New_York, Europe/London, Asia/Tokyo, UTC"
+APP_SECRET=$APP_SECRET
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+POSTGRES_USER=$POSTGRES_USER
+POSTGRES_DB=$POSTGRES_DB
 
-    local default="UTC"
-    read -p "Timezone [$default]: " timezone
-    timezone="${timezone:-$default}"
-
-    echo "$timezone"
-}
-
-prompt_music_source() {
-    log_header "Music Library Location"
-    log_info "Where does your music library live?"
-    echo ""
-    echo "  (1) Local path on this computer"
-    echo "  (2) NFS mount (network storage)"
-    echo "  (3) SMB/CIFS mount (Windows network share)"
-    echo "  (4) I'll configure it later in the setup wizard"
-    echo ""
-
-    local choice
-    read -p "Choice (1-4): " choice
-
-    echo "$choice"
-}
-
-prompt_local_music_path() {
-    log_header "Music Library Path"
-    log_info "Absolute path to your music folder."
-    log_info "Examples: /home/user/Music, /mnt/nas/music, /Volumes/Music"
-
-    local default="/mnt/music"
-    read -p "Music path [$default]: " path
-    path="${path:-$default}"
-
-    echo "$path"
-}
-
-prompt_nfs_config() {
-    log_header "NFS Configuration"
-
-    local default_host="192.168.1.10"
-    read -p "NAS hostname or IP [$default_host]: " nas_host
-    nas_host="${nas_host:-$default_host}"
-
-    local default_path="/mnt/music"
-    read -p "NAS export path [$default_path]: " nas_path
-    nas_path="${nas_path:-$default_path}"
-
-    echo "$nas_host|$nas_path"
-}
-
-prompt_smb_config() {
-    log_header "SMB Configuration"
-
-    local default_path="//nas.local/music"
-    read -p "SMB/CIFS path [$default_path]: " smb_path
-    smb_path="${smb_path:-$default_path}"
-
-    read -p "SMB username: " smb_user
-    read -sp "SMB password: " smb_pass
-    echo ""
-
-    echo "$smb_path|$smb_user|$smb_pass"
-}
-
-prompt_topology() {
-    log_header "Worker Deployment"
-    log_info "How should workers be deployed?"
-    echo ""
-    echo "  (1) All-in-one: API and workers on this computer"
-    echo "  (2) Split: API here, workers on different computer"
-    echo ""
-
-    local choice
-    read -p "Choice (1-2): " choice
-
-    echo "$choice"
-}
-
-prompt_worker_host() {
-    log_header "Worker Host Configuration"
-    log_info "IP address or hostname of the machine running workers."
-    log_info "This machine must be able to reach the database at this computer."
-    log_info "Examples: 192.168.1.20, worker.local"
-
-    local default="192.168.1.20"
-    read -p "Worker host [$default]: " worker_host
-    worker_host="${worker_host:-$default}"
-
-    echo "$worker_host"
-}
-
-prompt_backups() {
-    log_header "Backup Configuration (Optional)"
-    log_info "Enable automated daily database backups?"
-
-    read -p "Enable backups? (y/n) [y]: " enable_backups
-    enable_backups="${enable_backups:-y}"
-
-    if [[ "$enable_backups" =~ ^[yY]$ ]]; then
-        local default_location="./backups"
-        read -p "Backup location [$default_location]: " backup_location
-        backup_location="${backup_location:-$default_location}"
-        echo "true|$backup_location"
-    else
-        echo "false|"
-    fi
-}
-
-# ============================================================================
-# Secret Generation
-# ============================================================================
-
-generate_secret() {
-    # Generate 32 bytes of random data and encode as base64
-    # Works on macOS and Linux
-    if command -v openssl &> /dev/null; then
-        openssl rand -32 | base64 | tr -d '\n'
-    else
-        # Fallback: use /dev/urandom
-        head -c 32 /dev/urandom | base64 | tr -d '\n'
-    fi
-}
-
-# ============================================================================
-# File Generation
-# ============================================================================
-
-create_env_file() {
-    local app_secret="$1"
-    local postgres_password="$2"
-    local hostname="$3"
-    local timezone="$4"
-    local music_dir="$5"
-    local worker_topology="$6"
-    local worker_host="$7"
-    local backup_enabled="$8"
-    local backup_location="$9"
-
-    log_header "Creating Configuration"
-
-    # Backup existing .env if it exists
-    if [ -f "$ENV_FILE" ]; then
-        log_warning "Found existing .env file. Backing up to .env.backup"
-        cp "$ENV_FILE" "${ENV_FILE}.backup"
-    fi
-
-    # For split topology, WORKER_DATABASE_HOST is the API host
-    local worker_database_host=""
-    if [ "$worker_topology" = "split" ]; then
-        worker_database_host="$hostname"
-    else
-        worker_database_host="postgres"
-    fi
-
-    cat > "$ENV_FILE" << EOF
-# Tagave Installation Configuration
-# Generated by install-tagave.sh on $(date)
-# Back this file up securely; it contains secrets
-
-# ==== SECURITY ====
-APP_SECRET=$app_secret
-POSTGRES_PASSWORD=$postgres_password
-
-# ==== DATABASE ====
-POSTGRES_USER=liner
-POSTGRES_DB=liner
-
-# ==== NETWORK ====
-PUBLIC_URL=http://$hostname:3100
-ALLOW_INSECURE_HTTP=true
-HOSTNAME=$hostname
-TIMEZONE=$timezone
-
-# ==== STORAGE ====
-CACHE_DIR=/cache
-MUSIC_DIR=$music_dir
-
-# ==== TOPOLOGY ====
-WORKER_TOPOLOGY=$worker_topology
-WORKER_HOST=$worker_host
-WORKER_DATABASE_HOST=$worker_database_host
-
-# ==== BACKUP ====
-BACKUP_ENABLED=$backup_enabled
-BACKUP_LOCATION=$backup_location
-BACKUP_SCHEDULE=0 2 * * *
-
-# ==== LOGGING ====
+TZ='$TIMEZONE'
 LOG_LEVEL=info
-METRICS_ENABLED=false
 EOF
-
-    log_success "Configuration written to $ENV_FILE"
-}
-
-# ============================================================================
-# Docker Compose Generation
-# ============================================================================
-
-create_docker_compose() {
-    log_header "Creating Docker Compose Configuration"
-
-    # The docker-compose.yml is already in the repo with environment variable substitution
-    # We just need to ensure it exists or is not modified
-    if [ ! -f "$COMPOSE_FILE" ]; then
-        log_error "docker-compose.yml not found in $INSTALL_DIR"
-        exit 1
+    if [ -n "$PLATFORM" ]; then
+      printf '\n# the images of this version exist for x86-64 only\nDOCKER_DEFAULT_PLATFORM=%s\n' "$PLATFORM"
     fi
+    if [ "$ROLE" != "files" ]; then
+      printf '\n# web app\nTAGAVE_PORT=%s\nALLOW_INSECURE_HTTP=%s\n' "$PORT" "$insecure"
+    fi
+    if [ "$ROLE" = "app" ]; then
+      printf '\n# database published for the file worker on the music computer\nDB_BIND=%s\nDB_PORT=%s\nTAGAVE_ADVERTISE_ADDRESS=%s\n' \
+        "$DB_BIND" "$DB_PORT" "$ADVERTISE_ADDRESS"
+    fi
+    if [ "$ROLE" = "files" ]; then
+      printf '\n# database on the app computer\nDB_HOST=%s\nDB_PORT=%s\n' "$DB_HOST" "$DB_PORT"
+    fi
+    if [ "$ROLE" != "app" ]; then
+      printf "\n# your music, mounted read-only at /mnt/music in the file worker\nMUSIC_DIR='%s'\n" "$MUSIC_DIR"
+    fi
+  } | write_private "$env_file"
+  ok ".env (readable only by you)"
 
-    log_success "Using docker-compose.yml from repository"
+  if [ "$ROLE" = "app" ]; then
+    local worker_env="$INSTALL_DIR/$WORKER_ENV_NAME"
+    write_private "$worker_env" <<EOF
+# tagave file worker settings, written by install-tagave.sh on the app computer.
+# Copy this file to the computer that can see your music and run there:
+#   ./install-tagave.sh --role files --from $WORKER_ENV_NAME --music /path/to/music
+# It holds secrets: delete the copy once the file worker is installed.
+DB_HOST=$ADVERTISE_ADDRESS
+DB_PORT=$DB_PORT
+TAGAVE_VERSION=$VERSION
+APP_SECRET=$APP_SECRET
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+POSTGRES_USER=$POSTGRES_USER
+POSTGRES_DB=$POSTGRES_DB
+EOF
+    ok "$WORKER_ENV_NAME (for the music computer, readable only by you)"
+  fi
 }
 
-# ============================================================================
-# Service Startup & Health Checks
-# ============================================================================
+validate_compose() {
+  compose config --quiet || die "docker compose rejected the configuration in $INSTALL_DIR (see above)"
+  ok "Compose configuration is valid"
+}
+
+# The file worker is useless if it cannot reach the database, so check the
+# path before starting it, from inside the worker image.
+check_db_reachable() {
+  [ "$ROLE" = "files" ] || return 0
+  step "Checking the connection to the app computer"
+  compose pull --quiet worker-files || die "downloading the worker image failed (see above)."
+  if compose run --rm --no-deps -T --entrypoint node worker-files -e "
+      const s = require('net').connect({ host: process.argv[1], port: Number(process.argv[2]), timeout: 5000 });
+      s.on('connect', () => { s.end(); process.exit(0); });
+      s.on('timeout', () => process.exit(1));
+      s.on('error', () => process.exit(1));
+    " "$DB_HOST" "$DB_PORT" >/dev/null 2>&1; then
+    ok "The database at $DB_HOST:$DB_PORT answers"
+  else
+    die "cannot reach the database at $DB_HOST:$DB_PORT. Check that the app computer is on, that its firewall lets this computer in on port $DB_PORT, and that the address is right."
+  fi
+}
+
+container_health() {
+  local id
+  id="$(compose ps -q "$1" 2>/dev/null || true)"
+  [ -n "$id" ] || { echo "missing"; return 0; }
+  docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$id" 2>/dev/null || echo "missing"
+}
+
+wait_for() {
+  local service="$1" want="$2" seconds="$3" i=0 state
+  while [ "$i" -lt "$seconds" ]; do
+    state="$(container_health "$service")"
+    [ "$state" = "$want" ] && return 0
+    case "$state" in exited|dead|unhealthy) return 1 ;; esac
+    sleep 2
+    i=$((i + 2))
+  done
+  return 1
+}
 
 start_services() {
-    log_header "Starting Services"
+  step "Starting tagave"
+  compose pull || die "downloading the images failed (see above). Check the internet connection and run this again."
+  compose up -d || die "docker compose could not start tagave (see above)."
 
-    cd "$INSTALL_DIR"
-
-    log_info "Pulling latest images..."
-    docker compose pull
-
-    log_info "Starting containers..."
-    docker compose up -d
-
-    log_success "Containers started"
-}
-
-wait_for_health() {
-    local service="$1"
-    local max_attempts=30
-    local attempt=0
-
-    log_info "Waiting for $service..."
-
-    # Read POSTGRES_USER from .env, default to liner
-    local postgres_user="liner"
-    if [ -f "$ENV_FILE" ]; then
-        postgres_user=$(grep '^POSTGRES_USER=' "$ENV_FILE" | cut -d'=' -f2)
-    fi
-
-    while [ $attempt -lt $max_attempts ]; do
-        if docker compose exec -T "$service" pg_isready -U "$postgres_user" &> /dev/null 2>&1; then
-            return 0
-        elif [ "$service" = "app" ]; then
-            if curl -sf http://localhost:3100/_health > /dev/null 2>&1; then
-                return 0
-            fi
-        fi
-
-        attempt=$((attempt + 1))
-        sleep 1
-    done
-
-    return 1
-}
-
-validate_services() {
-    log_header "Validating Services"
-
-    cd "$INSTALL_DIR"
-
-    # Check postgres
-    if wait_for_health postgres; then
-        log_success "Database connected"
+  if [ "$ROLE" != "files" ]; then
+    say "  Waiting for the web app (the first start sets up the database)..."
+    if wait_for app healthy 180; then
+      ok "Web app is up"
     else
-        log_warning "Database not responding yet (will be ready shortly)"
+      compose logs --tail 40 app >&2 || true
+      die "the web app did not become healthy. The log above says why; fix it and run the installer again."
     fi
+  fi
 
-    # Check API
-    if wait_for_health app; then
-        log_success "API responding"
-    else
-        log_warning "API not responding yet (will be ready shortly)"
-    fi
-
-    # If split topology, show instructions for worker setup
-    if [ -f "$ENV_FILE" ]; then
-        local topology=$(grep '^WORKER_TOPOLOGY=' "$ENV_FILE" | cut -d'=' -f2)
-        if [ "$topology" = "split" ]; then
-            local worker_host=$(grep '^WORKER_HOST=' "$ENV_FILE" | cut -d'=' -f2)
-            local primary_host=$(grep '^HOSTNAME=' "$ENV_FILE" | cut -d'=' -f2)
-            log_info ""
-            log_warning "Split topology detected: workers on $worker_host"
-            log_info "Copy the .env file to the worker host and run:"
-            log_info "  docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d"
-            log_info "Worker connectivity will be validated by health checks when workers start."
-        fi
-    fi
+  local worker
+  for worker in worker-identify worker-files; do
+    case "$ROLE:$worker" in app:worker-files|files:worker-identify) continue ;; esac
+    wait_for_worker "$worker"
+  done
 }
 
-# ============================================================================
-# Success Output
-# ============================================================================
-
-show_success() {
-    echo ""
-    log_header "Setup Complete!"
-    echo ""
-    echo "Your Tagave music catalogue is now starting up."
-    echo ""
-    echo "Next steps:"
-    echo "  1. Open your browser and visit:"
-    echo "     ${BLUE}http://localhost:3100/setup${NC}"
-    echo ""
-    echo "  2. If accessing from another computer, use your IP address:"
-    echo "     ${BLUE}http://<your-server-ip>:3100/setup${NC}"
-    echo ""
-    echo "  3. Follow the setup wizard to:"
-    echo "     - Create an admin account"
-    echo "     - Configure your music library"
-    echo "     - Add external API tokens (optional)"
-    echo ""
-    echo "Configuration has been saved to:"
-    echo "  ${BLUE}${ENV_FILE}${NC}"
-    echo ""
-    echo "To view service status:"
-    echo "  ${BLUE}docker compose ps${NC}"
-    echo ""
-    echo "To view logs:"
-    echo "  ${BLUE}docker compose logs -f app${NC}"
-    echo ""
-    echo "To stop services:"
-    echo "  ${BLUE}docker compose down${NC}"
-    echo ""
+# A worker has no health endpoint; it logs "worker ready" once connected and
+# restarts in a loop when it cannot get there (wrong password, bad secret).
+wait_for_worker() {
+  local worker="$1" i=0 id restarts logs
+  say "  Waiting for $worker to connect..."
+  while [ "$i" -lt 120 ]; do
+    id="$(compose ps -q "$worker" 2>/dev/null || true)"
+    logs="$(compose logs --no-log-prefix "$worker" 2>/dev/null || true)"
+    case "$logs" in *'"msg":"worker ready"'*) ok "$worker is connected"; return 0 ;; esac
+    restarts="$( [ -n "$id" ] && docker inspect --format '{{.RestartCount}}' "$id" 2>/dev/null || echo 0)"
+    if [ "${restarts:-0}" -gt 0 ]; then
+      compose logs --tail 20 "$worker" >&2 || true
+      case "$logs" in
+        *'password authentication failed'*)
+          die "the database refused $worker's password. On a split install, $WORKER_ENV_NAME must come from the app install this worker joins." ;;
+      esac
+      die "$worker keeps restarting. The log above says why."
+    fi
+    sleep 3
+    i=$((i + 3))
+  done
+  compose logs --tail 20 "$worker" >&2 || true
+  die "$worker did not connect within two minutes. The log above says why."
 }
 
-# ============================================================================
-# Music Path Testing
-# ============================================================================
-
-test_music_path() {
-    local music_type="$1"
-    local music_path="$2"
-
-    log_header "Testing Music Path"
-
-    case "$music_type" in
-        1)
-            # Local path
-            if [ -d "$music_path" ]; then
-                log_success "Music path is accessible: $music_path"
-            else
-                log_warning "Music path does not exist: $music_path"
-                log_info "You can create it later or from the setup wizard"
-            fi
-            ;;
-        2)
-            # NFS
-            local nas_host=$(echo "$music_path" | cut -d'|' -f1)
-            local nas_path=$(echo "$music_path" | cut -d'|' -f2)
-            if command -v showmount &> /dev/null; then
-                if showmount -e "$nas_host" &> /dev/null; then
-                    log_success "NAS $nas_host is reachable"
-                else
-                    log_warning "Could not reach NAS at $nas_host"
-                fi
-            else
-                log_info "Cannot verify NFS without showmount. You can test after install."
-            fi
-            ;;
-        3)
-            # SMB
-            log_info "SMB configuration will be applied after services start"
-            ;;
-        *)
-            log_info "Music path will be configured in the setup wizard"
-            ;;
-    esac
+show_summary() {
+  step "Done"
+  local addr
+  addr="$(detect_address)"
+  case "$ROLE" in
+    all|app)
+      say "  Open tagave:    http://localhost:$PORT"
+      if [ "$addr" != "localhost" ]; then say "  From elsewhere: http://$addr:$PORT"; fi
+      say ""
+      say "  The first visit creates your account. When it asks for a scan root,"
+      if [ "$ROLE" = "all" ]; then
+        say "  enter /mnt/music: that is $MUSIC_DIR as the file worker sees it."
+      else
+        say "  enter /mnt/music: that is the music folder on the music computer."
+      fi
+      ;;
+  esac
+  if [ "$ROLE" = "app" ]; then
+    say ""
+    say "  Next, on the computer that can see your music:"
+    say "    1. Copy $INSTALL_DIR/$WORKER_ENV_NAME there (it holds secrets; delete it afterwards)."
+    say "    2. Run:  install-tagave.sh --role files --from $WORKER_ENV_NAME --music /path/to/music"
+    say "  The database now listens on port $DB_PORT. Let only that computer through your firewall."
+    say "  Until the file worker runs, scans wait in the queue."
+  fi
+  if [ "$ROLE" = "files" ]; then
+    say "  The file worker is connected to $DB_HOST. Scans started in the app now run here,"
+    say "  reading $MUSIC_DIR (the scan root /mnt/music)."
+  fi
+  say ""
+  say "  In $INSTALL_DIR:"
+  say "    docker compose ps                   what is running"
+  say "    docker compose logs -f              live logs"
+  say "    docker compose pull && docker compose up -d    update to the newest images"
+  if [ "$ROLE" != "files" ]; then
+    say "    docker compose exec app node packages/doctor/dist/cli.js doctor    full health check"
+    say "    docker compose exec app node packages/doctor/dist/cli.js backup    back up the database"
+  fi
+  say ""
+  say "  Keep a copy of $INSTALL_DIR/.env somewhere safe: without it the database cannot be opened."
 }
-
-# ============================================================================
-# Main Installer Flow
-# ============================================================================
 
 main() {
-    clear
+  say "${C_BOLD}tagave installer${C_OFF}"
+  check_value "install directory" "$INSTALL_DIR"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
 
-    echo "${BLUE}"
-    echo "╔════════════════════════════════════════════════════════╗"
-    echo "║  Tagave: Self-Hosted Music Catalogue Installer         ║"
-    echo "╚════════════════════════════════════════════════════════╝"
-    echo "${NC}"
-    echo ""
+  check_prerequisites
+  collect_answers
+  check_music_dir
+  resolve_version
+  fetch_compose_files
+  settle_secrets
+  write_env
+  validate_compose
 
-    # Prerequisites
-    check_prerequisites
-    echo ""
+  if [ "$NO_START" = "1" ]; then
+    step "Configuration written; nothing started (--no-start)"
+    say "  Start it with:  cd $INSTALL_DIR && docker compose up -d"
+    return 0
+  fi
 
-    # Interactive prompts
-    hostname=$(prompt_hostname)
-    echo ""
-
-    timezone=$(prompt_timezone)
-    echo ""
-
-    music_source=$(prompt_music_source)
-    echo ""
-
-    case "$music_source" in
-        1)
-            music_dir=$(prompt_local_music_path)
-            test_music_path 1 "$music_dir"
-            ;;
-        2)
-            nfs_config=$(prompt_nfs_config)
-            music_dir="/mnt/music"  # standardized mount point
-            test_music_path 2 "$nfs_config"
-            ;;
-        3)
-            smb_config=$(prompt_smb_config)
-            music_dir="/mnt/music"  # standardized mount point
-            test_music_path 3 "$smb_config"
-            ;;
-        *)
-            music_dir="/mnt/music"
-            test_music_path 4 ""
-            ;;
-    esac
-    echo ""
-
-    topology=$(prompt_topology)
-    echo ""
-
-    if [ "$topology" = "2" ]; then
-        worker_topology="split"
-        worker_host=$(prompt_worker_host)
-    else
-        worker_topology="single-host"
-        worker_host="localhost"
-    fi
-    echo ""
-
-    backup_config=$(prompt_backups)
-    backup_enabled=$(echo "$backup_config" | cut -d'|' -f1)
-    backup_location=$(echo "$backup_config" | cut -d'|' -f2)
-    if [ -z "$backup_location" ]; then
-        backup_location="/backup"
-    fi
-    echo ""
-
-    # Generate secrets
-    log_header "Generating Secrets"
-    app_secret=$(generate_secret)
-    postgres_password=$(generate_secret)
-    log_success "Generated APP_SECRET and POSTGRES_PASSWORD"
-    echo ""
-
-    # Create configuration files
-    create_env_file "$app_secret" "$postgres_password" "$hostname" "$timezone" \
-        "$music_dir" "$worker_topology" "$worker_host" "$backup_enabled" "$backup_location"
-    echo ""
-
-    create_docker_compose
-    echo ""
-
-    # Start services
-    start_services
-    echo ""
-
-    # Validate
-    validate_services
-    echo ""
-
-    # Show success
-    show_success
+  check_db_reachable
+  start_services
+  show_summary
 }
 
-# Run the installer
-main "$@"
+main
