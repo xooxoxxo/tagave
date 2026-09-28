@@ -17,6 +17,21 @@ function isSecureConnection(request: FastifyRequest): boolean {
 }
 
 export async function createAuthRoutes(fastify: FastifyInstance) {
+  // Check if setup is required (no admin user exists)
+  fastify.get('/setup-required', async (request: FastifyRequest, reply: FastifyReply) => {
+    const db = getDb();
+
+    try {
+      const existingUsers = await db.select().from(users);
+      const setupRequired = existingUsers.length === 0;
+
+      reply.status(200).send({ setupRequired });
+    } catch (err) {
+      // If there's an error checking users, assume setup is required
+      reply.status(200).send({ setupRequired: true });
+    }
+  });
+
   // Setup endpoint (first-run account creation)
   fastify.post('/setup', async (request: FastifyRequest, reply: FastifyReply) => {
     // Check if HTTPS or ALLOW_INSECURE_HTTP
