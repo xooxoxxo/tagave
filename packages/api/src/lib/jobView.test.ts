@@ -44,6 +44,7 @@ describe('jobLabel', () => {
     expect(jobLabel('scan.root', 'Music')).toBe('Scan Music');
     expect(jobLabel('identify.sweep')).toBe('Identify albums');
     expect(jobLabel('some.future.job')).toBe('Background task');
+    expect(jobLabel('tags.preview')).toBe('Preview a tag plan');
   });
 });
 
@@ -59,6 +60,12 @@ describe('jobSummary', () => {
     const p = parseProgress({ done: 27149, total: 27153, message: '20949 of 27153 albums identified (77.2%)' });
     expect(jobSummary('identify.sweep', 'done', p)).toBe('Went through 27,153 albums; 20,949 identified.');
     expect(jobSummary('identify.sweep', 'running', parseProgress({ done: 5, total: 10 }))).toBe('5 of 10 albums checked.');
+  });
+
+  it("passes on the tag plan preview's own progress line", () => {
+    expect(jobSummary('tags.preview', 'running', parseProgress({ done: 4, total: 15, message: 'Comparing tags: 4 of 15 files' }))).toBe('Comparing tags: 4 of 15 files.');
+    expect(jobSummary('tags.preview', 'done', parseProgress({ done: 15, total: 15, message: 'Compared 15 files' }))).toBe('Compared 15 files.');
+    expect(jobSummary('tags.preview', 'running', parseProgress(null))).toBe('Comparing tags.');
   });
 
   it('reads routine check messages', () => {

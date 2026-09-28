@@ -7,10 +7,12 @@ interface LinkButtonProps extends Omit<LinkProps, 'children' | 'className'> {
   variant?: ButtonVariant;
   size?: ButtonSize;
   className?: string;
+  /** hover text, as on Button */
+  title?: string;
   children: ReactNode;
 }
 
-export function LinkButton({ variant = 'primary', size = 'md', className, children, ...props }: LinkButtonProps) {
+export function LinkButton({ variant = 'primary', size = 'md', className, title, children, ...props }: LinkButtonProps) {
   const cls = [
     styles.button,
     styles[variant],
@@ -21,7 +23,7 @@ export function LinkButton({ variant = 'primary', size = 'md', className, childr
     .join(' ');
 
   return (
-    <Link className={cls} {...(props as LinkProps)}>
+    <Link className={cls} title={title} {...(props as LinkProps)}>
       {children}
     </Link>
   );

@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { AlbumSummary } from '@liner/shared';
+import type { AlbumSummary, JobsListResponse } from '@liner/shared';
 import {
   useCurrentLibrary,
   useScanRoots,
@@ -28,6 +28,8 @@ import { folderAdvice, workerLive, validateContact } from './setupWizard';
 import styles from './OnboardingPage.module.css';
 
 const LIVE_MS = 5000;
+/** Scan states that stop the polling. */
+const SCAN_OVER = new Set(['done', 'failed', 'interrupted', 'cancelled']);
 
 export function OnboardingPage() {
   const navigate = useNavigate();
@@ -85,10 +87,12 @@ export function OnboardingPage() {
     queryKey: ['onboarding', 'scan-job', libraryId],
     queryFn: () =>
       api
-        .get<{ data: JobInfo[] }>(`/libraries/${libraryId}/jobs?limit=20`)
-        .then((r) => r.data.find((j) => j.type === 'scan.root') ?? null),
+        // routine included: a scan that found nothing is filed as routine;
+        // a failed one comes back under `attention`, not `data`
+        .get<JobsListResponse>(`/libraries/${libraryId}/jobs?limit=20&include=routine`)
+        .then((r) => [...r.attention, ...r.data].find((j) => j.type === 'scan.root') ?? null),
     enabled: !!libraryId && scanStarted,
-    refetchInterval: (q) => (q.state.data?.state === 'completed' || q.state.data?.state === 'failed' ? false : LIVE_MS),
+    refetchInterval: (q) => (SCAN_OVER.has(q.state.data?.status ?? '') ? false : LIVE_MS),
   });
 
   if (settingsLoading || !libraryId) {
@@ -314,13 +318,13 @@ export function OnboardingPage() {
                   </Link>{' '}
                   by {identified.artistCredit}. The rest of the library follows in the background.
                 </Banner>
-              ) : job?.state === 'failed' ? (
+              ) : job && (job.status === 'failed' || job.status === 'interrupted' || job.status === 'cancelled') ? (
                 <Banner tone="danger">
                   The scan stopped: {job.error ?? 'no reason was recorded'}. Check the folder above, then start a new scan
                   from Settings › Music folders.{' '}
                   <Link to="/settings/$section" params={{ section: 'activity' }}>Open background activity</Link>
                 </Banner>
-              ) : job?.state === 'completed' && found === 0 && stats.data ? (
+              ) : job?.status === 'done' && found === 0 && stats.data ? (
                 <Banner tone="warning">
                   The scan finished without finding any albums. Check that the folder holds audio files in album
                   folders, and that it is the folder the worker sees.
@@ -410,16 +414,17 @@ export function OnboardingPage() {
 
 function scanLine(job: JobInfo | null | undefined): string {
   if (!job) return 'Waiting for the worker to start';
-  switch (job.state) {
-    case 'created':
+  switch (job.status) {
+    case 'waiting':
       return 'Waiting for the worker to start';
     case 'running':
       return job.progress?.done ? `Reading files: ${job.progress.done.toLocaleString()} so far` : 'Reading files';
-    case 'completed':
+    case 'done':
       return job.progress?.done ? `Finished: ${job.progress.done.toLocaleString()} files read` : 'Finished';
     case 'failed':
+    case 'interrupted':
       return 'Stopped';
-    default:
-      return job.state;
+    case 'cancelled':
+      return 'Cancelled';
   }
 }

@@ -93,6 +93,7 @@ export function jobLabel(type: string, subjectName?: string | null): string {
     case 'gaps.recompute': return 'Check for gaps and duplicates';
     case 'queue.autoaccept': return 'Accept confident matches';
     case 'artists.resolve': return 'Link artists';
+    case 'tags.preview': return 'Preview a tag plan';
     default: return 'Background task';
   }
 }
@@ -148,6 +149,11 @@ export function jobSummary(type: string, status: JobViewStatus, p: Progress): st
       counts['missing_album'] ? plural(counts['missing_album'], 'missing album') : null,
     ].filter(Boolean);
     if (Object.keys(counts).length) return parts.length ? `Open: ${parts.join(', ')}.` : 'No gaps found.';
+  }
+  if (type === 'tags.preview') {
+    // the worker writes its own plain progress line ("Comparing tags: 4 of 15 files")
+    if (msg) return msg.endsWith('.') ? msg : `${msg}.`;
+    return status === 'running' ? 'Comparing tags.' : null;
   }
   if (type === 'queue.autoaccept') {
     const m = /(\d+)\/(\d+)/.exec(msg);
