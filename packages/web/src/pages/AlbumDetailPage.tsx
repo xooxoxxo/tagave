@@ -10,6 +10,7 @@ import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
+import { AlbumEditionsPanel } from './AlbumEditionsPanel';
 import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
@@ -803,102 +804,35 @@ export function AlbumDetailPage() {
       </>)}
 
       {tab === 'editions' && (
-        <div className={styles.section}>
-          <div className={styles.sectionHead}>
-            <h2 className={styles.sectionTitle}>Editions{editions?.editions.length ? ` (${editions.editions.length})` : ''}</h2>
-            <div className={styles.sectionTools}>
-              {album.match?.releaseGroupOnly && (
-                <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
-              )}
-              {pending?.kind === 'mbid' && (
-                <span className={styles.muted}>
-                  Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
-                </span>
-              )}
-              {switchEdition.isError && <span className={styles.mbidError}>{errorDetail(switchEdition)}</span>}
-              {editions?.fetching && (
-                <span className={styles.muted}>Fetching editions from MusicBrainz…</span>
-              )}
-              {editions?.fetchedAt && !editions.fetching && (
-                <button
-                  className={styles.linkButton}
-                  onClick={() => refreshEditions.mutate(albumId)}
-                  disabled={refreshEditions.isPending}
-                  title={`Fetched ${new Date(editions.fetchedAt).toLocaleString()} — fetch again from MusicBrainz`}
-                >
-                  Refresh
-                </button>
-              )}
-            </div>
-          </div>
-          {!album.releaseGroupId ? (
-            <p className={styles.muted}>Editions belong to a release group — match this album first.</p>
-          ) : !editions ? (
-            <p className={styles.muted}>Loading…</p>
-          ) : !editions.fetchedAt && !editions.fetching ? (
-            <p className={styles.muted}>
-              The editions of this release group have not been fetched yet.{' '}
-              <button className={styles.linkButton} onClick={() => refreshEditions.mutate(albumId)} disabled={refreshEditions.isPending}>
-                {refreshEditions.isPending ? 'Queuing…' : 'Fetch editions from MusicBrainz'}
-              </button>
-            </p>
-          ) : editions.editions.length === 0 ? (
-            <p className={styles.muted}>{editions.fetching ? 'Fetching…' : 'MusicBrainz lists no other editions for this release group.'}</p>
-          ) : (<>
-          <table className={styles.candTable}>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Country</th>
-                <th>Label / Catno</th>
-                <th>Format</th>
-                <th className={styles.num}>Tracks</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {editions.editions.map((e) => (
-                <tr key={e.releaseId} className={e.owned ? styles.ownedRow : ''}>
-                  <td className={styles.num}>{e.date ?? '–'}</td>
-                  <td>{e.country ?? '–'}</td>
-                  <td>
-                    {e.labels.length > 0
-                      ? e.labels.map((l) => (
-                        <span key={l.name} className={styles.cellLine}>
-                          {l.name}
-                          {l.catalogNumber && ` / ${l.catalogNumber}`}
-                        </span>
-                      ))
-                      : '–'}
-                  </td>
-                  <td>
-                    {e.media.map((m, i) => (
-                      <span key={i} className={styles.cellLine}>
-                        {(m as any).format}
-                        {(m as any).trackCount ? ` × ${(m as any).trackCount}` : ''}
-                      </span>
-                    ))}
-                  </td>
-                  <td className={styles.num}>{e.trackCount}</td>
-                  <td className={styles.gapActions}>
-                    {e.owned ? (
-                      <span className={styles.muted}>This copy</span>
-                    ) : (
-                      <button
-                        className="secondary"
-                        onClick={() => switchEdition.mutate(e.mbid)}
-                        disabled={switchEdition.isPending || !!pending}
-                        title={pending ? 'An identification request is already queued for this album — cancel it in the panel above first' : 'Re-match this album to this edition (queues a manual identification)'}
-                      >
-                        {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {album.match && (
+        <AlbumEditionsPanel
+          hasReleaseGroup={!!album.releaseGroupId}
+          editions={editions}
+          onFetch={() => refreshEditions.mutate(albumId)}
+          fetchPending={refreshEditions.isPending}
+          tools={<>
+            {album.match?.releaseGroupOnly && (
+              <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
+            )}
+            {pending?.kind === 'mbid' && (
+              <span className={styles.muted}>
+                Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
+              </span>
+            )}
+            {switchEdition.isError && <span className={styles.mbidError}>{errorDetail(switchEdition)}</span>}
+          </>}
+          rowAction={(e) => (e.owned ? (
+            <span className={styles.muted}>This copy</span>
+          ) : (
+            <button
+              className="secondary"
+              onClick={() => switchEdition.mutate(e.mbid)}
+              disabled={switchEdition.isPending || !!pending}
+              title={pending ? 'An identification request is already queued for this album — cancel it in the panel above first' : 'Re-match this album to this edition (queues a manual identification)'}
+            >
+              {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
+            </button>
+          ))}
+          footer={album.match && (
             <div className={styles.sectionFoot}>
               <button
                 onClick={() => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId))}
@@ -913,8 +847,7 @@ export function AlbumDetailPage() {
               )}
             </div>
           )}
-          </>)}
-        </div>
+        />
       )}
 
       {tab === 'reviews' && (album.releaseGroupId ? (
