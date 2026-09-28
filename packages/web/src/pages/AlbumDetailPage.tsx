@@ -4,7 +4,7 @@
  * needed to act without leaving: gaps with dismiss, missing tracks,
  * candidate accept/exclude, duplicate copies, art refetch, as-is/ignore.
  */
-import { Fragment, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
@@ -14,6 +14,8 @@ import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 import { uniqueGenres } from '../utils/albumPresentation';
+import { describeQualityFlags } from '../utils/qualityFlags';
+import { Button, LinkButton } from '../components/ui';
 
 interface DetailTrack {
   id: string;
@@ -195,136 +197,6 @@ const GAP_LABEL: Record<string, string> = {
   missing_album: 'Missing album',
 };
 
-/** What a quality chip can offer: fetch art, open the tag wizard on this album, or point at Split by format. */
-type FlagAction = 'art' | 'tags' | 'split';
-
-interface FlagChip {
-  key: string;
-  label: string;
-  detail?: string | undefined;
-  action?: FlagAction | undefined;
-}
-
-const FLAG_ACTION: Record<string, FlagAction> = {
-  noCover: 'art',
-  missingMbIds: 'tags',
-  emptyRequiredFields: 'tags',
-  trackNumberIssues: 'tags',
-  inconsistentAlbumFields: 'tags',
-  titleCaseAnomalies: 'tags',
-  discNumberGaps: 'tags',
-  mixedLossless: 'split',
-  lowBitrate: 'split',
-};
-
-const FLAG_LABEL: Record<string, string> = {
-  noCover: 'No cover art',
-  noEmbeddedArt: 'No embedded art',
-  mixedLossless: 'Mixed lossless and lossy',
-  parseErrors: 'Unreadable files',
-  lowBitrate: 'Low bitrate',
-  missingMbIds: 'Missing MusicBrainz IDs',
-  trackNumberIssues: 'Track numbers',
-  emptyRequiredFields: 'Empty required fields',
-  titleCaseAnomalies: 'Title case',
-  inconsistentAlbumFields: 'Inconsistent album fields',
-  discNumberGaps: 'Disc number gaps',
-};
-
-function humanize(key: string): string {
-  return key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
-}
-
-/**
- * Describe each quality flag with explanation of what's wrong and why.
- * Audio flags are `true` or a count; lint rules have details about affected items.
- */
-function describeQualityFlags(flags: Record<string, unknown>): FlagChip[] {
-  const explanations: Record<string, { explain: (count?: number) => string }> = {
-    noCover: {
-      explain: () => 'Album artwork missing. Add one to improve recognition and collection appearance.',
-    },
-    noEmbeddedArt: {
-      explain: () => 'No artwork embedded in audio files. Shows in players; optional if external art exists.',
-    },
-    missingMbIds: {
-      explain: (count = 1) => `Missing MusicBrainz track IDs on ${count} ${count === 1 ? 'track' : 'tracks'}. Needed for accurate matching and lookups.`,
-    },
-    trackNumberIssues: {
-      explain: (count = 1) => `Track numbers incomplete on ${count} ${count === 1 ? 'track' : 'tracks'}. Essential for playback order.`,
-    },
-    emptyRequiredFields: {
-      explain: (count = 1) => `Required tag missing on ${count} ${count === 1 ? 'track' : 'tracks'}. Affects search and organization.`,
-    },
-    inconsistentAlbumFields: {
-      explain: (count = 1) => `Album field inconsistent across ${count} ${count === 1 ? 'track' : 'tracks'}. Impairs identification and metadata quality.`,
-    },
-    titleCaseAnomalies: {
-      explain: (count = 1) => `Title capitalization odd on ${count} ${count === 1 ? 'item' : 'items'}. Style consistency issue.`,
-    },
-    discNumberGaps: {
-      explain: (count = 1) => `Disc numbering has ${count} ${count === 1 ? 'gap' : 'gaps'}. Breaks multi-disc album structure.`,
-    },
-    parseErrors: {
-      explain: (count = 1) => `Cannot read tags on ${count} ${count === 1 ? 'file' : 'files'}. File may be corrupted or in unsupported format.`,
-    },
-    mixedLossless: {
-      explain: () => 'Mix of lossless and lossy files. Split by format to organize by quality.',
-    },
-    lowBitrate: {
-      explain: (count = 1) => `Lossy file${count === 1 ? '' : 's'} below 192 kbps on ${count} ${count === 1 ? 'track' : 'tracks'}. Acceptable but lower quality.`,
-    },
-  };
-
-  return Object.entries(flags).map(([key, value]) => {
-    const baseLabel = FLAG_LABEL[key] ?? humanize(key);
-    const action = FLAG_ACTION[key] ? { action: FLAG_ACTION[key] } : {};
-    const explainer = explanations[key];
-
-    // Handle simple boolean flags
-    if (value === true || value == null) {
-      return {
-        key,
-        label: baseLabel,
-        detail: explainer?.explain(),
-        ...action,
-      };
-    }
-
-    // Handle count-based flags
-    if (typeof value === 'number') {
-      return {
-        key,
-        label: baseLabel,
-        detail: explainer?.explain(value),
-        ...action,
-      };
-    }
-
-    // Handle object-based flags (with detailed items)
-    if (typeof value !== 'object') {
-      return {
-        key,
-        label: `${baseLabel} · ${String(value)}`,
-        ...action,
-      };
-    }
-
-    const obj = value as Record<string, unknown>;
-    const items = Object.values(obj).filter(Array.isArray).flat() as unknown[];
-    if (items.length === 0) {
-      return { key, label: baseLabel, detail: explainer?.explain(), ...action };
-    }
-
-    return {
-      key,
-      label: baseLabel,
-      detail: explainer?.explain(items.length),
-      ...action,
-    };
-  });
-}
-
 export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
   const { libraryId } = useCurrentLibrary();
@@ -334,6 +206,14 @@ export function AlbumDetailPage() {
   // Album first; editions, reviews and the background story live on their own
   // faces and load only when opened, so a page visit costs one detail request.
   const [tab, setTab] = useState<'album' | 'care' | 'editions' | 'reviews' | 'activity'>('album');
+  // the split options live in "Manage this album"; the Library health row opens it
+  const manageRef = useRef<HTMLDetailsElement>(null);
+  const openManage = () => {
+    const el = manageRef.current;
+    if (!el) return;
+    el.open = true;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
@@ -443,8 +323,14 @@ export function AlbumDetailPage() {
     .sort((a, b) => a.distance - b.distance);
   const excludedCount = album.candidates.filter((c) => c.excluded).length;
   const qualityFlags = describeQualityFlags(
-    (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags ?? {},
+    (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags,
+    { mixed: album.mixed },
   );
+  // one number for the tab, the header link and the section heading: each
+  // quality problem counts on its own, every other open gap counts once
+  const otherGaps = openGaps.filter((g) => g.kind !== 'quality');
+  const issueCount = qualityFlags.length + otherGaps.length;
+  const issueNoun = issueCount === 1 ? 'issue' : 'issues';
 
   const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
 
@@ -454,7 +340,6 @@ export function AlbumDetailPage() {
       return `${d.have}/${d.want} tracks`;
     }
     if (g.kind === 'duplicate') return `${(g.details as { count?: number }).count} copies of this release group`;
-    if (g.kind === 'quality') return qualityFlags.map((f) => f.label).join(' · ');
     return '';
   };
 
@@ -504,7 +389,7 @@ export function AlbumDetailPage() {
             <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>
               {STATE_LABEL[album.state] ?? album.state}
             </span>
-            {openGaps.length > 0 && <button className={styles.issueLink} onClick={() => setTab('care')}>{openGaps.length} library {openGaps.length === 1 ? 'issue' : 'issues'} →</button>}
+            {issueCount > 0 && <button className={styles.issueLink} onClick={() => setTab('care')}>{issueCount} library {issueNoun} →</button>}
             {album.match?.releaseGroupOnly && (
               <button className={styles.pillButton} title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
                 any edition ✕
@@ -567,7 +452,7 @@ export function AlbumDetailPage() {
               {album.isCueImage && <div><dt>CUE sheet</dt><dd>{album.cueRelPath || 'CUE image album'}</dd></div>}
             </dl>
           </details>
-          <details className={styles.maintenance}><summary>Manage this album</summary>
+          <details ref={manageRef} className={styles.maintenance}><summary>Manage this album</summary>
           <div className={styles.actions}>
             <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
               {reidentify.isPending ? 'Queued…' : 'Re-identify'}
@@ -645,7 +530,7 @@ export function AlbumDetailPage() {
       <nav className={styles.tabs} aria-label="Album sections">
         {([
           ['album', 'Tracks'],
-          ['care', `Library health${openGaps.length > 0 ? ` (${qualityFlags.length + openGaps.filter(g => g.kind !== 'quality').length})` : ''}`],
+          ['care', `Library health${issueCount > 0 ? ` (${issueCount})` : ''}`],
           ['editions', 'Editions'],
           ['reviews', 'Reviews & listening'],
           ['activity', pending ? 'Activity ·' : 'Activity'],
@@ -657,85 +542,81 @@ export function AlbumDetailPage() {
       </nav>
 
       {tab === 'care' && (<>
-      {openGaps.length > 0 && (
+      {(openGaps.length > 0 || dismissedGaps.length > 0) && (
         <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Needs attention</h2>
-          {openGaps.map((g) => (
-            <div key={g.id}>
-              {g.kind === 'quality' ? (
-                /* Quality flags: each issue as its own row with clear explanation and action */
-                <div className={styles.qualityGapGroup}>
-                  <div className={styles.qualityGapHeader}>
-                    <h3 className={styles.qualityGapTitle}>Quality issues ({qualityFlags.length})</h3>
-                    <span className={styles.gapActions}>
-                      <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this entire group; it will not count as a gap">
-                        Dismiss all
-                      </button>
-                      <button
-                        className="secondary"
-                        title="The data is wrong (feeds the false-positive metric)"
-                        onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
-                      >
-                        Wrong data
-                      </button>
-                    </span>
+          <h2 className={styles.sectionTitle}>{issueCount > 0 ? `Needs attention (${issueCount})` : 'Hidden issues'}</h2>
+          {openGaps.map((g) =>
+            g.kind === 'quality' ? (
+              <div key={g.id} className={styles.qualityGapGroup}>
+                <div className={styles.qualityGapHeader}>
+                  <div>
+                    <h3 className={styles.qualityGapTitle}>Tags, artwork and files</h3>
+                    <p className={styles.qualityGapNote}>Each row says what is wrong and what to do next. Hiding or marking as wrong applies to every row in this list.</p>
                   </div>
-                  {qualityFlags.map((f) => (
-                    <div key={f.key} className={styles.qualityFlag}>
-                      <div className={styles.qualityFlagContent}>
-                        <div className={styles.qualityFlagLabel}>{f.label}</div>
-                        {f.detail && <div className={styles.qualityFlagDetail}>{f.detail}</div>}
-                      </div>
-                      <div className={styles.qualityFlagAction}>
-                        {f.action === 'art' && (
-                          <button type="button" className="secondary" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
-                            {fetchArt.isPending ? 'Queued…' : 'Fetch art'}
-                          </button>
-                        )}
-                        {f.action === 'tags' && (
-                          <Link to="/plans" search={(prev) => ({ ...prev, album: albumId })} className={styles.flagAction} title="Open the tag wizard on this album">
-                            Fix tags
-                          </Link>
-                        )}
-                        {f.action === 'split' && album.mixed && (
-                          <span className={styles.qualityFlagHint} title="Split by format sits with the header actions">→ Manage → Split by format</span>
-                        )}
-                        {!f.action && (
-                          <span className={styles.qualityFlagNoAction}>No action available</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* Other gaps: incomplete, duplicate, missing */
-                <div className={styles.gapRow}>
-                  <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
-                  <span className={styles.gapDetail}>{describeGap(g)}</span>
                   <span className={styles.gapActions}>
-                    <button className="secondary" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} title="Hide this; it will not count as a gap">
-                      Dismiss
-                    </button>
-                    <button
-                      className="secondary"
-                      title="The data is wrong (feeds the false-positive metric)"
-                      onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })}
-                    >
-                      Wrong data
-                    </button>
+                    <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} disabled={dismissGap.isPending} title="Stop showing these issues for this album. You can bring them back from the bottom of this list.">
+                      {qualityFlags.length === 1 ? 'Hide this issue' : `Hide all ${qualityFlags.length} issues`}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })} disabled={dismissGap.isPending} title="Hide these issues and record that the checks got this album wrong, so they can be improved.">
+                      {qualityFlags.length === 1 ? 'This is wrong' : 'These are wrong'}
+                    </Button>
                   </span>
                 </div>
-              )}
-            </div>
-          ))}
+                {qualityFlags.map((f) => (
+                  <div key={f.key} className={styles.qualityFlag}>
+                    <div className={styles.qualityFlagContent}>
+                      <div className={styles.qualityFlagLabel}>
+                        {f.title}
+                        {f.count && <span className={styles.qualityFlagCount}> · {f.count}</span>}
+                      </div>
+                      <div className={styles.qualityFlagDetail}>{f.explain}</div>
+                      {f.affected?.map((line) => <div key={line} className={styles.qualityFlagAffected}>{line}</div>)}
+                    </div>
+                    <div className={styles.qualityFlagAction}>
+                      {f.action === 'art' && (
+                        <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending || fetchArt.isSuccess} title={f.guidance}>
+                          {fetchArt.isPending ? 'Queuing…' : fetchArt.isSuccess ? 'Art fetch queued' : 'Fetch art'}
+                        </Button>
+                      )}
+                      {f.action === 'tags' && (
+                        <LinkButton variant="secondary" size="sm" to="/plans" search={{ album: albumId }}>
+                          Fix tags
+                        </LinkButton>
+                      )}
+                      {f.action === 'split' && (
+                        <Button variant="secondary" size="sm" onClick={openManage} title={f.guidance}>
+                          Split by format
+                        </Button>
+                      )}
+                      {!f.action && f.guidance && <span className={styles.qualityFlagHint}>{f.guidance}</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Other gaps: incomplete, duplicate, missing */
+              <div key={g.id} className={styles.gapRow}>
+                <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+                <span className={styles.gapDetail}>{describeGap(g)}</span>
+                <span className={styles.gapActions}>
+                  <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} disabled={dismissGap.isPending} title="Stop showing this issue for this album. You can bring it back below.">
+                    Hide
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })} disabled={dismissGap.isPending} title="Hide this issue and record that the check got this album wrong.">
+                    This is wrong
+                  </Button>
+                </span>
+              </div>
+            ),
+          )}
           {dismissedGaps.map((g) => (
             <div key={g.id} className={styles.gapRowDismissed}>
-              <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
+              <span className={styles.gapKind}>{g.kind === 'quality' ? 'Tags, artwork and files' : GAP_LABEL[g.kind] ?? g.kind}</span>
               <span className={styles.gapDetail}>
-                dismissed ({g.dismissReason?.replace('_', ' ') ?? 'no reason'})
+                {g.dismissReason === 'wrong_data' ? 'Hidden, marked as wrong' : 'Hidden by you'}
               </span>
               <span className={styles.gapActions}>
-                <button className="secondary" onClick={() => reopenGap.mutate(g.id)}>Reopen</button>
+                <Button variant="ghost" size="sm" onClick={() => reopenGap.mutate(g.id)} disabled={reopenGap.isPending}>Show again</Button>
               </span>
             </div>
           ))}
@@ -860,7 +741,7 @@ export function AlbumDetailPage() {
         </div>
       )}
 
-      {openGaps.length === 0 && album.missingTracks.length === 0 && album.duplicates.length === 0 && album.candidates.length === 0 && <p className={styles.muted}>No library issues recorded for this album.</p>}
+      {openGaps.length === 0 && dismissedGaps.length === 0 && album.missingTracks.length === 0 && album.duplicates.length === 0 && album.candidates.length === 0 && <p className={styles.muted}>No library issues recorded for this album.</p>}
       </>)}
 
       {tab === 'album' && (<>

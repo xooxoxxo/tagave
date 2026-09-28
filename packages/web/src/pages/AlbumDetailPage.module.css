@@ -453,84 +453,30 @@
   flex-shrink: 0;
 }
 
-.qualityFlagAction button,
-.qualityFlagAction a {
-  padding: 0.4rem 0.9rem;
-  font-size: var(--font-size-sm);
-  line-height: 1.2;
-  border-radius: var(--radius-md);
-  text-decoration: none;
+.qualityGapNote {
+  margin-top: 0.2rem;
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
 }
 
-.qualityFlagNoAction {
-  font-size: var(--font-size-sm);
+.qualityFlagCount {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.qualityFlagAffected {
+  margin-top: 0.2rem;
+  font-size: var(--font-size-xs);
   color: var(--text-tertiary);
-  font-style: italic;
+  line-height: 1.4;
 }
 
 .qualityFlagHint {
+  max-width: 16rem;
   font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
-}
-
-/* Legacy/compact styles for narrow screens */
-.flagList {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-sm);
-}
-
-.flagChip {
-  padding: 0.15rem 0.6rem;
-  border-radius: var(--radius-full);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  background: var(--surface-warning);
-  color: var(--warning);
-  white-space: nowrap;
-  cursor: default;
-}
-
-.flagChip[title] {
-  cursor: help;
-}
-
-/* chip + its one action, kept together on wrap */
-.flagItem {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  white-space: nowrap;
-}
-
-.flagAction {
-  padding: 0.1rem 0.5rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--font-size-xs);
-  line-height: 1.5;
-  font-family: inherit;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.flagAction:hover:not(:disabled) {
-  border-color: var(--accent);
-  background: transparent;
-}
-
-.flagAction:disabled {
-  color: var(--text-tertiary);
-  cursor: default;
-}
-
-.flagHint {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+  white-space: normal;
+  text-align: right;
 }
 
 /* tables */
@@ -721,19 +667,13 @@ td.num {
 .albumFacts dt { color: var(--text-secondary); }
 .albumFacts dd { margin: 0; overflow-wrap: anywhere; }
 .maintenance { margin: 0; padding-top: .75rem; }
-/* Quality flags display */
-.qualityGapHeader { flex-direction: column; align-items: flex-start; gap: .5rem; }
-.qualityGapTitle { font-size: .875rem; }
-.qualityFlag { flex-direction: column; align-items: flex-start; }
-.qualityFlagContent { width: 100%; }
-.qualityFlagAction { width: 100%; justify-content: flex-start; }
-.qualityFlagAction button,
-.qualityFlagAction a { width: 100%; justify-content: center; }
-
-/* Legacy styles */
-.flagList { display: flex; flex-direction: column; gap: .5rem; }
-.flagItem { display: flex; justify-content: space-between; gap: .75rem; white-space: normal; }
-.flagChip { padding: 0; border-radius: 0; background: transparent; color: var(--text-primary); white-space: normal; }
-.flagAction { border-radius: var(--radius-md); padding: .25rem .5rem; min-height: 2rem; display: inline-flex; align-items: center; flex-shrink: 0; }
 .trackScroller { overflow-x: auto; }
-@media (max-width: 700px) { .gapRow { flex-wrap: wrap; align-items: flex-start; } .gapKind { width: 100%; } .flagList { flex-basis: 100%; } .albumFacts dl > div { grid-template-columns: 1fr; gap: .2rem; } }
+@media (max-width: 700px) {
+  .gapRow { flex-wrap: wrap; align-items: flex-start; }
+  .gapKind { width: 100%; }
+  .albumFacts dl > div { grid-template-columns: 1fr; gap: .2rem; }
+  .qualityGapHeader { flex-direction: column; align-items: flex-start; gap: .5rem; }
+  .qualityFlag { flex-direction: column; align-items: stretch; gap: .5rem; }
+  .qualityFlagAction { white-space: normal; }
+  .qualityFlagHint { max-width: none; text-align: left; }
+}
