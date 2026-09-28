@@ -54,13 +54,13 @@ If you started with a worker on another machine and want the `workers` profile t
 
 ### Cutover
 
-1. Build the worker images while the old workers keep running. Pass the same build args that `scripts/deploy.sh` passes for the app (they are what Settings › Updates and the doctor `Build Versions` check compare):
+1. Build the worker images while the old workers keep running. Pass the same `GIT_SHA` and `BUILT_AT` build args the app image was built with (they are what Settings › Updates and the doctor `Build Versions` check compare):
    ```sh
    GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%TZ) \
    docker compose -f docker-compose.prod.yml --profile workers build
    ```
 
-2. Stop the old workers on their host. `scripts/deploy.sh` tracks them in `~/liner-worker.pid` and `~/liner-identify.pid`; under systemd, use `systemctl stop`. A worker finishes its current job on `SIGTERM`; give it up to 30 seconds, then `kill -9` one that ignores it. A ghost of the old build keeps a database connection and shows up in `Build Versions` as a lagging sha.
+2. Stop the old workers on their host, the same way you started them: `kill -TERM <pid>` for a process you launched by hand, `systemctl stop` (or your supervisor's equivalent) for a managed one. A worker finishes its current job on `SIGTERM`; give it up to 30 seconds, then `kill -9` one that ignores it. A ghost of the old build keeps a database connection and shows up in `Build Versions` as a lagging sha.
 
 3. Start the containers:
    ```sh

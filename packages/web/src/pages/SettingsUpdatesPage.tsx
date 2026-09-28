@@ -5,6 +5,7 @@
  * checked once a day when the page is opened, or on demand.
  */
 import { useEffect, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
 import type { ReleaseNote, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
@@ -12,6 +13,21 @@ import { useCheckUpdates, useSetUpdatesFeed, useUpdates } from '../hooks/useUpda
 import styles from './SettingsUpdatesPage.module.css';
 
 const DAY_MS = 24 * 3600 * 1000;
+
+// Update commands for the shipped docker-compose.prod.yml. It builds from the
+// checkout (no published image to pull), so an update is pull + rebuild; the
+// build args are what the "same build" check above compares.
+const COMPOSE = 'docker compose -f docker-compose.prod.yml';
+const REBUILD = `GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%TZ) \\
+  ${COMPOSE} --profile workers up -d --build`;
+const BACKUP_CMD = `${COMPOSE} exec -T postgres pg_dump -U liner -Fc liner > tagave-$(date +%F).pgdump`;
+const UPDATE_CMD = `git pull\n${REBUILD}`;
+const ROLLBACK_CMD = [
+  'git checkout <previous version>',
+  `${COMPOSE} --profile workers stop app worker-files worker-identify`,
+  `${COMPOSE} exec -T postgres pg_restore -U liner -d liner --clean --if-exists < tagave-<date>.pgdump`,
+  REBUILD,
+].join('\n');
 
 function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : '–';
@@ -56,7 +72,7 @@ export function SettingsUpdatesPage() {
       )}
       {data.mismatch && (
         <div className={styles.warn}>
-          A worker runs a different build than the app. To update workers on a separate host: SSH to the worker host, pull the latest image, and restart the worker service.
+          A worker runs a different build than the app. Bring the lagging side to the same version and restart it, as described under How to update below.
         </div>
       )}
 
@@ -103,7 +119,7 @@ export function SettingsUpdatesPage() {
         <h2 className={styles.sectionTitle}>Release feed</h2>
         <p className={styles.hint}>
           A GitHub Releases API URL, e.g. <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Checked daily when this page is open and on demand;
-          responses are cached by ETag. Until the repository is published there is nothing to point at — leave it empty.
+          responses are cached by ETag. Leave it empty to turn update checks off.
         </p>
         <div className={styles.row}>
           <input
@@ -143,25 +159,26 @@ export function SettingsUpdatesPage() {
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>How to update</h2>
         <p className={styles.hint}>
-          Updates pull the new image and restart services. Migrations run on boot. All changes are forward-only.
+          Run these in the folder you installed from, on the machine that runs the app. Database changes are applied when the app starts and only go forward: an older version cannot use a database a newer one has changed, so take the backup first.
         </p>
         <ol className={styles.steps}>
           <li>
-            <strong>Back up your database.</strong>
-            <pre className={styles.code}>docker compose exec postgres pg_dump -U liner -Fc liner &gt; backup-$(date +%F).pgdump</pre>
+            <strong>Back up the database.</strong>
+            <pre className={styles.code}>{BACKUP_CMD}</pre>
           </li>
           <li>
-            <strong>Update the app and web service:</strong>
-            <pre className={styles.code}>docker compose pull &amp;&amp; docker compose up -d</pre>
+            <strong>Get the new version and rebuild.</strong> This restarts the app and, if they run on this machine, both workers.
+            <pre className={styles.code}>{UPDATE_CMD}</pre>
           </li>
           <li>
-            <strong>If workers are on a separate host:</strong> SSH to the worker host and run the same two commands.
+            <strong>Workers on another machine</strong> need the same version: update that copy to the same commit, run <code>pnpm install &amp;&amp; pnpm -r build</code>, then restart both worker processes.
           </li>
           <li>
-            <strong>Verify</strong>: this page shows every process at the same build. Go to <a href="/settings/system-status">System Status</a> to verify all services are healthy.
+            <strong>Check.</strong> The table above lists every process at the same build, and <Link to="/settings/system">System status</Link> shows no failures.
           </li>
           <li>
-            <strong>If the update fails</strong>: restore from your backup using <code>docker compose exec postgres psql -U liner &lt; backup-file.pgdump</code>.
+            <strong>If something goes wrong</strong>, go back to the version you had and restore the backup from step 1:
+            <pre className={styles.code}>{ROLLBACK_CMD}</pre>
           </li>
         </ol>
       </section>
