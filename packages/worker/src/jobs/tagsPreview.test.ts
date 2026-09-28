@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import {
-  audioFiles, canonicalTracks, fieldLocks, libraries, localAlbums, localTracks,
+  audioFiles, canonicalTracks, fieldLocks, jobRuns, libraries, localAlbums, localTracks,
   releaseGroups, releases, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@liner/db';
 import pino from 'pino';
@@ -196,6 +196,38 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     // the journal's before is the canonical-field map, not raw music-metadata
     expect((a.before as any).album).toBe('Old Album');
     expect((a.before as any).common).toBeUndefined();
+  });
+
+  it('touches only the albums in scope and records itself in job_runs', async () => {
+    // A matched album elsewhere in the library, never linked, on an MB release
+    // nobody has checked. The preview of another album must leave both alone
+    // (it used to walk every matched album and refetch releases from MB).
+    const otherRelease = randomUUID();
+    await db.insert(releases).values({ id: otherRelease, releaseGroupId, mbid: 'rel-mbid-other', title: 'Elsewhere', trackCount: 1, tracksRefreshedAt: null });
+    await db.insert(canonicalTracks).values({ releaseId: otherRelease, mediumNo: 1, position: 1, number: '1', title: 'Else', artistCredit: [], recordingMbid: 'rec-else', trackMbid: 'track-else' });
+    const otherAlbum = randomUUID();
+    await db.insert(localAlbums).values({
+      id: otherAlbum, libraryId, clusterKey: `other-${otherAlbum}`, dirPaths: ['Else'], state: 'matched',
+      releaseId: otherRelease, releaseGroupId, trackCount: 1, discCount: 1, tracksLinkedAt: null,
+    });
+    try {
+      const pgbossId = randomUUID();
+      await tagsPreviewJob(ctx, planId, { pgbossId });
+      const [other] = await db.select().from(localAlbums).where(eq(localAlbums.id, otherAlbum));
+      expect(other.tracksLinkedAt).toBeNull();
+      const [rel] = await db.select().from(releases).where(eq(releases.id, otherRelease));
+      expect(rel.tracksRefreshedAt).toBeNull();
+
+      const runs = await db.select().from(jobRuns).where(eq(jobRuns.pgbossId, pgbossId));
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({ type: 'tags.preview', subjectType: 'tag_plan', subjectId: planId, state: 'completed' });
+      expect(runs[0].progress).toMatchObject({ done: 3, total: 3 }); // fileA, fileB, strayFile
+      expect(runs[0].finishedAt).not.toBeNull();
+    } finally {
+      await db.delete(localAlbums).where(eq(localAlbums.id, otherAlbum));
+      await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, otherRelease));
+      await db.delete(releases).where(eq(releases.id, otherRelease));
+    }
   });
 
   it('re-running the preview replaces rows instead of duplicating them', async () => {

@@ -4,6 +4,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   TagPlan,
+  TagPlanPreviewJob,
   TagPlanScope,
   TagPolicies,
   TagPlanItem,
@@ -60,7 +61,7 @@ export interface PlanProgress {
   total: number;
 }
 
-export type TagPlanDetail = TagPlan & { progress?: PlanProgress };
+export type TagPlanDetail = TagPlan & { progress?: PlanProgress; previewJob?: TagPlanPreviewJob };
 
 export function useTagPlan(
   libraryId: string | undefined,

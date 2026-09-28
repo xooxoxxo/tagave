@@ -136,6 +136,27 @@ export const tagPlanSchema = z.object({
 export type TagPlan = z.infer<typeof tagPlanSchema>;
 
 /**
+ * The latest preview job of a draft plan, as GET /tag-plans/:planId reports
+ * it: the queue's view (queued / running / done) joined with the worker's
+ * job_runs row (what it is doing, files done). jobRunId is the id the
+ * Background activity page knows the job by.
+ */
+export const tagPlanPreviewJobSchema = z.object({
+  jobId: z.string().describe('Queue job id, as POST /preview returns it'),
+  state: z.enum(['queued', 'running', 'completed', 'failed']),
+  queuedAt: z.string().datetime(),
+  startedAt: z.string().datetime().optional(),
+  finishedAt: z.string().datetime().optional(),
+  jobRunId: z.string().uuid().optional(),
+  message: z.string().optional(),
+  done: z.number().int().nonnegative().optional(),
+  total: z.number().int().nonnegative().optional(),
+  error: z.string().optional(),
+}).strict();
+
+export type TagPlanPreviewJob = z.infer<typeof tagPlanPreviewJobSchema>;
+
+/**
  * Create tag plan request.
  * Body for POST /api/v1/libraries/:libraryId/tag-plans
  */
