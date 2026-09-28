@@ -1,224 +1,195 @@
 /**
  * Jobs dashboard showing running and historical jobs
- * M0: Basic view of scan jobs
+ * Operator-focused view with summary, failed jobs surfaced, internal jobs hidden
  */
 
-import { Link } from '@tanstack/react-router';
-import { useCurrentLibrary, useScanRoots, useIdentifyStats, useKickSweep, useJobs } from '../hooks';
-import { formatDateTime } from '../utils';
-import { formatEta, formatRelativeTime } from '../utils/time';
+import { Link, useSearch } from '@tanstack/react-router';
+import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useCancelJob, usePauseJob } from '../hooks';
+import { formatRelativeTime } from '../utils/time';
 import styles from './JobsPage.module.css';
+
+// Job types that are internal/noise (heartbeats, periodic schedules)
+const INTERNAL_JOB_TYPES = new Set([
+  'worker.heartbeat',
+  'worker.health',
+  'system.tick',
+  'schedule.minute',
+  'schedule.hourly',
+  'schedule.daily',
+]);
+
+interface JobInfoForDisplay {
+  id: string;
+  type: string;
+  state: string;
+  progress?: { done: number; total: number; message?: string };
+  startedAt?: string | undefined;
+  finishedAt?: string | undefined;
+  error?: string | null;
+  createdAt: string;
+}
+
+function getJobDescription(job: JobInfoForDisplay): string {
+  const typeMap: Record<string, string> = {
+    'identify.sweep': 'Album identification',
+    'identify.album': 'Identify album',
+    'scan.root': 'Scan folder',
+    'tag.write': 'Write tags',
+  };
+  return typeMap[job.type] || job.type;
+}
+
+function formatDuration(startedAt: string | undefined, finishedAt: string | undefined): string {
+  if (!startedAt) return '—';
+  const start = new Date(startedAt).getTime();
+  const end = finishedAt ? new Date(finishedAt).getTime() : Date.now();
+  const seconds = Math.floor((end - start) / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  return `${Math.floor(seconds / 3600)}h`;
+}
 
 export function JobsPage() {
   const { libraryId } = useCurrentLibrary();
-  const { data: scanRoots = [], isLoading } = useScanRoots(libraryId);
-  const { data: identifyStats } = useIdentifyStats(libraryId);
-  const { data: jobsData } = useJobs(libraryId);
+  const search = useSearch({ strict: false }) as { jobId?: string };
+  const focusJobId = search.jobId;
+
+  const { data: identifyStats, isLoading: statsLoading } = useIdentifyStats(libraryId);
+  const { data: jobsData, isLoading: jobsLoading } = useJobs(libraryId);
   const kickSweep = useKickSweep(libraryId);
+  const cancelJob = useCancelJob(libraryId);
+  const pauseJob = usePauseJob(libraryId);
 
   if (!libraryId) {
     return <div className={styles.container}>Loading...</div>;
   }
 
-  // Extract job info from scan roots
-  const jobs = scanRoots.flatMap((root) => {
-    const items = [];
+  const isLoading = statsLoading || jobsLoading;
+  const allJobs = jobsData?.data || [];
 
-    if (root.lastStatus === 'scanning' && root.currentScanJobId) {
-      items.push({
-        id: root.currentScanJobId,
-        type: 'scan' as const,
-        status: 'running' as const,
-        rootName: root.displayName,
-        progress: { current: 0, total: root.tracksFound || 100 },
-        startedAt: new Date().toISOString(),
-      });
+  // Filter out internal jobs
+  const userVisibleJobs = allJobs.filter((job) => !INTERNAL_JOB_TYPES.has(job.type));
+
+  // Organize jobs by status
+  const runningJobs = userVisibleJobs.filter((j) => j.state === 'running');
+  const failedJobs = userVisibleJobs.filter((j) => j.state === 'failed');
+  const completedJobs = userVisibleJobs.filter((j) => j.state === 'completed').slice(0, 20);
+
+  // Identify sweep status
+  const sweepActive = identifyStats?.sweep?.state === 'running';
+  const sweepCompleted = identifyStats?.sweep?.state === 'completed';
+
+  // Format sweep summary
+  const sweepSummary = identifyStats && identifyStats.sweep ? (() => {
+    const { states, total } = identifyStats;
+    if (sweepCompleted || (identifyStats.sweep.state !== 'running' && identifyStats.sweep.progress.done === identifyStats.sweep.progress.total)) {
+      return `All ${total?.toLocaleString() || '—'} albums identified: ${states.matched?.toLocaleString() || '0'} matched, ${states.needsReview?.toLocaleString() || '0'} need review.`;
     }
-
-    if (root.lastScanAt) {
-      items.push({
-        id: `${root.id}-last-scan`,
-        type: 'scan' as const,
-        status: root.lastStatus === 'error' ? 'failed' : 'completed',
-        rootName: root.displayName,
-        completedAt: root.lastScanAt,
-        albumsScanned: root.albumsFound,
-        tracksScanned: root.tracksFound,
-      });
+    if (sweepActive) {
+      const progress = identifyStats.sweep.progress;
+      const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+      return `Identifying albums: ${progress.done?.toLocaleString() || '0'} of ${progress.total?.toLocaleString() || '—'} (${pct}%)`;
     }
+    return `Identification idle: ${states.matched?.toLocaleString() || '0'} matched, ${states.needsReview?.toLocaleString() || '0'} need review.`;
+  })() : null;
 
-    return items;
-  });
-
-  const runningJobs = jobs.filter((j) => j.status === 'running');
-  const completedJobs = jobs.filter((j) => j.status === 'completed').slice(0, 20);
-  const failedJobs = jobs.filter((j) => j.status === 'failed');
+  // Is anything running or stuck?
+  const isActivelyProcessing = runningJobs.length > 0 || sweepActive;
+  const hasFailures = failedJobs.length > 0 || identifyStats?.queue.failed || 0 > 0;
 
   return (
     <div className={styles.container}>
-      {/* rendered inside Settings › System (SettingsPage → PageShell tabs); the shell owns the header */}
       {isLoading ? (
         <div className={styles.loading}>Loading jobs...</div>
       ) : (
         <>
-          {/* Identification sweep section */}
-          {identifyStats && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Identification sweep</h2>
-              <div className={styles.jobCard}>
-                <div className={styles.jobHeader}>
-                  <div>
-                    <h3 className={styles.jobTitle}>Sweep top-up</h3>
-                    <p className={styles.jobType}>Identify</p>
-                  </div>
-                  <span className={`${styles.badge} ${identifyStats.sweep?.state === 'running' ? styles.statusRunning : styles.statusCompleted}`}>
-                    {identifyStats.sweep?.state || 'idle'}
-                  </span>
-                </div>
-                <div className={styles.progress}>
-                  <div className={styles.progressBar}>
-                    <div
-                      className={styles.progressFill}
-                      style={{
-                        width: identifyStats.sweep
-                          ? `${((identifyStats.sweep.progress.done / identifyStats.sweep.progress.total) * 100) || 0}%`
-                          : '0%',
-                      }}
-                    />
-                  </div>
-                  <p className={styles.progressText}>
-                    {identifyStats.sweep?.progress?.message
-                      ? identifyStats.sweep.progress.message
-                      : `${identifyStats.sweep?.progress?.done ?? 0} / ${identifyStats.sweep?.progress?.total ?? 0}`}
+          {/* Status summary */}
+          <section className={styles.summarySection}>
+            {isActivelyProcessing && (
+              <div className={`${styles.summaryCard} ${styles.summaryActive}`}>
+                <div className={styles.summaryIcon}>⏱</div>
+                <div className={styles.summaryContent}>
+                  <h3 className={styles.summaryTitle}>Processing active</h3>
+                  <p className={styles.summaryText}>
+                    {runningJobs.length > 0 && `${runningJobs.length} job${runningJobs.length === 1 ? '' : 's'} running`}
+                    {runningJobs.length > 0 && sweepActive && ' · '}
+                    {sweepActive && 'Album identification running'}
                   </p>
                 </div>
-                <div className={styles.sweepStats}>
-                  <span className={styles.metaTag}>
-                    {identifyStats.rate.perMin}/min · ETA {formatEta(identifyStats.etaSeconds)}
-                  </span>
-                  <span className={styles.metaTag}>
-                    {identifyStats.queue.queued} queued · {identifyStats.queue.active} active · {identifyStats.queue.retry} retrying · {identifyStats.queue.failed} failed
+              </div>
+            )}
+
+            {hasFailures && (
+              <div className={`${styles.summaryCard} ${styles.summaryWarning}`}>
+                <div className={styles.summaryIcon}>⚠</div>
+                <div className={styles.summaryContent}>
+                  <h3 className={styles.summaryTitle}>Issues to review</h3>
+                  <p className={styles.summaryText}>
+                    {failedJobs.length > 0 && `${failedJobs.length} job${failedJobs.length === 1 ? '' : 's'} failed`}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {!isActivelyProcessing && !hasFailures && (
+              <div className={`${styles.summaryCard} ${styles.summaryIdle}`}>
+                <div className={styles.summaryIcon}>✓</div>
+                <div className={styles.summaryContent}>
+                  <h3 className={styles.summaryTitle}>All caught up</h3>
+                  <p className={styles.summaryText}>No active jobs or issues.</p>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Identification sweep */}
+          {identifyStats && identifyStats.sweep && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Album identification</h2>
+              <div className={styles.sweepCard}>
+                <div className={styles.sweepHeader}>
+                  <div className={styles.sweepInfo}>
+                    <p className={styles.sweepStatus}>{sweepSummary}</p>
+                  </div>
+                  <span className={`${styles.badge} ${sweepActive ? styles.statusRunning : styles.statusCompleted}`}>
+                    {sweepActive ? 'Running' : 'Idle'}
                   </span>
                 </div>
+
+                {sweepActive && (
+                  <div className={styles.progress}>
+                    <div
+                      className={styles.progressBar}
+                      role="progressbar"
+                      aria-valuemin={0}
+                      aria-valuemax={identifyStats.sweep.progress.total || 1}
+                      aria-valuenow={identifyStats.sweep.progress.done || 0}
+                    >
+                      <div
+                        className={styles.progressFill}
+                        style={{
+                          width: identifyStats.sweep.progress.total
+                            ? `${((identifyStats.sweep.progress.done / identifyStats.sweep.progress.total) * 100) || 0}%`
+                            : '0%',
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <div className={styles.sweepActions}>
                   <button
                     className={styles.btn}
                     onClick={() => kickSweep.mutate()}
-                    disabled={kickSweep.isPending}
+                    disabled={kickSweep.isPending || sweepActive}
+                    title={sweepActive ? 'Identification is already running' : 'Start identification now'}
                   >
-                    {kickSweep.isPending ? 'Kicking...' : 'Kick sweep'}
+                    {kickSweep.isPending ? 'Starting...' : 'Start now'}
                   </button>
                   <Link to="/identify" className={styles.link}>
-                    Open triage
+                    Review queue
                   </Link>
                 </div>
-              </div>
-            </section>
-          )}
-
-          {/* Recent jobs section */}
-          {jobsData && jobsData.data.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Recent jobs</h2>
-              <div className={styles.jobsList}>
-                {jobsData.data.slice(0, 10).map((job) => {
-                  const statusClass =
-                    job.state === 'running'
-                      ? styles.statusRunning
-                      : job.state === 'completed'
-                        ? styles.statusCompleted
-                        : job.state === 'failed'
-                          ? styles.statusFailed
-                          : '';
-                  return (
-                    <div key={job.id} className={`${styles.jobCard} ${statusClass}`}>
-                      <div className={styles.jobHeader}>
-                        <div>
-                          <h3 className={styles.jobTitle}>{job.type}</h3>
-                          <p className={styles.jobType}>{job.state}</p>
-                        </div>
-                        <span className={`${styles.badge} ${statusClass}`}>
-                          {job.state}
-                        </span>
-                      </div>
-                      {job.progress && (
-                        <div className={styles.progress}>
-                          <div
-                            className={styles.progressBar}
-                            role="progressbar"
-                            aria-valuemin={0}
-                            aria-valuemax={job.progress.total || 1}
-                            aria-valuenow={job.progress.done || 0}
-                          >
-                            <div
-                              className={styles.progressFill}
-                              style={{
-                                ['--scale' as string]: `${((job.progress.done || 0) / (job.progress.total || 1)) || 0}`,
-                              }}
-                            />
-                          </div>
-                          <p className={styles.progressText}>
-                            {job.progress.message ? job.progress.message : `${job.progress.done} / ${job.progress.total}`}
-                          </p>
-                        </div>
-                      )}
-                      <div className={styles.jobMeta}>
-                        {job.startedAt && (
-                          <span className={styles.metaTag}>
-                            Started {formatRelativeTime(job.startedAt)}
-                          </span>
-                        )}
-                        {job.finishedAt && (
-                          <span className={styles.metaTag}>
-                            Finished {formatDateTime(job.finishedAt)}
-                          </span>
-                        )}
-                      </div>
-                      {job.error && (
-                        <p className={styles.error}>{job.error}</p>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {/* Running jobs */}
-          {runningJobs.length > 0 && (
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Running</h2>
-              <div className={styles.jobsList}>
-                {runningJobs.map((job) => (
-                  <div key={job.id} className={`${styles.jobCard} ${styles.statusRunning}`}>
-                    <div className={styles.jobHeader}>
-                      <div>
-                        <h3 className={styles.jobTitle}>{job.rootName}</h3>
-                        <p className={styles.jobType}>Scan</p>
-                      </div>
-                      <span className={styles.badge}>Running...</span>
-                    </div>
-                    {job.progress && (
-                      <div className={styles.progress}>
-                        <div
-                          className={styles.progressBar}
-                          role="progressbar"
-                          aria-valuemin={0}
-                          aria-valuemax={job.progress.total}
-                          aria-valuenow={job.progress.current}
-                        >
-                          <div
-                            className={styles.progressFill}
-                            style={{ ['--scale' as string]: `${job.progress.current / job.progress.total}` }}
-                          />
-                        </div>
-                        <p className={styles.progressText}>
-                          {job.progress.current} / {job.progress.total} files
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                ))}
               </div>
             </section>
           )}
@@ -226,19 +197,116 @@ export function JobsPage() {
           {/* Failed jobs */}
           {failedJobs.length > 0 && (
             <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Failed</h2>
-              <div className={styles.jobsList}>
-                {failedJobs.map((job) => (
-                  <div key={job.id} className={`${styles.jobCard} ${styles.statusFailed}`}>
-                    <div className={styles.jobHeader}>
-                      <div>
-                        <h3 className={styles.jobTitle}>{job.rootName}</h3>
-                        <p className={styles.jobType}>Scan</p>
-                      </div>
-                      <span className={styles.badge}>Failed</span>
-                    </div>
-                  </div>
-                ))}
+              <h2 className={styles.sectionTitle}>Failed jobs</h2>
+              <div className={styles.tableWrapper}>
+                <table className={styles.jobsTable}>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Error</th>
+                      <th>When</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {failedJobs.map((job) => (
+                      <tr
+                        key={job.id}
+                        className={`${styles.jobRow} ${focusJobId === job.id ? styles.highlighted : ''}`}
+                      >
+                        <td className={styles.jobNameCell}>
+                          <div className={styles.jobName}>{getJobDescription(job)}</div>
+                        </td>
+                        <td className={styles.errorCell}>
+                          {job.error ? (
+                            <span className={styles.errorText} title={job.error}>
+                              {job.error.substring(0, 60)}
+                              {job.error.length > 60 ? '…' : ''}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className={styles.timeCell}>
+                          {job.finishedAt ? formatRelativeTime(job.finishedAt) : '—'}
+                        </td>
+                        <td className={styles.actionsCell}>
+                          <button
+                            className={styles.actionBtn}
+                            title="Clear this job"
+                            onClick={() => cancelJob.mutate(job.id)}
+                            disabled={cancelJob.isPending}
+                          >
+                            {cancelJob.isPending && cancelJob.variables === job.id ? 'Clearing...' : 'Clear'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Running jobs */}
+          {runningJobs.length > 0 && (
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>Running jobs</h2>
+              <div className={styles.tableWrapper}>
+                <table className={styles.jobsTable}>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Progress</th>
+                      <th>Duration</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {runningJobs.map((job) => (
+                      <tr
+                        key={job.id}
+                        className={`${styles.jobRow} ${focusJobId === job.id ? styles.highlighted : ''}`}
+                      >
+                        <td className={styles.jobNameCell}>
+                          <div className={styles.jobName}>{getJobDescription(job)}</div>
+                        </td>
+                        <td className={styles.progressCell}>
+                          {job.progress && job.progress.total > 0 ? (
+                            <div className={styles.inlineProgress}>
+                              <div className={styles.progressBarInline}>
+                                <div
+                                  className={styles.progressFillInline}
+                                  style={{
+                                    width: `${Math.min((job.progress.done / job.progress.total) * 100, 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className={styles.progressLabel}>
+                                {job.progress.done}/{job.progress.total}
+                              </span>
+                            </div>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className={styles.timeCell}>
+                          {formatDuration(job.startedAt, job.finishedAt)}
+                        </td>
+                        <td className={styles.actionsCell}>
+                          <button
+                            className={styles.actionBtn}
+                            title="Pause this job"
+                            onClick={() => pauseJob.mutate(job.id)}
+                            disabled={pauseJob.isPending}
+                          >
+                            {pauseJob.isPending && pauseJob.variables === job.id ? 'Pausing...' : 'Pause'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
@@ -246,43 +314,40 @@ export function JobsPage() {
           {/* Completed jobs */}
           {completedJobs.length > 0 && (
             <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>Completed</h2>
-              <div className={styles.jobsList}>
-                {completedJobs.map((job) => (
-                  <div key={job.id} className={`${styles.jobCard} ${styles.statusCompleted}`}>
-                    <div className={styles.jobHeader}>
-                      <div>
-                        <h3 className={styles.jobTitle}>{job.rootName}</h3>
-                        <p className={styles.jobType}>Scan</p>
-                      </div>
-                      <div className={styles.jobMeta}>
-                        {(job as any).albumsScanned && (
-                          <span className={styles.metaTag}>
-                            {(job as any).albumsScanned} albums
-                          </span>
-                        )}
-                        {(job as any).tracksScanned && (
-                          <span className={styles.metaTag}>
-                            {(job as any).tracksScanned} tracks
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {(job as any).completedAt && (
-                      <p className={styles.timestamp}>
-                        {formatDateTime((job as any).completedAt)}
-                      </p>
-                    )}
-                  </div>
-                ))}
+              <h2 className={styles.sectionTitle}>Recent completed</h2>
+              <div className={styles.tableWrapper}>
+                <table className={styles.jobsTable}>
+                  <thead>
+                    <tr>
+                      <th>Job</th>
+                      <th>Completed</th>
+                      <th>Duration</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedJobs.map((job) => (
+                      <tr key={job.id} className={styles.jobRow}>
+                        <td className={styles.jobNameCell}>
+                          <div className={styles.jobName}>{getJobDescription(job)}</div>
+                        </td>
+                        <td className={styles.timeCell}>
+                          {job.finishedAt ? formatRelativeTime(job.finishedAt) : '—'}
+                        </td>
+                        <td className={styles.timeCell}>
+                          {formatDuration(job.startedAt, job.finishedAt)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}
 
           {/* Empty state */}
-          {jobs.length === 0 && (
+          {userVisibleJobs.length === 0 && !identifyStats?.sweep && (
             <div className={styles.emptyState}>
-              <p>No jobs yet. Start a scan from Settings.</p>
+              <p>No jobs yet. Scans and identification will appear here.</p>
             </div>
           )}
         </>

@@ -1,52 +1,81 @@
 .container {
   display: flex;
   flex-direction: column;
-  gap: var(--space-xl);
+  gap: var(--space-lg);
   padding: var(--space-xl);
-  max-width: 900px;
-  margin: 0 auto;
   width: 100%;
-}
-
-.header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding-bottom: var(--space-lg);
-  border-bottom: 1px solid var(--border);
-}
-
-.title {
-  font-size: var(--font-size-2xl);
-  margin: 0;
-  font-weight: 600;
-}
-
-.subtitle {
-  color: var(--text-secondary);
-  margin: 0;
-  font-size: var(--font-size-sm);
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: var(--space-md);
 }
 
 .sectionTitle {
   font-size: var(--font-size-lg);
   margin: 0;
   font-weight: 600;
+  color: var(--text-primary);
 }
 
-.jobsList {
+/* Summary section */
+.summarySection {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
-.jobCard {
+.summaryCard {
+  display: flex;
+  gap: var(--space-md);
+  align-items: flex-start;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.summaryActive {
+  background-color: var(--surface-info);
+  border-color: var(--info);
+}
+
+.summaryWarning {
+  background-color: var(--surface-warning);
+  border-color: var(--warning);
+}
+
+.summaryIdle {
+  background-color: var(--surface-success);
+  border-color: var(--success);
+}
+
+.summaryIcon {
+  font-size: var(--font-size-2xl);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.summaryContent {
+  flex: 1;
+}
+
+.summaryTitle {
+  margin: 0 0 var(--space-xs) 0;
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.summaryText {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+/* Sweep card */
+.sweepCard {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -56,38 +85,28 @@
   gap: var(--space-md);
 }
 
-.jobCard.statusRunning {
-  background-color: var(--surface-info);
-}
-
-.jobCard.statusCompleted {
-  background-color: var(--surface-success);
-}
-
-.jobCard.statusFailed {
-  background-color: var(--surface-danger);
-}
-
-.jobHeader {
+.sweepHeader {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: var(--space-lg);
 }
 
-.jobTitle {
-  margin: 0 0 var(--space-xs) 0;
-  font-size: var(--font-size-base);
-  font-weight: 600;
+.sweepInfo {
+  flex: 1;
 }
 
-.jobType {
+.sweepStatus {
   margin: 0;
   font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  color: var(--text-primary);
+  line-height: 1.5;
 }
 
 .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border);
   padding: 0.25rem 0.75rem;
@@ -95,35 +114,30 @@
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.jobMeta {
-  display: flex;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  justify-content: flex-end;
+.badge.statusRunning {
+  background-color: var(--surface-info);
+  border-color: var(--info);
+  color: var(--info);
 }
 
-.metaTag {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-}
-
-.timestamp {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
+.badge.statusCompleted {
+  background-color: var(--surface-success);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .progress {
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
 }
 
 .progressBar {
   width: 100%;
-  height: 8px;
+  height: 6px;
   background-color: var(--bg-tertiary);
   border-radius: var(--radius-full);
   overflow: hidden;
@@ -134,47 +148,16 @@
   width: 100%;
   background: linear-gradient(90deg, var(--info), var(--accent));
   border-radius: var(--radius-full);
-  transform-origin: left;
-  transform: scaleX(var(--scale, 1));
-  transition: transform var(--transition-slow);
+  transition: width var(--transition-slow);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .progressFill,
   .btn,
-  .link {
+  .link,
+  .actionBtn {
     transition: none;
   }
-}
-
-.progressText {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
-  text-align: right;
-}
-
-.loading,
-.emptyState {
-  padding: var(--space-xl);
-  text-align: center;
-  background-color: var(--bg-secondary);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.emptyState p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-}
-
-.sweepStats {
-  display: flex;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
 }
 
 .sweepActions {
@@ -220,13 +203,156 @@
 
 .link:hover {
   border-color: var(--info);
+  background-color: var(--info);
+  color: var(--bg-primary);
 }
 
-.error {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  color: var(--error);
+/* Table layout */
+.tableWrapper {
+  overflow-x: auto;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.jobsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.jobsTable thead {
+  background-color: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+}
+
+.jobsTable th {
+  text-align: left;
   padding: var(--space-md);
-  background-color: var(--surface-danger);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.jobsTable tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background-color var(--transition-fast);
+}
+
+.jobsTable tbody tr:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.jobsTable tbody tr.highlighted {
+  background-color: var(--surface-info);
+}
+
+.jobsTable td {
+  padding: var(--space-md);
+  color: var(--text-primary);
+}
+
+.jobRow {
+  align-items: center;
+}
+
+.jobNameCell {
+  flex: 1;
+  min-width: 180px;
+}
+
+.jobName {
+  margin: 0;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.progressCell {
+  width: 250px;
+}
+
+.errorCell {
+  flex: 1;
+  min-width: 200px;
+}
+
+.errorText {
+  color: var(--error);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  word-break: break-word;
+}
+
+.timeCell {
+  width: 120px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+
+.actionsCell {
+  width: 100px;
+  text-align: right;
+}
+
+.inlineProgress {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.progressBarInline {
+  flex: 1;
+  min-width: 60px;
+  height: 4px;
+  background-color: var(--bg-tertiary);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.progressFillInline {
+  height: 100%;
+  background: linear-gradient(90deg, var(--info), var(--accent));
+  border-radius: var(--radius-full);
+  transition: width var(--transition-slow);
+}
+
+.progressLabel {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 50px;
+}
+
+.actionBtn {
+  padding: 0.25rem 0.75rem;
+  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.actionBtn:hover {
+  border-color: var(--accent);
+  background-color: var(--bg-secondary);
+}
+
+.loading,
+.emptyState {
+  padding: var(--space-xl);
+  text-align: center;
+  background-color: var(--bg-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.emptyState p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }

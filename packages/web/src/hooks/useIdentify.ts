@@ -321,3 +321,27 @@ export function useCancelIdentifyRequest(libraryId: string | undefined) {
     },
   });
 }
+
+/** Cancel or pause a job */
+export function useCancelJob(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.post(`/libraries/${libraryId}/jobs/${jobId}/cancel`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
+    },
+  });
+}
+
+/** Pause a job */
+export function usePauseJob(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.post(`/libraries/${libraryId}/jobs/${jobId}/pause`, {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['jobs', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
+    },
+  });
+}
