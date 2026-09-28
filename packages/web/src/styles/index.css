@@ -172,6 +172,20 @@ a:active {
   background: var(--text-tertiary);
 }
 
+@media (prefers-color-scheme: dark) {
+  ::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-secondary);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+  }
+}
+
 /* Utility classes */
 .visually-hidden {
   position: absolute;

@@ -76,7 +76,7 @@
 
 .loadingBar {
   position: absolute;
-  bottom: -1px;
+  bottom: 0;
   left: 0;
   right: 0;
   height: 2px;
@@ -107,6 +107,7 @@
   max-height: calc(60vh - 3.5rem);
   scrollbar-gutter: stable;
   scrollbar-width: thin;
+  scrollbar-color: var(--border-secondary) var(--bg-secondary);
 }
 
 .sectionLabel {
@@ -190,4 +191,67 @@
 .error button:focus-visible {
   outline: var(--focus-ring);
   outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .overlay {
+    background: rgba(0, 0, 0, 0.5);
+  }
+
+  .modal {
+    background: var(--bg-secondary);
+    border-color: var(--border);
+  }
+
+  .inputContainer {
+    background: var(--bg-secondary);
+  }
+
+  .input {
+    background: transparent;
+    color: var(--text-primary);
+  }
+
+  .searchIcon,
+  .escHint {
+    color: var(--text-tertiary);
+  }
+
+  .loadingBar {
+    background: var(--accent);
+  }
+
+  .results {
+    scrollbar-color: var(--border-secondary) var(--bg-secondary);
+  }
+
+  .sectionLabel,
+  .secondary {
+    color: var(--text-tertiary);
+  }
+
+  .row:hover {
+    background: var(--bg-hover);
+  }
+
+  .rowSelected {
+    background: var(--bg-tertiary);
+  }
+
+  .noResults,
+  .error {
+    color: var(--text-secondary);
+  }
+
+  .error {
+    border-bottom-color: var(--border);
+  }
+
+  .error button {
+    color: var(--accent);
+  }
+
+  .error button:hover {
+    color: var(--accent-hover);
+  }
 }

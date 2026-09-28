@@ -112,3 +112,47 @@
   --font-size-md: var(--font-size-base);
 }
 
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    /* Dark theme semantic colors */
+    --bg-primary: #1a1f1d;
+    --bg-secondary: #242a27;
+    --bg-tertiary: #2f3632;
+    --bg-nav: #1f2622;
+    --bg-hover: #34403d;
+    --bg-active: #3d4a47;
+
+    --text-primary: #e8ebe8;
+    --text-secondary: #b0b8b3;
+    --text-tertiary: #8a928d;
+
+    --border: #3d4a47;
+    --border-secondary: #52605b;
+
+    --accent: #5cafa0;
+    --accent-hover: #72c4b5;
+    --accent-active: #8bd4c7;
+
+    --success: #5eb878;
+    --warning: #d4a574;
+    --error: #e85555;
+    --info: #6ba3c0;
+
+    --accent-rgb: 92, 175, 160;
+    --success-rgb: 94, 184, 120;
+    --warning-rgb: 212, 165, 116;
+    --error-rgb: 232, 85, 85;
+    --info-rgb: 107, 163, 192;
+
+    /* Dark theme component roles */
+    --surface-selected: #3d524b;
+    --text-selected: #c4e3db;
+    --surface-success: #2d4a35;
+    --surface-warning: #4a3f2a;
+    --surface-danger: #4a2f2d;
+    --surface-info: #2f3d47;
+    --surface-accent: #2f4a45;
+  }
+}
+
