@@ -97,7 +97,8 @@
 .fileFields { display: flex; align-items: center; gap: var(--space-xs); justify-content: flex-end; flex-shrink: 0; }
 .fieldTag { font-family: var(--font-mono); font-size: var(--font-size-xs); color: var(--text-secondary); background: var(--bg-tertiary); border-radius: var(--radius-sm); padding: 0.1rem 0.4rem; }
 .fieldMore { font-size: var(--font-size-xs); color: var(--text-tertiary); }
-.nChanges { font-size: var(--font-size-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; }
+.nChanges { font-size: var(--font-size-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; cursor: help; border-radius: 0.25rem; padding: 0.25rem 0.5rem; margin: -0.25rem -0.5rem; }
+.nChanges:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35); }
 
 /* Expanded diff */
 .diff { width: 100%; border-collapse: collapse; font-size: var(--font-size-sm); background: var(--bg-primary); table-layout: fixed; }
