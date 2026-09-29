@@ -1,11 +1,12 @@
 .container {
+  /* A panel inside PageShell: the shell already sets the page width and the
+     side padding, so this adds none of its own (it used to add 32px a side
+     and cap at 1200px, which read as extra gutters next to other pages). */
   display: flex;
   flex-direction: column;
   gap: var(--space-xl);
-  padding: var(--space-xl);
-  max-width: 1200px;
-  margin: 0 auto;
   width: 100%;
+  min-width: 0;
 }
 
 .header {

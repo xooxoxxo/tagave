@@ -34,9 +34,12 @@ between browsing and upkeep: the hairline cut into the
 .navLink:hover { background: var(--mist); color: var(--ink); }
 .navLinkActive { composes: navLink; background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
 .navLinkActive:hover { background: var(--dew-tint); color: var(--chip-on-ink); }
-.navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-3); }
-.userEmail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logoutBtn { margin: .4rem 0 0 -.9rem; }
+/* Email and Sign out share one row. Sign out used to sit under the email
+   with a negative margin, so its hover pill poked out past the sidebar's
+   left edge: a stray pill fragment at the bottom-left of every page. */
+.navUser { margin-top: auto; padding: 1rem 0 0 .5rem; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-3); display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.userEmail { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logoutBtn { flex: none; }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
 .contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { min-height: 100%; }

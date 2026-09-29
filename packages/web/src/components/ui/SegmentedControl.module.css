@@ -1,6 +1,10 @@
 /* Same track as Tabs: a recessed pill with a clear bubble for the selection. */
 .track {
+  /* hugs its options: inside a flex column (a settings pane) it would
+     otherwise stretch to the full width with the options crammed left */
   display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
   max-width: 100%;
   gap: 2px;
   padding: 4px;

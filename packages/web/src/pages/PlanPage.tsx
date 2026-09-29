@@ -518,13 +518,17 @@ export function PlanPage() {
 
   return (
     <PageShell
-      title={<span className={styles.title}>
+      title={<span className={`${styles.title} ${(p.name || '').length > 32 ? styles.titleLong : ''}`}>
+        {/* The name flows as text with the pencil and the status chip riding
+            after its last word (they wrap together, never alone). A long name
+            steps down a size; a very long one is shortened, full name on hover. */}
         <InlineRename
           value={p.name || 'Untitled plan'}
           label="Rename plan"
+          maxChars={90}
+          after={<Badge tone={statusView.tone}>{statusView.label}</Badge>}
           onSave={(name) => renameM.mutateAsync({ planId, name })}
         />
-        <Badge tone={statusView.tone}>{statusView.label}</Badge>
       </span>}
       subtitle={
         <span className={styles.meta}>

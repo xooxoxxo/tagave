@@ -22,5 +22,10 @@
 .wrap.title .text { display: inline; }
 .wrap.title .edit { display: inline-flex; vertical-align: middle; margin-inline-start: var(--space-xs); }
 
+/* The pencil and whatever rides after it (a status chip) wrap as one unit,
+   so the chip never lands on a line of its own. */
+.tail { display: inline-flex; align-items: center; gap: var(--space-sm); white-space: nowrap; vertical-align: middle; }
+.wrap.title .tail .edit { margin-inline-start: var(--space-xs); }
+
 .hint { font: 400 var(--font-size-xs) / 1.4 var(--font-body); color: var(--ink-3); letter-spacing: 0; }
 .error { color: var(--danger); }

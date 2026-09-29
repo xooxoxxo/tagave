@@ -92,9 +92,24 @@
 
 .table {
   width: 100%;
+  /* fixed: every column but Release has a set width (the <col> classes
+     below), so neither the rows nor the album change the layout. Below the
+     min-width the wrapper scrolls sideways instead of squeezing Release. */
+  table-layout: fixed;
+  min-width: 60rem;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
+
+.wSource { width: 7rem; }
+.wYear { width: 4.5rem; }
+.wCountry { width: 6.5rem; }
+.wTracks { width: 6rem; }
+.wScores { width: 8.5rem; }
+.wStatus { width: 7rem; }
+.wDistance { width: 6.5rem; }
+.wLinks { width: 3.5rem; }
 
 .table thead th {
   position: sticky;
@@ -109,6 +124,8 @@
   letter-spacing: 0.14em;
   color: var(--ink-3);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .row,
@@ -118,6 +135,8 @@
   padding: var(--space-sm) var(--space-md);
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .table tbody tr:last-child > td { border-bottom: 0; }
 
@@ -134,18 +153,23 @@
 .colNum { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .colSource,
 .colLinks { white-space: nowrap; }
-.colScores { width: 1%; white-space: nowrap; }
+.colScores { white-space: nowrap; }
 
 .provider { font-size: var(--font-size-xs); color: var(--text-secondary); }
 .rowSelected .provider { color: inherit; }
 
-.release { min-width: 12rem; }
-.releaseTitle { display: block; overflow-wrap: anywhere; }
+.release { min-width: 0; }
+/* one line each: a long title truncates instead of growing the row */
+.releaseTitle,
 .releaseArtist {
   display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.releaseArtist {
   font-size: var(--font-size-xs);
   color: var(--text-tertiary);
-  overflow-wrap: anywhere;
 }
 .rowSelected .releaseArtist { color: inherit; opacity: .8; }
 
@@ -160,7 +184,7 @@
 
 /* ---- score strip ---------------------------------------------------- */
 
-.scoreStrip { display: inline-flex; gap: 2px; }
+.scoreStrip { display: inline-flex; gap: 2px; vertical-align: middle; }
 
 .cellGood,
 .cellNear,

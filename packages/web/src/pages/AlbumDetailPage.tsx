@@ -668,12 +668,12 @@ export function AlbumDetailPage() {
             <tbody>
               {album.missingTracks.map((m, i) => (
                 <tr key={i}>
-                  <td className={styles.num}>
+                  <td className={`${styles.num} ${styles.missingNo}`}>
                     {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
                     {m.position}
                   </td>
-                  <td>{m.title}</td>
-                  <td className={styles.num}>{dur(m.lengthMs)}</td>
+                  <td className={styles.missingTitle}>{m.title}</td>
+                  <td className={`${styles.num} ${styles.missingLen}`}>{dur(m.lengthMs)}</td>
                 </tr>
               ))}
             </tbody>
@@ -711,6 +711,16 @@ export function AlbumDetailPage() {
           </h2>
           <div className={styles.trackScroller}>
           <table className={styles.candTable}>
+            {/* fixed columns: only Release flexes, so accepting or excluding a
+                candidate never re-flows the others */}
+            <colgroup>
+              <col className={styles.candWDistance} />
+              <col />
+              <col className={styles.candWDate} />
+              <col className={styles.candWCountry} />
+              <col className={styles.candWTracks} />
+              <col className={styles.candWActions} />
+            </colgroup>
             <thead>
               <tr>
                 <th className={styles.num}>Distance</th>
@@ -750,7 +760,7 @@ export function AlbumDetailPage() {
                   <td className={styles.num}>{c.date ?? '–'}</td>
                   <td>{c.country ?? '–'}</td>
                   <td className={styles.num}>{c.trackCount ?? '–'}</td>
-                  <td className={styles.gapActions}>
+                  <td className={styles.candActions}>
                     {!c.excluded && (
                       <>
                         <Button

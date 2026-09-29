@@ -4,7 +4,7 @@
  * Enter or leaving the field saves, Esc puts the old name back. Whitespace is
  * collapsed and a blank name is refused before anything is sent.
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { IconButton, Input } from './ui';
 import styles from './InlineRename.module.css';
 
@@ -36,6 +36,8 @@ export function InlineRename({
   onSave,
   label = 'Rename',
   size = 'title',
+  maxChars,
+  after,
 }: {
   value: string;
   /** Resolves when saved; a rejection's `detail` or message is shown under the field. */
@@ -44,6 +46,10 @@ export function InlineRename({
   label?: string;
   /** title: the page headline; row: a table cell. */
   size?: 'title' | 'row';
+  /** Shorten a longer name to this many characters with an ellipsis; the full name is the hover text. */
+  maxChars?: number;
+  /** Shown after the pencil and kept on its line (a status chip). */
+  after?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -119,6 +125,8 @@ export function InlineRename({
   };
 
   const sizeClass = size === 'title' ? styles.title : styles.row;
+  const shortened = maxChars !== undefined && value.length > maxChars;
+  const shown = shortened ? `${value.slice(0, maxChars - 1).trimEnd()}…` : value;
   const keepInside = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
   if (!editing) {
@@ -126,10 +134,23 @@ export function InlineRename({
       <span className={`${styles.wrap} ${sizeClass}`}>
         {/* In the headline the name itself is a shortcut for the pencil; in a
             row a click on the name opens the row, and only the pencil renames. */}
-        <span className={styles.text} onClick={size === 'title' ? start : undefined}>{value}</span>
-        <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
-          <PencilIcon />
-        </IconButton>
+        <span
+          className={styles.text}
+          onClick={size === 'title' ? start : undefined}
+          title={shortened ? value : undefined}
+        >{shown}</span>
+        {after ? (
+          <span className={styles.tail}>
+            <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
+              <PencilIcon />
+            </IconButton>
+            {after}
+          </span>
+        ) : (
+          <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
+            <PencilIcon />
+          </IconButton>
+        )}
       </span>
     );
   }
