@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   SETUP_STEPS,
+  firstScanState,
   folderAdvice,
   folderCheckerLive,
   infrastructureChecks,
@@ -150,5 +151,21 @@ describe('folderCheckerLive', () => {
     expect(folderCheckerLive([{ queues: ['tags.preview', 'editions.fetch'] }])).toBe(false);
     expect(folderCheckerLive([{ queues: ['identify.album'] }, { queues: ['scan.root', 'scan.dir'] }])).toBe(true);
     expect(folderCheckerLive([{ queues: ['*'] }])).toBe(true);
+  });
+});
+
+describe('firstScanState', () => {
+  const base = { scanStatus: 'done', albumsFound: 0, grouping: 0, statsLoaded: true };
+  it('waits for queued grouping jobs before calling a finished scan empty', () => {
+    expect(firstScanState({ ...base, grouping: 14 })).toBe('grouping');
+    expect(firstScanState(base)).toBe('empty');
+  });
+  it('is scanning while the scan runs or the stats load', () => {
+    expect(firstScanState({ ...base, scanStatus: 'running' })).toBe('scanning');
+    expect(firstScanState({ ...base, statsLoaded: false, grouping: undefined })).toBe('scanning');
+  });
+  it('is found as soon as one album exists', () => {
+    expect(firstScanState({ ...base, albumsFound: 3, grouping: 5 })).toBe('found');
+    expect(firstScanState({ ...base, scanStatus: 'running', albumsFound: 1 })).toBe('found');
   });
 });

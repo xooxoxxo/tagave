@@ -25,7 +25,7 @@ import { useUpdates } from '../hooks/useUpdates';
 import { api } from '../services/api';
 import { Banner, Button, Card, Input, TextField } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
-import { folderAdvice, folderCheckerLive, workerLive, validateContact } from './setupWizard';
+import { firstScanState, folderAdvice, folderCheckerLive, workerLive, validateContact } from './setupWizard';
 import styles from './OnboardingPage.module.css';
 
 const LIVE_MS = 5000;
@@ -156,6 +156,7 @@ export function OnboardingPage() {
   const job = scanJob.data;
   const found = stats.data?.total ?? 0;
   const matched = stats.data?.states.matched ?? 0;
+  const scanState = firstScanState({ scanStatus: job?.status, albumsFound: found, grouping: stats.data?.grouping, statsLoaded: !!stats.data });
 
   return (
     <div className={styles.container}>
@@ -331,12 +332,14 @@ export function OnboardingPage() {
                   from Settings › Music folders.{' '}
                   <Link to="/settings/$section" params={{ section: 'activity' }}>Open background activity</Link>
                 </Banner>
-              ) : job?.status === 'done' && found === 0 && stats.data ? (
+              ) : scanState === 'grouping' ? (
+                <Banner tone="info">Scan finished. Grouping the files it found into albums…</Banner>
+              ) : scanState === 'empty' ? (
                 <Banner tone="warning">
                   The scan finished without finding any albums. Check that the folder holds audio files in album
                   folders, and that it is the folder the worker sees.
                 </Banner>
-              ) : found > 0 ? (
+              ) : scanState === 'found' ? (
                 <Banner tone="info">
                   Identifying albums. The first result usually arrives within a few minutes.{' '}
                   <Button variant="secondary" size="sm" loading={kickSweep.isPending} onClick={() => kickSweep.mutate()}>
