@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMergeSplitAlbum, useRescanAlbumFolder, useSplitAlbumByFormat } from '../hooks/useAlbumMaintenance';
-import { Button } from './ui';
+import { Button, confirmDialog } from './ui';
 import styles from './AlbumMaintenanceActions.module.css';
 
 export interface MaintenanceAlbum {
@@ -40,7 +40,7 @@ export function AlbumMaintenanceActions({ libraryId, album }: { libraryId: strin
 
   const onSplit = async (keep: 'lossless' | 'lossy') => {
     const other = keep === 'lossless' ? 'lossy' : 'lossless';
-    if (!window.confirm(`Move the ${other} files into their own album? Nothing on disk changes; you can merge them back any time.`)) return;
+    if (!(await confirmDialog({ title: `Move the ${other} files into their own album?`, message: 'Nothing on disk changes. You can merge them back any time.', confirmLabel: 'Split' }))) return;
     setNote(null);
     try {
       const r = await split.mutateAsync({ albumId: album.id, keep });
@@ -52,7 +52,7 @@ export function AlbumMaintenanceActions({ libraryId, album }: { libraryId: strin
   };
 
   const onMerge = async () => {
-    if (!window.confirm('Merge this album back into the one it was split from?')) return;
+    if (!(await confirmDialog({ title: 'Merge this album back?', message: 'Its files rejoin the album they were split from. Nothing on disk changes.', confirmLabel: 'Merge back' }))) return;
     setNote(null);
     try {
       const r = await merge.mutateAsync(album.id);

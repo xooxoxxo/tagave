@@ -4,6 +4,7 @@ import { TextField, Select, Textarea, SearchField } from './FormControl';
 import { Tabs } from './Tabs';
 import { Badge } from './Badge';
 import { Banner } from './Banner';
+import { confirmDialog } from './ConfirmDialog';
 import { Card, StatCard, Surface } from './Card';
 import { Chip } from './Chip';
 import { Table, Th, Td } from './Table';
@@ -90,7 +91,7 @@ export function DesignSystemCatalog() {
         <Card title="Grouped content" actions={<Button size="sm" variant="secondary">Edit</Button>}><p>A card groups related information. Use page spacing and headings when a separate surface is unnecessary.</p></Card>
         <Surface variant="glass" className={styles.glassDemo}><span>Plan ready: 14 files, 28 changes</span><Button size="sm">Apply plan</Button></Surface>
       </>}
-      {tab === 'feedback' && <><h2>Messages</h2><Banner tone="success">Changes saved.</Banner><Banner tone="warning">Some files need review before changes can be applied.</Banner><Banner tone="danger">Couldn’t load this library. Try again.</Banner><Banner tone="info">Identification is running. Results appear as albums are processed.</Banner><EmptyState title="No albums match" text="Clear a filter or search for another artist." action={<Button variant="secondary">Clear filters</Button>} /></>}
+      {tab === 'feedback' && <><h2>Messages</h2><Banner tone="success">Changes saved.</Banner><Banner tone="warning">Some files need review before changes can be applied.</Banner><Banner tone="danger">Couldn’t load this library. Try again.</Banner><Banner tone="info">Identification is running. Results appear as albums are processed.</Banner><EmptyState title="No albums match" text="Clear a filter or search for another artist." action={<Button variant="secondary">Clear filters</Button>} /><h2>Confirm dialog</h2><div className={styles.row}><Button variant="secondary" onClick={() => void confirmDialog({ title: 'Apply this tag plan?', message: 'Every write is journaled and can be reverted.', confirmLabel: 'Apply changes' })}>Ask to apply</Button><Button variant="secondary" onClick={() => void confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected, only the saved filters.', confirmLabel: 'Delete', tone: 'danger' })}>Ask to delete</Button></div></>}
     </div><footer className={styles.note}>Development catalog. See DESIGN.md for component contracts and migration rules.</footer>
   </main>;
 }

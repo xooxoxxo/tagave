@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
 import { SCAN_ROOT_EMPTY_MESSAGE, type ScanRoot } from '@liner/shared';
-import { Button } from '../components/ui';
+import { Button, confirmDialog } from '../components/ui';
 import styles from './SettingsScanRootsPage.module.css';
 
 /**
@@ -125,15 +125,15 @@ function SettingsScanRootsContentInner() {
     return 'Allow tag plans to write files under this root (writes are journaled and revertible)';
   };
 
-  const handleToggleWritable = (root: ScanRoot) => {
-    if (!root.writable && !window.confirm(`Allow tag writes under ${root.path}? Writes are journaled and revertible; nothing changes until you apply a tag plan.`)) return;
+  const handleToggleWritable = async (root: ScanRoot) => {
+    if (!root.writable && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Writes are journaled and revertible. Nothing changes until you apply a tag plan.</p></>, confirmLabel: 'Allow writes' }))) return;
     withPending(root.id, () => {
       updateMutation.mutate({ rootId: root.id, data: { writable: !root.writable } }, { onSettled: clearPending(root.id) });
     });
   };
 
-  const handleDelete = (rootId: string) => {
-    if (confirm('Delete this scan root? Files will not be removed.')) {
+  const handleDelete = async (rootId: string) => {
+    if (await confirmDialog({ title: 'Delete this scan root?', message: 'tagave stops cataloguing it. Your files are not touched.', confirmLabel: 'Delete', tone: 'danger' })) {
       withPending(rootId, () => {
         deleteMutation.mutate(rootId, { onSettled: clearPending(rootId) });
       });

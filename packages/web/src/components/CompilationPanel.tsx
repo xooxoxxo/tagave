@@ -6,7 +6,7 @@
  */
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { Button } from './ui';
+import { Button, confirmDialog } from './ui';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import styles from './CompilationPanel.module.css';
 
@@ -47,7 +47,7 @@ export function CompilationPanel({
     }
   };
   const onUnmerge = async () => {
-    if (!window.confirm('Split this album back into the albums it was made from? Nothing on disk changes.')) return;
+    if (!(await confirmDialog({ title: 'Split this album back?', message: 'It goes back to the albums it was made from. Nothing on disk changes.', confirmLabel: 'Split back' }))) return;
     setNote(null);
     try {
       const r = await unmerge.mutateAsync(album.id);

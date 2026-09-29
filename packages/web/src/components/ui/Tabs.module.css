@@ -3,6 +3,7 @@
  * Only the tab shape is tactile; there is no colour except the focus ring.
  */
 .tablist {
+  position: relative;
   display: flex;
   flex-shrink: 0; /* a scrolling flex child would otherwise collapse in column layouts */
   width: max-content;

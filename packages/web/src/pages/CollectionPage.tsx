@@ -17,7 +17,7 @@ import {
   useRetryPush,
   useCurrentLibrary,
 } from '../hooks';
-import { Button } from '../components/ui';
+import { Button, EmptyState, LinkButton, PageShell } from '../components/ui';
 import styles from './CollectionPage.module.css';
 
 const VIEW_LABELS: Record<string, string> = {
@@ -120,6 +120,7 @@ export function CollectionPage() {
     rating: 0,
   });
   const [removeConfirmId, setRemoveConfirmId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const sources = useCollectionSources(libraryId);
   const collection = useCollection(libraryId, { view });
@@ -127,15 +128,16 @@ export function CollectionPage() {
   const remap = useRemapCollection(libraryId);
   const mapItem = useMapCollectionItem(libraryId);
   const unmapItem = useUnmapCollectionItem(libraryId);
-  const options = useCollectionOptions(libraryId);
+  const sourcesData = (sources.data as SourcesResponse) ?? { sources: [] };
+  const source = sourcesData.sources[0];
+  // The options endpoint answers 400 until a Discogs source exists: ask only once one does.
+  const options = useCollectionOptions(libraryId, !!source);
   const addItem = useAddCollectionItem(libraryId);
   const removeItem = useRemoveCollectionItem(libraryId);
   const retryPush = useRetryPush(libraryId);
 
-  const sourcesData = (sources.data as SourcesResponse) ?? { sources: [] };
   const collectionData = (collection.data as CollectionResponse) ?? { items: [] };
   const optionsData = (options.data as CollectionOptions) ?? { username: '', folders: [], fields: [], conditionGrades: [] };
-  const source = sourcesData.sources[0];
 
   // Poll while syncing OR while any item has pending pushState
   const hasPendingPush = collectionData.items.some(item => item.pushState === 'pending');
@@ -193,55 +195,35 @@ export function CollectionPage() {
 
   const counts = source?.counts ?? { total: 0, mapped: 0, unmapped: 0, removed: 0 };
 
+  const subtitle = source
+    ? <>The records and CDs in {source.username}&rsquo;s Discogs collection, next to the albums on disk.{source.lastSyncAt && <span className={styles.meta}> Last synced {new Date(source.lastSyncAt).toLocaleString()}.</span>}</>
+    : 'The records and CDs on your shelf, next to the albums on disk.';
+
+  if (sources.isLoading) {
+    return <PageShell title="Physical collection" subtitle={subtitle}><p className={styles.loading}>Loading…</p></PageShell>;
+  }
+
   return (
-    <div className={styles.container}>
+    <PageShell
+      title="Physical collection"
+      subtitle={subtitle}
+      actions={source && (
+        <>
+          {source.status === 'syncing' && <span className={styles.statusChip} role="status">Syncing…</span>}
+          <Button variant="secondary" onClick={() => setShowAddForm(!showAddForm)}>Add physical item</Button>
+          <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending || source.status === 'syncing'}>Sync now</Button>
+          <Button variant="secondary" onClick={() => remap.mutate()} disabled={remap.isPending || source.status === 'syncing'}>Re-run mapping</Button>
+        </>
+      )}
+    >
       {!source ? (
-        <div className={styles.empty}>
-          <p>No Discogs collection source configured.</p>
-          <p>Go to <a href="/settings/providers">Settings › Providers</a> to set up a Discogs token.</p>
-          <Button onClick={() => navigate({ to: '/settings/providers' })}>
-            Set up Discogs
-          </Button>
-        </div>
+        <EmptyState
+          title="No collection connected yet"
+          text="Connect your Discogs account and tagave lists the vinyl and CDs you own, shows which of them are also on disk, and which are only on the shelf."
+          action={<LinkButton to="/settings/providers">Connect Discogs</LinkButton>}
+        />
       ) : (
         <>
-          <div className={styles.header}>
-            <div>
-              <h1 className={styles.title}>{source.username}'s Collection</h1>
-              {source.lastSyncAt && (
-                <p className={styles.meta}>
-                  Last synced: {new Date(source.lastSyncAt).toLocaleString()}
-                </p>
-              )}
-            </div>
-
-            <div className={styles.headerActions}>
-              {source.status === 'syncing' && (
-                <div className={styles.statusChip}>Syncing...</div>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => setShowAddForm(!showAddForm)}
-              >
-                Add physical item
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => sync.mutate()}
-                disabled={sync.isPending || source.status === 'syncing'}
-              >
-                Sync now
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => remap.mutate()}
-                disabled={remap.isPending || source.status === 'syncing'}
-              >
-                Re-run mapping
-              </Button>
-            </div>
-          </div>
-
           {showAddForm && (
             <div className={styles.addForm}>
               <h2>Add Physical Item</h2>
@@ -322,9 +304,11 @@ export function CollectionPage() {
                 />
               </div>
 
+              {addError && <p className={styles.formError} role="alert">{addError}</p>}
               <div className={styles.formActions}>
                 <Button
                   onClick={async () => {
+                    setAddError(null);
                     try {
                       const payload: AddCollectionItemInput = {
                         input: addFormData.input,
@@ -345,7 +329,7 @@ export function CollectionPage() {
                         rating: 0,
                       });
                     } catch (err: any) {
-                      alert(`Error: ${err?.response?.data?.detail || 'Failed to add item'}`);
+                      setAddError(err?.detail || err?.response?.data?.detail || 'The item could not be added.');
                     }
                   }}
                   disabled={!addFormData.input.trim() || addItem.isPending}
@@ -577,6 +561,6 @@ export function CollectionPage() {
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

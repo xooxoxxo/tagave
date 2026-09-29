@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>tagave</title>
+  <style>
+    .hi { stop-color: #5BA8C4 } .mid { stop-color: #276A82 } .lo { stop-color: #1C556B }
+    .leaf { fill: #FFFFFF } .rim { stroke: #FFFFFF; stroke-opacity: .5 }
+    @media (prefers-color-scheme: dark) {
+      .hi { stop-color: #9AD3E6 } .mid { stop-color: #5FB0CC } .lo { stop-color: #2F7F9C }
+      .leaf { fill: #04202A } .rim { stroke-opacity: .3 }
+    }
+  </style>
+  <defs>
+    <linearGradient id="b" x1="18" y1="4" x2="46" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" class="hi"/><stop offset=".55" class="mid"/><stop offset="1" class="lo"/>
+    </linearGradient>
+    <radialGradient id="s" cx="23" cy="17" r="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#b)"/>
+  <circle cx="32" cy="32" r="30" fill="url(#s)"/>
+  <g class="leaf">
+    <path d="M26.5 50C27 38 29 25 32 13C35 25 37 38 37.5 50Z"/>
+    <path d="M25 50C23.5 40 21 31 16.5 22.5C24.5 28.5 30 37.5 32.5 50Z"/>
+    <path d="M39 50C40.5 40 43 31 47.5 22.5C39.5 28.5 34 37.5 31.5 50Z"/>
+    <path d="M24 50.5C19.5 45 14.5 41.5 8.8 39.2C17 38 24.5 41.5 30 50.5Z"/>
+    <path d="M40 50.5C44.5 45 49.5 41.5 55.2 39.2C47 38 39.5 41.5 34 50.5Z"/>
+    <path d="M22 49.2Q32 47.6 42 49.2Q41 52 32 52Q23 52 22 49.2Z"/>
+  </g>
+  <circle cx="32" cy="32" r="29.4" fill="none" class="rim" stroke-width="1.2"/>
+</svg>

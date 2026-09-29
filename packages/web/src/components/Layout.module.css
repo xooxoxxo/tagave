@@ -16,8 +16,14 @@ not as a drop. */
 .searchButton kbd { white-space: nowrap; margin-left: auto; }
 .searchIcon { width: 1rem; height: 1rem; flex: 0 0 auto; }
 .searchLabel { min-width: 0; }
-.labelShort { display: none; }
+.navSheet { display: contents; }
 .navLinks { display: flex; flex-direction: column; gap: .2rem; }
+/* The phone menu button: a clear circle like the search pill, hidden until
+   the bar collapses. */
+.menuButton { display: none; align-items: center; justify-content: center; width: 2.75rem; height: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--surface); color: var(--ink-2); box-shadow: inset 0 1px 0 var(--highlight); }
+.menuButton:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
+.menuButton:active:not(:disabled) { transform: none; background: var(--mist); }
+.menuButton svg { width: 1.25rem; height: 1.25rem; }
 
 /* A gap,
 not a rule,
@@ -36,18 +42,18 @@ between browsing and upkeep: the hairline cut into the
 .page { min-height: 100%; }
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }
-.footer { flex-shrink: 0; padding: .6rem 1.5rem; background: transparent; border-top: 1px solid var(--line); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--ink-3); }
+.footer { flex-shrink: 0; margin-top: var(--space-xl); padding: 1rem 1.5rem 1.25rem; background: transparent; border-top: 1px solid var(--line); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--ink-3); }
 .skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem 1.25rem; background: var(--surface); color: var(--dew); border: 1px solid var(--line-strong); border-radius: var(--r-pill); transform: translateY(-200%); }
 .skipLink:focus { transform: none; }
 @media (max-width: 900px) {
   .container { flex-direction: column; }
-  .nav { flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
+  .nav { position: relative; z-index: var(--z-sticky); flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
   .brand { font-size: 1.5rem; padding: 0; }
   .brandMark { width: 1.6rem; height: 1.6rem; }
   .brandCaption { display: none; }
   /* Wrap rather than scroll. A scrolling strip put a permanent scrollbar under
      the primary navigation and cut the last item ("Settings") in half; seven
-     short labels fit on two rows at any width worth supporting. */
+     short labels fit on two rows at any tablet width. */
   .navLinks { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
   .navLink { white-space: nowrap; padding: .5rem .8rem; font-size: .8125rem; }
   .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
@@ -56,23 +62,38 @@ between browsing and upkeep: the hairline cut into the
   .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
   /* The divider above Library care belongs to the sidebar; in a wrapped row
      it pushed that one link down, out of line with the others. */
-  .navLinks [data-group="manage"] { margin-top: 0; border-top: 0; padding-top: .5rem; }
+  .navLinks [data-group="manage"] { margin-top: 0; border-top: 0; }
   .main { min-height: 0; }
 }
-/* Phone: one line of brand, search and sign out, then the links on two
-   rows. The search box row and the long "Physical collection" label made
-   the header take a quarter of an 860px screen. */
-@media (max-width: 600px) {
-  .nav { grid-template-columns: 1fr auto auto; gap: .5rem .5rem; padding: .6rem 1rem .5rem; }
-  .brand { font-size: 1.25rem; gap: .45rem; }
-  .brandMark { width: 1.35rem; height: 1.35rem; }
+/* Phone: one row of brand, search and a menu button (about 60px). The links
+   and sign out open as a sheet under the bar; two rows of links plus a fixed
+   footer had taken 180px of an 860px screen. */
+@media (max-width: 720px) {
+  .nav { grid-template-columns: 1fr auto auto; align-items: center; gap: .5rem; padding: .55rem 1rem; border-bottom: 1px solid var(--line); }
+  .brand { font-size: 1.3rem; gap: .5rem; }
+  .brandMark { width: 1.5rem; height: 1.5rem; }
   .searchButton { grid-column: 2; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; }
   .searchLabel, .searchButton kbd { display: none; }
   .searchIcon { width: 1.1rem; height: 1.1rem; }
-  .navUser { grid-column: 3; grid-row: 1; align-self: center; }
-
-  .navLinks { gap: .15rem; }
-  .navLink { padding: .45rem .6rem; }
-  .labelLong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .labelShort { display: inline; }
+  .menuButton { display: inline-flex; grid-column: 3; grid-row: 1; }
+  .navSheet { display: none; }
+  .navOpen .navSheet {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: calc(100dvh - 3.9rem);
+    overflow-y: auto;
+    padding: .75rem 1rem 1rem;
+    background: var(--bg-nav);
+    border-bottom: 1px solid var(--line);
+    box-shadow: 0 24px 40px -24px rgba(var(--shadow-tint), .45);
+  }
+  .navOpen .navLinks { flex-direction: column; flex-wrap: nowrap; gap: .15rem; }
+  .navOpen .navLink { padding: .8rem 1rem; font-size: 1rem; }
+  .navOpen .navLinks [data-group="manage"] { margin-top: .75rem; }
+  .navOpen .navUser { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; padding: .75rem .5rem 0; border-top: 1px solid var(--line); }
+  .navOpen .userEmail { display: block; min-width: 0; }
 }

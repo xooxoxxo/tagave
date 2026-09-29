@@ -3,9 +3,10 @@
  * Layers, bottom to top:
  *   border-box   metallic rim (1.5px gradient border)
  *   padding-box  body gradient + an internal glow from below
- *   ::before     specular sheen over the top 46%
- *   ::after      caustic glint (full-size buttons only)
- *   .label       the text, positioned above both pseudo-elements
+ *   ::before     specular sheen, a soft band that fades out above the label
+ *   .label       the text, positioned above the sheen
+ * There is no discrete glint: a small white dot at the top-left read as a
+ * rendering bug, so the gloss comes from the sheen and rim alone.
  * Theme-dependent parts come from tokens (--drop-text-shadow, --clear-*),
  * so there are no theme selectors in this file.
  */
@@ -47,39 +48,37 @@
   user-select: none;
 }
 
-/* specular sheen: the dewdrop lens */
+/* specular sheen: the dewdrop lens. It fades to nothing by 30% of the height,
+   before the cap line of the label, so every glyph pixel sits on the body
+   colour and keeps its 4.5:1 contrast. */
 .button::before {
   content: "";
   position: absolute;
   z-index: -1;
-  left: 10%;
-  right: 10%;
-  top: 3px;
-  height: 46%;
+  left: 4%;
+  right: 4%;
+  top: 2px;
+  height: 30%;
   border-radius: var(--r-pill);
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, var(--b-sheen)), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, var(--b-sheen)) 0%,
+    rgba(255, 255, 255, calc(var(--b-sheen) * 0.35)) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  /* soft ends: the band fades out sideways too, so it never reads as a shape */
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
+  mask-image: linear-gradient(90deg, transparent, black 22%, black 78%, transparent);
   transition: opacity 200ms ease;
 }
 
-/* caustic glint */
-.button::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  left: 18%;
-  top: 7px;
-  width: 10px;
-  height: 5px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.8);
-  filter: blur(0.5px);
-  pointer-events: none;
-}
-
+/* The label carries the weight itself, so a <button>, a LinkButton <a> and
+   any page class on the outer element all render the same 600. */
 .label {
   position: relative;
   display: inline-flex;
+  font-weight: 600;
   align-items: center;
   gap: var(--space-sm);
   min-width: 0;
@@ -151,10 +150,6 @@
   box-shadow: var(--clear-shadow);
 }
 
-.secondary::after {
-  background: var(--clear-glint);
-}
-
 .secondary:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
   transform: translateY(-1px);
   filter: none;
@@ -189,9 +184,7 @@
 }
 
 .quiet::before,
-.quiet::after,
-.ghost::before,
-.ghost::after {
+.ghost::before {
   opacity: 0;
 }
 
@@ -239,11 +232,6 @@
   font-size: 13px;
 }
 
-/* The glint is for full-size drops only. */
-.button.size-sm::after {
-  display: none;
-}
-
 .button.quiet.size-sm,
 .button.ghost.size-sm {
   padding: 0 12px;
@@ -267,10 +255,6 @@
 .button.icon.size-sm svg {
   width: 18px;
   height: 18px;
-}
-
-.button.icon::after {
-  left: 28%;
 }
 
 /* ---- Loading: keeps its width and colour, swaps the label for a spinner ---- */
@@ -337,8 +321,7 @@
     text-shadow: none;
   }
 
-  .button::before,
-  .button::after {
+  .button::before {
     display: none;
   }
 

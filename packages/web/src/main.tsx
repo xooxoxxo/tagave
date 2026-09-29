@@ -24,6 +24,7 @@ import '@fontsource/figtree/700.css';
 import '@fontsource/jetbrains-mono/400.css';
 import './styles/index.css';
 import { applyTheme, readThemePreference } from './theme';
+import { ConfirmHost } from './components/ui/ConfirmDialog';
 
 applyTheme(readThemePreference());
 
@@ -34,6 +35,7 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      <ConfirmHost />
     </QueryClientProvider>
   </React.StrictMode>
 );

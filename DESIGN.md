@@ -78,8 +78,11 @@ A drop is built from these layers, back to front:
 2. The body gradient, with a glow rising from below.
 3. A top inner highlight and a bottom inner shade.
 4. A tinted drop shadow.
-5. A specular sheen over the top 46%, capped at 0.40 alpha on primary so the white label keeps its contrast.
-6. A small caustic glint, only on buttons 40px or taller.
+5. A specular sheen: a soft band over the top 30% that fades to nothing before the cap line of the label and fades out at both ends. Every glyph pixel therefore sits on the body colour, so labels keep 4.5:1 in both themes (measured on rendered pixels: 6.05:1 on the light primary, 5.57:1 on the dark one).
+
+There is no discrete glint. The small white dot the first version put at the top-left read as a rendering bug.
+
+The label `<span>` sets its own weight (Figtree 600), so a `<button>`, a `LinkButton` and a button with a page class all render the same.
 
 States:
 
@@ -104,19 +107,30 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 
 - **Input, Select, Textarea, TextField:** recessed pills, 48px tall (36px with `dense`), with a 1px `--control-border` (`--line-strong`) border and an inner shadow. Focus turns the border `--dew` and adds a 4px dew halo, and `:focus-visible` adds a solid 2px `--ring` outline (`--danger` when invalid). The outline is the indicator that must reach 3:1; the halo is decoration. `TextField` owns the label, ID, required marker, hint, error and `aria-describedby`. Its `previousValue` shows a pending change struck through, with a dew dot, for bulk tag editing. Leave `previousValue` undefined when there is no pending change. `null` (an absent tag), `''` and whitespace-only values read "(empty)", never nothing. Textareas use `--r-inner`. Checkboxes and radios stay native, with `accent-color`.
 - **SearchField:** a search pill with a leading icon and a trailing `/` hint. It needs a `label` for its accessible name. Pressing `/` anywhere outside a text field focuses it.
-- **Chip:** a 30px pill in Figtree 500 13px. With `onClick` it becomes a toggle button with `aria-pressed`. An `active` chip uses a dew tint with a deep dew label. `dot` adds a 6px status dot. Chips never get the glint.
+- **Chip:** a 30px pill in Figtree 500 13px. With `onClick` it becomes a toggle button with `aria-pressed`. An `active` chip uses a dew tint with a deep dew label. `dot` adds a 6px status dot. Chips get no sheen.
 - **Badge:** a quiet status pill. The state is written in words, and the colour appears only as a dot. `statusTone()` maps plan and job states to a tone.
 - **Banner:** a flat tinted note (`--r-inner`) with a status dot. It explains an outcome or a condition the viewer can act on.
 - **Card, StatCard, Surface:** cards are opaque `--surface` with a 1px `--line` border, `--r-card` and a soft long shadow. They get no gloss and never nest for decoration. StatCard values are body-face, tabular data. `Surface variant="glass"` is only for layers that float over content: popovers, the sticky plan bar, toasts. Never put glass on glass or behind large scrolling areas.
-- **Tabs:** a recessed pill track. The active tab is a clear bubble resting in it. There is one tab stop, and Left/Right (wrapping), Home and End move between tabs. Pass the real `panelId`. Tabs switch a local section; use navigation links to move between pages.
+- **Tabs:** a recessed pill track. The active tab is a clear bubble resting in it. There is one tab stop, and Left/Right (wrapping), Home and End move between tabs. Pass the real `panelId`. Tabs switch a local section; use navigation links to move between pages. On a narrow screen the track scrolls sideways: `useScrollFade` brings the current tab into view and fades whichever edge hides more tabs (`data-scroll-fade` in `index.css`), and the strip snaps to whole tabs, so a cut label reads as "more this way". Any other sideways strip (the album sections, the Settings sections on a phone) uses the same hook.
+- **ConfirmDialog:** every confirmation goes through `confirmDialog({ title, message, confirmLabel, tone })`, which resolves true or false; `ConfirmHost` is mounted once at the root. It is a modal `<dialog>` labelled by its title and described by its message: the page behind is inert, Tab stays inside, Esc or a click on the backdrop cancels, and focus returns to the control that opened it. Focus starts on the confirm button, or on Cancel when `tone: 'danger'`. The title is a question, the confirm label is the verb ("Delete", "Apply changes"). Never call `window.confirm()` or `alert()`; a test guards this.
 - **SegmentedControl / ThemeSwitch:** native radio buttons in the same pill track.
 - **Tooltip:** a small glass label that opens on hover and focus. It closes on Escape, blur or pointer leave, can itself be hovered, and adds `aria-describedby` to its trigger. Use it only for supplementary text.
 - **Table:** 44px rows with hairline dividers, no zebra stripes and `--mist` on hover. Column heads use the label style. Numbers are tabular. The table scrolls inside its own container on narrow screens.
 - **EmptyState:** a headline in the display face plus one sentence about the next useful step. Keep "nothing here" separate from "failed to load".
 
+## Brand mark
+
+The mark is an agave rosette resting in a dew-glass orb: a tall centre leaf, two rising leaves and two low ones on a small base. Its colours are the dew tokens, so it follows the theme like the primary button: a deep drop with a white plant in light mode and a lit drop with a dark plant in dark mode. It reads at 16px.
+
+- App: `components/BrandMark.tsx`, inline SVG next to the live wordmark, hidden from assistive technology.
+- Favicon: `public/tagave-mark.svg` switches palettes with `prefers-color-scheme`; `favicon-48.png` and a 180px `apple-touch-icon.png` (the light mark on the canvas colour) back it up.
+- Landing page: one `<symbol>` in `site/index.html`, plus `site/img/mark.svg`, `favicon-48.png`, `apple-touch-icon.png` and `og.png`.
+
 ## Layout and motion
 
 - Page gutters use `--page-pad`, which drops to 16px on phones. Every page must be free of horizontal scroll at 400px wide.
+- The app shell is a sidebar on desktop, a wrapped bar on a tablet, and on a phone (720px and below) one 60px row: the mark, a search button and a menu button that opens the links and Sign out as a sheet (Esc closes it). The Discogs notice sits at the foot of the page content and scrolls with it; it never holds a strip of the screen.
+- Tables with more than three columns turn into stacked rows on a phone rather than squeezing the main column: the album track list shows number, title and length on one line and the file details under the title.
 - Button groups wrap with 14px gaps.
 - Popovers fade in and rise 4px (180ms, ease-out). Sticky bars and toasts slide up (280ms). Nothing loops, pulses or shimmers at rest.
 - Layers stack in this order: sticky, backdrop, dropdown, modal, toast, tooltip (`--z-*`). Never add a local z-index for a shared overlay.

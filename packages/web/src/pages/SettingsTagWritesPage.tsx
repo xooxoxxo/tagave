@@ -9,7 +9,7 @@ import { Link } from '@tanstack/react-router';
 import type { TagPolicies } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
-import { Button, LinkButton } from '../components/ui';
+import { Button, LinkButton, confirmDialog } from '../components/ui';
 import styles from './SettingsTagWritesPage.module.css';
 
 type Preset = TagPolicies['preset'];
@@ -80,9 +80,11 @@ function SettingsTagWritesContentInner() {
 
   const toggleWrites = async () => {
     if (!enabled) {
-      const ok = window.confirm(
-        'Enable tag writes for this library? Nothing is written until you apply a tag plan; every write is journaled, verified against the audio-stream hash and revertible.',
-      );
+      const ok = await confirmDialog({
+        title: 'Enable tag writes for this library?',
+        message: 'Nothing is written until you apply a tag plan. Every write is journaled, verified against the audio-stream hash and revertible.',
+        confirmLabel: 'Enable tag writes',
+      });
       if (!ok) return;
     }
     setToggling(true);

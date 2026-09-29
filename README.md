@@ -16,7 +16,7 @@ what it is.
 
 <br />
 
-<img src="docs/images/albums.jpg" alt="The album browser, showing a library of 27,153 albums" />
+<img src="docs/images/albums.jpg" alt="The album grid of a small demo library, sorted by year, with cover art, artist, format, track count and year under each cover" />
 
 <br />
 

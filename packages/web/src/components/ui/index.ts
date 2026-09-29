@@ -11,3 +11,4 @@ export { Tooltip } from './Tooltip';
 export { PageShell } from './PageShell';
 export { Input, Select, Textarea, TextField, SearchField, PendingValue, type TextFieldProps, type SearchFieldProps } from './FormControl';
 export { SegmentedControl, ThemeSwitch, type SegmentedOption } from './SegmentedControl';
+export { ConfirmDialog, ConfirmHost, confirmDialog, type ConfirmOptions } from './ConfirmDialog';
