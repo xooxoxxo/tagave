@@ -15,6 +15,7 @@ import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { CompilationPanel, type MergeCandidateView } from '../components/CompilationPanel';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
+import { useAlbumsReturnSearch } from './albumSelection';
 import styles from './AlbumDetailPage.module.css';
 import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
@@ -216,6 +217,7 @@ export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
+  const albumsReturnSearch = useAlbumsReturnSearch();
   const [showExcluded, setShowExcluded] = useState(false);
   const [mbidInput, setMbidInput] = useState('');
   // Album first; editions, reviews and the background story live on their own
@@ -448,7 +450,7 @@ export function AlbumDetailPage() {
 
   return (
     <div className={styles.container}>
-      <Link to="/albums" className={styles.backLink}>← All albums</Link>
+      <Link to="/albums" search={albumsReturnSearch as never} className={styles.backLink}>{albumsReturnSearch ? '← Back to your selection' : '← All albums'}</Link>
       <div className={styles.header}>
         <div className={styles.coverBox}>
           <CoverArt src={album.coverUrl} title={album.release?.title ?? album.title ?? 'Untitled'} loading="eager" className={styles.cover} />

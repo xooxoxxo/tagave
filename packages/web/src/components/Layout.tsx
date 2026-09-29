@@ -4,6 +4,8 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from 
 import { SearchModal } from './SearchModal';
 import { Button } from './ui';
 import { BrandMark } from './BrandMark';
+import { AlbumSelectionGuard } from './AlbumSelectionGuard';
+import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -20,6 +22,8 @@ export function Layout() {
   useJobEvents(user && libraryId ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
   const taskCount = useGapCounts(user ? libraryId : undefined).data?.tasks?.todo ?? 0;
+  // While albums are selected, "Albums" leads back to that list, selection intact.
+  const albumsReturnSearch = useAlbumsReturnSearch();
 
   useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
   useEffect(() => {
@@ -74,7 +78,7 @@ export function Layout() {
         <div id="main-navigation" className={styles.navSheet}>
         <nav className={styles.navLinks} aria-label="Main navigation">
           <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
-          <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
+          <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
           <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>
@@ -97,6 +101,7 @@ export function Layout() {
         </main>
       </div>
       {searchOpen && <SearchModal onClose={closeSearch} />}
+      <AlbumSelectionGuard />
     </div>
   );
 }

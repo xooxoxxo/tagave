@@ -69,6 +69,8 @@ interface PlanWizardProps {
   onClose: () => void;
   /** Open already scoped to these albums (album page "Fix tags"); lands on step 2. */
   initialScope?: { albumIds: string[]; albumLabels?: Record<string, string> };
+  /** Called once the plan exists, just before the wizard moves on to the plan page. */
+  onDone?: () => void;
 }
 
 /** Plain words for why adding to a plan failed; the server's text stays in the log. */
@@ -88,7 +90,7 @@ function createPlanErrorMessage(error: unknown): string {
   return 'Could not create the plan. Try again.';
 }
 
-export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps) {
+export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWizardProps) {
   // null until the user picks: add to an open plan, or start a new one. When
   // there is no open plan to add to, the choice is skipped (see effectiveMode).
   const [mode, setMode] = useState<WizardMode | null>(null);
@@ -226,6 +228,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     try {
       const result = await createPlanMutation.mutateAsync(payload);
       // The plan page runs the preview and shows the diff at full width.
+      onDone?.();
       onClose();
       void navigate({ to: '/plans/$planId', params: { planId: result.id } });
     } catch (error) {
@@ -246,6 +249,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     try {
       await addToPlanMutation.mutateAsync({ planId, albumIds });
       // The plan page follows the fresh preview the server queued.
+      onDone?.();
       onClose();
       void navigate({ to: '/plans/$planId', params: { planId } });
     } catch (error) {
