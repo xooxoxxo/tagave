@@ -13,21 +13,37 @@ const rule = (css: string, selector: RegExp) => css.match(new RegExp(`${selector
 describe('button motion', () => {
   const css = read('./Button.module.css');
 
-  it('hovers with a lift only: no scale, no filter, no colour flash', () => {
-    const hover = rule(css, /\n\.button:hover:not\([^)]*\)/);
-    expect(hover).toMatch(/transform:\s*translateY\(-1px\);/);
-    expect(hover).not.toMatch(/scale|filter/);
+  it('never moves the capsule on hover: no transform, no scale, no filter', () => {
+    const hovers = [...css.matchAll(/\n\.[\w-]+:hover:not\([^)]*\)[^{]*\{([^}]*)\}/g)].map((m) => m[1] ?? '');
+    expect(hovers.length).toBeGreaterThan(0);
+    for (const hover of hovers) expect(hover).not.toMatch(/transform|scale|filter|translate/);
+    // hover lights the surface instead: the sheen brightens
+    expect(rule(css, /\n\.button:hover:not\([^)]*\)/)).toMatch(/--b-sheen-boost:\s*0\.\d+/);
   });
 
-  it('squashes on press and springs back on release', () => {
+  it('keeps the outer drop shadow of rest on hover and press (nothing lifts or grows)', () => {
+    const outer = /0 10px 22px -10px color-mix\(in srgb, var\(--b-glow\) 70%, transparent\)/;
+    expect(rule(css, /\n\.button/)).toMatch(outer);
+    expect(rule(css, /\n\.button:hover:not\([^)]*\)/)).toMatch(outer);
+    expect(rule(css, /\n\.button:active:not\([^)]*\)/)).toMatch(outer);
+  });
+
+  it('presses as an inset: the element stays put, the label sinks and springs back', () => {
     const active = rule(css, /\n\.button:active:not\([^)]*\)/);
-    expect(active).toMatch(/transform:\s*scale\(0\.96\)/);
-    expect(rule(css, /\n\.button/)).toMatch(/transition:\s*transform var\(--dur-pop\) var\(--ease-pop\)/);
+    expect(active).not.toMatch(/transform/);
+    expect(active).toMatch(/inset 0 3px 7px/);
+    for (const m of css.slice(0, css.indexOf('prefers-reduced-motion')).matchAll(/\n[^{]*:active[^{]*\{([^}]*)\}/g)) {
+      const block = m[0];
+      if (/>\s*\.label/.test(block)) expect(block).toMatch(/transform:\s*translateY\(1px\)/);
+      else expect(m[1]).not.toMatch(/transform|scale/);
+    }
+    expect(rule(css, /\n\.button/)).toMatch(/transform:\s*none/);
+    expect(rule(css, /\n\.label/)).toMatch(/transition:\s*transform var\(--dur-pop\) var\(--ease-pop\)/);
   });
 
   it('drops every transform under reduced motion', () => {
     const reduced = css.slice(css.indexOf('prefers-reduced-motion'));
-    expect(reduced).toMatch(/\.button:active:not\(:disabled\)\s*\{\s*transform:\s*none/);
+    expect(reduced).toMatch(/\.button:active:not\(:disabled\) > \.label\s*\{\s*transform:\s*none/);
   });
 
   it('has a quiet danger variant with no fill, in the danger ink', () => {

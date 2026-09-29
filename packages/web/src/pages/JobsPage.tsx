@@ -231,6 +231,13 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
 function JobTable({ jobs, focusId, action }: { jobs: JobView[]; focusId: string | undefined; action?: (job: JobView) => ReactNode }) {
   return (
     <Table className={styles.table}>
+      {/* Fixed columns: status and time keep their place as rows come and go. */}
+      <colgroup>
+        <col />
+        <col className={styles.colStatus} />
+        <col className={styles.colWhen} />
+        {action && <col className={styles.colAction} />}
+      </colgroup>
       <thead>
         <tr>
           <Th>Task</Th>

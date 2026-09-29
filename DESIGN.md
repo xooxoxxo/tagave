@@ -66,7 +66,7 @@ Components use the palette tokens. Legacy names such as `--bg-primary`, `--text-
 - Space: `--space` is 4px, with steps of 4, 8, 12, 16, 20, 24, 32, 40, 48, 72 and 96px (`--space-xs` to `--space-4xl`).
 - Radius: `--r-pill` for every control, `--r-card` 24px, `--r-cover` 18px, `--r-inner` 14px (textareas, thumbnails, notes) and `--r-kbd` 8px. No control is square or has a small radius.
 - Controls: `--h-control` 48px, `--h-control-sm` 36px, `--h-chip` 30px. On coarse pointers a small control grows to 44px.
-- Motion: `--dur-fast` 80ms (press), `--dur` 180ms, `--dur-slow` 280ms, `--ease-out`, `--ease-spring` (hover lift), and `--dur-pop` 360ms with `--ease-pop`, the springy release of a pressed button.
+- Motion: `--dur-fast` 80ms (press), `--dur` 180ms, `--dur-slow` 280ms, `--ease-out`, `--ease-spring`, and `--dur-pop` 360ms with `--ease-pop`, the springy release of a pressed button's label.
 
 ## Buttons: the drop
 
@@ -86,8 +86,9 @@ The label `<span>` sets its own weight (Figtree 600), so a `<button>`, a `LinkBu
 
 States:
 
-- Hover is gentle: the drop lifts 1px and its shadow loosens slightly. No scale, no brightness or colour change, no bigger glow.
-- Press squashes it to 96% over 80ms while the shadow compresses under it. Letting go springs back past full size and settles (`--dur-pop`, `--ease-pop`): a bubble that pops back. Quiet buttons squash the same way.
+- The capsule never moves: no translate, no scale, no outer shadow growth on hover or press.
+- Hover lights the surface: the sheen brightens a little, the rim picks up a thin inner glint and the depth inside deepens a touch.
+- Press is an inset: over 80ms the inner shadow deepens, the sheen dims and the label sinks 1px inside the capsule. Letting go springs the label back past its place and settles (`--dur-pop`, `--ease-pop`). Quiet buttons sink their label the same way. Reduced motion keeps the light changes and drops the label movement.
 - Focus shows a 2px `--ring` outline with a 3px offset.
 - Disabled is desaturated at half opacity.
 - Loading keeps the width and colour, swaps the label for a spinner (the label stays in the accessibility tree), sets `aria-busy` and blocks repeat presses.

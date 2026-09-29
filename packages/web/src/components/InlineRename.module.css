@@ -9,18 +9,32 @@
 @media (hover: none) { .edit { opacity: 1; } }
 
 .editing { display: inline-flex; flex-direction: column; gap: var(--space-xs); width: min(100%, 40rem); }
-.input { width: 100%; }
+.editRow { display: flex; align-items: center; gap: var(--space-sm); min-width: 0; }
+.input { width: 100%; min-width: 0; flex: 1 1 auto; }
+.editRow > :not(.input) { flex: none; }
 /* In the headline the field inherits the headline's face (PageShell's
    --type-headline) so the name does not change size when it turns editable.
    Doubled classes: the Input primitive's own `font` rule must not win. */
 .editing.title .input.input { font: inherit; letter-spacing: inherit; min-height: 0; padding-block: 0.12em; }
 .editing.row .input.input { font-size: var(--font-size-sm); }
 
-/* In the headline the name wraps like text and the pencil rides after its
-   last word, instead of a flex row that parks the pencil at the far edge. */
-.wrap.title { display: inline; }
-.wrap.title .text { display: inline; }
-.wrap.title .edit { display: inline-flex; vertical-align: middle; margin-inline-start: var(--space-xs); }
+/* In the headline the name is clamped to two lines (the full name is the
+   hover text) and the pencil, with whatever rides after it, sits right of it
+   on the same row: never a line of its own, never pushed off the page. */
+.wrap.title { display: flex; align-items: center; flex-wrap: nowrap; }
+.wrap.title .text {
+  flex: 0 1 auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.wrap.title .edit { display: inline-flex; margin-inline-start: var(--space-xs); }
+
+/* The pencil and whatever rides after it (a status chip) stay one unit,
+   so the chip never lands on a line of its own. */
+.tail { flex: none; display: inline-flex; align-items: center; gap: var(--space-sm); white-space: nowrap; vertical-align: middle; }
 
 .hint { font: 400 var(--font-size-xs) / 1.4 var(--font-body); color: var(--ink-3); letter-spacing: 0; }
 .error { color: var(--danger); }

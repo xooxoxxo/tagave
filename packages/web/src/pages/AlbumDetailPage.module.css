@@ -529,6 +529,38 @@ td.num {
   min-width: 0;
 }
 
+/* Candidate table: fixed layout, every column but Release has a width. */
+.candTable {
+  table-layout: fixed;
+  min-width: 44rem;
+}
+.candWDistance { width: 6.5rem; }
+.candWDate { width: 7.5rem; }
+.candWCountry { width: 6.5rem; }
+.candWTracks { width: 5.5rem; }
+.candWActions { width: 12rem; }
+.candTable th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.candActions { white-space: nowrap; text-align: right; }
+.candActions > * + * { margin-left: var(--space-xs); }
+
+/* Missing tracks: a compact list read like the Tracks table. The number sits
+   in a narrow tabular column right next to the title; the length hugs the
+   right edge. */
+.missingNo {
+  width: 1%;
+  min-width: 2.5ch;
+  text-align: right;
+}
+/* doubled up to beat `.missingTable td`'s padding */
+.missingTable .missingNo { padding-right: 0.25rem; }
+.missingTitle {
+  width: auto;
+  overflow-wrap: anywhere;
+}
+.missingLen {
+  width: 1%;
+}
+
 .candTitleRow {
   display: flex;
   align-items: center;

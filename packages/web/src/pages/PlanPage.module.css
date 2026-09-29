@@ -81,7 +81,9 @@
 
 .fileRow {
   display: grid;
-  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) auto;
+  /* every row is its own grid, so every track is fixed except the path:
+     "12 changes" and "No changes" line up down the list */
+  grid-template-columns: 1.25rem 6.5rem minmax(0, 1fr) 7rem;
   align-items: center;
   gap: var(--space-md);
   width: 100%;
@@ -109,7 +111,7 @@
 .pathFile { display: block; font-size: var(--font-size-sm); color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fileError { display: block; font-size: var(--font-size-xs); color: var(--error); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.fileFields { display: flex; align-items: center; gap: var(--space-xs); justify-content: flex-end; }
+.fileFields { display: flex; align-items: center; gap: var(--space-xs); justify-content: flex-end; min-width: 0; overflow: hidden; }
 .nChanges { font-size: var(--font-size-sm); color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* Expanded diff */
@@ -133,7 +135,9 @@ so the change reads at a glance. */
 
 .empty { padding: var(--space-xl); text-align: center; color: var(--text-secondary); font-size: var(--font-size-sm); }
 
-.title { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; }
+.title { display: block; min-width: 0; overflow-wrap: break-word; }
+/* A long plan name drops from the headline size to a smaller display size. */
+.titleLong { font-size: clamp(1.5rem, 1.1rem + 1.2vw, 2rem); line-height: 1.15; }
 @media (max-width: 640px) { .stats { grid-template-columns: 1fr 1fr; } .stats > div + div { border-left: 0; } .input { min-width: 0; width: 100%; } .fileRow { grid-template-columns: 1rem 4rem minmax(0, 1fr); } .fileFields { grid-column: 3; justify-content: flex-start; } }
 
 /* On a phone the four columns do not fit (Field and Why alone take the

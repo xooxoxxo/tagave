@@ -18,7 +18,10 @@
 }
 
 .titleBlock {
-  flex: 1;
+  /* A real basis, so when the title and the actions cannot share a row the
+     actions wrap below the title instead of squeezing it to a word per line
+     (or being pushed past the page edge). */
+  flex: 1 1 24rem;
   min-width: 0;
 }
 
@@ -37,6 +40,9 @@
 }
 
 .actions {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   gap: 14px;
   align-items: center;
@@ -53,4 +59,4 @@
 }
 
 .tabs { padding-inline: var(--page-pad); }
-@media (max-width: 640px) { .header { flex-direction: column; gap: 1rem; } .actions { flex-wrap: wrap; } }
+@media (max-width: 640px) { .header { flex-direction: column; gap: 1rem; } .titleBlock { flex: 0 0 auto; width: 100%; } .actions { flex-wrap: wrap; } }

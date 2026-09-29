@@ -4,7 +4,7 @@
  * Enter or leaving the field saves, Esc puts the old name back. Whitespace is
  * collapsed and a blank name is refused before anything is sent.
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { IconButton, Input } from './ui';
 import styles from './InlineRename.module.css';
 
@@ -36,6 +36,7 @@ export function InlineRename({
   onSave,
   label = 'Rename',
   size = 'title',
+  after,
 }: {
   value: string;
   /** Resolves when saved; a rejection's `detail` or message is shown under the field. */
@@ -44,6 +45,9 @@ export function InlineRename({
   label?: string;
   /** title: the page headline; row: a table cell. */
   size?: 'title' | 'row';
+  /** Shown after the pencil, and next to the field while editing, kept on
+      the name's line (a status chip). */
+  after?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -126,30 +130,46 @@ export function InlineRename({
       <span className={`${styles.wrap} ${sizeClass}`}>
         {/* In the headline the name itself is a shortcut for the pencil; in a
             row a click on the name opens the row, and only the pencil renames. */}
-        <span className={styles.text} onClick={size === 'title' ? start : undefined}>{value}</span>
-        <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
-          <PencilIcon />
-        </IconButton>
+        <span
+          className={styles.text}
+          onClick={size === 'title' ? start : undefined}
+          title={value}
+        >{value}</span>
+        {after ? (
+          <span className={styles.tail}>
+            <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
+              <PencilIcon />
+            </IconButton>
+            {after}
+          </span>
+        ) : (
+          <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
+            <PencilIcon />
+          </IconButton>
+        )}
       </span>
     );
   }
 
   return (
     <span className={`${styles.editing} ${sizeClass}`} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}>
-      <Input
-        ref={inputRef}
-        className={styles.input}
-        dense={size === 'row'}
-        value={draft}
-        maxLength={NAME_MAX + 40}
-        aria-label={label}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-        disabled={saving}
-        onChange={(e) => { setDraft(e.target.value); if (error) setError(null); }}
-        onKeyDown={onKeyDown}
-        onBlur={() => void commit(false)}
-      />
+      <span className={styles.editRow}>
+        <Input
+          ref={inputRef}
+          className={styles.input}
+          dense={size === 'row'}
+          value={draft}
+          maxLength={NAME_MAX + 40}
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          disabled={saving}
+          onChange={(e) => { setDraft(e.target.value); if (error) setError(null); }}
+          onKeyDown={onKeyDown}
+          onBlur={() => void commit(false)}
+        />
+        {after}
+      </span>
       <span className={styles.hint}>
         {error
           ? <span id={errorId} role="alert" className={styles.error}>{error}</span>

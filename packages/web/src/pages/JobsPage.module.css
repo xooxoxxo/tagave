@@ -142,7 +142,15 @@
   font-size: var(--font-size-sm);
 }
 
-/* Job tables: compact rows */
+/* Job tables: compact rows, fixed columns (only Task flexes), so a longer
+   badge or time on one row never shifts the others. */
+
+.table {
+  table-layout: fixed;
+}
+.colStatus { width: 8.5rem; }
+.colWhen { width: 6.5rem; }
+.colAction { width: 12rem; }
 
 .table td,
 .table th {
@@ -210,14 +218,15 @@
 }
 
 .statusCell {
-  width: 1%;
   white-space: nowrap;
+  overflow: hidden;
 }
 
 .whenCell {
-  width: 1%;
   white-space: nowrap;
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .whenLink {
@@ -233,7 +242,6 @@
 }
 
 .actionTd {
-  width: 1%;
   text-align: right;
 }
 
@@ -249,7 +257,7 @@
   font-size: var(--font-size-xs);
   color: var(--text-secondary);
   white-space: normal;
-  max-width: 16rem;
+  max-width: 100%;
   text-align: right;
 }
 
@@ -266,7 +274,8 @@
     align-items: baseline;
   }
 
-  .table thead {
+  .table thead,
+  .table colgroup {
     display: none;
   }
 

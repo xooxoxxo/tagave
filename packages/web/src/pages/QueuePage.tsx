@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
 import { Button } from '../components/ui';
+import { orderScoreKeys, scoreLabel } from '../utils/matchScores';
 import styles from './QueuePage.module.css';
 
 interface QueueTrack {
@@ -112,7 +113,7 @@ export function ReviewPanel() {
         if (typeof v === 'number') seen.add(k);
       }
     }
-    return [...seen].sort();
+    return orderScoreKeys(seen);
   }, [item]);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['queue', libraryId] });
@@ -206,7 +207,21 @@ export function ReviewPanel() {
         </div>
       ) : (
         <div className={styles.tableWrap}>
+          {/* table-layout: fixed with a width on every column but Release, so
+              switching albums or rows never moves a column: Release takes what
+              is left and truncates (full title on hover). */}
           <table className={styles.table}>
+            <colgroup>
+              <col className={styles.wSource} />
+              <col />
+              <col className={styles.wYear} />
+              <col className={styles.wCountry} />
+              <col className={styles.wTracks} />
+              <col className={styles.wScores} />
+              <col className={styles.wStatus} />
+              <col className={styles.wDistance} />
+              <col className={styles.wLinks} />
+            </colgroup>
             <caption className={styles.srOnly}>
               Candidate releases for {item.title ?? 'this album'}, best match first. Use up and down arrows to select.
             </caption>
@@ -220,7 +235,7 @@ export function ReviewPanel() {
                 {/* Match before Status: it is the decision signal, and Status is
                     "—" for most Discogs releases. At narrow widths the columns
                     after this one are the first to go behind the scroll. */}
-                <th scope="col" className={styles.colScores}>Match</th>
+                <th scope="col" className={styles.colScores} title={scoreKeys.length ? `Left to right: ${scoreKeys.map(scoreLabel).join(', ')}` : undefined}>Match</th>
                 <th scope="col">Status</th>
                 <th scope="col" className={styles.colNum}>Distance</th>
                 <th scope="col" className={styles.colLinks}><span className={styles.srOnly}>Links</span></th>
@@ -242,14 +257,14 @@ export function ReviewPanel() {
                     <td className={styles.colSource}>
                       <span className={styles.provider}>{c.provider === 'discogs' ? 'Discogs' : 'MusicBrainz'}</span>
                     </td>
-                    <td className={styles.release}>
+                    <td className={styles.release} title={[c.title, c.artistCredit && c.artistCredit !== item.artist ? c.artistCredit : null].filter(Boolean).join(' — ')}>
                       <span className={styles.releaseTitle}>{c.title}</span>
                       {c.artistCredit && c.artistCredit !== item.artist && (
                         <span className={styles.releaseArtist}>{c.artistCredit}</span>
                       )}
                     </td>
                     <td className={styles.colNum} title={c.date ?? undefined}>{fmtYear(c.date)}</td>
-                    <td className={styles.colNum}>{c.country ?? '—'}</td>
+                    <td className={styles.colNum} title={c.country ?? undefined}>{c.country ?? '—'}</td>
                     <td className={styles.colNum}>
                       {c.trackCount ?? '—'}
                       {trackDelta != null && trackDelta !== 0 && (
@@ -263,19 +278,21 @@ export function ReviewPanel() {
                         {scoreKeys.map((k) => {
                           const v = c.breakdown?.[k];
                           if (typeof v !== 'number') {
-                            return <span key={k} className={styles.cellNone} title={`${k}: not scored`} />;
+                            return <span key={k} className={styles.cellNone} role="img" aria-label={`${scoreLabel(k)}: not scored`} title={`${scoreLabel(k)}: not scored`} />;
                           }
                           return (
                             <span
                               key={k}
                               className={scoreClass(v)}
-                              title={`${k}: ${scoreWord(v)} (${v.toFixed(3)})`}
+                              role="img"
+                              aria-label={`${scoreLabel(k)}: ${scoreWord(v)}`}
+                              title={`${scoreLabel(k)}: ${scoreWord(v)} (${v.toFixed(3)})`}
                             />
                           );
                         })}
                       </span>
                     </td>
-                    <td className={styles.status}>{c.status ?? '—'}</td>
+                    <td className={styles.status} title={c.status ?? undefined}>{c.status ?? '—'}</td>
                     <td className={styles.colNum}>
                       <span className={styles.distance}>{c.distance.toFixed(3)}</span>
                     </td>
@@ -312,7 +329,7 @@ export function ReviewPanel() {
           </table>
           {scoreKeys.length > 0 && (
             <p className={styles.legend}>
-              Match cells, left to right: {scoreKeys.join(', ')}.
+              Match dots, left to right: {scoreKeys.map(scoreLabel).join(', ')}.
               <span className={styles.legendKey}><span className={styles.cellGood} /> agrees</span>
               <span className={styles.legendKey}><span className={styles.cellNear} /> close</span>
               <span className={styles.legendKey}><span className={styles.cellBad} /> disagrees</span>
