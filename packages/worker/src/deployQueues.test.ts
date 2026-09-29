@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { GATED_QUEUES, unservedWork } from '@liner/core';
 
 // Every compose file that splits the worker into LINER_QUEUES roles must, taken
 // together, give each queue the worker can run to some worker. A queue left
@@ -42,8 +43,18 @@ describe.each(['deploy/compose.yml', 'docker-compose.prod.yml'])('%s worker role
     expect(lists.flat().filter((q) => !gated.has(q))).toEqual([]);
   });
 
+  it('reads as fully served in the worker check', () => {
+    expect(unservedWork(lists)).toEqual([]);
+  });
+
   it('gives each queue to one worker only', () => {
     const all = lists.flat();
     expect(all.filter((q, i) => all.indexOf(q) !== i)).toEqual([]);
+  });
+});
+
+describe('worker check queue list', () => {
+  it('names exactly the queues index.ts gates on', () => {
+    expect([...GATED_QUEUES].sort()).toEqual(gatedQueues());
   });
 });

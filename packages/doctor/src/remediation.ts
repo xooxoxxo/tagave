@@ -26,7 +26,7 @@ export function remediationFor(check: Pick<Check, 'id' | 'status' | 'detail'>): 
     case 'workerHeartbeat':
       return failed
         ? 'No worker has checked in during the last two minutes, so nothing will be scanned or identified. Start the workers. If you used the installer, run `docker compose up -d` in the folder it installed to (~/tagave unless you chose another), and `docker compose logs worker-files` there says why a worker stopped; on a split install, do the same on the computer with the music. From a source checkout, run `docker compose -f docker-compose.prod.yml --profile workers up -d` (the workers only start with that profile), or outside Docker `node packages/worker/dist/index.js` with DATABASE_URL set. A worker on another computer must point at this same database and be able to reach it over the network.'
-        : 'Fewer workers are running than this install expects. Scans and identification still run, only slower. Start the missing worker, or ignore this if you run one worker on purpose.';
+        : 'Workers are running, but none of them takes the kind of work named in the check, so that work waits. On a split install, start the missing worker (with the installer, worker-files reads music folders and worker-identify identifies albums), or remove LINER_QUEUES from a worker so it takes every kind of work.';
     case 'versions':
       return 'The app and the workers run different builds. Deploy the same version everywhere; the app and each worker host update separately.';
     case 'scanRoots':

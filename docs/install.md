@@ -105,7 +105,7 @@ Open http://localhost:3100. A fresh install opens the setup wizard, which walks 
 3. **Music folder**: the path to your library **as the worker sees it** (with the bundled Compose workers, `/mnt/music`). The worker checks the folder and the wizard shows what it found, with a fix for a missing path, a permission problem or a read-only mount.
 4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
 
-Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `liner-doctor doctor` prints the same checks and fixes. Set `EXPECT_WORKERS` in the app environment to the number of worker processes you run (default 1) so the status page warns when one is missing.
+Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `liner-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
 
 ## Connect your music
 

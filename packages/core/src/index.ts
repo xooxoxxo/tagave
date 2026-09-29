@@ -181,3 +181,6 @@ export {
   hashDsfStream,
   hashDffStream,
 } from './audio/streamHash.js';
+
+// Worker queues and the work each serves
+export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, unservedWork } from './queues.js';

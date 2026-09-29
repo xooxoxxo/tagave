@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import postgres from 'postgres';
 import { MIGRATIONS_DIR } from '@liner/db';
-import { MusicBrainzProvider, DiscogsProvider, isSealed, openSecret } from '@liner/core';
+import { MusicBrainzProvider, DiscogsProvider, isSealed, openSecret, unservedWork } from '@liner/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -180,24 +180,51 @@ export async function checkContactString(databaseUrl: string): Promise<Check> {
   }
 }
 
-// Check 4: Worker heartbeat
+/** The worker check from the live workers and the queues they serve. */
+export function workerCoverageCheck(liveWorkers: number, served: ReadonlyArray<readonly string[]>, durationMs = 0): Check {
+  const unserved = unservedWork(served);
+  const running = `${plural(liveWorkers, 'worker')} running`;
+  if (unserved.length > 0) {
+    return {
+      id: 'workerHeartbeat',
+      title: 'Worker Heartbeat',
+      status: 'warn',
+      detail: `${running}, but none handles ${joinWords(unserved)}`,
+      durationMs,
+    };
+  }
+  return { id: 'workerHeartbeat', title: 'Worker Heartbeat', status: 'pass', detail: `${running}, handling all work`, durationMs };
+}
+
+const joinWords = (items: string[]) =>
+  items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
+
+// Check 4: Worker heartbeat. expectWorkers 0 is an install that runs no
+// workers on purpose; any other value only means workers are expected, and
+// whether there are enough is judged by the work they cover.
 export async function checkWorkerHeartbeat(
   databaseUrl: string,
-  expectWorkers: number = 2,
+  expectWorkers: number = 1,
 ): Promise<Check> {
   const start = Date.now();
   try {
     const sql = postgres(databaseUrl, { max: 1 });
     try {
-      // Find the freshest worker heartbeat rows within the last 120 seconds per workerId
+      // Live workers (a heartbeat within the last 120 seconds) and the
+      // queues each serves. A heartbeat without a queue list (an older
+      // build) served every queue.
       const result = await sql`
-        select worker_id
+        select worker_id, info->'queues' as queues
         from worker_heartbeats
         where seen_at > now() - interval '120 seconds'
       `;
 
       const workerIds = new Set(result.map((r) => r['worker_id'] as string).filter(Boolean));
       const liveWorkers = workerIds.size;
+      const served = result.map((r) => {
+        const q = r['queues'];
+        return Array.isArray(q) ? q.map(String) : ['*'];
+      });
 
       if (expectWorkers === 0) {
         return {
@@ -218,23 +245,9 @@ export async function checkWorkerHeartbeat(
         };
       }
 
-      if (liveWorkers < expectWorkers) {
-        return {
-          id: 'workerHeartbeat',
-          title: 'Worker Heartbeat',
-          status: 'warn',
-          detail: `${plural(liveWorkers, 'worker')} running, ${expectWorkers} expected`,
-          durationMs: Date.now() - start,
-        };
-      }
-
-      return {
-        id: 'workerHeartbeat',
-        title: 'Worker Heartbeat',
-        status: 'pass',
-        detail: `${plural(liveWorkers, 'worker')} running`,
-        durationMs: Date.now() - start,
-      };
+      // Enough workers means every kind of work has one: the same answer
+      // for one worker that does everything and for a split install.
+      return workerCoverageCheck(liveWorkers, served, Date.now() - start);
     } finally {
       await sql.end();
     }

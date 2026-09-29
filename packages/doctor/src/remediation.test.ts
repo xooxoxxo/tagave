@@ -27,7 +27,7 @@ describe('remediationFor', () => {
 
   it('distinguishes a missing worker from a short one', () => {
     expect(remediationFor({ id: 'workerHeartbeat', status: 'fail', detail: '' })).toMatch(/No worker/);
-    expect(remediationFor({ id: 'workerHeartbeat', status: 'warn', detail: '' })).toMatch(/Fewer workers/);
+    expect(remediationFor({ id: 'workerHeartbeat', status: 'warn', detail: '' })).toMatch(/none of them takes/);
   });
 
   it('gives the installer command before the source-checkout one for a missing worker', () => {

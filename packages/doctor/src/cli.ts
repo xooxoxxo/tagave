@@ -123,7 +123,7 @@ async function main() {
   // Default: run doctor checks
   let json = false;
   let offline = false;
-  let expectWorkers = 2;
+  let expectWorkers = 1;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];

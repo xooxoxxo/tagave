@@ -1,7 +1,7 @@
 import PgBoss from 'pg-boss';
 import pino from 'pino';
 import { makeDb } from '@liner/db';
-import { readBuildInfo } from '@liner/core';
+import { readBuildInfo, WORKER_QUEUES } from '@liner/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import type { WorkerContext } from './lib/context.js';
@@ -110,7 +110,8 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  const queues = ['scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'identify.album', 'identify.acoustid', 'identify.sweep', 'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept', 'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch', 'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh', 'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh', 'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link', ...M1_PLACEHOLDER_QUEUES];
+  // One list for the worker and the worker check (@liner/core).
+  const queues = [...WORKER_QUEUES, ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
     await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
