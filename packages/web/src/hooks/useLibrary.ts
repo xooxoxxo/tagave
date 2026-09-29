@@ -374,11 +374,13 @@ export function useUnmapCollectionItem(libraryId: string | undefined) {
   });
 }
 
-export function useCollectionOptions(libraryId: string | undefined) {
+/** `enabled` is false until a Discogs source exists; the endpoint answers 400 without one. */
+export function useCollectionOptions(libraryId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: [...COLLECTION_QUERY_KEY, 'options', libraryId],
     queryFn: () => api.get(`/libraries/${libraryId}/collection-sources/options`),
-    enabled: !!libraryId,
+    enabled: !!libraryId && enabled,
+    retry: false,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
 }

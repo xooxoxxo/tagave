@@ -1,34 +1,15 @@
-.container {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-  padding: var(--page-pad);
-  min-height: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-lg);
-}
-
-.title {
-  margin: 0;
-}
-
+/* The page frame (title, subtitle, actions) is PageShell. */
 .meta {
-  font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
-  margin: 0.25rem 0 0 0;
+  color: var(--ink-3);
 }
 
-.headerActions {
-  display: flex;
-  gap: var(--space-sm);
-  align-items: center;
+.formError {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-radius: var(--r-inner);
+  background: var(--danger-tint);
+  color: var(--ink);
+  font-size: var(--font-size-sm);
 }
 
 .statusChip {
@@ -331,4 +312,4 @@
   border: 1px solid var(--border);
 }
 
-@media (max-width: 640px) { .header { flex-direction: column; } .headerActions { flex-wrap: wrap; } }
+
