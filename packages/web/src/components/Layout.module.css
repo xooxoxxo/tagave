@@ -25,7 +25,7 @@
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }
 .footer { flex-shrink: 0; padding: .55rem 1.5rem; background: var(--bg-tertiary); border-top: 1px solid var(--border); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--text-secondary); }
-.skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem; background: white; transform: translateY(-200%); }
+.skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem; background: var(--surface); color: var(--dew); border: 1px solid var(--line-strong); border-radius: var(--radius-md); transform: translateY(-200%); }
 .skipLink:focus { transform: none; }
 @media (max-width: 900px) {
   .container { flex-direction: column; }

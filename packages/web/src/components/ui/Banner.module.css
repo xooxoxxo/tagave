@@ -1,31 +1,68 @@
+/* An outcome or an actionable condition: a softly tinted, flat note. */
 .banner {
-  padding: var(--space-md) var(--space-lg);
-  border-radius: var(--radius-md);
+  position: relative;
+  padding: 14px 20px 14px 38px;
+  border-radius: var(--r-inner);
   border: 1px solid transparent;
-
-  color: var(--text-primary);
+  color: var(--ink);
   font-size: var(--font-size-sm);
   line-height: var(--line-height-normal);
 }
 
-.banner a { color: var(--text-primary); }
+.banner::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: calc(14px + 0.775em - 4px);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.banner a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 .tone-info {
-  background-color: var(--surface-info);
-  border-color: rgba(var(--info-rgb), 0.3);
+  background: var(--dew-tint);
+  border-color: color-mix(in srgb, var(--dew) 25%, transparent);
+}
+
+.tone-info::before {
+  background: var(--dew);
 }
 
 .tone-success {
-  background-color: var(--surface-success);
-  border-color: rgba(var(--success-rgb), 0.3);
+  background: var(--ok-tint);
+  border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+.tone-success::before {
+  background: var(--ok);
 }
 
 .tone-warning {
-  background-color: var(--surface-warning);
-  border-color: rgba(var(--warning-rgb), 0.3);
+  background: var(--warn-tint);
+  border-color: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+
+.tone-warning::before {
+  background: var(--warn);
 }
 
 .tone-danger {
-  background-color: var(--surface-danger);
-  border-color: rgba(var(--error-rgb), 0.3);
+  background: var(--danger-tint);
+  border-color: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.tone-danger::before {
+  background: var(--danger);
+}
+
+@media (forced-colors: active) {
+  .banner {
+    border-color: CanvasText;
+  }
 }

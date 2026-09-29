@@ -1,0 +1,73 @@
+/* Same track as Tabs: a recessed pill with a clear bubble for the selection. */
+.track {
+  display: inline-flex;
+  max-width: 100%;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--mist);
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), 0.1), inset 0 0 0 1px var(--glass-edge);
+}
+
+.option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 5.5rem;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
+  font: 500 14px / 1 var(--font-body);
+  cursor: pointer;
+  transition: color var(--dur) ease, background-color var(--dur) ease, box-shadow var(--dur) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.option:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+}
+
+.selected,
+.selected:hover {
+  color: var(--ink);
+  font-weight: 600;
+  background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--mist) 40%, var(--surface)));
+  box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
+}
+
+/* The native radio stays in the accessibility tree and keyboard order. */
+.radio {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.option:has(.radio:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+@media (forced-colors: active) {
+  .track {
+    border: 1px solid CanvasText;
+  }
+
+  .selected {
+    border: 2px solid Highlight;
+  }
+}
+
+@media (max-width: 400px) {
+  .option {
+    min-width: 0;
+    padding: 0 14px;
+  }
+}

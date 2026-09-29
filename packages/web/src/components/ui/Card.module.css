@@ -1,7 +1,9 @@
+/* Cards are opaque, flat and hairline-bordered: no gloss, no rim. */
 .card {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
@@ -9,81 +11,132 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-lg);
-  padding: var(--space-lg);
-  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-lg);
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .title {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-primary);
+  font: var(--type-title);
+  font-size: 1.25rem;
+  color: var(--ink);
   margin: 0;
 }
 
 .actions {
   display: flex;
-  gap: var(--space-md);
+  gap: 14px;
   align-items: center;
-  flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
 .padded {
-  padding: var(--space-lg);
+  padding: 24px;
 }
 
 .content {
   padding: 0;
 }
 
-/* Stat card */
+@media (max-width: 600px) {
+  .header {
+    padding: 16px 20px;
+  }
+
+  .padded {
+    padding: 20px;
+  }
+}
+
+/* ---- Stat card ---- */
 .statCard {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: var(--space-md);
+  gap: var(--space-sm);
 }
 
 .statLabel {
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: none;
-  letter-spacing: 0;
+  font: var(--type-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }
 
 .statValue {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
+  font: 500 1.75rem / 1.15 var(--font-body);
+  letter-spacing: -0.01em;
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 
 .statHint {
   font-size: var(--font-size-sm);
-  color: var(--text-tertiary);
+  color: var(--ink-2);
 }
 
-/* Tones */
-.stat-neutral {
-  border-color: var(--border);
+/* Tones mark the value with a status dot, never a fill. */
+.stat-info .statLabel::before,
+.stat-success .statLabel::before,
+.stat-warning .statLabel::before,
+.stat-danger .statLabel::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: 1px;
+  border-radius: 50%;
 }
 
-.stat-info {
-  border-color: var(--border);
+.stat-info .statLabel::before { background: var(--dew); }
+.stat-success .statLabel::before { background: var(--ok); }
+.stat-warning .statLabel::before { background: var(--warn); }
+.stat-danger .statLabel::before { background: var(--danger); }
+
+/* ---- Surfaces ---- */
+.surface {
+  border-radius: var(--r-card);
 }
 
-.stat-success {
-  border-color: var(--border);
+.surface-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card);
 }
 
-.stat-warning {
-  border-color: var(--border);
+.surface-inset {
+  background: var(--mist);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
 }
 
-.stat-danger {
-  border-color: var(--border);
+/* Glass: only for layers that float over content. Never glass on glass. */
+.surface-glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  box-shadow: var(--shadow-float);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .surface-glass {
+    background: var(--surface);
+  }
+}
+
+.surface-padded {
+  padding: 24px;
+}
+
+@media (max-width: 600px) {
+  .surface-padded {
+    padding: 20px;
+  }
 }

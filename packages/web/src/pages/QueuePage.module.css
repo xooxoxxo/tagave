@@ -280,7 +280,7 @@
   cursor: pointer;
   transition: background-color var(--transition-fast), border-color var(--transition-fast);
 }
-.primary { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+.primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
 .primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
 .primary:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
 .secondary { background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--control-border); }

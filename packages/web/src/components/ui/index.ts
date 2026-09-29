@@ -1,10 +1,13 @@
-export { Button, type ButtonVariant, type ButtonSize } from './Button';
+export { Button, IconButton, buttonClassName, type ButtonVariant, type ButtonSize, type ButtonProps, type IconButtonProps } from './Button';
 export { LinkButton } from './LinkButton';
-export { Card, StatCard } from './Card';
+export { Card, StatCard, Surface, type SurfaceVariant } from './Card';
+export { Chip, type ChipTone } from './Chip';
 export { Badge, statusTone, type BadgeTone } from './Badge';
 export { Table, Th, Td, TableRow } from './Table';
 export { EmptyState } from './EmptyState';
 export { Banner, type BannerTone } from './Banner';
 export { Tabs, type TabItem } from './Tabs';
+export { Tooltip } from './Tooltip';
 export { PageShell } from './PageShell';
-export { Input, Select, Textarea, TextField, type TextFieldProps } from './FormControl';
+export { Input, Select, Textarea, TextField, SearchField, PendingValue, type TextFieldProps, type SearchFieldProps } from './FormControl';
+export { SegmentedControl, ThemeSwitch, type SegmentedOption } from './SegmentedControl';

@@ -23,21 +23,22 @@
 }
 
 .title {
-  font-size: var(--font-size-2xl);
-  font-weight: 700;
-  color: var(--text-primary);
+  font: var(--type-headline);
+  letter-spacing: -0.01em;
+  color: var(--ink);
   margin: 0 0 var(--space-sm) 0;
 }
 
 .subtitle {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--ink-2);
   margin: 0;
 }
 
 .actions {
   display: flex;
-  gap: var(--space-md);
+  gap: 14px;
   align-items: center;
   flex-wrap: wrap;
 }

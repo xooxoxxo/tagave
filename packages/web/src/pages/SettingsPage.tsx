@@ -1,5 +1,5 @@
 import { Link, useLocation } from '@tanstack/react-router';
-import { PageShell } from '../components/ui';
+import { PageShell, ThemeSwitch } from '../components/ui';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
@@ -16,6 +16,7 @@ const sections = [
   { value: 'metadata', label: 'Tag preferences' },
   { value: 'genre-mapping', label: 'Genre mapping' },
   { value: 'following', label: 'Follow rules' },
+  { value: 'appearance', label: 'Appearance' },
   { value: 'providers', label: 'Integrations', group: 'Connections & system' },
   { value: 'system', label: 'System status' },
   { value: 'activity', label: 'Background activity' },
@@ -32,6 +33,7 @@ export function SettingsPage() {
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
+        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /></>}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
         {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails, then application versions and connected workers.</p><SystemStatus /><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}

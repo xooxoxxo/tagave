@@ -75,7 +75,7 @@
 
 .button {
   background: var(--accent-color);
-  color: white;
+  color: var(--on-accent);
   border-color: var(--accent-color);
 }
 

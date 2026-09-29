@@ -73,7 +73,7 @@
   padding: 0 0.35rem;
   border-radius: var(--radius-full);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: var(--font-size-xs);
   font-weight: 600;
 }
@@ -102,11 +102,11 @@
 
 .optionActive {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .optionActive .count {
-  color: rgba(255, 255, 255, 0.8);
+  color: color-mix(in srgb, var(--on-accent) 80%, transparent);
 }
 
 .optionLabel {
