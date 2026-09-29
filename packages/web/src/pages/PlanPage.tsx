@@ -28,7 +28,7 @@ import {
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
-import { derivePreviewState, progressSignature } from './planPreviewState';
+import { canPreview, derivePreviewState, progressSignature } from './planPreviewState';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -365,8 +365,8 @@ export function PlanPage() {
       }
       actions={
         <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
-            <Button variant="secondary" loading={previewM.isPending} onClick={p.status === 'draft' ? startPreview : run(previewM)} disabled={previewBusy}>
+          {canPreview(p.status) && (
+            <Button variant="secondary" loading={previewM.isPending} onClick={startPreview} disabled={previewBusy}>
               {previewButtonLabel}
             </Button>
           )}

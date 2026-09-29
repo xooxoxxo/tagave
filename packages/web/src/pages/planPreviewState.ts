@@ -60,6 +60,16 @@ export function derivePreviewState(i: PreviewInput): PreviewState {
   return { current, failed, stalled, busy, buttonLabel };
 }
 
+/**
+ * Whether the plan page offers Run / Re-run preview. The API previews a
+ * draft, and re-previews a previewed plan (it goes back to draft first).
+ * Applied, cancelled or reverted plans keep their journal: a new preview
+ * there would change nothing, so no button rather than one that fails.
+ */
+export function canPreview(status: string | undefined): boolean {
+  return status === 'draft' || status === 'previewed';
+}
+
 /** Changes whenever the worker reports anything new about the job. */
 export function progressSignature(job: TagPlanPreviewJob | undefined): string {
   if (!job) return '';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TagPlanPreviewJob } from '@liner/shared';
-import { derivePreviewState, progressSignature, type PreviewInput } from './planPreviewState';
+import { canPreview, derivePreviewState, progressSignature, type PreviewInput } from './planPreviewState';
 
 const base: PreviewInput = {
   job: undefined,
@@ -65,6 +65,16 @@ describe('derivePreviewState', () => {
 
   it('offers a re-run on a plan that already has results', () => {
     expect(derivePreviewState({ ...base, previewed: true }).buttonLabel).toBe('Re-run preview');
+  });
+});
+
+describe('canPreview', () => {
+  it('offers a preview only where the API accepts one', () => {
+    expect(canPreview('draft')).toBe(true);
+    expect(canPreview('previewed')).toBe(true);
+    for (const s of ['applying', 'applied', 'paused', 'partially_failed', 'cancelled', 'reverted', undefined]) {
+      expect(canPreview(s)).toBe(false);
+    }
   });
 });
 

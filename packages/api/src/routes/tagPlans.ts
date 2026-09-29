@@ -526,8 +526,41 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       const plan = plans[0]!;
-      if (plan.status !== 'draft') {
+      if (!OPEN_PLAN_STATUSES.includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot preview plan in status '${plan.status}'`);
+      }
+
+      // Re-running a finished preview: the plan goes back to draft first, in
+      // one locked transaction, so Apply cannot run against a preview that is
+      // being rebuilt. Same reset (and the same refusal when an apply is
+      // already queued) as adding albums.
+      if (plan.status === 'previewed') {
+        await db.transaction(async (tx) => {
+          const [locked] = await tx
+            .select({ status: tagPlans.status })
+            .from(tagPlans)
+            .where(eq(tagPlans.id, planId))
+            .for('update');
+          if (!locked || !OPEN_PLAN_STATUSES.includes(locked.status as string)) {
+            throw new ApiError(409, 'Conflict', PLAN_CLOSED);
+          }
+          const applyQueued = (await tx.execute(sql`
+            select 1 from pgboss.job
+             where name = 'tags.apply'
+               and data->>'planId' = ${planId}
+               and state in ('created', 'active', 'retry')
+             limit 1`)) as unknown as unknown[];
+          if (applyQueued.length > 0) {
+            throw new ApiError(409, 'Conflict', PLAN_CLOSED);
+          }
+          await tx
+            .update(tagPlans)
+            .set({ status: 'draft', stats: {} })
+            .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, OPEN_PLAN_STATUSES)));
+          await tx
+            .delete(tagPlanItems)
+            .where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
+        });
       }
 
       // Enqueue the tags.preview job with singletonKey.
