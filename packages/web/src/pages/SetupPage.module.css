@@ -3,23 +3,23 @@
   align-items: flex-start;
   justify-content: center;
   min-height: 100dvh;
-  background: var(--bg-primary);
-  padding: clamp(var(--space-md), 6vh, var(--space-2xl)) var(--space-md);
+  /* the body's canvas and dew wash show through */
+  background: transparent;
+  padding: clamp(var(--space-md), 8vh, var(--space-4xl)) var(--space-md);
 }
 
 .card {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: clamp(var(--space-lg), 4vw, 2.5rem);
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: clamp(var(--space-lg), 4vw, 2.75rem);
   width: 100%;
   max-width: 560px;
 }
 
 .title {
-  font-size: var(--font-size-2xl);
   margin: 0 0 var(--space-md);
-  letter-spacing: -0.01em;
 }
 
 .section {
@@ -60,23 +60,19 @@
 
 .togglePassword {
   align-self: flex-start;
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.togglePassword:hover {
-  color: var(--accent-hover);
+  margin-left: -0.75rem;
 }
 
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-sm);
+  gap: 14px;
   flex-wrap: wrap;
   margin-top: var(--space-sm);
+}
+
+/* Full-size fields on the sign-in and setup cards (48px, per the system). */
+.form input:not([type="checkbox"], [type="radio"]) {
+  min-height: var(--h-control);
+  padding: 0 1.1rem;
 }

@@ -5,7 +5,7 @@ A calm, airy catalogue with plenty of whitespace. Surfaces stay flat and quiet, 
 ## Sources of truth
 
 - `packages/web/src/styles/tokens.css`: every colour, type, space, radius, motion and layer token, for light and dark.
-- `packages/web/src/styles/index.css`: baseline element styles. They are wrapped in `:where()`, so any class overrides them. The baseline is deliberately neutral: a bare `<button>` gets a flat `--accent` background colour, `--radius-md` and no shadow, gradient or filter, so a page class that sets only `background-color` or `background: transparent` replaces it completely. Bare `h1`/`h2` stay in the body face. The gloss and the display face are opt-in through the primitives and the `--type-*` tokens. `baselineStyles.test.ts` guards this.
+- `packages/web/src/styles/index.css`: baseline element styles. They are wrapped in `:where()`, so any class overrides them. Every action in the app is a `Button`, `IconButton` or `LinkButton`; a bare `<button>` is only ever structural (a clickable row, a tab, a star, a disclosure). Its baseline is deliberately flat: a `--accent` background colour, the pill radius and no shadow, gradient or filter, so a page class that sets only `background-color` or `background: transparent` replaces it completely. Bare `h1` takes the headline role and bare `h2` the title role, so page titles and section heads are set in the thin display face; `h3` and below stay in the body face. `baselineStyles.test.ts` guards this, and `pageStyles.test.ts` keeps hex colours, small radii and heavy display weights out of page CSS.
 - `packages/web/src/components/ui/`: production primitives.
 - `packages/web/src/theme.ts`: the theme preference (system, light or dark).
 - `packages/web/design-system.html`: a live catalogue of every primitive in both themes. Vite serves it at `/design-system.html` during development. It is not a production route.
@@ -20,7 +20,7 @@ A calm, airy catalogue with plenty of whitespace. Surfaces stay flat and quiet, 
 
 ## Typography
 
-The faces are Urbanist (display), Figtree (body and controls) and JetBrains Mono (paths, tag keys and diffs). They are Google Fonts, self-hosted through `@fontsource` so an offline homelab still gets them. The app never calls a font CDN. Urbanist is loaded in weights 200, 300 and 400 only, so it is applied only through `--type-display`, `--type-headline` and `--type-title` (PageShell, Card and EmptyState titles), never to bare headings: a page heading class with a bold weight would otherwise get a synthesised bold. Figtree is loaded from 400 to 700.
+The faces are Urbanist (display), Figtree (body and controls) and JetBrains Mono (paths, tag keys and diffs). They are Google Fonts, self-hosted through `@fontsource` so an offline homelab still gets them. The app never calls a font CDN. Urbanist is loaded in weights 200, 300 and 400 only. It reaches the page through `--type-display`, `--type-headline` and `--type-title`, which bare `h1` and `h2` use; a page class on an `h1` or `h2` therefore never sets a weight above 400, which would be a synthesised bold. Figtree is loaded from 400 to 700.
 
 | Role | Token | Face and size | Use |
 | --- | --- | --- | --- |
@@ -142,10 +142,12 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 
 ## Adoption
 
-The primitives and baseline styles use this system. Pages keep working through the legacy token names and the baseline styles, and they are restyled page by page. When a page is touched:
+Every page uses this system: navigation, Home, the album grid and album page, artists, search, Library care, tag changes and the plan wizard, background activity, every settings section, setup, onboarding and sign-in. Some page CSS still uses the legacy token names; they resolve to the palette, so rename them when you touch a rule. When you add or change a page:
 
-1. Replace its local buttons, inputs and pills with the primitives.
-2. Replace its hard-coded colours (hex, `white`, `rgba(0,0,0,…)`) with tokens.
+1. Use the primitives for every action: one primary drop per view, clear bubbles for the rest, quiet text buttons for dismiss and cancel. A destructive drop never sits right next to the primary; start it quiet and turn it red on confirmation.
+2. Filters and suggestions are chips (surface to mist, the active one dew-tinted); fields take the global recessed pill, so a page class only sizes them.
+3. Floating layers (search, the review decision bar, toasts, the wizard footer) are glass; cards and tables stay opaque and flat.
+4. Use tokens for every colour. No hex, `white` or `rgba(0,0,0,…)` in page CSS.
 
 Extract a new pattern into `components/ui` only after it has at least three comparable uses, and add each new variant to the catalogue.
 

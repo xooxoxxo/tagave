@@ -3,33 +3,35 @@
   align-items: center;
   justify-content: center;
   min-height: 100dvh;
-  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  /* the body's canvas and dew wash show through: nothing else behind */
+  background: transparent;
   padding: var(--space-md);
 }
 
 .card {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
   padding: 3rem 2.5rem;
   width: 100%;
-  max-width: 380px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  max-width: 400px;
+  box-shadow: var(--shadow-card);
 }
 
+/* The wordmark is the one display-sized line on the page. */
 .title {
-  font-size: var(--font-size-2xl);
-  margin-bottom: var(--space-xs);
+  margin-bottom: var(--space-sm);
   text-align: center;
-  letter-spacing: -0.02em;
-  font-weight: 700;
+  font: var(--type-display);
+  font-size: clamp(44px, 12vw, 64px);
+  letter-spacing: -0.025em;
 }
 
 .subtitle {
-  color: var(--text-secondary);
+  color: var(--ink-2);
   text-align: center;
-  margin-bottom: 2rem;
-  font-size: var(--font-size-sm);
+  margin-bottom: 2.5rem;
+  font-size: var(--font-size-base);
 }
 
 .form {
@@ -54,18 +56,7 @@
 }
 
 .togglePassword {
-  padding: 0;
-  background: none;
-  border: none;
-  color: var(--accent);
-  font-size: var(--font-size-xs);
-  font-weight: 500;
-  cursor: pointer;
-  transition: color var(--transition-normal);
-}
-
-.togglePassword:hover {
-  color: var(--accent-hover);
+  margin-right: -0.75rem;
 }
 
 .serverError {
@@ -73,19 +64,12 @@
   border: 1px solid var(--error);
   color: var(--error);
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-inner);
   font-size: var(--font-size-sm);
 }
 
 .submitBtn {
-  padding: 0.75rem 1rem;
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  min-height: 44px;
-}
-
-.submitBtn:disabled {
-  opacity: 0.7;
+  width: 100%;
 }
 
 .footer {
@@ -93,4 +77,10 @@
   color: var(--text-tertiary);
   text-align: center;
   line-height: var(--line-height-relaxed);
+}
+
+/* Full-size fields on the sign-in and setup cards (48px, per the system). */
+.form input:not([type="checkbox"], [type="radio"]) {
+  min-height: var(--h-control);
+  padding: 0 1.1rem;
 }

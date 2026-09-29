@@ -14,9 +14,7 @@
 }
 
 .title {
-  font-size: var(--font-size-2xl);
   margin: 0 var(--space-sm) 0 0;
-  font-weight: 600;
 }
 
 .toolbar {
@@ -28,10 +26,6 @@
 
 .searchInput { flex: 1 1 220px; max-width: 400px; }
 
-
-
-
-
 .select { flex-shrink: 0; }
 
 .countInfo {
@@ -40,38 +34,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-.toolButton,
-.toolButtonActive {
-  padding: 0.45rem 0.7rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.toolButton:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.toolButton:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.toolButtonActive {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
+/* Grid / List: two small bubbles in a recessed pill track. */
 .viewToggle {
   display: inline-flex;
-  gap: 2px;
+  gap: 4px;
   margin-left: auto;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--mist);
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .08);
 }
 
 .chips {
@@ -81,32 +52,16 @@
   align-items: center;
 }
 
-.chip,
-.chipClear {
-  padding: 0.15rem 0.6rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--accent);
-  background: rgba(var(--accent-rgb), 0.12);
-  color: var(--text-primary);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-}
-
-.chipClear {
-  border-color: var(--border);
-  background: transparent;
-  color: var(--text-tertiary);
-}
-
 .bulkBar {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-md);
-  background: rgba(var(--accent-rgb), 0.1);
+  padding: .75rem 1rem .75rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   font-size: var(--font-size-sm);
 }
 
@@ -123,21 +78,6 @@
   gap: var(--space-sm);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
-}
-
-.linkButton {
-  padding: 0.2rem 0.55rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
-  cursor: pointer;
-}
-
-.linkButton:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
 }
 
 .muted {
@@ -205,13 +145,13 @@
 
 .albumCard:focus-visible,
 .albumCardSelected:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 
 .albumCardSelected {
   border-color: var(--accent);
-  background-color: rgba(var(--accent-rgb), 0.12);
+  background-color: var(--dew-tint);
 }
 
 .albumCover {
@@ -328,7 +268,7 @@
   border-radius: 50%;
   background: var(--error);
   z-index: 1;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 2px var(--surface);
 }
 
 .reviewedDot {
@@ -340,17 +280,22 @@
   border-radius: 50%;
   background: var(--info);
   z-index: 1;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 2px var(--surface);
 }
 
 .trackBadge,
 .ratingBadge {
   position: absolute;
   bottom: 8px;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.75);
-  color: var(--warning);
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--r-pill);
+  /* glass over the cover art: a floating layer */
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  color: var(--ink);
+  font-weight: 500;
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   z-index: 1;
@@ -372,7 +317,7 @@
   align-items: center;
   gap: var(--space-md);
   padding: 0 var(--space-sm);
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: 1px solid var(--line);
   font-size: var(--font-size-sm);
   cursor: pointer;
   box-sizing: border-box;
@@ -385,7 +330,7 @@
 }
 
 .listRowSelected {
-  background: rgba(var(--accent-rgb), 0.12);
+  background: var(--dew-tint);
 }
 
 .rowCheckbox {
@@ -403,7 +348,7 @@
   flex: none;
   width: 34px;
   height: 34px;
-  border-radius: var(--radius-sm);
+  border-radius: var(--r-kbd);
   object-fit: cover;
   background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
 }
@@ -533,21 +478,22 @@
 .container { max-width: var(--content-max); margin: 0 auto; }
 .header { gap: .85rem; padding-bottom: .5rem; }
 .intro { color: var(--text-secondary); font-size: .875rem; margin-bottom: .75rem; }
-.albumCard, .albumCardSelected { background: transparent; border-color: transparent; border-radius: 8px; }
-.albumCard:hover { background: var(--bg-secondary); border-color: var(--border); }
-.albumCardSelected { background: var(--bg-active); border-color: var(--accent); }
-.fileCount { color: var(--text-secondary); }
-.albumCover { border-radius: 5px; }
+.albumCard, .albumCardSelected { background: transparent; border-color: transparent; border-radius: var(--r-card); }
+.albumCard:hover { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
+.albumCardSelected { background: var(--dew-tint); border-color: var(--dew); }
+.fileCount { font-family: var(--font-display); font-weight: 200; font-size: 2.125rem; color: var(--ink-2); }
+.albumCover { border-radius: var(--r-cover); }
+.coverPlaceholder { background: radial-gradient(120% 90% at 30% 20%, var(--surface) 0, var(--dew-tint) 55%, var(--mist) 100%); }
 .listBadges, .incomplete { color: var(--warning); }
 @media (max-width: 640px) {
   .body { position: relative; }
-  .body > aside { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(280px, 85vw); background: var(--bg-secondary); box-shadow: 12px 0 24px #20352018; }
+  .body > aside { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(280px, 85vw); background: var(--surface); border-radius: 0 var(--r-card) var(--r-card) 0; box-shadow: 12px 0 24px rgba(var(--shadow-tint), .12); }
   .listState, .listYear, .listTracks, .listBadges, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
 }
 @media (hover: none) { .cardCheckbox { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .albumCard,
-  .albumCardSelected {
+.albumCardSelected {
     transition: none;
   }
 }

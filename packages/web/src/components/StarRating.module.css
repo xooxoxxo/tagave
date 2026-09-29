@@ -25,7 +25,7 @@
   height: 100%;
   overflow: hidden;
   white-space: nowrap;
-  color: #f5c518;
+  color: var(--dew);
 }
 
 .half {
@@ -43,9 +43,9 @@
 
 .half:focus-visible {
   opacity: 1;
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
-  border-radius: 2px;
+  border-radius: var(--r-kbd);
 }
 
 .value {

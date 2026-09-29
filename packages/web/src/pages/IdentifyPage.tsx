@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
 import { formatEta, formatRelativeTime } from '../utils/time';
+import { Button } from '../components/ui';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -175,21 +176,23 @@ export function IdentifyPanel() {
 
         {/* Buttons */}
         <div className={styles.headerActions}>
-          <button
-            className={styles.btn}
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => kickSweep.mutate()}
             disabled={kickSweep.isPending}
           >
             {kickSweep.isPending ? 'Kicking...' : 'Kick sweep'}
-          </button>
+          </Button>
           {reason && (
-            <button
-              className={styles.btn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={handleRetryReason}
               disabled={retry.isPending}
             >
               {retry.isPending ? 'Retrying...' : `Retry all in this category`}
-            </button>
+            </Button>
           )}
         </div>
       </header>
@@ -232,9 +235,9 @@ export function IdentifyPanel() {
                 <span className={styles.requestMeta}>
                   {REQUEST_KIND[r.kind] ?? r.kind}{r.pinned ? ` ${r.pinned}` : ''} · {r.state === 'active' ? 'running' : r.state === 'retry' ? 'retrying' : r.jobsAhead === 0 ? 'next' : `${r.jobsAhead.toLocaleString()} ahead`} · {formatRelativeTime(r.createdAt)}
                 </span>
-                <button className={styles.btn} onClick={() => cancelRequest.mutate(r.album.id)} disabled={cancelRequest.isPending || r.state === 'active'}>
+                <Button variant="secondary" size="sm" onClick={() => cancelRequest.mutate(r.album.id)} disabled={cancelRequest.isPending || r.state === 'active'}>
                   Cancel
-                </button>
+                </Button>
               </div>
             ))}
           </div>
@@ -287,12 +290,13 @@ export function IdentifyPanel() {
             {r.label} {reasonCounts[r.key as keyof typeof reasonCounts] ?? 0}
           </button>
         ))}
-        <button
-          className={styles.tabLink}
+        <Button
+          variant="quiet"
+          size="sm"
           onClick={() => navigate({ to: '/queue' })}
         >
           Ambiguous → Queue
-        </button>
+        </Button>
       </div>
 
       {/* Search */}
@@ -329,13 +333,14 @@ export function IdentifyPanel() {
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
             </span>
             {selectedIds.size > 0 && (
-              <button
-                className={styles.btn}
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleRetrySelected}
                 disabled={retry.isPending}
               >
                 {retry.isPending ? 'Retrying...' : 'Retry selected'}
-              </button>
+              </Button>
             )}
           </div>
 
@@ -396,23 +401,25 @@ export function IdentifyPanel() {
 
           {/* Pagination */}
           <div className={styles.pagination}>
-            <button
-              className={styles.btn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setPage(page - 1)}
               disabled={page === 0 || triageLoading}
             >
               Prev
-            </button>
+            </Button>
             <span className={styles.pageInfo}>
               {offset + 1}–{Math.min(offset + limit, triage.total ?? 0)} of {triage.total ?? 0}
             </span>
-            <button
-              className={styles.btn}
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setPage(page + 1)}
               disabled={!triage.total || offset + limit >= triage.total || triageLoading}
             >
               Next
-            </button>
+            </Button>
           </div>
         </>
       )}

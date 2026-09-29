@@ -1,47 +1,57 @@
 .container { display: flex; width: 100%; height: 100dvh; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); }
-.nav { width: 224px; flex: 0 0 224px; display: flex; flex-direction: column; gap: 1.75rem; padding: 2.25rem 1.25rem 1.25rem; background: var(--bg-nav); overflow-y: auto; }
-.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; font-size: 1.9rem; font-weight: 650; letter-spacing: -.03em; color: var(--text-primary); padding-inline: .5rem; }
+.nav { width: 248px; flex: 0 0 248px; display: flex; flex-direction: column; gap: 1.75rem; padding: 2.25rem 1.25rem 1.25rem; background: var(--bg-nav); overflow-y: auto; }
+.brand { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; font-family: var(--font-display); font-size: 1.75rem; font-weight: 300; letter-spacing: -.01em; line-height: 1.1; color: var(--ink); padding-inline: .5rem; }
+.brand:hover { color: var(--ink); }
 /* The mark is the agave from the wordmark; the logo file carries its own
    colour, so no token applies. Sized in rem so it tracks the brand text. */
 .brandMark { width: 2rem; height: 2rem; object-fit: contain; flex: 0 0 auto; }
-.brandCaption { width: 100%; font-size: .72rem; font-weight: 400; letter-spacing: .01em; color: var(--text-secondary); }
-.searchButton { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .65rem; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); font-size: .75rem; font-weight: 400; text-align: left; }
-.searchButton:hover { background: var(--bg-hover); }
-.searchButton kbd { font: inherit; white-space: nowrap; opacity: .75; margin-left: auto; }
+.brandCaption { width: 100%; margin-top: .1rem; font-family: var(--font-body); font-size: .8125rem; font-weight: 400; letter-spacing: .01em; color: var(--ink-3); }
+/* A search pill with the recessed fill every field has: it opens the search
+   dialog,
+so it reads as a field,
+not as a drop. */
+.searchButton { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 2.75rem; padding: 0 .6rem 0 .9rem; background: linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface)); color: var(--ink-3); border: 1px solid var(--line); border-radius: var(--r-pill); box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), .07); font-size: .8125rem; font-weight: 400; text-align: left; transition: border-color var(--dur) ease, color var(--dur) ease; }
+.searchButton:hover:not(:disabled) { background: linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface)); border-color: var(--line-strong); color: var(--ink-2); }
+.searchButton:active:not(:disabled) { transform: none; background: var(--mist); }
+.searchButton kbd { white-space: nowrap; margin-left: auto; }
 .searchIcon { width: 1rem; height: 1rem; flex: 0 0 auto; }
 .searchLabel { min-width: 0; }
 .labelShort { display: none; }
 .navLinks { display: flex; flex-direction: column; gap: .2rem; }
-.groupLabel { margin: 1.25rem .75rem .5rem; font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--text-tertiary); }
-.groupLabel:first-child { margin-top: 0; }
-.navLinks [data-group="manage"] { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; }
-.navLink { position: relative; padding: .7rem .85rem; color: var(--text-secondary); border-radius: var(--radius-md); font-size: .875rem; }
-.navLink:hover { background: var(--bg-hover); color: var(--text-primary); }
-.navLinkActive { composes: navLink; background: var(--surface-selected); color: var(--text-selected); font-weight: 600; }
-.navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--border); font-size: .75rem; color: var(--text-secondary); }
+
+/* A gap,
+not a rule,
+between browsing and upkeep: the hairline cut into the
+   pill of the first upkeep link. */
+.navLinks [data-group="manage"] { margin-top: 1.25rem; }
+.navLink { position: relative; padding: .65rem 1rem; color: var(--ink-2); border-radius: var(--r-pill); font-size: .9375rem; font-weight: 500; letter-spacing: .01em; transition: background-color var(--dur) ease, color var(--dur) ease; }
+.navLink:hover { background: var(--mist); color: var(--ink); }
+.navLinkActive { composes: navLink; background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
+.navLinkActive:hover { background: var(--dew-tint); color: var(--chip-on-ink); }
+.navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-3); }
 .userEmail { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logoutBtn { background: none; color: var(--text-secondary); padding: .5rem 0; font-size: .75rem; font-weight: 500; }
-.logoutBtn:hover { background: none; color: var(--accent); }
+.logoutBtn { margin: .4rem 0 0 -.9rem; }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
 .contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { min-height: 100%; }
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }
-.footer { flex-shrink: 0; padding: .55rem 1.5rem; background: var(--bg-tertiary); border-top: 1px solid var(--border); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--text-secondary); }
-.skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem; background: var(--surface); color: var(--dew); border: 1px solid var(--line-strong); border-radius: var(--radius-md); transform: translateY(-200%); }
+.footer { flex-shrink: 0; padding: .6rem 1.5rem; background: transparent; border-top: 1px solid var(--line); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--ink-3); }
+.skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem 1.25rem; background: var(--surface); color: var(--dew); border: 1px solid var(--line-strong); border-radius: var(--r-pill); transform: translateY(-200%); }
 .skipLink:focus { transform: none; }
 @media (max-width: 900px) {
   .container { flex-direction: column; }
   .nav { flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
   .brand { font-size: 1.5rem; padding: 0; }
   .brandMark { width: 1.6rem; height: 1.6rem; }
-  .brandCaption, .groupLabel { display: none; }
+  .brandCaption { display: none; }
   /* Wrap rather than scroll. A scrolling strip put a permanent scrollbar under
      the primary navigation and cut the last item ("Settings") in half; seven
      short labels fit on two rows at any width worth supporting. */
   .navLinks { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
-  .navLink { white-space: nowrap; padding: .5rem .7rem; font-size: .8rem; }
+  .navLink { white-space: nowrap; padding: .5rem .8rem; font-size: .8125rem; }
   .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
+  .logoutBtn { margin: 0; }
   .userEmail { display: none; }
   .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
   /* The divider above Library care belongs to the sidebar; in a wrapped row
@@ -56,11 +66,11 @@
   .nav { grid-template-columns: 1fr auto auto; gap: .5rem .5rem; padding: .6rem 1rem .5rem; }
   .brand { font-size: 1.25rem; gap: .45rem; }
   .brandMark { width: 1.35rem; height: 1.35rem; }
-  .searchButton { grid-column: 2; grid-row: 1; width: 2.5rem; height: 2.5rem; padding: 0; justify-content: center; border-radius: var(--radius-full); }
+  .searchButton { grid-column: 2; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; }
   .searchLabel, .searchButton kbd { display: none; }
   .searchIcon { width: 1.1rem; height: 1.1rem; }
   .navUser { grid-column: 3; grid-row: 1; align-self: center; }
-  .logoutBtn { padding: .5rem .25rem; }
+
   .navLinks { gap: .15rem; }
   .navLink { padding: .45rem .6rem; }
   .labelLong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

@@ -14,38 +14,23 @@
   gap: var(--space-lg);
 }
 
-.header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding-bottom: var(--space-lg);
-  border-bottom: 1px solid var(--border);
-}
-
-.title {
-  font-size: var(--font-size-2xl);
-  margin: 0;
-  font-weight: 600;
-}
-
 .subtitle {
   color: var(--text-secondary);
   margin: 0;
   font-size: var(--font-size-sm);
 }
 
+/* The one drop on this section; it keeps its own width in the column. */
 .addButton {
   align-self: flex-start;
-  padding: 0.75rem 1.5rem;
-  font-size: var(--font-size-base);
-  font-weight: 600;
 }
 
 .form {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-xl);
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -81,19 +66,16 @@
   border: 1px solid var(--error);
   color: var(--error);
   padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-inner);
   font-size: var(--font-size-sm);
 }
 
 .formActions {
   display: flex;
-  gap: var(--space-md);
+  flex-wrap: wrap;
+  gap: 14px;
   padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
-}
-
-.formActions button {
-  flex: 1;
+  border-top: 1px solid var(--line);
 }
 
 .rootsList {
@@ -103,10 +85,11 @@
 }
 
 .rootCard {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
@@ -114,8 +97,7 @@
 }
 
 .rootCard:hover {
-  border-color: var(--border-secondary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: var(--line-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -137,14 +119,14 @@
 
 .rootTitle {
   margin: 0 0 var(--space-xs) 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
+  font: var(--type-title);
 }
 
 .rootPath {
   margin: 0;
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-2);
   word-break: break-all;
 }
 
@@ -156,12 +138,14 @@
 }
 
 .badge {
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  padding: 0.25rem 0.75rem;
-  border-radius: var(--radius-full);
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  border: 0;
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  padding: 0.3rem 0.8rem;
+  border-radius: var(--r-pill);
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  font-weight: 500;
+  color: var(--ink-2);
   white-space: nowrap;
 }
 
@@ -170,21 +154,16 @@
   gap: 2rem;
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
   padding: 0 0 var(--space-md) 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   padding-top: var(--space-md);
 }
 
 .rootActions {
   display: flex;
-  gap: var(--space-md);
+  gap: 12px;
   flex-wrap: wrap;
-}
-
-.rootActions button {
-  flex: 0 1 120px;
-  padding: 0.5rem 1rem;
-  font-size: var(--font-size-sm);
 }
 
 .rootWarning {
@@ -198,13 +177,9 @@
 .emptyState {
   padding: var(--space-xl);
   text-align: center;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.emptyState {
-  border-style: dashed;
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
 }
 
 .emptyState p {
@@ -213,44 +188,30 @@
   font-size: var(--font-size-sm);
 }
 
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-lg);
-}
-
 .sectionTitle {
-  font-size: 1.25rem;
-  font-weight: 600;
   margin: 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-md);
+  color: var(--ink);
 }
 
 .helpText {
   font-size: var(--font-size-sm);
-  color: var(--text-secondary);
+  color: var(--ink-2);
   margin: 0;
-  padding: 0.75rem 1rem;
-  background-color: var(--bg-tertiary);
-  border-radius: var(--radius-md);
+  padding: 0.85rem 1.25rem;
+  background-color: var(--mist);
+  border-radius: var(--r-inner);
 }
 
 .validationPending {
-  background-color: rgba(107, 114, 128, 0.1);
-  border-color: var(--border);
-  color: var(--text-secondary);
+  color: var(--ink-3);
 }
 
 .validationOk {
-  background-color: var(--surface-success);
-  border-color: rgba(var(--success-rgb), 0.3);
-  color: var(--success);
+  background: var(--ok-tint);
+  color: var(--ok);
 }
 
 .validationError {
-  background-color: var(--surface-danger);
-  border-color: rgba(var(--error-rgb), 0.3);
-  color: var(--error);
+  background: var(--danger-tint);
+  color: var(--danger);
 }

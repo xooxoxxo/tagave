@@ -14,11 +14,8 @@
 }
 
 .title {
-  font-size: var(--font-size-2xl);
-  font-weight: 600;
   margin: 0 0 var(--space-md);
   color: var(--text-primary);
-  letter-spacing: -0.01em;
 }
 
 .stack {
@@ -97,19 +94,23 @@
 }
 
 .progress div {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  padding: var(--space-sm) var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  padding: .85rem 1.1rem;
 }
 
 .progress dt {
-  font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--ink-3);
 }
 
 .progress dd {
-  margin: var(--space-xs) 0 0;
-  font-weight: 600;
+  margin: var(--space-sm) 0 0;
+  font-size: 1.25rem;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
@@ -120,7 +121,7 @@
 }
 
 .label {
-  font-weight: 600;
+  font-weight: 500;
   font-size: var(--font-size-sm);
 }
 

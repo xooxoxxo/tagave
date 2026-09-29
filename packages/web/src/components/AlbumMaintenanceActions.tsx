@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useMergeSplitAlbum, useRescanAlbumFolder, useSplitAlbumByFormat } from '../hooks/useAlbumMaintenance';
+import { Button } from './ui';
 import styles from './AlbumMaintenanceActions.module.css';
 
 export interface MaintenanceAlbum {
@@ -64,28 +65,29 @@ export function AlbumMaintenanceActions({ libraryId, album }: { libraryId: strin
   return (
     <div className={styles.wrap}>
       <div className={styles.row}>
-        <button
+        <Button
+          variant="secondary"
+          size="sm"
           type="button"
-          className={styles.btn}
           onClick={onRescan}
           disabled={busy || dirs === 0}
           title={dirs === 0 ? 'This album has no folder on disk' : 'Re-read this folder: new files added, removed files dropped, tags refreshed'}
         >
           {rescan.isPending ? 'Rescanning…' : 'Rescan folder'}
-        </button>
+        </Button>
 
         {album.splitFrom ? (
-          <button type="button" className={styles.btn} onClick={onMerge} disabled={busy} title="Return these files to the album they were split from">
+          <Button variant="secondary" size="sm" type="button" onClick={onMerge} disabled={busy} title="Return these files to the album they were split from">
             {merge.isPending ? 'Merging…' : 'Merge back'}
-          </button>
+          </Button>
         ) : album.mixed ? (
           <span className={styles.splitGroup}>
-            <button type="button" className={styles.btn} onClick={() => onSplit('lossless')} disabled={busy} title="Keep the lossless files here; the lossy copies get their own album">
+            <Button variant="secondary" size="sm" type="button" onClick={() => onSplit('lossless')} disabled={busy} title="Keep the lossless files here; the lossy copies get their own album">
               {split.isPending ? 'Splitting…' : 'Split off lossy copies'}
-            </button>
-            <button type="button" className={styles.btnQuiet} onClick={() => onSplit('lossy')} disabled={busy} title="Keep the lossy files here; the lossless copies get their own album">
+            </Button>
+            <Button variant="quiet" size="sm" type="button" onClick={() => onSplit('lossy')} disabled={busy} title="Keep the lossy files here; the lossless copies get their own album">
               …or split off lossless
-            </button>
+            </Button>
           </span>
         ) : null}
       </div>

@@ -23,8 +23,8 @@
   width: 220px;
   height: 220px;
   object-fit: cover;
-  border-radius: var(--radius-lg);
-  box-shadow: 0 4px 24px rgba(35, 54, 40, 0.12);
+  border-radius: var(--r-cover);
+  box-shadow: 0 24px 48px -28px rgba(var(--shadow-tint), 0.45);
 }
 
 .coverPlaceholder {
@@ -48,10 +48,7 @@
 }
 
 .title {
-  font-size: var(--font-size-2xl);
-  line-height: 1.2;
   margin: 0;
-  font-weight: 700;
 }
 
 .artist {
@@ -117,14 +114,16 @@
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  padding: 0.15rem 0.6rem;
-  border-radius: var(--radius-full);
+  padding: 0.15rem 0.7rem;
+  border-radius: var(--r-pill);
   font-size: var(--font-size-xs);
-  line-height: 1.5;
+  font-weight: 500;
+  line-height: 1.6;
   white-space: nowrap;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  color: var(--ink-2);
   border: 1px solid transparent;
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
 }
 
 .state_matched { background: var(--surface-success); color: var(--success); }
@@ -147,13 +146,14 @@
 }
 
 .pillAccent {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
   text-decoration: none;
 }
 
 .pillAccent:hover {
-  background: var(--accent-hover);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 45%, transparent);
 }
 
 .pillLink {
@@ -167,20 +167,6 @@
   border-color: var(--accent);
 }
 
-.pillButton {
-  cursor: pointer;
-  border-color: var(--border);
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: inherit;
-}
-
-.pillButton:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: transparent;
-}
-
 .dirPath {
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
@@ -188,9 +174,9 @@
   overflow-wrap: anywhere;
 }
 
-/* Action buttons: one size for every button on this page, secondary look for
-   the reversible actions, the global accent look for the one primary action
-   in each group (Match, Accept). */
+/* Action rows. Every action is a <Button>: small clear bubbles for the
+   reversible actions,
+one dew drop for the manual Match. */
 .actions,
 .mbidRow,
 .gapActions,
@@ -205,48 +191,16 @@
   margin-top: var(--space-xs);
 }
 
-.actions button,
-.mbidRow button,
-.gapActions button,
-.pendingPanel button,
-.linkButton {
-  padding: 0.4rem 0.9rem;
-  font-size: var(--font-size-sm);
-  line-height: 1.2;
-  border-radius: var(--radius-md);
-}
-
-.gapActions button {
-  padding: 0.3rem 0.7rem;
-  font-size: var(--font-size-xs);
-}
-
-.linkButton {
-  padding: 0.2rem 0.5rem;
-  font-size: var(--font-size-xs);
-  font-weight: 400;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-
-.linkButton:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
 .mbidRow {
   margin-top: var(--space-xs);
 }
 
 .mbidInput {
   flex: 1;
+  min-width: 0;
   max-width: 34rem;
-  padding: 0.4rem 0.7rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  min-height: var(--h-control);
+  padding: 0 1.1rem;
   font-size: var(--font-size-sm);
 }
 
@@ -267,10 +221,10 @@
   align-items: center;
   gap: var(--space-sm) var(--space-md);
   margin-top: var(--space-xs);
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-secondary);
+  padding: .75rem 1rem .75rem 1.25rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-radius: var(--r-inner);
+  background-color: var(--surface);
   font-size: var(--font-size-sm);
 }
 .pendingTitle { font-weight: 600; }
@@ -278,32 +232,57 @@
 
 /* ---- faces ---- */
 
+/* The same recessed pill track as the Tabs primitive; the current face is a
+   clear bubble resting in it. */
 .tabs {
   display: flex;
-  gap: var(--space-xs);
-  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  width: max-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--mist);
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), 0.1), inset 0 0 0 1px var(--glass-edge);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
-  padding: 0.5rem 0.9rem;
-  font-size: var(--font-size-sm);
+  min-height: 40px;
+  padding: 0 18px;
+  font: 500 14px / 1 var(--font-body);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
   background: transparent;
   border: none;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  color: var(--text-secondary);
-  margin-bottom: -1px;
+  border-radius: var(--r-pill);
+  color: var(--ink-2);
 }
 
-.tab:hover {
-  background: transparent;
-  color: var(--text-primary);
+.tab:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 45%, transparent);
+  color: var(--ink);
 }
 
-.tabActive {
-  color: var(--text-primary);
-  border-bottom-color: var(--accent);
+.tab:active:not(:disabled) {
+  transform: none;
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.tabActive,
+.tabActive:hover:not(:disabled) {
+  color: var(--ink);
   font-weight: 600;
+  background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--mist) 40%, var(--surface)));
+  box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
 }
 
 .activity {
@@ -327,16 +306,16 @@
 /* ---- sections ---- */
 
 .section {
-  padding: var(--space-md) var(--space-lg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .sectionTitle {
-  margin: 0 0 var(--space-sm);
-  font-size: var(--font-size-base);
-  font-weight: 600;
+  margin: 0 0 var(--space-md);
+  font-size: 1.25rem;
   display: flex;
   align-items: center;
   gap: var(--space-sm);
@@ -492,20 +471,20 @@
 .trackTable th,
 .candTable th {
   text-align: left;
-  color: var(--text-tertiary);
-  font-weight: 500;
-  font-size: var(--font-size-xs);
+  color: var(--ink-3);
+  font: var(--type-label);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid var(--border-secondary);
+  letter-spacing: 0.14em;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .trackTable td,
 .missingTable td,
 .candTable td {
+  height: 44px;
   padding: 0.45rem 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 
@@ -515,12 +494,11 @@
 
 .discHeader td {
   padding-top: var(--space-md);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
+  font: var(--type-label);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-tertiary);
-  border-bottom: 1px solid var(--border-secondary);
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
 }
 
 .num {
@@ -639,11 +617,12 @@ td.num {
 .container { max-width: var(--content-max); margin: 0 auto; gap: 2rem; }
 .header { gap: clamp(1.5rem, 4vw, 4rem); }
 .coverBox { width: clamp(200px, 24vw, 300px); }
-.cover, .coverPlaceholder { width: 100%; height: auto; aspect-ratio: 1; border-radius: 6px; }
-.title { font-size: 2rem; font-weight: 550; letter-spacing: -.03em; }
+.cover, .coverPlaceholder { width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--r-cover); }
+/* The album title is the one display-sized line on the page. */
+.title { font: 300 clamp(32px, 4.5vw, 52px) / 1.08 var(--font-display); letter-spacing: -.02em; }
 .headInfo { gap: .85rem; }
-.maintenance { margin-top: .5rem; border-top: 1px solid var(--border); padding-top: 1rem; }
-.maintenance summary { cursor: pointer; color: var(--accent); font-size: .875rem; font-weight: 600; }
+.maintenance { margin-top: .5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.maintenance summary { cursor: pointer; color: var(--dew); font-size: .875rem; font-weight: 600; }
 .maintenance[open] summary { margin-bottom: 1rem; }
 .maintenance .mbidRow { margin-top: 1rem; }
 @media (max-width: 640px) { .header { flex-direction: column; } .coverBox { width: min(65vw, 280px); } .headInfo { width: 100%; } .mbidRow { flex-wrap: wrap; } }
@@ -654,14 +633,13 @@ td.num {
 .container { gap: 1.5rem; }
 .headInfo { gap: .75rem; }
 .genreText { font-size: .875rem; color: var(--text-secondary); line-height: 1.6; }
-.coverPlaceholder { background: var(--bg-tertiary); font-size: .875rem; color: var(--text-secondary); }
-.pill { border-radius: 4px; padding: .2rem .45rem; }
-.pillLink { border: 0; background: none; padding: .2rem .25rem; border-radius: 0; }
+/* No art: the dew mist,
+the title-free placeholder label bottom-left. */
+.coverPlaceholder { align-items: flex-end; justify-content: flex-start; padding: 1.25rem; background: radial-gradient(120% 90% at 30% 20%, var(--surface) 0, var(--dew-tint) 55%, var(--mist) 100%); font: 200 1.75rem / 1.1 var(--font-display); color: var(--ink-2); }
+.pillLink { border: 0; background: none; box-shadow: none; padding: .2rem .25rem; border-radius: var(--r-pill); }
 .pillLink:hover { text-decoration: underline; }
-.pillButton { border-radius: var(--radius-md); min-height: 2rem; padding: .3rem .6rem; }
-.issueLink { color: var(--warning); background: transparent; font-size: .8125rem; padding: .25rem .5rem; min-height: 2rem; }
-.issueLink:hover { background: rgba(var(--warning-rgb), .08); }
-.albumFacts summary, .maintenance summary { font-size: .8125rem; cursor: pointer; color: var(--text-secondary); }
+.albumFacts summary, .maintenance summary { font-size: .875rem; font-weight: 500; cursor: pointer; color: var(--ink-2); }
+.albumFacts summary:hover, .maintenance summary:hover { color: var(--ink); }
 .albumFacts dl { display: grid; gap: .75rem; margin-block: 1rem; font-size: .8125rem; }
 .albumFacts dl > div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: .75rem; }
 .albumFacts dt { color: var(--text-secondary); }

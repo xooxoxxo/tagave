@@ -7,6 +7,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { useLogin } from '../hooks/useAuth';
 import { useSetupRequired } from '../hooks/useSystem';
 import { LoginRequest } from '@liner/shared';
+import { Button } from '../components/ui';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
@@ -66,13 +67,15 @@ export function LoginPage() {
           <div className={styles.field}>
             <label htmlFor="password" className={styles.label}>
               Password
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 type="button"
                 className={styles.togglePassword}
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? 'Hide' : 'Show'}
-              </button>
+              </Button>
             </label>
             <input
               id="password"
@@ -92,13 +95,13 @@ export function LoginPage() {
             </div>
           )}
 
-          <button
+          <Button
             type="submit"
             className={styles.submitBtn}
             disabled={loginMutation.isPending || !formData.email || !formData.password}
           >
             {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
-          </button>
+          </Button>
         </form>
 
         <div className={styles.footer}>

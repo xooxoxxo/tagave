@@ -15,6 +15,7 @@ import { useCreateTagPlan, useLibrarySettings, useAddToTagPlan, useOpenTagPlans 
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
+import { IconButton } from './ui';
 import styles from './PlanWizard.module.css';
 
 interface WizardStep1State {
@@ -293,18 +294,19 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
         <div className={styles.header}>
           <h2 className={styles.title}>{title}</h2>
           <div className={styles.headerActions}>
-            <button
-              type="button"
-              className={`${styles.iconBtn} ${showHelp ? styles.iconBtnActive : ''}`}
+            <IconButton
+              variant={showHelp ? 'secondary' : 'quiet'}
+              size="sm"
+              label={showHelp ? 'Back to the wizard' : 'Help'}
               onClick={() => setShowHelp(!showHelp)}
               title={showHelp ? 'Back to the wizard (?)' : 'Help (?)'}
               aria-pressed={showHelp}
             >
-              ?
-            </button>
-            <button type="button" className={styles.iconBtn} onClick={onClose} title="Close (Esc)">
-              ×
-            </button>
+              <span aria-hidden="true">?</span>
+            </IconButton>
+            <IconButton variant="quiet" size="sm" label="Close" onClick={onClose} title="Close (Esc)">
+              <span aria-hidden="true">×</span>
+            </IconButton>
           </div>
         </div>
 

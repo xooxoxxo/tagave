@@ -1,10 +1,13 @@
-/* The ⌘K palette is one surface: input and results share the modal's
-   background, with no border, outline or track between them. Colours come
-   only from tokens, so it follows the app theme. */
+/* The ⌘K palette is one glass layer floating over the page: input and
+   results share it,
+with no border,
+outline or track between them. Colours
+   come only from tokens,
+so it follows the app theme. */
 .overlay {
   position: fixed;
   inset: 0;
-  background: rgba(35, 48, 39, 0.25);
+  background: var(--scrim);
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -17,11 +20,22 @@
   max-height: 60vh;
   display: flex;
   flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 16px 48px rgba(35, 48, 39, 0.15);
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-float);
   overflow: hidden;
+  animation: paletteIn var(--dur) var(--ease-out);
+}
+
+@keyframes paletteIn {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .modal { background: var(--surface); }
 }
 
 .inputContainer {
@@ -33,10 +47,10 @@
 
 .searchIcon {
   position: absolute;
-  left: 0.85rem;
+  left: 1.25rem;
   width: 1.2rem;
   height: 1.2rem;
-  color: var(--text-tertiary);
+  color: var(--ink-3);
   pointer-events: none;
   flex-shrink: 0;
   stroke-width: 2;
@@ -49,15 +63,16 @@
 .input {
   flex: 1;
   min-width: 0;
-  padding: 0.85rem 3.25rem 0.85rem 2.8rem;
-  font-size: var(--font-size-base);
+  min-height: 3.75rem;
+  padding: 1.1rem 3.75rem 1.1rem 3.25rem;
+  font-size: var(--font-size-lg);
   background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
   color: var(--text-primary);
   outline: none;
-  font-family: var(--font-family);
+  font-family: var(--font-body);
 }
 
 .input::placeholder {
@@ -74,12 +89,11 @@
 
 .escHint {
   position: absolute;
-  right: 0.75rem;
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
+  right: 1.25rem;
+  font: var(--type-label);
+  color: var(--ink-3);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  font-weight: 500;
+  letter-spacing: 0.14em;
   pointer-events: none;
 }
 
@@ -91,8 +105,8 @@
   left: 0.85rem;
   right: 0.85rem;
   height: 2px;
-  border-radius: var(--radius-full);
-  background: var(--accent);
+  border-radius: var(--r-pill);
+  background: var(--dew);
   opacity: 0.5;
   animation: loadingPulse 1.5s ease-in-out infinite;
 }
@@ -120,8 +134,8 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  margin: 0 0.375rem 0.375rem 0;
-  padding: 0.25rem 0 0.25rem 0.375rem;
+  margin: 0 0.5rem 0.5rem 0;
+  padding: 0.25rem 0 0.25rem 0.5rem;
   scrollbar-width: thin;
   scrollbar-color: var(--border-secondary) transparent;
 }
@@ -134,16 +148,15 @@
 
 .results::-webkit-scrollbar-thumb {
   background: var(--border-secondary);
-  border-radius: var(--radius-full);
+  border-radius: var(--r-pill);
 }
 
 .sectionLabel {
-  padding: 0.5rem 0.5rem 0.25rem;
-  font-size: var(--font-size-xs);
+  padding: 0.75rem 0.85rem 0.35rem;
+  font: var(--type-label);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--text-tertiary);
-  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
 }
 
 .row,
@@ -151,18 +164,22 @@
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
-  padding: 0.4rem 0.5rem;
-  border-radius: var(--radius-md);
+  padding: 0.55rem 0.85rem;
+  border-radius: var(--r-inner);
   cursor: pointer;
   transition: background var(--transition-fast);
 }
 
 .row:hover {
-  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--mist) 80%, transparent);
 }
 
 .rowSelected {
-  background: var(--bg-tertiary);
+  background: var(--dew-tint);
+}
+
+.rowSelected .primary {
+  color: var(--chip-on-ink);
 }
 
 .primary {
@@ -197,21 +214,3 @@
   text-align: center;
 }
 
-.error button {
-  color: var(--accent);
-  background: none;
-  border: none;
-  font-size: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  padding: 0;
-}
-
-.error button:hover {
-  color: var(--accent-hover);
-}
-
-.error button:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}

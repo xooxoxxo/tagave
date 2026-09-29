@@ -1,9 +1,10 @@
 .section {
   margin-top: var(--space-lg);
-  padding: var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
 }
 
 .head {
@@ -16,8 +17,6 @@
 
 .title {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
 }
 
 .headMeta {
@@ -51,7 +50,7 @@
 .block {
   margin-top: var(--space-md);
   padding-top: var(--space-md);
-  border-top: 1px solid var(--border-secondary);
+  border-top: 1px solid var(--line);
 }
 
 .blockHead {
@@ -96,49 +95,7 @@
   font-size: var(--font-size-sm);
 }
 
-.linkButton,
-.linkButtonActive,
-.primary,
-.iconButton {
-  padding: 0.25rem 0.65rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-}
-
-.linkButton:hover,
-.iconButton:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-}
-
-.linkButtonActive {
-  color: var(--text-primary);
-  border-color: var(--accent);
-}
-
-.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
-.primary:hover {
-  background: var(--accent-hover);
-}
-
-.primary:disabled,
-.linkButton:disabled,
-.iconButton:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.iconButton {
-  padding: 0.1rem 0.45rem;
+.removeButton {
   margin-left: auto;
 }
 
@@ -149,15 +106,11 @@
 .textarea {
   width: 100%;
   margin-top: var(--space-xs);
-  padding: var(--space-sm);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: var(--font-family);
+  padding: .75rem 1rem;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-relaxed);
   resize: vertical;
+  border-radius: var(--r-inner);
 }
 
 .markdown {
@@ -200,7 +153,7 @@
   gap: var(--space-sm);
   padding: 0.25rem 0;
   font-size: var(--font-size-sm);
-  border-top: 1px dashed var(--border-secondary);
+  border-top: 1px solid var(--line);
 }
 
 .historyBody {
@@ -219,11 +172,8 @@
 }
 
 .input {
-  padding: 0.3rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  min-height: var(--h-control-sm);
+  padding: 0 0.9rem;
   font-size: var(--font-size-sm);
   min-width: 8rem;
   flex: 1 1 8rem;
@@ -241,7 +191,7 @@
   gap: var(--space-sm);
   padding: 0.35rem 0;
   font-size: var(--font-size-sm);
-  border-top: 1px solid var(--border-secondary);
+  border-top: 1px solid var(--line);
   flex-wrap: wrap;
 }
 
@@ -250,7 +200,7 @@
 }
 
 .score {
-  color: #f5c518;
+  color: var(--dew);
   font-variant-numeric: tabular-nums;
 }
 
@@ -258,24 +208,27 @@
 .chipLink,
 .chipSearch {
   display: inline-block;
-  padding: 0.1rem 0.5rem;
-  border-radius: var(--radius-full);
-  border: 1px solid var(--border);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  padding: 0.2rem 0.7rem;
+  border-radius: var(--r-pill);
+  border: 0;
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  color: var(--ink-2);
   font-size: var(--font-size-xs);
+  font-weight: 500;
   text-decoration: none;
   white-space: nowrap;
 }
 
 .chipLink {
-  color: var(--text-primary);
-  border-color: var(--accent);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
 }
 
 .chipLink:hover,
 .chipSearch:hover {
-  background: var(--bg-hover);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 45%, transparent);
 }
 
 .chips {
@@ -295,19 +248,19 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-tertiary);
+  padding: 0.35rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
   font-size: var(--font-size-sm);
 }
 
 .reviewCard {
   margin-top: var(--space-sm);
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--canvas);
 }
 
 .reviewHead {

@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 /*
- * The global baseline (styles/index.css) sits under every page that has not
- * been moved onto the primitives yet. Page classes commonly set only
+ * The global baseline (styles/index.css) sits under every structural bare
+ * <button> (rows, tabs, stars, disclosures). Page classes commonly set only
  * `background-color` or `background: transparent` on a bare <button>, so the
  * baseline must not add anything those classes do not reset: no gradient
  * (background-image), no box-shadow, no filter. The gummy-glass finish is
@@ -44,18 +44,23 @@ describe('bare <button> baseline', () => {
     }
   });
 
-  it('keeps the old inner radius rather than the pill', () => {
+  it('is a pill: no control in the system has a small radius', () => {
     const base = buttonRules.find(rule => rule.selector === ':where(button)');
-    expect(base?.body).toMatch(/border-radius:\s*var\(--radius-md\)/);
+    expect(base?.body).toMatch(/border-radius:\s*var\(--r-pill\)/);
   });
 });
 
 describe('bare headings', () => {
-  it('stay in the body face; the thin display face comes only through --type-* tokens', () => {
-    const headingRules = rules(css, s => /:where\(h[1-6]/.test(s));
-    expect(headingRules.length).toBeGreaterThan(0);
-    for (const { selector, body } of headingRules) {
-      expect(body, selector).not.toContain('--font-display');
+  it('h1 is the headline role and h2 the title role, both through --type-* tokens', () => {
+    const h1 = rules(css, s => s === ':where(h1)');
+    const h2 = rules(css, s => s === ':where(h2)');
+    expect(h1.map(r => r.body).join('')).toMatch(/font:\s*var\(--type-headline\)/);
+    expect(h2.map(r => r.body).join('')).toMatch(/font:\s*var\(--type-title\)/);
+  });
+
+  it('h3 and below stay in the body face, since they label data', () => {
+    for (const { selector, body } of rules(css, s => /:where\(h[3-6]/.test(s))) {
+      expect(body, selector).not.toMatch(/--font-display|--type-(display|headline|title)/);
     }
   });
 });

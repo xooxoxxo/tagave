@@ -17,41 +17,8 @@
   gap: 6px;
 }
 
-.btn,
-.btnQuiet {
-  padding: 0.45rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 0.875rem;
-  cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease;
-}
-
-.btnQuiet {
-  border-color: transparent;
-  color: var(--text-secondary);
-  padding-left: 0.4rem;
-  padding-right: 0.4rem;
-}
-
-.btn:hover:not(:disabled),
-.btnQuiet:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--border-secondary);
-  color: var(--text-primary);
-}
-
-.btn:disabled,
-.btnQuiet:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .note {
   margin: 0;
   font-size: 0.8125rem;
-  color: var(--text-secondary);
+  color: var(--ink-2);
 }

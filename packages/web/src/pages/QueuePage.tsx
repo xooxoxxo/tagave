@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
+import { Button } from '../components/ui';
 import styles from './QueuePage.module.css';
 
 interface QueueTrack {
@@ -338,23 +339,23 @@ export function ReviewPanel() {
       {/* Pinned: on a 170-item queue, a scroll per decision is 170 scrolls. */}
       <div className={styles.actionBar}>
         <div className={styles.actionButtons}>
-          <button type="button" className={styles.primary} onClick={() => decide('match')} disabled={!candidate}>
+          <Button type="button" onClick={() => decide('match')} disabled={!candidate}>
             Accept match
-          </button>
-          <button type="button" className={styles.secondary} onClick={() => decide('as-is')}>
+          </Button>
+          <Button variant="secondary" type="button" onClick={() => decide('as-is')}>
             Keep as-is
-          </button>
-          <button type="button" className={styles.secondary} onClick={() => decide('ignore')}>
+          </Button>
+          <Button variant="secondary" type="button" onClick={() => decide('ignore')}>
             Ignore album
-          </button>
+          </Button>
         </div>
         <div className={styles.shortcuts}>
           <kbd>↵</kbd> accept <kbd>a</kbd> as-is <kbd>x</kbd> ignore <kbd>e</kbd> exclude
           <span className={styles.shortcutSep} />
           <kbd>↑</kbd><kbd>↓</kbd> candidate <kbd>n</kbd><kbd>p</kbd> album
-          <button type="button" className={styles.helpToggle} onClick={() => setShowHelp((h) => !h)} aria-expanded={showHelp}>
+          <Button variant="quiet" size="sm" type="button" onClick={() => setShowHelp((h) => !h)} aria-expanded={showHelp}>
             {showHelp ? 'Hide keys' : 'All keys'}
-          </button>
+          </Button>
         </div>
       </div>
 

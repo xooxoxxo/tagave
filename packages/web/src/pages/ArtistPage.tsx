@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules } from '../hooks';
-import { PageShell, Button, Badge, Card } from '../components/ui';
+import { PageShell, Button, IconButton, Badge, Card } from '../components/ui';
 import styles from './ArtistPage.module.css';
 
 export function ArtistPage() {
@@ -185,13 +185,14 @@ export function ArtistPage() {
           <div className={styles.followRulesEditor}>
             <div className={styles.editorHeader}>
               <h3 className={styles.editorTitle}>Type Filters</h3>
-              <button
-                className={styles.closeButton}
+              <IconButton
+                variant="quiet"
+                size="sm"
+                label="Close"
                 onClick={() => setShowFollowRulesEditor(false)}
-                title="Close"
               >
-                ✕
-              </button>
+                <span aria-hidden="true">✕</span>
+              </IconButton>
             </div>
 
             <div className={styles.editorContent}>

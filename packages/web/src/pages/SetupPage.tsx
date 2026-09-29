@@ -159,9 +159,9 @@ function AccountScreen({ onBack, onDone }: { onBack: () => void; onDone: () => v
             hint="At least 8 characters."
             disabled={setupMutation.isPending}
           />
-          <button type="button" className={styles.togglePassword} onClick={() => setShowPassword((v) => !v)}>
+          <Button variant="quiet" size="sm" type="button" className={styles.togglePassword} onClick={() => setShowPassword((v) => !v)}>
             {showPassword ? 'Hide password' : 'Show password'}
-          </button>
+          </Button>
         </div>
         <TextField
           label="Contact for metadata services"

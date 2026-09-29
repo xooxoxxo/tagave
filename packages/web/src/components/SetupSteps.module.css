@@ -45,9 +45,9 @@
 }
 
 .done .dot {
-  background: var(--surface-success);
-  border-color: rgba(var(--success-rgb), 0.4);
-  color: var(--success);
+  background: var(--ok-tint);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
 }
 
 .current {
@@ -56,9 +56,9 @@
 }
 
 .current .dot {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg-secondary);
+  background: var(--dew);
+  border-color: var(--dew);
+  color: var(--dew-ink);
 }
 
 .todo {

@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
+import { Button } from './ui';
 import styles from './SearchModal.module.css';
 
 interface SearchResult {
@@ -148,7 +149,7 @@ export function SearchModal({ onClose }: { onClose: () => void }) {
         </div>
         {isError && (
           <div className={styles.error} role="alert">
-            Search is unavailable. <button onClick={() => void refetch()}>Retry</button>
+            Search is unavailable. <Button variant="quiet" size="sm" onClick={() => void refetch()}>Retry</Button>
           </div>
         )}
         {shouldShowResults && (

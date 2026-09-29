@@ -12,6 +12,7 @@ import {
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
 import { StarRating } from './StarRating';
+import { Button, IconButton } from './ui';
 import styles from './ReviewsSection.module.css';
 
 interface ReviewsSectionProps {
@@ -66,14 +67,15 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
           ) : (
             <span className={styles.muted}>External reviews are fetched only when you ask (one call per source).</span>
           )}
-          <button
-            className={styles.linkButton}
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() => refresh.mutate()}
             disabled={refresh.isPending || data.gathering}
             title={data.fetchedAt ? 'Re-fetch external reviews and ratings now' : 'Fetch external reviews and ratings for this album'}
           >
             {refresh.isPending || refresh.isSuccess ? 'Fetching…' : data.fetchedAt ? 'Refresh' : 'Gather reviews'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -115,24 +117,25 @@ function OwnTake({ libraryId, releaseGroupId, bundle }: { libraryId: string | un
             <p className={styles.muted}>No review yet — rate above or write a few lines.</p>
           )}
           <div className={styles.row}>
-            <button className={styles.linkButton} onClick={() => { setDraft(body); setPreview(false); }}>
+            <Button variant="quiet" size="sm" onClick={() => { setDraft(body); setPreview(false); }}>
               {body ? 'Edit review' : 'Write review'}
-            </button>
+            </Button>
             {own && (
               <>
                 <span className={styles.muted}>
                   revision {own.currentRevision} · updated {fmtDate(own.updatedAt)}
                 </span>
-                <button className={styles.linkButton} onClick={() => setShowHistory((s) => !s)}>
+                <Button variant="quiet" size="sm" onClick={() => setShowHistory((s) => !s)}>
                   {showHistory ? 'Hide history' : 'History'}
-                </button>
-                <button
-                  className={styles.linkButton}
+                </Button>
+                <Button
+                  variant="quiet"
+                  size="sm"
                   onClick={() => { if (window.confirm('Delete your rating, review and its revisions?')) remove.mutate(); }}
                   disabled={remove.isPending}
                 >
                   Delete
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -142,8 +145,8 @@ function OwnTake({ libraryId, releaseGroupId, bundle }: { libraryId: string | un
       {editing && (
         <div className={styles.editor}>
           <div className={styles.row}>
-            <button className={preview ? styles.linkButton : styles.linkButtonActive} onClick={() => setPreview(false)}>Write</button>
-            <button className={preview ? styles.linkButtonActive : styles.linkButton} onClick={() => setPreview(true)}>Preview</button>
+            <Button size="sm" variant={preview ? 'quiet' : 'secondary'} onClick={() => setPreview(false)}>Write</Button>
+            <Button size="sm" variant={preview ? 'secondary' : 'quiet'} onClick={() => setPreview(true)}>Preview</Button>
             <span className={styles.muted}>Markdown</span>
           </div>
           {preview ? (
@@ -161,14 +164,14 @@ function OwnTake({ libraryId, releaseGroupId, bundle }: { libraryId: string | un
             />
           )}
           <div className={styles.row}>
-            <button
-              className={styles.primary}
+            <Button
+              size="sm"
               disabled={save.isPending || draft === body}
               onClick={() => save.mutate({ bodyMd: draft }, { onSuccess: () => setDraft(null) })}
             >
               {save.isPending ? 'Saving…' : 'Save'}
-            </button>
-            <button className={styles.linkButton} onClick={() => setDraft(null)}>Cancel</button>
+            </Button>
+            <Button variant="quiet" size="sm" onClick={() => setDraft(null)}>Cancel</Button>
             {save.isError && <span className={styles.error}>{(save.error as Error)?.message ?? 'Save failed'}</span>}
           </div>
         </div>
@@ -219,10 +222,10 @@ function ListenLog({ libraryId, releaseGroupId, listens, editions }: {
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Listens {listens.length > 0 && <span className={styles.count}>{listens.length}</span>}</h3>
         <div className={styles.row}>
-          <button className={styles.primary} onClick={() => add.mutate({ format })} disabled={add.isPending}>
+          <Button variant="secondary" size="sm" onClick={() => add.mutate({ format })} disabled={add.isPending}>
             Listened today
-          </button>
-          <button className={styles.linkButton} onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Log a listen…'}</button>
+          </Button>
+          <Button variant="quiet" size="sm" onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Log a listen…'}</Button>
         </div>
       </div>
 
@@ -243,7 +246,7 @@ function ListenLog({ libraryId, releaseGroupId, listens, editions }: {
             </select>
           )}
           <input className={styles.input} placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
-          <button className={styles.primary} onClick={submit} disabled={add.isPending}>Add</button>
+          <Button size="sm" onClick={submit} disabled={add.isPending}>Add</Button>
         </div>
       )}
       {add.isError && <div className={styles.error}>{(add.error as { detail?: string })?.detail ?? 'Could not save the listen'}</div>}
@@ -256,7 +259,7 @@ function ListenLog({ libraryId, releaseGroupId, listens, editions }: {
               <span className={styles.chip}>{l.format ?? 'listened'}</span>
               {l.releaseTitle && <span className={styles.muted} title="Edition">{l.releaseTitle}</span>}
               {l.note && <span className={styles.note}>{l.note}</span>}
-              <button className={styles.iconButton} title="Remove" onClick={() => remove.mutate(l.id)} disabled={remove.isPending}>✕</button>
+              <IconButton variant="quiet" size="sm" className={styles.removeButton} label="Remove" onClick={() => remove.mutate(l.id)} disabled={remove.isPending}><span aria-hidden="true">✕</span></IconButton>
             </li>
           ))}
         </ul>
@@ -383,7 +386,7 @@ function Clippings({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
     <div className={styles.block}>
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>Clippings {bundle.clippings.length > 0 && <span className={styles.count}>{bundle.clippings.length}</span>}</h3>
-        <button className={styles.linkButton} onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Add clipping…'}</button>
+        <Button variant="quiet" size="sm" onClick={() => setOpen((o) => !o)}>{open ? 'Close' : 'Add clipping…'}</Button>
       </div>
       {open && (
         <div className={styles.listenForm}>
@@ -391,7 +394,7 @@ function Clippings({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
           <input className={styles.input} placeholder="Source (e.g. Pitchfork)" value={sourceLabel} onChange={(e) => setSourceLabel(e.target.value)} />
           <input className={styles.input} placeholder="Score" value={score} onChange={(e) => setScore(e.target.value)} style={{ maxWidth: '6rem' }} />
           <input className={styles.input} placeholder="Quote or note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={4000} />
-          <button className={styles.primary} onClick={submit} disabled={add.isPending || !(url.trim() || note.trim())}>Add</button>
+          <Button size="sm" onClick={submit} disabled={add.isPending || !(url.trim() || note.trim())}>Add</Button>
         </div>
       )}
       {add.isError && <div className={styles.error}>{(add.error as { detail?: string })?.detail ?? 'Could not save the clipping'}</div>}
@@ -404,7 +407,7 @@ function Clippings({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
               {c.note && <span className={styles.note}>“{c.note}”</span>}
               {c.url && <a href={c.url} target="_blank" rel="noreferrer" className={styles.extLink}>↗</a>}
               <span className={styles.muted}>{fmtDate(c.createdAt)}</span>
-              <button className={styles.iconButton} title="Remove" onClick={() => remove.mutate(c.id)} disabled={remove.isPending}>✕</button>
+              <IconButton variant="quiet" size="sm" className={styles.removeButton} label="Remove" onClick={() => remove.mutate(c.id)} disabled={remove.isPending}><span aria-hidden="true">✕</span></IconButton>
             </li>
           ))}
         </ul>

@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@liner/shared';
 import { isMultiActive } from '../pages/albumsSearch';
+import { Button, IconButton } from './ui';
 import styles from './FilterRail.module.css';
 
 interface FilterRailProps {
@@ -125,7 +126,7 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
     <aside className={styles.rail}>
       <div className={styles.railHead}>
         <span className={styles.total}>{facets ? `${facets.total.toLocaleString()} albums` : '…'}</span>
-        {activeCount > 0 && <button className={styles.linkButton} onClick={onClear}>Clear {activeCount}</button>}
+        {activeCount > 0 && <Button variant="quiet" size="sm" onClick={onClear}>Clear {activeCount}</Button>}
       </div>
 
       <Section title="Saved views">
@@ -134,12 +135,12 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
             <button className={styles.option} onClick={() => onApplyView(v)} title={JSON.stringify(v.query)}>
               <span className={styles.optionLabel}>{v.name}</span>
             </button>
-            <button className={styles.iconButton} title="Delete view" onClick={() => onDeleteView(v.id)}>✕</button>
+            <IconButton variant="quiet" size="sm" label="Delete view" onClick={() => onDeleteView(v.id)}><span aria-hidden="true">✕</span></IconButton>
           </div>
         )) : <div className={styles.muted}>No saved views yet</div>}
-        <button className={styles.linkButton} onClick={onSaveView} disabled={activeCount === 0 && !query.sort}>
+        <Button variant="secondary" size="sm" className={styles.saveView} onClick={onSaveView} disabled={activeCount === 0 && !query.sort}>
           Save current view…
-        </button>
+        </Button>
       </Section>
 
       <Section title="Identification" count={len('state')}>

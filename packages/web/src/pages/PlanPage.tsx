@@ -516,7 +516,7 @@ export function PlanPage() {
         </span>
       }
       actions={
-        <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div className={styles.headerActions}>
           {!isRevert && canPreview(p.status) && (
             <Button variant="secondary" loading={previewM.isPending} onClick={startPreview} disabled={previewBusy}>
               {previewButtonLabel}
@@ -560,8 +560,11 @@ export function PlanPage() {
             </Button>
           )}
           {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
+            /* Quiet until confirmed: a destructive drop never sits right next
+               to the primary; the second press turns it into the red drop. */
             <Button
-              variant="danger"
+              variant={confirmDelete ? 'danger' : 'quiet'}
+              className={confirmDelete ? undefined : styles.dangerQuiet}
               loading={deleteM.isPending}
               onClick={async () => {
                 if (!confirmDelete) {
@@ -786,7 +789,7 @@ export function PlanPage() {
                             <tr key={d.field}>
                               <td className={styles.cellField}>{d.field}</td>
                               <td className={styles.cellBefore} data-label="Before">{fmtValue(d.before)}</td>
-                              <td data-label="After">{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
+                              <td className={styles.cellAfter} data-label="After">{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
                               <td className={styles.cellWhy} data-label="Why">{reasonLabel(d.reason)}</td>
                             </tr>
                           ))}

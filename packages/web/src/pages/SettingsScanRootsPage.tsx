@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
 import { SCAN_ROOT_EMPTY_MESSAGE, type ScanRoot } from '@liner/shared';
+import { Button } from '../components/ui';
 import styles from './SettingsScanRootsPage.module.css';
 
 /**
@@ -162,9 +163,9 @@ function SettingsScanRootsContentInner() {
 
         {/* Add form */}
       {!showAddForm ? (
-        <button className={styles.addButton} onClick={() => setShowAddForm(true)}>
+        <Button className={styles.addButton} onClick={() => setShowAddForm(true)}>
           + Add music folder
-        </button>
+        </Button>
       ) : (
         <form onSubmit={handleAddRoot} className={styles.form}>
           <div className={styles.field}>
@@ -226,12 +227,12 @@ function SettingsScanRootsContentInner() {
           </div>
 
           <div className={styles.formActions}>
-            <button type="submit" disabled={createMutation.isPending}>
+            <Button type="submit" disabled={createMutation.isPending}>
               {createMutation.isPending ? 'Adding...' : 'Add Root'}
-            </button>
-            <button type="button" className="secondary" onClick={() => setShowAddForm(false)}>
+            </Button>
+            <Button variant="quiet" type="button" onClick={() => setShowAddForm(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
 
           {createMutation.error && (
@@ -319,45 +320,50 @@ function SettingsScanRootsContentInner() {
               </div>
 
               <div className={styles.rootActions}>
-                <button
+                <Button
+                  size="sm"
+                  variant={root.enabled ? 'secondary' : 'primary'}
                   onClick={() => handleToggleEnabled(root)}
-                  className={root.enabled ? 'secondary' : ''}
                   disabled={isPending(root.id)}
                 >
                   {isPending(root.id) ? (root.enabled ? 'Disabling...' : 'Enabling...') : (root.enabled ? 'Disable' : 'Enable')}
-                </button>
+                </Button>
                 {root.validationStatus !== 'ok' && (
-                  <button
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={() => handleValidate(root.id)}
-                    className="secondary"
                     disabled={isPending(root.id)}
                   >
                     {isPending(root.id) ? 'Checking...' : 'Re-check'}
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleStartScan(root.id)}
-                  className="secondary"
                   disabled={isPending(root.id) || root.lastStatus === 'scanning' || root.validationStatus !== 'ok'}
                   title={root.validationStatus !== 'ok' ? 'Path must be validated first' : ''}
                 >
                   {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan Now'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleToggleWritable(root)}
-                  className="secondary"
                   disabled={isPending(root.id) || (!root.writable && !canEnableWrites(root))}
                   title={writableHint(root)}
                 >
                   {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow tag writes'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleDelete(root.id)}
-                  className="secondary"
                   disabled={isPending(root.id)}
                 >
                   {isPending(root.id) ? 'Deleting...' : 'Delete'}
-                </button>
+                </Button>
               </div>
               {root.writable && root.probeWritable === false && (
                 <p className={styles.rootWarning}>

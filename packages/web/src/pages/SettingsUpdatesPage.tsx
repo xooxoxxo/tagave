@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import type { ReleaseNote, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useUpdates } from '../hooks/useUpdates';
+import { Button } from '../components/ui';
 import styles from './SettingsUpdatesPage.module.css';
 
 const DAY_MS = 24 * 3600 * 1000;
@@ -136,12 +137,12 @@ export function SettingsUpdatesPage() {
             value={feedUrl}
             onChange={(e) => setFeedUrl(e.target.value)}
           />
-          <button className={styles.button} disabled={setFeed.isPending || feedUrl.trim() === (feed.url ?? '')} onClick={() => setFeed.mutate(feedUrl.trim() || null)}>
+          <Button disabled={setFeed.isPending || feedUrl.trim() === (feed.url ?? '')} onClick={() => setFeed.mutate(feedUrl.trim() || null)}>
             Save
-          </button>
-          <button className={styles.button} disabled={!feed.enabled || check.isPending} onClick={() => check.mutate()}>
+          </Button>
+          <Button variant="secondary" disabled={!feed.enabled || check.isPending} onClick={() => check.mutate()}>
             {check.isPending ? 'Checking…' : 'Check now'}
-          </button>
+          </Button>
         </div>
         <p className={styles.muted}>
           {feed.enabled ? `Last checked ${when(feed.lastCheckedAt)}` : 'Feed disabled'}

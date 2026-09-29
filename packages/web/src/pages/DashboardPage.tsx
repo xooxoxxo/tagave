@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useAlbums, useCurrentLibrary, useIdentifyStats, useTagPlans } from '../hooks';
 import { api } from '../services/api';
-import { PageShell, Card, Button } from '../components/ui';
+import { PageShell, Card, Button, LinkButton } from '../components/ui';
 import styles from './DashboardPage.module.css';
 
 export function DashboardPage() {
@@ -28,7 +28,7 @@ export function DashboardPage() {
   ];
 
   return (
-    <PageShell title="Your music, in good company." subtitle="Explore your collection. Make room for your next discovery." actions={<Link to="/albums" className={styles.browseLink}>Browse all albums <span aria-hidden="true">↗</span></Link>}>
+    <PageShell title="Your music, in good company." subtitle="Explore your collection. Make room for your next discovery." actions={<LinkButton to="/albums">Browse all albums <span aria-hidden="true">↗</span></LinkButton>}>
       <div className={styles.content}>
         <section aria-labelledby="recent-heading">
           <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>At home in your library</p><h2 id="recent-heading">Recently added</h2></div><Link to="/albums" search={{ sort: 'added_date' }}>View all →</Link></div>
@@ -44,10 +44,10 @@ export function DashboardPage() {
         <div className={styles.lowerGrid}>
           <section aria-labelledby="care-heading"><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>A little attention goes a long way</p><h2 id="care-heading">Care for your library</h2></div></div>
             <Card padded={false}><div className={styles.needsList}>{careItems.map(item => <Link key={item.tab} to="/work" search={{ tab: item.tab }} className={styles.needsItem}><div><h3>{item.label}</h3><p>{item.detail}</p></div><span className={styles.needsCount}>{item.count ?? '—'}</span><span aria-hidden="true">→</span></Link>)}</div></Card>
-            {(queue.isError || stats.isError || gaps.isError) && <p className={styles.status} role="status">Some library counts are unavailable. <button className={styles.textButton} onClick={() => { void queue.refetch(); void stats.refetch(); void gaps.refetch(); }}>Retry</button></p>}
+            {(queue.isError || stats.isError || gaps.isError) && <p className={styles.status} role="status">Some library counts are unavailable. <Button variant="quiet" size="sm" onClick={() => { void queue.refetch(); void stats.refetch(); void gaps.refetch(); }}>Retry</Button></p>}
           </section>
           <section aria-labelledby="changes-heading"><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Thoughtful upkeep</p><h2 id="changes-heading">Recent tag changes</h2></div><Link to="/plans">View all →</Link></div>
-            {plans.isLoading ? <p className={styles.status}>Loading tag changes…</p> : plans.isError ? <p className={styles.status} role="alert">Couldn’t load tag changes. <button className={styles.textButton} onClick={() => void plans.refetch()}>Retry</button></p> : plans.data?.items.length ? <Card padded={false}><div className={styles.plansList}>{plans.data.items.map(plan => <Link key={plan.id} to="/plans/$planId" params={{ planId: plan.id }} className={styles.planItem}><span className={styles.planName}>{plan.name}</span><span className={styles.planState}>{plan.status.replace(/_/g, ' ')}</span></Link>)}</div></Card> : <div className={styles.quietEmpty}><h3>Everything in its right place</h3><p>Preview and apply metadata corrections here when your albums need them.</p><Link to="/plans">Explore tag changes →</Link></div>}
+            {plans.isLoading ? <p className={styles.status}>Loading tag changes…</p> : plans.isError ? <p className={styles.status} role="alert">Couldn’t load tag changes. <Button variant="quiet" size="sm" onClick={() => void plans.refetch()}>Retry</Button></p> : plans.data?.items.length ? <Card padded={false}><div className={styles.plansList}>{plans.data.items.map(plan => <Link key={plan.id} to="/plans/$planId" params={{ planId: plan.id }} className={styles.planItem}><span className={styles.planName}>{plan.name}</span><span className={styles.planState}>{plan.status.replace(/_/g, ' ')}</span></Link>)}</div></Card> : <div className={styles.quietEmpty}><h3>Everything in its right place</h3><p>Preview and apply metadata corrections here when your albums need them.</p><Link to="/plans">Explore tag changes →</Link></div>}
           </section>
         </div>
       </div>

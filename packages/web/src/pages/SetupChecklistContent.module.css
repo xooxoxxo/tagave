@@ -91,67 +91,7 @@
 .input {
   width: 100%;
   padding: var(--space-sm);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-family: inherit;
   font-size: var(--font-size-sm);
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
-}
-
-.button,
-.configButton,
-.clearButton,
-.addButton,
-.cancelButton {
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity var(--transition-normal), background-color var(--transition-normal), border-color var(--transition-normal);
-  font-size: var(--font-size-sm);
-}
-
-.button {
-  background-color: var(--accent);
-  color: var(--on-accent);
-  border-color: var(--accent);
-}
-
-.button:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.button.disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.configButton:hover:not(:disabled),
-.clearButton:hover:not(:disabled),
-.addButton:hover:not(:disabled) {
-  background-color: var(--bg-tertiary);
-}
-
-.configButton:disabled,
-.clearButton:disabled,
-.addButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .configured {
@@ -206,14 +146,6 @@
   gap: var(--space-sm);
   padding-top: var(--space-sm);
   border-top: 1px solid var(--border);
-}
-
-.formActions .button {
-  flex: 1;
-}
-
-.cancelButton {
-  flex: 1;
 }
 
 .rootsList {
@@ -290,7 +222,7 @@
   border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: var(--font-size-sm);
-  border-radius: 2px;
+  border-radius: var(--r-inner);
 }
 
 .link {
@@ -303,13 +235,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .button,
-  .configButton,
-  .clearButton,
-  .addButton,
-  .cancelButton {
-    transition: none;
-  }
+  
 }
 
 @media (max-width: 640px) {

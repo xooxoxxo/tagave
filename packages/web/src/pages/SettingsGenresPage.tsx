@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useGenreMap, usePatchGenreMap, useGenrePreview, type GenreMap } from '../hooks/useArtists';
+import { Button } from '../components/ui';
 import styles from './SettingsGenresPage.module.css';
 
 /**
@@ -186,20 +187,19 @@ function SettingsGenresContentInner() {
         </div>
 
         <div className={styles.actions}>
-          <button
+          <Button
             onClick={handleSave}
             disabled={!hasChanges || patchGenreMap.isPending}
-            className={styles.button}
           >
             {patchGenreMap.isPending ? 'Saving...' : 'Save'}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="quiet"
             onClick={handleReset}
             disabled={!hasChanges}
-            className={styles.resetButton}
           >
             Reset to defaults
-          </button>
+          </Button>
           {patchGenreMap.isSuccess && <span className={styles.success}>Settings saved</span>}
           {patchGenreMap.isError && (
             <span className={styles.error}>

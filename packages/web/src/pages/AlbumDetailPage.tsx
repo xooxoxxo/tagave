@@ -315,7 +315,7 @@ export function AlbumDetailPage() {
     onSuccess: () => refresh(),
   });
 
-  if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><button onClick={() => void refetch()}>Try again</button><Link to="/albums">Back to albums</Link></div>;
+  if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div>;
 
   if (isLoading || !album) return <div className={styles.container}>Loading album...</div>;
 
@@ -416,11 +416,11 @@ export function AlbumDetailPage() {
             <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>
               {STATE_LABEL[album.state] ?? album.state}
             </span>
-            {issueCount > 0 && <button className={styles.issueLink} onClick={() => setTab('care')}>{issueCount} library {issueNoun} →</button>}
+            {issueCount > 0 && <Button variant="quiet" size="sm" onClick={() => setTab('care')}>{issueCount} library {issueNoun} →</Button>}
             {album.match?.releaseGroupOnly && (
-              <button className={styles.pillButton} title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
+              <Button variant="secondary" size="sm" title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
                 any edition ✕
-              </button>
+              </Button>
             )}
             {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
               <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs-only</span>
@@ -459,14 +459,15 @@ export function AlbumDetailPage() {
               </a>
             )}
             {(!album.discogsCollectionItems || album.discogsCollectionItems.length === 0) && album.release?.discogsReleaseId && (
-              <button
-                className={styles.pillButton}
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => addToCollection.mutate({ input: String(album.release?.discogsReleaseId) }, { onSuccess: () => refresh(1500) })}
                 disabled={addToCollection.isPending}
                 title="Add this edition to your Discogs collection (folder Uncategorized)"
               >
                 {addToCollection.isPending ? 'Adding…' : '+ I own this on vinyl/CD'}
-              </button>
+              </Button>
             )}
           </div>
           {libraryId && <CompilationPanel libraryId={libraryId} album={album} onEditTags={() => setEditingTags(true)} />}
@@ -482,35 +483,36 @@ export function AlbumDetailPage() {
           </details>
           <details ref={manageRef} className={styles.maintenance}><summary>Manage this album</summary>
           <div className={styles.actions}>
-            <button className="secondary" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
+            <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
               {reidentify.isPending ? 'Queued…' : 'Re-identify'}
-            </button>
+            </Button>
             {album.state !== 'matched' && (
-              <button
-                className="secondary"
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => fingerprint.mutate(albumId, { onSuccess: () => refresh(3000) })}
                 disabled={fingerprint.isPending}
                 title="Fingerprint the files (Chromaprint) and look them up on AcoustID — for albums whose tags are wrong or missing; needs an AcoustID key in Settings › Providers"
               >
                 {fingerprint.isPending ? 'Queuing…' : fingerprint.isSuccess ? 'Fingerprint queued' : 'Fingerprint'}
-              </button>
+              </Button>
             )}
-            <button className="secondary" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
+            <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
               {fetchArt.isPending ? 'Queued…' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
-            </button>
+            </Button>
             {album.state !== 'as_is' && (
-              <button className="secondary" onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending} title="Keep the local tags; stop identifying">
+              <Button variant="secondary" size="sm" onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending} title="Keep the local tags; stop identifying">
                 Keep as-is
-              </button>
+              </Button>
             )}
             {album.state !== 'ignored' && (
-              <button className="secondary" onClick={() => ignore.mutate()} disabled={ignore.isPending} title="Hide from the queue and gap counts">
+              <Button variant="secondary" size="sm" onClick={() => ignore.mutate()} disabled={ignore.isPending} title="Hide from the queue and gap counts">
                 Ignore
-              </button>
+              </Button>
             )}
-            <button className="secondary" onClick={() => setEditingTags(true)} title="Set album artist, title, year, compilation or genre for every track at once; you preview before anything is written">
+            <Button variant="secondary" size="sm" onClick={() => setEditingTags(true)} title="Set album artist, title, year, compilation or genre for every track at once; you preview before anything is written">
               Set album values…
-            </button>
+            </Button>
             {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
             {fingerprint.isError && <span className={styles.mbidError}>{errorDetail(fingerprint)}</span>}
           </div>
@@ -522,9 +524,9 @@ export function AlbumDetailPage() {
                 {pending.state === 'active' ? 'running now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `${pending.jobsAhead.toLocaleString()} ahead in the queue`}
                 {' · '}since {new Date(pending.createdAt).toLocaleString()}
               </span>
-              <button className="secondary" onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
+              <Button variant="secondary" size="sm" onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
                 {cancelRequest.isPending ? 'Cancelling…' : 'Cancel'}
-              </button>
+              </Button>
               {cancelRequest.isError && <span className={styles.mbidError}>Cancel failed</span>}
             </div>
           )}
@@ -540,12 +542,12 @@ export function AlbumDetailPage() {
                 if (e.key === 'Enter' && mbidInput.trim() && !pending) matchMbid.mutate();
               }}
             />
-            <button
+            <Button
               onClick={() => matchMbid.mutate()}
               disabled={!mbidInput.trim() || matchMbid.isPending || !!pending}
             >
               {matchMbid.isPending ? 'Queuing…' : 'Match'}
-            </button>
+            </Button>
             {matchMbid.isError && (
               <span className={styles.mbidError}>
                 {(matchMbid.error as { detail?: string; message?: string })?.detail ??
@@ -699,9 +701,9 @@ export function AlbumDetailPage() {
           <h2 className={styles.sectionTitle}>
             Match candidates ({visibleCandidates.length})
             {excludedCount > 0 && (
-              <button className={styles.linkButton} onClick={() => setShowExcluded((s) => !s)}>
+              <Button variant="quiet" size="sm" onClick={() => setShowExcluded((s) => !s)}>
                 {showExcluded ? 'hide' : 'show'} {excludedCount} excluded
-              </button>
+              </Button>
             )}
           </h2>
           <div className={styles.trackScroller}>
@@ -748,21 +750,24 @@ export function AlbumDetailPage() {
                   <td className={styles.gapActions}>
                     {!c.excluded && (
                       <>
-                        <button
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           onClick={() => acceptCandidate.mutate(c.id)}
                           disabled={acceptCandidate.isPending}
                           title="Match this album to this release"
                         >
                           Accept
-                        </button>
-                        <button
-                          className="secondary"
+                        </Button>
+                        <Button
+                          variant="quiet"
+                          size="sm"
                           onClick={() => excludeCandidate.mutate(c.id)}
                           disabled={excludeCandidate.isPending}
                           title="Never suggest this release again"
                         >
                           Exclude
-                        </button>
+                        </Button>
                       </>
                     )}
                   </td>
@@ -860,25 +865,27 @@ export function AlbumDetailPage() {
           rowAction={(e) => (e.owned ? (
             <span className={styles.muted}>This copy</span>
           ) : (
-            <button
-              className="secondary"
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => switchEdition.mutate(e.mbid)}
               disabled={switchEdition.isPending || !!pending}
               title={pending ? 'An identification request is already queued for this album — cancel it in the panel above first' : 'Re-match this album to this edition (queues a manual identification)'}
             >
               {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
-            </button>
+            </Button>
           ))}
           footer={album.match && (
             <div className={styles.sectionFoot}>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={() => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId))}
                 disabled={matchAnyEdition.isPending || clearAnyEdition.isPending}
-                className={styles.linkButton}
                 title="Any edition: keep the release-group match without pinning one edition"
               >
                 {album.match.releaseGroupOnly ? 'Clear' : 'Mark'} any edition
-              </button>
+              </Button>
               {(matchAnyEdition.isError || clearAnyEdition.isError) && (
                 <span className={styles.mbidError}> {errorDetail(matchAnyEdition.isError ? matchAnyEdition : clearAnyEdition)}</span>
               )}

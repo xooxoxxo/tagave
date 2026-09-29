@@ -10,20 +10,12 @@
   gap: var(--space-2xl);
 }
 
-.title {
-  font-size: 2rem;
-  font-weight: 600;
-  margin: 0 0 2rem 0;
-  color: var(--text-primary);
-}
-
 .section {
   margin-bottom: 3rem;
 }
 
 .sectionTitle {
   font-size: 1.25rem;
-  font-weight: 600;
   margin: 0 0 1.5rem 0;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border);
@@ -37,7 +29,7 @@
   line-height: 1.6;
   background: var(--surface-info);
   padding: 1rem;
-  border-radius: 4px;
+  border-radius: var(--r-inner);
   border: 1px solid var(--border);
 }
 
@@ -73,7 +65,7 @@
   color: var(--text-primary);
   user-select: none;
   padding: 0.5rem;
-  border-radius: 4px;
+  border-radius: var(--r-inner);
   transition: background-color var(--transition-normal);
 }
 
@@ -103,63 +95,7 @@
   width: 100%;
   max-width: 400px;
   padding: 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-family: inherit;
   font-size: 1rem;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
-}
-
-.button,
-.resetButton {
-  padding: 0.75rem 1.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color var(--transition-normal), border-color var(--transition-normal), color var(--transition-normal);
-}
-
-.button {
-  background: var(--accent);
-  color: var(--on-accent);
-  border-color: var(--accent);
-}
-
-.button:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.resetButton:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  border-color: var(--border-secondary);
-}
-
-.resetButton:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .button,
-  .resetButton {
-    transition: none;
-  }
 }
 
 .actions {

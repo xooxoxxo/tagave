@@ -88,7 +88,7 @@ export function JobsPage() {
       {focusMissing && (
         <Banner tone="warning">
           The task from your link is not in the activity list any more.{' '}
-          <button type="button" className={styles.inlineLink} onClick={clearFocus}>Show everything</button>
+          <Button variant="quiet" size="sm" type="button" onClick={clearFocus}>Show everything</Button>
         </Banner>
       )}
 

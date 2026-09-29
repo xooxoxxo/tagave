@@ -6,6 +6,7 @@
  */
 import type { ReactNode } from 'react';
 import type { Edition, EditionsData } from '../hooks';
+import { Button } from '../components/ui';
 import styles from './AlbumDetailPage.module.css';
 
 export interface AlbumEditionsPanelProps {
@@ -37,14 +38,15 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
             <span className={styles.muted}>Fetching editions from MusicBrainz…</span>
           )}
           {editions?.fetchedAt && !fetching && (
-            <button
-              className={styles.linkButton}
+            <Button
+              variant="quiet"
+              size="sm"
               onClick={onFetch}
               disabled={fetchPending}
               title={`Fetched ${new Date(editions.fetchedAt).toLocaleString()} — fetch again from MusicBrainz`}
             >
               Refresh
-            </button>
+            </Button>
           )}
         </div>
       </div>
@@ -60,18 +62,18 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
         ) : (
           <p className={styles.muted}>
             We don't know of any editions yet.{' '}
-            <button className={styles.linkButton} onClick={onFetch} disabled={fetchPending}>
+            <Button variant="quiet" size="sm" onClick={onFetch} disabled={fetchPending}>
               {fetchPending ? 'Queuing…' : 'Fetch editions from MusicBrainz'}
-            </button>
+            </Button>
           </p>
         )
       ) : (<>
         {!fetched && !fetching && (
           <p className={styles.muted}>
             Showing {rows.length} edition{rows.length === 1 ? '' : 's'} we know about.{' '}
-            <button className={styles.linkButton} onClick={onFetch} disabled={fetchPending}>
+            <Button variant="quiet" size="sm" onClick={onFetch} disabled={fetchPending}>
               {fetchPending ? 'Queuing…' : 'Fetch the full list from MusicBrainz'}
-            </button>
+            </Button>
           </p>
         )}
         <table className={`${styles.candTable} ${styles.editionsTable}`}>

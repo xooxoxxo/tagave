@@ -46,22 +46,20 @@ body {
   color: var(--ink);
 }
 
-/* Bare headings stay in the body face. The thin display face is applied only
- * through the --type-* tokens (PageShell title, Card title, EmptyState), since
- * pages still give their own heading classes weights of 500 to 700 without
- * resetting the family, and Urbanist is loaded in its thin weights only. */
-:where(h1, h2) {
-  font-weight: 600;
-  letter-spacing: -0.015em;
-}
-
+/* Page titles and section heads are set in the thin display face: h1 is the
+ * headline role (Urbanist 300), h2 the title role (Urbanist 400). Urbanist is
+ * loaded in 200/300/400 only, so a page class must never give an h1 or h2 a
+ * heavier weight; it would be synthesised. h3 and below stay in the body face
+ * because they label data. */
 :where(h1) {
-  font-size: var(--font-size-2xl);
+  font: var(--type-headline);
+  letter-spacing: -0.01em;
   text-wrap: balance;
 }
 
 :where(h2) {
-  font-size: var(--font-size-xl);
+  font: var(--type-title);
+  letter-spacing: 0;
 }
 
 :where(h3, h4, h5, h6) {
@@ -133,12 +131,14 @@ body {
   accent-color: var(--dew);
 }
 
-/* ---- Buttons (baseline for page-level buttons not yet on <Button>) ----
- * Deliberately flat: background-color only, no background-image, no
- * box-shadow, the old inner radius. Page classes that set only
- * background-color (or background: transparent) must fully replace this, so
- * nothing from the drop recipe may leak in here. The gummy-glass finish is
- * opt-in through <Button>/<IconButton> (components/ui/Button.module.css). */
+/* ---- Buttons (baseline for structural buttons: rows, tabs, toggles) ----
+ * Actions use <Button>/<IconButton>/<LinkButton>, which carry the gummy-glass
+ * finish (components/ui/Button.module.css). What is left on a bare <button>
+ * is structural: a clickable row, a tab, a star, a disclosure. This baseline
+ * is deliberately flat (background-color only, no background-image, no
+ * box-shadow) so a page class that sets only background-color or
+ * background: transparent fully replaces it; its shape is a pill, since no
+ * control in the system has a small radius. */
 :where(button) {
   font-family: inherit;
   font-size: inherit;
@@ -146,7 +146,7 @@ body {
   min-height: 2.5rem;
   padding: 0.5rem 1rem;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-pill);
   background-color: var(--accent);
   color: var(--on-accent);
   cursor: pointer;

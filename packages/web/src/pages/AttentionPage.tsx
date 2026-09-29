@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
+import { Button } from '../components/ui';
 import styles from './AttentionPage.module.css';
 
 interface GapItem {
@@ -107,15 +108,17 @@ export function AttentionPanel() {
               <span className={styles.detail}>{describe(g)}</span>
             </div>
             <div className={styles.rowActions}>
-              <button onClick={() => dismiss.mutate({ id: g.id, reason: 'not_interested' })}>
+              <Button variant="secondary" size="sm" onClick={() => dismiss.mutate({ id: g.id, reason: 'not_interested' })}>
                 Dismiss
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 title="The data is wrong (feeds the false-positive metric)"
                 onClick={() => dismiss.mutate({ id: g.id, reason: 'wrong_data' })}
               >
                 Wrong
-              </button>
+              </Button>
             </div>
           </div>
         ))}

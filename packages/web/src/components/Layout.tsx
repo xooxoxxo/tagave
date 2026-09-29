@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation } from '@tanstack/react-router';
 import { useMe, useCurrentLibrary, useJobEvents, useLogout } from '../hooks';
 import { SearchModal } from './SearchModal';
+import { Button } from './ui';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -57,7 +58,7 @@ export function Layout() {
         </nav>
         <div className={styles.navUser}>
           <span className={styles.userEmail}>{user.email}</span>
-          <button className={styles.logoutBtn} disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? 'Signing out…' : 'Sign out'}</button>
+          <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
           {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
         </div>
       </aside>

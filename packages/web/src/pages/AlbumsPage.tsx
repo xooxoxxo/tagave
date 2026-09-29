@@ -1,4 +1,5 @@
 import { Input, Select } from '../components/ui/FormControl';
+import { Button, Chip } from '../components/ui';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -240,9 +241,9 @@ export function AlbumsPage() {
         <p className={styles.intro}>Every record, a world to explore.</p>
         <div className={styles.toolbar}>
 
-          <button className={styles.toolButton} onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
+          <Button variant="secondary" onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
             {railOpen ? 'Hide filters' : `Filters${activeCount ? ` (${activeCount})` : ''}`}
-          </button>
+          </Button>
           <Input
             type="text"
             className={styles.searchInput}
@@ -263,17 +264,17 @@ export function AlbumsPage() {
             {facets ? `${total.toLocaleString()} albums` : ''}
           </span>
           <div className={styles.viewToggle} role="group" aria-label="View mode">
-            <button className={view === 'grid' ? styles.toolButtonActive : styles.toolButton} aria-pressed={view === 'grid'} onClick={() => setSearch({ view: undefined })}>Grid</button>
-            <button className={view === 'list' ? styles.toolButtonActive : styles.toolButton} aria-pressed={view === 'list'} onClick={() => setSearch({ view: 'list' })}>List</button>
+            <Button size="sm" variant={view === 'grid' ? 'secondary' : 'quiet'} aria-pressed={view === 'grid'} onClick={() => setSearch({ view: undefined })}>Grid</Button>
+            <Button size="sm" variant={view === 'list' ? 'secondary' : 'quiet'} aria-pressed={view === 'list'} onClick={() => setSearch({ view: 'list' })}>List</Button>
           </div>
         </div>
 
         {chips.length > 0 && (
           <div className={styles.chips}>
             {chips.map((c) => (
-              <button key={c.key} className={styles.chip} onClick={c.clear} title="Remove filter">{c.text} ✕</button>
+              <Chip key={c.key} active aria-pressed={undefined} onClick={c.clear} title="Remove filter">{c.text} <span aria-hidden="true">✕</span></Chip>
             ))}
-            <button className={styles.chipClear} onClick={clearAll}>Clear all</button>
+            <Button variant="quiet" size="sm" onClick={clearAll}>Clear all</Button>
           </div>
         )}
 
@@ -281,33 +282,34 @@ export function AlbumsPage() {
           <div className={styles.bulkBar}>
             <strong>{selectionCount.toLocaleString()} selected</strong>
             {!allMatching && items.length > 0 && total > selected.size && (
-              <button className={styles.linkButton} onClick={() => setAllMatching(true)}>
+              <Button variant="quiet" size="sm" onClick={() => setAllMatching(true)}>
                 Select all {total.toLocaleString()} matching
-              </button>
+              </Button>
             )}
-            <button className={styles.linkButton} onClick={clearSelection}>Clear selection</button>
+            <Button variant="quiet" size="sm" onClick={clearSelection}>Clear selection</Button>
             <span className={styles.bulkActions}>
               {(['identify', 'fetch_art', 'as_is', 'ignore', 'unignore', 'prefer'] as BulkAlbumAction[]).map((a) => (
-                <button key={a} className={styles.toolButton} disabled={bulk.isPending} onClick={() => void runBulk(a)}>
+                <Button key={a} variant="secondary" size="sm" disabled={bulk.isPending} onClick={() => void runBulk(a)}>
                   {BULK_LABEL[a]}
-                </button>
+                </Button>
               ))}
-              <button
-                className={styles.toolButton}
-                disabled={allMatching || selected.size === 0 || selected.size > BULK_ID_CHUNK}
-                title={allMatching ? 'Pick albums one by one to edit their tags together' : 'Set album artist, title, year, compilation or genre for every file in the selection; you preview before anything is written'}
-                onClick={() => setEditingIds([...selected])}
-              >
-                Set album values…
-              </button>
-              <button
-                className={styles.toolButton}
+              <Button
+                variant="secondary"
+                size="sm"
                 disabled={allMatching || selected.size < 2 || selected.size > 200 || merge.isPending}
                 title={selected.size < 2 ? 'Select two or more albums' : 'Make the selected albums one album without moving files (for a compilation split across folders)'}
                 onClick={() => void mergeSelected()}
               >
                 {merge.isPending ? 'Merging…' : 'Treat as one album'}
-              </button>
+              </Button>
+              <Button
+                size="sm"
+                disabled={allMatching || selected.size === 0 || selected.size > BULK_ID_CHUNK}
+                title={allMatching ? 'Pick albums one by one to edit their tags together' : 'Set album artist, title, year, compilation or genre for every file in the selection; you preview before anything is written'}
+                onClick={() => setEditingIds([...selected])}
+              >
+                Set album values…
+              </Button>
             </span>
             {bulk.isPending && <span className={styles.muted}>working…</span>}
             {mergeNote && <span className={styles.muted} role="status">{mergeNote}</span>}
@@ -328,7 +330,7 @@ export function AlbumsPage() {
             {bulkResult.skippedAlreadyQueued ? `${bulkResult.queued ? ', ' : ''}${bulkResult.skippedAlreadyQueued.toLocaleString()} already queued (moved ahead of the sweep)` : ''}
             {!bulkResult.updated && !bulkResult.queued && !bulkResult.skippedAlreadyQueued ? 'nothing to do' : ''}
             {bulkResult.capped ? ' (capped — run again for the rest)' : ''}
-            <button className={styles.linkButton} onClick={() => setBulkResult(null)}>Dismiss</button>
+            <Button variant="quiet" size="sm" onClick={() => setBulkResult(null)}>Dismiss</Button>
           </div>
         )}
       </header>
@@ -350,14 +352,14 @@ export function AlbumsPage() {
         )}
 
         <div className={styles.main}>
-          {error && <div className={styles.error} role="alert">Couldn’t load albums. <button className={styles.toolButton} onClick={() => void refetch()}>Try again</button></div>}
+          {error && <div className={styles.error} role="alert">Couldn’t load albums. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
           {isLoading && <div className={styles.loading}>Loading albums...</div>}
 
           {showEmpty && (
             <div className={styles.emptyState}>
               <h2>{activeCount > 0 ? 'No albums match these filters' : 'No albums found'}</h2>
               {activeCount > 0
-                ? <p><button className={styles.toolButton} onClick={clearAll}>Clear filters</button></p>
+                ? <p><Button variant="secondary" onClick={clearAll}>Clear filters</Button></p>
                 : <p>Start scanning in Settings to build your library.</p>}
             </div>
           )}

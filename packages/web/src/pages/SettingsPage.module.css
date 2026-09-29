@@ -1,10 +1,11 @@
-.layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
+.layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
 .sectionNav { position: relative; display: flex; flex-direction: column; gap: .2rem; }
-.groupLabel { font-size: .7rem; letter-spacing: .025em; color: var(--text-tertiary); margin: 1.5rem .75rem .6rem; }
+.groupLabel { font: var(--type-label); text-transform: uppercase; letter-spacing: .14em; color: var(--ink-3); margin: 1.75rem 1rem .6rem; }
 .sectionNav > div:first-child .groupLabel { margin-top: 0; }
-.sectionLink { display: block; padding: .7rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
-.sectionLink:hover { background: var(--bg-hover); }
-.activeSection { composes: sectionLink; color: var(--text-selected); background: var(--surface-selected); font-weight: 600; }
+.sectionLink { display: block; padding: .6rem 1rem; border-radius: var(--r-pill); color: var(--ink-2); font-size: .875rem; font-weight: 500; transition: background-color var(--dur) ease, color var(--dur) ease; }
+.sectionLink:hover { background: var(--mist); color: var(--ink); }
+.activeSection { composes: sectionLink; color: var(--chip-on-ink); background: var(--dew-tint); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
+.activeSection:hover { color: var(--chip-on-ink); background: var(--dew-tint); }
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
-.sectionDescription { color: var(--text-secondary); font-size: .875rem; }
-@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--border); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }
+.sectionDescription { color: var(--ink-2); font-size: .9375rem; }
+@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--line); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }

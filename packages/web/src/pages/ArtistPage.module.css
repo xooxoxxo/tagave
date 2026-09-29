@@ -91,13 +91,17 @@
   position: fixed;
   bottom: var(--space-lg);
   right: var(--space-lg);
-  background: var(--accent);
-  color: var(--on-accent);
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
+  /* a toast floats: glass */
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  color: var(--ink);
+  padding: 0.85rem 1.25rem;
+  border-radius: var(--r-pill);
   font-size: var(--font-size-sm);
-  animation: slideIn 0.3s ease-out forwards, slideOut 0.3s ease-out 2.7s forwards;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.28s var(--ease-out) forwards, slideOut 0.28s var(--ease-out) 2.7s forwards;
+  box-shadow: var(--shadow-float);
   z-index: 1000;
 }
 
@@ -143,19 +147,22 @@
 }
 
 .linkChip {
-  display: inline-block;
-  padding: 0.35rem 0.75rem;
-  border-radius: 999px;
-  background: var(--bg-tertiary);
-  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--h-chip);
+  padding: 0 0.85rem;
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  color: var(--dew);
   text-decoration: none;
-  font-size: var(--font-size-sm);
-  border: 1px solid var(--border);
-  transition: background-color var(--transition-fast);
+  font-size: 13px;
+  font-weight: 500;
+  transition: box-shadow var(--transition-fast);
 }
 
 .linkChip:hover {
-  background: var(--bg-hover);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 45%, transparent);
 }
 
 .discography {
@@ -168,10 +175,10 @@
   display: flex;
   gap: var(--space-md);
   flex-wrap: wrap;
-  padding: var(--space-md);
-  background: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
+  padding: .85rem 1.25rem;
+  background: var(--surface);
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
 }
 
 .legendItem {
@@ -188,9 +195,7 @@
 
 .discographyTitle {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 .albumGrid {
@@ -205,13 +210,14 @@
   gap: var(--space-sm);
   text-decoration: none;
   color: inherit;
-  border-radius: var(--radius-md);
-  padding: var(--space-xs);
+  border-radius: var(--r-card);
+  padding: var(--space-sm);
   transition: background-color var(--transition-fast);
 }
 
 .albumCard:hover {
-  background-color: var(--bg-hover);
+  color: inherit;
+  background-color: var(--mist);
 }
 
 .missingItem {
@@ -236,7 +242,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: var(--radius-md);
+  border-radius: var(--r-cover);
 }
 
 .coverPlaceholder {
@@ -248,10 +254,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
+  border-radius: var(--r-cover);
+  background: radial-gradient(120% 90% at 30% 20%, var(--surface) 0, var(--dew-tint) 55%, var(--mist) 100%);
   font-size: 2rem;
-  color: var(--text-tertiary);
+  color: var(--ink-3);
 }
 
 .ownership {
@@ -259,22 +265,29 @@
   bottom: 0;
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
+  /* glass strip over the cover art */
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(10px) saturate(1.3);
+  backdrop-filter: blur(10px) saturate(1.3);
+  border-top: 1px solid var(--glass-edge);
+  color: var(--ink);
   font-size: var(--font-size-xs);
-  padding: 0.3rem 0.5rem;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-weight: 500;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0 0 var(--r-cover) var(--r-cover);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 
 .ownershipMissing {
-  background: rgba(var(--warning-rgb), 0.85);
+  background: color-mix(in srgb, var(--warn-tint) 88%, transparent);
+  color: var(--warn);
 }
 
 .ownershipIgnored {
-  background: rgba(128, 128, 128, 0.85);
+  background: color-mix(in srgb, var(--mist) 88%, transparent);
+  color: var(--ink-3);
 }
 
 .stateChipContainer {
@@ -338,11 +351,11 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--scrim);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: var(--z-modal);
   animation: slideIn 0.3s ease-out forwards;
 }
 
@@ -351,40 +364,25 @@
   justify-content: space-between;
   align-items: center;
   padding-bottom: var(--space-md);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   margin-bottom: var(--space-lg);
 }
 
 .editorTitle {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.closeButton {
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: var(--font-size-lg);
-  padding: 0;
-  line-height: 1;
-  transition: color var(--transition-fast);
-}
-
-.closeButton:hover {
-  color: var(--text-primary);
+  font: var(--type-title);
+  color: var(--ink);
 }
 
 .editorContent {
-  background: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: 1.5rem;
   max-width: 500px;
   max-height: 80vh;
   overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 1px 0 var(--highlight), 0 32px 72px -24px rgba(var(--shadow-tint), 0.45);
 }
 
 .rulesSection {
@@ -393,11 +391,10 @@
 
 .sectionLabel {
   margin: 0 0 var(--space-md) 0;
-  font-size: var(--font-size-sm);
-  font-weight: 600;
-  color: var(--text-primary);
+  font: var(--type-label);
+  color: var(--ink-3);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.14em;
 }
 
 .typeOptions {
@@ -411,14 +408,14 @@
   align-items: center;
   gap: var(--space-sm);
   cursor: pointer;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--r-pill);
   transition: background-color var(--transition-fast);
   user-select: none;
 }
 
 .checkbox:hover {
-  background: var(--bg-secondary);
+  background: var(--mist);
 }
 
 .checkbox input {
@@ -438,14 +435,13 @@
 
 @media (prefers-reduced-motion: reduce) {
   .bioLink,
-  .linkChip,
-  .albumCard,
-  .closeButton,
-  .checkbox,
-  .enriching,
-  .refreshing,
-  .toast,
-  .followRulesEditor {
+.linkChip,
+.albumCard,
+.checkbox,
+.enriching,
+.refreshing,
+.toast,
+.followRulesEditor {
     transition: none;
     animation: none;
   }

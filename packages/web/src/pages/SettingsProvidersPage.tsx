@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useEnrichSweep } from '../hooks/useLibrary';
 import { useFingerprintStats } from '../hooks/useFingerprint';
+import { Button } from '../components/ui';
 import styles from './SettingsProvidersPage.module.css';
 
 export function SettingsProvidersPage() {
@@ -88,21 +89,23 @@ export function SettingsProvidersPage() {
               <span className={styles.tokenHint}>
                 Token configured ({settings.discogsTokenHint ? `••••${settings.discogsTokenHint}` : 'unknown'})
               </span>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={handleClearToken}
                 disabled={updateSettings.isPending}
-                className={styles.clearButton}
               >
                 {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setShowTokenConfig(!showTokenConfig)}
-              className={styles.configButton}
             >
               {showTokenConfig ? 'Cancel' : 'Configure Token'}
-            </button>
+            </Button>
           )}
           {showTokenConfig && (
             <input
@@ -126,21 +129,23 @@ export function SettingsProvidersPage() {
               <span className={styles.tokenHint}>
                 Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
               </span>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={handleClearAcoustidKey}
                 disabled={updateSettings.isPending}
-                className={styles.clearButton}
               >
                 {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
-              className={styles.configButton}
             >
               {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
-            </button>
+            </Button>
           )}
           {showAcoustidConfig && (
             <input
@@ -190,13 +195,12 @@ export function SettingsProvidersPage() {
         </div>
 
         <div className={styles.actions}>
-          <button
+          <Button
             onClick={handleSave}
             disabled={(!discogsToken && !acoustidKey && contactString === settings?.contactString) || updateSettings.isPending}
-            className={styles.button}
           >
             {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
-          </button>
+          </Button>
           {updateSettings.isSuccess && <span className={styles.success}>Settings saved</span>}
           {updateSettings.isError && (
             <span className={styles.error}>
@@ -213,13 +217,13 @@ export function SettingsProvidersPage() {
           Bridge your MusicBrainz release identifiers to Discogs and vice versa, unlocking additional metadata
           like genres, styles, and images.
         </p>
-        <button
+        <Button
+          variant="secondary"
           onClick={() => enrichSweep.mutate()}
           disabled={enrichSweep.isPending}
-          className={styles.button}
         >
           {enrichSweep.isPending ? 'Queued...' : 'Bridge Discogs identities now'}
-        </button>
+        </Button>
         {enrichSweep.isSuccess && <span className={styles.success}>Enrichment job queued</span>}
         {enrichSweep.isError && (
           <span className={styles.error}>

@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary } from '../hooks';
 import { useFollowRules, usePatchFollowRules, type FollowRules } from '../hooks/useArtists';
+import { Button } from '../components/ui';
 import styles from './SettingsFollowRulesPage.module.css';
 
 const PRIMARY_TYPES = ['Album', 'EP', 'Single'];
@@ -153,20 +154,19 @@ function SettingsFollowRulesContentInner() {
         </div>
 
         <div className={styles.actions}>
-          <button
+          <Button
             onClick={handleSave}
             disabled={!hasChanges || patchFollowRules.isPending}
-            className={styles.button}
           >
             {patchFollowRules.isPending ? 'Saving...' : 'Save'}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="quiet"
             onClick={handleReset}
             disabled={!hasChanges}
-            className={styles.resetButton}
           >
             Reset to defaults
-          </button>
+          </Button>
           {patchFollowRules.isSuccess && <span className={styles.success}>Settings saved</span>}
           {patchFollowRules.isError && (
             <span className={styles.error}>

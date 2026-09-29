@@ -9,6 +9,7 @@ import { Link } from '@tanstack/react-router';
 import type { TagPolicies } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
+import { Button, LinkButton } from '../components/ui';
 import styles from './SettingsTagWritesPage.module.css';
 
 type Preset = TagPolicies['preset'];
@@ -126,14 +127,13 @@ function SettingsTagWritesContentInner() {
               <strong>Library switch</strong>
               <span>{enabled ? 'Tag writes enabled' : 'Tag writes disabled (default)'}</span>
             </div>
-            <button
-              type="button"
-              className={enabled ? styles.resetButton : styles.button}
+            <Button
+              variant={enabled ? 'secondary' : 'primary'}
               onClick={toggleWrites}
               disabled={toggling || update.isPending}
             >
               {toggling ? 'Saving...' : enabled ? 'Disable tag writes' : 'Enable tag writes'}
-            </button>
+            </Button>
           </div>
 
           <div className={styles.statusRow}>
@@ -152,9 +152,9 @@ function SettingsTagWritesContentInner() {
                       : writableRoots.map((r) => r.path).join(', ')}
               </span>
             </div>
-            <Link to="/settings/library" className={styles.linkButton}>
+            <LinkButton variant="secondary" size="sm" to="/settings/library">
               Scan roots
-            </Link>
+            </LinkButton>
           </div>
         </div>
 
@@ -228,12 +228,12 @@ function SettingsTagWritesContentInner() {
         )}
 
         <div className={styles.actions}>
-          <button type="button" onClick={savePolicy} disabled={!policyChanged || update.isPending} className={styles.button}>
+          <Button type="button" onClick={savePolicy} disabled={!policyChanged || update.isPending}>
             {update.isPending && !toggling ? 'Saving...' : 'Save policy'}
-          </button>
-          <button type="button" onClick={() => setPolicy(saved)} disabled={!policyChanged} className={styles.resetButton}>
+          </Button>
+          <Button variant="quiet" type="button" onClick={() => setPolicy(saved)} disabled={!policyChanged}>
             Reset
-          </button>
+          </Button>
           {update.isSuccess && !policyChanged && <span className={styles.success}>Saved</span>}
           {errorText && <span className={styles.error}>{errorText}</span>}
         </div>

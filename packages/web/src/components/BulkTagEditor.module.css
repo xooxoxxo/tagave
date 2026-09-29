@@ -5,26 +5,26 @@
   width: min(40rem, calc(100vw - 2rem));
   max-height: calc(100dvh - 2rem);
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  box-shadow: 0 24px 64px rgba(20, 30, 26, 0.18);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 1px 0 var(--highlight), 0 32px 72px -24px rgba(var(--shadow-tint), 0.45);
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 .dialog:not([open]) { display: none; }
 .dialog::backdrop {
-  background: rgba(20, 30, 26, 0.32);
-  backdrop-filter: blur(2px);
+  background: var(--scrim);
 }
 
 .head { padding: var(--space-lg) var(--space-lg) var(--space-sm); }
 .title {
   margin: 0;
-  font-size: var(--font-size-xl);
-  font-weight: 400;
+  font: var(--type-title);
+  font-weight: 300;
+  font-size: 1.625rem;
   letter-spacing: -0.01em;
 }
 .lede { margin: var(--space-xs) 0 0; color: var(--text-secondary); font-size: var(--font-size-sm); }
@@ -37,7 +37,7 @@
   flex-wrap: wrap;
   gap: var(--space-sm) var(--space-md);
 }
-.legend { font-size: var(--font-size-xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.06em; padding: 0; margin-bottom: var(--space-xs); }
+.legend { font: var(--type-label); color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.14em; padding: 0; margin-bottom: var(--space-xs); }
 .scope { display: inline-flex; align-items: center; gap: var(--space-xs); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 
 .body {
@@ -54,7 +54,7 @@
   padding: var(--space-sm) var(--space-md);
   list-style: none;
   background: var(--surface-info);
-  border-radius: var(--radius-md);
+  border-radius: var(--r-inner);
   color: var(--text-primary);
   font-size: var(--font-size-sm);
   display: grid;
@@ -85,17 +85,21 @@
 .hint { color: var(--text-tertiary); }
 
 .options { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+/* Suggested values are chips: surface to mist,
+inner highlight,
+hairline ring. */
 .option {
-  border: 1px solid var(--border-secondary);
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-radius: var(--radius-full);
-  padding: 0.15rem 0.7rem;
-  font: inherit;
-  font-size: var(--font-size-xs);
+  min-height: var(--h-chip);
+  border: 0;
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  color: var(--ink-2);
+  border-radius: var(--r-pill);
+  padding: 0 0.8rem;
+  font: 500 13px / 1 var(--font-body);
   cursor: pointer;
 }
-.option:hover { background: var(--bg-hover); }
+.option:hover:not(:disabled) { background: var(--dew-tint); color: var(--chip-on-ink); }
 .option:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
 
 .segmented { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
@@ -105,17 +109,20 @@
   align-items: center;
   min-height: var(--control-height-sm);
   padding: 0 0.8rem;
-  border: 1px solid var(--border-secondary);
-  border-radius: var(--radius-full);
+  border: 0;
+  border-radius: var(--r-pill);
   font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--ink-2);
   cursor: pointer;
-  background: var(--bg-secondary);
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
 }
 .segment input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
 .segment:has(input:focus-visible) { outline: var(--focus-ring); outline-offset: 2px; }
-.segmentOn { background: var(--surface-selected); color: var(--text-selected); border-color: var(--accent); }
+.segmentOn { background: var(--dew-tint); color: var(--chip-on-ink); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 40%, transparent); }
 
-.divider { height: 1px; background: var(--border); margin: var(--space-sm) 0; }
+.divider { height: 1px; background: var(--line); margin: var(--space-sm) 0; }
 
 .foot {
   display: flex;
@@ -124,8 +131,8 @@
   justify-content: space-between;
   gap: var(--space-sm) var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  border-top: 1px solid var(--border);
-  background: var(--bg-primary);
+  border-top: 1px solid var(--line);
+  background: var(--canvas);
 }
 .summary { font-size: var(--font-size-sm); color: var(--text-secondary); }
 .actions { display: inline-flex; gap: var(--space-sm); margin-left: auto; }

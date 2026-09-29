@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useStartScan } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
+import { Button } from '../components/ui';
 import styles from './SetupChecklistContent.module.css';
 
 export function SetupChecklistContent() {
@@ -134,17 +135,16 @@ export function SetupChecklistContent() {
             value={contactString}
             onChange={(e) => setContactString(e.target.value)}
           />
-          <button
+          <Button
             onClick={handleSaveContactString}
             disabled={
               contactString === settings?.contactString ||
               !contactString ||
               updateSettings.isPending
             }
-            className={styles.button}
           >
             {updateSettings.isPending ? 'Saving...' : 'Save'}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -186,12 +186,12 @@ export function SetupChecklistContent() {
 
         {/* Add form */}
         {!showAddRoot ? (
-          <button
+          <Button
             onClick={() => setShowAddRoot(true)}
             className={styles.addButton}
           >
             + Add Scan Root
-          </button>
+          </Button>
         ) : (
           <form onSubmit={handleAddRoot} className={styles.form}>
             <div className={styles.field}>
@@ -227,20 +227,19 @@ export function SetupChecklistContent() {
               </label>
             </div>
             <div className={styles.formActions}>
-              <button
+              <Button
                 type="submit"
                 disabled={!rootPath.trim() || !rootDisplayName.trim() || createScanRoot.isPending}
-                className={styles.button}
               >
                 {createScanRoot.isPending ? 'Creating...' : 'Add'}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="quiet"
                 type="button"
                 onClick={() => setShowAddRoot(false)}
-                className={styles.cancelButton}
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </form>
         )}
@@ -272,22 +271,24 @@ export function SetupChecklistContent() {
               <span className={styles.configured}>
                 Token configured ({settings.discogsTokenHint ? `••••${settings.discogsTokenHint}` : 'unknown'})
               </span>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={handleClearDiscogsToken}
                 disabled={updateSettings.isPending}
-                className={styles.clearButton}
               >
                 {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowDiscogsConfig(!showDiscogsConfig)}
-                className={styles.configButton}
               >
                 {showDiscogsConfig ? 'Cancel' : 'Configure Token'}
-              </button>
+              </Button>
               {showDiscogsConfig && (
                 <>
                   <input
@@ -297,13 +298,12 @@ export function SetupChecklistContent() {
                     onChange={(e) => setDiscogsToken(e.target.value)}
                     className={styles.input}
                   />
-                  <button
+                  <Button
                     onClick={handleSaveDiscogsToken}
                     disabled={!discogsToken || updateSettings.isPending}
-                    className={styles.button}
                   >
                     {updateSettings.isPending ? 'Saving...' : 'Save'}
-                  </button>
+                  </Button>
                 </>
               )}
             </>
@@ -330,22 +330,24 @@ export function SetupChecklistContent() {
               <span className={styles.configured}>
                 Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
               </span>
-              <button
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={handleClearAcoustidKey}
                 disabled={updateSettings.isPending}
-                className={styles.clearButton}
               >
                 {updateSettings.isPending ? 'Clearing...' : 'Clear'}
-              </button>
+              </Button>
             </>
           ) : (
             <>
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
-                className={styles.configButton}
               >
                 {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
-              </button>
+              </Button>
               {showAcoustidConfig && (
                 <>
                   <input
@@ -355,13 +357,12 @@ export function SetupChecklistContent() {
                     onChange={(e) => setAcoustidKey(e.target.value)}
                     className={styles.input}
                   />
-                  <button
+                  <Button
                     onClick={handleSaveAcoustidKey}
                     disabled={!acoustidKey || updateSettings.isPending}
-                    className={styles.button}
                   >
                     {updateSettings.isPending ? 'Saving...' : 'Save'}
-                  </button>
+                  </Button>
                 </>
               )}
             </>
@@ -387,13 +388,12 @@ export function SetupChecklistContent() {
             <span className={styles.configured}>Scanning in progress...</span>
           </div>
         ) : (
-          <button
+          <Button
             onClick={handleStartFirstScan}
             disabled={!step5Enabled || startScan.isPending}
-            className={`${styles.button} ${!step5Enabled ? styles.disabled : ''}`}
           >
             {startScan.isPending ? 'Starting scan...' : 'Start First Scan'}
-          </button>
+          </Button>
         )}
       </div>
     </div>

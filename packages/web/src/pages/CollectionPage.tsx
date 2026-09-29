@@ -17,6 +17,7 @@ import {
   useRetryPush,
   useCurrentLibrary,
 } from '../hooks';
+import { Button } from '../components/ui';
 import styles from './CollectionPage.module.css';
 
 const VIEW_LABELS: Record<string, string> = {
@@ -198,9 +199,9 @@ export function CollectionPage() {
         <div className={styles.empty}>
           <p>No Discogs collection source configured.</p>
           <p>Go to <a href="/settings/providers">Settings › Providers</a> to set up a Discogs token.</p>
-          <button onClick={() => navigate({ to: '/settings/providers' })}>
+          <Button onClick={() => navigate({ to: '/settings/providers' })}>
             Set up Discogs
-          </button>
+          </Button>
         </div>
       ) : (
         <>
@@ -218,26 +219,26 @@ export function CollectionPage() {
               {source.status === 'syncing' && (
                 <div className={styles.statusChip}>Syncing...</div>
               )}
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowAddForm(!showAddForm)}
-                className={styles.primaryBtn}
               >
                 Add physical item
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => sync.mutate()}
                 disabled={sync.isPending || source.status === 'syncing'}
-                className={styles.primaryBtn}
               >
                 Sync now
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
                 onClick={() => remap.mutate()}
                 disabled={remap.isPending || source.status === 'syncing'}
-                className={styles.secondaryBtn}
               >
                 Re-run mapping
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -322,7 +323,7 @@ export function CollectionPage() {
               </div>
 
               <div className={styles.formActions}>
-                <button
+                <Button
                   onClick={async () => {
                     try {
                       const payload: AddCollectionItemInput = {
@@ -348,16 +349,15 @@ export function CollectionPage() {
                     }
                   }}
                   disabled={!addFormData.input.trim() || addItem.isPending}
-                  className={styles.primaryBtn}
                 >
                   {addItem.isPending ? 'Adding...' : 'Add Item'}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="secondary"
                   onClick={() => setShowAddForm(false)}
-                  className={styles.secondaryBtn}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -402,7 +402,7 @@ export function CollectionPage() {
                   )}
 
                   <div className={styles.itemInfo}>
-                    <div className={styles.title}>
+                    <div className={styles.itemTitle}>
                       {item.basicInfo.artists?.join(', ')} – {item.basicInfo.title}
                       {item.basicInfo.year && ` (${item.basicInfo.year})`}
                     </div>
@@ -453,28 +453,32 @@ export function CollectionPage() {
                               }}
                               autoFocus
                             />
-                            <button
+                            <Button
+                              size="sm"
                               onClick={() => handleMap(item.id)}
                               disabled={!mapInputValue.trim() || mapItem.isPending}
                             >
                               Map
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
                               onClick={() => {
                                 setMapInputId(null);
                                 setMapInputValue('');
                               }}
                             >
                               Cancel
-                            </button>
+                            </Button>
                           </div>
                         ) : (
-                          <button
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => setMapInputId(item.id)}
-                            className={styles.mapBtn}
                           >
                             Map
-                          </button>
+                          </Button>
                         )}
                       </div>
                     )}
@@ -504,31 +508,35 @@ export function CollectionPage() {
                   )}
 
                   {item.releaseGroupId && (
-                    <button
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       onClick={() => handleUnmap(item.id)}
                       disabled={unmapItem.isPending}
-                      className={styles.smallBtn}
                       title="Clear mapping and return to unmapped"
                     >
                       Unmap
-                    </button>
+                    </Button>
                   )}
 
                   {item.pushState === 'failed' && (
-                    <button
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       onClick={() => retryPush.mutate(item.id)}
                       disabled={retryPush.isPending}
-                      className={styles.smallBtn}
                       title="Retry failed push"
                     >
                       Retry
-                    </button>
+                    </Button>
                   )}
 
                   {removeConfirmId === item.id ? (
                     <div className={styles.removeConfirm}>
                       <span>Remove from Discogs?</span>
-                      <button
+                      <Button
+                        variant="quiet"
+                        size="sm"
                         onClick={async () => {
                           try {
                             await removeItem.mutateAsync(item.id);
@@ -538,25 +546,26 @@ export function CollectionPage() {
                           }
                         }}
                         disabled={removeItem.isPending}
-                        className={styles.smallBtn}
                       >
                         {removeItem.isPending ? 'Removing…' : 'Yes'}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="quiet"
+                        size="sm"
                         onClick={() => setRemoveConfirmId(null)}
-                        className={styles.smallBtn}
                       >
                         No
-                      </button>
+                      </Button>
                     </div>
                   ) : (
-                    <button
+                    <Button
+                      variant="quiet"
+                      size="sm"
                       onClick={() => setRemoveConfirmId(item.id)}
-                      className={styles.smallBtn}
                       title="Remove from collection"
                     >
                       Remove
-                    </button>
+                    </Button>
                   )}
                 </div>
               </div>
