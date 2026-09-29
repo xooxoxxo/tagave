@@ -13,7 +13,9 @@ export const SIDECAR_SUFFIX = '.json';
 /**
  * Why a dump exists. nightly: the scheduled job (the only kind retention
  * deletes). manual: "Back up now" or `liner-doctor backup`. pre-migration:
- * taken by the app before it changes the database for a new version.
+ * for a step that backs up before an update changes the database; it should
+ * write backupFileName(now, 'pre-migration') into defaultBackupDir(env) so the
+ * dump lands in this folder (nothing takes one automatically yet).
  * pre-restore: taken by `liner-doctor restore --in-place` before it replaces
  * the data.
  */
@@ -67,16 +69,32 @@ export function isSafeBackupName(name: string): boolean {
   );
 }
 
-/** Our dump files among `files`, oldest first. Foreign files in the directory are never touched. */
-export function ownBackups(files: string[]): string[] {
-  return files.filter((f) => f.startsWith(BACKUP_PREFIX) && f.endsWith(BACKUP_SUFFIX)).sort();
+/**
+ * Kind the file name itself declares, for files this app wrote (liner-<time>
+ * with an optional known kind suffix), or null for anything else. Unlike
+ * parseBackupName this never guesses: it decides what may be deleted.
+ */
+export function ownKind(name: string): BackupKind | null {
+  const m = NAME_RE.exec(name);
+  if (!m) return null;
+  if (m[5] === undefined) return 'manual';
+  return (BACKUP_KINDS as readonly string[]).includes(m[5]) ? (m[5] as BackupKind) : null;
 }
 
-/** Files to delete so that only the newest `keep` of our dumps remain. */
+/** Dump files this app wrote among `files`, oldest first. Foreign files in the directory are never touched. */
+export function ownBackups(files: string[]): string[] {
+  return files.filter((f) => ownKind(f) !== null).sort();
+}
+
+/**
+ * Files to delete so that only the newest `keep` manual dumps remain
+ * (`liner-doctor backup --keep N`). Nightly dumps have their own retention;
+ * pre-migration and pre-restore dumps are kept until the user deletes them.
+ */
 export function pruneList(files: string[], keep: number): string[] {
-  const ours = ownBackups(files);
+  const manual = files.filter((f) => ownKind(f) === 'manual').sort();
   if (keep < 0) return [];
-  return ours.slice(0, Math.max(0, ours.length - keep));
+  return manual.slice(0, Math.max(0, manual.length - keep));
 }
 
 /** `pg_restore --list` prints one line per archive entry ("123; 1259 16384 TABLE public albums liner"); comment lines start with ';'. */
@@ -101,7 +119,7 @@ export interface BackupOptions {
   databaseUrl: string;
   outDir: string;
   kind?: BackupKind;
-  /** Total dumps to keep in outDir including the new one; undefined keeps everything. */
+  /** Manual dumps to keep in outDir including the new one; undefined keeps everything. Other kinds are never pruned here. */
   keep?: number;
   now?: Date;
   pgDump?: string;
@@ -125,13 +143,49 @@ export interface BackupSidecar {
   bytes: number;
 }
 
+/** Replace the password in any postgres:// URL (and password=… parameters) in `text`. */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(postgres(?:ql)?:\/\/[^:/?#@\s]*):[^@\s]*@/gi, '$1:***@')
+    .replace(/(password=)[^&\s]+/gi, '$1***');
+}
+
 export function describeExecError(err: unknown, binary: string): string {
-  const e = err as NodeJS.ErrnoException & { stderr?: string };
+  const e = err as NodeJS.ErrnoException & { stderr?: string; signal?: string | null };
   if (e.code === 'ENOENT') {
     return `${binary} not found on PATH — install postgresql-client-16 (the app image ships it) or point PG_DUMP/PG_RESTORE at the binaries`;
   }
-  const stderr = (e.stderr ?? '').trim();
-  return stderr ? `${binary}: ${stderr.split('\n').slice(-3).join(' | ')}` : `${binary}: ${e.message}`;
+  const stderr = redactSecrets((e.stderr ?? '').trim());
+  if (stderr) return `${binary}: ${stderr.split('\n').slice(-3).join(' | ')}`;
+  // execFile's own message repeats the whole command line; never pass it on.
+  if (e.signal) return `${binary} was stopped by ${e.signal} (out of memory, or killed)`;
+  if (typeof e.code === 'number') return `${binary} exited with code ${e.code}`;
+  return `${binary}: ${redactSecrets(e.message ?? String(err))}`;
+}
+
+/**
+ * Connection for pg_dump / pg_restore without the password on the command
+ * line: the URL loses its password, which goes to the child through
+ * PGPASSWORD instead (argv shows up in ps and in execFile's error message).
+ */
+export function pgConnection(databaseUrl: string): { dbname: string; env: NodeJS.ProcessEnv } {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  let u: URL;
+  try {
+    u = new URL(databaseUrl);
+  } catch {
+    return { dbname: databaseUrl, env };
+  }
+  if (u.password) {
+    env['PGPASSWORD'] = decodeURIComponent(u.password);
+    u.password = '';
+  }
+  const qp = u.searchParams.get('password');
+  if (qp !== null) {
+    env['PGPASSWORD'] = qp;
+    u.searchParams.delete('password');
+  }
+  return { dbname: u.toString(), env };
 }
 
 export function pgDumpBin(explicit?: string): string {
@@ -179,8 +233,10 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
   const partial = join(opts.outDir, `.${fileName}.partial`);
 
   try {
-    await run(pgDumpBin(opts.pgDump), ['--format=custom', '--no-password', `--file=${partial}`, `--dbname=${opts.databaseUrl}`], {
+    const conn = pgConnection(opts.databaseUrl);
+    await run(pgDumpBin(opts.pgDump), ['--format=custom', '--no-password', `--file=${partial}`, `--dbname=${conn.dbname}`], {
       maxBuffer: 16 * 1024 * 1024,
+      env: conn.env,
     });
   } catch (err) {
     await unlink(partial).catch(() => undefined);
@@ -297,8 +353,10 @@ export function retentionDeletes(
   policy: RetentionPolicy,
   timeZone = process.env['TZ'] || 'UTC',
 ): string[] {
+  // Only dumps this app named as nightly: a foreign "*nightly*.pgdump" in a
+  // shared folder is listed (kind guessed from its name) but never deleted.
   const nightly = entries
-    .filter((e) => e.kind === 'nightly')
+    .filter((e) => e.kind === 'nightly' && ownKind(e.name) === 'nightly')
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.name.localeCompare(a.name));
   const keep = new Set<string>();
   const days = new Set<string>();
@@ -455,7 +513,7 @@ export async function runRecordedBackup(opts: {
     const pruned = opts.policy ? await applyRetention(opts.dir, opts.policy, opts.timeZone) : [];
     record = { kind: opts.kind, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(), ok: true, file: basename(result.path), error: null, pruned };
   } catch (err) {
-    record = { kind: opts.kind, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(), ok: false, file: null, error: (err as Error).message || String(err), pruned: [] };
+    record = { kind: opts.kind, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(), ok: false, file: null, error: redactSecrets((err as Error).message || String(err)), pruned: [] };
   }
   await recordBackupRun(opts.dir, record).catch(() => undefined);
   return record;

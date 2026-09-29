@@ -22,7 +22,7 @@ The commands below are for an install made with the installer: run them in its f
 
 ## Backups
 
-The app backs the database up every night and keeps a set of recent dumps. Settings › Backups lists them, takes one on demand, downloads or deletes one, and changes the schedule and how many are kept.
+The app backs the database up every night and keeps a set of recent dumps. It does not yet take one on its own before an update, so take one by hand ("Back up now") before you update. Settings › Backups lists them, takes one on demand, downloads or deletes one, and changes the schedule and how many are kept.
 
 Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --list` before it counts as written. A dump that fails that check is removed, and the failure is shown on the Backups page.
 
@@ -30,7 +30,7 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 |---|---|---|
 | Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
 | Manual | "Back up now", or `liner-doctor backup` | only when you delete it |
-| Before update | by the app, before it changes the database for a new version | only when you delete it |
+| Before update | not taken automatically yet: files named `liner-<time>-pre-migration.pgdump` show up under this kind | only when you delete it |
 | Before restore | by `liner-doctor restore --in-place` | only when you delete it |
 
 Files are named `liner-<UTC time>[-<kind>].pgdump`. The `liner-` prefix is the project's old name, kept so older dumps sort with new ones. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
@@ -43,7 +43,7 @@ Defaults for a fresh install can be set with environment variables on the app: `
 docker compose exec app node packages/doctor/dist/cli.js backup
 ```
 
-`--keep N` prunes to the newest N dumps of any kind, `--out DIR` writes somewhere else, `--json` prints the result as JSON.
+`--keep N` keeps only the newest N manual dumps (nightly, before-update and before-restore dumps are never touched), `--out DIR` writes somewhere else, `--json` prints the result as JSON.
 
 ### Copy backups somewhere else
 
@@ -87,7 +87,7 @@ The restore does not run migrations. The app applies any the dump is missing whe
 
 Database changes only go forward, so an older version cannot run on a database a newer one has changed. To go back:
 
-1. Find the backup taken before the update on the Backups page (kind "Before update"), or one of your own.
+1. On the Backups page, find the backup you took before the update, or the newest nightly one from before it.
 2. Set the previous version in `.env` (`TAGAVE_VERSION=<old version>`) and run `docker compose pull`.
 3. Restore that backup as above, then run `docker compose up -d`.
 

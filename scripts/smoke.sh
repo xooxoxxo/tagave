@@ -285,7 +285,8 @@ if ! echo "$BACKUP_OUT" | grep -q "backup written /backups/liner-"; then
   echo "✗ FAIL: unexpected backup output"
   exit 1
 fi
-DUMP_COUNT=$(compose exec -T app sh -c 'ls /backups/*.pgdump | wc -l' | tr -d ' \r')
+# manual dumps only (liner-<time>Z.pgdump): --keep never prunes other kinds
+DUMP_COUNT=$(compose exec -T app sh -c 'ls /backups/liner-*Z.pgdump | wc -l' | tr -d ' \r')
 if [ "$DUMP_COUNT" != "3" ]; then
   echo "✗ FAIL: expected 3 dumps after --keep 3, found $DUMP_COUNT"
   exit 1

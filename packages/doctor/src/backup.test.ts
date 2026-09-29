@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  backupFileName, countTocEntries, defaultBackupDir, defaultBackupSettings, deleteBackup, isSafeBackupName,
-  isoWeekKey, listBackups, ownBackups, parseBackupName, pruneList, readBackupSettings, readBackupStatus,
-  recordBackupRun, retentionDeletes, writeBackupSettings, type BackupKind,
+  applyRetention, backupFileName, countTocEntries, defaultBackupDir, defaultBackupSettings, deleteBackup, describeExecError,
+  isSafeBackupName, isoWeekKey, listBackups, ownBackups, ownKind, parseBackupName, pgConnection, pruneList, readBackupSettings,
+  readBackupStatus, recordBackupRun, redactSecrets, retentionDeletes, writeBackupSettings, type BackupKind,
 } from './backup.js';
 
 describe('backupFileName', () => {
@@ -46,6 +46,54 @@ describe('pruneList', () => {
     expect(pruneList(files, 3)).toEqual([]);
     expect(pruneList(files, 10)).toEqual([]);
     expect(pruneList(files, -1)).toEqual([]);
+  });
+
+  it('only prunes manual dumps: nightly, pre-migration and pre-restore dumps are left alone', () => {
+    const mixed = [
+      'liner-2026-09-01T03-00-00Z-nightly.pgdump',
+      'liner-2026-09-01T04-00-00Z-pre-restore.pgdump',
+      'liner-2026-09-01T05-00-00Z-pre-migration.pgdump',
+      'liner-2026-09-02T02-00-00Z.pgdump',
+      'liner-2026-09-03T02-00-00Z.pgdump',
+      'liner-2026-09-04T03-00-00Z-nightly.pgdump',
+    ];
+    expect(pruneList(mixed, 1)).toEqual(['liner-2026-09-02T02-00-00Z.pgdump']);
+    expect(pruneList(mixed, 0)).toEqual(['liner-2026-09-02T02-00-00Z.pgdump', 'liner-2026-09-03T02-00-00Z.pgdump']);
+  });
+});
+
+describe('ownKind', () => {
+  it('reads only names this app writes, without guessing', () => {
+    expect(ownKind('liner-2026-09-29T03-00-00Z.pgdump')).toBe('manual');
+    expect(ownKind('liner-2026-09-29T03-00-00Z-nightly.pgdump')).toBe('nightly');
+    expect(ownKind('liner-2026-09-29T03-00-00Z-weekly.pgdump')).toBeNull();
+    expect(ownKind('otherapp-nightly.pgdump')).toBeNull();
+    expect(ownKind('liner-nightly.pgdump')).toBeNull();
+  });
+});
+
+describe('secrets in pg_dump / pg_restore errors', () => {
+  it('moves the password out of the URL into PGPASSWORD', () => {
+    const c = pgConnection('postgres://liner:s%40cret@db:5432/liner');
+    expect(c.dbname).toBe('postgres://liner@db:5432/liner');
+    expect(c.env['PGPASSWORD']).toBe('s@cret');
+    const q = pgConnection('postgres://liner@db/liner?password=hunter2&sslmode=disable');
+    expect(q.dbname).not.toContain('hunter2');
+    expect(q.env['PGPASSWORD']).toBe('hunter2');
+  });
+
+  it('never repeats the command line when the tool gives no stderr', () => {
+    const cmd = 'Command failed: pg_dump --dbname=postgres://liner:hunter2@db/liner';
+    expect(describeExecError(Object.assign(new Error(cmd), { signal: 'SIGKILL', stderr: '' }), 'pg_dump')).not.toContain('hunter2');
+    expect(describeExecError(Object.assign(new Error(cmd), { code: 1, stderr: '' }), 'pg_dump')).toBe('pg_dump exited with code 1');
+    expect(describeExecError(new Error(cmd), 'pg_dump')).not.toContain('hunter2');
+    expect(describeExecError(Object.assign(new Error(cmd), { stderr: 'could not connect to postgres://liner:hunter2@db/liner' }), 'pg_dump'))
+      .not.toContain('hunter2');
+  });
+
+  it('redacts URL passwords and password parameters', () => {
+    expect(redactSecrets('x postgresql://u:p@h/d y')).toBe('x postgresql://u:***@h/d y');
+    expect(redactSecrets('host=h password=p dbname=d')).toBe('host=h password=*** dbname=d');
   });
 });
 
@@ -143,6 +191,15 @@ describe('retentionDeletes', () => {
     expect(retentionDeletes(entries, { keepDaily: 1, keepWeekly: 0 }, 'UTC')).toEqual([]);
   });
 
+  it('never deletes a foreign dump whose name only looks nightly', () => {
+    const entries = [
+      nightly('2026-09-29T03:00:00Z'),
+      { name: 'otherapp-nightly.pgdump', kind: 'nightly' as BackupKind, createdAt: '2026-01-01T00:00:00.000Z' },
+      { name: 'liner-nightly-copy.pgdump', kind: 'nightly' as BackupKind, createdAt: '2026-01-02T00:00:00.000Z' },
+    ];
+    expect(retentionDeletes(entries, { keepDaily: 1, keepWeekly: 0 }, 'UTC')).toEqual([]);
+  });
+
   it('counts days in the given time zone', () => {
     // 23:30 and 00:30 UTC are the same day in New York
     const a = nightly('2026-09-29T00:30:00Z');
@@ -171,6 +228,16 @@ describe('backups folder', () => {
       [fresh, 'manual', 6, false],
       [old, 'nightly', 3, true],
     ]);
+  });
+
+  it('applies retention without touching foreign files in a shared folder', async () => {
+    const keep = backupFileName(new Date('2026-09-29T03:00:00Z'), 'nightly');
+    const old = backupFileName(new Date('2026-09-20T03:00:00Z'), 'nightly');
+    for (const name of [keep, old, 'otherapp-nightly.pgdump', 'liner-2026-01-01T00-00-00Z-pre-restore.pgdump']) {
+      await writeFile(join(dir, name), 'x');
+    }
+    expect(await applyRetention(dir, { keepDaily: 1, keepWeekly: 0 }, 'UTC')).toEqual([old]);
+    expect((await readdir(dir)).sort()).toEqual(['liner-2026-01-01T00-00-00Z-pre-restore.pgdump', keep, 'otherapp-nightly.pgdump'].sort());
   });
 
   it('is empty when the folder does not exist yet', async () => {

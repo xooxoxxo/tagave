@@ -21,7 +21,7 @@ import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import postgres from 'postgres';
-import { describeExecError, pgRestoreBin, runBackup, verifyDump } from './backup.js';
+import { describeExecError, pgConnection, pgRestoreBin, runBackup, verifyDump } from './backup.js';
 
 const run = promisify(execFile);
 
@@ -148,11 +148,12 @@ async function terminateOthers(sql: postgres.Sql, database: string): Promise<voi
 }
 
 async function restoreInto(url: string, file: string, pgRestore: string | undefined, singleTransaction: boolean): Promise<void> {
-  const args = ['--no-owner', '--no-privileges', '--exit-on-error', '--no-password', `--dbname=${url}`];
+  const conn = pgConnection(url);
+  const args = ['--no-owner', '--no-privileges', '--exit-on-error', '--no-password', `--dbname=${conn.dbname}`];
   if (singleTransaction) args.push('--single-transaction');
   args.push(file);
   try {
-    await run(pgRestoreBin(pgRestore), args, { maxBuffer: 64 * 1024 * 1024 });
+    await run(pgRestoreBin(pgRestore), args, { maxBuffer: 64 * 1024 * 1024, env: conn.env });
   } catch (err) {
     throw new Error(describeExecError(err, 'pg_restore'));
   }
@@ -232,14 +233,30 @@ export async function runRestore(opts: RestoreOptions): Promise<RestoreResult> {
       const ledger = await ledgerOf(freshUrl);
 
       log(`swapping: ${target} → ${previous}, ${fresh} → ${target}`);
-      await terminateOthers(admin, target);
-      await admin.unsafe(`alter database ${ident(target)} rename to ${ident(previous)}`);
+      // Stop new sessions before closing the open ones, so an app or worker
+      // that reconnects cannot slip in between and make the rename fail.
+      // Best effort: only the owner or a superuser may change it.
+      await admin.unsafe(`alter database ${ident(target)} allow_connections false`).catch(() => undefined);
+      try {
+        await terminateOthers(admin, target);
+        await admin.unsafe(`alter database ${ident(target)} rename to ${ident(previous)}`);
+      } catch (err) {
+        await admin.unsafe(`alter database ${ident(target)} allow_connections true`).catch(() => undefined);
+        const dropped = await admin.unsafe(`drop database if exists ${ident(fresh)}`).then(() => true, () => false);
+        const left = dropped ? '' : `; the restored copy is still there as database ${fresh}, drop it by hand`;
+        throw new Error(`could not rename ${target} out of the way (${(err as Error).message}); nothing was changed${left}`);
+      }
+      await admin.unsafe(`alter database ${ident(previous)} allow_connections true`).catch(() => undefined);
       try {
         await terminateOthers(admin, fresh);
         await admin.unsafe(`alter database ${ident(fresh)} rename to ${ident(target)}`);
       } catch (err) {
-        await admin.unsafe(`alter database ${ident(previous)} rename to ${ident(target)}`).catch(() => undefined);
-        throw err;
+        const back = await admin.unsafe(`alter database ${ident(previous)} rename to ${ident(target)}`).then(() => true, () => false);
+        const dropped = back && (await admin.unsafe(`drop database if exists ${ident(fresh)}`).then(() => true, () => false));
+        const state = back
+          ? `${target} is back as it was${dropped ? '' : `; the restored copy is still there as database ${fresh}, drop it by hand`}`
+          : `the current data is in database ${previous} and the restored copy in ${fresh}; rename one of them to ${target} by hand`;
+        throw new Error(`could not rename ${fresh} to ${target} (${(err as Error).message}); ${state}`);
       }
       return {
         mode: 'swap',

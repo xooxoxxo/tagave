@@ -154,7 +154,7 @@ export function SettingsBackupsPage() {
         <p className={styles.hint}>
           Keeps the newest nightly backup of each of the last {draft.keepDaily} day{draft.keepDaily === 1 ? '' : 's'}
           {draft.keepWeekly > 0 ? `, and the newest of each of the last ${draft.keepWeekly} week${draft.keepWeekly === 1 ? '' : 's'}` : ''}. Older nightly backups are deleted after each night's run.
-          Manual backups and the ones taken before an update or a restore are kept until you delete them.
+          Manual backups and the ones taken before a restore are kept until you delete them. Take one with Back up now before you update, so you can go back.
         </p>
         <div className={styles.row}>
           <Button onClick={() => save.mutate(draft, { onSuccess: () => setEdits(null) })} disabled={!dirty} loading={save.isPending}>Save</Button>

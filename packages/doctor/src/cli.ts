@@ -90,7 +90,7 @@ async function main() {
       } else if (arg === '--keep' && next !== undefined) {
         const parsed = parseInt(next, 10);
         if (!Number.isInteger(parsed) || parsed < 1) {
-          console.error(colorize('ERROR: --keep expects a positive integer (dumps to keep, including this one)', 'red'));
+          console.error(colorize('ERROR: --keep expects a positive integer (manual dumps to keep, including this one)', 'red'));
           process.exit(2);
         }
         keep = parsed;

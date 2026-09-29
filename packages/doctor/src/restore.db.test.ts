@@ -15,7 +15,7 @@ import { basename, join } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { listBackups, pgDumpBin, pgRestoreBin, readBackupStatus, runBackup, runRecordedBackup } from './backup.js';
-import { RestoreRefused, checkActivity, runRestore, withDatabase } from './restore.js';
+import { RestoreRefused, checkActivity, runRestore, sideName, stamp, withDatabase } from './restore.js';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -135,6 +135,21 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     expect(await rows(withDatabase(url!, result.previousDatabase!))).toEqual({ values: ['one', 'two'], extraTable: true });
   }, 60_000);
 
+  it('swap: when the current database cannot be renamed, drops the restored copy and changes nothing', async () => {
+    const now = new Date('2026-09-29T03:30:00Z');
+    const blocker = sideName(name, `pre_restore_${stamp(now)}`);
+    extraDbs.push(blocker);
+    await admin.unsafe(`create database ${blocker}`);
+    await expect(runRestore({ databaseUrl: scratchUrl, file: dump, mode: 'swap', backupDir: dir, force: true, now }))
+      .rejects.toThrow(/could not rename .*nothing was changed/);
+    const fresh = sideName(name, `restore_${stamp(now)}`);
+    const left = await admin`select 1 from pg_database where datname = ${fresh}`;
+    expect(left).toHaveLength(0);
+    const conn = await admin`select datallowconn from pg_database where datname = ${name}`;
+    expect(conn[0]?.['datallowconn']).toBe(true);
+    expect(await rows()).toEqual({ values: ['one'], extraTable: false });
+  }, 60_000);
+
   it('in-place: takes a pre-restore backup, then restores over the data', async () => {
     await change();
     const result = await runRestore({ databaseUrl: scratchUrl, file: dump, mode: 'in-place', backupDir: dir, now: new Date('2026-09-29T04:00:00Z') });
@@ -146,6 +161,16 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     await runRestore({ databaseUrl: scratchUrl, file: result.preRestoreBackup!, mode: 'in-place', backupDir: dir, now: new Date('2026-09-29T05:00:00Z') });
     expect(await rows()).toEqual({ values: ['one', 'two'], extraTable: true });
   }, 90_000);
+
+  it('backup --keep prunes manual dumps only', async () => {
+    await import('node:fs/promises').then((fs) => fs.writeFile(join(dir, 'otherapp-2026.pgdump'), 'x'));
+    await runBackup({ databaseUrl: scratchUrl, outDir: dir, kind: 'manual', keep: 1, now: new Date('2026-09-30T00:00:00Z') });
+    const list = await listBackups(dir);
+    expect(list.filter((e) => e.kind === 'manual' && e.name.startsWith('liner-'))).toHaveLength(1);
+    expect(list.some((e) => e.name === 'otherapp-2026.pgdump')).toBe(true); // not ours: never pruned
+    expect(list.filter((e) => e.kind === 'pre-restore').length).toBeGreaterThanOrEqual(2);
+    expect(list.filter((e) => e.kind === 'nightly')).toHaveLength(1);
+  }, 60_000);
 
   it('rejects a file that is not a dump before touching anything', async () => {
     const bogus = join(dir, 'bogus.pgdump');
