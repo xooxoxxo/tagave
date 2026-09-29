@@ -239,3 +239,22 @@ export {
   leadingNumberOf,
   displayArtistName,
 } from './artistNames.js';
+
+// Artist names in the artists list: safe display, grouping and A–Z order
+export {
+  UNKNOWN_ARTIST,
+  ARTIST_GROUP_ORDER,
+  type ArtistGroupKey,
+  type ArtistSortable,
+  type ArtistNameKey,
+  cleanArtistName,
+  artistLabel,
+  isSymbolOnlyName,
+  artistGroup,
+  artistGroupLabel,
+  artistSortText,
+  artistNameKey,
+  compareArtistNameKeys,
+  compareArtistNames,
+  artistInitials,
+} from './artistLabels.js';

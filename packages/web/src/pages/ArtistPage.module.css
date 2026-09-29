@@ -171,22 +171,6 @@
   gap: var(--space-xl);
 }
 
-.ownershipLegend {
-  display: flex;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  padding: .85rem 1.25rem;
-  background: var(--surface);
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line);
-}
-
-.legendItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
 .discographySection {
   display: flex;
   flex-direction: column;
@@ -255,9 +239,13 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--r-cover);
-  background: radial-gradient(120% 90% at 30% 20%, var(--surface) 0, var(--dew-tint) 55%, var(--mist) 100%);
+  background: var(--mist);
+  border: 1px solid var(--line);
+  box-sizing: border-box;
+  font-family: var(--font-display);
+  font-weight: 300;
   font-size: 2rem;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .ownership {

@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules } from '../hooks';
 import { PageShell, Button, IconButton, Badge, Card } from '../components/ui';
+import { artistInitials, artistLabel } from '@liner/shared';
 import styles from './ArtistPage.module.css';
 
 export function ArtistPage() {
@@ -121,7 +122,7 @@ export function ArtistPage() {
 
   return (
     <PageShell
-      title={artist.name}
+      title={artistLabel(artist.name)}
       subtitle={subtitle}
       actions={actions}
     >
@@ -275,30 +276,6 @@ export function ArtistPage() {
           <p className={styles.emptyDiscography}>No albums in library</p>
         ) : (
           <div className={styles.discography}>
-            <div className={styles.ownershipLegend}>
-              {(['digital', 'physical', 'both', 'missing', 'ignored'] as const).map((ownership) => {
-                const labels = {
-                  digital: 'Digital',
-                  physical: 'Physical',
-                  both: 'Digital & Physical',
-                  missing: 'Missing',
-                  ignored: 'Ignored',
-                };
-                const tones: Record<string, any> = {
-                  digital: 'info',
-                  physical: 'info',
-                  both: 'accent',
-                  missing: 'warning',
-                  ignored: 'neutral',
-                };
-                return (
-                  <div key={ownership} className={styles.legendItem}>
-                    <Badge tone={tones[ownership]}>{labels[ownership]}</Badge>
-                  </div>
-                );
-              })}
-            </div>
-
             {artist.discography.map((section) => (
               <div key={section.type} className={styles.discographySection}>
                 <h2 className={styles.discographyTitle}>{section.type}s</h2>
@@ -324,13 +301,14 @@ export function ArtistPage() {
                         {item.coverUrl ? (
                           <img src={item.coverUrl} alt={item.title} className={styles.cover} />
                         ) : (
-                          <div className={styles.coverPlaceholder}>🎵</div>
+                          <div className={styles.coverPlaceholder} aria-hidden="true">{artistInitials(item.title)}</div>
                         )}
+                        {item.ownership !== 'digital' && (
                         <div className={`${styles.ownership} ${item.ownership === 'missing' ? styles.ownershipMissing : ''} ${item.ownership === 'ignored' ? styles.ownershipIgnored : ''}`}>
                           <div className={styles.stateChipContainer}>
                             <Badge
                               tone={
-                                item.ownership === 'digital' || item.ownership === 'physical'
+                                item.ownership === 'physical'
                                   ? 'info'
                                   : item.ownership === 'both'
                                     ? 'accent'
@@ -340,7 +318,6 @@ export function ArtistPage() {
                               }
                             >
                               {item.ownership === 'both' && 'Digital & Physical'}
-                              {item.ownership === 'digital' && 'Digital'}
                               {item.ownership === 'physical' && 'Physical'}
                               {item.ownership === 'missing' && 'Missing'}
                               {item.ownership === 'ignored' && 'Ignored'}
@@ -362,6 +339,7 @@ export function ArtistPage() {
                             )}
                           </div>
                         </div>
+                        )}
                       </div>
                       <div className={styles.cardInfo}>
                         <h3 className={styles.cardTitle}>{item.title}</h3>
