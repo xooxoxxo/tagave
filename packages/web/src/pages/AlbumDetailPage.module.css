@@ -148,7 +148,7 @@
 
 .pillAccent {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
   text-decoration: none;
 }
 
