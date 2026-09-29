@@ -1,7 +1,8 @@
 /**
- * Settings › Tag writes (M2, spec §12.8 + M2 plan Q5): the library master
- * switch for writing tags to files, and the default write policy new plans
- * start from. Writes also need a writable scan root (Settings › Scan roots);
+ * Settings › Tag preferences (M2, spec §12.8 + M2 plan Q5): the library
+ * master switch for writing tags to files, and the default write policy new
+ * plans start from. Writes also need a writable scan root (Settings › Music
+ * folders);
  * the worker re-checks both per file when a plan applies.
  */
 import { useEffect, useState } from 'react';
@@ -114,9 +115,9 @@ function SettingsTagWritesContentInner() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Tag preferences</h2>
         <p className={styles.pageHint}>
-          tagave never writes to your files unless this switch is on <em>and</em> the file sits under a scan root marked
-          writable. Writes happen only through tag plans: preview the diff, apply, and revert from the album History tab
-          if needed. Each file is written to a temp copy, re-read, checked against its audio-stream hash and renamed
+          tagave never writes to your files unless this switch is on <em>and</em> the file sits in a music folder that
+          allows writes. Writes happen only through tag plans: preview the diff, apply, and revert from the album’s
+          Activity tab if needed. Each file is written to a temp copy, re-read, checked against its audio-stream hash and renamed
           into place. Artwork is never modified; APE and WavPack are read-only.
         </p>
 
@@ -139,7 +140,7 @@ function SettingsTagWritesContentInner() {
           <div className={styles.statusRow}>
             <span className={`${styles.statusDot} ${writableRoots.length ? styles.on : styles.off}`} />
             <div className={styles.statusText}>
-              <strong>Writable scan roots</strong>
+              <strong>Music folders that allow writes</strong>
               <span>
                 {roots.isLoading
                   ? 'Checking…'
@@ -153,15 +154,15 @@ function SettingsTagWritesContentInner() {
               </span>
             </div>
             <LinkButton variant="secondary" size="sm" to="/settings/library">
-              Scan roots
+              Music folders
             </LinkButton>
           </div>
         </div>
 
         {enabled && writableRoots.length === 0 && (
           <p className={styles.warning}>
-            The switch is on but no root allows writes yet — plans will preview but refuse to apply until you press
-            “Allow tag writes” on a root under Scan roots.
+            The switch is on but no music folder allows writes yet — plans will preview but refuse to apply until you
+            press “Allow tag writes” on a folder under Music folders.
           </p>
         )}
       </div>
@@ -169,8 +170,8 @@ function SettingsTagWritesContentInner() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Default write policy</h2>
         <p className={styles.hint}>
-          New plans start from this policy; each plan can still change it before preview. Recommended defaults follow
-          the M2 plan: canonical IDs + fill, ID3v2.4 UTF-8 for MP3s.
+          New plans start from this policy; each plan can still change it before preview. The recommended defaults are
+          canonical IDs + fill, and ID3v2.4 (UTF-8) for MP3s.
         </p>
 
         <div className={styles.fieldGroup}>
@@ -242,12 +243,12 @@ function SettingsTagWritesContentInner() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>First run, safely</h2>
         <ol className={styles.steps}>
-          <li>Allow tag writes on your music root under <Link to="/settings/library">Scan roots</Link>.</li>
+          <li>Allow tag writes on your music folder under <Link to="/settings/library">Music folders</Link>.</li>
           <li>Enable the library switch above.</li>
           <li>
             Open <Link to="/plans">Plans</Link>, create a plan for one artist or a handful of albums, and preview it.
           </li>
-          <li>Apply, check a file in your player, then revert from the album’s History tab and apply again.</li>
+          <li>Apply, check a file in your player, then revert from the album’s Activity tab and apply again.</li>
           <li>Only then widen the scope.</li>
         </ol>
       </div>
