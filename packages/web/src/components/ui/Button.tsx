@@ -1,8 +1,13 @@
 import { ButtonHTMLAttributes, forwardRef, ReactNode } from 'react';
 import styles from './Button.module.css';
 
-/** `ghost` is the old name for `quiet` and renders identically. */
-export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger' | 'ghost';
+/**
+ * `ghost` is the old name for `quiet` and renders identically.
+ * `quiet-danger` is the resting look of a destructive trigger (Delete, Stop):
+ * danger-coloured text, no fill. `danger` is the full red drop, kept for the
+ * final button of a confirm dialog.
+ */
+export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'quiet-danger' | 'danger' | 'ghost';
 export type ButtonSize = 'sm' | 'md';
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

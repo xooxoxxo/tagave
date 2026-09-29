@@ -66,11 +66,11 @@ Components use the palette tokens. Legacy names such as `--bg-primary`, `--text-
 - Space: `--space` is 4px, with steps of 4, 8, 12, 16, 20, 24, 32, 40, 48, 72 and 96px (`--space-xs` to `--space-4xl`).
 - Radius: `--r-pill` for every control, `--r-card` 24px, `--r-cover` 18px, `--r-inner` 14px (textareas, thumbnails, notes) and `--r-kbd` 8px. No control is square or has a small radius.
 - Controls: `--h-control` 48px, `--h-control-sm` 36px, `--h-chip` 30px. On coarse pointers a small control grows to 44px.
-- Motion: `--dur-fast` 80ms (press), `--dur` 180ms, `--dur-slow` 280ms, `--ease-out`, and `--ease-spring`, which is used only for hover lift.
+- Motion: `--dur-fast` 80ms (press), `--dur` 180ms, `--dur-slow` 280ms, `--ease-out`, `--ease-spring` (hover lift), and `--dur-pop` 360ms with `--ease-pop`, the springy release of a pressed button.
 
 ## Buttons: the drop
 
-`Button` takes `variant` (`primary | secondary | quiet | danger`, where the older `ghost` is the same as `quiet`), `size` (`md | sm`), `icon`, and `loading`. The label is always rendered inside a child `<span>` so that it sits above the gloss layers. `IconButton` is a circular drop that needs a `label` for its accessible name. `LinkButton` takes the same props for navigation. Never put a link inside a button.
+`Button` takes `variant` (`primary | secondary | quiet | quiet-danger | danger`, where the older `ghost` is the same as `quiet`), `size` (`md | sm`), `icon`, and `loading`. The label is always rendered inside a child `<span>` so that it sits above the gloss layers. `IconButton` is a circular drop that needs a `label` for its accessible name. `LinkButton` takes the same props for navigation. Never put a link inside a button.
 
 A drop is built from these layers, back to front:
 
@@ -86,8 +86,8 @@ The label `<span>` sets its own weight (Figtree 600), so a `<button>`, a `LinkBu
 
 States:
 
-- Hover lifts the button 1px and scales primary and danger to 101.5%.
-- Press sinks it 1px, scales it to 97% and turns the shadow inset, over 80ms.
+- Hover is gentle: the drop lifts 1px and its shadow loosens slightly. No scale, no brightness or colour change, no bigger glow.
+- Press squashes it to 96% over 80ms while the shadow compresses under it. Letting go springs back past full size and settles (`--dur-pop`, `--ease-pop`): a bubble that pops back. Quiet buttons squash the same way.
 - Focus shows a 2px `--ring` outline with a 3px offset.
 - Disabled is desaturated at half opacity.
 - Loading keeps the width and colour, swaps the label for a spinner (the label stays in the accessibility tree), sets `aria-busy` and blocks repeat presses.
@@ -97,7 +97,9 @@ Variants:
 - **Primary:** the dew drop. Use at most one per view.
 - **Secondary:** a clear frosted bubble.
 - **Quiet:** text in `--dew` until touched.
-- **Danger:** the same drop with the danger tint. Always confirm before a danger action runs, and never place a danger button next to the primary without a quiet Cancel between them.
+- **Quiet danger:** the same text button in `--danger`, with a faint danger wash on hover. This is how a destructive trigger rests on a page (Delete, Stop, Discard); a two-press confirmation only changes its label.
+- **Danger:** the full drop with the danger tint. It appears only as the final button of a confirm dialog (`tone: 'danger'`), never at rest on a page, so nothing red glows next to the primary.
+- **Revert is not delete.** Undoing applied changes is a secondary bubble with the undo icon (`UndoIcon`), not a danger button.
 
 `Button` defaults to `type="button"`. A form's submit button must set `type="submit"`. Labels are verbs in sentence case, one to three words.
 
@@ -110,6 +112,7 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 - **Chip:** a 30px pill in Figtree 500 13px. With `onClick` it becomes a toggle button with `aria-pressed`. An `active` chip uses a dew tint with a deep dew label. `dot` adds a 6px status dot. Chips get no sheen.
 - **Badge:** a quiet status pill. The state is written in words, and the colour appears only as a dot. `statusTone()` maps plan and job states to a tone.
 - **Banner:** a flat tinted note (`--r-inner`) with a status dot. It explains an outcome or a condition the viewer can act on.
+- **CoverArt, CoverChip:** every album cover (album grid and list, artist discography, Home, the album page) is a `CoverArt`: an intact square with `--r-cover` corners. Without art it draws a dew-tinted field, a thin groove mark and the title's initials in the display face; no emoji and no track count. State badges are `CoverChip`s: small frosted chips floating in a corner of the cover, with the state in words and a status dot. There is no strip across the bottom of the cover. `dimmed="missing"` fades and desaturates the art and adds a dashed rim; the chip stays at full strength.
 - **Card, StatCard, Surface:** cards are opaque `--surface` with a 1px `--line` border, `--r-card` and a soft long shadow. They get no gloss and never nest for decoration. StatCard values are body-face, tabular data. `Surface variant="glass"` is only for layers that float over content: popovers, the sticky plan bar, toasts. Never put glass on glass or behind large scrolling areas.
 - **Tabs:** a recessed pill track. The active tab is a clear bubble resting in it. There is one tab stop, and Left/Right (wrapping), Home and End move between tabs. Pass the real `panelId`. Tabs switch a local section; use navigation links to move between pages. On a narrow screen the track scrolls sideways: `useScrollFade` brings the current tab into view and fades whichever edge hides more tabs (`data-scroll-fade` in `index.css`), and the strip snaps to whole tabs, so a cut label reads as "more this way". Any other sideways strip (the album sections, the Settings sections on a phone) uses the same hook.
 - **ConfirmDialog:** every confirmation goes through `confirmDialog({ title, message, confirmLabel, tone })`, which resolves true or false; `ConfirmHost` is mounted once at the root. It is a modal `<dialog>` labelled by its title and described by its message: the page behind is inert, Tab stays inside, Esc or a click on the backdrop cancels, and focus returns to the control that opened it. Focus starts on the confirm button, or on Cancel when `tone: 'danger'`. The title is a question, the confirm label is the verb ("Delete", "Apply changes"). Never call `window.confirm()` or `alert()`; a test guards this.
@@ -158,8 +161,8 @@ The mark is an agave rosette resting in a dew-glass orb: a tall centre leaf, two
 
 Every page uses this system: navigation, Home, the album grid and album page, artists, search, Library care, tag changes and the plan wizard, background activity, every settings section, setup, onboarding and sign-in. Some page CSS still uses the legacy token names; they resolve to the palette, so rename them when you touch a rule. When you add or change a page:
 
-1. Use the primitives for every action: one primary drop per view, clear bubbles for the rest, quiet text buttons for dismiss and cancel. A destructive drop never sits right next to the primary; start it quiet and turn it red on confirmation.
-2. Filters and suggestions are chips (surface to mist, the active one dew-tinted); fields take the global recessed pill, so a page class only sizes them.
+1. Use the primitives for every action: one primary drop per view, clear bubbles for the rest, quiet text buttons for dismiss and cancel. Destructive triggers are quiet danger text; the red drop lives only in the confirm dialog.
+2. Filters and suggestions are chips (surface to mist, the active one dew-tinted). In the album filter rail every row is checkbox, left-aligned label, then the count flush right in tabular figures, and a row shows a tooltip only when its label is cut off; fields take the global recessed pill, so a page class only sizes them.
 3. Floating layers (search, the review decision bar, toasts, the wizard footer) are glass; cards and tables stay opaque and flat.
 4. Use tokens for every colour. No hex, `white` or `rgba(0,0,0,…)` in page CSS.
 

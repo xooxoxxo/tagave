@@ -129,7 +129,7 @@ function OwnTake({ libraryId, releaseGroupId, bundle }: { libraryId: string | un
                   {showHistory ? 'Hide history' : 'History'}
                 </Button>
                 <Button
-                  variant="quiet"
+                  variant="quiet-danger"
                   size="sm"
                   onClick={async () => { if (await confirmDialog({ title: 'Delete your review?', message: 'Your rating, review and all its revisions are deleted. This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' })) remove.mutate(); }}
                   disabled={remove.isPending}

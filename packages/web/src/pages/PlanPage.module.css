@@ -8,10 +8,6 @@
 .back { color: var(--ink-2); text-decoration: none; font-size: var(--font-size-sm); }
 .back:hover { color: var(--ink); }
 .headerActions { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
-/* Delete before it is confirmed: text in the danger ink,
-no drop. Doubled
-   class so it wins over the quiet variant's dew ink whatever the load order. */
-.dangerQuiet.dangerQuiet { --b-ink: var(--danger); }
 .meta { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .error { color: var(--error); margin: 0; }
 

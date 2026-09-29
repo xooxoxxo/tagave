@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useAlbums, useCurrentLibrary, useIdentifyStats, useTagPlans } from '../hooks';
 import { api } from '../services/api';
-import { PageShell, Card, Button, LinkButton } from '../components/ui';
+import { PageShell, Card, Button, LinkButton, CoverArt } from '../components/ui';
 import styles from './DashboardPage.module.css';
 
 export function DashboardPage() {
@@ -37,7 +37,7 @@ export function DashboardPage() {
             : recent.isError ? <div className={styles.empty} role="alert"><h3>We couldn’t load your albums</h3><p>Your library is still here. Try loading it again.</p><Button variant="secondary" onClick={() => void recent.refetch()}>Try again</Button></div>
             : !recent.data?.items.length ? <div className={styles.empty}><h3>A home for every record</h3><p>Add a music folder and scan it to bring your albums into tagave.</p><Link to="/settings/library">Add a music folder →</Link></div>
             : <div className={styles.albumGrid}>{recent.data.items.map(album => <Link key={album.id} to="/albums/$albumId" params={{ albumId: album.id }} className={styles.album}>
-              <div className={styles.artwork}>{album.coverUrl ? <img src={album.coverUrl} alt="" loading="lazy" /> : <span aria-hidden="true">♫</span>}</div>
+              <CoverArt src={album.coverUrl} title={album.title} className={styles.artwork} />
               <h3>{album.title}</h3><p>{album.artistCredit}</p><span className={styles.year}>{album.year ?? 'Year unknown'}</span>
             </Link>)}</div>}
         </section>

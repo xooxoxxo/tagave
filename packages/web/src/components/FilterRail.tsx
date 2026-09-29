@@ -38,6 +38,18 @@ const DECIDED_LABEL: Record<string, string> = {
 
 type FacetItem = { value: string; label?: string | undefined; count: number };
 
+/**
+ * Show the full label as a native tooltip only when the row cuts it off. A
+ * label that fits needs no tooltip; one that repeats it just covers the next row.
+ */
+function titleIfTruncated(event: React.PointerEvent<HTMLElement>) {
+  const row = event.currentTarget;
+  const label = row.querySelector<HTMLElement>('[data-option-label]');
+  if (!label) return;
+  if (label.scrollWidth > label.clientWidth) row.title = label.textContent ?? '';
+  else row.removeAttribute('title');
+}
+
 function Section({ title, count, children, defaultOpen = true }: {
   title: string; count?: number; children: React.ReactNode; defaultOpen?: boolean;
 }) {
@@ -70,9 +82,9 @@ function MultiOptions({ items, labels, isActive, onToggle, hideZero = true }: {
         const active = isActive(i.value);
         const label = i.label ?? labels?.[i.value] ?? i.value;
         return (
-          <label key={i.value} className={active ? styles.optionActive : styles.option} title={label}>
+          <label key={i.value} className={active ? styles.optionActive : styles.option} onPointerEnter={titleIfTruncated}>
             <input type="checkbox" className={styles.checkbox} checked={active} onChange={() => onToggle(i.value)} />
-            <span className={styles.optionLabel}>{label}</span>
+            <span className={styles.optionLabel} data-option-label>{label}</span>
             <span className={styles.count}>{i.count.toLocaleString()}</span>
           </label>
         );
@@ -102,9 +114,9 @@ function SingleOptions({ items, labels, current, onPick, hideZero = true }: {
             key={i.value}
             className={active ? styles.optionActive : styles.option}
             onClick={() => onPick(active ? undefined : i.value)}
-            title={label}
+            onPointerEnter={titleIfTruncated}
           >
-            <span className={styles.optionLabel}>{label}</span>
+            <span className={styles.optionLabel} data-option-label>{label}</span>
             <span className={styles.count}>{i.count.toLocaleString()}</span>
           </button>
         );
@@ -132,8 +144,8 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
       <Section title="Saved views">
         {savedViews && savedViews.length > 0 ? savedViews.map((v) => (
           <div key={v.id} className={styles.viewRow}>
-            <button className={styles.option} onClick={() => onApplyView(v)} title={JSON.stringify(v.query)}>
-              <span className={styles.optionLabel}>{v.name}</span>
+            <button className={styles.option} onClick={() => onApplyView(v)} onPointerEnter={titleIfTruncated}>
+              <span className={styles.optionLabel} data-option-label>{v.name}</span>
             </button>
             <IconButton variant="quiet" size="sm" label="Delete view" onClick={() => onDeleteView(v.id)}><span aria-hidden="true">✕</span></IconButton>
           </div>

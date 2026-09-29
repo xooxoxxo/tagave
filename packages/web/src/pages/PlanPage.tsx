@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
-import { PageShell, Button, Badge, Banner, StatCard, Card, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { PageShell, Button, Badge, Banner, StatCard, Card, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -527,18 +527,18 @@ export function PlanPage() {
           {p.status === 'applying' && (
             <>
               <Button variant="secondary" onClick={run(pauseM)} disabled={pauseM.isPending}>Pause</Button>
-              <Button variant="danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
+              <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {p.status === 'paused' && (
             <>
               <Button variant="primary" onClick={run(resumeM)} disabled={resumeM.isPending || awaiting !== null}>{awaiting !== null ? 'Resuming…' : 'Resume'}</Button>
-              <Button variant="danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
+              <Button variant="quiet-danger" onClick={run(cancelM, confirmStop)} disabled={cancelM.isPending}>Cancel</Button>
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
             <Button
-              variant="danger"
+              variant="secondary"
               loading={revertM.isPending || revertPlanId !== null}
               onClick={async () => {
                 if (!(await confirmDialog({ title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
@@ -553,15 +553,14 @@ export function PlanPage() {
               }}
               disabled={revertM.isPending || revertPlanId !== null || awaiting !== null}
             >
-              {revertM.isPending || revertPlanId !== null ? 'Preparing…' : 'Revert'}
+              <UndoIcon />{revertM.isPending || revertPlanId !== null ? 'Preparing…' : 'Revert'}
             </Button>
           )}
           {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
-            /* Quiet until confirmed: a destructive drop never sits right next
-               to the primary; the second press turns it into the red drop. */
+            /* Quiet danger text in both states: the second press only
+               changes the label; no red drop sits on the page. */
             <Button
-              variant={confirmDelete ? 'danger' : 'quiet'}
-              className={confirmDelete ? undefined : styles.dangerQuiet}
+              variant="quiet-danger"
               loading={deleteM.isPending}
               onClick={async () => {
                 if (!confirmDelete) {

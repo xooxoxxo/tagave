@@ -5,9 +5,16 @@
  */
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules } from '../hooks';
-import { PageShell, Button, IconButton, Badge, Card } from '../components/ui';
+import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules, type ArtistDiscographyItem } from '../hooks';
+import { PageShell, Button, IconButton, Badge, Card, CoverArt, CoverChip, UndoIcon, type CoverChipTone } from '../components/ui';
 import styles from './ArtistPage.module.css';
+
+const OWNERSHIP_LABEL: Record<ArtistDiscographyItem['ownership'], string> = {
+  digital: 'Digital', physical: 'Physical', both: 'Digital & Physical', missing: 'Missing', ignored: 'Ignored',
+};
+const OWNERSHIP_CHIP_TONE: Record<ArtistDiscographyItem['ownership'], CoverChipTone> = {
+  digital: 'neutral', physical: 'neutral', both: 'accent', missing: 'warn', ignored: 'neutral',
+};
 
 export function ArtistPage() {
   const navigate = useNavigate();
@@ -284,13 +291,13 @@ export function ArtistPage() {
                   missing: 'Missing',
                   ignored: 'Ignored',
                 };
-                const tones: Record<string, any> = {
-                  digital: 'info',
-                  physical: 'info',
+                const tones = {
+                  digital: 'neutral',
+                  physical: 'neutral',
                   both: 'accent',
                   missing: 'warning',
                   ignored: 'neutral',
-                };
+                } as const;
                 return (
                   <div key={ownership} className={styles.legendItem}>
                     <Badge tone={tones[ownership]}>{labels[ownership]}</Badge>
@@ -320,49 +327,27 @@ export function ArtistPage() {
                         }
                       }}
                     >
-                      <div className={styles.coverContainer}>
-                        {item.coverUrl ? (
-                          <img src={item.coverUrl} alt={item.title} className={styles.cover} />
-                        ) : (
-                          <div className={styles.coverPlaceholder}>🎵</div>
+                      <CoverArt
+                        src={item.coverUrl}
+                        title={item.title}
+                        dimmed={item.ownership === 'missing' || item.ownership === 'ignored' ? item.ownership : undefined}
+                      >
+                        <CoverChip tone={OWNERSHIP_CHIP_TONE[item.ownership]}>{OWNERSHIP_LABEL[item.ownership]}</CoverChip>
+                        {item.ownership === 'ignored' && item.gapId && (
+                          <IconButton
+                            size="sm"
+                            label={`Reopen (dismissed: ${item.dismissReason || 'no reason'})`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              reopenMutation.mutate(item.gapId!);
+                            }}
+                            disabled={reopenMutation.isPending}
+                            className={styles.reopenButton}
+                          >
+                            <UndoIcon />
+                          </IconButton>
                         )}
-                        <div className={`${styles.ownership} ${item.ownership === 'missing' ? styles.ownershipMissing : ''} ${item.ownership === 'ignored' ? styles.ownershipIgnored : ''}`}>
-                          <div className={styles.stateChipContainer}>
-                            <Badge
-                              tone={
-                                item.ownership === 'digital' || item.ownership === 'physical'
-                                  ? 'info'
-                                  : item.ownership === 'both'
-                                    ? 'accent'
-                                    : item.ownership === 'missing'
-                                      ? 'warning'
-                                      : 'neutral'
-                              }
-                            >
-                              {item.ownership === 'both' && 'Digital & Physical'}
-                              {item.ownership === 'digital' && 'Digital'}
-                              {item.ownership === 'physical' && 'Physical'}
-                              {item.ownership === 'missing' && 'Missing'}
-                              {item.ownership === 'ignored' && 'Ignored'}
-                            </Badge>
-                            {item.ownership === 'ignored' && item.gapId && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  reopenMutation.mutate(item.gapId!);
-                                }}
-                                disabled={reopenMutation.isPending}
-                                title={`Dismissed: ${item.dismissReason || 'No reason'}`}
-                                className={styles.reopenButton}
-                              >
-                                ↻
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
+                      </CoverArt>
                       <div className={styles.cardInfo}>
                         <h3 className={styles.cardTitle}>{item.title}</h3>
                         {item.firstReleaseDate && (

@@ -82,10 +82,13 @@
   font-weight: 600;
 }
 
+/* Every row, in every group: [checkbox] label ........ count.
+   The label starts right after the checkbox and takes the free width, so it
+   never floats to the middle; the count sits flush right in tabular figures. */
 .option,
 .optionActive {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: var(--space-sm);
   width: 100%;
@@ -121,16 +124,21 @@ deep dew label. */
 }
 
 .optionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .count {
+  flex: none;
+  margin-left: auto;
   color: var(--text-tertiary);
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
+  text-align: right;
 }
 
 .muted {
@@ -155,5 +163,10 @@ deep dew label. */
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+.viewRow > .option {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
