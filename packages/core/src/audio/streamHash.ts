@@ -32,15 +32,31 @@ async function hashStream(buffer: Buffer): Promise<string> {
 export async function hashFlacStream(filePath: string): Promise<string> {
   const file = await open(filePath, 'r');
   try {
-    // FLAC starts with 'fLaC' (4 bytes)
+    const fileSize = (await file.stat()).size;
+
+    // Some taggers prepend an ID3v2 tag to FLAC files; the stream marker
+    // then follows it. Skip it so those files hash like any other.
+    let start = 0;
+    const id3 = Buffer.alloc(10);
+    const id3Read = await file.read(id3, 0, 10, 0);
+    if (id3Read.bytesRead === 10 && id3.toString('ascii', 0, 3) === 'ID3') {
+      const size =
+        ((id3[6]! & 0x7f) << 21) |
+        ((id3[7]! & 0x7f) << 14) |
+        ((id3[8]! & 0x7f) << 7) |
+        (id3[9]! & 0x7f);
+      start = 10 + size + ((id3[5]! & 0x10) !== 0 ? 10 : 0);
+    }
+
+    // FLAC stream starts with 'fLaC' (4 bytes)
     const header = Buffer.alloc(4);
-    await file.read(header, 0, 4, 0);
+    await file.read(header, 0, 4, start);
 
     if (header.toString('ascii') !== 'fLaC') {
       throw new Error('Not a valid FLAC file');
     }
 
-    let offset = 4;
+    let offset = start + 4;
     let isLastBlock = false;
 
     // Parse metadata blocks until we find the last one
@@ -56,19 +72,29 @@ export async function hashFlacStream(filePath: string): Promise<string> {
         throw new Error('Invalid FLAC metadata block header');
       }
       isLastBlock = (headerByte & 0x80) !== 0;
-      const blockType = headerByte & 0x7f;
-      const length = metaBlockHeader.readUInt32BE(1) & 0xffffff; // 24-bit length
+      if ((headerByte & 0x7f) === 0x7f) {
+        throw new Error('Invalid FLAC metadata block type');
+      }
+      // Block length is a 24-bit big-endian integer in bytes 1..3 of the
+      // 4-byte header. (readUInt32BE(1) would read past the buffer end.)
+      const length = metaBlockHeader.readUIntBE(1, 3);
 
       offset += 4 + length;
+      if (offset > fileSize) {
+        throw new Error('Truncated FLAC metadata block');
+      }
     }
 
-    // Read remaining file (audio frames)
-    const stats = await file.stat();
-    const streamSize = stats.size - offset;
-    const audioData = Buffer.alloc(streamSize);
-    await file.read(audioData, 0, streamSize, offset);
-
-    return hashStream(audioData);
+    // Hash the remaining file (audio frames) as a stream: hi-res FLACs run
+    // to hundreds of MB and must not be loaded whole.
+    if (offset === fileSize) {
+      return hashStream(Buffer.alloc(0));
+    }
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(filePath, { start: offset })) {
+      hash.update(chunk as Buffer);
+    }
+    return hash.digest('hex');
   } finally {
     await file.close();
   }

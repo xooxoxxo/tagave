@@ -10,6 +10,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 import {
   hashAudioStream,
@@ -97,12 +98,102 @@ describe('Audio stream hashing', () => {
     });
   });
 
-  // FLAC tests skipped: ffmpeg not available or cannot create valid FLAC files on this system
-  // Per spec §12.6 settled decision 5: skip tests when format encoder unavailable
-  describe.skip('FLAC stream hashing (encoder unavailable)', () => {
-    it('should hash a FLAC file', async () => {
-      // Placeholder for FLAC tests - requires ffmpeg
-      expect(true).toBe(true);
+  describe('FLAC stream hashing', () => {
+    const frames = Buffer.from(Array.from({ length: 4096 }, (_, i) => (i * 7) % 256));
+
+    it('hashes only the frames after the last metadata block', async () => {
+      const flacPath = join(testDir, 'test.flac');
+      await writeFile(flacPath, buildFlac({ comment: 'ARTIST=A', padding: 64, frames }));
+
+      const hash = await hashFlacStream(flacPath);
+      expect(hash).toBe(createHash('sha256').update(frames).digest('hex'));
+      expect(await hashAudioStream(flacPath, 'flac')).toBe(hash);
+    });
+
+    it('reads 24-bit block lengths above 255 and 65535 bytes', async () => {
+      const flacPath = join(testDir, 'big.flac');
+      await writeFile(
+        flacPath,
+        buildFlac({ comment: 'COMMENT=' + 'x'.repeat(70_000), padding: 300, frames }),
+      );
+
+      expect(await hashFlacStream(flacPath)).toBe(
+        createHash('sha256').update(frames).digest('hex'),
+      );
+    });
+
+    it('keeps the hash when only the tags change', async () => {
+      const a = join(testDir, 'a.flac');
+      const b = join(testDir, 'b.flac');
+      await writeFile(a, buildFlac({ comment: 'ALBUMARTIST=01. Test Curator', padding: 0, frames }));
+      await writeFile(b, buildFlac({ comment: 'ALBUMARTIST=Various Artists\nCOMPILATION=1', padding: 8192, frames }));
+
+      expect(await hashFlacStream(b)).toBe(await hashFlacStream(a));
+    });
+
+    it('changes the hash when the audio changes', async () => {
+      const a = join(testDir, 'a.flac');
+      const b = join(testDir, 'b.flac');
+      const other = Buffer.from(frames);
+      other[100] = (other[100]! + 1) % 256;
+      await writeFile(a, buildFlac({ comment: 'X=1', padding: 0, frames }));
+      await writeFile(b, buildFlac({ comment: 'X=1', padding: 0, frames: other }));
+
+      expect(await hashFlacStream(b)).not.toBe(await hashFlacStream(a));
+    });
+
+    it('skips a prepended ID3v2 tag', async () => {
+      const plain = join(testDir, 'plain.flac');
+      const tagged = join(testDir, 'id3.flac');
+      const flac = buildFlac({ comment: 'X=1', padding: 0, frames });
+      const id3Body = Buffer.alloc(200);
+      const id3Header = Buffer.from([0x49, 0x44, 0x33, 4, 0, 0, 0, 0, 0x01, 0x48]); // size 200
+      await writeFile(plain, flac);
+      await writeFile(tagged, Buffer.concat([id3Header, id3Body, flac]));
+
+      expect(await hashFlacStream(tagged)).toBe(await hashFlacStream(plain));
+    });
+
+    it('rejects a truncated metadata block instead of hashing garbage', async () => {
+      const flacPath = join(testDir, 'trunc.flac');
+      const flac = buildFlac({ comment: 'X=1', padding: 0, frames: Buffer.alloc(0) });
+      // Claim a 1 MB padding block that the file does not contain.
+      const lie = Buffer.from([0x81, 0x10, 0x00, 0x00]);
+      await writeFile(flacPath, Buffer.concat([flac.subarray(0, 4 + 4 + 34), lie]));
+      await expect(hashFlacStream(flacPath)).rejects.toThrow(/Truncated FLAC/);
+    });
+
+    it('rejects a file without the fLaC marker', async () => {
+      const flacPath = join(testDir, 'bad.flac');
+      await writeFile(flacPath, Buffer.from('not a flac file at all'));
+      await expect(hashFlacStream(flacPath)).rejects.toThrow(/Not a valid FLAC/);
+    });
+
+    it('hashes an ffmpeg-encoded FLAC the same before and after a tag rewrite', async () => {
+      if (!isFFmpegAvailable()) {
+        console.log('[test] ffmpeg not available, skipping real FLAC test');
+        return;
+      }
+      const src = join(testDir, 'real.flac');
+      const retagged = join(testDir, 'real-retagged.flac');
+      try {
+        execFileSync('ffmpeg', [
+          '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=44100',
+          '-t', '1', '-c:a', 'flac', '-metadata', 'artist=Before', '-y', src,
+        ], { stdio: 'pipe', timeout: 10000 });
+        execFileSync('ffmpeg', [
+          '-i', src, '-c', 'copy', '-map_metadata', '-1',
+          '-metadata', 'album_artist=Various Artists', '-metadata', 'compilation=1',
+          '-y', retagged,
+        ], { stdio: 'pipe', timeout: 10000 });
+      } catch (error) {
+        console.log('[test] ffmpeg failed to create FLAC:', error);
+        return;
+      }
+
+      const before = await hashFlacStream(src);
+      expect(before).toMatch(/^[a-f0-9]{64}$/);
+      expect(await hashFlacStream(retagged)).toBe(before);
     });
   });
 
@@ -451,4 +542,38 @@ function createMinimalAiffFile(
   // Rest is audio data (silence)
 
   return Buffer.concat([form, comm, ssnd]);
+}
+
+/**
+ * Builds a structurally valid FLAC container: marker, STREAMINFO,
+ * VORBIS_COMMENT, optional PADDING (last block), then the given frame bytes.
+ * The frames are opaque to the hasher, so any bytes will do.
+ */
+function buildFlac(opts: { comment: string; padding: number; frames: Buffer }): Buffer {
+  const block = (type: number, last: boolean, body: Buffer): Buffer => {
+    const h = Buffer.alloc(4);
+    h[0] = (last ? 0x80 : 0) | type;
+    h.writeUIntBE(body.length, 1, 3);
+    return Buffer.concat([h, body]);
+  };
+  const streamInfo = Buffer.alloc(34);
+  streamInfo.writeUInt16BE(4096, 0);
+  streamInfo.writeUInt16BE(4096, 2);
+  const vendor = Buffer.from('liner-test');
+  const entry = Buffer.from(opts.comment);
+  const vc = Buffer.alloc(4 + vendor.length + 4 + 4 + entry.length);
+  let o = 0;
+  vc.writeUInt32LE(vendor.length, o); o += 4;
+  vendor.copy(vc, o); o += vendor.length;
+  vc.writeUInt32LE(1, o); o += 4;
+  vc.writeUInt32LE(entry.length, o); o += 4;
+  entry.copy(vc, o);
+  const hasPadding = opts.padding > 0;
+  return Buffer.concat([
+    Buffer.from('fLaC'),
+    block(0, false, streamInfo),
+    block(4, !hasPadding, vc),
+    ...(hasPadding ? [block(1, true, Buffer.alloc(opts.padding))] : []),
+    opts.frames,
+  ]);
 }
