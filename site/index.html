@@ -148,6 +148,8 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 @media (max-width:600px){.navlinks .hide-s{display:none}.navlinks{gap:14px}}
 
 /* ============ gummy glass buttons ============ */
+/* The capsule never moves: hover lights the surface, press sinks the content. */
+@property --b-sheen-boost{syntax:"<number>";inherits:true;initial-value:0}
 .btn{
   --b-top:var(--dew-hi); --b-mid:var(--dew); --b-bot:var(--dew-lo);
   --b-ink:var(--dew-ink); --b-glow:var(--dew); --b-sheen:.40;
@@ -167,7 +169,8 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
     inset 0 -3px 8px rgba(0,0,0,.18),
     0 1px 1px rgba(var(--shadow-tint),.18),
     0 10px 22px -10px color-mix(in srgb,var(--b-glow) 70%,transparent);
-  transition:transform var(--dur-pop) var(--ease-pop),box-shadow 220ms ease,background-color 200ms ease;
+  --b-sheen-boost:0;
+  transition:--b-sheen-boost 200ms ease,box-shadow 220ms ease,background-color 200ms ease;
   -webkit-tap-highlight-color:transparent;
 }
 /* Specular sheen: a soft band that fades out by 30% of the height, above the cap line, so every
@@ -176,30 +179,33 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .btn::before{
   content:"";position:absolute;z-index:-1;left:4%;right:4%;top:2px;height:30%;
   border-radius:var(--r-pill);pointer-events:none;
-  background:linear-gradient(180deg,rgba(255,255,255,var(--b-sheen)) 0%,rgba(255,255,255,calc(var(--b-sheen)*.35)) 55%,rgba(255,255,255,0) 100%);
+  background:linear-gradient(180deg,rgba(255,255,255,calc(var(--b-sheen) + var(--b-sheen-boost))) 0%,rgba(255,255,255,calc((var(--b-sheen) + var(--b-sheen-boost))*.35)) 55%,rgba(255,255,255,0) 100%);
   -webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
   mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
   transition:opacity 200ms ease;
 }
-.btn > *{position:relative;font-weight:600}
-/* Hover: a gentle 1px lift, no scale, no colour change. Press: a quick squash;
-   letting go springs back past full size and settles, like a bubble popping back. */
+.btn > *{position:relative;font-weight:600;transition:transform var(--dur-pop) var(--ease-pop)}
+/* Hover: the sheen brightens, the rim glints, the depth inside deepens a touch; the outer
+   shadow stays the resting one, so nothing lifts. Press: an inset; the inner shadow deepens,
+   the sheen dims and the label sinks 1px inside the capsule, then springs back on release. */
 .btn:hover{
   text-decoration:none;
-  transform:translateY(-1px);
+  --b-sheen-boost:.14;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.55),inset 0 -3px 8px rgba(0,0,0,.18),
-    0 2px 2px rgba(var(--shadow-tint),.14),
-    0 12px 22px -12px color-mix(in srgb,var(--b-glow) 70%,transparent);
+    inset 0 1px 0 rgba(255,255,255,.75),inset 0 0 0 1px rgba(255,255,255,.14),inset 0 -4px 10px rgba(0,0,0,.22),
+    0 1px 1px rgba(var(--shadow-tint),.18),
+    0 10px 22px -10px color-mix(in srgb,var(--b-glow) 70%,transparent);
 }
 .btn:active{
-  transform:scale(.96);
+  --b-sheen-boost:0;
   transition-duration:var(--dur-fast);transition-timing-function:ease-out;
   box-shadow:
-    inset 0 2px 5px rgba(0,0,0,.2),inset 0 -1px 0 rgba(255,255,255,.25),
-    0 2px 6px -4px color-mix(in srgb,var(--b-glow) 60%,transparent);
+    inset 0 3px 7px rgba(0,0,0,.26),inset 0 -1px 0 rgba(255,255,255,.25),
+    0 1px 1px rgba(var(--shadow-tint),.18),
+    0 10px 22px -10px color-mix(in srgb,var(--b-glow) 70%,transparent);
 }
-.btn:active::before{opacity:.6}
+.btn:active::before{opacity:.55}
+.btn:active > *{transform:translateY(1px);transition-duration:var(--dur-fast);transition-timing-function:ease-out}
 .btn:focus-visible{outline:2px solid var(--ring);outline-offset:3px;border-radius:var(--r-pill)}
 
 .btn.secondary{
@@ -214,15 +220,16 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
     inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 8px rgba(var(--shadow-tint),.08),
     0 1px 1px rgba(var(--shadow-tint),.10),0 10px 22px -14px rgba(var(--shadow-tint),.45);
 }
-.btn.secondary:hover{box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.9),inset 0 -3px 8px rgba(var(--shadow-tint),.06),
-    0 1px 1px rgba(var(--shadow-tint),.10),0 12px 22px -14px rgba(var(--shadow-tint),.45)}
-.btn.secondary:active{box-shadow:inset 0 2px 5px rgba(var(--shadow-tint),.18),inset 0 0 0 1px var(--glass-edge)}
+.btn.secondary:hover{--b-sheen-boost:.12;box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.9),inset 0 0 0 1px rgba(255,255,255,.4),inset 0 -4px 10px rgba(var(--shadow-tint),.1),
+    0 1px 1px rgba(var(--shadow-tint),.10),0 10px 22px -14px rgba(var(--shadow-tint),.45)}
+.btn.secondary:active{box-shadow:inset 0 3px 7px rgba(var(--shadow-tint),.22),inset 0 0 0 1px var(--glass-edge),
+    0 1px 1px rgba(var(--shadow-tint),.10),0 10px 22px -14px rgba(var(--shadow-tint),.45)}
 
 .btn.quiet{--b-ink:var(--dew);background:transparent;border-color:transparent;box-shadow:none;text-shadow:none;padding:0 18px}
 .btn.quiet::before{opacity:0}
-.btn.quiet:hover{background:color-mix(in srgb,var(--dew) 7%,transparent);transform:none;box-shadow:none}
-.btn.quiet:active{background:color-mix(in srgb,var(--dew) 12%,transparent);transform:scale(.96);box-shadow:none}
+.btn.quiet:hover{background:color-mix(in srgb,var(--dew) 7%,transparent);box-shadow:none}
+.btn.quiet:active{background:color-mix(in srgb,var(--dew) 12%,transparent);box-shadow:none}
 
 .btn.icon{width:var(--h-control);padding:0}
 .btn.icon svg{width:20px;height:20px}
@@ -236,10 +243,14 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
   :root:not([data-theme="light"]) .btn{text-shadow:0 1px 0 rgba(255,255,255,.18)}
   :root:not([data-theme="light"]) .btn.secondary,:root:not([data-theme="light"]) .btn.quiet{text-shadow:none}
   :root:not([data-theme="light"]) .btn.secondary{--b-sheen:.16;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -3px 8px rgba(0,0,0,.35),0 10px 22px -14px rgba(0,0,0,.8)}
+  :root:not([data-theme="light"]) .btn.secondary:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px rgba(255,255,255,.08),inset 0 -4px 10px rgba(0,0,0,.42),0 10px 22px -14px rgba(0,0,0,.8)}
+  :root:not([data-theme="light"]) .btn.secondary:active{box-shadow:inset 0 3px 7px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.06),0 10px 22px -14px rgba(0,0,0,.8)}
 }
 :root[data-theme="dark"] .btn{text-shadow:0 1px 0 rgba(255,255,255,.18)}
 :root[data-theme="dark"] .btn.secondary,:root[data-theme="dark"] .btn.quiet{text-shadow:none}
 :root[data-theme="dark"] .btn.secondary{--b-sheen:.16;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -3px 8px rgba(0,0,0,.35),0 10px 22px -14px rgba(0,0,0,.8)}
+:root[data-theme="dark"] .btn.secondary:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px rgba(255,255,255,.08),inset 0 -4px 10px rgba(0,0,0,.42),0 10px 22px -14px rgba(0,0,0,.8)}
+:root[data-theme="dark"] .btn.secondary:active{box-shadow:inset 0 3px 7px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.06),0 10px 22px -14px rgba(0,0,0,.8)}
 
 /* theme toggle icon swap */
 .theme-toggle .moon{display:none}
@@ -371,7 +382,7 @@ footer p{margin:0 0 8px;max-width:78ch}
 @media (prefers-reduced-motion: reduce){
   html{scroll-behavior:auto}
   *,*::before,*::after{transition:none!important;animation:none!important}
-  .btn:hover,.btn:active,.btn.secondary:hover,.btn.secondary:active{transform:none}
+  .btn:active > *{transform:none}
 }
 @media (forced-colors: active){
   .btn{border:2px solid ButtonText;background:ButtonFace;color:ButtonText;forced-color-adjust:none}

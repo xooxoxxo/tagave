@@ -9,7 +9,18 @@
  * rendering bug, so the gloss comes from the sheen and rim alone.
  * Theme-dependent parts come from tokens (--drop-text-shadow, --clear-*),
  * so there are no theme selectors in this file.
+ *
+ * Interaction keeps the capsule where it is: hover lights the surface (the
+ * sheen brightens, the rim glints, the inner depth deepens a touch) and
+ * press sinks the content into the capsule. The element itself never moves,
+ * scales or grows its outer shadow.
  */
+@property --b-sheen-boost {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
 .button {
   --b-top: var(--dew-hi);
   --b-mid: var(--dew);
@@ -17,6 +28,7 @@
   --b-ink: var(--dew-ink);
   --b-glow: var(--dew);
   --b-sheen: 0.4;
+  --b-sheen-boost: 0;
   position: relative;
   isolation: isolate;
   display: inline-flex;
@@ -43,8 +55,9 @@
     inset 0 -3px 8px rgba(0, 0, 0, 0.18),
     0 1px 1px rgba(var(--shadow-tint), 0.18),
     0 10px 22px -10px color-mix(in srgb, var(--b-glow) 70%, transparent);
-  /* the release: back to size with a small springy overshoot */
-  transition: transform var(--dur-pop) var(--ease-pop), box-shadow 220ms ease, background-color 200ms ease;
+  /* the element never moves: this also beats the global :where(button:active) nudge */
+  transform: none;
+  transition: --b-sheen-boost 200ms ease, box-shadow 220ms ease, background-color 200ms ease;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
@@ -64,8 +77,8 @@
   pointer-events: none;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, var(--b-sheen)) 0%,
-    rgba(255, 255, 255, calc(var(--b-sheen) * 0.35)) 55%,
+    rgba(255, 255, 255, calc(var(--b-sheen) + var(--b-sheen-boost))) 0%,
+    rgba(255, 255, 255, calc((var(--b-sheen) + var(--b-sheen-boost)) * 0.35)) 55%,
     rgba(255, 255, 255, 0) 100%
   );
   /* soft ends: the band fades out sideways too, so it never reads as a shape */
@@ -83,6 +96,8 @@
   align-items: center;
   gap: var(--space-sm);
   min-width: 0;
+  /* the release: the content springs back up with a small overshoot */
+  transition: transform var(--dur-pop) var(--ease-pop);
 }
 
 .label svg,
@@ -92,32 +107,41 @@
   flex-shrink: 0;
 }
 
-/* Hover is a gentle lift: the drop rises 1px and its shadow loosens a little.
-   No scale, no colour or brightness change, no bigger glow. */
+/* Hover: the surface answers, the capsule stays put. The sheen brightens, the
+   rim picks up a thin inner glint and the depth inside deepens a touch. The
+   outer shadow is the resting one: nothing lifts, nothing grows. */
 .button:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  transform: translateY(-1px);
+  --b-sheen-boost: 0.14;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.18),
-    0 2px 2px rgba(var(--shadow-tint), 0.14),
-    0 12px 22px -12px color-mix(in srgb, var(--b-glow) 70%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    inset 0 -4px 10px rgba(0, 0, 0, 0.22),
+    0 1px 1px rgba(var(--shadow-tint), 0.18),
+    0 10px 22px -10px color-mix(in srgb, var(--b-glow) 70%, transparent);
 }
 
-/* Press is a quick squash (80ms); letting go runs the base transition, which
-   springs back past full size and settles: the pop. The shadow compresses
-   under the drop while it is held. */
+/* Press: an inset. The inner shadow deepens, the sheen dims and the content
+   sinks 1px inside the capsule (80ms). Letting go runs the label's base
+   transition, which springs back past its place and settles: the pop. */
 .button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  transform: scale(0.96);
+  --b-sheen-boost: 0;
   transition-duration: var(--dur-fast);
   transition-timing-function: ease-out;
   box-shadow:
-    inset 0 2px 5px rgba(0, 0, 0, 0.2),
+    inset 0 3px 7px rgba(0, 0, 0, 0.26),
     inset 0 -1px 0 rgba(255, 255, 255, 0.25),
-    0 2px 6px -4px color-mix(in srgb, var(--b-glow) 60%, transparent);
+    0 1px 1px rgba(var(--shadow-tint), 0.18),
+    0 10px 22px -10px color-mix(in srgb, var(--b-glow) 70%, transparent);
 }
 
 .button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"])::before {
-  opacity: 0.6;
+  opacity: 0.55;
+}
+
+.button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) > .label {
+  transform: translateY(1px);
+  transition-duration: var(--dur-fast);
+  transition-timing-function: ease-out;
 }
 
 .button:focus-visible {
@@ -128,7 +152,6 @@
 .button:disabled:not([aria-busy="true"]),
 .button[aria-disabled="true"] {
   cursor: not-allowed;
-  transform: none;
   filter: grayscale(1);
   opacity: 0.5;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 5px rgba(0, 0, 0, 0.08);
@@ -155,15 +178,21 @@
 }
 
 .secondary:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+  --b-sheen-boost: 0.12;
   box-shadow:
     inset 0 1px 0 var(--clear-hi),
-    inset 0 -3px 8px rgba(var(--shadow-tint), 0.06),
+    inset 0 0 0 1px color-mix(in srgb, var(--clear-hi) 45%, transparent),
+    inset 0 -4px 10px rgba(var(--shadow-tint), 0.1),
     0 1px 1px rgba(var(--shadow-tint), 0.1),
-    0 12px 22px -14px rgba(var(--shadow-tint), 0.45);
+    0 10px 22px -14px rgba(var(--shadow-tint), 0.45);
 }
 
 .secondary:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  box-shadow: inset 0 2px 5px rgba(var(--shadow-tint), 0.18), inset 0 0 0 1px var(--glass-edge);
+  box-shadow:
+    inset 0 3px 7px rgba(var(--shadow-tint), 0.22),
+    inset 0 0 0 1px var(--glass-edge),
+    0 1px 1px rgba(var(--shadow-tint), 0.1),
+    0 10px 22px -14px rgba(var(--shadow-tint), 0.45);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -207,7 +236,6 @@
 .ghost:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
 .quiet-danger:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
   background: color-mix(in srgb, var(--b-ink) 7%, transparent);
-  transform: none;
   box-shadow: none;
 }
 
@@ -215,7 +243,6 @@
 .ghost:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
 .quiet-danger:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
   background: color-mix(in srgb, var(--b-ink) 12%, transparent);
-  transform: scale(0.96);
   box-shadow: none;
 }
 
@@ -316,12 +343,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .button,
-  .button::before {
+  .button::before,
+  .label {
     transition: none;
   }
 
-  .button:hover:not(:disabled),
-  .button:active:not(:disabled) {
+  .button:active:not(:disabled) > .label {
     transform: none;
   }
 
