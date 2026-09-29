@@ -5,7 +5,7 @@ A calm, airy catalogue with plenty of whitespace. Surfaces stay flat and quiet, 
 ## Sources of truth
 
 - `packages/web/src/styles/tokens.css`: every colour, type, space, radius, motion and layer token, for light and dark.
-- `packages/web/src/styles/index.css`: baseline element styles. They are wrapped in `:where()`, so any class overrides them.
+- `packages/web/src/styles/index.css`: baseline element styles. They are wrapped in `:where()`, so any class overrides them. The baseline is deliberately neutral: a bare `<button>` gets a flat `--accent` background colour, `--radius-md` and no shadow, gradient or filter, so a page class that sets only `background-color` or `background: transparent` replaces it completely. Bare `h1`/`h2` stay in the body face. The gloss and the display face are opt-in through the primitives and the `--type-*` tokens. `baselineStyles.test.ts` guards this.
 - `packages/web/src/components/ui/`: production primitives.
 - `packages/web/src/theme.ts`: the theme preference (system, light or dark).
 - `packages/web/design-system.html`: a live catalogue of every primitive in both themes. Vite serves it at `/design-system.html` during development. It is not a production route.
@@ -20,7 +20,7 @@ A calm, airy catalogue with plenty of whitespace. Surfaces stay flat and quiet, 
 
 ## Typography
 
-The faces are Urbanist (display), Figtree (body and controls) and JetBrains Mono (paths, tag keys and diffs). They are Google Fonts, self-hosted through `@fontsource` so an offline homelab still gets them. The app never calls a font CDN.
+The faces are Urbanist (display), Figtree (body and controls) and JetBrains Mono (paths, tag keys and diffs). They are Google Fonts, self-hosted through `@fontsource` so an offline homelab still gets them. The app never calls a font CDN. Urbanist is loaded in weights 200, 300 and 400 only, so it is applied only through `--type-display`, `--type-headline` and `--type-title` (PageShell, Card and EmptyState titles), never to bare headings: a page heading class with a bold weight would otherwise get a synthesised bold. Figtree is loaded from 400 to 700.
 
 | Role | Token | Face and size | Use |
 | --- | --- | --- | --- |
@@ -57,7 +57,7 @@ Components use the palette tokens. Legacy names such as `--bg-primary`, `--text-
 | Status dots | `--ok`, `--warn` | #387352, #8A5E0E | #6DBE8F, #D9A94A |
 | Focus ring | `--ring` | #276A82 | #8ACBE0 |
 
-`tokenContrast.test.ts` uses the WCAG formula to check every ink-on-fill pair the primitives use, in both themes. Text pairs must reach 4.5:1 and focus rings and status dots must reach 3:1. The same test checks that the two dark blocks (the OS setting and the explicit choice) are identical. Measured values differ slightly from the original specimen: `--ink-3`, `--ok` and `--warn` were darkened in light mode so that they pass on `--mist` and their tints.
+`tokenContrast.test.ts` uses the WCAG formula to check every ink-on-fill pair the primitives use, in both themes. Text pairs must reach 4.5:1 and focus rings (including the invalid-field outline and a ring over a selected row) and status dots must reach 3:1. Resting control borders are held above hairlines but below 3:1 on purpose: the field is identified by its fill, label and placeholder, and the focus ring carries the 3:1 guarantee. The same test checks that the two dark blocks (the OS setting and the explicit choice) are identical. Measured values differ slightly from the original specimen: `--ink-3`, `--ok` and `--warn` were darkened in light mode so that they pass on `--mist` and their tints.
 
 **Themes.** Light is the default. The dark palette applies when the OS prefers dark, unless the viewer chose light, or whenever `data-theme="dark"` is set. Settings > Appearance has a System / Light / Dark switch (`ThemeSwitch`). The choice is stored in `localStorage` under the key `tagave-theme`, with every access guarded. An inline script in `index.html` applies the choice before first paint.
 
@@ -102,7 +102,7 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 
 ## Other primitives
 
-- **Input, Select, Textarea, TextField:** recessed pills, 48px tall (36px with `dense`), with a 1px `--line` border and an inner shadow. Focus turns the border `--dew` and adds a 4px dew halo. `TextField` owns the label, ID, required marker, hint, error and `aria-describedby`. Its `previousValue` shows a pending change struck through, with a dew dot, for bulk tag editing. A blank previous value reads "(empty)", never nothing. Textareas use `--r-inner`. Checkboxes and radios stay native, with `accent-color`.
+- **Input, Select, Textarea, TextField:** recessed pills, 48px tall (36px with `dense`), with a 1px `--control-border` (`--line-strong`) border and an inner shadow. Focus turns the border `--dew` and adds a 4px dew halo, and `:focus-visible` adds a solid 2px `--ring` outline (`--danger` when invalid). The outline is the indicator that must reach 3:1; the halo is decoration. `TextField` owns the label, ID, required marker, hint, error and `aria-describedby`. Its `previousValue` shows a pending change struck through, with a dew dot, for bulk tag editing. Leave `previousValue` undefined when there is no pending change. `null` (an absent tag), `''` and whitespace-only values read "(empty)", never nothing. Textareas use `--r-inner`. Checkboxes and radios stay native, with `accent-color`.
 - **SearchField:** a search pill with a leading icon and a trailing `/` hint. It needs a `label` for its accessible name. Pressing `/` anywhere outside a text field focuses it.
 - **Chip:** a 30px pill in Figtree 500 13px. With `onClick` it becomes a toggle button with `aria-pressed`. An `active` chip uses a dew tint with a deep dew label. `dot` adds a 6px status dot. Chips never get the glint.
 - **Badge:** a quiet status pill. The state is written in words, and the colour appears only as a dot. `statusTone()` maps plan and job states to a tone.

@@ -167,7 +167,7 @@
   --control-height: var(--h-control);
   --control-height-sm: var(--h-control-sm);
   --control-padding-x: 1.125rem;
-  --control-border: var(--line);
+  --control-border: var(--line-strong);
   --focus-ring: 2px solid var(--ring);
   --focus-offset: 3px;
   --opacity-disabled: 0.5;

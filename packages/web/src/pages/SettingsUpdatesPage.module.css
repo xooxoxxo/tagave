@@ -63,8 +63,8 @@
   margin-left: var(--space-xs);
   padding: 0 0.45rem;
   border-radius: var(--radius-full);
-  background: var(--warning);
-  color: #1a1a1a;
+  background: var(--surface-warning);
+  color: var(--warning);
   font-size: var(--font-size-xs);
   font-weight: 600;
 }

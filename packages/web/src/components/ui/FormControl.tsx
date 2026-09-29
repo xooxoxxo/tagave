@@ -27,7 +27,11 @@ export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement>, D
   label: ReactNode;
   hint?: ReactNode;
   error?: ReactNode;
-  /** The value before a pending edit; shown struck through under the field. */
+  /**
+   * The value before a pending edit; shown struck through under the field.
+   * Leave it undefined when there is no pending edit. null, '' or whitespace
+   * mean the tag was absent or blank and show as "(empty)", never nothing.
+   */
   previousValue?: ReactNode;
 }
 
@@ -38,7 +42,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({ label, 
   const messageId = `${inputId}-message`;
   const pendingId = `${inputId}-previous`;
   const message = error || hint;
-  const hasPending = previousValue !== undefined && previousValue !== null;
+  const hasPending = previousValue !== undefined;
   return <div className={styles.field}>
     <label className={styles.label} htmlFor={inputId}>{label}{props.required && <span aria-hidden="true"> *</span>}</label>
     <Input {...props} ref={ref} id={inputId} aria-invalid={error ? true : props['aria-invalid']} aria-describedby={[describedBy, hasPending ? pendingId : undefined, message ? messageId : undefined].filter(Boolean).join(' ') || undefined} />
@@ -48,10 +52,15 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(({ label, 
 });
 TextField.displayName = 'TextField';
 
+/** An absent or blank previous value: null/undefined, a boolean, or a string of only whitespace. */
+function isBlank(value: ReactNode): boolean {
+  return value === null || value === undefined || typeof value === 'boolean' || (typeof value === 'string' && value.trim() === '');
+}
+
 /** "Was: old value" line with a dew dot, for fields that carry an unsaved change. */
 export function PendingValue({ previous, id }: { previous: ReactNode; id?: string }) {
   return <p className={styles.pending} id={id}>
-    <span className="visually-hidden">Currently </span><s>{previous === '' ? '(empty)' : previous}</s>
+    <span className="visually-hidden">Currently </span><s>{isBlank(previous) ? '(empty)' : previous}</s>
     <span className={styles.pendingDot} aria-hidden="true" />
   </p>;
 }

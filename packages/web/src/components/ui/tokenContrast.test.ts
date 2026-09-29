@@ -87,7 +87,21 @@ const textPairs: [ink: string, surface: string][] = [
 const nonTextPairs: [mark: string, surface: string][] = [
   ['ring', 'canvas'], ['ring', 'surface'], ['ring', 'mist'],
   ['ok', 'canvas'], ['warn', 'canvas'], ['danger', 'canvas'], ['dew', 'canvas'],
+  // focus indicator: the 2px --ring outline around a focused control, on every
+  // surface a control sits on (including a selected row), and the invalid
+  // variant, which swaps the outline colour to --danger
+  ['ring', 'dew-tint'], ['ring', 'mist-2'], ['danger', 'surface'], ['danger', 'mist'],
+  // the focused field's border
+  ['dew', 'surface'],
 ];
+
+/*
+ * Resting control borders (--control-border = --line-strong) are deliberately
+ * lighter than 3:1: a field is identified by its recessed fill, its label and
+ * its placeholder, and the solid focus ring above carries the 3:1 guarantee.
+ * This floor only stops the border from fading back into the hairlines.
+ */
+const controlBorderFloor = 1.5;
 
 describe.each(Object.entries(themes))('%s theme', (_name, theme) => {
   it.each(textPairs)('%s on %s meets AA text contrast (4.5:1)', (ink, surface) => {
@@ -95,6 +109,12 @@ describe.each(Object.entries(themes))('%s theme', (_name, theme) => {
   });
   it.each(nonTextPairs)('%s on %s meets AA non-text contrast (3:1)', (mark, surface) => {
     expect(contrast(hex(theme, mark), fill(theme, surface))).toBeGreaterThanOrEqual(3);
+  });
+  it('control borders are stronger than hairlines and clear the floor', () => {
+    const border = hex(theme, 'control-border');
+    expect(border).toBe(hex(theme, 'line-strong'));
+    expect(contrast(border, hex(theme, 'surface'))).toBeGreaterThan(contrast(hex(theme, 'line'), hex(theme, 'surface')));
+    expect(contrast(border, hex(theme, 'surface'))).toBeGreaterThanOrEqual(controlBorderFloor);
   });
 });
 

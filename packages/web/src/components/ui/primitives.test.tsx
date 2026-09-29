@@ -82,6 +82,24 @@ describe('fields', () => {
   it('says (empty) rather than showing nothing for a blank previous value', () => {
     expect(renderToStaticMarkup(<TextField id="g" label="Genre" previousValue="" />)).toContain('<s>(empty)</s>');
   });
+
+  it('says (empty) when the previous tag was absent (null)', () => {
+    const html = renderToStaticMarkup(<TextField id="aa" label="Album artist" value="Various Artists" readOnly previousValue={null} />);
+    expect(html).toContain('<s>(empty)</s>');
+    expect(html).toContain('aria-describedby="aa-previous"');
+  });
+
+  it('says (empty) rather than an empty strikethrough for a whitespace-only previous value', () => {
+    const html = renderToStaticMarkup(<TextField id="t" label="Title" previousValue="   " />);
+    expect(html).toContain('<s>(empty)</s>');
+    expect(html).not.toMatch(/<s>\s*<\/s>/);
+  });
+
+  it('shows no pending line when previousValue is not given', () => {
+    const html = renderToStaticMarkup(<TextField id="n" label="Title" />);
+    expect(html).not.toContain('<s>');
+    expect(html).not.toContain('n-previous');
+  });
 });
 
 describe('Tooltip', () => {

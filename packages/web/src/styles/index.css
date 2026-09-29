@@ -46,21 +46,22 @@ body {
   color: var(--ink);
 }
 
-/* Thin display face for page and section titles only; everything someone has
- * to read or scan stays in the body face. */
+/* Bare headings stay in the body face. The thin display face is applied only
+ * through the --type-* tokens (PageShell title, Card title, EmptyState), since
+ * pages still give their own heading classes weights of 500 to 700 without
+ * resetting the family, and Urbanist is loaded in its thin weights only. */
+:where(h1, h2) {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
 :where(h1) {
-  font-family: var(--font-display);
-  font-weight: 300;
   font-size: var(--font-size-2xl);
-  letter-spacing: -0.01em;
   text-wrap: balance;
 }
 
 :where(h2) {
-  font-family: var(--font-display);
-  font-weight: 400;
   font-size: var(--font-size-xl);
-  letter-spacing: 0;
 }
 
 :where(h3, h4, h5, h6) {
@@ -97,7 +98,7 @@ body {
   font-size: inherit;
   color: var(--ink);
   background: linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface));
-  border: 1px solid var(--line);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-pill);
   min-height: 2.5rem;
   padding: 0.5rem 1rem;
@@ -110,11 +111,10 @@ body {
 }
 
 :where(input, textarea, select):hover {
-  border-color: var(--line-strong);
+  border-color: var(--ink-3);
 }
 
 :where(input, textarea, select):focus {
-  outline: none;
   border-color: var(--dew);
   box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.05), 0 0 0 4px color-mix(in srgb, var(--dew) 22%, transparent);
 }
@@ -133,30 +133,33 @@ body {
   accent-color: var(--dew);
 }
 
-/* ---- Buttons (baseline for page-level buttons not yet on <Button>) ---- */
+/* ---- Buttons (baseline for page-level buttons not yet on <Button>) ----
+ * Deliberately flat: background-color only, no background-image, no
+ * box-shadow, the old inner radius. Page classes that set only
+ * background-color (or background: transparent) must fully replace this, so
+ * nothing from the drop recipe may leak in here. The gummy-glass finish is
+ * opt-in through <Button>/<IconButton> (components/ui/Button.module.css). */
 :where(button) {
   font-family: inherit;
-  font-size: var(--font-size-sm);
+  font-size: inherit;
   font-weight: 600;
-  letter-spacing: 0.01em;
   min-height: 2.5rem;
-  padding: 0.5rem 1.125rem;
-  border: 1px solid transparent;
-  border-radius: var(--r-pill);
-  background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%);
-  color: var(--dew-ink);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 6px rgba(0, 0, 0, 0.14), 0 6px 14px -10px rgba(var(--shadow-tint), 0.6);
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--accent);
+  color: var(--on-accent);
   cursor: pointer;
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) ease, filter var(--dur) ease;
+  transition: background-color var(--dur) ease, color var(--dur) ease, border-color var(--dur) ease;
 }
 
 :where(button:hover:not(:disabled)) {
-  filter: brightness(1.05) saturate(1.05);
+  background-color: var(--accent-hover);
 }
 
 :where(button:active:not(:disabled)) {
-  transform: translateY(1px) scale(0.98);
-  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.25);
+  background-color: var(--accent-active);
+  transform: translateY(1px);
 }
 
 :where(button:disabled) {
@@ -165,10 +168,13 @@ body {
 }
 
 :where(button.secondary) {
-  background: linear-gradient(180deg, var(--surface), var(--mist));
+  background-color: var(--surface);
   color: var(--ink);
-  border-color: var(--glass-edge);
-  box-shadow: inset 0 1px 0 var(--highlight), 0 6px 14px -12px rgba(var(--shadow-tint), 0.5);
+  border: 1px solid var(--line-strong);
+}
+
+:where(button.secondary:hover:not(:disabled)) {
+  background-color: var(--mist);
 }
 
 /* ---- Links ---- */
