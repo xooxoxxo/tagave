@@ -17,8 +17,8 @@ import { BulkTagEditor } from '../components/BulkTagEditor';
 import { useMergeAlbums } from '../hooks/useCompilations';
 import { activeFilterCount, albumsQueryOf, toggleMulti, type AlbumsSearch } from './albumsSearch';
 import {
-  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, rangeIds, rememberScroll, setAlbumListMemory, toggled,
-  useAlbumListMemory, withIds,
+  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, rememberScroll, selectionSize,
+  setAlbumListMemory, toggled, useAlbumListMemory, withIds,
 } from './albumSelection';
 import { PlanWizard } from '../components/PlanWizard';
 import styles from './AlbumsPage.module.css';
@@ -30,6 +30,8 @@ const CARD_CHROME = 106;
 const LIST_ROW = 46;
 /** The API caps one bulk call at 1000 ids. */
 const BULK_ID_CHUNK = 1000;
+/** A scroll restore that has not landed by then stops where it is. */
+const RESTORE_GIVE_UP_MS = 8000;
 
 const STATE_LABEL: Record<string, string> = {
   matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
@@ -59,18 +61,40 @@ export function AlbumsPage() {
   const view = search.view ?? 'grid';
   const activeCount = activeFilterCount(search);
 
+  // Search box: local echo, URL after a short pause.
+  const [q, setQ] = useState(search.q ?? '');
+
   type SearchPatch = { [K in keyof AlbumsSearch]?: AlbumsSearch[K] | undefined };
+  /**
+   * Every change of this list's filters, search or sort comes through here. A
+   * different list starts a new selection, so with albums selected it asks
+   * first; Stay keeps the list (and puts the search box back) as it was.
+   * Clearing before navigating lets AlbumSelectionGuard pass it without asking again.
+   */
+  const goToList = useCallback(async (next: AlbumsSearch) => {
+    const m = getAlbumListMemory();
+    const count = selectionSize(m);
+    if (count > 0 && m.queryKey === albumsSelectionKey(search) && albumsSelectionKey(next) !== m.queryKey) {
+      const ok = await confirmDialog({
+        title: leaveMessage(count),
+        message: 'Changing the filters, search or sort starts a new selection. The albums themselves are not changed.',
+        confirmLabel: 'Change and clear',
+        cancelLabel: 'Stay',
+      });
+      if (!ok) { setQ(search.q ?? ''); return; }
+      clearAlbumSelection();
+    }
+    void navigate({ to: '/albums', search: next as never });
+  }, [navigate, search]);
   const setSearch = useCallback((patch: SearchPatch) => {
     const next: Record<string, unknown> = { ...search, ...patch };
     for (const k of Object.keys(next)) {
       const v = next[k];
       if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) delete next[k];
     }
-    navigate({ to: '/albums', search: next as never });
-  }, [navigate, search]);
+    void goToList(next as AlbumsSearch);
+  }, [goToList, search]);
 
-  // Search box: local echo, URL after a short pause.
-  const [q, setQ] = useState(search.q ?? '');
   useEffect(() => { setQ(search.q ?? ''); }, [search.q]);
   useEffect(() => {
     if ((search.q ?? '') === q.trim()) return;
@@ -223,27 +247,40 @@ export function AlbumsPage() {
   /* ---- scroll: remembered per list, restored on the way back from an album ---- */
   const restoreTo = useRef<number | null>(null);
   const restoreKey = useRef<string | null>(null);
+  const restoreStarted = useRef(0);
   if (restoreKey.current !== queryKey) {
     // First render for this list: pick up where it was left, if it was this list.
     restoreKey.current = queryKey;
     const m = getAlbumListMemory();
     restoreTo.current = m.queryKey === queryKey && m.scrollTop > 0 ? m.scrollTop : null;
+    restoreStarted.current = Date.now();
   }
   const totalSize = virtualizer.getTotalSize();
   useEffect(() => {
     const el = scrollRef.current;
     const target = restoreTo.current;
-    if (!el || target == null || items.length === 0) return;
+    if (target == null) return;
+    // A failed page load or a restore that drags on gives up where it is, so
+    // scrolling is remembered again from here on.
+    if (error || Date.now() - restoreStarted.current > RESTORE_GIVE_UP_MS) { restoreTo.current = null; return; }
+    if (!el || items.length === 0) return;
     el.scrollTop = target;
     // Reached it, or nothing more to load: done. Otherwise the scroll to the
     // bottom pulls the next page and this runs again with a taller canvas.
     if (Math.abs(el.scrollTop - target) < 2 || (!hasNextPage && !isFetchingNextPage)) restoreTo.current = null;
-  }, [totalSize, items.length, hasNextPage, isFetchingNextPage]);
+  }, [totalSize, items.length, hasNextPage, isFetchingNextPage, error]);
+  // The give-up time also applies when nothing rerenders (a page load that hangs).
+  useEffect(() => {
+    if (restoreTo.current == null) return;
+    const t = setTimeout(() => { restoreTo.current = null; }, RESTORE_GIVE_UP_MS);
+    return () => clearTimeout(t);
+  }, [queryKey]);
   const onGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     if (restoreTo.current != null) return;
     rememberScroll(queryKey, e.currentTarget.scrollTop);
   }, [queryKey]);
-  // The owner scrolling takes over from a restore still in progress.
+  // The owner scrolling (wheel, touch, the scrollbar, the keyboard) takes over
+  // from a restore still in progress.
   const stopRestore = useCallback(() => { restoreTo.current = null; }, []);
 
   const [planIds, setPlanIds] = useState<string[] | null>(null);
@@ -255,8 +292,8 @@ export function AlbumsPage() {
   if (!libraryId) return <div className={styles.container} data-virtual-page>Loading library...</div>;
 
   const open = (albumId: string) => navigate({ to: `/albums/${albumId}` });
-  const clearAll = () => navigate({ to: '/albums', search: { ...(search.sort && { sort: search.sort }), ...(search.view && { view: search.view }) } as never });
-  const applyView = (v: SavedView) => navigate({ to: '/albums', search: v.query as never });
+  const clearAll = () => void goToList({ ...(search.sort && { sort: search.sort }), ...(search.view && { view: search.view }) });
+  const applyView = (v: SavedView) => void goToList(v.query as AlbumsSearch);
   const saveView = () => {
     const name = window.prompt('Name this view', '');
     if (!name?.trim()) return;
@@ -449,7 +486,7 @@ export function AlbumsPage() {
             </div>
           )}
 
-          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined} onScroll={onGridScroll} onWheel={stopRestore} onTouchStart={stopRestore}>
+          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined} onScroll={onGridScroll} onWheel={stopRestore} onTouchStart={stopRestore} onPointerDown={stopRestore} onKeyDown={stopRestore}>
             {items.length > 0 && (gridWidth > 0 || view === 'list') && (
               <div className={styles.virtualCanvas} style={{ height: virtualizer.getTotalSize() }}>
                 {virtualRows.map((row) => {

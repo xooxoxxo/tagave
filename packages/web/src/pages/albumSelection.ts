@@ -104,19 +104,14 @@ export interface LeaveInput {
  *
  *  - nothing selected: allow
  *  - into an album: allow (the selection is waiting on the way back)
- *  - back to the same list: allow
- *  - to the list with other filters, from the list itself: allow — changing a
- *    filter starts a new selection, as it always has
- *  - to the list with other filters from elsewhere, or anywhere else: confirm
+ *  - back to the same list (only the view differs): allow
+ *  - to the list with other filters, search or sort — from the list itself
+ *    too, since that starts a new selection — or anywhere else: confirm
  */
 export function selectionLeaveRule(input: LeaveInput): 'allow' | 'confirm' {
   if (input.count <= 0) return 'allow';
   if (ALBUM_DETAIL.test(input.toPath)) return 'allow';
-  if (ALBUM_LIST.test(input.toPath)) {
-    if (input.toKey === input.selectionKey) return 'allow';
-    if (ALBUM_LIST.test(input.fromPath)) return 'allow';
-    return 'confirm';
-  }
+  if (ALBUM_LIST.test(input.toPath) && input.toKey === input.selectionKey) return 'allow';
   return 'confirm';
 }
 
@@ -182,6 +177,24 @@ export function clearAlbumSelection() {
   setAlbumListMemory((prev) => (prev.ids.length === 0 && !prev.allMatching && prev.anchorId === null
     ? prev
     : { ...prev, ids: [], allMatching: false, anchorId: null }));
+}
+
+/**
+ * Albums that no longer exist (merged into another by "Treat as one album",
+ * on the list or on an album page): take them out of the waiting selection so
+ * a bulk action never runs on them.
+ */
+export function dropFromAlbumSelection(gone: readonly string[]) {
+  if (gone.length === 0) return;
+  const drop = new Set(gone);
+  setAlbumListMemory((prev) => {
+    if (!prev.ids.some((id) => drop.has(id)) && !(prev.anchorId && drop.has(prev.anchorId))) return prev;
+    return {
+      ...prev,
+      ids: prev.ids.filter((id) => !drop.has(id)),
+      anchorId: prev.anchorId && drop.has(prev.anchorId) ? null : prev.anchorId,
+    };
+  });
 }
 
 export function useAlbumListMemory(): AlbumListMemory {

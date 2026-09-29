@@ -5,6 +5,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ManualTagValues } from '@liner/shared';
 import { api } from '../services/api';
+import { dropFromAlbumSelection } from '../pages/albumSelection';
 
 export type EditScope =
   | { type: 'albumIds'; albumIds: string[] }
@@ -61,6 +62,8 @@ export function useMergeAlbums(libraryId: string | undefined) {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ['album', data.albumId] });
       for (const id of data.mergedAlbumIds) qc.removeQueries({ queryKey: ['album', id] });
+      // The merged-away albums are gone: a selection waiting on the album list must not keep them.
+      dropFromAlbumSelection(data.mergedAlbumIds.filter((id) => id !== data.albumId));
       qc.invalidateQueries({ queryKey: ['albums'] });
       qc.invalidateQueries({ queryKey: ['album-facets'] });
       qc.invalidateQueries({ queryKey: ['artists'] });

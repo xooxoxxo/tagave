@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  __resetAlbumListMemory, albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds,
+  __resetAlbumListMemory, albumsSelectionKey, clearAlbumSelection, dropFromAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds,
   rememberScroll, selectionLeaveRule, selectionSize, setAlbumListMemory, toggled, withIds, type LeaveInput,
 } from './albumSelection';
 
@@ -95,8 +95,13 @@ describe('selectionLeaveRule', () => {
     expect(selectionLeaveRule({ ...base, fromPath: '/albums/abc', toPath: '/albums', toKey: albumsSelectionKey({}) })).toBe('confirm');
   });
 
-  it('keeps the old behaviour for a filter change on the list itself', () => {
-    expect(selectionLeaveRule({ ...base, fromPath: '/albums', toPath: '/albums', toKey: albumsSelectionKey({ q: 'x' }) })).toBe('allow');
+  it('asks before a filter, search or sort change on the list itself drops the selection', () => {
+    expect(selectionLeaveRule({ ...base, fromPath: '/albums', toPath: '/albums', toKey: albumsSelectionKey({ q: 'x' }) })).toBe('confirm');
+    expect(selectionLeaveRule({ ...base, fromPath: '/albums', toPath: '/albums', toKey: albumsSelectionKey({ sort: 'year' }) })).toBe('confirm');
+  });
+
+  it('lets the grid/list view switch through, since it is the same list', () => {
+    expect(selectionLeaveRule({ ...base, fromPath: '/albums', toPath: '/albums', toKey: albumsSelectionKey({ genre: ['Jazz'], view: 'list' }) })).toBe('allow');
   });
 
   it('words the question with the count', () => {
@@ -115,5 +120,14 @@ describe('store', () => {
     expect(getAlbumListMemory()).toMatchObject({ queryKey: 'k', ids: ['a', 'b'], anchorId: 'b', scrollTop: 900 });
     clearAlbumSelection();
     expect(getAlbumListMemory()).toMatchObject({ queryKey: 'k', ids: [], allMatching: false, anchorId: null, scrollTop: 900 });
+  });
+
+  it('drops albums merged away elsewhere, and the anchor with them', () => {
+    setAlbumListMemory((p) => ({ ...p, queryKey: 'k', ids: ['a', 'b', 'c'], anchorId: 'c' }));
+    dropFromAlbumSelection(['c', 'z']);
+    expect(getAlbumListMemory()).toMatchObject({ ids: ['a', 'b'], anchorId: null });
+    const before = getAlbumListMemory();
+    dropFromAlbumSelection(['z']);
+    expect(getAlbumListMemory()).toBe(before);
   });
 });
