@@ -1,0 +1,48 @@
+/* Result of an applied plan: a quiet card, the album(s) as rows with covers. */
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.head { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; }
+.eyebrow { margin: 0; font: var(--type-label); text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+.headline { margin: 0; font: var(--type-title); color: var(--ink); overflow-wrap: anywhere; }
+.meta { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); font-size: var(--font-size-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+.updating { display: inline-flex; align-items: center; gap: var(--space-xs); color: var(--ink-2); }
+.spinner {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--dew) 25%, transparent);
+  border-top-color: var(--dew);
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+.albums { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-md) var(--space-xl); }
+.album { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: var(--space-md); min-width: 0; }
+
+.cover { display: block; width: 64px; height: 64px; border-radius: var(--r-inner); overflow: hidden; background: var(--mist); box-shadow: inset 0 0 0 1px var(--line); }
+.cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.coverBlank { display: block; width: 100%; height: 100%; background: linear-gradient(135deg, var(--mist), color-mix(in srgb, var(--dew) 10%, var(--mist))); }
+
+.text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.title { color: var(--ink); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+.title:hover { color: var(--dew); text-decoration: underline; text-underline-offset: 0.2em; }
+.artist { color: var(--ink-2); text-decoration: none; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.artist:hover { color: var(--dew); text-decoration: underline; text-underline-offset: 0.2em; }
+.small { color: var(--ink-3); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .results { padding: var(--space-lg); }
+  .albums { grid-template-columns: 1fr; }
+}
+
+/* A reverted plan: one plain sentence, no card. */
+.reverted { margin: 0; font-size: var(--font-size-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }

@@ -141,6 +141,7 @@ export const tagPlanStatsSchema = z.object({
   filesAlreadyCorrect: z.number().int().nonnegative().optional().describe('Files compared that already carry every value the policy would write'),
   filesLockedOnly: z.number().int().nonnegative().optional().describe('Files whose only would-be changes are blocked by locks'),
   lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
+  albumsBefore: z.number().int().nonnegative().optional().describe('Different albums that held the files to write when the first apply run started'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;
@@ -153,6 +154,7 @@ export const tagPlanSchema = z.object({
   id: z.string().uuid().describe('Tag plan ID (UUIDv7)'),
   libraryId: z.string().uuid().describe('Library ID'),
   name: z.string().describe('User-friendly plan name'),
+  nameByUser: z.boolean().optional().describe('The owner renamed the plan; the name is never rewritten automatically'),
   scope: tagPlanScopeSchema.describe('Scope: which files this applies to'),
   scopeLabel: z.string().optional().describe('Human-readable scope (artist name, album count); resolved by the API on list and detail'),
   policy: tagPoliciesSchema.describe('Write policy'),
@@ -208,6 +210,64 @@ export const createTagPlanSchema = z.object({
 }).strict().describe('Create a new tag plan');
 
 export type CreateTagPlan = z.infer<typeof createTagPlanSchema>;
+
+/** Longest plan name the database holds (tag_plans.name varchar(255)). */
+export const TAG_PLAN_NAME_MAX = 255;
+
+/**
+ * Rename a plan. Body for PATCH /api/v1/libraries/:libraryId/tag-plans/:planId.
+ * The name is trimmed; blank is refused. A name set here is the owner's and
+ * is never rewritten automatically afterwards.
+ */
+export const renameTagPlanSchema = z.object({
+  name: z.string()
+    .transform((s) => s.replace(/\s+/g, ' ').trim())
+    .pipe(z.string().min(1, 'The name cannot be empty').max(TAG_PLAN_NAME_MAX, `The name can be at most ${TAG_PLAN_NAME_MAX} characters`)),
+}).strict().describe('Rename a tag plan');
+
+export type RenameTagPlan = z.infer<typeof renameTagPlanSchema>;
+
+/**
+ * One album that holds files a plan wrote, as it stands now (after the
+ * worker re-clustered the folders the plan touched).
+ */
+export const tagPlanResultAlbumSchema = z.object({
+  id: z.string().uuid(),
+  title: z.string(),
+  artistCredit: z.string(),
+  /** canonical artist to link to; null when the artist is known only from tags */
+  artistId: z.string().uuid().nullable(),
+  year: z.number().int().nullable(),
+  coverUrl: z.string().nullable(),
+  trackCount: z.number().int().nonnegative(),
+  /** files of this plan that now sit in this album */
+  planFiles: z.number().int().nonnegative(),
+}).strict();
+
+export type TagPlanResultAlbum = z.infer<typeof tagPlanResultAlbumSchema>;
+
+/**
+ * What an applied plan left behind. GET /tag-plans/:planId/results.
+ * `updating` is true while the worker is still re-clustering the plan's
+ * folders; the albums are then those of before the re-cluster.
+ */
+export const tagPlanResultsSchema = z.object({
+  filesWritten: z.number().int().nonnegative(),
+  filesFailed: z.number().int().nonnegative(),
+  /**
+   * how many different albums held the plan's files when it started writing
+   * (recorded by tags.apply); null for plans applied before it was recorded
+   */
+  albumsBefore: z.number().int().nonnegative().nullable(),
+  /** how many albums hold the plan's written files now; `albums` lists at most the first 60 */
+  albumCount: z.number().int().nonnegative(),
+  albums: z.array(tagPlanResultAlbumSchema),
+  /** written files that belong to no album */
+  looseFiles: z.number().int().nonnegative(),
+  updating: z.boolean(),
+}).strict();
+
+export type TagPlanResults = z.infer<typeof tagPlanResultsSchema>;
 
 /**
  * Tag plan item — a per-file diff entry in a plan.

@@ -11,10 +11,16 @@ import {
   libraries,
   scanRoots,
   artists,
+  images,
+  releaseGroupArtists,
 } from '@liner/db';
 import {
   type CreateTagPlan,
   createTagPlanSchema,
+  renameTagPlanSchema,
+  displayArtistName,
+  type TagPlanResultAlbum,
+  type TagPlanResults,
   tagPlanScopeSchema,
   type TagPlan,
   type TagPlanItem,
@@ -109,6 +115,23 @@ async function scopeLabels(db: ReturnType<typeof getDb>, scopes: TagPlanScope[])
 /** Plans that can still change: nothing has been written to disk yet. */
 const OPEN_PLAN_STATUSES: string[] = ['draft', 'previewed'];
 const PLAN_CLOSED = 'This plan has already been applied or is being applied. Start a new plan instead.';
+/** Statuses a plan can have after writing at least one file. */
+const WROTE_STATUSES: string[] = ['applying', 'paused', 'applied', 'partially_failed', 'cancelled', 'reverted'];
+
+/**
+ * Why a plan cannot be deleted, or null when it can. A plan that wrote files
+ * holds the journal (the tags each file had before) that Revert restores
+ * from; deleting it would make those writes permanent. Once it has been
+ * reverted the old tags are back, and it can go.
+ */
+export function deleteRefusal(status: string, filesWritten: number): string | null {
+  if (status === 'applying') return 'This plan is writing tags right now. Wait for it to finish, or cancel it first.';
+  if (filesWritten > 0 && status !== 'reverted') {
+    const files = filesWritten === 1 ? '1 file' : `${filesWritten.toLocaleString('en-US')} files`;
+    return `This plan wrote tags to ${files}, and it holds the old tags that Revert puts back, so it is kept. Revert it first if you want it gone.`;
+  }
+  return null;
+}
 
 const addItemsSchema = z.object({
   scope: z.object({
@@ -116,6 +139,160 @@ const addItemsSchema = z.object({
     albumIds: z.array(z.string().uuid()).min(1).max(5000),
   }),
 });
+
+/** Most albums the results list; a whole-library plan names the first ones. */
+const RESULT_ALBUMS_MAX = 60;
+
+const relDir = (relPath: string) => {
+  const i = relPath.lastIndexOf('/');
+  return i < 0 ? '' : relPath.slice(0, i);
+};
+
+/** `in (...)` over text values; drizzle would turn a bare JS array into a record. */
+const textList = (values: string[]) => sql.join(values.map((v) => sql`${v}`), sql`, `);
+
+/**
+ * The albums that hold a plan's written files now, for the results section.
+ * `updating` stays true while tags.apply is still writing or a cluster.dir
+ * job for one of the plan's folders is queued or running (the worker queues
+ * one per folder when an apply finishes).
+ */
+export async function planResults(
+  db: ReturnType<typeof getDb>,
+  planId: string,
+  status: string,
+  rawStats: unknown,
+): Promise<TagPlanResults> {
+  const stats = (typeof rawStats === 'string' ? JSON.parse(rawStats) : rawStats) as { albumsBefore?: unknown } | null;
+  const counts = await db
+    .select({ status: tagPlanItems.status, n: sql<number>`count(*)::int` })
+    .from(tagPlanItems)
+    .where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['applied', 'failed'])))
+    .groupBy(tagPlanItems.status);
+  const filesWritten = counts.find((c) => c.status === 'applied')?.n ?? 0;
+  const filesFailed = counts.find((c) => c.status === 'failed')?.n ?? 0;
+  // What tags.apply counted before it wrote anything: the albums the plan
+  // really started from (not the scope, which may name albums a merge has
+  // since removed, nor a merge that happened before this plan).
+  const albumsBefore = typeof stats?.albumsBefore === 'number' && Number.isInteger(stats.albumsBefore) && stats.albumsBefore >= 0
+    ? stats.albumsBefore : null;
+  if (filesWritten === 0) {
+    return { filesWritten, filesFailed, albumsBefore, albumCount: 0, albums: [], looseFiles: 0, updating: status === 'applying' };
+  }
+
+  const albumRows = (await db.execute(sql`
+    select la.id, la.title_guess, la.artist_guess, la.year_guess, la.track_count, la.release_group_id,
+           count(distinct i.audio_file_id)::int as plan_files
+      from tag_plan_items i
+      join local_tracks lt on lt.audio_file_id = i.audio_file_id
+      join local_albums la on la.id = lt.local_album_id
+     where i.tag_plan_id = ${planId} and i.status = 'applied'
+     group by la.id
+     order by plan_files desc, lower(coalesce(la.title_guess, '')), la.id
+     limit ${RESULT_ALBUMS_MAX}`)) as unknown as Array<{
+    id: string; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
+    track_count: number | null; release_group_id: string | null; plan_files: number;
+  }>;
+  const [countRow] = (await db.execute(sql`
+    select count(distinct lt.local_album_id)::int as n
+      from tag_plan_items i
+      join local_tracks lt on lt.audio_file_id = i.audio_file_id
+     where i.tag_plan_id = ${planId} and i.status = 'applied' and lt.local_album_id is not null`)) as unknown as Array<{ n: number }>;
+  const albumCount = countRow?.n ?? albumRows.length;
+
+  const [loose] = (await db.execute(sql`
+    select count(distinct i.audio_file_id)::int as n
+      from tag_plan_items i
+     where i.tag_plan_id = ${planId} and i.status = 'applied'
+       and not exists (
+         select 1 from local_tracks lt
+          where lt.audio_file_id = i.audio_file_id and lt.local_album_id is not null)`)) as unknown as Array<{ n: number }>;
+
+  const albumIds = albumRows.map((r) => r.id);
+  const withArt = new Set(
+    albumIds.length
+      ? (await db.select({ id: images.localAlbumId }).from(images)
+          .where(and(eq(images.kind, 'front'), inArray(images.localAlbumId, albumIds)))).map((r) => r.id)
+      : [],
+  );
+  const rgIds = [...new Set(albumRows.map((r) => r.release_group_id).filter((x): x is string => !!x))];
+  const leadArtist = new Map<string, string>();
+  if (rgIds.length) {
+    const rows = await db
+      .select({ rg: releaseGroupArtists.releaseGroupId, artistId: releaseGroupArtists.artistId })
+      .from(releaseGroupArtists)
+      .where(inArray(releaseGroupArtists.releaseGroupId, rgIds))
+      .orderBy(releaseGroupArtists.position);
+    for (const r of rows) if (r.artistId && !leadArtist.has(r.rg)) leadArtist.set(r.rg, r.artistId);
+  }
+
+  const albums: TagPlanResultAlbum[] = albumRows.map((r) => ({
+    id: r.id,
+    title: r.title_guess ?? 'Unknown Album',
+    artistCredit: displayArtistName(r.artist_guess) ?? 'Unknown Artist',
+    artistId: (r.release_group_id && leadArtist.get(r.release_group_id)) || null,
+    year: r.year_guess ?? null,
+    coverUrl: withArt.has(r.id) ? `/api/v1/images/album/${r.id}` : null,
+    trackCount: r.track_count ?? 0,
+    planFiles: r.plan_files,
+  }));
+
+  let updating = status === 'applying';
+  if (!updating) {
+    const dirs = await db
+      .selectDistinct({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .from(tagPlanItems)
+      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+      .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+    const rootIds = [...new Set(dirs.map((d) => d.scanRootId))];
+    const dirPaths = [...new Set(dirs.map((d) => relDir(d.relPath)))];
+    if (rootIds.length && dirPaths.length) {
+      const pending = (await db.execute(sql`
+        select 1 from pgboss.job
+         where name = 'cluster.dir'
+           and state in ('created', 'retry', 'active')
+           and data->>'scanRootId' in (${textList(rootIds)})
+           and data->>'dirPath' in (${textList(dirPaths)})
+         limit 1`)) as unknown as unknown[];
+      updating = pending.length > 0;
+    }
+  }
+
+  return { filesWritten, filesFailed, albumsBefore, albumCount, albums, looseFiles: loose?.n ?? 0, updating };
+}
+
+/**
+ * Queue cluster.dir for every folder a plan wrote to (the worker does the
+ * same when an apply finishes or stops). Best effort: a failure is logged,
+ * never shown, since the plan itself is already in its new state.
+ */
+async function queueReclusterOfWrittenDirs(
+  db: ReturnType<typeof getDb>,
+  log: { warn: (obj: object, msg: string) => void },
+  libraryId: string,
+  planId: string,
+): Promise<void> {
+  try {
+    const rows = await db
+      .selectDistinct({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .from(tagPlanItems)
+      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+      .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+    const dirs = new Map<string, { scanRootId: string; dirPath: string }>();
+    for (const r of rows) {
+      const dirPath = relDir(r.relPath);
+      dirs.set(`${r.scanRootId}\n${dirPath}`, { scanRootId: r.scanRootId, dirPath });
+    }
+    if (dirs.size === 0) return;
+    const boss = await getBoss();
+    for (const d of dirs.values()) {
+      await boss.send('cluster.dir', { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
+        { singletonKey: `cluster:${d.scanRootId}:${d.dirPath}`, singletonSeconds: 30 });
+    }
+  } catch (error) {
+    log.warn({ planId, error: String(error) }, 'tag plan cancel: could not queue re-cluster');
+  }
+}
 
 export async function createTagPlansRoutes(fastify: FastifyInstance) {
   /**
@@ -181,16 +358,25 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // A plan whose apply finished with failures may have written nothing at
       // all: send its applied/failed counts so the list can say "failed"
       // instead of "partially failed".
-      const failedIds = plans.filter((p) => p.status === 'partially_failed').map((p) => p.id);
+      // Any plan that wrote files carries its counts too: the list offers
+      // Delete only on plans with nothing written (the journal is what
+      // Revert needs).
+      const wroteIds = plans.filter((p) => WROTE_STATUSES.includes(p.status as string)).map((p) => p.id);
       const outcomes = new Map<string, Record<string, number>>();
-      if (failedIds.length > 0) {
+      if (wroteIds.length > 0) {
         const rows = await db
           .select({ planId: tagPlanItems.tagPlanId, status: tagPlanItems.status, n: sql<number>`count(*)::int` })
           .from(tagPlanItems)
-          .where(and(inArray(tagPlanItems.tagPlanId, failedIds), inArray(tagPlanItems.status, ['applied', 'failed'])))
+          .where(and(inArray(tagPlanItems.tagPlanId, wroteIds), inArray(tagPlanItems.status, ['applied', 'failed'])))
           .groupBy(tagPlanItems.tagPlanId, tagPlanItems.status);
-        for (const id of failedIds) outcomes.set(id, { applied: 0, failed: 0 });
-        for (const r of rows) outcomes.get(r.planId)![r.status ?? 'failed'] = r.n;
+        for (const r of rows) {
+          const o = outcomes.get(r.planId) ?? { applied: 0, failed: 0 };
+          o[r.status ?? 'failed'] = r.n;
+          outcomes.set(r.planId, o);
+        }
+        for (const p of plans) {
+          if (p.status === 'partially_failed' && !outcomes.has(p.id)) outcomes.set(p.id, { applied: 0, failed: 0 });
+        }
       }
 
       const formatted: TagPlan[] = plans.map((p, i) => {
@@ -201,6 +387,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           id: p.id,
           libraryId: p.libraryId,
           name: p.name,
+          ...(p.nameByUser ? { nameByUser: true } : {}),
           scope: scopeData as TagPlanScope,
           scopeLabel: labels[i],
           policy: policyData as TagPolicies,
@@ -413,6 +600,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         id: plan.id,
         libraryId: plan.libraryId,
         name: plan.name,
+        ...(plan.nameByUser ? { nameByUser: true } : {}),
         scope: scopeData as TagPlanScope,
         policy: policyData as TagPolicies,
         status: plan.status as any,
@@ -935,6 +1123,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .set({ status: 'cancelled' })
         .where(eq(tagPlans.id, planId));
 
+      // Files written before the stop regroup by their new tags, as they do
+      // when an apply finishes; the results then show the albums they form.
+      await queueReclusterOfWrittenDirs(db, request.log, libraryId, planId);
+
       reply.send({ status: 'cancelled', message: 'Plan cancelled' });
     }
   );
@@ -1123,7 +1315,8 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
               .flatMap((r) => [r.title, r.rg_title])
               .filter((t): t is string => !!t)
           : [];
-        const newName = grownPlanName(plan.name ?? '', existingScope.albumIds.length, merged.length, firstTitles);
+        // A name the owner set on the plan page is theirs, whatever it says.
+        const newName = plan.nameByUser ? null : grownPlanName(plan.name ?? '', existingScope.albumIds.length, merged.length, firstTitles);
 
         // The status condition repeats the check above inside the write, so
         // nothing that moved the plan on in between gets reset to draft.
@@ -1196,6 +1389,80 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
   );
 
   /**
+   * PATCH /api/v1/libraries/:libraryId/tag-plans/:planId
+   * Rename a plan, in any status. The name becomes the owner's: adding albums
+   * later never rewrites it (see add-items).
+   */
+  fastify.patch<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+      const lib = await db
+        .select({ id: libraries.id })
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+
+      const parsed = renameTagPlanSchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        const shaped = issue && issue.code !== 'invalid_type' && issue.code !== 'unrecognized_keys';
+        throw new ApiError(400, 'Bad Request', shaped ? issue.message : 'Send the new name as { "name": "..." }');
+      }
+
+      const [row] = await db
+        .update(tagPlans)
+        .set({ name: parsed.data.name, nameByUser: true })
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)))
+        .returning({ id: tagPlans.id, name: tagPlans.name });
+      if (!row) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+      reply.send({ id: row.id, name: row.name, nameByUser: true });
+    }
+  );
+
+  /**
+   * GET /api/v1/libraries/:libraryId/tag-plans/:planId/results
+   * What an applied plan left behind: the albums that now hold the files it
+   * wrote (cover, title, artist, how many of the plan's files each holds),
+   * and whether the worker is still re-clustering the plan's folders. After
+   * an apply it re-reads the albums the new tags describe; until that
+   * finishes the albums shown are the ones from before.
+   */
+  fastify.get<{ Params: { libraryId: string; planId: string } }>(
+    '/tag-plans/:planId/results',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+      const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+      const db = getDb();
+      const lib = await db
+        .select({ id: libraries.id })
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) {
+        throw new ApiError(404, 'Not Found', 'Library not found');
+      }
+      const [plan] = await db
+        .select({ status: tagPlans.status, stats: tagPlans.stats })
+        .from(tagPlans)
+        .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+      if (!plan) {
+        throw new ApiError(404, 'Not Found', 'Tag plan not found');
+      }
+      reply.send(await planResults(db, planId, plan.status as string, plan.stats));
+    }
+  );
+
+  /**
    * DELETE /api/v1/libraries/:libraryId/tag-plans/:planId
    * Delete a tag plan and its items
    * Refuses with 409 if the plan is currently applying
@@ -1234,12 +1501,15 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       const plan = plans[0]!;
 
-      // Refuse to delete a plan that is currently applying
-      if (plan.status === 'applying') {
-        throw new ApiError(409, 'Conflict', 'Cannot delete a plan while it is currently applying');
-      }
+      const [written] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(tagPlanItems)
+        .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+      const refusal = deleteRefusal(plan.status as string, written?.n ?? 0);
+      if (refusal) throw new ApiError(409, 'Conflict', refusal);
 
-      // Delete the plan and its items (items cascade due to foreign key)
+      // Delete the plan and its items (items cascade due to foreign key).
+      // No body: the web client reads a 204 as "done" without parsing.
       await db.delete(tagPlans).where(eq(tagPlans.id, planId));
 
       reply.status(204).send();

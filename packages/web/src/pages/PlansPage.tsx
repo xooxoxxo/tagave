@@ -9,11 +9,13 @@ import { api } from '../services/api';
 import type { TagPlan } from '@liner/shared';
 import { PageShell, Button, Badge, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
-import { useTagPlans, useDeleteTagPlan } from '../hooks/usePlanWizard';
+import { useTagPlans, useDeleteTagPlan, useRenameTagPlan } from '../hooks/usePlanWizard';
+import { InlineRename } from '../components/InlineRename';
 import { PlanWizard } from '../components/PlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { planStatusView } from '../utils/planStatus';
 import styles from './PlansPage.module.css';
+import { KEPT_PLAN_NOTE } from './planResultsText';
 
 export function PlansPage() {
   const { libraryId } = useCurrentLibrary();
@@ -96,96 +98,6 @@ export function PlansPage() {
     },
   ];
 
-  // Render a single plan row with delete button
-  const PlanRow = ({ plan }: { plan: TagPlan }) => {
-    const deleteM = useDeleteTagPlan(libraryId, plan.id);
-    const isConfirming = confirmDeleteId === plan.id;
-
-    const handleDelete = async () => {
-      if (!isConfirming) {
-        setConfirmDeleteId(plan.id);
-        return;
-      }
-      try {
-        await deleteM.mutateAsync();
-        setConfirmDeleteId(null);
-      } catch (e) {
-        console.error('Delete failed:', e);
-        setConfirmDeleteId(null);
-      }
-    };
-
-    const canDelete = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(plan.status);
-
-    const cells = (
-      <>
-        <Td>{plan.name || 'Untitled plan'}</Td>
-        <Td className={styles.cellScope}>{scopeLabel(plan)}</Td>
-        <Td>
-          <Badge tone={planStatusView(plan.status, plan.progress).tone}>
-            {planStatusView(plan.status, plan.progress).label}
-          </Badge>
-        </Td>
-        <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-          {plan.stats?.filesTouched ?? '—'}
-        </Td>
-        <Td className={styles.cellDate}>
-          <span title={formatDateTime(plan.createdAt || '')}>
-            {formatRelativeTime(plan.createdAt || '')}
-          </span>
-        </Td>
-        <Td className={styles.cellDate}>
-          {plan.appliedAt ? (
-            <span title={formatDateTime(plan.appliedAt || '')}>
-              {formatRelativeTime(plan.appliedAt || '')}
-            </span>
-          ) : (
-            '—'
-          )}
-        </Td>
-        {canDelete && (
-          <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {/* Quiet danger text in both states. A destructive action on
-                  every row should not outweigh "Create plan"; arming it only
-                  changes the label. */}
-              <Button
-                variant="quiet-danger"
-                size="sm"
-                loading={deleteM.isPending}
-                onClick={handleDelete}
-                disabled={deleteM.isPending}
-                title={isConfirming ? 'Click again to delete permanently' : 'Delete this plan'}
-              >
-                {deleteM.isPending ? 'Deleting…' : isConfirming ? 'Really?' : 'Delete'}
-              </Button>
-              {isConfirming && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setConfirmDeleteId(null)}
-                  disabled={deleteM.isPending}
-                >
-                  Cancel
-                </Button>
-              )}
-            </div>
-          </Td>
-        )}
-      </>
-    );
-
-    return isConfirming ? (
-      <TableRow key={plan.id}>
-        {cells}
-      </TableRow>
-    ) : (
-      <TableRow key={plan.id} to={`/plans/${plan.id}`}>
-        {cells}
-      </TableRow>
-    );
-  };
-
   return (
     <PageShell
       title="Tag changes"
@@ -233,7 +145,16 @@ export function PlansPage() {
             <tbody>
               {filteredPlans.map((plan) => {
                 if (!plan) return null;
-                return <PlanRow key={plan.id} plan={plan} />;
+                return (
+                  <PlanRow
+                    key={plan.id}
+                    plan={plan}
+                    libraryId={libraryId}
+                    scope={scopeLabel(plan)}
+                    confirming={confirmDeleteId === plan.id}
+                    onConfirm={setConfirmDeleteId}
+                  />
+                );
               })}
             </tbody>
           </Table>
@@ -274,4 +195,125 @@ export function PlansPage() {
       )}
     </PageShell>
   );
+}
+
+/**
+ * One plan in the list. A module-level component (it used to be defined
+ * inside the page, so every re-render remounted every row and a rename in
+ * progress would have been thrown away by a background refetch).
+ */
+function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
+  plan: TagPlan;
+  libraryId: string;
+  scope: string;
+  confirming: boolean;
+  onConfirm: (id: string | null) => void;
+}) {
+  const deleteM = useDeleteTagPlan(libraryId, plan.id);
+  const renameM = useRenameTagPlan(libraryId);
+  const [error, setError] = useState<string | null>(null);
+  const [keptNote, setKeptNote] = useState(false);
+  const status = planStatusView(plan.status, plan.progress);
+
+  const handleDelete = async () => {
+    if (!confirming) {
+      setError(null);
+      onConfirm(plan.id);
+      return;
+    }
+    try {
+      await deleteM.mutateAsync();
+      onConfirm(null);
+    } catch (e) {
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message ?? 'The plan could not be deleted.');
+      onConfirm(null);
+    }
+  };
+
+  // A plan that wrote files holds the old tags Revert puts back; it is kept
+  // (the API refuses too). Once reverted it can go.
+  const wroteFiles = (plan.progress?.['applied'] ?? 0) > 0 && plan.status !== 'reverted';
+  const deletableStatus = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(plan.status);
+  const canDelete = deletableStatus && !wroteFiles;
+
+  const cells = (
+    <>
+      <Td>
+        <InlineRename
+          size="row"
+          value={plan.name || 'Untitled plan'}
+          label={`Rename ${plan.name || 'plan'}`}
+          onSave={(name) => renameM.mutateAsync({ planId: plan.id, name })}
+        />
+        {error && <span className={styles.rowError} role="alert">{error}</span>}
+        {keptNote && wroteFiles && <span className={styles.rowNote} role="status">{KEPT_PLAN_NOTE}</span>}
+      </Td>
+      <Td className={styles.cellScope}>{scope}</Td>
+      <Td>
+        <Badge tone={status.tone}>{status.label}</Badge>
+      </Td>
+      <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        {plan.stats?.filesTouched ?? '—'}
+      </Td>
+      <Td className={styles.cellDate}>
+        <span title={formatDateTime(plan.createdAt || '')}>
+          {formatRelativeTime(plan.createdAt || '')}
+        </span>
+      </Td>
+      <Td className={styles.cellDate}>
+        {plan.appliedAt ? (
+          <span title={formatDateTime(plan.appliedAt || '')}>
+            {formatRelativeTime(plan.appliedAt || '')}
+          </span>
+        ) : (
+          '—'
+        )}
+      </Td>
+      <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        {deletableStatus && wroteFiles && (
+          /* Kept: a faint Delete that says why rather than a gap in the row. */
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.keptDelete}
+            aria-disabled="true"
+            aria-expanded={keptNote}
+            title={KEPT_PLAN_NOTE}
+            onClick={() => setKeptNote((v) => !v)}
+          >
+            Delete
+          </Button>
+        )}
+        {canDelete && (
+          <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end', alignItems: 'center' }}>
+            {/* Quiet danger text in both states. A destructive action on
+                every row should not outweigh "Create plan"; arming it only
+                changes the label. */}
+            <Button
+              variant="quiet-danger"
+              size="sm"
+              loading={deleteM.isPending}
+              onClick={handleDelete}
+              disabled={deleteM.isPending}
+              title={confirming ? 'Click again to delete permanently' : 'Delete this plan'}
+            >
+              {deleteM.isPending ? 'Deleting…' : confirming ? 'Really?' : 'Delete'}
+            </Button>
+            {confirming && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onConfirm(null)}
+                disabled={deleteM.isPending}
+              >
+                Cancel
+              </Button>
+            )}
+          </div>
+        )}
+      </Td>
+    </>
+  );
+
+  return confirming ? <TableRow>{cells}</TableRow> : <TableRow to={`/plans/${plan.id}`}>{cells}</TableRow>;
 }

@@ -8,6 +8,7 @@ import type {
   TagPolicies,
   TagPlanItem,
   CreateTagPlan,
+  TagPlanResults,
 } from '@liner/shared';
 import { api } from '../services/api';
 
@@ -338,5 +339,41 @@ export function useAddToTagPlan(libraryId: string | undefined) {
       void queryClient.invalidateQueries({ queryKey: ['tag-plan-items', libraryId, planId] });
       void queryClient.invalidateQueries({ queryKey: ['tag-plan-summary', libraryId, planId] });
     },
+  });
+}
+
+/**
+ * Rename a plan (PATCH /libraries/:libraryId/tag-plans/:planId). The server
+ * trims the name and refuses a blank one; a name set here is never
+ * rewritten automatically afterwards.
+ */
+export function useRenameTagPlan(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ planId, name }: { planId: string; name: string }) =>
+      api.patch<{ id: string; name: string; nameByUser: boolean }>(`/libraries/${libraryId}/tag-plans/${planId}`, { name }),
+    onSuccess: (data, { planId }) => {
+      queryClient.setQueryData<TagPlanDetail | undefined>(['tag-plan', libraryId, planId], (prev) =>
+        prev ? { ...prev, name: data.name, nameByUser: true } : prev);
+      void queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+    },
+  });
+}
+
+/**
+ * What an applied plan left behind: the albums that hold its files now
+ * (GET /tag-plans/:planId/results). Polls while the worker is still
+ * re-clustering the plan's folders.
+ */
+export function useTagPlanResults(
+  libraryId: string | undefined,
+  planId: string | undefined,
+  opts?: { enabled?: boolean },
+) {
+  return useQuery({
+    queryKey: ['tag-plan-results', libraryId, planId],
+    queryFn: () => api.get<TagPlanResults>(`/libraries/${libraryId}/tag-plans/${planId}/results`),
+    enabled: !!libraryId && !!planId && (opts?.enabled ?? true),
+    refetchInterval: (q) => (q.state.data?.updating ? 2500 : false),
   });
 }
