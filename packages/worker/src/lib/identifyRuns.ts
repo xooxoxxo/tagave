@@ -4,7 +4,7 @@
  * beside the live pg-boss job, so a request that failed says why instead of
  * sitting "queued" forever.
  */
-import type { IdentifyOutcomeKind, IdentifyRequestKind, ReleaseChoice } from '@liner/shared';
+import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyRequestKind, type ReleaseChoice } from '@liner/shared';
 import type { WorkerContext } from './context.js';
 
 export interface IdentifyOutcome {
@@ -20,14 +20,22 @@ export interface IdentifyOutcome {
 
 export interface ManualRequestData {
   force?: boolean;
+  /** 'owner' when the owner asked (set by the API routes) */
+  requestedBy?: string;
   pinnedMbid?: string;
   pinnedReleaseGroup?: string;
   pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
 }
 
-/** Pinned or forced: an owner click, not the sweep. */
+/**
+ * An owner click, not the sweep or the system. force:true alone is not
+ * enough: fingerprint lookups (identify.acoustid) and disc repair send it too.
+ * A pinned id only ever comes from the owner's match input, so jobs queued
+ * before the marker existed still count.
+ */
 export function isManualRequest(data: ManualRequestData): boolean {
-  return !!(data.pinnedMbid || data.pinnedReleaseGroup || data.pinnedDiscogs || data.force);
+  return data.requestedBy === IDENTIFY_REQUESTED_BY_OWNER
+    || !!(data.pinnedMbid || data.pinnedReleaseGroup || data.pinnedDiscogs);
 }
 
 export function requestKindOf(data: ManualRequestData): { kind: IdentifyRequestKind; pinned: string | null } {

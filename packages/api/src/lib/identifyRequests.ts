@@ -7,7 +7,7 @@
  */
 import { sql } from 'drizzle-orm';
 import type PgBoss from 'pg-boss';
-import type { IdentifyOutcomeKind, IdentifyOutcomeView, IdentifyRequestView, ReleaseChoice } from '@liner/shared';
+import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyOutcomeView, type IdentifyRequestView, type ReleaseChoice } from '@liner/shared';
 import { getDb } from '../db.js';
 
 export const IDENTIFY_PRIORITY = { manual: 100, retry: 50, sweep: 0 } as const;
@@ -64,24 +64,41 @@ function toPending(r: PendingRow): PendingIdentify {
   };
 }
 
-/** pinned or forced: an owner request, not the sweep */
-const MANUAL_JOB = sql`(j.data ? 'pinnedMbid' or j.data ? 'pinnedReleaseGroup' or j.data ? 'pinnedDiscogs' or (j.data->>'force')::boolean is true)`;
+/**
+ * An owner request: the routes mark it requestedBy 'owner'. force:true alone
+ * is not one (disc repair sends it; fingerprint runs use identify.acoustid).
+ * A pinned id only comes from the owner, so older jobs without the marker
+ * still count.
+ */
+const MANUAL_JOB = sql`(j.data->>'requestedBy' = ${IDENTIFY_REQUESTED_BY_OWNER} or j.data ? 'pinnedMbid' or j.data ? 'pinnedReleaseGroup' or j.data ? 'pinnedDiscogs')`;
 
 const JOBS_AHEAD = sql`(select count(*)::int from pgboss.job q
    where q.name = 'identify.album' and q.state = 'created'
      and (q.priority > j.priority or (q.priority = j.priority and q.created_on < j.created_on)))`;
 
+/**
+ * Live identify jobs (created / retry / active) for these albums, newest per
+ * album. Matches pg-boss's stately index (name, state, coalesce(singleton_key, '')).
+ */
+async function pendingIdentifyJobs(albumIds: readonly string[]): Promise<Map<string, PendingIdentify>> {
+  const out = new Map<string, PendingIdentify>();
+  if (albumIds.length === 0) return out;
+  const keys = albumIds.map(IDENTIFY_SINGLETON);
+  const rows = await getDb().execute(sql`
+    select distinct on (j.singleton_key)
+           j.singleton_key, j.id, j.state, j.data, j.priority, j.created_on, j.started_on,
+           case when j.state = 'created' then ${JOBS_AHEAD} else 0 end as jobs_ahead
+      from pgboss.job j
+     where j.name = 'identify.album' and j.state in ('created', 'retry', 'active')
+       and coalesce(j.singleton_key, '') in ${textList(keys)}
+     order by j.singleton_key, j.created_on desc`) as unknown as Array<PendingRow & { singleton_key: string }>;
+  for (const r of rows) out.set(r.singleton_key.slice('identify:'.length), toPending(r));
+  return out;
+}
+
 /** The one live identify job for an album (created / retry / active), or null. */
 export async function pendingIdentifyJob(albumId: string): Promise<PendingIdentify | null> {
-  const rows = await getDb().execute(sql`
-    select j.id, j.state, j.data, j.priority, j.created_on, j.started_on, ${JOBS_AHEAD} as jobs_ahead
-      from pgboss.job j
-     where j.name = 'identify.album' and j.singleton_key = ${IDENTIFY_SINGLETON(albumId)}
-       and j.state in ('created', 'retry', 'active')
-     order by j.created_on desc
-     limit 1`) as unknown as PendingRow[];
-  const r = rows[0];
-  return r ? toPending(r) : null;
+  return (await pendingIdentifyJobs([albumId])).get(albumId) ?? null;
 }
 
 export interface PendingIdentifyRequest extends PendingIdentify {
@@ -126,6 +143,10 @@ export interface IdentifyJobRow {
   created_on: string | Date;
   completed_on: string | Date | null;
 }
+
+/** `(…)` lists for `in`: drizzle's sql expands a bare array param in its own way. */
+const textList = (xs: readonly string[]) => sql`(${sql.join(xs.map((x) => sql`${x}`), sql`, `)})`;
+const uuidList = (xs: readonly string[]) => sql`(${sql.join(xs.map((x) => sql`${x}::uuid`), sql`, `)})`;
 
 const iso = (d: string | Date | null | undefined): string | null => (d ? new Date(d).toISOString() : null);
 
@@ -201,25 +222,47 @@ export function deriveIdentifyRequest(
   return null;
 }
 
-/** Live job + newest recorded outcome + newest owner job, derived into one view. */
-export async function identifyRequestView(albumId: string): Promise<IdentifyRequestView | null> {
+export interface IdentifyRequestState {
+  pending: PendingIdentify | null;
+  request: IdentifyRequestView | null;
+}
+
+/**
+ * Live job + newest owner job + newest recorded outcome for each album, in
+ * three queries whatever the number of albums (the plan page polls up to 50
+ * every few seconds), derived per album in memory.
+ */
+export async function identifyRequestStates(albumIds: readonly string[]): Promise<Map<string, IdentifyRequestState>> {
+  const ids = [...new Set(albumIds)];
+  const out = new Map<string, IdentifyRequestState>();
+  if (ids.length === 0) return out;
   const db = getDb();
+  const keys = ids.map(IDENTIFY_SINGLETON);
   const [pending, jobs, runs] = await Promise.all([
-    pendingIdentifyJob(albumId),
+    pendingIdentifyJobs(ids),
     db.execute(sql`
-      select j.id, j.state, j.data, j.output, j.created_on, j.completed_on
+      select distinct on (j.singleton_key) j.singleton_key, j.id, j.state, j.data, j.output, j.created_on, j.completed_on
         from pgboss.job j
-       where j.name = 'identify.album' and j.singleton_key = ${IDENTIFY_SINGLETON(albumId)} and ${MANUAL_JOB}
-       order by j.created_on desc
-       limit 1`) as unknown as Promise<IdentifyJobRow[]>,
+       where j.name = 'identify.album' and j.singleton_key in ${textList(keys)} and ${MANUAL_JOB}
+       order by j.singleton_key, j.created_on desc`) as unknown as Promise<Array<IdentifyJobRow & { singleton_key: string }>>,
     db.execute(sql`
-      select job_id, kind, pinned, outcome, message, detail, finished_at
+      select distinct on (local_album_id) local_album_id, job_id, kind, pinned, outcome, message, detail, finished_at
         from identify_runs
-       where local_album_id = ${albumId}
-       order by finished_at desc
-       limit 1`) as unknown as Promise<IdentifyRunRow[]>,
+       where local_album_id in ${uuidList(ids)}
+       order by local_album_id, finished_at desc`) as unknown as Promise<Array<IdentifyRunRow & { local_album_id: string }>>,
   ]);
-  return deriveIdentifyRequest(pending, jobs[0] ?? null, runs[0] ?? null);
+  const jobBy = new Map(jobs.map((j) => [j.singleton_key.slice('identify:'.length), j]));
+  const runBy = new Map(runs.map((r) => [String(r.local_album_id), r]));
+  for (const id of ids) {
+    const p = pending.get(id) ?? null;
+    out.set(id, { pending: p, request: deriveIdentifyRequest(p, jobBy.get(id) ?? null, runBy.get(id) ?? null) });
+  }
+  return out;
+}
+
+/** One album's request view (see identifyRequestStates). */
+export async function identifyRequestView(albumId: string): Promise<IdentifyRequestView | null> {
+  return (await identifyRequestStates([albumId])).get(albumId)?.request ?? null;
 }
 
 /** Record that the owner cancelled a queued request (it never ran). */

@@ -8,13 +8,13 @@ import {
 import { normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, recordCancelled } from '../lib/identifyRequests.js';
+import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
 import { parseMatchInput, pinnedJobData } from '../lib/matchInput.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
-import { displayArtistName } from '@liner/shared';
+import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@liner/shared';
 import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -843,7 +843,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         };
       }
 
-      const [pendingIdentify, identifyRequest] = await Promise.all([pendingIdentifyJob(album.id), identifyRequestView(album.id)]);
+      const idState = (await identifyRequestStates([album.id])).get(album.id);
+      const pendingIdentify = idState?.pending ?? null;
+      const identifyRequest = idState?.request ?? null;
       // Folder maintenance (XO-364): a lossless+lossy mix can be split; a
       // split-off album can be merged back.
       const [mix] = (await db.execute(sql`
@@ -1010,17 +1012,18 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         return;
       }
       const boss = await getBoss();
-      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, ...pinnedJobData(parsed.target) }, {
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER, ...pinnedJobData(parsed.target) }, {
         singletonKey: IDENTIFY_SINGLETON(albumId),
         priority: IDENTIFY_PRIORITY.manual,
       });
       const t = parsed.target;
+      const now = (await identifyRequestStates([albumId])).get(albumId);
       reply.status(202).send({
         ok: true,
         ...(t.source === 'musicbrainz' ? { mbid: t.mbid, entity: t.entity } : { discogs: { kind: t.kind, id: t.id } }),
         jobId,
-        pending: await pendingIdentifyJob(albumId),
-        identifyRequest: await identifyRequestView(albumId),
+        pending: now?.pending ?? null,
+        identifyRequest: now?.request ?? null,
       });
     }
   );
@@ -1043,7 +1046,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         return;
       }
       const boss = await getBoss();
-      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER }, {
         singletonKey: IDENTIFY_SINGLETON(albumId),
         priority: IDENTIFY_PRIORITY.manual,
       });

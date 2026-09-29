@@ -56,7 +56,7 @@ export function IdentifyPanel() {
   const kickSweep = useKickSweep(libraryId);
   const { data: requests } = useIdentifyRequests(libraryId);
   const cancelRequest = useCancelIdentifyRequest(libraryId);
-  const REQUEST_KIND: Record<string, string> = { mbid: 'MusicBrainz id', discogs: 'Discogs id', reidentify: 'Re-identify', sweep: 'Sweep' };
+  const REQUEST_KIND: Record<string, string> = { mbid: 'MusicBrainz release', release_group: 'MusicBrainz release group', discogs: 'Discogs', reidentify: 'Re-identify', sweep: 'Sweep' };
 
   const limit = 100;
   const offset = page * 100;

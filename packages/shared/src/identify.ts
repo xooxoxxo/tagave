@@ -6,6 +6,14 @@
 
 export type IdentifyRequestKind = 'mbid' | 'release_group' | 'discogs' | 'reidentify' | 'sweep';
 
+/**
+ * identify.album / identify.acoustid job data carries `requestedBy: 'owner'`
+ * when the owner asked for this album (match input, Re-identify, triage
+ * retry). Only those runs record an outcome and show as a request; the
+ * system's own force:true runs (fingerprint lookups, disc repair) do not.
+ */
+export const IDENTIFY_REQUESTED_BY_OWNER = 'owner' as const;
+
 /** How a finished request ended. */
 export type IdentifyOutcomeKind =
   | 'matched'

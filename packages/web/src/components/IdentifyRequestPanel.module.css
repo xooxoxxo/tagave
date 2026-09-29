@@ -21,12 +21,41 @@
 
 .head {
   display: flex;
-  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.headActions {
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-xs) var(--space-md);
+  gap: var(--space-xs);
+  flex-shrink: 0;
 }
 .title { font-weight: 600; color: var(--ink); }
-.meta { flex: 1; min-width: 12rem; color: var(--ink-3); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.meta {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pinned {
+  display: block;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+a.pinned:hover { color: var(--ink-2); }
 .message { margin: 0; color: var(--ink-2); line-height: 1.5; }
 .error { margin: 0; color: var(--danger); font-size: var(--font-size-xs); }
 .more { margin: 0; color: var(--ink-3); font-size: var(--font-size-xs); }

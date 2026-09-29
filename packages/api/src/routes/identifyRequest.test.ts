@@ -86,7 +86,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('manual match routes', () => {
     expect(res.statusCode).toBe(202);
     expect(res.json()).toMatchObject({ entity: 'release-group', mbid: RG });
     expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({ name: 'identify.album', data: { localAlbumId: albumId, force: true, pinnedReleaseGroup: RG }, opts: { priority: 100 } });
+    expect(sent[0]).toMatchObject({ name: 'identify.album', data: { localAlbumId: albumId, force: true, requestedBy: 'owner', pinnedReleaseGroup: RG }, opts: { priority: 100 } });
   });
 
   it('after the job ends, the album page shows the recorded outcome with the releases to pick from', async () => {
@@ -104,6 +104,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('manual match routes', () => {
     expect(body.pendingIdentify).toBeNull();
     expect(body.identifyRequest).toMatchObject({ status: 'done', jobId, kind: 'mbid', pinned: RG, outcome: { kind: 'release_group', releaseGroup: { title: 'Hôtel Costes, Volume 11' } } });
     expect(body.identifyRequest.outcome.choices[0].fit).toBe('exact');
+  });
+
+  it("a system run (disc repair: force:true, no owner marker) does not replace the owner's outcome", async () => {
+    await client`insert into pgboss.job (id, name, state, priority, singleton_key, data, created_on, completed_on)
+      values (${randomUUID()}, 'identify.album', 'completed', 100, ${`identify:${albumId}`},
+              ${JSON.stringify({ localAlbumId: albumId, force: true })}::jsonb, now() - interval '1 second', now())`;
+    const res = await get(`/libraries/${libraryId}/albums/${albumId}`);
+    expect(res.json().identifyRequest).toMatchObject({ status: 'done', kind: 'mbid', outcome: { kind: 'release_group' } });
+  });
+
+  it("Re-identify marks its job as the owner's", async () => {
+    sent.length = 0;
+    const other = randomUUID();
+    await db.insert(localAlbums).values({ id: other, libraryId, clusterKey: `mm-${other}`, dirPaths: ['R'], titleGuess: 'R', state: 'matched', trackCount: 1 });
+    const res = await post(`/libraries/${libraryId}/albums/${other}/identify`, {});
+    expect(res.statusCode).toBe(202);
+    expect(sent[0]).toMatchObject({ name: 'identify.album', data: { localAlbumId: other, force: true, requestedBy: 'owner' } });
+    await db.delete(localAlbums).where(eq(localAlbums.id, other));
   });
 
   it('a queued job reads as queued; cancelling it records the cancellation', async () => {

@@ -12,10 +12,11 @@ import { and, eq, sql, desc } from 'drizzle-orm';
 import { libraries, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
+import { IDENTIFY_REQUESTED_BY_OWNER } from '@liner/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import {
   IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob,
-  identifyRequestView, recordCancelled,
+  identifyRequestStates, recordCancelled,
 } from '../lib/identifyRequests.js';
 
 /** Albums one status request may ask about (the plan page asks for its own). */
@@ -326,7 +327,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const boss = await getBoss();
     let enqueued = 0;
     for (const id of ids) {
-      const jobId = await boss.send('identify.album', { localAlbumId: id, force: true }, {
+      const jobId = await boss.send('identify.album', { localAlbumId: id, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER }, {
         singletonKey: IDENTIFY_SINGLETON(id),
         priority: IDENTIFY_PRIORITY.retry,
         retryLimit: 3,
@@ -386,7 +387,8 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
       id: string; title_guess: string | null; artist_guess: string | null; state: string; identify_reason: string | null;
     }>;
     const byId = new Map(rows.map((r) => [r.id, r]));
-    const items = await Promise.all(ids.map(async (id) => {
+    const states = await identifyRequestStates(rows.map((r) => r.id));
+    const items = ids.map((id) => {
       const r = byId.get(id);
       if (!r) return { albumId: id, exists: false as const };
       return {
@@ -396,9 +398,9 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
         artist: r.artist_guess,
         state: r.state,
         reason: r.identify_reason,
-        request: await identifyRequestView(id),
+        request: states.get(id)?.request ?? null,
       };
-    }));
+    });
     reply.send({ items });
   });
 }

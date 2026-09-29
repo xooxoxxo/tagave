@@ -274,3 +274,4 @@ export type {
   IdentifyOutcomeView,
   IdentifyRequestView,
 } from './identify.js';
+export { IDENTIFY_REQUESTED_BY_OWNER } from './identify.js';

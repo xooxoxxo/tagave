@@ -23,6 +23,8 @@ export interface IdentifyAlbumJobData {
   localAlbumId: string;
   /** re-run even when state is not pending/unidentified */
   force?: boolean;
+  /** 'owner' when the owner asked: the outcome is recorded (identify_runs) */
+  requestedBy?: string;
   /** IDN-6 manual entry: match this MB release MBID, bypassing search and
    * thresholds; decided_by=user */
   pinnedMbid?: string;

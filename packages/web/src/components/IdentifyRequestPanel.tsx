@@ -62,6 +62,17 @@ export function requestSummary(r: IdentifyRequestView): string {
   return `${kind}${r.pinned ? ` (${r.pinned})` : ''}: ${OUTCOME_TITLE[o.kind]} — ${o.message} (${new Date(o.finishedAt).toLocaleString()})`;
 }
 
+/** The provider page for a pinned id ("release:123" for Discogs). */
+export function pinnedUrl(kind: IdentifyRequestView['kind'], pinned: string): string | null {
+  if (kind === 'mbid') return `https://musicbrainz.org/release/${pinned}`;
+  if (kind === 'release_group') return `https://musicbrainz.org/release-group/${pinned}`;
+  if (kind === 'discogs') {
+    const [k, id] = pinned.split(':');
+    return id && (k === 'release' || k === 'master') ? `https://www.discogs.com/${k}/${id}` : null;
+  }
+  return null;
+}
+
 function fitBadge(c: ReleaseChoice): { tone: BadgeTone; label: string } {
   if (c.trackDelta == null) return { tone: 'neutral', label: 'Track count unknown' };
   if (c.fit === 'exact') return { tone: 'success', label: `${c.trackCount} tracks, like yours` };
@@ -103,25 +114,36 @@ export function IdentifyRequestPanel({
   const title = live
     ? `${kind} ${r.status === 'queued' ? 'queued' : r.status === 'running' ? 'running' : 'retrying'}`
     : o ? OUTCOME_TITLE[o.kind] : 'Finished';
+  // kind and time on one line that never wraps; the id on its own truncated
+  // line (full value on hover, linked to the provider)
+  const when = live ? r.createdAt : o?.finishedAt ?? null;
   const meta = live
-    ? [r.pinned, liveRequestLine(r), r.createdAt ? `since ${new Date(r.createdAt).toLocaleString()}` : null]
-    : [kind, r.pinned, o ? formatRelativeTime(o.finishedAt) : null];
+    ? [liveRequestLine(r), when ? `since ${formatRelativeTime(when)}` : null]
+    : [kind, when ? formatRelativeTime(when) : null];
+  const pinnedHref = r.pinned ? pinnedUrl(r.kind, r.pinned) : null;
 
   return (
     <div className={`${styles.panel} ${styles[`tone-${tone}`]}`} role="status" aria-live="polite">
       <div className={styles.head}>
-        <span className={styles.title}>{title}</span>
-        <span className={styles.meta}>{meta.filter(Boolean).join(' · ')}</span>
-        {r.status === 'queued' && (
-          <Button variant="secondary" size="sm" onClick={onCancel} loading={cancelling} title="Remove this request from the queue">
-            Cancel
-          </Button>
-        )}
-        {!live && onDismiss && (
-          <Button variant="quiet" size="sm" onClick={onDismiss} title="Hide this note">
-            Dismiss
-          </Button>
-        )}
+        <div className={styles.headText}>
+          <span className={styles.title}>{title}</span>
+          <span className={styles.meta} title={when ? new Date(when).toLocaleString() : undefined}>{meta.filter(Boolean).join(' · ')}</span>
+          {r.pinned && (pinnedHref
+            ? <a className={styles.pinned} href={pinnedHref} target="_blank" rel="noreferrer" title={r.pinned}>{r.pinned}</a>
+            : <span className={styles.pinned} title={r.pinned}>{r.pinned}</span>)}
+        </div>
+        <div className={styles.headActions}>
+          {r.status === 'queued' && (
+            <Button variant="secondary" size="sm" onClick={onCancel} loading={cancelling} title="Remove this request from the queue">
+              Cancel
+            </Button>
+          )}
+          {!live && onDismiss && (
+            <Button variant="quiet" size="sm" onClick={onDismiss} title="Hide this note">
+              Dismiss
+            </Button>
+          )}
+        </div>
       </div>
       {cancelError && <p className={styles.error}>{cancelError}</p>}
       {o && <p className={styles.message}>{o.message}</p>}

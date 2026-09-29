@@ -74,6 +74,26 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('identify outcome recording (db)
     expect(rows[0]!.message).toMatch(/contact email/);
   });
 
+  it('a fingerprint (identify.acoustid) run records nothing, though it is force:true', async () => {
+    const albumId = await album();
+    await expect(identifyAlbumJob(ctx, {
+      localAlbumId: albumId, force: true, acoustidMbids: ['11111111-1111-1111-1111-111111111111'], acoustidCoverage: {},
+    }, { jobId: randomUUID() })).rejects.toThrow();
+    expect(await runsOf(albumId)).toHaveLength(0);
+  });
+
+  it('a disc-repair run (force:true, no marker) records nothing', async () => {
+    const albumId = await album();
+    await expect(identifyAlbumJob(ctx, { localAlbumId: albumId, force: true }, { jobId: randomUUID() })).rejects.toThrow();
+    expect(await runsOf(albumId)).toHaveLength(0);
+  });
+
+  it("the owner's Re-identify (requestedBy: owner) is recorded", async () => {
+    const albumId = await album();
+    await expect(identifyAlbumJob(ctx, { localAlbumId: albumId, force: true, requestedBy: 'owner' }, { jobId: randomUUID() })).rejects.toThrow();
+    expect((await runsOf(albumId))[0]).toMatchObject({ kind: 'reidentify', outcome: 'failed' });
+  });
+
   it('the sweep records nothing', async () => {
     const albumId = await album('matched');
     await expect(identifyAlbumJob(ctx, { localAlbumId: albumId }, { jobId: randomUUID() })).resolves.toMatchObject({ outcome: 'skipped' });
