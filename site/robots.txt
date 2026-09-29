@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://xooxoxxo.github.io/tagave/sitemap.xml
