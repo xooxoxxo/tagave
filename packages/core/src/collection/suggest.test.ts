@@ -55,10 +55,18 @@ describe('physical record suggestions', () => {
     }
   });
 
+  it('offers each disc of a double album filed as its own folder', () => {
+    const split = [album('y', 'Yellow [DISC 1]', 'Baroness'), album('g', 'Green [DISC 2]', 'Baroness'), album('p', 'Purple', 'Baroness')];
+    const ids = rankPhysicalSuggestions(baroness, split).map((s) => s.album.id);
+    expect(ids.sort()).toEqual(['g', 'y']);
+  });
+
   it('cleans Discogs names and edition noise', () => {
     expect(discogsArtistName('Baroness (2)')).toBe('Baroness');
     expect(discogsArtistName('Prince*')).toBe('Prince');
     expect(matchTitle('Purple (2015 Remastered)')).toBe('Purple');
+    expect(matchTitle('Yellow [DISC 1]')).toBe('Yellow');
+    expect(matchTitle('Green - CD2')).toBe('Green');
   });
 });
 

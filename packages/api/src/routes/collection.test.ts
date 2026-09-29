@@ -217,6 +217,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('physical collection (db)', () =
       expect(suggestions.map((s) => s.id)).not.toContain(otherAlbumId);
     });
 
+    it('puts the album matched to the same Discogs release first', async () => {
+      const itemId = await seedUnmapped();
+      await db.update(collectionItems).set({ discogsReleaseId: discogsId, basicInfo: { title: 'Y&G', artists: ['Baroness'] } }).where(eq(collectionItems.id, itemId));
+      const res = await app.inject({ method: 'GET', url: `/api/v1/collection-items/${itemId}/suggestions` });
+      const { suggestions } = res.json() as { suggestions: Array<{ id: string; sameDiscogsRelease: boolean; score: number }> };
+      expect(suggestions[0]).toMatchObject({ id: albumId, sameDiscogsRelease: true, score: 1 });
+    });
+
     it('links to the album the owner picked', async () => {
       const itemId = await seedUnmapped();
       const res = await app.inject({ method: 'POST', url: `/api/v1/collection-items/${itemId}/link`, payload: { localAlbumId: albumId } });

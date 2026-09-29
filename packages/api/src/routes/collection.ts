@@ -309,16 +309,23 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     const info = basicInfoOf(item);
     const title = info.title ? matchTitle(info.title) : '';
     const artists = (info.artists ?? []).map(discogsArtistName).filter(Boolean);
-    if (!title && artists.length === 0) {
+    if (!title && artists.length === 0 && item.discogsReleaseId == null) {
       reply.send({ suggestions: [] });
       return;
     }
+    // the album already matched to this very Discogs release is the answer
+    const exact = item.discogsReleaseId != null ? await linkForDiscogsRelease(db, item.libraryId, item.discogsReleaseId) : null;
     const like = (s: string) => '%' + s.replace(/[\\%_]/g, (c) => '\\' + c) + '%';
     const narrow: SQL[] = [
+      ...(exact?.localAlbumId ? [sql`la.id = ${exact.localAlbumId}`] : []),
       ...artists.map((a) => sql`la.artist_guess ilike ${like(a)}`),
       ...(title ? [sql`la.title_guess ilike ${like(title)}`, sql`r.title ilike ${like(title)}`, sql`rg.title ilike ${like(title)}`] : []),
       ...(title.length >= 4 ? [sql`similarity(coalesce(la.title_guess, ''), ${title}) > 0.35`] : []),
     ];
+    if (narrow.length === 0) {
+      reply.send({ suggestions: [] });
+      return;
+    }
     const rows = await db.execute(sql`
       select la.id, coalesce(r.title, rg.title, la.title_guess) as title, la.artist_guess as artist,
              coalesce(la.year_guess, extract(year from r.date)::int) as year,
@@ -339,8 +346,13 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       releaseGroupId: r.release_group_id, releaseId: r.release_id,
       coverUrl: r.has_art ? `/api/v1/images/album/${r.id}` : null,
     }));
-    const ranked = rankPhysicalSuggestions({ title: info.title ?? null, artists, year: info.year ?? null }, candidates);
-    reply.send({ suggestions: ranked.map((s) => ({ ...s.album, score: s.score })) });
+    const ranked = rankPhysicalSuggestions({ title: info.title ?? null, artists, year: info.year ?? null }, candidates)
+      .map((s) => ({ ...s.album, score: s.score, sameDiscogsRelease: false }));
+    const exactAlbum = exact?.localAlbumId ? candidates.find((c) => c.id === exact.localAlbumId) : undefined;
+    const suggestions = exactAlbum
+      ? [{ ...exactAlbum, score: 1, sameDiscogsRelease: true }, ...ranked.filter((s) => s.id !== exactAlbum.id)].slice(0, 3)
+      : ranked;
+    reply.send({ suggestions });
   });
 
   // POST /collection-items/:id/link — the owner says which album this record is,
@@ -515,8 +527,16 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       localAlbumId: album.id,
       mappingSource: 'owner',
     };
+    const rel = album.releaseId ? (await db.select({ title: releases.title, date: releases.date }).from(releases).where(eq(releases.id, album.releaseId)))[0] : undefined;
+    const title = rel?.title ?? album.titleGuess;
+    const year = album.yearGuess ?? (rel?.date ? parseInt(String(rel.date).slice(0, 4), 10) : undefined);
     const result = await addPhysicalItem(db, {
       libraryId: lib, discogsReleaseId, link, anotherCopy: !!body.anotherCopy,
+      basicInfo: {
+        ...(title ? { title } : {}),
+        ...(album.artistGuess ? { artists: [album.artistGuess] } : {}),
+        ...(year ? { year } : {}),
+      },
       ...(body.folderId !== undefined ? { folderId: body.folderId } : {}),
       ...(body.mediaCondition ? { mediaCondition: body.mediaCondition } : {}),
       ...(body.sleeveCondition ? { sleeveCondition: body.sleeveCondition } : {}),

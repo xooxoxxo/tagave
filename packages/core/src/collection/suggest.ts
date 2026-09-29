@@ -37,8 +37,16 @@ export function discogsArtistName(name: string): string {
 /** Edition noise that says nothing about which album it is. */
 const EDITION_NOISE = /[([](?:[^)\]]*\b(?:remaster(?:ed)?|deluxe|expanded|edition|reissue|anniversary|bonus|mono|stereo)\b[^)\]]*)[)\]]/gi;
 
+/** "Yellow [DISC 1]", "Green (CD2)", "Purple - Disc 2": a folder per disc. */
+const DISC_NOISE = /\s*(?:[([]\s*)?(?:disc|disk|cd)\s*\d+\s*(?:[)\]])?\s*$/i;
+
 export function matchTitle(title: string): string {
-  return title.replace(EDITION_NOISE, ' ').replace(/&/g, ' and ').replace(/\s+/g, ' ').trim();
+  return title.replace(EDITION_NOISE, ' ').replace(DISC_NOISE, '').replace(/[-–—]\s*$/, '').replace(/&/g, ' and ').replace(/\s+/g, ' ').trim();
+}
+
+/** A double album's halves: "Yellow & Green" → ["yellow", "green"]. */
+function titleParts(title: string): string[] {
+  return title.toLowerCase().split(/\s+(?:and|\/)\s+|\s*[,/]\s*/).map((t) => t.trim()).filter((t) => t.length > 1);
 }
 
 function similarity(a: string | null | undefined, b: string | null | undefined): number {
@@ -48,7 +56,13 @@ function similarity(a: string | null | undefined, b: string | null | undefined):
 
 /** 0..1: how likely it is that `album` is this record. */
 export function scoreSuggestion(record: PhysicalRecordInfo, album: LibraryAlbumCandidate): number {
-  const titleSim = similarity(record.title ? matchTitle(record.title) : null, album.title ? matchTitle(album.title) : null);
+  const recordTitle = record.title ? matchTitle(record.title) : null;
+  const albumTitle = album.title ? matchTitle(album.title) : null;
+  let titleSim = similarity(recordTitle, albumTitle);
+  // one disc of a double album filed as its own folder ("Yellow [DISC 1]")
+  if (recordTitle && albumTitle && titleParts(recordTitle).length > 1 && titleParts(recordTitle).includes(albumTitle.toLowerCase())) {
+    titleSim = Math.max(titleSim, 0.8);
+  }
   const artists = (record.artists ?? []).map(discogsArtistName).filter(Boolean);
   const artistSim = artists.length
     ? Math.max(

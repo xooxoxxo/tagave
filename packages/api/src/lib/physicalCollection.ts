@@ -40,6 +40,8 @@ export interface AddPhysicalInput {
   sleeveCondition?: string;
   notes?: string;
   rating?: number;
+  /** what the row shows until Discogs answers (the push replaces it) */
+  basicInfo?: { title?: string; artists?: string[]; year?: number } | null;
 }
 
 export interface ExistingCopy {
@@ -111,6 +113,7 @@ export async function addPhysicalItem(db: Db, input: AddPhysicalInput): Promise<
       ...(input.sleeveCondition ? { sleeveCondition: input.sleeveCondition } : {}),
       ...(input.notes ? { notes: input.notes } : {}),
       ...(input.rating ? { rating: input.rating } : {}),
+      ...(input.basicInfo ? { basicInfo: input.basicInfo } : {}),
       ...(input.link ? linkFields(input.link) : { mappingState: 'unmapped' }),
       pushState: 'pending',
     }).returning({ id: collectionItems.id });
