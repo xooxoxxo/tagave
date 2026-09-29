@@ -8,6 +8,7 @@ import { useParams, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules, type ArtistDiscographyItem } from '../hooks';
 import { PageShell, Button, IconButton, Badge, Card, CoverArt, CoverChip, UndoIcon, type CoverChipTone } from '../components/ui';
 import { artistLabel } from '@liner/shared';
+import { useMaintenance } from '../maintenance';
 import styles from './ArtistPage.module.css';
 
 const OWNERSHIP_LABEL: Record<ArtistDiscographyItem['ownership'], string> = {
@@ -18,6 +19,8 @@ const OWNERSHIP_CHIP_TONE: Record<ArtistDiscographyItem['ownership'], CoverChipT
 };
 
 export function ArtistPage() {
+  // provider links, refresh, type filters and skipped releases: Maintenance only
+  const [maintenance] = useMaintenance();
   const navigate = useNavigate();
   const { libraryId } = useCurrentLibrary();
   const { artistId } = useParams({ from: '/layout/artists/$artistId' });
@@ -71,9 +74,9 @@ export function ArtistPage() {
 
   const actions = (
     <div className={styles.actions}>
-      {isEnriching && <div className={styles.enriching}>Enriching…</div>}
+      {maintenance && isEnriching && <div className={styles.enriching}>Enriching…</div>}
       {isRefreshing && <div className={styles.refreshing}>Refreshing…</div>}
-      {artist.followed && (
+      {maintenance && artist.followed && (
         <Button
           variant="secondary"
           size="sm"
@@ -92,7 +95,7 @@ export function ArtistPage() {
       >
         {artist.followed ? '✓ Following' : '+ Follow'}
       </Button>
-      {artist.followed && (
+      {maintenance && artist.followed && (
         <Button
           variant="secondary"
           size="sm"
@@ -164,8 +167,8 @@ export function ArtistPage() {
           </Card>
         )}
 
-        {/* Link chips */}
-        <div className={styles.links}>
+        {/* Link chips: provider pages are curation detail, shown in Maintenance */}
+        {maintenance && <div className={styles.links}>
           {artist.links.musicbrainz && (
             <a href={artist.links.musicbrainz} target="_blank" rel="noopener noreferrer" className={styles.linkChip}>
               MusicBrainz
@@ -186,10 +189,10 @@ export function ArtistPage() {
               Wikipedia
             </a>
           )}
-        </div>
+        </div>}
 
         {/* Follow rules editor modal */}
-        {showFollowRulesEditor && artist.followed && libraryFollowRules && (
+        {maintenance && showFollowRulesEditor && artist.followed && libraryFollowRules && (
           <div className={styles.followRulesEditor}>
             <div className={styles.editorHeader}>
               <h3 className={styles.editorTitle}>Type Filters</h3>
@@ -283,7 +286,10 @@ export function ArtistPage() {
           <p className={styles.emptyDiscography}>No albums in library</p>
         ) : (
           <div className={styles.discography}>
-            {artist.discography.map((section) => (
+            {artist.discography
+              .map((section) => ({ ...section, items: section.items.filter((item) => maintenance || item.ownership !== 'ignored') }))
+              .filter((section) => section.items.length > 0)
+              .map((section) => (
               <div key={section.type} className={styles.discographySection}>
                 <h2 className={styles.discographyTitle}>{section.type}s</h2>
                 <div className={styles.albumGrid}>

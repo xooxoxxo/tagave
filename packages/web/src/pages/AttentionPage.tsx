@@ -83,7 +83,7 @@ export function AttentionPanel() {
               tabIndex={0}
               onClick={() => {
                 if (g.subjectType === 'local_album') {
-                  navigate({ to: '/albums/$albumId', params: { albumId: g.subjectId } as never });
+                  navigate({ to: '/albums/$albumId', params: { albumId: g.subjectId } as never, search: { issues: true } as never });
                 }
               }}
             >

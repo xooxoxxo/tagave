@@ -36,13 +36,50 @@ interface GapChoicesProps {
   fix?: ReactNode;
   /** called after a choice is saved (the album page refetches) */
   onDecided?: () => void;
+  /** the album page's accordion rows: a compact segmented set, each choice with its one-line hint */
+  compact?: boolean;
 }
 
-export function GapChoices({ gapId, subject, fix, onDecided }: GapChoicesProps) {
+/** One line each, for the compact set inside an expanded row. */
+export const CHOICE_HINT = {
+  task: 'You’ll fix it; a scan ticks it off',
+  notAProblem: 'Fine by you; stop showing it',
+  wrong: 'The check erred; hide it, see the fix',
+} as const;
+
+export function GapChoices({ gapId, subject, fix, onDecided, compact }: GapChoicesProps) {
   const decide = useDecideGap();
   const pending = decide.isPending ? decide.variables?.choice : undefined;
   const choose = (choice: 'task' | 'not_a_problem' | 'wrong') =>
     decide.mutate({ id: gapId, choice } as Parameters<typeof decide.mutate>[0], { onSuccess: () => onDecided?.() });
+  if (compact) {
+    const options = [
+      { choice: 'task' as const, label: 'Add to my tasks', hint: CHOICE_HINT.task, title: CHOICE_HELP.task },
+      { choice: 'not_a_problem' as const, label: 'Not a problem', hint: CHOICE_HINT.notAProblem, title: CHOICE_HELP.notAProblem },
+      { choice: 'wrong' as const, label: 'This is wrong', hint: CHOICE_HINT.wrong, title: CHOICE_HELP.wrong },
+    ];
+    return (
+      <div className={styles.segmentWrap}>
+        <div className={styles.segments} role="group" aria-label={`What to do about: ${subject}`}>
+          {options.map((o) => (
+            <button
+              key={o.choice}
+              type="button"
+              className={styles.segment}
+              title={o.title}
+              disabled={decide.isPending}
+              aria-busy={pending === o.choice || undefined}
+              onClick={() => choose(o.choice)}
+            >
+              <span className={styles.segmentLabel}>{pending === o.choice ? 'Saving…' : o.label}</span>
+              <span className={styles.segmentHint}>{o.hint}</span>
+            </button>
+          ))}
+        </div>
+        {decide.isError && <span className={styles.error} role="alert">Couldn’t save that. Try again.</span>}
+      </div>
+    );
+  }
   return (
     <div className={styles.choices} role="group" aria-label={`What to do about: ${subject}`}>
       {fix}

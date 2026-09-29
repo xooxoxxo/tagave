@@ -1,5 +1,6 @@
 import { Link, useLocation } from '@tanstack/react-router';
-import { PageShell, ThemeSwitch } from '../components/ui';
+import { PageShell, SegmentedControl, ThemeSwitch } from '../components/ui';
+import { useMaintenance } from '../maintenance';
 import { useScrollFade } from '../components/ui/useScrollFade';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
@@ -37,7 +38,7 @@ export function SettingsPage() {
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /><MaintenanceSetting /></>}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
         {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails, then application versions and connected workers.</p><SystemStatus /><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
@@ -45,4 +46,18 @@ export function SettingsPage() {
       </div>
     </div>
   </PageShell>;
+}
+
+/**
+ * Maintenance: curation tools (match state, provider links, library issues,
+ * the Manage menu) show only while it is on. The same switch sits in the
+ * app bar (Shift+M).
+ */
+function MaintenanceSetting() {
+  const [on, setOn] = useMaintenance();
+  return <div className={styles.modeSetting}>
+    <h3>Maintenance</h3>
+    <p className={styles.sectionDescription}>Off, albums show only the music and speak up only when something needs your decision. On, every album shows its match state, provider links, all library issues and the Manage menu. Also in the top bar, or press Shift+M. Remembered in this browser only.</p>
+    <SegmentedControl label="Maintenance" value={on ? 'on' : 'off'} onChange={(v) => setOn(v === 'on')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
+  </div>;
 }

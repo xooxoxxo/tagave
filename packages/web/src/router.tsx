@@ -18,6 +18,7 @@ import {
 } from './pages';
 import { api } from './services/api';
 import { parseAlbumsSearch } from './pages/albumsSearch';
+import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 
 /**
  * Parse work page search params: validate optional tab
@@ -108,6 +109,13 @@ const albumDetailRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/albums/$albumId',
   component: AlbumDetailPage,
+  // ?tab=tracks|editions|about|activity; old ids (?tab=care, album, reviews)
+  // redirect to their new home, and ?issues opens the attention strip.
+  validateSearch: (search: Record<string, unknown>) => parseAlbumSearch(search),
+  beforeLoad: ({ location, params }) => {
+    const next = albumSearchRedirect(location.search as Record<string, unknown>);
+    if (next) throw redirect({ to: '/albums/$albumId', params, search: next, replace: true });
+  },
 });
 
 const settingsProvidersRoute = new Route({

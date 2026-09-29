@@ -8,6 +8,7 @@
 import type { IdentifyOutcomeKind, IdentifyRequestView, ReleaseChoice } from '@liner/shared';
 import { Badge, Button, type BadgeTone } from './ui';
 import { formatRelativeTime } from '../utils/time';
+import { ACTIONABLE_OUTCOMES } from '../utils/albumAttention';
 import styles from './IdentifyRequestPanel.module.css';
 
 export const REQUEST_KIND_LABEL: Record<IdentifyRequestView['kind'], string> = {
@@ -44,7 +45,7 @@ const OUTCOME_TONE: Record<IdentifyOutcomeKind, Tone> = {
 };
 
 /** The outcomes that ask the owner to do something next. */
-export const ACTIONABLE: ReadonlySet<IdentifyOutcomeKind> = new Set(['release_group', 'not_found', 'failed', 'needs_review', 'unidentified']);
+export const ACTIONABLE: ReadonlySet<IdentifyOutcomeKind> = ACTIONABLE_OUTCOMES;
 
 /** One line: where the live request is. */
 export function liveRequestLine(r: IdentifyRequestView): string {

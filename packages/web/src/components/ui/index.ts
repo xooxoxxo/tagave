@@ -14,3 +14,5 @@ export { SegmentedControl, ThemeSwitch, type SegmentedOption } from './Segmented
 export { ConfirmDialog, ConfirmHost, confirmDialog, type ConfirmOptions } from './ConfirmDialog';
 export { UndoIcon } from './icons';
 export { CoverArt, CoverChip, coverInitials, type CoverChipTone } from './CoverArt';
+export { Menu, MoreIcon, type MenuItem, type MenuProps } from './Menu';
+export { Collapse, type CollapseProps } from './Collapse';

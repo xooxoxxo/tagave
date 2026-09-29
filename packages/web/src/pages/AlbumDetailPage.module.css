@@ -1,48 +1,91 @@
+/* Album page: the album first, a calm vertical rhythm, one content width. */
 .container {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  padding: var(--page-pad);
+  gap: 1.75rem;
+  width: 100%;
+  max-width: var(--content-max);
   min-height: 100%;
+  margin: 0 auto;
+  padding: 0 var(--page-pad) var(--page-pad);
+  /* the header's blurred backdrop bleeds to the edges but never scrolls sideways */
+  overflow-x: clip;
 }
 
-/* ---- header ---- */
+/* ---- identity header ---- */
 
-.header {
-  display: flex;
-  gap: var(--space-xl);
-  align-items: flex-start;
+.hero {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: clamp(200px, 24vw, 280px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.5rem, 3.5vw, 3rem);
+  padding-top: 0.5rem;
 }
+
+/* A soft wash of the cover's own colours behind the header (Roon, Qobuz).
+   The image is blurred far past recognition and fades into the canvas. */
+.backdrop,
+.backdropPlain {
+  position: absolute;
+  z-index: -1;
+  inset: -120px calc(-1 * var(--page-pad)) -64px;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, var(--canvas) 30%, transparent 100%);
+  mask-image: linear-gradient(to bottom, var(--canvas) 30%, transparent 100%);
+}
+
+.backdrop {
+  background-size: cover;
+  background-position: center;
+  filter: blur(72px) saturate(1.35);
+  opacity: 0.38;
+  transform: scale(1.15);
+}
+
+.backdropPlain {
+  background: radial-gradient(60% 80% at 20% 30%, var(--dew-tint), transparent 70%);
+  opacity: 0.8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .backdrop { opacity: 0.3; }
+}
+:root[data-theme="dark"] .backdrop { opacity: 0.3; }
 
 .coverBox {
-  flex-shrink: 0;
-  width: 220px;
+  width: 100%;
 }
 
 .cover {
-  width: 220px;
-  height: 220px;
-  object-fit: cover;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
   border-radius: var(--r-cover);
-  box-shadow: 0 24px 48px -28px rgba(var(--shadow-tint), 0.45);
+  box-shadow: 0 28px 56px -30px rgba(var(--shadow-tint), 0.55);
 }
-
 
 .headInfo {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sm);
+  gap: 0.6rem;
   min-width: 0;
-  flex: 1;
+  padding-bottom: 0.25rem;
 }
 
+/* The album title is the one display-sized line on the page. */
 .title {
   margin: 0;
+  font: 300 clamp(32px, 4.5vw, 56px) / 1.06 var(--font-display);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
 .artist {
-  font-size: var(--font-size-lg);
-  color: var(--text-secondary);
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--ink);
 }
 
 .artist a {
@@ -51,61 +94,47 @@
 }
 
 .artist a:hover {
-  color: var(--accent);
+  color: var(--dew);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .metaRow {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.genresRow {
+.actionRow {
   display: flex;
-  gap: var(--space-xs) var(--space-sm);
   align-items: center;
-  flex-wrap: wrap;
-  font-size: var(--font-size-xs);
+  gap: var(--space-sm);
+  margin-top: 0.4rem;
 }
 
-.genreChip,
-.styleChip {
-  padding: 0.15rem 0.6rem;
-  border-radius: var(--radius-full);
-  line-height: 1.5;
+.statusNote {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-2);
 }
 
-.genreChip {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-}
-
-.styleChip {
-  color: var(--text-tertiary);
-  border: 1px solid var(--border);
-}
-
-.genreSeparator {
-  color: var(--text-tertiary);
-}
-
-/* Every badge in the header is one of these pills: same size, same shape,
-   colour says what kind of fact it is (state / gap / muted fact / link). */
-.badgeRow {
+/* Maintenance: state and provider links in one quiet line */
+.statusLine {
   display: flex;
-  gap: var(--space-xs) var(--space-sm);
-  align-items: center;
   flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
 }
 
 .pill,
-.pillLink,
-.pillButton {
+.pillLink {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
   padding: 0.15rem 0.7rem;
   border-radius: var(--r-pill);
-  font-size: var(--font-size-xs);
+  font-size: 0.75rem;
   font-weight: 500;
   line-height: 1.6;
   white-space: nowrap;
@@ -122,87 +151,168 @@
 .state_as_is,
 .state_ignored { color: var(--text-tertiary); }
 
-.pillGap {
-  background: var(--surface-danger);
-  color: var(--error);
-  cursor: help;
-}
-
 .pillMuted {
   background: transparent;
   border-color: var(--border);
   color: var(--text-tertiary);
 }
 
-.pillAccent {
-  background: var(--dew-tint);
-  color: var(--chip-on-ink);
-  text-decoration: none;
-}
-
-.pillAccent:hover {
-  color: var(--chip-on-ink);
-  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 45%, transparent);
-}
-
 .pillLink {
-  background: transparent;
-  border-color: var(--border);
-  color: var(--accent);
+  border: 0;
+  background: none;
+  box-shadow: none;
+  padding: 0.2rem 0.25rem;
+  color: var(--dew);
   text-decoration: none;
 }
 
 .pillLink:hover {
-  border-color: var(--accent);
+  text-decoration: underline;
 }
 
-.dirPath {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  overflow-wrap: anywhere;
+/* ---- manual match (opens under the header) ---- */
+
+.manualPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: 1rem 1.25rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
 }
 
-/* Action rows. Every action is a <Button>: small clear bubbles for the
-   reversible actions,
-one dew drop for the manual Match. */
-.actions,
-.mbidRow,
-.gapActions,
-.sectionTools {
+.manualHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manualTitle {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.mbidRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
 }
 
-.actions {
-  margin-top: var(--space-xs);
-}
-
-.mbidRow {
-  margin-top: var(--space-xs);
-}
-
 .mbidInput {
-  flex: 1;
+  flex: 1 1 18rem;
   min-width: 0;
-  max-width: 34rem;
+  max-width: 40rem;
   min-height: var(--h-control);
   padding: 0 1.1rem;
-  font-size: var(--font-size-sm);
+  font-size: 0.875rem;
 }
 
 .mbidError {
   color: var(--error);
-  font-size: var(--font-size-xs);
+  font-size: 0.75rem;
 }
 
-.mbidOk {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-xs);
+/* ---- inside attention rows ---- */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
+.bodyText {
+  margin: 0;
+  max-width: 66ch;
+}
+
+.hint {
+  margin: 0 0 var(--space-xs);
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+.affected {
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.plainList,
+.taskList {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plainList > li {
+  padding: 0.35rem 0;
+}
+
+.taskList > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-md);
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.taskList > li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.taskList > li > div:first-child {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.taskFoot {
+  justify-content: flex-start !important;
+}
+
+.taskText {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.taskDoneText {
+  color: var(--ink-2);
+  text-decoration: line-through;
+  text-decoration-color: var(--line-strong);
+}
+
+.pathLine {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.matchBlock {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+.matchBlock > .trackScroller {
+  align-self: stretch;
+}
 
 /* ---- faces ---- */
 
@@ -228,6 +338,9 @@ one dew drop for the manual Match. */
 }
 
 .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   min-height: 40px;
   padding: 0 18px;
   font: 500 14px / 1 var(--font-body);
@@ -260,12 +373,97 @@ one dew drop for the manual Match. */
   box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
 }
 
+.liveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--warn);
+}
+
+/* ---- sections inside a face: flat, divided by air, never cards in cards ---- */
+
+.section,
+.plainSection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.plainSection + .plainSection,
+.plainSection + .section,
+.section + .section {
+  margin-top: var(--space-md);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.sectionHead {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.sectionTools,
+.gapActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.sectionFoot {
+  margin-top: var(--space-xs);
+}
+
+.muted {
+  color: var(--ink-3);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.facts {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: 10rem minmax(0, 1fr);
+  gap: var(--space-md);
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.facts > div:last-child {
+  border-bottom: 0;
+}
+
+.facts dt {
+  color: var(--ink-3);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 .activity {
   display: grid;
   grid-template-columns: max-content 1fr;
   gap: var(--space-xs) var(--space-lg);
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: 0.875rem;
 }
 
 .activity dt {
@@ -278,198 +476,30 @@ one dew drop for the manual Match. */
   overflow-wrap: anywhere;
 }
 
-/* ---- sections ---- */
-
-.section {
-  padding: 1.25rem 1.5rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
-}
-
-.sectionTitle {
-  margin: 0 0 var(--space-md);
-  font-size: 1.25rem;
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-}
-
-.sectionHead {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-sm);
-}
-
-.sectionHead .sectionTitle {
-  margin: 0;
-}
-
-.sectionFoot {
-  margin-top: var(--space-sm);
-}
-
-.muted {
+.dirPath {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
   color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
-/* gaps */
+/* ---- tables ---- */
 
-.dupRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border);
+.trackScroller {
+  overflow-x: auto;
 }
 
-/* One gap per row: what is wrong on the left, the choices on the right
-   (0032). Rows never carry a group-wide button. */
-.gapItem {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--space-sm) var(--space-lg);
-  padding: var(--space-md) 0;
-  border-top: 1px solid var(--border);
-}
-
-.gapMain {
-  min-width: 0;
-}
-
-.gapHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.15rem var(--space-sm);
-}
-
-.gapKind {
-  font-weight: 600;
-  font-size: var(--font-size-sm);
-  color: var(--ink);
-}
-
-.gapLine {
-  font-size: var(--font-size-sm);
-  color: var(--ink-2);
-}
-
-.gapDetail {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.gapExplain {
-  margin: 0.25rem 0 0;
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  color: var(--ink-2);
-  max-width: 62ch;
-}
-
-.gapGroupTitle {
-  margin: var(--space-lg) 0 0;
-  padding-bottom: var(--space-xs);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-
-.gapChoicesCol {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-xs);
-}
-
-/* the missing tracks, folded into the Incomplete row */
-.gapMore {
-  margin-top: var(--space-xs);
-  font-size: var(--font-size-sm);
-}
-
-.gapMore > summary {
-  width: fit-content;
-  cursor: pointer;
-  color: var(--dew);
-  font-weight: 500;
-  border-radius: var(--r-kbd);
-}
-
-.gapMore > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
-
-.gapMore .missingTable {
-  margin-top: var(--space-xs);
-  max-width: 34rem;
-}
-
-.qualityFlagAffected {
-  margin-top: 0.2rem;
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  line-height: 1.4;
-}
-
-/* tasks on the album page: an empty ring while to do, a filled one when a scan crossed it out */
-.taskText {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-sm);
-  font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--ink);
-  line-height: 1.45;
-}
-
-.taskMark {
-  flex: none;
-  width: 0.8rem;
-  height: 0.8rem;
-  border-radius: var(--r-pill);
-  border: 1.5px solid var(--line-strong);
-  transform: translateY(0.1rem);
-}
-
-.taskMarkDone {
-  border-color: var(--ok);
-  background: var(--ok);
-}
-
-.taskDone .taskText {
-  color: var(--ink-3);
-  font-weight: 400;
-}
-
-/* tables */
-
-.trackTable,
 .missingTable,
-.candTable {
+.candTable,
+.compareTable {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-sm);
+  font-size: 0.875rem;
 }
 
-.trackTable th,
-.candTable th {
+.candTable th,
+.compareTable th {
   text-align: left;
   color: var(--ink-3);
   font: var(--type-label);
@@ -479,26 +509,18 @@ one dew drop for the manual Match. */
   border-bottom: 1px solid var(--line);
 }
 
-.trackTable td,
 .missingTable td,
-.candTable td {
+.candTable td,
+.compareTable td {
   height: 44px;
   padding: 0.45rem 0.75rem;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
 }
 
-.trackTable {
-  margin-top: var(--space-xs);
-}
-
-.discHeader td {
-  padding-top: var(--space-md);
-  font: var(--type-label);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  color: var(--ink-3);
-  border-bottom: 1px solid var(--line);
+.missingTable tr:last-child td,
+.compareTable tr:last-child td {
+  border-bottom: 0;
 }
 
 .num {
@@ -507,32 +529,38 @@ one dew drop for the manual Match. */
   white-space: nowrap;
 }
 
-th.num {
-  text-align: right;
-}
-
+th.num,
 td.num {
   text-align: right;
 }
 
-.durDrift {
+/* a comparison cell beyond the tolerance */
+.cellOff,
+td.cellOff {
   color: var(--warning);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
+  font-weight: 600;
 }
 
-.canonTitle {
-  color: var(--accent);
+.delta {
+  font-size: 0.75rem;
+  font-weight: 500;
 }
 
-.fileCell {
-  color: var(--text-tertiary);
-  white-space: nowrap;
+.compareTitle {
+  width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ink);
 }
 
-.trackError td {
-  color: var(--error);
+.compareSub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
+.compareTable th:first-child,
+.compareTable td:first-child {
+  width: 3rem;
 }
 
 .candRelease {
@@ -542,38 +570,19 @@ td.num {
 /* Candidate table: fixed layout, every column but Release has a width. */
 .candTable {
   table-layout: fixed;
-  min-width: 44rem;
+  min-width: 40rem;
 }
-.candWDistance { width: 6.5rem; }
 .candWDate { width: 7.5rem; }
 .candWCountry { width: 6.5rem; }
 .candWTracks { width: 5.5rem; }
-.candWActions { width: 12rem; }
+.candWActions { width: 11.5rem; }
 .candTable th { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .candActions { white-space: nowrap; text-align: right; }
 .candActions > * + * { margin-left: var(--space-xs); }
 
-/* Missing tracks: a compact list read like the Tracks table. The number sits
-   in a narrow tabular column right next to the title; the length hugs the
-   right edge. */
-.missingNo {
-  width: 1%;
-  min-width: 2.5ch;
-  text-align: right;
-}
-/* doubled up to beat `.missingTable td`'s padding */
-.missingTable .missingNo { padding-right: 0.25rem; }
-.missingTitle {
-  width: auto;
-  overflow-wrap: anywhere;
-}
-.missingLen {
-  width: 1%;
-}
-
 .candTitleRow {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: var(--space-sm);
   flex-wrap: wrap;
 }
@@ -590,15 +599,36 @@ td.num {
 .candSub {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 0.15rem var(--space-sm);
   flex-wrap: wrap;
   margin-top: 0.2rem;
   color: var(--text-tertiary);
-  font-size: var(--font-size-xs);
+  font-size: 0.75rem;
 }
 
 .candExcluded {
   opacity: 0.45;
+}
+
+/* Missing tracks: a compact list read like the Tracks list. The number sits
+   in a narrow tabular column right next to the title; the length hugs the
+   right edge. */
+.missingTable {
+  max-width: 34rem;
+}
+.missingNo {
+  width: 1%;
+  min-width: 2.5ch;
+  text-align: right;
+}
+/* doubled up to beat `.missingTable td`'s padding */
+.missingTable .missingNo { padding-right: 0.25rem; }
+.missingTitle {
+  width: auto;
+  overflow-wrap: anywhere;
+}
+.missingLen {
+  width: 1%;
 }
 
 .ownedRow td {
@@ -607,21 +637,16 @@ td.num {
 
 .cellLine {
   display: block;
-  font-size: var(--font-size-xs);
+  font-size: 0.75rem;
   color: var(--text-secondary);
 }
 
-.dupLink {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.dupPath {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-xs);
-  max-width: 30%;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  text-overflow: ellipsis;
+  clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
@@ -630,7 +655,7 @@ td.num {
   padding-top: var(--space-md);
   border-top: 1px solid var(--border);
   text-align: center;
-  font-size: var(--font-size-xs);
+  font-size: 0.75rem;
 }
 
 .attribution span {
@@ -646,76 +671,78 @@ td.num {
   text-decoration: underline;
 }
 
-.container { max-width: var(--content-max); margin: 0 auto; gap: 2rem; }
-.header { gap: clamp(1.5rem, 4vw, 4rem); }
-.coverBox { width: clamp(200px, 24vw, 300px); }
-.cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--r-cover); }
-/* The album title is the one display-sized line on the page. */
-.title { font: 300 clamp(32px, 4.5vw, 52px) / 1.08 var(--font-display); letter-spacing: -.02em; }
-.headInfo { gap: .85rem; }
-.maintenance { margin-top: .5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
-.maintenance summary { cursor: pointer; color: var(--dew); font-size: .875rem; font-weight: 600; }
-.maintenance[open] summary { margin-bottom: 1rem; }
-.maintenance .mbidRow { margin-top: 1rem; }
-@media (max-width: 640px) { .header { flex-direction: column; } .coverBox { width: min(65vw, 280px); } .headInfo { width: 100%; } .mbidRow { flex-wrap: wrap; } }
+/* ---- phone: the album centred like a player's album view ---- */
 
-.backLink { font-size: .85rem; align-self: flex-start; }
-
-/* Music identity, references, and maintenance have distinct visual roles. */
-.container { gap: 1.5rem; }
-.headInfo { gap: .75rem; }
-.genreText { font-size: .875rem; color: var(--text-secondary); line-height: 1.6; }
-/* No art: the dew mist,
-the title-free placeholder label bottom-left. */
-.pillLink { border: 0; background: none; box-shadow: none; padding: .2rem .25rem; border-radius: var(--r-pill); }
-.pillLink:hover { text-decoration: underline; }
-.albumFacts summary, .maintenance summary { font-size: .875rem; font-weight: 500; cursor: pointer; color: var(--ink-2); }
-.albumFacts summary:hover, .maintenance summary:hover { color: var(--ink); }
-.albumFacts dl { display: grid; gap: .75rem; margin-block: 1rem; font-size: .8125rem; }
-.albumFacts dl > div { display: grid; grid-template-columns: 8rem minmax(0, 1fr); gap: .75rem; }
-.albumFacts dt { color: var(--text-secondary); }
-.albumFacts dd { margin: 0; overflow-wrap: anywhere; }
-.maintenance { margin: 0; padding-top: .75rem; }
-.trackScroller { overflow-x: auto; }
-.trackTitle { width: 100%; }
-/* Phone: a table of five columns squeezed the title to a sliver while the
-   file details ran off the side. Each track becomes two lines: number, title
-   and length, then the file details (and the canonical length) under the
-   title. */
 @media (max-width: 640px) {
-  .trackScroller { overflow-x: visible; }
-  .trackTable thead { display: none; }
-  .trackTable, .trackTable tbody { display: block; }
-  .trackTable .trackRow {
+  .container {
+    gap: 1.5rem;
+  }
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    text-align: center;
+    gap: 1.25rem;
+    padding-top: 1.25rem;
+  }
+  .backdrop,
+  .backdropPlain {
+    inset: -40px calc(-1 * var(--page-pad)) -40px;
+  }
+  .coverBox {
+    width: min(78vw, 320px);
+  }
+  .headInfo {
+    align-items: center;
+    width: 100%;
+    gap: 0.45rem;
+  }
+  .title {
+    font-size: clamp(28px, 8vw, 36px);
+  }
+  .artist {
+    font-size: 1rem;
+  }
+  .statusLine,
+  .actionRow {
+    justify-content: center;
+  }
+  .facts > div {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+  .activity {
+    grid-template-columns: 1fr;
+  }
+  .activity dd {
+    margin-bottom: var(--space-xs);
+  }
+}
+
+/* Possible releases on a phone: each release reads as a short block —
+   title and artist, then date · country · tracks, the actions on the right. */
+@media (max-width: 640px) {
+  .candTable { min-width: 0; table-layout: auto; }
+  .candTable colgroup, .candTable thead { display: none; }
+  .candTable, .candTable tbody { display: block; }
+  .candTable tr {
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    grid-template-columns: auto auto auto minmax(0, 1fr);
+    align-items: center;
     column-gap: var(--space-sm);
-    row-gap: 0.125rem;
-    padding: 0.6rem 0;
+    row-gap: 0.25rem;
+    padding: var(--space-sm) 0;
     border-bottom: 1px solid var(--line);
   }
-  .trackTable .trackRow td { height: auto; padding: 0; border: 0; }
-  .trackTable .trackNo { grid-column: 1; grid-row: 1; text-align: right; }
-  .trackTable .trackTitle { grid-column: 2; grid-row: 1; width: auto; min-width: 0; overflow-wrap: anywhere; }
-  .trackTable .trackLen { grid-column: 3; grid-row: 1; }
-  .trackTable .trackCanon { grid-column: 3; grid-row: 2; font-size: var(--font-size-xs); color: var(--ink-3); }
-  .trackTable .trackCanon::before { content: attr(data-label) " "; }
-  .trackTable .fileCell { grid-column: 2; grid-row: 2; font-size: var(--font-size-xs); white-space: normal; overflow-wrap: anywhere; }
-  /* compilations: the per-track artist sits under the title, the file below it */
-  .trackTable .trackArtist { grid-column: 2; grid-row: 2; font-size: var(--font-size-xs); color: var(--ink-2); overflow-wrap: anywhere; }
-  .trackTable .trackRow:has(.trackArtist) .fileCell { grid-row: 3; }
-  .trackTable .discHeader { display: block; }
-  .trackTable .discHeader td { display: block; height: auto; padding: var(--space-md) 0 0.4rem; }
-}
-@media (max-width: 700px) {
-  .albumFacts dl > div { grid-template-columns: 1fr; gap: .2rem; }
-  .gapItem { grid-template-columns: minmax(0, 1fr); }
-  .gapChoicesCol { justify-content: flex-start; }
+  .candTable td { display: block; height: auto; padding: 0; border: 0; text-align: left; }
+  .candTable td.num { text-align: left; }
+  .candTable .candRelease { grid-column: 1 / -1; }
+  .candTable td[data-suffix]::after { content: attr(data-suffix); }
+  .candTable .candActions { grid-column: 1 / -1; justify-self: start; }
 }
 
-/* Editions on a phone: six columns do not fit in the card, and the switch
-   button ended up off screen. Each edition becomes a short labelled list
-   with its action on the right. */
+/* Editions on a phone: six columns do not fit, and the switch button ended
+   up off screen. Each edition becomes a short labelled list with its action
+   on the right. */
 @media (max-width: 640px) {
   .editionsTable thead { display: none; }
   .editionsTable, .editionsTable tbody { display: block; }
@@ -728,9 +755,9 @@ the title-free placeholder label bottom-left. */
     border-bottom: 1px solid var(--border);
   }
   .editionsTable tr:last-child { border-bottom: 0; }
-  .editionsTable td { grid-column: 1; padding: 0; border: 0; min-width: 0; overflow-wrap: anywhere; }
+  .editionsTable td { grid-column: 1; padding: 0; border: 0; height: auto; min-width: 0; overflow-wrap: anywhere; }
   .editionsTable td[data-label] { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); gap: var(--space-sm); text-align: left; }
-  .editionsTable td[data-label]::before { content: attr(data-label); color: var(--text-tertiary); font-size: var(--font-size-xs); line-height: 1.6; }
+  .editionsTable td[data-label]::before { content: attr(data-label); color: var(--text-tertiary); font-size: 0.75rem; line-height: 1.6; }
   .editionsTable .editionAction { grid-column: 2; grid-row: 1 / span 5; align-self: center; }
   /* the row is the grid now: colour it once instead of each cell */
   .editionsTable .ownedRow { background: var(--surface-success); padding-inline: var(--space-sm); }

@@ -1,242 +1,94 @@
 /**
- * Album detail (spec BRW-2): cover, canonical vs local metadata, tracklist
- * with duration comparison, file facts, match provenance — plus everything
- * needed to act without leaving: gaps with dismiss, missing tracks,
- * candidate accept/exclude, duplicate copies, art refetch, as-is/ignore.
+ * Album page (spec BRW-2), shaped like a music app's album view (Roon,
+ * Spotify, Qobuz): the album first — cover, title, artist, one quiet meta
+ * line, a "⋯" menu — then the tracks. Upkeep stays out of sight unless
+ * something needs a decision (see utils/albumAttention.ts); Maintenance
+ * (maintenance.ts) reveals the state, provider links, every library issue,
+ * the Manage menu and per-track marks.
+ *
+ * Faces: Tracks · Editions · About · Activity, kept in ?tab. The old
+ * "Library health" face lives in the attention strip; its old links
+ * (?tab=care) open the strip with Maintenance on.
  */
-import { Fragment, useRef, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@liner/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link, useParams } from '@tanstack/react-router';
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
+import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
 import { AlbumEditionsPanel } from './AlbumEditionsPanel';
-import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
+import { useAlbumFolderActions } from '../components/AlbumMaintenanceActions';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
-import { CompilationPanel, type MergeCandidateView } from '../components/CompilationPanel';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
-import { useAlbumsReturnSearch } from './albumSelection';
-import { IdentifyRequestPanel, ACTIONABLE, requestSummary } from '../components/IdentifyRequestPanel';
-import styles from './AlbumDetailPage.module.css';
-import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
+import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequestPanel';
+import { useMaintenance } from '../maintenance';
+import { useBarTitle } from '../components/appBarTitle';
+import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
-import { GapChoices, GapChoicesHelp, ReopenGapButton } from '../components/GapChoices';
-import { Button, EmptyState, LinkButton, CoverArt } from '../components/ui';
+import { attentionItems, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
+import { GapChoices, ReopenGapButton } from '../components/GapChoices';
+import { Button, Collapse, CoverArt, LinkButton, Menu, type MenuItem, confirmDialog } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
+import type { AlbumDetail, Gap } from './albumDetailTypes';
+import { AlbumTracks } from './AlbumTracks';
+import { AlbumAttention } from './AlbumAttention';
+import { CandidateTable, TrackComparison } from './AlbumMatchTable';
+import { STATE_LABEL, dur, totalLength } from './albumFormat';
+import styles from './AlbumDetailPage.module.css';
 
-interface DetailTrack {
-  id: string;
-  discNo: number | null;
-  trackNo: number | null;
-  title: string | null;
-  /** the track's own artist tag; on a compilation it differs per track */
-  artist?: string | null;
-  durationMs: number | null;
-  origin: string;
-  cueStartMs: number | null;
-  canonicalTitle: string | null;
-  canonicalDurationMs: number | null;
-  file: {
-    relPath: string;
-    codec: string | null;
-    lossless: boolean | null;
-    bitrateKbps: number | null;
-    sampleRate: number | null;
-    bitDepth: number | null;
-    sizeBytes: number | null;
-    status: string;
-  };
-}
-interface Candidate {
-  id: string;
-  releaseMbid: string | null;
-  discogsReleaseId: number | null;
-  title: string;
-  artistCredit: string;
-  date: string | null;
-  country: string | null;
-  status: string | null;
-  trackCount: number | null;
-  distance: number;
-  source: string;
-  provider: string;
-  rgMbid: string | null;
-  excluded: boolean;
-  /** media summary and first label/catno — present once the detail handler ships them */
-  format?: string | null;
-  label?: string | null;
-}
-interface PendingIdentify {
-  id: string;
-  state: 'created' | 'retry' | 'active';
-  kind: 'mbid' | 'release_group' | 'discogs' | 'reidentify' | 'sweep';
-  pinned: string | null;
-  priority: number;
-  createdAt: string;
-  startedAt: string | null;
-  jobsAhead: number;
-}
-interface Gap {
-  id: string;
-  kind: string;
-  /** open | todo (on the task list) | dismissed | resolved (a task a scan crossed out) */
-  state: string;
-  dismissReason: string | null;
-  details: Record<string, unknown>;
-  /** quality gaps: the one flag this row stands for (0032) */
-  flag?: string;
-  acceptedAt?: string | null;
-  resolvedAt?: string | null;
-  note?: string | null;
-}
-interface DiscogsCollectionItem {
-  id: string;
-  folder: string;
-  mediaCondition?: string;
-  sleeveCondition?: string;
-  rating?: number;
-  pushState?: string;
-  pushError?: string;
-}
+const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
+  ['tracks', 'Tracks'],
+  ['editions', 'Editions'],
+  ['about', 'About'],
+  ['activity', 'Activity'],
+];
 
-interface AlbumDetail {
-  id: string;
-  releaseGroupId: string | null;
-  title: string | null;
-  artistCredit: string | null;
-  year: number | null;
-  state: string;
-  dirPaths: string[];
-  formats: string[];
-  discCount: number | null;
-  trackCount: number | null;
-  totalDurationMs: number | null;
-  coverUrl: string | null;
-  /** the one queued identify job for this album, if any (manual pin, re-identify or the sweep) */
-  pendingIdentify?: PendingIdentify | null;
-  /** the owner's latest request: live job state, or how it ended (absent on an older API) */
-  identifyRequest?: IdentifyRequestView | null;
-  coverOrigin: string | null;
-  isCueImage: boolean;
-  cueRelPath: string | null;
-  /** the folder mixes lossless and lossy files (XO-364: can be split by format) */
-  mixed: boolean;
-  /** set on an album split off another one; "Merge back" returns the files */
-  splitFrom: string | null;
-  /** built by "Treat as one album"; can be split back */
-  merged?: boolean;
-  /** other albums with this title that fit together with this one */
-  mergeCandidates?: MergeCandidateView[];
-  artists?: Array<{ id: string; name: string; position: number }>;
-  genres?: {
-    effective: string[];
-    styles: string[];
-    raw: Array<{ tag: string; kind: string; source: string; weight?: number | null }>;
-  };
-  release: {
-    mbid: string | null;
-    title: string;
-    date: string | null;
-    country: string | null;
-    status: string | null;
-    labels: { name: string; catno?: string }[] | null;
-    trackCount: number | null;
-    artistCredit: string[] | string | null;
-    discogsReleaseId: number | null;
-    discogsMasterId: number | null;
-    sourceOfTruth: string;
-    externalLinks: Array<{ title: string; url: string; source: string }>;
-    genres?: string[];
-    styles?: string[];
-    fetchedAt: string | null;
-  } | null;
-  match: {
-    status: string;
-    decidedBy: string;
-    distance: number;
-    decidedAt: string | null;
-    reason: string | null;
-    releaseGroupOnly?: boolean;
-  } | null;
-  discogsCollectionItems?: DiscogsCollectionItem[];
-  editions?: {
-    fetchedAt: string | null;
-    releaseGroupMbid: string;
-    editions: Array<{
-      releaseId: string;
-      mbid: string;
-      title: string;
-      status?: string | null;
-      date?: string | null;
-      country?: string | null;
-      barcode?: string | null;
-      packaging?: string | null;
-      labels: Array<{ name: string; catalogNumber?: string | null }>;
-      media: Array<Record<string, unknown>>;
-      trackCount: number;
-      owned: boolean;
-      ownedByOtherAlbums: number;
-    }>;
-  } | null;
-  tracks: DetailTrack[];
-  missingTracks: { disc: number; position: number; title: string; lengthMs: number | null }[];
-  gaps: Gap[];
-  candidates: Candidate[];
-  duplicates: {
-    id: string;
-    title: string | null;
-    artist: string | null;
-    trackCount: number | null;
-    formats: string[] | null;
-    state: string;
-    dirPaths: string[] | null;
-  }[];
+/** resolved tasks the owner already saw ("Got it"), per browser */
+const ACK_KEY = 'tagave-acked-tasks';
+function readAcked(): Set<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(ACK_KEY);
+    const ids = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
 }
-
-function dur(ms: number | null | undefined): string {
-  if (!ms) return '–:––';
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+function writeAcked(ids: Set<string>) {
+  try {
+    globalThis.localStorage?.setItem(ACK_KEY, JSON.stringify([...ids].slice(-500)));
+  } catch {
+    // storage blocked: acknowledged for this visit only
+  }
 }
-function mb(bytes: number | null): string {
-  return bytes ? `${(bytes / 1048576).toFixed(1)} MB` : '';
-}
-
-const STATE_LABEL: Record<string, string> = {
-  matched: 'Matched',
-  needs_review: 'Needs review',
-  pending: 'Awaiting identification',
-  unidentified: 'Unidentified',
-  as_is: 'Kept as-is',
-  ignored: 'Ignored',
-};
-
-const GAP_LABEL = GAP_KIND_LABEL;
-/** rows in this order on the album page; quality flags come last, under their own heading */
-const GAP_ORDER = ['incomplete_album', 'duplicate', 'missing_album'];
 
 export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
+  const search = useSearch({ strict: false }) as AlbumSearch;
+  const navigate = useNavigate();
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
-  const albumsReturnSearch = useAlbumsReturnSearch();
+  const [maintenance, setMaintenance] = useMaintenance();
+  const tab: AlbumTab = search.tab ?? 'tracks';
+  const setTab = (next: AlbumTab) =>
+    void navigate({ to: '/albums/$albumId', params: { albumId }, search: next === 'tracks' ? {} : { tab: next }, replace: true, resetScroll: false });
+  const tabStrip = useScrollFade<HTMLElement>(tab);
+
   const [showExcluded, setShowExcluded] = useState(false);
   const [mbidInput, setMbidInput] = useState('');
-  // Album first; editions, reviews and the background story live on their own
-  // faces and load only when opened, so a page visit costs one detail request.
-  const [tab, setTab] = useState<'album' | 'care' | 'editions' | 'reviews' | 'activity'>('album');
-  const tabStrip = useScrollFade<HTMLElement>(tab);
+  const [manualOpen, setManualOpen] = useState(false);
   const [editingTags, setEditingTags] = useState(false);
-  // the split options live in "Manage this album"; the Library health row opens it
-  const manageRef = useRef<HTMLDetailsElement>(null);
-  const openManage = () => {
-    const el = manageRef.current;
-    if (!el) return;
-    el.open = true;
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
+  const [acked, setAcked] = useState<Set<string>>(readAcked);
+  const [note, setNote] = useState<string | null>(null);
+  const toggleRow = (id: string) => setOpenRows((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   const refresh = (delayMs = 0) =>
     setTimeout(() => {
@@ -260,18 +112,21 @@ export function AlbumDetailPage() {
   // A finished request's note can be hidden; keyed by job so the next one shows.
   const [dismissedRequest, setDismissedRequest] = useState<string | null>(null);
 
-  const { data: editions } = useAlbumEditions(libraryId, albumId, { enabled: tab === 'editions' });
+  const { data: editions } = useAlbumEditions(libraryId, albumId, { enabled: tab === 'editions' || tab === 'about' });
   const refreshEditions = useRefreshEditions(libraryId);
   const matchAnyEdition = useMatchAnyEdition(libraryId);
   const clearAnyEdition = useClearAnyEdition(libraryId);
+  const merge = useMergeAlbums(libraryId);
+  const unmerge = useUnmergeAlbum(libraryId);
+  const folder = useAlbumFolderActions(libraryId, album);
 
   const reidentify = useMutation({
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify`),
-    onSuccess: () => refresh(4000),
+    onSuccess: () => refresh(0),
   });
   const fetchArt = useMutation({
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/fetch-art`),
-    onSuccess: () => refresh(5000),
+    onSuccess: () => { setNote('Cover art lookup queued; the page updates when it lands.'); refresh(5000); },
   });
   const keepAsIs = useMutation({
     mutationFn: () => api.post(`/albums/${albumId}/as-is`),
@@ -296,6 +151,7 @@ export function AlbumDetailPage() {
       }),
     onSuccess: () => {
       setMbidInput('');
+      setManualOpen(false);
       refresh(0); // the detail now carries pendingIdentify; SSE clears it when the job decides
     },
   });
@@ -303,38 +159,8 @@ export function AlbumDetailPage() {
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify-request/cancel`, {}),
     onSuccess: () => refresh(0),
   });
-  const pending = album?.pendingIdentify ?? null;
-  const PENDING_KIND: Record<string, string> = {
-    mbid: 'Manual match (MusicBrainz release)',
-    release_group: 'Manual match (MusicBrainz release group)',
-    discogs: 'Manual match (Discogs)',
-    reidentify: 'Re-identify',
-    sweep: 'Identification sweep',
-  };
-  // The request as it really stands (API ≥ 0.4.2); an older API sends only
-  // the live job, which is shaped into the same view.
-  const request: IdentifyRequestView | null = album?.identifyRequest !== undefined
-    ? album.identifyRequest
-    : pending
-      ? {
-          status: pending.state === 'active' ? 'running' : pending.state === 'retry' ? 'retrying' : 'queued',
-          jobId: pending.id, kind: pending.kind, pinned: pending.pinned, createdAt: pending.createdAt,
-          startedAt: pending.startedAt, jobsAhead: pending.jobsAhead, outcome: null,
-        }
-      : null;
-  const requestLive = !!request && request.status !== 'done';
-  const requestKey = request ? `${request.jobId ?? ''}:${request.outcome?.finishedAt ?? ''}` : null;
-  // A finished request stays on the page while it is recent (3 days) or asks
-  // for something (pick a release, the id was wrong, it failed) and nothing
-  // decided the album since.
-  const decidedAfter = (iso: string) => !!album?.match?.decidedAt && new Date(album.match.decidedAt).getTime() > new Date(iso).getTime();
-  const showRequest = !!request && requestKey !== dismissedRequest && (requestLive || (!!request.outcome && (
-    Date.now() - new Date(request.outcome.finishedAt).getTime() < 3 * 86_400_000
-    || (ACTIONABLE.has(request.outcome.kind) && !decidedAfter(request.outcome.finishedAt)))));
-
   // Switching edition is a manual identification request: it queues on the
-  // worker and the detail carries pendingIdentify until the decision lands, so
-  // the page refetches at once (the panel appears) instead of after a blind wait.
+  // worker and the detail carries pendingIdentify until the decision lands.
   const [switchingMbid, setSwitchingMbid] = useState<string | null>(null);
   const switchEdition = useMutation({
     mutationFn: (mbid: string) => {
@@ -344,33 +170,66 @@ export function AlbumDetailPage() {
     onSuccess: () => refresh(0),
     onSettled: () => setSwitchingMbid(null),
   });
-  /** the API's problem+json `detail` is the message the owner should read, e.g. the 409 for a request already queued */
-  const errorDetail = (m: { error: unknown }): string | null =>
-    (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
-
   const addToCollection = useAddCollectionItem(libraryId);
   const fingerprint = useFingerprintAlbum(libraryId);
 
+  // Old "Library health" links: Maintenance on, the strip open at its first row.
+  const [pendingIssues, setPendingIssues] = useState(!!search.issues);
+  useEffect(() => {
+    if (!search.issues) return;
+    setMaintenance(true);
+    setPendingIssues(true);
+    void navigate({ to: '/albums/$albumId', params: { albumId }, search: search.tab ? { tab: search.tab } : {}, replace: true, resetScroll: false });
+  }, [search.issues]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const title = album ? album.release?.title ?? album.title ?? 'Untitled' : null;
+  const titleRef = useBarTitle(title);
+
+  const pending = album?.pendingIdentify ?? null;
+  // The request as it really stands (API ≥ 0.4.2); an older API sends only
+  // the live job, which is shaped into the same view.
+  const request: IdentifyRequestView | null = album?.identifyRequest !== undefined
+    ? album.identifyRequest ?? null
+    : pending
+      ? {
+          status: pending.state === 'active' ? 'running' : pending.state === 'retry' ? 'retrying' : 'queued',
+          jobId: pending.id, kind: pending.kind, pinned: pending.pinned, createdAt: pending.createdAt,
+          startedAt: pending.startedAt, jobsAhead: pending.jobsAhead, outcome: null,
+        }
+      : null;
+  const requestLive = !!request && request.status !== 'done';
+
+  const allItems = useMemo(() => (album ? attentionItems({
+    state: album.state,
+    merged: album.merged,
+    mixed: album.mixed,
+    mergeCandidates: album.mergeCandidates,
+    candidates: album.candidates,
+    gaps: album.gaps,
+    missingTracks: album.missingTracks,
+    duplicates: album.duplicates,
+    tracks: album.tracks,
+    hasRelease: !!album.release,
+    match: album.match,
+  }, { request, dismissedRequestKey: dismissedRequest, ackedTaskIds: acked }) : []), [album, request, dismissedRequest, acked]);
+  const items = maintenance ? allItems : allItems.filter((i) => i.interrupts);
+
+  useEffect(() => {
+    if (!pendingIssues || !album) return;
+    const first = allItems.find((i) => !i.interrupts) ?? allItems[0];
+    if (first) setOpenRows((cur) => new Set(cur).add(first.id));
+    setPendingIssues(false);
+  }, [pendingIssues, album, allItems]);
+
+  /** the API's problem+json `detail` is the message the owner should read */
+  const errorDetail = (m: { error: unknown }): string | null =>
+    (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
 
   if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div>;
-
-  if (isLoading || !album) return <div className={styles.container}>Loading album...</div>;
-
-  const durationDrift = (t: DetailTrack) =>
-    t.canonicalDurationMs && t.durationMs
-      ? Math.abs(t.canonicalDurationMs - t.durationMs) > 5000
-      : false;
+  if (isLoading || !album) return <div className={styles.container}><p className={styles.muted}>Loading album…</p></div>;
 
   const openGaps = album.gaps.filter((g) => g.state === 'open');
-  const dismissedGaps = album.gaps.filter((g) => g.state === 'dismissed');
-  const taskGaps = album.gaps.filter((g) => g.state === 'todo');
-  const doneTasks = album.gaps.filter((g) => g.state === 'resolved' && g.acceptedAt);
-  const visibleCandidates = album.candidates
-    .filter((c) => showExcluded || !c.excluded)
-    .sort((a, b) => a.distance - b.distance);
   const excludedCount = album.candidates.filter((c) => c.excluded).length;
-  // Quality gaps are one row per flag (0032); a row's words can mention the
-  // album's other open flags ("fetching the cover art above clears this too").
   const openFlags: Record<string, unknown> = {};
   for (const g of openGaps) {
     const f = g.kind === 'quality' ? qualityFlagOf(g) : null;
@@ -380,28 +239,21 @@ export function AlbumDetailPage() {
     const f = qualityFlagOf(g);
     return f ? describeQualityFlag(f.key, f.value, openFlags, { mixed: album.mixed }) : null;
   };
-  const qualityRows = openGaps
-    .filter((g) => g.kind === 'quality')
-    .map((g) => ({ gap: g, issue: qualityIssue(g) }))
-    .filter((r): r is { gap: Gap; issue: QualityIssue } => r.issue !== null);
-  const otherGaps = openGaps
-    .filter((g) => g.kind !== 'quality')
-    .sort((a, b) => GAP_ORDER.indexOf(a.kind) - GAP_ORDER.indexOf(b.kind));
-  // one number for the tab, the header link and the section heading: every
-  // open row counts once (tasks and hidden rows do not)
-  const issueCount = qualityRows.length + otherGaps.length;
-  // missing tracks without any incomplete gap yet (the check has not run since)
-  const hasIncompleteGap = album.gaps.some((g) => g.kind === 'incomplete_album');
-  // matched albums keep their candidates but do not show them
-  const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
-  // A compilation (or any album whose tracks credit other artists) gets a
-  // per-track Artist column.
-  const trackArtists = showsTrackArtists(album.tracks, album.artistCredit);
-  const careEmpty = issueCount === 0 && dismissedGaps.length === 0 && taskGaps.length === 0 && doneTasks.length === 0
-    && album.missingTracks.length === 0 && album.duplicates.length === 0 && !showCandidates;
-  const issueNoun = issueCount === 1 ? 'issue' : 'issues';
-
+  const gapById = new Map(album.gaps.map((g) => [g.id, g]));
+  const taskSubject = { title: album.release?.title ?? album.title, folder: album.dirPaths?.[0] ?? null };
+  const shortDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
   const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
+  const albumArtist = album.artists?.length
+    ? album.artists.map((a) => a.name).join(', ')
+    : Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit ?? album.artistCredit;
+  const year = (album.release?.date ?? '').slice(0, 4) || (album.year ? String(album.year) : '');
+  const trackCountText = album.trackCount == null ? null : album.isCueImage
+    ? `${album.trackCount} audio ${album.trackCount === 1 ? 'file' : 'files'} (CUE image)`
+    : `${album.trackCount} ${album.trackCount === 1 ? 'track' : 'tracks'}`;
+  const meta = [year, trackCountText, totalLength(album.totalDurationMs)].filter(Boolean).join(' · ');
+  const discrepancies = trackDiscrepancies(album.tracks);
+  const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
+  const ownsPhysical = (album.discogsCollectionItems?.length ?? 0) > 0;
 
   // The bulk editor covers this album, or everything in its folder (or the
   // folder above it, where a compilation filed one folder per track lives).
@@ -416,571 +268,453 @@ export function AlbumDetailPage() {
       : []),
   ];
 
-  const gapLabel = (g: Gap): string => (g.kind === 'quality' ? qualityIssue(g)?.title ?? GAP_LABEL['quality']! : GAP_LABEL[g.kind] ?? g.kind);
-  /** a hidden row's label: its flag's own name, whether or not the flag is still open */
-  const hiddenLabel = (g: Gap): string => {
-    if (g.kind !== 'quality') return GAP_LABEL[g.kind] ?? g.kind;
-    const f = qualityFlagOf(g);
-    return f ? describeQualityFlag(f.key, f.value).title : GAP_LABEL['quality']!;
+  // ---- actions ----
+
+  const onMerge = async () => {
+    const candidates = album.mergeCandidates ?? [];
+    setNote(null);
+    try {
+      const r = await merge.mutateAsync({ albumIds: [album.id, ...candidates.map((c) => c.id)], targetId: album.id });
+      setNote(`${r.files} tracks are now one album.${r.identifyQueued ? ' Identification is queued with every track in view.' : ''}`);
+    } catch (e) {
+      setNote((e as { detail?: string })?.detail ?? 'The albums could not be merged.');
+    }
   };
-  const lineOf = (g: Gap): string => gapLine(g, { all: openFlags, mixed: album.mixed });
-  const taskSubject = { title: album.release?.title ?? album.title, folder: album.dirPaths?.[0] ?? null };
-  const shortDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const onUnmerge = async () => {
+    if (!(await confirmDialog({ title: 'Split this album back?', message: 'It goes back to the albums it was made from. Nothing on disk changes.', confirmLabel: 'Split back' }))) return;
+    setNote(null);
+    try {
+      const r = await unmerge.mutateAsync(album.id);
+      setNote(`Splitting back: ${r.folders} folder${r.folders === 1 ? '' : 's'} regroup in a few seconds.`);
+    } catch (e) {
+      setNote((e as { detail?: string })?.detail ?? 'The album could not be split back.');
+    }
+  };
+  const openManual = () => {
+    setManualOpen(true);
+    requestAnimationFrame(() => document.getElementById('manual-match-input')?.focus({ preventScroll: true }));
+  };
 
-  // The missing tracks, folded into the Incomplete row instead of a card of their own.
+  const onAction = (item: AttentionItem) => {
+    const a = item.action;
+    if (!a) return;
+    switch (a.do) {
+      case 'merge': void onMerge(); break;
+      case 'unmerge': void onUnmerge(); break;
+      case 'cancel-request': cancelRequest.mutate(); break;
+      case 'dismiss-request': setDismissedRequest(requestKeyOf(request)); break;
+      case 'ack-tasks': {
+        const next = new Set(acked);
+        for (const id of item.gapIds ?? []) next.add(id);
+        writeAcked(next);
+        setAcked(next);
+        break;
+      }
+      case 'editions': setTab('editions'); break;
+      case 'art': fetchArt.mutate(); break;
+      case 'tags': void navigate({ to: '/plans', search: { album: albumId } }); break;
+      case 'split': if (item.id) setOpenRows((cur) => new Set(cur).add(item.id)); break;
+      case 'expand': toggleRow(item.id); break;
+    }
+  };
+  const busy = (item: AttentionItem) =>
+    (item.action?.do === 'merge' && merge.isPending)
+    || (item.action?.do === 'unmerge' && unmerge.isPending)
+    || (item.action?.do === 'cancel-request' && cancelRequest.isPending)
+    || (item.action?.do === 'art' && fetchArt.isPending);
+
   const missingList = album.missingTracks.length > 0 && (
-    <details className={styles.gapMore}>
-      <summary>Show the {album.missingTracks.length === 1 ? 'missing track' : `${album.missingTracks.length} missing tracks`}</summary>
-      <table className={styles.missingTable}>
-        <tbody>
-          {album.missingTracks.map((m, i) => (
-            <tr key={i}>
-              <td className={`${styles.num} ${styles.missingNo}`}>
-                {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
-                {m.position}
-              </td>
-              <td className={styles.missingTitle}>{m.title}</td>
-              <td className={`${styles.num} ${styles.missingLen}`}>{dur(m.lengthMs)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </details>
+    <table className={styles.missingTable}>
+      <tbody>
+        {album.missingTracks.map((m, i) => (
+          <tr key={i}>
+            <td className={`${styles.num} ${styles.missingNo}`}>
+              {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
+              {m.position}
+            </td>
+            <td className={styles.missingTitle}>{m.title}</td>
+            <td className={`${styles.num} ${styles.missingLen}`}>{dur(m.lengthMs)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 
-  /** A fix-it-now button for a quality row (fetch art, fix tags, split by format). */
-  const qualityFix = (f: QualityIssue) => (
-    <>
-      {f.action === 'art' && (
-        <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending || fetchArt.isSuccess} title={f.guidance}>
-          {fetchArt.isPending ? 'Queuing…' : fetchArt.isSuccess ? 'Art fetch queued' : 'Fetch art'}
-        </Button>
-      )}
-      {f.action === 'tags' && (
-        <LinkButton variant="secondary" size="sm" to="/plans" search={{ album: albumId }} title="Fix this album's tags in a new plan, or add it to a plan you have not applied yet">
-          Fix tags
-        </LinkButton>
-      )}
-      {f.action === 'split' && (
-        <Button variant="secondary" size="sm" onClick={openManage} title={f.guidance}>
-          Split by format
-        </Button>
-      )}
-    </>
+  const manualMatch = (
+    <div className={styles.mbidRow}>
+      <input
+        id="manual-match-input"
+        aria-label="Release URL or ID for manual matching"
+        className={styles.mbidInput}
+        placeholder={requestLive ? 'A request is queued — cancel it to submit another' : 'MusicBrainz release or release-group link / ID, or a Discogs release link'}
+        value={mbidInput}
+        disabled={requestLive}
+        onChange={(e) => setMbidInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && mbidInput.trim() && !requestLive) matchMbid.mutate();
+          if (e.key === 'Escape') setManualOpen(false);
+        }}
+      />
+      <Button variant="secondary" onClick={() => matchMbid.mutate()} disabled={!mbidInput.trim() || matchMbid.isPending || requestLive}>
+        {matchMbid.isPending ? 'Queuing…' : 'Match'}
+      </Button>
+      {matchMbid.isError && <span className={styles.mbidError}>{errorDetail(matchMbid) ?? 'Failed'}</span>}
+    </div>
   );
 
-  /** The way to put right a gap marked as wrong: the editions, a re-identify, or the follow rules. */
+  /** The way to put right a gap marked as wrong. */
   const wrongFixAction = (fix: WrongFix) => {
-    if (fix.action === 'editions') return <Button variant="secondary" size="sm" onClick={() => setTab('editions')}>{fix.actionLabel}</Button>;
+    if (fix.action === 'editions') return <Button variant="quiet" size="sm" onClick={() => setTab('editions')}>{fix.actionLabel}</Button>;
     if (fix.action === 'reidentify') {
       return (
-        <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending}>
+        <Button variant="quiet" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || requestLive}>
           {reidentify.isPending ? 'Queued…' : fix.actionLabel}
         </Button>
       );
     }
-    if (fix.action === 'follow-rules') return <LinkButton variant="secondary" size="sm" to="/settings/$section" params={{ section: 'following' }}>{fix.actionLabel}</LinkButton>;
+    if (fix.action === 'follow-rules') return <LinkButton variant="quiet" size="sm" to="/settings/$section" params={{ section: 'following' }}>{fix.actionLabel}</LinkButton>;
     return null;
   };
 
+  const duplicatesList = album.duplicates.length > 0 && (
+    <ul className={styles.plainList}>
+      {album.duplicates.map((d) => (
+        <li key={d.id}>
+          <Link to="/albums/$albumId" params={{ albumId: d.id }}>{d.title ?? 'Untitled'}</Link>
+          <span className={styles.muted}> · {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state].filter(Boolean).join(' · ')}</span>
+          {d.dirPaths?.[0] && <span className={styles.pathLine}>{d.dirPaths[0]}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+
+  const rowBody = (item: AttentionItem): ReactNode => {
+    const gaps = (item.gapIds ?? []).map((id) => gapById.get(id)).filter((g): g is Gap => !!g);
+    const g = gaps[0];
+    switch (item.kind) {
+      case 'request':
+        return request ? (
+          <IdentifyRequestPanel
+            request={request}
+            onCancel={() => cancelRequest.mutate()}
+            cancelling={cancelRequest.isPending}
+            cancelError={cancelRequest.isError ? (errorDetail(cancelRequest) ?? 'Cancel failed') : null}
+            onPick={(mbid) => switchEdition.mutate(mbid)}
+            picking={switchingMbid}
+            pickError={switchEdition.isError ? errorDetail(switchEdition) : null}
+            {...(requestLive ? {} : { onDismiss: () => setDismissedRequest(requestKeyOf(request)) })}
+          />
+        ) : null;
+      case 'review':
+      case 'unmatched':
+        return (
+          <div className={styles.stack}>
+            <CandidateTable
+              candidates={album.candidates}
+              localTrackCount={album.trackCount}
+              showExcluded={showExcluded}
+              onToggleExcluded={() => setShowExcluded((s) => !s)}
+              onAccept={(id) => acceptCandidate.mutate(id)}
+              onExclude={(id) => excludeCandidate.mutate(id)}
+              busy={acceptCandidate.isPending || excludeCandidate.isPending}
+            />
+            <div>
+              <p className={styles.hint}>Not listed? Paste the release you have.</p>
+              {manualMatch}
+            </div>
+          </div>
+        );
+      case 'merge':
+        return (
+          <div className={styles.stack}>
+            <p className={styles.bodyText}>
+              {(album.mergeCandidates?.length ?? 0) === 1 ? 'Another album is' : 'Other albums are'} called “{album.title}” with tracks that fit this one: no track number twice.
+              Treating them as one album moves nothing on disk, survives rescans and can be split back.
+            </p>
+            <ul className={styles.plainList}>
+              {(album.mergeCandidates ?? []).map((c) => (
+                <li key={c.id}>
+                  <Link to="/albums/$albumId" params={{ albumId: c.id }}>{c.artist ?? 'Unknown artist'}</Link>
+                  <span className={styles.muted}> · {c.trackCount ?? 0} track{c.trackCount === 1 ? '' : 's'}</span>
+                  {c.dirPaths[0] && <span className={styles.pathLine}>{c.dirPaths[0]}</span>}
+                </li>
+              ))}
+            </ul>
+            <div className={styles.inlineActions}>
+              <Button variant="quiet" size="sm" onClick={() => setEditingTags(true)}>Set album values instead</Button>
+            </div>
+          </div>
+        );
+      case 'merged':
+        return (
+          <div className={styles.stack}>
+            <p className={styles.bodyText}>These tracks were treated as one album; the files stay where they are.</p>
+            <div className={styles.inlineActions}><Button variant="quiet" size="sm" onClick={() => setEditingTags(true)}>Set album values</Button></div>
+          </div>
+        );
+      case 'task-done':
+        return (
+          <ul className={styles.plainList}>
+            {gaps.map((t) => (
+              <li key={t.id}>
+                <span className={styles.taskDoneText}>{taskText(t, taskSubject)}</span>
+                <span className={styles.muted}> · {doneLabel({ resolvedAt: t.resolvedAt ?? null, subjectGone: false })}</span>
+              </li>
+            ))}
+          </ul>
+        );
+      case 'gap':
+        if (!g) return null;
+        return (
+          <div className={styles.stack}>
+            <p className={styles.bodyText}>{gapLine(g, { all: openFlags, mixed: album.mixed })}.</p>
+            {g.kind === 'incomplete_album' && missingList}
+            {g.kind === 'duplicate' && duplicatesList}
+            <GapChoices compact gapId={g.id} subject={GAP_KIND_LABEL[g.kind] ?? g.kind} onDecided={() => refresh()} />
+          </div>
+        );
+      case 'missing':
+        return (
+          <div className={styles.stack}>
+            <p className={styles.bodyText}>The choices appear after the next gap check, which runs after a scan finds new files and every night.</p>
+            {missingList}
+          </div>
+        );
+      case 'quality': {
+        if (!g) return null;
+        const f = qualityIssue(g);
+        if (!f) return null;
+        return (
+          <div className={styles.stack}>
+            <p className={styles.bodyText}>{f.explain}{f.guidance && <> {f.guidance}</>}</p>
+            {f.affected?.map((line) => <div key={line} className={styles.affected}>{line}</div>)}
+            {f.action === 'split' && (
+              <div className={styles.inlineActions}>
+                <Button variant="secondary" size="sm" onClick={() => void folder.split('lossless')} disabled={folder.busy}>Split off lossy copies</Button>
+                <Button variant="quiet" size="sm" onClick={() => void folder.split('lossy')} disabled={folder.busy}>…or split off lossless</Button>
+              </div>
+            )}
+            <GapChoices compact gapId={g.id} subject={f.title} onDecided={() => refresh()} />
+          </div>
+        );
+      }
+      case 'duplicates':
+        return duplicatesList;
+      case 'lengths':
+        return <TrackComparison tracks={album.tracks} onlyDifferences />;
+      case 'tasks':
+        return (
+          <ul className={styles.taskList}>
+            {gaps.map((t) => {
+              const f = t.kind === 'quality' ? qualityIssue(t) : null;
+              return (
+                <li key={t.id}>
+                  <div>
+                    <span className={styles.taskText}>{taskText(t, taskSubject)}</span>
+                    <span className={styles.muted}> · added {shortDate(t.acceptedAt)}{t.note ? ` · ${t.note}` : ''}</span>
+                  </div>
+                  <div className={styles.inlineActions}>
+                    {f?.action === 'tags' && <LinkButton variant="quiet" size="sm" to="/plans" search={{ album: albumId }}>Fix tags</LinkButton>}
+                    {f?.action === 'art' && <Button variant="quiet" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>Fetch art</Button>}
+                    <ReopenGapButton gapId={t.id} onDecided={() => refresh()} title="Take it off your task list; it shows as an issue again">Remove from tasks</ReopenGapButton>
+                  </div>
+                </li>
+              );
+            })}
+            <li className={styles.taskFoot}><LinkButton variant="quiet" size="sm" to="/work" search={{ tab: 'tasks' }}>All tasks</LinkButton></li>
+          </ul>
+        );
+      case 'hidden':
+        return (
+          <ul className={styles.taskList}>
+            {gaps.map((h) => {
+              const wrong = h.dismissReason === 'wrong_data';
+              const fix = wrong ? wrongFix(h) : null;
+              const f = h.kind === 'quality' ? qualityFlagOf(h) : null;
+              const label = f ? describeQualityFlag(f.key, f.value).title : GAP_KIND_LABEL[h.kind] ?? h.kind;
+              return (
+                <li key={h.id}>
+                  <div>
+                    <span className={styles.taskText}>{label}</span>
+                    <span className={styles.muted}> · {wrong ? 'you marked this as wrong' : 'not a problem, hidden by you'}</span>
+                    {fix && <p className={styles.hint}>{fix.text}</p>}
+                  </div>
+                  <div className={styles.inlineActions}>
+                    {fix && wrongFixAction(fix)}
+                    <ReopenGapButton gapId={h.id} onDecided={() => refresh()}>Show again</ReopenGapButton>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        );
+      default:
+        return null;
+    }
+  };
+
+  // ---- the "⋯" menu ----
+
+  const menuItems: MenuItem[] = maintenance ? [
+    { key: 'reidentify', label: reidentify.isPending ? 'Queuing…' : 'Re-identify', hint: requestLive ? 'A request is already queued' : 'Look this album up again', disabled: requestLive || reidentify.isPending, onSelect: () => reidentify.mutate() },
+    { key: 'manual', label: 'Match to a release…', hint: 'Paste a MusicBrainz or Discogs link', disabled: requestLive, onSelect: openManual },
+    ...(album.state !== 'matched' ? [{ key: 'fp', label: 'Fingerprint', hint: 'Identify by sound (AcoustID)', disabled: fingerprint.isPending, onSelect: () => fingerprint.mutate(albumId, { onSuccess: () => { setNote('Fingerprinting queued.'); refresh(3000); } }) }] : []),
+    { key: 'art', label: album.coverUrl ? 'Refetch cover art' : 'Fetch cover art', disabled: fetchArt.isPending, onSelect: () => fetchArt.mutate() },
+    { key: 'values', label: 'Set album values…', hint: 'Artist, title, year, genre for every track', onSelect: () => setEditingTags(true) },
+    ...(album.match ? [{ key: 'any', label: album.match.releaseGroupOnly ? 'Pin one edition again' : 'Accept any edition', hint: 'Keep the release group without one edition', onSelect: () => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId)) }] : []),
+    { key: 'rescan', label: 'Rescan folder', separated: true, disabled: !folder.canRescan || folder.busy, onSelect: () => void folder.rescan() },
+    ...(folder.canSplit ? [
+      { key: 'split-lossy', label: 'Split off lossy copies', hint: 'Lossless stays here', disabled: folder.busy, onSelect: () => void folder.split('lossless') },
+      { key: 'split-lossless', label: 'Split off lossless copies', hint: 'Lossy stays here', disabled: folder.busy, onSelect: () => void folder.split('lossy') },
+    ] : []),
+    ...(folder.canMergeBack ? [{ key: 'merge-back', label: 'Merge back', hint: 'Return these files to the album they came from', disabled: folder.busy, onSelect: () => void folder.mergeBack() }] : []),
+    ...(!ownsPhysical && album.release?.discogsReleaseId ? [{ key: 'own', label: 'I own this on vinyl/CD', hint: 'Adds it to your Discogs collection', disabled: addToCollection.isPending, onSelect: () => addToCollection.mutate({ input: String(album.release?.discogsReleaseId) }, { onSuccess: () => refresh(1500) }) }] : []),
+    ...(album.state !== 'as_is' ? [{ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() }] : []),
+    ...(album.state !== 'ignored' ? [{ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() }] : []),
+    { key: 'mode', label: 'Turn off Maintenance', separated: true, onSelect: () => setMaintenance(false) },
+  ] : [
+    { key: 'mode', label: 'Turn on Maintenance', hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
+  ];
+
+  const statusNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
+    ?? (reidentify.isError ? errorDetail(reidentify) : null) ?? (addToCollection.isError ? errorDetail(addToCollection) : null);
+
+  const facts: Array<[string, ReactNode]> = [
+    ['Released', album.release?.date ?? (album.year ? String(album.year) : null)],
+    ['Label', album.release?.labels?.length ? album.release.labels.map((l) => (l.catno ? `${l.name} · ${l.catno}` : l.name)).join(', ') : null],
+    ['Country', album.release?.country ?? null],
+    ['Tracks', [trackCountText, album.discCount && album.discCount > 1 ? `${album.discCount} discs` : null, dur(album.totalDurationMs)].filter(Boolean).join(' · ')],
+    ['Format', album.formats?.join(', ') || null],
+    ['Genres & styles', genreLabels.join(', ') || null],
+    ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
+    ['Local folder', album.dirPaths?.length ? <span className={styles.pathLine}>{album.dirPaths.join('\n')}</span> : null],
+    ...(maintenance ? [
+      ['Identification', album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'] as [string, ReactNode],
+      ['Artwork source', album.coverOrigin ?? null] as [string, ReactNode],
+    ] : []),
+    ['CUE sheet', album.isCueImage ? album.cueRelPath || 'CUE image album' : null],
+  ];
+
   return (
     <div className={styles.container}>
-      <Link to="/albums" search={albumsReturnSearch as never} className={styles.backLink}>{albumsReturnSearch ? '← Back to your selection' : '← All albums'}</Link>
-      <div className={styles.header}>
+      <header className={styles.hero}>
+        <div className={album.coverUrl ? styles.backdrop : styles.backdropPlain} style={album.coverUrl ? { backgroundImage: `url("${album.coverUrl}")` } : undefined} aria-hidden="true" />
         <div className={styles.coverBox}>
-          <CoverArt src={album.coverUrl} title={album.release?.title ?? album.title ?? 'Untitled'} loading="eager" className={styles.cover} />
+          <CoverArt src={album.coverUrl} title={title ?? 'Untitled'} loading="eager" className={styles.cover} />
         </div>
         <div className={styles.headInfo}>
-          <h1 className={styles.title}>{album.release?.title ?? album.title ?? 'Untitled'}</h1>
+          <h1 ref={titleRef} className={styles.title}>{title}</h1>
           <div className={styles.artist}>
-            {album.artists && album.artists.length > 0 ? (
-              <>
-                {album.artists.map((artist, idx) => (
-                  <span key={artist.id}>
-                    <Link to="/artists/$artistId" params={{ artistId: artist.id }}>
-                      {artist.name}
-                    </Link>
-                    {idx < album.artists!.length - 1 && ', '}
-                  </span>
-                ))}
-              </>
-            ) : Array.isArray(album.release?.artistCredit) ? (
-              album.release?.artistCredit.join(', ')
-            ) : (
-              album.release?.artistCredit ?? album.artistCredit ?? 'Unknown artist'
-            )}
+            {album.artists && album.artists.length > 0
+              ? album.artists.map((artist, idx) => (
+                <span key={artist.id}>
+                  <Link to="/artists/$artistId" params={{ artistId: artist.id }}>{artist.name}</Link>
+                  {idx < album.artists!.length - 1 && ', '}
+                </span>
+              ))
+              : albumArtist ?? 'Unknown artist'}
           </div>
-          <div className={styles.metaRow}>
-            {[
-              album.release?.date ?? album.year,
-              album.release?.country,
-              album.release?.labels?.[0]?.name,
-              album.trackCount == null ? 'Track count unavailable' : album.isCueImage ? `${album.trackCount} audio ${(album.trackCount ?? 0) === 1 ? 'file' : 'files'} (CUE image)` : `${album.trackCount ?? 0} ${(album.trackCount ?? 0) === 1 ? 'track' : 'tracks'}`,
-              dur(album.totalDurationMs),
-              album.formats?.join(', '),
-            ].filter(Boolean).join(' · ')}
-          </div>
-          {genreLabels.length > 0 && <p className={styles.genreText}>{genreLabels.slice(0, 5).join(' · ')}{genreLabels.length > 5 && <span className={styles.muted}> +{genreLabels.length - 5} more in album details</span>}</p>}
-          <div className={styles.badgeRow}>
-            <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>
-              {STATE_LABEL[album.state] ?? album.state}
-            </span>
-            {issueCount > 0 && <Button variant="quiet" size="sm" onClick={() => setTab('care')}>{issueCount} library {issueNoun} →</Button>}
-            {album.match?.releaseGroupOnly && (
-              <Button variant="secondary" size="sm" title="Matched to the release group, not one edition — click to clear" onClick={() => clearAnyEdition.mutate(albumId)}>
-                any edition ✕
-              </Button>
-            )}
-            {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && (
-              <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs-only</span>
-            )}
-            {album.release?.mbid && (
-              <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">
-                MusicBrainz ↗
-              </a>
-            )}
-            {album.release?.discogsReleaseId && (
-              <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">
-                Discogs ↗
-              </a>
-            )}
-            {album.release?.discogsMasterId && (
-              <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">
-                Master ↗
-              </a>
-            )}
-            {album.discogsCollectionItems && album.discogsCollectionItems.length > 0 && (
-              <a
-                className={`${styles.pill} ${styles.pillAccent}`}
-                href="/collection?view=both"
-                title={album.discogsCollectionItems
-                  .map((item) => {
-                    const conds = [];
-                    if (item.mediaCondition) conds.push(`Media: ${item.mediaCondition}`);
-                    if (item.sleeveCondition) conds.push(`Sleeve: ${item.sleeveCondition}`);
-                    const state = item.pushState === 'pending' ? ' (Adding to Discogs...)' :
-                      item.pushState === 'failed' ? ` (Failed: ${item.pushError})` : '';
-                    return `${item.folder}${conds.length > 0 ? ' (' + conds.join(', ') + ')' : ''}${state}`;
-                  })
-                  .join(' · ')}
-              >
-                {album.discogsCollectionItems[0]?.pushState === 'pending' ? 'Adding to Discogs…' : 'On vinyl/CD'}
-              </a>
-            )}
-            {(!album.discogsCollectionItems || album.discogsCollectionItems.length === 0) && album.release?.discogsReleaseId && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => addToCollection.mutate({ input: String(album.release?.discogsReleaseId) }, { onSuccess: () => refresh(1500) })}
-                disabled={addToCollection.isPending}
-                title="Add this edition to your Discogs collection (folder Uncategorized)"
-              >
-                {addToCollection.isPending ? 'Adding…' : '+ I own this on vinyl/CD'}
-              </Button>
-            )}
-          </div>
-          {libraryId && <CompilationPanel libraryId={libraryId} album={album} onEditTags={() => setEditingTags(true)} />}
-          <details className={styles.albumFacts}>
-            <summary>Album details</summary>
-            <dl>
-              <div><dt>Genres & styles</dt><dd>{genreLabels.join(', ') || 'Not available'}</dd></div>
-              <div><dt>Local folder</dt><dd>{album.dirPaths?.join(', ') || 'Not available'}</dd></div>
-              <div><dt>Identification</dt><dd>{album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'}</dd></div>
-              {album.coverOrigin && <div><dt>Artwork source</dt><dd>{album.coverOrigin}</dd></div>}
-              {album.isCueImage && <div><dt>CUE sheet</dt><dd>{album.cueRelPath || 'CUE image album'}</dd></div>}
-            </dl>
-          </details>
-          {showRequest && request && (
-            <IdentifyRequestPanel
-              request={request}
-              onCancel={() => cancelRequest.mutate()}
-              cancelling={cancelRequest.isPending}
-              cancelError={cancelRequest.isError ? (errorDetail(cancelRequest) ?? 'Cancel failed') : null}
-              onPick={(mbid) => switchEdition.mutate(mbid)}
-              picking={switchingMbid}
-              pickError={switchEdition.isError ? errorDetail(switchEdition) : null}
-              {...(requestLive ? {} : { onDismiss: () => setDismissedRequest(requestKey) })}
-            />
+          {meta && <p className={styles.metaRow}>{meta}</p>}
+          {maintenance && (
+            <div className={styles.statusLine}>
+              <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>
+              {album.match?.releaseGroupOnly && (
+                <Button variant="quiet" size="sm" title="Matched to the release group, not one edition — click to pin one again" onClick={() => clearAnyEdition.mutate(albumId)}>Any edition ✕</Button>
+              )}
+              {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs only</span>}
+              {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
+              {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
+              {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
+              {ownsPhysical && <Link className={styles.pillLink} to="/collection">On vinyl/CD</Link>}
+            </div>
           )}
-          <details ref={manageRef} className={styles.maintenance}><summary>Manage this album</summary>
-          <div className={styles.actions}>
-            <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || requestLive} title={requestLive ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
-              {reidentify.isPending ? 'Queued…' : 'Re-identify'}
-            </Button>
-            {album.state !== 'matched' && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => fingerprint.mutate(albumId, { onSuccess: () => refresh(3000) })}
-                disabled={fingerprint.isPending}
-                title="Fingerprint the files (Chromaprint) and look them up on AcoustID — for albums whose tags are wrong or missing; needs an AcoustID key in Settings › Providers"
-              >
-                {fingerprint.isPending ? 'Queuing…' : fingerprint.isSuccess ? 'Fingerprint queued' : 'Fingerprint'}
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending}>
-              {fetchArt.isPending ? 'Queued…' : album.coverUrl ? 'Refetch art' : 'Fetch art'}
-            </Button>
-            {album.state !== 'as_is' && (
-              <Button variant="secondary" size="sm" onClick={() => keepAsIs.mutate()} disabled={keepAsIs.isPending} title="Keep the local tags; stop identifying">
-                Keep as-is
-              </Button>
-            )}
-            {album.state !== 'ignored' && (
-              <Button variant="secondary" size="sm" onClick={() => ignore.mutate()} disabled={ignore.isPending} title="Hide from the queue and gap counts">
-                Ignore
-              </Button>
-            )}
-            <Button variant="secondary" size="sm" onClick={() => setEditingTags(true)} title="Set album artist, title, year, compilation or genre for every track at once; you preview before anything is written">
-              Set album values…
-            </Button>
-            {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
-            {fingerprint.isError && <span className={styles.mbidError}>{errorDetail(fingerprint)}</span>}
+          <div className={styles.actionRow}>
+            {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
+            <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
           </div>
-          <div className={styles.mbidRow}>
-            <input
-              aria-label="Release URL or ID for manual matching"
-              className={styles.mbidInput}
-              placeholder={requestLive ? 'A request is queued — cancel it to submit another' : 'Paste a MusicBrainz release or release-group URL / ID, or a Discogs release URL'}
-              value={mbidInput}
-              disabled={requestLive}
-              onChange={(e) => setMbidInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && mbidInput.trim() && !requestLive) matchMbid.mutate();
-              }}
-            />
-            <Button
-              onClick={() => matchMbid.mutate()}
-              disabled={!mbidInput.trim() || matchMbid.isPending || requestLive}
-            >
-              {matchMbid.isPending ? 'Queuing…' : 'Match'}
-            </Button>
-            {matchMbid.isError && (
-              <span className={styles.mbidError}>
-                {(matchMbid.error as { detail?: string; message?: string })?.detail ??
-                  (matchMbid.error as Error)?.message ?? 'Failed'}
-              </span>
-            )}
-          </div>
-          </details>
+          {statusNote && <p className={styles.statusNote} role="status">{statusNote}</p>}
         </div>
-      </div>
+      </header>
+
+      <Collapse open={manualOpen}>
+        <div className={styles.manualPanel}>
+          <div className={styles.manualHead}>
+            <span className={styles.manualTitle}>Match to a release</span>
+            <Button variant="quiet" size="sm" onClick={() => setManualOpen(false)}>Close</Button>
+          </div>
+          {manualMatch}
+        </div>
+      </Collapse>
+
+      <AlbumAttention
+        label={maintenance ? 'Library issues for this album' : 'Needs your decision'}
+        items={items}
+        open={openRows}
+        onToggle={toggleRow}
+        onAction={onAction}
+        body={rowBody}
+        busy={busy}
+      />
 
       <nav ref={tabStrip} className={styles.tabs} aria-label="Album sections">
-        {([
-          ['album', 'Tracks'],
-          ['care', `Library health${issueCount > 0 ? ` (${issueCount})` : ''}`],
-          ['editions', 'Editions'],
-          ['reviews', 'Reviews & listening'],
-          ['activity', requestLive ? 'Activity ·' : 'Activity'],
-        ] as const).map(([key, label]) => (
-          <button key={key} className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
-            {label}
+        {TABS.map(([key, label]) => (
+          <button key={key} type="button" className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
+            {key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label}
           </button>
         ))}
       </nav>
 
-      {tab === 'care' && (<>
-      {(issueCount > 0 || (!hasIncompleteGap && album.missingTracks.length > 0)) && (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Needs attention ({issueCount})</h2>
-          {issueCount > 0 && <GapChoicesHelp />}
-          {otherGaps.map((g) => (
-            <div key={g.id} className={styles.gapItem}>
-              <div className={styles.gapMain}>
-                <div className={styles.gapHead}>
-                  <span className={styles.gapKind}>{gapLabel(g)}</span>
-                  <span className={styles.gapLine}>{lineOf(g)}</span>
-                </div>
-                {g.kind === 'incomplete_album' && missingList}
-              </div>
-              <GapChoices gapId={g.id} subject={gapLabel(g)} onDecided={() => refresh()} />
-            </div>
-          ))}
-          {!hasIncompleteGap && album.missingTracks.length > 0 && (
-            <div className={styles.gapItem}>
-              <div className={styles.gapMain}>
-                <div className={styles.gapHead}>
-                  <span className={styles.gapKind}>{GAP_LABEL['incomplete_album']}</span>
-                  <span className={styles.gapLine}>
-                    {album.missingTracks.length === 1 ? '1 track is missing' : `${album.missingTracks.length} tracks are missing`}
-                  </span>
-                </div>
-                <p className={styles.gapExplain}>The choices appear after the next gap check, which runs after a scan finds new files and every night.</p>
-                {missingList}
-              </div>
-            </div>
-          )}
-          {qualityRows.length > 0 && <h3 className={styles.gapGroupTitle}>{GAP_LABEL['quality']}</h3>}
-          {qualityRows.map(({ gap: g, issue: f }) => (
-            <div key={g.id} className={styles.gapItem}>
-              <div className={styles.gapMain}>
-                <div className={styles.gapHead}>
-                  <span className={styles.gapKind}>{f.title}</span>
-                  {f.count && <span className={styles.gapLine}>{f.count}</span>}
-                </div>
-                <p className={styles.gapExplain}>
-                  {f.explain}
-                  {!f.action && f.guidance && <> {f.guidance}</>}
-                </p>
-                {f.affected?.map((line) => <div key={line} className={styles.qualityFlagAffected}>{line}</div>)}
-              </div>
-              <GapChoices gapId={g.id} subject={f.title} fix={qualityFix(f)} onDecided={() => refresh()} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {(taskGaps.length > 0 || doneTasks.length > 0) && (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>
-            On your task list ({taskGaps.length})
-            <LinkButton variant="quiet" size="sm" to="/work" search={{ tab: 'tasks' }}>All tasks</LinkButton>
-          </h2>
-          {taskGaps.map((g) => {
-            const f = g.kind === 'quality' ? qualityIssue(g) : null;
-            return (
-              <div key={g.id} className={styles.gapItem}>
-                <div className={styles.gapMain}>
-                  <div className={styles.taskText}><span className={styles.taskMark} aria-hidden="true" />{taskText(g, taskSubject)}</div>
-                  <p className={styles.gapExplain}>
-                    Added {shortDate(g.acceptedAt)}. The first scan that finds it fixed crosses it out.
-                    {g.note && <> Note: {g.note}</>}
-                  </p>
-                  {g.kind === 'incomplete_album' && missingList}
-                </div>
-                <div className={styles.gapChoicesCol}>
-                  {f && qualityFix(f)}
-                  <ReopenGapButton gapId={g.id} onDecided={() => refresh()} title="Take it off your task list; it shows under Needs attention again">Remove from tasks</ReopenGapButton>
-                </div>
-              </div>
-            );
-          })}
-          {doneTasks.map((g) => (
-            <div key={g.id} className={`${styles.gapItem} ${styles.taskDone}`}>
-              <div className={styles.gapMain}>
-                <div className={styles.taskText}><span className={`${styles.taskMark} ${styles.taskMarkDone}`} aria-hidden="true" /><s>{taskText(g, taskSubject)}</s></div>
-                <p className={styles.gapExplain}>{doneLabel({ resolvedAt: g.resolvedAt ?? null, subjectGone: false })}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {dismissedGaps.length > 0 && (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Hidden ({dismissedGaps.length})</h2>
-          {dismissedGaps.map((g) => {
-            const wrong = g.dismissReason === 'wrong_data';
-            const fix = wrong ? wrongFix(g) : null;
-            return (
-              <div key={g.id} className={styles.gapItem}>
-                <div className={styles.gapMain}>
-                  <div className={styles.gapHead}>
-                    <span className={styles.gapKind}>{hiddenLabel(g)}</span>
-                    <span className={styles.gapLine}>{wrong ? 'You marked this as wrong' : 'Not a problem, hidden by you'}</span>
-                  </div>
-                  {fix && <p className={styles.gapExplain}>{fix.text}</p>}
-                </div>
-                <div className={styles.gapChoicesCol}>
-                  {fix && wrongFixAction(fix)}
-                  <ReopenGapButton gapId={g.id} onDecided={() => refresh()}>Show again</ReopenGapButton>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {album.duplicates.length > 0 && (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Other copies ({album.duplicates.length})</h2>
-          {album.duplicates.map((d) => (
-            <div key={d.id} className={styles.dupRow}>
-              <Link to="/albums/$albumId" params={{ albumId: d.id } as never} className={styles.dupLink}>
-                {d.title ?? 'Untitled'}
-              </Link>
-              <span className={styles.gapDetail}>
-                {[d.formats?.join('/'), `${d.trackCount} tracks`, STATE_LABEL[d.state] ?? d.state]
-                  .filter(Boolean).join(' · ')}
-              </span>
-              <span className={styles.dupPath}>{d.dirPaths?.[0]}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {showCandidates && (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>
-            Match candidates ({visibleCandidates.length})
-            {excludedCount > 0 && (
-              <Button variant="quiet" size="sm" onClick={() => setShowExcluded((s) => !s)}>
-                {showExcluded ? 'hide' : 'show'} {excludedCount} excluded
-              </Button>
-            )}
-          </h2>
-          <div className={styles.trackScroller}>
-          <table className={styles.candTable}>
-            {/* fixed columns: only Release flexes, so accepting or excluding a
-                candidate never re-flows the others */}
-            <colgroup>
-              <col className={styles.candWDistance} />
-              <col />
-              <col className={styles.candWDate} />
-              <col className={styles.candWCountry} />
-              <col className={styles.candWTracks} />
-              <col className={styles.candWActions} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th className={styles.num}>Distance</th>
-                <th>Release</th>
-                <th>Date</th>
-                <th>Country</th>
-                <th className={styles.num}>Tracks</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibleCandidates.map((c) => (
-                <tr key={c.id} className={c.excluded ? styles.candExcluded : ''}>
-                  <td className={styles.num} title="0 = identical to the local tags and durations">{c.distance.toFixed(4)}</td>
-                  <td className={styles.candRelease}>
-                    <div className={styles.candTitleRow}>
-                      <span className={`${styles.pill} ${styles.pillMuted}`} title={`Found via ${c.source.replace(/_/g, ' ')}`}>
-                        {c.provider === 'discogs' ? 'Discogs' : 'MusicBrainz'}
-                      </span>
-                      <span className={styles.candTitle}>{c.title}</span>
-                      <span className={styles.candArtist}>{c.artistCredit}</span>
-                    </div>
-                    <div className={styles.candSub}>
-                      {[c.format, c.label, c.status].filter(Boolean).join(' · ')}
-                      {c.releaseMbid && (
-                        <a className={styles.pillLink} href={`https://musicbrainz.org/release/${c.releaseMbid}`} target="_blank" rel="noreferrer">
-                          MusicBrainz ↗
-                        </a>
-                      )}
-                      {c.discogsReleaseId && (
-                        <a className={styles.pillLink} href={`https://www.discogs.com/release/${c.discogsReleaseId}`} target="_blank" rel="noreferrer">
-                          Discogs #{c.discogsReleaseId} ↗
-                        </a>
-                      )}
-                    </div>
-                  </td>
-                  <td className={styles.num}>{c.date ?? '–'}</td>
-                  <td>{c.country ?? '–'}</td>
-                  <td className={styles.num}>{c.trackCount ?? '–'}</td>
-                  <td className={styles.candActions}>
-                    {!c.excluded && (
-                      <>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => acceptCandidate.mutate(c.id)}
-                          disabled={acceptCandidate.isPending}
-                          title="Match this album to this release"
-                        >
-                          Accept
-                        </Button>
-                        <Button
-                          variant="quiet"
-                          size="sm"
-                          onClick={() => excludeCandidate.mutate(c.id)}
-                          disabled={excludeCandidate.isPending}
-                          title="Never suggest this release again"
-                        >
-                          Exclude
-                        </Button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
-      )}
-
-      {careEmpty && (
-        <EmptyState
-          title="Nothing needs attention"
-          text="No missing tracks, no other copies of this album, and no problems found in its tags, artwork or files."
+      {tab === 'tracks' && (
+        <AlbumTracks
+          tracks={album.tracks}
+          missingTracks={album.missingTracks}
+          discCount={album.discCount}
+          albumArtists={[album.artistCredit, albumArtist, Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit]}
+          artistNames={album.artists?.map((a) => a.name) ?? []}
+          maintenance={maintenance}
         />
       )}
-      </>)}
 
-      {tab === 'album' && (<>
-      {album.tracks.length === 0 && <p className={styles.muted}>No track information is available for this album yet.</p>}
-      <div className={styles.trackScroller}>
-      <table className={styles.trackTable}>
-        <thead>
-          <tr>
-            <th className={styles.num}>#</th>
-            <th>Title</th>
-            {trackArtists && <th>Artist</th>}
-            <th className={styles.num}>Length</th>
-            {album.release && <th className={styles.num}>Canonical</th>}
-            <th>File</th>
-          </tr>
-        </thead>
-        <tbody>
-          {album.tracks.map((t, i) => (<Fragment key={t.id}>
-            {/* multi-disc sets: one header row per disc (tracks arrive sorted by disc, then number) */}
-            {(album.discCount ?? 1) > 1 && (i === 0 || (album.tracks[i - 1]?.discNo ?? 1) !== (t.discNo ?? 1)) && (
-              <tr className={styles.discHeader}>
-                <td colSpan={(album.release ? 5 : 4) + (trackArtists ? 1 : 0)}>Disc {t.discNo ?? 1}</td>
-              </tr>
+      {tab === 'editions' && (<>
+        {showCandidates && (
+          <section className={styles.plainSection}>
+            <h2 className={styles.sectionTitle}>Possible releases</h2>
+            <CandidateTable
+              candidates={album.candidates}
+              localTrackCount={album.trackCount}
+              showExcluded={showExcluded}
+              onToggleExcluded={() => setShowExcluded((s) => !s)}
+              onAccept={(id) => acceptCandidate.mutate(id)}
+              onExclude={(id) => excludeCandidate.mutate(id)}
+              busy={acceptCandidate.isPending || excludeCandidate.isPending}
+            />
+          </section>
+        )}
+        {album.release && (
+          <section className={styles.plainSection}>
+            <h2 className={styles.sectionTitle}>Your files and this edition</h2>
+            {discrepancies.lengths.length > 0 || discrepancies.titles.length > 0 ? (
+              <>
+                <p className={styles.muted}>
+                  {[
+                    discrepancies.lengths.length > 0 && `${discrepancies.lengths.length === 1 ? '1 track is' : `${discrepancies.lengths.length} tracks are`} more than 3 seconds off`,
+                    discrepancies.titles.length > 0 && `${discrepancies.titles.length === 1 ? '1 title differs' : `${discrepancies.titles.length} titles differ`}`,
+                  ].filter(Boolean).join(' · ')}. If this is the wrong edition, pick yours below.
+                </p>
+                <TrackComparison tracks={album.tracks} />
+              </>
+            ) : (
+              <p className={styles.muted}>Every track matches this edition within 3 seconds.</p>
             )}
-            <tr className={`${styles.trackRow} ${t.file.status === 'error' ? styles.trackError : ''}`}>
-              <td className={`${styles.num} ${styles.trackNo}`}>
-                {t.trackNo ?? '–'}
-              </td>
-              <td className={styles.trackTitle}>
-                {t.title ?? '(untitled)'}
-                {t.canonicalTitle && t.canonicalTitle !== t.title && (
-                  <span className={styles.canonTitle}> → {t.canonicalTitle}</span>
-                )}
-              </td>
-              {trackArtists && <td className={styles.trackArtist}>{t.artist?.trim() || album.artistCredit || '—'}</td>}
-              <td className={`${durationDrift(t) ? styles.durDrift : styles.num} ${styles.trackLen}`}>
-                {dur(t.durationMs)}
-                {t.origin === 'cue' && t.cueStartMs !== null && (
-                  <span> @ {dur(t.cueStartMs)}</span>
-                )}
-              </td>
-              {album.release && (
-                <td className={`${styles.num} ${styles.trackCanon}`} data-label="Canonical">{dur(t.canonicalDurationMs)}</td>
-              )}
-              <td className={styles.fileCell}>
-                {[
-                  t.file.codec,
-                  t.file.lossless
-                    ? `${t.file.bitDepth ?? '?'}bit/${((t.file.sampleRate ?? 0) / 1000).toFixed(1)}kHz`
-                    : t.file.bitrateKbps
-                      ? `${t.file.bitrateKbps}kbps`
-                      : null,
-                  mb(t.file.sizeBytes),
-                ].filter(Boolean).join(' · ')}
-              </td>
-            </tr>
-          </Fragment>))}
-        </tbody>
-      </table>
-      </div>
-      </>)}
-
-      {tab === 'editions' && (
+          </section>
+        )}
         <AlbumEditionsPanel
           hasReleaseGroup={!!album.releaseGroupId}
           editions={editions}
           onFetch={() => refreshEditions.mutate(albumId)}
           fetchPending={refreshEditions.isPending}
           tools={<>
-            {album.match?.releaseGroupOnly && (
-              <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>
-            )}
+            {album.match?.releaseGroupOnly && <span className={`${styles.pill} ${styles.pillMuted}`}>any edition</span>}
             {pending?.kind === 'mbid' && (
               <span className={styles.muted}>
                 Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
@@ -996,12 +730,12 @@ export function AlbumDetailPage() {
               size="sm"
               onClick={() => switchEdition.mutate(e.mbid)}
               disabled={switchEdition.isPending || !!pending}
-              title={pending ? 'An identification request is already queued for this album — cancel it in the panel above first' : 'Re-match this album to this edition (queues a manual identification)'}
+              title={pending ? 'An identification request is already queued for this album — cancel it first' : 'Re-match this album to this edition (queues a manual identification)'}
             >
               {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
             </Button>
           ))}
-          footer={album.match && (
+          footer={album.match && maintenance && (
             <div className={styles.sectionFoot}>
               <Button
                 variant="quiet"
@@ -1018,21 +752,29 @@ export function AlbumDetailPage() {
             </div>
           )}
         />
-      )}
+      </>)}
 
-      {tab === 'reviews' && (album.releaseGroupId ? (
-        <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
-      ) : (
-        <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
-          <p className={styles.muted}>
-            Ratings, reviews and listens attach to a release group — match this album first.
-          </p>
-        </div>
-      ))}
+      {tab === 'about' && (<>
+        <section className={styles.plainSection}>
+          <h2 className={styles.sectionTitle}>About this album</h2>
+          <dl className={styles.facts}>
+            {facts.filter(([, v]) => v !== null && v !== '' && v !== undefined).map(([k, v]) => (
+              <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
+            ))}
+          </dl>
+        </section>
+        {album.releaseGroupId ? (
+          <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
+        ) : (
+          <section className={styles.plainSection}>
+            <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>
+            <p className={styles.muted}>Ratings, reviews and listens attach to a release group — match this album first.</p>
+          </section>
+        )}
+      </>)}
 
       {tab === 'activity' && (
-        <div className={styles.section}>
+        <section className={styles.plainSection}>
           <h2 className={styles.sectionTitle}>What is going on with this album</h2>
           <dl className={styles.activity}>
             <dt>Identification</dt>
@@ -1050,31 +792,30 @@ export function AlbumDetailPage() {
               </>
             )}
             <dt>Candidates</dt>
-            <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — see the Album face while unmatched.</dd>
+            <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — compare them under Editions.</dd>
             <dt>Cover art</dt>
-            <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch art queues a lookup'}</dd>
+            <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the Manage menu queues a lookup'}</dd>
             <dt>Editions</dt>
             <dd>{editions ? (editions.fetchedAt ? `fetched ${new Date(editions.fetchedAt).toLocaleString()}` : editions.fetching ? 'fetching now' : 'not fetched') : 'open the Editions tab to see or fetch them'}</dd>
             <dt>Reviews</dt>
-            <dd>fetched only on request from the Reviews tab (one call per source: CritiqueBrainz, MusicBrainz, Wikipedia, Discogs)</dd>
+            <dd>fetched only on request from About (one call per source: CritiqueBrainz, MusicBrainz, Wikipedia, Discogs)</dd>
             <dt>Open gaps</dt>
-            <dd>{openGaps.length ? [...new Set(openGaps.map((g) => GAP_LABEL[g.kind] ?? g.kind))].join(', ') : 'none'}{taskGaps.length ? ` · ${taskGaps.length} on your task list` : ''}{dismissedGaps.length ? ` · ${dismissedGaps.length} hidden` : ''}</dd>
+            <dd>{openGaps.length ? [...new Set(openGaps.map((g) => GAP_KIND_LABEL[g.kind] ?? g.kind))].join(', ') : 'none'}</dd>
             <dt>Folder</dt>
             <dd className={styles.dirPath}>{album.dirPaths?.join('\n')}</dd>
           </dl>
           <p className={styles.muted}>
-            Library-wide progress: <Link to="/jobs">Jobs</Link> · <Link to="/identify">Identify</Link>.
+            Library-wide progress: <Link to="/settings/$section" params={{ section: 'activity' }}>Background activity</Link> · <Link to="/work" search={{ tab: 'identify' }}>Identify</Link>.
           </p>
-        </div>
+        </section>
       )}
 
-      {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some(c => c.discogsReleaseId)) && (
+
+      {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId)) && (
         <div className={styles.attribution}>
           <span>
             Data provided by{' '}
-            <a href="https://www.discogs.com" target="_blank" rel="noreferrer">
-              Discogs
-            </a>
+            <a href="https://www.discogs.com" target="_blank" rel="noreferrer">Discogs</a>
           </span>
         </div>
       )}
@@ -1082,7 +823,7 @@ export function AlbumDetailPage() {
         <BulkTagEditor
           libraryId={libraryId}
           scopes={editScopes}
-          title={`Set album values · ${album.release?.title ?? album.title ?? 'this album'}`}
+          title={`Set album values · ${title ?? 'this album'}`}
           onClose={() => setEditingTags(false)}
         />
       )}

@@ -21,6 +21,7 @@ import {
   setAlbumListMemory, toggled, useAlbumListMemory, withIds,
 } from './albumSelection';
 import { PlanWizard } from '../components/PlanWizard';
+import { useMaintenance } from '../maintenance';
 import styles from './AlbumsPage.module.css';
 
 const MIN_CARD = 200;
@@ -53,6 +54,8 @@ function formatLabel(a: AlbumSummary): string {
 }
 
 export function AlbumsPage() {
+  // quality badges and match kinds on covers are curation detail: Maintenance only
+  const [maintenance] = useMaintenance();
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as AlbumsSearch;
   const { libraryId } = useCurrentLibrary();
@@ -523,16 +526,16 @@ export function AlbumsPage() {
                         <span className={styles.listArtist}>{album.artistCredit}</span>
                         <span className={styles.listYear}>{album.year ?? '–'}</span>
                         <span className={styles.listTracks}>
-                          {album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount
+                          {maintenance && album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount
                             ? <span className={styles.incomplete}>{album.trackCount}/{album.canonicalTrackCount}</span>
                             : album.trackCount}
                         </span>
                         <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>
                           {formatLabel(album)}
                         </span>
-                        <span className={styles.listState}>{STATE_LABEL[album.state] ?? album.state}</span>
+                        <span className={styles.listState}>{maintenance || album.state === 'needs_review' ? STATE_LABEL[album.state] ?? album.state : ''}</span>
                         <span className={styles.listBadges}>
-                          {album.needsAttention && <span className={styles.inlineDot} title="Needs attention" />}
+                          {(maintenance ? album.needsAttention : album.state === 'needs_review') && <span className={styles.inlineDot} title={maintenance ? 'Needs attention' : 'Needs your review'} />}
                           {album.ownRating != null && <span title="Your rating">★ {album.ownRating}</span>}
                           {album.hasReview && <span title="Reviewed">✎</span>}
                         </span>
@@ -566,12 +569,12 @@ export function AlbumsPage() {
                                   aria-label={`Select ${album.title}`}
                                 />
                               </label>
-                              {album.needsAttention && <span className={styles.attentionDot} title="Needs attention" />}
+                              {(maintenance ? album.needsAttention : album.state === 'needs_review') && <span className={styles.attentionDot} title={maintenance ? 'Needs attention' : 'Needs your review'} />}
                               {album.hasReview && <span className={styles.reviewedDot} title="Reviewed" />}
                               {album.ownRating != null && (
                                 <span className={styles.ratingBadge} title={`Your rating: ${album.ownRating}`}>★ {album.ownRating}</span>
                               )}
-                              {album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount && (
+                              {maintenance && album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount && (
                                 <span className={styles.trackBadge}>{album.trackCount}/{album.canonicalTrackCount}</span>
                               )}
                               <CoverArt src={album.coverUrl} title={album.title} fill />
@@ -583,7 +586,7 @@ export function AlbumsPage() {
                                 <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>{formatLabel(album)}</span>
                                 {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
                                 {album.year ? ` · ${album.year}` : ''}
-                                {album.matchKind && album.matchKind !== 'auto_strong' && (
+                                {maintenance && album.matchKind && album.matchKind !== 'auto_strong' && (
                                   <span className={styles.kindTag}> · {KIND_TAG[album.matchKind] ?? ''}</span>
                                 )}
                               </p>

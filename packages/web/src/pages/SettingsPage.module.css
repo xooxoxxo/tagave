@@ -9,3 +9,7 @@
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
 .sectionDescription { color: var(--ink-2); font-size: .9375rem; }
 @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--line); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }
+
+/* Appearance › Maintenance */
+.modeSetting { margin-top: var(--space-2xl); }
+.modeSetting h3 { margin: 0 0 var(--space-xs); }

@@ -1,0 +1,40 @@
+/* The accordion motion: 0fr → 1fr on the grid track, 240ms ease-out; the
+   content fades in and rises 4px a touch behind it. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 240ms var(--ease-out), visibility 0s linear 240ms;
+  visibility: hidden;
+}
+
+.open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 260ms var(--ease-out), visibility 0s linear 0s;
+}
+
+.inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 160ms var(--ease-out), transform 240ms var(--ease-out);
+}
+
+.open .content {
+  opacity: 1;
+  transform: none;
+  transition: opacity 220ms var(--ease-out) 40ms, transform 260ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapse,
+  .open,
+  .content,
+  .open .content {
+    transition: none;
+  }
+}

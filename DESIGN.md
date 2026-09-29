@@ -120,6 +120,8 @@ Accessibility and fallbacks: reduced motion turns every transform off. Forced-co
 - **SegmentedControl / ThemeSwitch:** native radio buttons in the same pill track.
 - **Tooltip:** a small glass label that opens on hover and focus. It closes on Escape, blur or pointer leave, can itself be hovered, and adds `aria-describedby` to its trigger. Use it only for supplementary text.
 - **Table:** 44px rows with hairline dividers, no zebra stripes and `--mist` on hover. Column heads use the label style. Numbers are tabular. The table scrolls inside its own container on narrow screens.
+- **Menu:** the "⋯" menu. A clear `IconButton` opens a glass list of actions (`role="menu"`); arrow keys, Home and End move, Escape or a click outside closes and focus returns to the trigger. It renders into `<body>` so no stacking context covers it, flips above the trigger when there is no room below, and on a phone (640px and below) becomes a sheet on the bottom edge over a soft scrim.
+- **Collapse:** the accordion motion. A one-row grid whose track animates from `0fr` to `1fr` (240–260ms, ease-out) while the content fades in and settles 4px, so the content below is pushed smoothly and never jumps. Closed content is `inert`; children mount on first open; reduced motion switches instantly.
 - **EmptyState:** a headline in the display face plus one sentence about the next useful step. Keep "nothing here" separate from "failed to load".
 
 ## Brand mark
@@ -134,7 +136,12 @@ The mark is an agave rosette resting in a dew-glass orb: a tall centre leaf, two
 
 - Page gutters use `--page-pad`, which drops to 16px on phones. Every page must be free of horizontal scroll at 400px wide.
 - The app shell is a sidebar on desktop, a wrapped bar on a tablet, and on a phone (720px and below) one 60px row: the mark, a search button and a menu button that opens the links and Sign out as a sheet (Esc closes it). The Discogs notice sits at the foot of the page content and scrolls with it; it never holds a strip of the screen.
-- Tables with more than three columns turn into stacked rows on a phone rather than squeezing the main column: the album track list shows number, title and length on one line and the file details under the title.
+- Detail pages (an album, an artist, a plan) trade the mark for a back button: on a phone it takes the mark's place in the bar, on wider screens it sits in a slim bar over the page. Back returns to where the viewer came from in the app, or to the parent list when the page was opened cold. The page's title fades into the bar once its own heading scrolls under it.
+- Tables with more than three columns turn into stacked rows on a phone rather than squeezing the main column. The album track list is not a table: it is a player's list (number, title with the artist under it only when it differs, length), 56px rows on a phone.
+
+## Maintenance
+
+Maintenance is an app-wide mode (the wrench toggle in the bar, Settings › Appearance, or Shift+M; remembered per browser in `localStorage` under `tagave-maintenance`). Off is the default: pages show the music, and an album speaks up only when a real discrepancy needs a decision (needs review, a likely split album, an owner request that failed, a task that got resolved). On, the curation layer appears: the album's state chip and provider links, every library issue in the attention strip, the Manage menu, per-track marks and missing tracks in the list, quality badges on album covers, and provider links, refresh and skipped releases on artist pages. `utils/albumAttention.ts` holds the rules and is tested.
 - Button groups wrap with 14px gaps.
 - Popovers fade in and rise 4px (180ms, ease-out). Sticky bars and toasts slide up (280ms). Nothing loops, pulses or shimmers at rest.
 - Layers stack in this order: sticky, backdrop, dropdown, modal, toast, tooltip (`--z-*`). Never add a local z-index for a shared overlay.

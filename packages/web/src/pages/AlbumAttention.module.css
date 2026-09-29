@@ -1,0 +1,118 @@
+/* One flat surface with hairline rows; the expanded body lives inside its
+   row, never in a card of its own. */
+.strip {
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 56px;
+  padding: 6px 12px 6px 4px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 0.75rem 0 1rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink);
+  font: 500 0.9375rem / 1.35 var(--font-body);
+  text-align: left;
+}
+
+.toggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mist) 70%, transparent);
+  color: var(--ink);
+}
+
+.toggle:active:not(:disabled) {
+  transform: none;
+}
+
+.toggle:focus-visible {
+  outline-offset: -2px;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--line-strong);
+}
+
+.row[data-tone="attention"] .dot { background: var(--dew); }
+.row[data-tone="live"] .dot { background: var(--warn); }
+.row[data-tone="done"] .dot { background: var(--ok); }
+
+.row[data-tone="quiet"] .line { color: var(--ink-2); font-weight: 400; }
+
+.line {
+  flex: 1;
+  min-width: 0;
+}
+
+.chevron {
+  flex: none;
+  color: var(--ink-3);
+  transition: transform 260ms var(--ease-out);
+}
+
+.rowOpen .chevron {
+  transform: rotate(180deg);
+}
+
+.action {
+  flex: none;
+}
+
+.body {
+  padding: 0 1.25rem 1.25rem calc(1rem + 4px + 8px + 0.7rem);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+@media (max-width: 640px) {
+  .head {
+    flex-wrap: wrap;
+    padding: 6px 8px 8px 0;
+    row-gap: 2px;
+  }
+  .toggle {
+    flex: 1 1 13rem;
+    padding-left: 0.85rem;
+  }
+  .action {
+    margin-left: calc(0.85rem + 8px + 0.7rem - 4px);
+  }
+  .body {
+    padding: 0 1rem 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron { transition: none; }
+}
