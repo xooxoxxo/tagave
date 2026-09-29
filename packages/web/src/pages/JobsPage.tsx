@@ -13,8 +13,8 @@ import type { JobView, JobsSummary } from '@liner/shared';
 import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
 import type { IdentifyStatsResponse } from '../hooks';
 import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from '../components/ui';
-import { formatEta, formatRelativeTime } from '../utils/time';
-import { summaryMessage } from './jobsSummary';
+import { formatRelativeTime } from '../utils/time';
+import { identifyRateLine, summaryMessage } from './jobsSummary';
 import styles from './JobsPage.module.css';
 
 /** How many recent entries load at a time. */
@@ -175,6 +175,7 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
   const sweepTotal = sweep?.progress.total || total;
   const pct = running && sweepTotal > 0 ? Math.min(100, Math.round((done / sweepTotal) * 100)) : 0;
   const finishedAt = !running ? sweep?.finishedAt ?? null : null;
+  const rateLine = identifyRateLine(rate, etaSeconds);
 
   if (total === 0) return null;
 
@@ -193,12 +194,7 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
           <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={sweepTotal} aria-valuenow={done} aria-label="Albums checked">
             <div className={styles.barFill} style={{ width: `${pct}%` }} />
           </div>
-          {rate.perMin > 0 && (
-            <p className={styles.hint}>
-              About {plural(Math.round(rate.perMin), 'album')} a minute
-              {etaSeconds && etaSeconds > 0 ? `, done in ${formatEta(etaSeconds).replace('~', 'about ')}` : ''}.
-            </p>
-          )}
+          {rateLine && <p className={styles.hint}>{rateLine}</p>}
         </>
       ) : (
         <p className={styles.lead}>

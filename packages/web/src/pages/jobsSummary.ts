@@ -64,3 +64,24 @@ export function summaryMessage(opts: {
     text: summary.lastFinishedAt ? `Nothing is running; the last task finished ${relative(summary.lastFinishedAt)}.` : 'Nothing is running.',
   };
 }
+
+/**
+ * "About 12 albums a minute, done in about 8 min" under a running
+ * identification. Below one a minute the rate is given per hour, so it never
+ * reads "About 0 albums a minute"; with no measurable rate there is no line,
+ * and no finish time without a rate behind it.
+ */
+export function identifyRateLine(rate: { perMin: number }, etaSeconds: number | null): string | null {
+  const perMin = Math.round(rate.perMin);
+  const perHour = Math.round(rate.perMin * 60);
+  const pace = perMin >= 1 ? `About ${plural(perMin, 'album')} a minute`
+    : perHour >= 1 ? `About ${plural(perHour, 'album')} an hour`
+    : null;
+  if (!pace) return null;
+  if (!etaSeconds || etaSeconds <= 0) return `${pace}.`;
+  const minutes = Math.round(etaSeconds / 60);
+  const eta = etaSeconds < 60 ? 'in under a minute'
+    : minutes < 60 ? `in about ${minutes} min`
+    : `in about ${Math.floor(minutes / 60)} h${minutes % 60 > 0 ? ` ${minutes % 60} min` : ''}`;
+  return `${pace}, done ${eta}.`;
+}
