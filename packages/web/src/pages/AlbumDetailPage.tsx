@@ -19,6 +19,7 @@ import styles from './AlbumDetailPage.module.css';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlags } from '../utils/qualityFlags';
 import { Button, EmptyState, LinkButton } from '../components/ui';
+import { useScrollFade } from '../components/ui/useScrollFade';
 
 interface DetailTrack {
   id: string;
@@ -213,6 +214,7 @@ export function AlbumDetailPage() {
   // Album first; editions, reviews and the background story live on their own
   // faces and load only when opened, so a page visit costs one detail request.
   const [tab, setTab] = useState<'album' | 'care' | 'editions' | 'reviews' | 'activity'>('album');
+  const tabStrip = useScrollFade<HTMLElement>(tab);
   const [editingTags, setEditingTags] = useState(false);
   // the split options live in "Manage this album"; the Library health row opens it
   const manageRef = useRef<HTMLDetailsElement>(null);
@@ -560,7 +562,7 @@ export function AlbumDetailPage() {
         </div>
       </div>
 
-      <nav className={styles.tabs} aria-label="Album sections">
+      <nav ref={tabStrip} className={styles.tabs} aria-label="Album sections">
         {([
           ['album', 'Tracks'],
           ['care', `Library health${issueCount > 0 ? ` (${issueCount})` : ''}`],
@@ -793,10 +795,10 @@ export function AlbumDetailPage() {
       <table className={styles.trackTable}>
         <thead>
           <tr>
-            <th>#</th>
+            <th className={styles.num}>#</th>
             <th>Title</th>
-            <th>Length</th>
-            {album.release && <th>Canonical</th>}
+            <th className={styles.num}>Length</th>
+            {album.release && <th className={styles.num}>Canonical</th>}
             <th>File</th>
           </tr>
         </thead>
@@ -808,24 +810,24 @@ export function AlbumDetailPage() {
                 <td colSpan={album.release ? 5 : 4}>Disc {t.discNo ?? 1}</td>
               </tr>
             )}
-            <tr className={t.file.status === 'error' ? styles.trackError : ''}>
-              <td className={styles.num}>
+            <tr className={`${styles.trackRow} ${t.file.status === 'error' ? styles.trackError : ''}`}>
+              <td className={`${styles.num} ${styles.trackNo}`}>
                 {t.trackNo ?? '–'}
               </td>
-              <td>
+              <td className={styles.trackTitle}>
                 {t.title ?? '(untitled)'}
                 {t.canonicalTitle && t.canonicalTitle !== t.title && (
                   <span className={styles.canonTitle}> → {t.canonicalTitle}</span>
                 )}
               </td>
-              <td className={durationDrift(t) ? styles.durDrift : styles.num}>
+              <td className={`${durationDrift(t) ? styles.durDrift : styles.num} ${styles.trackLen}`}>
                 {dur(t.durationMs)}
                 {t.origin === 'cue' && t.cueStartMs !== null && (
                   <span> @ {dur(t.cueStartMs)}</span>
                 )}
               </td>
               {album.release && (
-                <td className={styles.num}>{dur(t.canonicalDurationMs)}</td>
+                <td className={`${styles.num} ${styles.trackCanon}`} data-label="Canonical">{dur(t.canonicalDurationMs)}</td>
               )}
               <td className={styles.fileCell}>
                 {[

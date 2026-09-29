@@ -235,6 +235,7 @@ one dew drop for the manual Match. */
 /* The same recessed pill track as the Tabs primitive; the current face is a
    clear bubble resting in it. */
 .tabs {
+  position: relative;
   display: flex;
   flex-shrink: 0;
   width: max-content;
@@ -646,6 +647,33 @@ the title-free placeholder label bottom-left. */
 .albumFacts dd { margin: 0; overflow-wrap: anywhere; }
 .maintenance { margin: 0; padding-top: .75rem; }
 .trackScroller { overflow-x: auto; }
+.trackTitle { width: 100%; }
+/* Phone: a table of five columns squeezed the title to a sliver while the
+   file details ran off the side. Each track becomes two lines: number, title
+   and length, then the file details (and the canonical length) under the
+   title. */
+@media (max-width: 640px) {
+  .trackScroller { overflow-x: visible; }
+  .trackTable thead { display: none; }
+  .trackTable, .trackTable tbody { display: block; }
+  .trackTable .trackRow {
+    display: grid;
+    grid-template-columns: 2rem minmax(0, 1fr) auto;
+    column-gap: var(--space-sm);
+    row-gap: 0.125rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .trackTable .trackRow td { height: auto; padding: 0; border: 0; }
+  .trackTable .trackNo { grid-column: 1; grid-row: 1; text-align: right; }
+  .trackTable .trackTitle { grid-column: 2; grid-row: 1; width: auto; min-width: 0; overflow-wrap: anywhere; }
+  .trackTable .trackLen { grid-column: 3; grid-row: 1; }
+  .trackTable .trackCanon { grid-column: 3; grid-row: 2; font-size: var(--font-size-xs); color: var(--ink-3); }
+  .trackTable .trackCanon::before { content: attr(data-label) " "; }
+  .trackTable .fileCell { grid-column: 2; grid-row: 2; font-size: var(--font-size-xs); white-space: normal; overflow-wrap: anywhere; }
+  .trackTable .discHeader { display: block; }
+  .trackTable .discHeader td { display: block; height: auto; padding: var(--space-md) 0 0.4rem; }
+}
 @media (max-width: 700px) {
   .gapRow { flex-wrap: wrap; align-items: flex-start; }
   .gapKind { width: 100%; }

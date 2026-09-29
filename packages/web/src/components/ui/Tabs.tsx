@@ -1,5 +1,6 @@
 import { type ReactNode, useRef } from 'react';
 import { nextTabIndex } from './tabNavigation';
+import { useScrollFade } from './useScrollFade';
 import styles from './Tabs.module.css';
 
 export interface TabItem {
@@ -20,8 +21,9 @@ interface TabsProps {
 
 export function Tabs({ items, value, onChange, label = 'Sections', panelId }: TabsProps) {
   const refs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const strip = useScrollFade<HTMLDivElement>(value);
   const activate = (item: TabItem) => { item.onClick?.(); onChange?.(item.value); };
-  return <div className={styles.tablist} role="tablist" aria-label={label}>
+  return <div ref={strip} className={styles.tablist} role="tablist" aria-label={label}>
     {items.map((item, index) => <button
       type="button"
       key={item.value}

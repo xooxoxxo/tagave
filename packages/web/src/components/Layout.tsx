@@ -3,6 +3,7 @@ import { Outlet, Link, useLocation } from '@tanstack/react-router';
 import { useMe, useCurrentLibrary, useJobEvents, useLogout } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { Button } from './ui';
+import { BrandMark } from './BrandMark';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -11,11 +12,22 @@ export function Layout() {
   const { pathname } = useLocation();
   const logout = useLogout();
   const [searchOpen, setSearchOpen] = useState(false);
+  // Phone only: the links and sign out live behind one menu button.
+  const [menuOpen, setMenuOpen] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
   useJobEvents(user && libraryId ? libraryId : undefined);
 
-  useEffect(() => { main.current?.scrollTo(0, 0); }, [pathname]);
+  useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
@@ -34,11 +46,9 @@ export function Layout() {
   return (
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      <aside className={styles.nav}>
+      <aside className={`${styles.nav} ${menuOpen ? styles.navOpen : ''}`}>
         <Link to="/" className={styles.brand}>
-          {/* The mark alone, not the full lockup: the lockup contains the
-              wordmark, which sits next to this as live text. */}
-          <img src="/tagave-mark.png" alt="" aria-hidden="true" className={styles.brandMark} width={32} height={32} />
+          <BrandMark className={styles.brandMark} />
           tagave
           <span className={styles.brandCaption}>A home for your music</span>
         </Link>
@@ -46,12 +56,25 @@ export function Layout() {
           <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <span className={styles.searchLabel}>Search your library</span> <kbd>⌘ K</kbd>
         </button>
+        <button
+          ref={menuButton}
+          type="button"
+          className={styles.menuButton}
+          aria-expanded={menuOpen}
+          aria-controls="main-navigation"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            {menuOpen ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+          </svg>
+        </button>
+        <div id="main-navigation" className={styles.navSheet}>
         <nav className={styles.navLinks} aria-label="Main navigation">
           <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
           <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
-          {/* The short label only on a phone, where the full one forced a third row. */}
-          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}><span className={styles.labelLong}>Physical collection</span><span className={styles.labelShort} aria-hidden="true">Collection</span></Link>
+          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
           <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care</Link>
           <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
@@ -61,12 +84,15 @@ export function Layout() {
           <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
           {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
         </div>
+        </div>
       </aside>
       <div className={styles.contentArea}>
-      <main id="main-content" ref={main} tabIndex={-1} className={styles.main}>
-        <div className={styles.page}><Outlet /></div>
-      </main>
-        <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
+        {/* The footer scrolls with the page instead of holding a strip of
+            every screen; on a phone that strip cost a fifth of the height. */}
+        <main id="main-content" ref={main} tabIndex={-1} className={styles.main}>
+          <div className={styles.page}><Outlet /></div>
+          <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
+        </main>
       </div>
       {searchOpen && <SearchModal onClose={closeSearch} />}
     </div>
