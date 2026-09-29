@@ -142,6 +142,62 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('physical collection (db)', () =
     const yesAgain = await addFromAlbum({ anotherCopy: true });
     expect(yesAgain.statusCode).toBe(200);
     expect(await items()).toHaveLength(2);
+    // a copy the owner meant is not flagged as a duplicate
+    const extra = (await items()).find((r) => r.id !== firstId);
+    expect(extra?.extraCopy).toBe(true);
+    const sources = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection-sources` });
+    expect((sources.json() as { sources: Array<{ counts: Record<string, number> }> }).sources[0]!.counts['duplicates']).toBe(0);
+  });
+
+  it('links the unmapped copy already in the collection instead of adding a second one', async () => {
+    // a record synced from Discogs that tagave never placed (the Baroness case)
+    const [src] = await db.select().from(collectionSources).where(eq(collectionSources.libraryId, libraryId));
+    const sourceId = src?.id ?? (await db.insert(collectionSources).values({ libraryId, provider: 'discogs' }).returning())[0]!.id;
+    const [synced] = await db.insert(collectionItems).values({
+      libraryId, collectionSourceId: sourceId, discogsReleaseId: discogsId, providerItemId: `${discogsId}9`,
+      mappingState: 'unmapped', pushState: 'synced', createdAt: new Date(Date.now() - 60 * 60_000),
+      basicInfo: { title: 'Yellow & Green', artists: ['Baroness'], year: 2012 },
+    }).returning();
+
+    const res = await addFromAlbum();
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { itemId: string; created: boolean; linkedExisting: boolean; previous: Record<string, unknown> };
+    expect(body).toMatchObject({ itemId: synced!.id, created: false, linkedExisting: true });
+    expect(body.previous).toMatchObject({ mappingState: 'unmapped', localAlbumId: null });
+    const rows = await items();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ localAlbumId: albumId, releaseGroupId: rgId, releaseId: relId, mappingState: 'manual', mappingSource: 'owner', pushState: 'synced' });
+    expect(pushes()).toHaveLength(0);
+
+    // a second click now finds it linked and asks before adding another copy
+    const again = await addFromAlbum();
+    expect(again.statusCode).toBe(409);
+
+    // Undo unlinks it; the copy stays in the collection
+    const undo = await app.inject({ method: 'POST', url: `/api/v1/collection-items/${synced!.id}/restore-link`, payload: body.previous });
+    expect(undo.statusCode).toBe(200);
+    const [after] = await items();
+    expect(after).toMatchObject({ id: synced!.id, localAlbumId: null, releaseGroupId: null, mappingState: 'unmapped', mappingSource: null });
+  });
+
+  it('adds a fresh copy after an Undo that is still leaving Discogs', async () => {
+    const { itemId } = (await addFromAlbum()).json() as { itemId: string };
+    // the push finished: Discogs holds an instance, so Undo queues a removal
+    await db.update(collectionItems).set({ providerItemId: `${discogsId}5`, pushState: 'synced' }).where(eq(collectionItems.id, itemId));
+    const undo = await app.inject({ method: 'DELETE', url: `/api/v1/collection-items/${itemId}` });
+    expect(undo.statusCode).toBe(202);
+    const [leaving] = await items();
+    expect(leaving).toMatchObject({ pushState: 'removing', removedAt: null });
+    boss.send.mockClear();
+
+    // the copy being removed no longer counts: a new add is a new copy
+    const readd = await addFromAlbum();
+    expect(readd.statusCode).toBe(202);
+    expect((readd.json() as { itemId: string }).itemId).not.toBe(itemId);
+    expect(pushes()).toHaveLength(1);
+    // and the leaving copy is not reported as a duplicate of it
+    const sources = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection-sources` });
+    expect((sources.json() as { sources: Array<{ counts: Record<string, number> }> }).sources[0]!.counts['duplicates']).toBe(0);
   });
 
   it('links a copy added by Discogs URL when tagave knows the release', async () => {
@@ -178,6 +234,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('physical collection (db)', () =
       const sources = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection-sources` });
       const counts = (sources.json() as { sources: Array<{ counts: Record<string, number> }> }).sources[0]!.counts;
       expect(counts).toMatchObject({ duplicates: 1, unmapped: 2 });
+    });
+
+    it('stops flagging the pair once the owner says they own both', async () => {
+      const { newer } = await seedTwins();
+      const res = await app.inject({ method: 'POST', url: `/api/v1/collection-items/${newer}/keep-both` });
+      expect(res.statusCode).toBe(200);
+      const list = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection?view=duplicates` });
+      expect((list.json() as { items: unknown[] }).items).toHaveLength(0);
+      const all = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection?view=unmapped` });
+      expect((all.json() as { items: Array<{ duplicateOf: string | null }> }).items.every((i) => i.duplicateOf === null)).toBe(true);
+      const sources = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection-sources` });
+      expect((sources.json() as { sources: Array<{ counts: Record<string, number> }> }).sources[0]!.counts['duplicates']).toBe(0);
     });
 
     it('removes the duplicate from Discogs through collection.remove', async () => {

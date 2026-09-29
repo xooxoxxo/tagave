@@ -113,7 +113,7 @@ export function albumQueryParts(
       labelNames.map((l) => sql`r.labels @> ${JSON.stringify([{ name: l }])}::jsonb`),
     )})`);
   }
-  const ownedSql = sql`exists (select 1 from collection_items ci where ci.library_id = ${localAlbums.libraryId} and ci.removed_at is null
+  const ownedSql = sql`exists (select 1 from collection_items ci where ci.library_id = ${localAlbums.libraryId} and ci.removed_at is null and ci.push_state is distinct from 'removing'
     and (ci.release_group_id = ${localAlbums.releaseGroupId} or ci.local_album_id = ${localAlbums.id}))`;
   const owned = str(q['owned']);
   if (owned === 'both') conds.push(ownedSql);
@@ -793,7 +793,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
             select id, folder_name, media_condition, sleeve_condition, rating, push_state, push_error,
                    formats, basic_info, discogs_release_id, created_at
             from collection_items
-            where library_id = ${libraryId} and removed_at is null
+            where library_id = ${libraryId} and removed_at is null and push_state is distinct from 'removing'
               and (local_album_id = ${albumId}${album.releaseGroupId ? sql` or release_group_id = ${album.releaseGroupId}` : sql``})
             order by date_added desc nulls last, created_at desc`) as unknown as Array<Record<string, unknown>>;
       const discogsCollectionItems = physicalRows.map((r) => ({

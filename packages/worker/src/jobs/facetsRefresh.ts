@@ -70,7 +70,7 @@ export async function refreshLibraryFacets(
              coalesce(lb.labels, '{}'),
              coalesce(g.genres, '{}'),
              coalesce(gp.kinds, '{}'),
-             exists (select 1 from collection_items ci where ci.library_id = la.library_id and ci.removed_at is null
+             exists (select 1 from collection_items ci where ci.library_id = la.library_id and ci.removed_at is null and ci.push_state is distinct from 'removing'
                        and (ci.release_group_id = la.release_group_id or ci.local_album_id = la.id)),
              array_remove(array[
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')

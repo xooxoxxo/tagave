@@ -78,6 +78,11 @@ export function scoreSuggestion(record: PhysicalRecordInfo, album: LibraryAlbumC
   if (record.trackCount && album.trackCount && record.trackCount === album.trackCount) score += 0.03;
   // a strong artist match with an unrelated title is another album by them
   if (titleSim < 0.5) score = Math.min(score, 0.45);
+  // and the same title by an unrelated artist is someone else's album
+  // ("Leviathan" by Mastodon is not "Leviathan" by Annot Rhul); a
+  // compilation's "Various" and an album without an artist tag say nothing
+  const various = artists.length > 0 && artists.every((a) => /^various( artists)?$/i.test(a));
+  if (artists.length && album.artist && !various && artistSim < 0.5) score = Math.min(score, 0.45);
   return Math.round(Math.min(1, score) * 1000) / 1000;
 }
 

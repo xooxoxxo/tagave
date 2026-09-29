@@ -61,6 +61,18 @@ describe('physical record suggestions', () => {
     expect(ids.sort()).toEqual(['g', 'y']);
   });
 
+  it('does not suggest the same title by an unrelated artist', () => {
+    const lib = [album('annot', 'Leviathan', 'Annot Rhul', 2004, 9), album('masto', 'Leviathan', 'Mastodon', 2004, 10)];
+    const ids = rankPhysicalSuggestions({ title: 'Leviathan', artists: ['Mastodon'], year: 2004 }, lib).map((s) => s.album.id);
+    expect(ids).toEqual(['masto']);
+    expect(scoreSuggestion({ title: 'Leviathan', artists: ['Mastodon'], year: 2004 }, lib[0]!)).toBeLessThan(0.5);
+  });
+
+  it('still suggests a compilation, whose Discogs artist is "Various"', () => {
+    const lib = [album('comp', 'Pulp Fiction', 'Various Artists', 1994)];
+    expect(rankPhysicalSuggestions({ title: 'Pulp Fiction', artists: ['Various'], year: 1994 }, lib).map((s) => s.album.id)).toEqual(['comp']);
+  });
+
   it('cleans Discogs names and edition noise', () => {
     expect(discogsArtistName('Baroness (2)')).toBe('Baroness');
     expect(discogsArtistName('Prince*')).toBe('Prince');

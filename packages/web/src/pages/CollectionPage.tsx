@@ -21,6 +21,7 @@ import {
   useAddCollectionItem,
   useRemoveCollectionItem,
   useRetryPush,
+  useKeepBothCopies,
   useCurrentLibrary,
   useCollectionSuggestions,
   useLinkCollectionItem,
@@ -38,7 +39,7 @@ const VIEWS: Array<{ key: View; label: string; count: 'physicalOnly' | 'both' | 
   { key: 'both', label: 'Both', count: 'both', help: 'Records you own that are also in your library on disk.' },
   { key: 'unmapped', label: 'Unmapped', count: 'unmapped', help: 'tagave doesn’t know which album in your library these records are. Pick the match, or say the record isn’t in your library.' },
   { key: 'removed', label: 'Removed', count: 'removed', help: 'Records that were in your Discogs collection and are gone now.' },
-  { key: 'duplicates', label: 'Duplicates', count: 'duplicates', help: 'The same Discogs release is in your collection more than once. Remove the extra copy unless you really own two.' },
+  { key: 'duplicates', label: 'Duplicates', count: 'duplicates', help: 'The same Discogs release is in your collection more than once. Remove the extra copy, or say you own both.' },
 ];
 
 interface LocalAlbumRef {
@@ -70,6 +71,7 @@ interface CollectionItem {
   pushState?: string | null;
   pushError?: string | null;
   copies: number;
+  extraCopy?: boolean;
   duplicateOf: string | null;
 }
 
@@ -132,7 +134,7 @@ export function CollectionPage() {
   const addRecord = async (anotherCopy = false) => {
     setAddError(null);
     try {
-      await addItem.mutateAsync({
+      const res = await addItem.mutateAsync({
         input: form.input,
         folderId: form.folderId,
         ...(form.mediaCondition ? { mediaCondition: form.mediaCondition } : {}),
@@ -143,7 +145,7 @@ export function CollectionPage() {
       });
       setShowAddForm(false);
       setForm(EMPTY_FORM);
-      showToast({ message: 'Added to your physical collection' });
+      showToast({ message: res.linkedExisting ? 'It was already in your collection: tagave linked that copy' : 'Added to your physical collection' });
     } catch (err) {
       if (isAlreadyOwned(err)) {
         const formats = [...new Set(err.existing.map((e) => e.format).filter(Boolean))].join(' and ');
@@ -279,6 +281,7 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   const linkItem = useLinkCollectionItem(libraryId);
   const removeItem = useRemoveCollectionItem(libraryId);
   const retryPush = useRetryPush(libraryId);
+  const keepBoth = useKeepBothCopies(libraryId);
   const isUnmapped = view === 'unmapped';
   const suggestions = useCollectionSuggestions(item.id, isUnmapped);
   const title = titleOf(item);
@@ -331,6 +334,15 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
     }
   };
 
+  const ownBoth = async () => {
+    try {
+      await keepBoth.mutateAsync(item.id);
+      showToast({ message: `Kept both copies of ${title}` });
+    } catch (err) {
+      showToast({ message: `Could not keep both: ${detailOf(err, 'the server did not answer')}`, tone: 'danger', durationMs: 10000 });
+    }
+  };
+
   const discogsLink = <a className={styles.textLink} href={item.discogsUrl} target="_blank" rel="noopener noreferrer">Open on Discogs ↗</a>;
 
   // one primary action per row
@@ -343,6 +355,7 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   else primary = discogsLink;
 
   const menu: MenuItem[] = [
+    ...(isExtraCopy && !removing ? [{ key: 'keep-both', label: 'I own both', hint: 'Keep both copies; this is not a duplicate', disabled: keepBoth.isPending, onSelect: () => void ownBoth() }] : []),
     ...(isUnmapped ? [{ key: 'by-url', label: 'Link by URL or ID…', hint: 'Paste a MusicBrainz or Discogs address', onSelect: () => setLinkOpen(true) }] : []),
     { key: 'discogs', label: 'Open on Discogs', href: item.discogsUrl },
     ...(item.mappingState !== 'unmapped' && view !== 'removed'
@@ -376,6 +389,9 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
             {facts.length > 0 && <span>{facts.join(' · ')}</span>}
             {onDisk && <span>{onDisk}</span>}
             {isExtraCopy && <span className={styles.flag}>Duplicate · {item.copies} copies</span>}
+            {isExtraCopy && !removing && (
+              <Button size="sm" variant="quiet" loading={keepBoth.isPending} onClick={() => void ownBoth()}>I own both</Button>
+            )}
             {isExtraCopy && isUnmapped && <span>Remove this copy, then link the one that stays</span>}
             {item.pushState === 'pending' && <span className={styles.status}>adding to Discogs…</span>}
             {item.pushState === 'failed' && <span className={styles.flagDanger} title={item.pushError ?? undefined}>{item.pushError?.startsWith('Removing') ? 'Removing from Discogs failed' : 'Adding to Discogs failed'}</span>}

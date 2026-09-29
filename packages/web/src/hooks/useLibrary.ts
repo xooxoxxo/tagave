@@ -412,9 +412,22 @@ export function useLinkCollectionItem(libraryId: string | undefined) {
   });
 }
 
+/** How a copy was placed before an add linked it: what Undo puts back. */
+export interface PreviousPhysicalLink {
+  releaseId: string | null;
+  releaseGroupId: string | null;
+  localAlbumId: string | null;
+  mappingState: string | null;
+  mappingSource: string | null;
+  mappedAt: string | null;
+}
+
 export interface AddPhysicalResponse {
   itemId: string;
   created: boolean;
+  /** the add linked a copy already in the collection instead of adding one */
+  linkedExisting?: boolean;
+  previous?: PreviousPhysicalLink;
 }
 
 /** 409 body when the collection already holds this Discogs release. */
@@ -472,6 +485,15 @@ export function useRemoveCollectionItem(libraryId: string | undefined) {
   const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
     mutationFn: (itemId: string) => api.delete(`/collection-items/${itemId}`),
+    onSuccess: invalidate,
+  });
+}
+
+/** "I own both": the copies of a Discogs release are all real, none is a duplicate. */
+export function useKeepBothCopies(libraryId: string | undefined) {
+  const invalidate = useInvalidatePhysical(libraryId);
+  return useMutation({
+    mutationFn: (itemId: string) => api.post(`/collection-items/${itemId}/keep-both`),
     onSuccess: invalidate,
   });
 }

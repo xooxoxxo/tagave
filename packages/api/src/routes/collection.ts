@@ -35,17 +35,28 @@ const HAS_LOCAL = sql`exists (
      and (la.id = ${collectionItems.localAlbumId}
           or (${collectionItems.releaseGroupId} is not null and la.release_group_id = ${collectionItems.releaseGroupId})))`;
 const ACTIVE = sql`${collectionItems.removedAt} is null`;
-const IS_EXTRA_COPY = sql`exists (
+/*
+ * A duplicate is an accidental twin: a newer active copy of a Discogs release
+ * the collection already holds, unless the owner said they own both
+ * (extra_copy, set by "Add another copy" or "I own both"). A copy on its way
+ * out of Discogs (push_state 'removing') no longer counts.
+ */
+const LEAVING = sql`${collectionItems.pushState} = 'removing'`;
+const IS_EXTRA_COPY = sql`(not ${collectionItems.extraCopy} and not ${LEAVING} and exists (
   select 1 from collection_items older
    where older.library_id = ${collectionItems.libraryId}
      and older.discogs_release_id = ${collectionItems.discogsReleaseId}
-     and older.removed_at is null
-     and (older.created_at, older.id) < (${collectionItems.createdAt}, ${collectionItems.id}))`;
-const HAS_TWIN = sql`exists (
+     and older.removed_at is null and older.push_state is distinct from 'removing'
+     and (older.created_at, older.id) < (${collectionItems.createdAt}, ${collectionItems.id})))`;
+const HAS_TWIN = sql`(not ${LEAVING} and exists (
   select 1 from collection_items twin
    where twin.library_id = ${collectionItems.libraryId}
      and twin.discogs_release_id = ${collectionItems.discogsReleaseId}
-     and twin.removed_at is null and twin.id != ${collectionItems.id})`;
+     and twin.removed_at is null and twin.push_state is distinct from 'removing'
+     and twin.id != ${collectionItems.id}
+     -- the newer of the two decides: an extra copy the owner meant is no twin
+     and case when (twin.created_at, twin.id) > (${collectionItems.createdAt}, ${collectionItems.id})
+              then not twin.extra_copy else not ${collectionItems.extraCopy} end))`;
 
 export const VIEW_WHERE: Record<string, SQL> = {
   both: sql`${ACTIVE} and ${HAS_LOCAL}`,
@@ -90,6 +101,10 @@ function sendAddResult(reply: FastifyReply, result: AddPhysicalResult) {
       detail: `You already have this${formats.length ? ` on ${formats.join(' and ')}` : ''}.`,
       existing: result.existing,
     });
+    return;
+  }
+  if (result.kind === 'linked_existing') {
+    reply.status(200).send({ itemId: result.itemId, created: false, linkedExisting: true, previous: result.previous });
     return;
   }
   reply.status(result.kind === 'created' ? 202 : 200).send({ itemId: result.itemId, created: result.kind === 'created' });
@@ -251,7 +266,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       ? await db.execute(sql`
           select id, discogs_release_id, created_at
             from collection_items
-           where library_id = ${lib} and removed_at is null
+           where library_id = ${lib} and removed_at is null and push_state is distinct from 'removing'
              and discogs_release_id in (${sql.join(discogsIds.map((x) => sql`${x}`), sql`, `)})
            order by created_at, id`) as unknown as Array<{ id: string; discogs_release_id: number }>
       : [];
@@ -293,7 +308,9 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
           localAlbumId: item.localAlbumId,
           removedAt: item.removedAt?.toISOString() ?? null,
           copies: twins.length,
-          duplicateOf: twins.length > 1 && keep !== item.id ? keep : null,
+          extraCopy: item.extraCopy,
+          // an accidental twin of the oldest copy; one the owner meant is not
+          duplicateOf: twins.length > 1 && keep !== item.id && twins.includes(item.id) && !item.extraCopy ? keep : null,
         };
       }),
       nextCursor: items.length === limitN ? String(offsetN + limitN) : null,
@@ -449,6 +466,56 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     reply.status(200).send({ ok: true });
   });
 
+  // POST /collection-items/:id/restore-link — Undo of an add that linked a copy
+  // already in the collection: put back how it was placed before
+  fastify.post('/collection-items/:id/restore-link', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = needUser(request);
+    const { id } = request.params as { id: string };
+    const body = (request.body ?? {}) as {
+      releaseId?: string | null; releaseGroupId?: string | null; localAlbumId?: string | null;
+      mappingState?: string | null; mappingSource?: string | null; mappedAt?: string | null;
+    };
+    const db = getDb();
+    const item = await ownItem(db, id, user.id);
+    const mappingState = body.mappingState && ['unmapped', 'auto', 'manual'].includes(body.mappingState) ? body.mappingState : 'unmapped';
+    let localAlbumId: string | null = null;
+    if (body.localAlbumId) {
+      const own = await db.select({ id: localAlbums.id }).from(localAlbums)
+        .where(and(eq(localAlbums.id, body.localAlbumId), eq(localAlbums.libraryId, item.libraryId)));
+      localAlbumId = own[0]?.id ?? null;
+    }
+    const mappedAt = body.mappedAt ? new Date(body.mappedAt) : null;
+    await db.update(collectionItems)
+      .set(mappingState === 'unmapped'
+        ? { releaseId: null, releaseGroupId: null, localAlbumId: null, mappingState, mappingSource: null, mappedAt: null }
+        : {
+            releaseId: body.releaseId ?? null, releaseGroupId: body.releaseGroupId ?? null, localAlbumId, mappingState,
+            mappingSource: body.mappingSource ?? null, mappedAt: mappedAt && !Number.isNaN(mappedAt.getTime()) ? mappedAt : null,
+          })
+      .where(eq(collectionItems.id, id));
+    await markFacetsDirty(db, item.libraryId);
+    reply.send({ ok: true });
+  });
+
+  // POST /collection-items/:id/keep-both — "I own both": the copies of this
+  // Discogs release are all real, so none of them is a duplicate
+  fastify.post('/collection-items/:id/keep-both', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = needUser(request);
+    const { id } = request.params as { id: string };
+    const db = getDb();
+    const item = await ownItem(db, id, user.id);
+    if (item.discogsReleaseId == null) throw new ApiError(400, 'Bad Request', 'This record has no Discogs release to compare');
+    const updated = await db.update(collectionItems)
+      .set({ extraCopy: true })
+      .where(and(
+        eq(collectionItems.libraryId, item.libraryId),
+        eq(collectionItems.discogsReleaseId, item.discogsReleaseId),
+        sql`${collectionItems.removedAt} is null`,
+      ))
+      .returning({ id: collectionItems.id });
+    reply.send({ ok: true, copies: updated.length });
+  });
+
   // GET /libraries/:lib/collection-sources/options — options for adding to collection (spec COL-3)
   fastify.get('/libraries/:lib/collection-sources/options', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = needUser(request);
@@ -543,10 +610,8 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       ...(body.notes ? { notes: body.notes } : {}),
       ...(body.rating ? { rating: body.rating } : {}),
     });
-    if (result.kind === 'created') {
-      await queuePush(lib, result.itemId);
-      await markFacetsDirty(db, lib);
-    }
+    if (result.kind === 'created') await queuePush(lib, result.itemId);
+    if (result.kind === 'created' || result.kind === 'linked_existing') await markFacetsDirty(db, lib);
     sendAddResult(reply, result);
   });
 
@@ -575,10 +640,8 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
       ...(body.notes ? { notes: body.notes } : {}),
       ...(body.rating ? { rating: body.rating } : {}),
     });
-    if (result.kind === 'created') {
-      await queuePush(lib, result.itemId);
-      await markFacetsDirty(db, lib);
-    }
+    if (result.kind === 'created') await queuePush(lib, result.itemId);
+    if (result.kind === 'created' || result.kind === 'linked_existing') await markFacetsDirty(db, lib);
     sendAddResult(reply, result);
   });
 
@@ -640,7 +703,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
           select 1 from collection_items ci
           where ci.library_id = ${lib}
             and (ci.release_group_id = la.release_group_id or ci.local_album_id = la.id)
-            and ci.removed_at is null
+            and ci.removed_at is null and ci.push_state is distinct from 'removing'
         )
     `);
 
@@ -664,7 +727,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
         left join local_albums la on la.id = ci.local_album_id
         where ci.library_id = ${lib}
           and ci.release_group_id is not null
-          and ci.removed_at is null
+          and ci.removed_at is null and ci.push_state is distinct from 'removing'
         group by artist
       )
       select artist, physical_only, both

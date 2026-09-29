@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@liner/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned } from '../hooks';
+import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
@@ -271,12 +271,25 @@ export function AlbumDetailPage() {
   // "I own this on vinyl/CD": the album shows the copy at once (optimistic),
   // a toast says what happened and offers Undo, and a copy already in the
   // collection asks before adding a second one.
-  const undoPhysical = async (itemId: string) => {
-    const t = showToast({ message: 'Removing it again…', durationMs: 0 });
+  // Undo takes the copy off the album at once; the server agrees (a copy on
+  // its way out of Discogs no longer counts), so the refetch keeps it off.
+  // A copy that was already in the collection is unlinked, not removed.
+  const undoPhysical = async (itemId: string, previous?: PreviousPhysicalLink) => {
+    const key = ['album', albumId];
+    const before = queryClient.getQueryData<AlbumDetail>(key);
+    if (before) {
+      queryClient.setQueryData<AlbumDetail>(key, {
+        ...before,
+        discogsCollectionItems: (before.discogsCollectionItems ?? []).filter((i) => i.id !== itemId),
+      });
+    }
+    const t = showToast({ message: previous ? 'Unlinking it again…' : 'Removing it again…', durationMs: 0 });
     try {
-      await api.delete(`/collection-items/${itemId}`);
-      updateToast(t, { message: 'Removed from your physical collection', durationMs: 5000 });
+      if (previous) await api.post(`/collection-items/${itemId}/restore-link`, previous);
+      else await api.delete(`/collection-items/${itemId}`);
+      updateToast(t, { message: previous ? 'Unlinked: the copy stays in your collection' : 'Removed from your physical collection', durationMs: 5000 });
     } catch (err) {
+      if (before) queryClient.setQueryData(key, before);
       updateToast(t, { message: `Could not undo: ${(err as { detail?: string })?.detail ?? 'the server did not answer'}`, tone: 'danger', durationMs: 10000 });
     } finally {
       invalidatePhysical();
@@ -298,8 +311,10 @@ export function AlbumDetailPage() {
       const discogsReleaseId = album.release?.discogsReleaseId;
       const res = await addPhysical.mutateAsync({ ...(discogsReleaseId ? { discogsReleaseId } : {}), ...(anotherCopy ? { anotherCopy: true } : {}) });
       updateToast(t, {
-        message: res.created ? 'Added to your physical collection' : 'Already added: it is in your physical collection',
-        action: { label: 'Undo', onClick: () => void undoPhysical(res.itemId) },
+        message: res.linkedExisting
+          ? 'Linked the copy already in your collection'
+          : res.created ? 'Added to your physical collection' : 'Already added: it is in your physical collection',
+        action: { label: 'Undo', onClick: () => void undoPhysical(res.itemId, res.linkedExisting ? res.previous : undefined) },
         durationMs: 10000,
       });
     } catch (err) {
