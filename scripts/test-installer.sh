@@ -4,15 +4,21 @@
 # configuration, the secrets files are private, a split install's two halves
 # agree, and the published database listens where it was told to.
 #
-# Needs Docker with Compose v2. Starts nothing and pulls nothing.
+# Then checks version pinning against a fake releases feed, and runs
+# "update" and "status" against a stand-in docker that logs every call:
+# backup before anything changes, app restarted before the workers, roll back
+# printed, downgrades refused, and the music computer following the app.
 #
-# usage: scripts/test-installer.sh
+# Needs Docker with Compose v2 (only "docker compose config" runs for real).
+# Starts nothing and pulls nothing.
+#
+# usage: scripts/test-installer.sh        (TAGAVE_TEST_KEEP=1 keeps the temp folder)
 set -euo pipefail
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 installer="$repo/install-tagave.sh"
 work="$(mktemp -d "${TMPDIR:-/tmp}/tagave-installer-test.XXXXXX")"
-trap 'rm -rf "$work"' EXIT
+trap '[ "${TAGAVE_TEST_KEEP:-0}" = 1 ] && echo "kept $work" || rm -rf "$work"' EXIT
 
 fail() { printf 'test-installer: FAIL %s\n' "$*" >&2; exit 1; }
 pass() { printf 'test-installer: ok   %s\n' "$*"; }
@@ -41,6 +47,7 @@ run --role all --dir "$work/all" --music "$work/music" >"$work/all.log" 2>&1 \
   || { cat "$work/all.log" >&2; fail "role all"; }
 [ "$(mode_of "$work/all/.env")" = "600" ] || fail "role all: .env is not mode 600"
 [ "$(env_value COMPOSE_PROFILES "$work/all/.env")" = "app,files" ] || fail "role all: profiles"
+[ -x "$work/all/install-tagave.sh" ] || fail "role all: no copy of the installer in the install folder"
 secret="$(env_value APP_SECRET "$work/all/.env")"
 [ "${#secret}" -ge 40 ] || fail "role all: APP_SECRET looks too short"
 config="$(render "$work/all")"
@@ -85,5 +92,149 @@ config="$(render "$work/files")"
 [ "$(services "$work/files")" = "worker-files " ] || fail "role files: services are $(services "$work/files")"
 printf '%s' "$config" | grep -q "@$address:5432/" || fail "role files: DATABASE_URL does not point at the app computer"
 pass "role files"
+
+# --- version pinning ----------------------------------------------------------
+# A fake GitHub releases API: install-tagave.sh reads $TAGAVE_RELEASES_API/latest.
+mkdir -p "$work/releases"
+printf '{\n  "tag_name": "v0.5.0",\n  "name": "0.5.0"\n}\n' >"$work/releases/latest"
+releases="file://$work/releases"
+
+TAGAVE_SKIP_IMAGE_CHECK=1 TAGAVE_RELEASES_API="$releases" "$installer" --yes --no-start --timezone UTC \
+  --role all --dir "$work/pin" --music "$work/music" >"$work/pin.log" 2>&1 </dev/null \
+  || { cat "$work/pin.log" >&2; fail "pinning"; }
+[ "$(env_value TAGAVE_VERSION "$work/pin/.env")" = "0.5.0" ] \
+  || fail "pinning: .env holds TAGAVE_VERSION=$(env_value TAGAVE_VERSION "$work/pin/.env"), not the release number"
+# An .env from an older installer holds the floating 'latest'; a re-run pins it.
+sed 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=latest/' "$work/pin/.env" >"$work/pin/.env.new" && mv "$work/pin/.env.new" "$work/pin/.env"
+TAGAVE_SKIP_IMAGE_CHECK=1 TAGAVE_RELEASES_API="$releases" "$installer" --yes --no-start \
+  --dir "$work/pin" >"$work/pin2.log" 2>&1 </dev/null \
+  || { cat "$work/pin2.log" >&2; fail "pinning, re-run"; }
+[ "$(env_value TAGAVE_VERSION "$work/pin/.env")" = "0.5.0" ] || fail "pinning: re-run left TAGAVE_VERSION=latest"
+pass "installer pins the newest release number, and re-pins 'latest'"
+
+# --- update and status, against a stand-in docker -----------------------------
+# The stand-in answers what the installer asks, logs every call, keeps the
+# running version in a file, and hands `compose config` to the real docker.
+real_docker="$(command -v docker)"
+mkdir -p "$work/bin" "$work/state"
+cat >"$work/bin/docker" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$FAKE_LOG"
+case "$1" in
+  info) exit 0 ;;
+  version) echo 27.0.0; exit 0 ;;
+  manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
+  inspect) echo healthy; exit 0 ;;
+  volume) exit 1 ;;
+  compose) shift ;;
+  *) exit 0 ;;
+esac
+case "$1" in
+  version) echo 2.29.0 ;;
+  config) exec "$REAL_DOCKER" compose "$@" ;;
+  ps) if [ "${2:-}" = "--format" ]; then printf 'SERVICE STATE STATUS\napp running Up\n'; else echo fakeid; fi ;;
+  logs) echo '{"msg":"worker ready"}' ;;
+  up)
+    if [ "$*" != "up -d postgres" ] && [ "${FAKE_UP_KEEPS_OLD:-0}" != "1" ]; then
+      grep '^TAGAVE_VERSION=' .env | cut -d= -f2 | tr -d '\n' >"$FAKE_STATE/version"
+    fi ;;
+  exec)
+    case "$*" in
+      *" app node "*) printf '%s ok ok ok pass\n' "$(cat "$FAKE_STATE/version")" ;;
+      *pg_dump*) printf 'PGDMP fake dump' ;;
+      *"pg_restore --list"*) cat >/dev/null; printf ';\n; Archive\n215; 1259 16385 TABLE public albums liner\n' ;;
+    esac ;;
+esac
+exit 0
+FAKE
+chmod +x "$work/bin/docker"
+
+fake() {
+  PATH="$work/bin:$PATH" REAL_DOCKER="$real_docker" FAKE_LOG="$work/docker.log" FAKE_STATE="$work/state" \
+    TAGAVE_RELEASES_API="$releases" "$installer" "$@" </dev/null
+}
+at_version() {
+  TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" --yes --no-start --version "$1" --timezone UTC "${@:2}" </dev/null
+}
+# line_of PATTERN: first line of the docker log matching PATTERN exactly.
+line_of() { grep -nx -- "$1" "$work/docker.log" | head -n 1 | cut -d: -f1; }
+
+at_version 0.4.1 --role all --dir "$work/upd" --music "$work/music" >"$work/upd-install.log" 2>&1 \
+  || { cat "$work/upd-install.log" >&2; fail "update: install 0.4.1"; }
+printf '0.4.1' >"$work/state/version"
+
+fake status --dir "$work/upd" >"$work/status.log" 2>&1 || { cat "$work/status.log" >&2; fail "status"; }
+grep -q 'Running now: *0.4.1' "$work/status.log" || fail "status: does not show the running version"
+grep -q 'tagave 0.5.0 is out' "$work/status.log" || fail "status: does not offer 0.5.0"
+pass "status shows the running version and the newer release"
+
+fake update --dir "$work/upd" --dry-run >"$work/dry.log" 2>&1 || { cat "$work/dry.log" >&2; fail "update --dry-run"; }
+grep -q 'Dry run: nothing changed' "$work/dry.log" || fail "update --dry-run: no dry-run notice"
+grep -q "releases/tag/v0.5.0" "$work/dry.log" || fail "update --dry-run: no release notes link"
+[ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.4.1" ] || fail "update --dry-run changed .env"
+[ ! -d "$work/upd/backups" ] || fail "update --dry-run wrote a backup"
+pass "update --dry-run changes nothing"
+
+: >"$work/docker.log"
+fake update --dir "$work/upd" --yes >"$work/update.log" 2>&1 || { cat "$work/update.log" >&2; fail "update"; }
+[ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.5.0" ] || fail "update: .env not moved to 0.5.0"
+backup="$(find "$work/upd/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
+[ -n "$backup" ] || fail "update: no pre-update-0.4.1 backup folder"
+[ -s "$backup/database.pgdump" ] || fail "update: no database dump in $backup"
+[ "$(env_value TAGAVE_VERSION "$backup/.env")" = "0.4.1" ] || fail "update: the saved .env is not the 0.4.1 one"
+[ "$(mode_of "$backup")" = "700" ] || fail "update: the backup folder is not private"
+dump_at="$(grep -n 'pg_dump' "$work/docker.log" | head -n 1 | cut -d: -f1)"
+stop_at="$(line_of 'compose stop worker-files worker-identify')"
+[ -n "$stop_at" ] || stop_at="$(line_of 'compose stop worker-identify worker-files')"
+app_at="$(line_of 'compose up -d app')"
+rest_at="$(line_of 'compose up -d')"
+[ -n "$dump_at" ] && [ -n "$stop_at" ] && [ -n "$app_at" ] && [ -n "$rest_at" ] \
+  || { cat "$work/docker.log" >&2; fail "update: missing backup, stop or start calls"; }
+[ "$dump_at" -lt "$stop_at" ] && [ "$stop_at" -lt "$app_at" ] && [ "$app_at" -lt "$rest_at" ] \
+  || { cat "$work/docker.log" >&2; fail "update: expected backup, stop workers, start app, then the rest"; }
+grep -q 'How to roll back to 0.4.1' "$work/update.log" || fail "update: no roll back instructions"
+grep -q 'pg_restore' "$work/update.log" || fail "update: roll back does not restore the database"
+pass "update backs up, pins 0.5.0, restarts the app before the workers, prints the roll back"
+
+fake update --dir "$work/upd" --yes >"$work/update2.log" 2>&1 || { cat "$work/update2.log" >&2; fail "update, again"; }
+grep -q 'Already on 0.5.0' "$work/update2.log" || fail "update: a second run should do nothing"
+if fake update --dir "$work/upd" --version 0.4.1 --yes >"$work/down.log" 2>&1; then
+  fail "update: accepted a downgrade"
+fi
+grep -q 'older than 0.5.0' "$work/down.log" || fail "update: downgrade refused without saying why"
+pass "update is a no-op when current, refuses to go back"
+
+# A new version that never reports healthy: update fails and says how to go back.
+at_version 0.4.1 --role all --dir "$work/upd-bad" --music "$work/music" >"$work/bad-install.log" 2>&1 \
+  || { cat "$work/bad-install.log" >&2; fail "update failure: install 0.4.1"; }
+printf '0.4.1' >"$work/state/version"
+if FAKE_UP_KEEPS_OLD=1 TAGAVE_HEALTH_TIMEOUT=0 fake update --dir "$work/upd-bad" --yes >"$work/bad.log" 2>&1; then
+  fail "update: reported success although the app never ran 0.5.0"
+fi
+grep -q 'How to roll back to 0.4.1' "$work/bad.log" || { cat "$work/bad.log" >&2; fail "update failure: no roll back instructions"; }
+grep -q 'dropdb' "$work/bad.log" || fail "update failure: roll back does not reset the database"
+pass "a failed update prints how to roll back"
+
+# Split install: the file worker follows the app computer's version.
+at_version 0.4.1 --role app --dir "$work/split-app" --advertise-address "$address" >"$work/split-app.log" 2>&1 \
+  || { cat "$work/split-app.log" >&2; fail "split update: app install"; }
+[ -n "$(env_value TAGAVE_APP_URL "$work/split-app/files-worker.env")" ] || fail "split: files-worker.env has no TAGAVE_APP_URL"
+at_version 0.4.1 --role files --dir "$work/split-files" --from "$work/split-app/files-worker.env" --music "$work/music" \
+  >"$work/split-files.log" 2>&1 || { cat "$work/split-files.log" >&2; fail "split update: files install"; }
+[ "$(env_value TAGAVE_APP_URL "$work/split-files/.env")" = "http://$address:3100" ] || fail "split: files .env has no TAGAVE_APP_URL"
+mkdir -p "$work/appsrv/api/v1"
+printf '{"version":"0.5.0","sha":"abc"}' >"$work/appsrv/api/v1/version"
+printf '{"status":"ok","checks":[{"id":"versions","title":"Build Versions","status":"pass","detail":"x"}]}' >"$work/appsrv/api/v1/health"
+if fake update --dir "$work/split-files" --app-url "file://$work/appsrv" --version 0.6.0 --yes >"$work/split-mismatch.log" 2>&1; then
+  fail "split update: accepted a version the app computer does not run"
+fi
+grep -q 'app computer runs 0.5.0' "$work/split-mismatch.log" || fail "split update: mismatch refused without saying why"
+: >"$work/docker.log"
+fake update --dir "$work/split-files" --app-url "file://$work/appsrv" --yes >"$work/split-update.log" 2>&1 \
+  || { cat "$work/split-update.log" >&2; fail "split update"; }
+[ "$(env_value TAGAVE_VERSION "$work/split-files/.env")" = "0.5.0" ] || fail "split update: .env not moved to 0.5.0"
+grep -q 'pg_dump' "$work/docker.log" && fail "split update: the music computer has no database to back up"
+grep -q 'same build' "$work/split-update.log" || fail "split update: did not confirm matching builds"
+pass "update on the music computer follows the app computer"
 
 echo "test-installer: all roles pass"

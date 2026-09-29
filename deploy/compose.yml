@@ -26,6 +26,20 @@ x-worker-env: &worker-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   TZ: ${TZ:-UTC}
 
+# Labels for an optional update watcher. They do nothing unless you run one.
+# Diun (notify only) watches the repository for new release tags; What's Up
+# Docker can notify too. Update with install-tagave.sh update rather than
+# letting a watcher replace the containers: it backs up the database first and
+# restarts the app before the workers. See docs/operations.md.
+x-watch-labels: &watch-labels
+  diun.enable: "true"
+  diun.watch_repo: "true"
+  diun.include_tags: "^\\d+\\.\\d+\\.\\d+$$"
+  diun.sort_tags: "semver"
+  diun.max_tags: "5"
+  wud.watch: "true"
+  wud.tag.include: "^\\d+\\.\\d+\\.\\d+$$"
+
 services:
   postgres:
     profiles: ["app"]
@@ -47,7 +61,8 @@ services:
 
   app:
     profiles: ["app"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:-latest}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    labels: *watch-labels
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
@@ -80,7 +95,8 @@ services:
   # the database.
   worker-identify:
     profiles: ["app"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    labels: *watch-labels
     environment:
       <<: *worker-env
       DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
@@ -101,7 +117,8 @@ services:
   # checks that.
   worker-files:
     profiles: ["files"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:-latest}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    labels: *watch-labels
     environment:
       <<: *worker-env
       LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert

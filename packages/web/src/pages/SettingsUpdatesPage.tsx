@@ -23,10 +23,10 @@ const REBUILD = `GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%T
   ${COMPOSE} --profile workers up -d --build`;
 const BACKUP_CMD = `${COMPOSE} exec -T postgres pg_dump -U liner -Fc liner > tagave-$(date +%F).pgdump`;
 const UPDATE_CMD = `git pull\n${REBUILD}`;
-// The one-command installer writes a compose.yml that pulls published images
-// into ~/tagave, so there is nothing to rebuild.
-const INSTALLER_BACKUP_CMD = 'cd ~/tagave\ndocker compose exec -T postgres pg_dump -U liner -Fc liner > tagave-$(date +%F).pgdump';
-const INSTALLER_UPDATE_CMD = 'docker compose pull\ndocker compose up -d';
+// The one-command installer pins the release in ~/tagave/.env and keeps a
+// copy of itself there; its update command backs up, moves the pin, pulls and
+// restarts, so a plain `docker compose pull` no longer changes the version.
+const INSTALLER_UPDATE_CMD = 'cd ~/tagave\n./install-tagave.sh update';
 const ROLLBACK_CMD = [
   'git checkout <previous version>',
   `${COMPOSE} --profile workers stop app worker-files worker-identify`,
@@ -169,10 +169,10 @@ export function SettingsUpdatesPage() {
         <h2 className={styles.sectionTitle}>How to update</h2>
         <h3 className={styles.subTitle}>If you used the installer</h3>
         <p className={styles.hint}>
-          Back up the database, then fetch the new images and restart, in the folder the installer wrote to (<code>~/tagave</code> unless you chose another).
-          On a split install, run the update on the computer with the music as well.
+          Run this in the folder the installer wrote to (<code>~/tagave</code> unless you chose another). It backs up the database, moves to the newest release, restarts the app and then the workers, and prints how to roll back.
+          On a split install, run it on the app computer first, then on the computer with the music.
+          If <code>install-tagave.sh</code> is not in that folder yet, run the one-command installer once more first; it keeps your settings and adds it.
         </p>
-        <pre className={styles.code}>{INSTALLER_BACKUP_CMD}</pre>
         <pre className={styles.code}>{INSTALLER_UPDATE_CMD}</pre>
         <h3 className={styles.subTitle}>If you built from source</h3>
         <p className={styles.hint}>
