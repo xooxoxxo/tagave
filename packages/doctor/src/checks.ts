@@ -747,7 +747,7 @@ export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
         from worker_heartbeats
         where seen_at > now() - interval '120 seconds'`;
       if (rows.length === 0) {
-        return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `no live workers; this process is ${me.version} @ ${me.sha ?? 'unknown'} (${me.source})`, durationMs: Date.now() - start };
+        return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `No worker running to compare with; this process runs ${me.version}${me.sha ? ` (${me.sha})` : ''}`, durationMs: Date.now() - start };
       }
       const shas = new Map<string, number>();
       for (const r of rows) {
