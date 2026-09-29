@@ -276,3 +276,13 @@ export {
   type GapTasksResponse,
   type GapTaskCounts,
 } from './gaps.js';
+
+// Owner-requested identification: live job state + recorded outcome
+export type {
+  IdentifyRequestKind,
+  IdentifyOutcomeKind,
+  ReleaseChoice,
+  IdentifyOutcomeView,
+  IdentifyRequestView,
+} from './identify.js';
+export { IDENTIFY_REQUESTED_BY_OWNER } from './identify.js';

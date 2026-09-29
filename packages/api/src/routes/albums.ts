@@ -5,15 +5,16 @@ import {
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog,
 } from '@liner/db';
-import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core';
+import { normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob } from '../lib/identifyRequests.js';
+import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
+import { parseMatchInput, pinnedJobData } from '../lib/matchInput.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
-import { displayArtistName } from '@liner/shared';
+import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@liner/shared';
 import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -850,7 +851,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         };
       }
 
-      const pendingIdentify = await pendingIdentifyJob(album.id);
+      const idState = (await identifyRequestStates([album.id])).get(album.id);
+      const pendingIdentify = idState?.pending ?? null;
+      const identifyRequest = idState?.request ?? null;
       // Folder maintenance (XO-364): a lossless+lossy mix can be split; a
       // split-off album can be merged back.
       const [mix] = (await db.execute(sql`
@@ -873,6 +876,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         year: album.yearGuess,
         state: album.state,
         pendingIdentify,
+        identifyRequest,
         mixed,
         splitFrom,
         merged,
@@ -995,66 +999,44 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // IDN-6 manual entry: paste an MB release URL / MBID or Discogs URL / ID, match it outright.
+  // IDN-6 manual entry: paste a MusicBrainz release / release-group URL or id,
+  // or a Discogs release / master URL or id. A release matches outright; a
+  // release group (a bare id may be one) comes back from the worker as a list
+  // of its releases to pick from — see identifyRequest on the album detail.
   fastify.post(
     '/libraries/:libraryId/albums/:albumId/match-mbid',
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
       const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
       const { input } = (request.body ?? {}) as { input?: string };
+      const parsed = parseMatchInput(input);
+      if (!parsed.ok) throw new ApiError(400, 'Bad Request', parsed.message);
 
-      // Try MBID first
-      const mbid = input?.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i)?.[0];
-      if (mbid) {
-        // Check for non-release MB URLs
-        if (input && /musicbrainz\.org\/(?!release\/)[a-z-]+\//i.test(input)) {
-          throw new ApiError(400, 'Bad Request', 'That is not a release URL — use the release page (musicbrainz.org/release/...), not artist or release-group');
-        }
-        const db = getDb();
-        const lib = await db
-          .select()
-          .from(libraries)
-          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
-        if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-        const pendingMb = await pendingIdentifyJob(albumId);
-        if (pendingMb) {
-          reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending: pendingMb });
-          return;
-        }
-        const boss = await getBoss();
-        const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedMbid: mbid }, {
-          singletonKey: IDENTIFY_SINGLETON(albumId),
-          priority: IDENTIFY_PRIORITY.manual,
-        });
-        reply.status(202).send({ ok: true, mbid, jobId, pending: await pendingIdentifyJob(albumId) });
+      const db = getDb();
+      const lib = await db
+        .select()
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+      const pending = await pendingIdentifyJob(albumId);
+      if (pending) {
+        reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending });
         return;
       }
-
-      // Try Discogs
-      const discogsRef = parseDiscogsRef(input || '');
-      if (discogsRef) {
-        const db = getDb();
-        const lib = await db
-          .select()
-          .from(libraries)
-          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
-        if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
-        const pendingDg = await pendingIdentifyJob(albumId);
-        if (pendingDg) {
-          reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending: pendingDg });
-          return;
-        }
-        const boss = await getBoss();
-        const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, pinnedDiscogs: discogsRef }, {
-          singletonKey: IDENTIFY_SINGLETON(albumId),
-          priority: IDENTIFY_PRIORITY.manual,
-        });
-        reply.status(202).send({ ok: true, discogs: discogsRef, jobId, pending: await pendingIdentifyJob(albumId) });
-        return;
-      }
-
-      // Neither worked
-      throw new ApiError(400, 'Bad Request', 'No MusicBrainz MBID or Discogs URL / ID found in input — paste a MusicBrainz release URL / MBID or a Discogs release / master URL / ID');
+      const boss = await getBoss();
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER, ...pinnedJobData(parsed.target) }, {
+        singletonKey: IDENTIFY_SINGLETON(albumId),
+        priority: IDENTIFY_PRIORITY.manual,
+      });
+      const t = parsed.target;
+      const now = (await identifyRequestStates([albumId])).get(albumId);
+      reply.status(202).send({
+        ok: true,
+        ...(t.source === 'musicbrainz' ? { mbid: t.mbid, entity: t.entity } : { discogs: { kind: t.kind, id: t.id } }),
+        jobId,
+        pending: now?.pending ?? null,
+        identifyRequest: now?.request ?? null,
+      });
     }
   );
 
@@ -1076,7 +1058,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         return;
       }
       const boss = await getBoss();
-      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true }, {
+      const jobId = await boss.send('identify.album', { localAlbumId: albumId, force: true, requestedBy: IDENTIFY_REQUESTED_BY_OWNER }, {
         singletonKey: IDENTIFY_SINGLETON(albumId),
         priority: IDENTIFY_PRIORITY.manual,
       });
@@ -1101,7 +1083,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const pending = await pendingIdentifyJob(albumId);
       if (!pending) throw new ApiError(404, 'Not Found', 'No identification request is queued for this album');
       await cancelIdentifyJob(await getBoss(), pending.id);
-      reply.send({ cancelled: pending.id, wasActive: pending.state === 'active' });
+      // a running job finishes on the worker and records its own outcome
+      if (pending.state !== 'active') await recordCancelled(albumId, pending);
+      reply.send({ cancelled: pending.id, wasActive: pending.state === 'active', identifyRequest: await identifyRequestView(albumId) });
     }
   );
 

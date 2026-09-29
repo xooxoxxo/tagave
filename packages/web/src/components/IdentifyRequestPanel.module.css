@@ -1,0 +1,90 @@
+/* The owner's identification request: a tinted note whose edge says how it
+   stands (live, matched, needs a pick, failed). Status colour stays on the
+   edge and the dot, never a fill. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-top: var(--space-xs);
+  padding: .75rem 1rem .75rem 1.25rem;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--r-inner);
+  background-color: var(--surface);
+  font-size: var(--font-size-sm);
+}
+.tone-live { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); border-left-color: var(--warn); }
+.tone-good { border-left-color: var(--ok); }
+.tone-attention { border-color: color-mix(in srgb, var(--dew) 35%, var(--line)); border-left-color: var(--dew); }
+.tone-bad { border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); border-left-color: var(--danger); }
+.tone-quiet { border-left-color: var(--line-strong); }
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.headActions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+.title { font-weight: 600; color: var(--ink); }
+.meta {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pinned {
+  display: block;
+  max-width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+a.pinned:hover { color: var(--ink-2); }
+.message { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.error { margin: 0; color: var(--danger); font-size: var(--font-size-xs); }
+.more { margin: 0; color: var(--ink-3); font-size: var(--font-size-xs); }
+
+.choices {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+}
+.choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: .5rem 1rem;
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.choiceMain { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.choiceTitle { font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+.choiceDis { font-weight: 400; color: var(--ink-3); }
+.choiceFacts { color: var(--ink-3); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+.choiceFit { justify-self: start; }
+.choiceActions { display: inline-flex; align-items: center; gap: .75rem; justify-self: end; }
+.choiceLink { font-size: var(--font-size-xs); white-space: nowrap; }
+
+@media (max-width: 640px) {
+  .choice { grid-template-columns: minmax(0, 1fr); }
+  .choiceActions { justify-self: start; }
+}

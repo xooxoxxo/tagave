@@ -36,6 +36,8 @@ import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, s
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
+import { useIdentifyStatus, type IdentifyStatusItem } from '../hooks/useIdentifyStatus';
+import { identifyLines, planAlbumScope } from './planIdentifyStatus';
 import { InlineRename } from '../components/InlineRename';
 import { PlanResults, PlanReverted } from './PlanResults';
 import { KEPT_PLAN_NOTE, RESULT_STATUSES } from './planResultsText';
@@ -81,7 +83,7 @@ function manualValues(values: Record<string, string | string[] | undefined> | un
  * hand, look at locks. Hidden when the stats name no reason.
  */
 function PreviewOutcomeNotice({
-  outcome, manual, onIdentify, identifying, identifyNote, onSetValues,
+  outcome, manual, onIdentify, identifying, identifyNote, onSetValues, planAlbumIds, identifyStatus, onPreviewAgain, previewing,
 }: {
   outcome: PreviewOutcome;
   manual: boolean;
@@ -89,26 +91,62 @@ function PreviewOutcomeNotice({
   identifying: boolean;
   identifyNote: string | null;
   onSetValues: (() => void) | null;
+  /** the album ids the plan was created with (albumIds scope only) */
+  planAlbumIds: string[] | null;
+  /** live identification state of the plan's and the skipped albums */
+  identifyStatus: IdentifyStatusItem[] | undefined;
+  onPreviewAgain: () => void;
+  previewing: boolean;
 }) {
   const { notIdentified, releaseMissing } = outcome;
   const toIdentify = [...new Set([...notIdentified.albumIds, ...releaseMissing.albumIds])];
+  const scope = planAlbumScope(planAlbumIds, identifyStatus);
+  // What happened to the albums the preview found unidentified, from the real jobs.
+  const wanted = new Set(toIdentify);
+  const lines = identifyLines((identifyStatus ?? []).filter((i) => wanted.has(i.albumId)));
+  const shown = lines.filter((l) => l.kind !== 'untouched' && l.kind !== 'gone');
+  const anyMatchedNow = lines.some((l) => l.kind === 'matched');
+  const stillToAsk = lines.length > 0
+    ? lines.filter((l) => l.kind === 'untouched' || (l.kind === 'ended' && l.actionable && !l.needsPick)).map((l) => l.albumId)
+    : toIdentify;
+  const albumsWord = (n: number) => (scope && scope.now > 1 && n < scope.now ? `${n.toLocaleString()} of the ${scope.now.toLocaleString()} albums` : plural(n, 'album'));
   return (
     <Banner tone={outcome.nothing ? 'info' : 'warning'}>
       <strong>{outcome.nothing ? 'This plan changes nothing. Here is why:' : 'Some files are left out of this plan:'}</strong>
       <ul className={styles.reasons}>
+        {scope && scope.gone > 0 && (
+          <li>
+            This plan was made for {plural(scope.made, 'album')}; {scope.gone === 1 ? 'one of them has' : `${scope.gone.toLocaleString()} of them have`} since
+            been merged into another album or regrouped, so it now covers {plural(scope.now, 'album')}.
+          </li>
+        )}
         {notIdentified.files > 0 && (
           <li>
-            {plural(notIdentified.files, 'file')} {verb(notIdentified.files, 'belongs', 'belong')} to {notIdentified.albumIds.length > 0 ? plural(notIdentified.albumIds.length, 'album') : 'albums'} that
+            {plural(notIdentified.files, 'file')} {verb(notIdentified.files, 'belongs', 'belong')} to {notIdentified.albumIds.length > 0 ? albumsWord(notIdentified.albumIds.length) : 'albums'} that
             {notIdentified.albumIds.length === 1 ? ' is' : ' are'} not identified yet, so there is no release to take canonical values from.
             <span className={styles.reasonActions}>
-              {toIdentify.length > 0 && (
-                <Button variant="secondary" size="sm" loading={identifying} onClick={() => onIdentify(toIdentify)}>
-                  Identify {toIdentify.length === 1 ? 'the album' : `${toIdentify.length.toLocaleString()} albums`}
+              {stillToAsk.length > 0 && (
+                <Button variant="secondary" size="sm" loading={identifying} onClick={() => onIdentify(stillToAsk)}>
+                  Identify {stillToAsk.length === 1 ? 'the album' : `${stillToAsk.length.toLocaleString()} albums`}{lines.some((l) => l.kind === 'ended') ? ' again' : ''}
                 </Button>
               )}
-              {onSetValues && <Button variant="primary" size="sm" onClick={onSetValues}>Set the values yourself</Button>}
+              {anyMatchedNow && <Button variant="primary" size="sm" loading={previewing} onClick={onPreviewAgain}>Preview again</Button>}
+              {onSetValues && <Button variant={anyMatchedNow ? 'secondary' : 'primary'} size="sm" onClick={onSetValues}>Set the values yourself</Button>}
             </span>
-            {identifyNote && <span className={styles.reasonNote} role="status">{identifyNote}</span>}
+            {shown.length > 0 && (
+              <ul className={styles.identifyLines} role="status" aria-live="polite">
+                {shown.map((l) => (
+                  <li key={l.albumId}>
+                    <Link to="/albums/$albumId" params={{ albumId: l.albumId }}>{l.label}</Link>
+                    {': '}
+                    {l.kind === 'matched' && 'matched now — preview again to take its values.'}
+                    {l.kind === 'live' && `${l.text}.`}
+                    {l.kind === 'ended' && <>{l.title}. <span className={styles.identifyReason}>{l.text.replace(/[:\s]+$/, '.')}</span>{l.needsPick ? ' Open the album to choose one.' : l.actionable ? ' Open the album to act on it.' : ''}</>}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {identifyNote && <span className={styles.reasonNote} role="alert">{identifyNote}</span>}
           </li>
         )}
         {releaseMissing.files > 0 && (
@@ -431,8 +469,18 @@ export function PlanPage() {
   // "Set the values yourself" edits the albums this plan covers.
   const planAlbumIds = p?.scope?.type === 'albumIds' ? (p.scope as { albumIds: string[] }).albumIds : null;
   const planFolder = p?.scope?.type === 'folder' ? (p.scope as { dirPath: string; scanRootId?: string }) : null;
-  const valueScopes: EditScopeOption[] = planAlbumIds
-    ? [{ key: 'plan', label: `The ${planAlbumIds.length === 1 ? 'album' : `${planAlbumIds.length} albums`} in this plan`, scope: { type: 'albumIds', albumIds: planAlbumIds } }]
+  // The skipped albums' and the plan's own albums' identification, live: the
+  // notice says what happened to a request instead of a frozen "queued".
+  const identifyStatus = useIdentifyStatus(libraryId, [
+    ...(planAlbumIds ?? []),
+    ...(outcome?.notIdentified.albumIds ?? []),
+    ...(outcome?.releaseMissing.albumIds ?? []),
+  ]);
+  const livePlanAlbumIds = planAlbumIds && identifyStatus.data
+    ? planAlbumIds.filter((id) => identifyStatus.data!.items.find((i) => i.albumId === id)?.exists !== false)
+    : planAlbumIds;
+  const valueScopes: EditScopeOption[] = livePlanAlbumIds && livePlanAlbumIds.length > 0
+    ? [{ key: 'plan', label: `The ${livePlanAlbumIds.length === 1 ? 'album' : `${livePlanAlbumIds.length} albums`} in this plan`, scope: { type: 'albumIds', albumIds: livePlanAlbumIds } }]
     : planFolder
       ? [{ key: 'plan', label: `Every file in ${planFolder.dirPath}`, scope: { type: 'folder', dirPath: planFolder.dirPath, ...(planFolder.scanRootId ? { scanRootId: planFolder.scanRootId } : {}) } }]
     : outcome && outcome.notIdentified.albumIds.length > 0
@@ -442,11 +490,12 @@ export function PlanPage() {
     setIdentifyNote(null);
     const capped = albumIds.slice(0, 50);
     try {
-      const r = await identifyAlbums.mutateAsync(capped);
-      setIdentifyNote(`Identification queued for ${plural(r.queued, 'album')}${albumIds.length > capped.length ? ` (the first ${capped.length})` : ''}. Preview again once they are matched.`);
+      await identifyAlbums.mutateAsync(capped);
+      if (albumIds.length > capped.length) setIdentifyNote(`Only the first ${capped.length} albums were queued; identify the rest from the albums page.`);
     } catch (e) {
       setIdentifyNote((e as { detail?: string })?.detail ?? 'Identification could not be queued.');
     }
+    void qc.invalidateQueries({ queryKey: ['identify-status', libraryId] });
   };
   const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
   const applyTitle = !previewed ? 'Preview has not finished yet'
@@ -714,6 +763,10 @@ export function PlanPage() {
             identifying={identifyAlbums.isPending}
             identifyNote={identifyNote}
             onSetValues={valueScopes.length > 0 && libraryId ? () => setEditingValues(true) : null}
+            planAlbumIds={planAlbumIds}
+            identifyStatus={identifyStatus.data?.items}
+            onPreviewAgain={() => void startPreview()}
+            previewing={previewPending}
           />
         ) : nothingToDo ? (
           <Banner tone="info">Every file in scope already carries {isManual ? 'the values you set' : 'the canonical values under this policy'}. Nothing to apply.</Banner>

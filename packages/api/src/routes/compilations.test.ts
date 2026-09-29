@@ -50,8 +50,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
     end $$`;
     await client`create table if not exists pgboss.job (
       id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
-    // the album page reads when a queued identify job was created and started
-    await client`alter table pgboss.job add column if not exists created_on timestamptz, add column if not exists started_on timestamptz`;
+    // the album page reads when a queued identify job was created and started,
+    // and how the owner's last request ended (completed_on, output)
+    await client`alter table pgboss.job add column if not exists created_on timestamptz, add column if not exists started_on timestamptz,
+      add column if not exists completed_on timestamptz, add column if not exists output jsonb`;
 
     await db.insert(users).values([
       { id: ownerId, email: `comp-${ownerId}@test.com`, passwordHash: 'x' },
