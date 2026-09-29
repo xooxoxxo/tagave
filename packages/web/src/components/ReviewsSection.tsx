@@ -12,7 +12,7 @@ import {
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
 import { StarRating } from './StarRating';
-import { Button, IconButton } from './ui';
+import { Button, IconButton, confirmDialog } from './ui';
 import styles from './ReviewsSection.module.css';
 
 interface ReviewsSectionProps {
@@ -131,7 +131,7 @@ function OwnTake({ libraryId, releaseGroupId, bundle }: { libraryId: string | un
                 <Button
                   variant="quiet"
                   size="sm"
-                  onClick={() => { if (window.confirm('Delete your rating, review and its revisions?')) remove.mutate(); }}
+                  onClick={async () => { if (await confirmDialog({ title: 'Delete your review?', message: 'Your rating, review and all its revisions are deleted. This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' })) remove.mutate(); }}
                   disabled={remove.isPending}
                 >
                   Delete

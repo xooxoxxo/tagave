@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
-import { PageShell, Button, Badge, statusTone, Banner, StatCard, Card } from '../components/ui';
+import { PageShell, Button, Badge, statusTone, Banner, StatCard, Card, confirmDialog, type ConfirmOptions } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -450,8 +450,8 @@ export function PlanPage() {
         : noWritableRoots ? 'No scan root allows writes (Settings › Tag preferences)'
           : p?.status !== 'previewed' ? `Plan is ${p?.status}` : undefined;
 
-  const run = (m: { mutateAsync: () => Promise<unknown> }, confirmText?: string) => async () => {
-    if (confirmText && !window.confirm(confirmText)) return;
+  const run = (m: { mutateAsync: () => Promise<unknown> }, ask?: ConfirmOptions) => async () => {
+    if (ask && !(await confirmDialog(ask))) return;
     setError(null);
     try {
       await m.mutateAsync();
@@ -498,7 +498,7 @@ export function PlanPage() {
     );
   }
 
-  const confirmStop = 'Stop applying? Files already written stay written; you can revert them afterwards.';
+  const confirmStop: ConfirmOptions = { title: 'Stop applying?', message: 'Files already written stay written. You can revert them afterwards.', confirmLabel: 'Stop applying', cancelLabel: 'Keep going', tone: 'danger' };
 
   return (
     <PageShell
@@ -523,7 +523,7 @@ export function PlanPage() {
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, `Write the previewed changes to ${stats?.filesTouched ?? 0} file(s)? Every write is journaled and can be reverted from this page.`)} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, { title: `Write the previewed changes to ${plural(stats?.filesTouched ?? 0, 'file')}?`, message: 'Every write is journaled and can be reverted from this page.', confirmLabel: 'Apply changes' })} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
@@ -544,7 +544,7 @@ export function PlanPage() {
               variant="danger"
               loading={revertM.isPending || revertPlanId !== null}
               onClick={async () => {
-                if (!window.confirm(`Prepare a plan that restores the previous tags on ${progress?.applied ?? 0} file(s)? You will see it before anything is written.`)) return;
+                if (!(await confirmDialog({ title: 'Prepare a revert plan?', message: `It restores the previous tags on ${plural(progress?.applied ?? 0, 'file')}. You will see it before anything is written.`, confirmLabel: 'Prepare revert' }))) return;
                 setError(null);
                 try {
                   const r = await revertM.mutateAsync();

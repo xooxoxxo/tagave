@@ -1,5 +1,5 @@
 import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip } from '../components/ui';
+import { Button, Chip, confirmDialog } from '../components/ui';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -126,7 +126,7 @@ export function AlbumsPage() {
   const mergeSelected = async () => {
     const ids = [...selected];
     if (ids.length < 2) return;
-    if (!window.confirm(`Treat these ${ids.length} albums as one? Nothing on disk moves; you can split them back from the album page.`)) return;
+    if (!(await confirmDialog({ title: `Treat these ${ids.length} albums as one?`, message: 'Nothing on disk moves. You can split them back from the album page.', confirmLabel: 'Treat as one album' }))) return;
     setMergeNote(null);
     try {
       const r = await merge.mutateAsync({ albumIds: ids });
@@ -141,7 +141,7 @@ export function AlbumsPage() {
     const count = selectionCount;
     if (count === 0) return;
     const changesState = action === 'ignore' || action === 'as_is' || action === 'unignore' || action === 'prefer';
-    if ((changesState || count > 200) && !window.confirm(`${BULK_LABEL[action]}: ${count.toLocaleString()} album(s)?`)) return;
+    if ((changesState || count > 200) && !(await confirmDialog({ title: `${BULK_LABEL[action]}: ${count.toLocaleString()} album${count === 1 ? '' : 's'}?`, confirmLabel: BULK_LABEL[action] }))) return;
     setBulkResult(null);
     if (allMatching) {
       const res = await bulk.mutateAsync({ action, allMatching: true, query });
@@ -347,7 +347,7 @@ export function AlbumsPage() {
             onClear={clearAll}
             onApplyView={applyView}
             onSaveView={saveView}
-            onDeleteView={(id) => { if (window.confirm('Delete this saved view?')) deleteView.mutate(id); }}
+            onDeleteView={async (id) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected, only the saved filters.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); }}
           />
         )}
 
