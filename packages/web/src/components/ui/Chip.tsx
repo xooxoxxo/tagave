@@ -6,10 +6,10 @@ export type ChipTone = 'neutral' | 'ok' | 'warn' | 'danger' | 'accent';
 interface ChipBaseProps {
   children: ReactNode;
   /** Selected filter: dew tint with a deep dew label. */
-  active?: boolean;
+  active?: boolean | undefined;
   /** Leading 6px status dot. `true` uses the text colour; a tone colours it. */
-  dot?: boolean | ChipTone;
-  className?: string;
+  dot?: boolean | ChipTone | undefined;
+  className?: string | undefined;
 }
 
 type StaticChipProps = ChipBaseProps & { onClick?: undefined };
