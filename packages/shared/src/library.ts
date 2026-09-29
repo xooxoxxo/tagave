@@ -19,6 +19,8 @@ export const scanRootSchema = z.object({
   probeWritable: z.boolean().nullable().optional().describe('Observed write ability on the worker host'),
   lastScanAt: z.string().datetime().optional().describe('ISO 8601 timestamp of the last completed scan'),
   lastStatus: z.string().nullable().optional().describe('Status of the last scan; null until the first scan'),
+  albumsFound: z.number().int().nonnegative().optional().describe('Albums with at least one present file under this root (list only)'),
+  tracksFound: z.number().int().nonnegative().optional().describe('Present audio files under this root (list only)'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();

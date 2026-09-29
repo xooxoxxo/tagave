@@ -312,8 +312,8 @@ function SettingsScanRootsContentInner() {
               </div>
 
               <div className={styles.rootStats}>
-                <span>{root.albumsFound || 0} albums</span>
-                <span>{root.tracksFound || 0} tracks</span>
+                <span>{(root.albumsFound ?? 0).toLocaleString()} {root.albumsFound === 1 ? 'album' : 'albums'}</span>
+                <span>{(root.tracksFound ?? 0).toLocaleString()} {root.tracksFound === 1 ? 'track' : 'tracks'}</span>
                 {root.lastScanAt && (
                   <span>Last scan: {new Date(root.lastScanAt).toLocaleDateString()}</span>
                 )}
