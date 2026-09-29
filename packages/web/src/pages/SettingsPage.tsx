@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { PageShell } from '../components/ui';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
@@ -9,6 +10,7 @@ import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
+import { centeredScrollLeft } from '../utils/scroll';
 import styles from './SettingsPage.module.css';
 
 const sections = [
@@ -24,9 +26,18 @@ const sections = [
 export function SettingsPage() {
   const raw = useLocation().pathname.split('/')[2] || 'library';
   const section = sections.some(item => item.value === raw) ? raw : 'library';
+  const navRef = useRef<HTMLElement>(null);
+  // On a phone the section list is one scrolling row; bring the current
+  // section into it. Only the row scrolls: scrollIntoView would also move
+  // the page. The nav is positioned, so offsetLeft is measured from it.
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (nav && active) nav.scrollLeft = centeredScrollLeft(nav.scrollWidth, nav.clientWidth, active.offsetLeft, active.offsetWidth);
+  }, [section]);
   return <PageShell title="Settings" subtitle="Make tagave at home in your library.">
     <div className={styles.layout}>
-      <nav className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}</Link></div>)}</nav>
+      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}</Link></div>)}</nav>
       <div className={styles.content}>
         {section === 'library' && <SettingsScanRootsContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}

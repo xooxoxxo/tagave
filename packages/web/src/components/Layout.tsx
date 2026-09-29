@@ -41,12 +41,16 @@ export function Layout() {
           tagave
           <span className={styles.brandCaption}>A home for your music</span>
         </Link>
-        <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog">Search your library <kbd>⌘ K</kbd></button>
+        <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
+          <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+          <span className={styles.searchLabel}>Search your library</span> <kbd>⌘ K</kbd>
+        </button>
         <nav className={styles.navLinks} aria-label="Main navigation">
           <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
           <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
-          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
+          {/* The short label only on a phone, where the full one forced a third row. */}
+          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}><span className={styles.labelLong}>Physical collection</span><span className={styles.labelShort} aria-hidden="true">Collection</span></Link>
           <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care</Link>
           <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
