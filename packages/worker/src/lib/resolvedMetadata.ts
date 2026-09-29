@@ -136,6 +136,26 @@ export async function resolveMetadataForFile(
     }
   }
 
+  // totaltracks is per disc and only trusted when this copy's disc holds as many
+  // tracks as the matched edition's (an image's file row is not a track when
+  // its cue rows exist).
+  let mediumTrackCount: number | undefined;
+  let localMediumTrackCount: number | undefined;
+  if (canonicalTrack) {
+    const medium = canonicalTrack.mediumNo ?? 1;
+    const disc = track.discNo ?? 1;
+    const [counts] = (await ctx.sql`
+      select
+        (select count(*)::int from canonical_tracks
+          where release_id = ${album.releaseId} and coalesce(medium_no, 1) = ${medium}) as release_n,
+        (select count(*)::int from local_tracks lt
+          where lt.local_album_id = ${album.id} and coalesce(lt.disc_no, 1) = ${disc}
+            and not (lt.origin = 'file' and exists (
+              select 1 from local_tracks c where c.audio_file_id = lt.audio_file_id and c.origin = 'cue'))) as local_n`) as unknown as Array<{ release_n: number; local_n: number }>;
+    if (counts?.release_n) mediumTrackCount = counts.release_n;
+    if (counts?.local_n) localMediumTrackCount = counts.local_n;
+  }
+
   // Effective genres through the library's map (Settings › Genres).
   const [lib] = await ctx.db.select({ settings: libraries.settings }).from(libraries).where(eq(libraries.id, libraryId));
   const settings = (typeof lib?.settings === 'string' ? JSON.parse(lib.settings) : lib?.settings ?? {}) as Record<string, unknown>;
@@ -208,6 +228,8 @@ export async function resolveMetadataForFile(
     artistCredits: albumCredits,
     effectiveGenres: genres,
     locks,
+    ...(mediumTrackCount !== undefined ? { mediumTrackCount } : {}),
+    ...(localMediumTrackCount !== undefined ? { localMediumTrackCount } : {}),
   };
 
   return {

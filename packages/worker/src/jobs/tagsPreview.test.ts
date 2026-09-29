@@ -153,6 +153,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
   const itemsOf = async (id: string) => db.select().from(tagPlanItems).where(eq(tagPlanItems.tagPlanId, id));
   const diffMap = (item: any) => Object.fromEntries((item.diff as any[]).map((d) => [d.field, d]));
 
+  it('proposes no totaltracks when the copy has more tracks than the matched edition', async () => {
+    // 3 files matched to the 2-track release: the edition's count is not this copy's
+    const bigAlbum = randomUUID();
+    await db.insert(localAlbums).values({
+      id: bigAlbum, libraryId, clusterKey: `big-${bigAlbum}`, dirPaths: ['Canon/Bigger'], state: 'matched', releaseId, releaseGroupId, trackCount: 3, discCount: 1,
+    });
+    const files = [randomUUID(), randomUUID(), randomUUID()];
+    await db.insert(audioFiles).values(files.map((id, i) => ({
+      id, libraryId, scanRootId: rootId, relPath: `Canon/Bigger/0${i + 1}.mp3`, sizeBytes: 1, mtime: 1, status: 'present',
+      tagsRaw: { common: { title: `Big ${i + 1}`, track: { no: i + 1, of: null }, disk: { no: 1, of: null } } },
+    })));
+    await db.insert(localTracks).values(files.map((audioFileId, i) => ({ localAlbumId: bigAlbum, audioFileId, discNo: 1, trackNo: i + 1 })));
+    const bigPlan = randomUUID();
+    planIds.push(bigPlan);
+    await db.insert(tagPlans).values({
+      id: bigPlan, libraryId, name: 'bigger copy', scope: { type: 'albumIds', albumIds: [bigAlbum] },
+      policy: { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' }, status: 'draft', stats: {}, createdBy: userId,
+    });
+    try {
+      await tagsPreviewJob(ctx, bigPlan);
+      const items = await itemsOf(bigPlan);
+      expect(items.length).toBeGreaterThan(0);
+      for (const item of items) expect(diffMap(item).totaltracks).toBeUndefined();
+    } finally {
+      await db.delete(tagPlanItems).where(eq(tagPlanItems.tagPlanId, bigPlan));
+      await db.delete(localTracks).where(eq(localTracks.localAlbumId, bigAlbum));
+    }
+  });
+
   it('produces per-file diffs from the matched release and skips the unidentified album', async () => {
     await tagsPreviewJob(ctx, planId);
     const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));

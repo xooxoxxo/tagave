@@ -85,6 +85,10 @@ export interface ResolutionInput {
   effectiveGenres?: EffectiveGenres;
   /** Active field locks for this file (scope=file) or album (scope=album). */
   locks?: FieldLock[];
+  /** Tracks on the matched track's medium of the release. */
+  mediumTrackCount?: number;
+  /** Tracks the local album has on the same disc as this file. */
+  localMediumTrackCount?: number;
 }
 
 /**
@@ -107,6 +111,8 @@ export function resolveFields(input: ResolutionInput): ResolvedMetadata {
     artistCredits: albumArtistCredits,
     effectiveGenres,
     locks = [],
+    mediumTrackCount,
+    localMediumTrackCount,
   } = input;
 
   // Build a lock map: field → lock value (file scope takes precedence over album scope)
@@ -193,10 +199,27 @@ export function resolveFields(input: ResolutionInput): ResolvedMetadata {
         reason = track?.mediumNo ? `from medium ${track.mediumNo}` : 'no disc number available';
         break;
 
-      case 'totaltracks':
-        value = release?.trackCount ? String(release.trackCount) : undefined;
-        reason = release?.trackCount ? `from release track count` : 'no total tracks available';
+      // Per disc, as Picard writes it; a single-disc release's count is the disc's.
+      // Only for a file matched to a track, and only when the local disc holds the
+      // same number of tracks: otherwise the matched edition's count is not this copy's.
+      case 'totaltracks': {
+        const discs = release?.media?.length ?? 0;
+        const perDisc = mediumTrackCount ?? (discs <= 1 ? release?.trackCount : undefined);
+        if (!track) {
+          value = undefined;
+          reason = 'file not matched to a track on this release';
+        } else if (!perDisc) {
+          value = undefined;
+          reason = 'track count of this disc unknown';
+        } else if (localMediumTrackCount !== undefined && localMediumTrackCount !== perDisc) {
+          value = undefined;
+          reason = `your copy has ${localMediumTrackCount} tracks on this disc, the matched edition has ${perDisc}`;
+        } else {
+          value = String(perDisc);
+          reason = discs > 1 ? `from disc ${track.mediumNo ?? 1} track count` : 'from release track count';
+        }
         break;
+      }
 
       case 'totaldiscs':
         // This would come from release.media array length or a field we need to compute

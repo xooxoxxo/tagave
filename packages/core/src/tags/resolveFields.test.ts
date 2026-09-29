@@ -428,3 +428,36 @@ describe('resolveFields', () => {
     expect(result.musicbrainz_recordingid!.value).not.toEqual(result.musicbrainz_releasetrackid!.value);
   });
 });
+
+describe('resolveFields totaltracks', () => {
+  const release: ResolutionInput['release'] = { title: 'Signify', trackCount: 10, media: [{ format: 'CD' }] };
+  const track: ResolutionInput['track'] = { number: '3', position: 3, mediumNo: 1 };
+
+  it('uses the release track count for a matched track on a single-disc release', () => {
+    const result = resolveFields({ release, track });
+    expect(result.totaltracks.value).toBe('10');
+  });
+
+  it('proposes nothing for a file that is not matched to a track on the release', () => {
+    const result = resolveFields({ release, localMediumTrackCount: 16 });
+    expect(result.totaltracks.value).toBeUndefined();
+  });
+
+  it('proposes nothing when the local copy has a different number of tracks on the disc', () => {
+    const result = resolveFields({ release, track, localMediumTrackCount: 16 });
+    expect(result.totaltracks.value).toBeUndefined();
+    expect(result.totaltracks.reason).toContain('16');
+  });
+
+  it('uses the track count of the file\'s own disc on a multi-disc release', () => {
+    const twoDiscs = { ...release, trackCount: 22, media: [{ format: 'CD' }, { format: 'CD' }] };
+    const result = resolveFields({ release: twoDiscs, track: { ...track, mediumNo: 2 }, mediumTrackCount: 12, localMediumTrackCount: 12 });
+    expect(result.totaltracks.value).toBe('12');
+  });
+
+  it('proposes nothing on a multi-disc release when the disc\'s track count is unknown', () => {
+    const twoDiscs = { ...release, trackCount: 22, media: [{ format: 'CD' }, { format: 'CD' }] };
+    const result = resolveFields({ release: twoDiscs, track: { ...track, mediumNo: 2 } });
+    expect(result.totaltracks.value).toBeUndefined();
+  });
+});
