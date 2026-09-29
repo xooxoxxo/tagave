@@ -123,6 +123,9 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                         )}
                       </span>
                       {artist && <span className={styles.sub}>{artist}</span>}
+                      {/* the file facts are the row's hover text; screen readers get them here
+                          (Maintenance adds the row's "⋯" that shows them for everyone) */}
+                      {!maintenance && file && <span className={styles.srOnly}>, {file}</span>}
                     </span>
                     <span className={styles.len}>{dur(t.durationMs)}</span>
                     {maintenance && (

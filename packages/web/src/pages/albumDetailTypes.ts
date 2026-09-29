@@ -53,6 +53,14 @@ export interface Candidate {
   /** media summary and first label/catno — present once the detail handler ships them */
   format?: string | null;
   label?: string | null;
+  /** the release's tracks (API ≥ 0.4.2), for the per-track length comparison */
+  tracks?: CandidateTrack[];
+}
+export interface CandidateTrack {
+  disc: number;
+  position: number | null;
+  title: string;
+  lengthMs: number | null;
 }
 export interface PendingIdentify {
   id: string;

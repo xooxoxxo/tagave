@@ -15,7 +15,7 @@ import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';
 import { BulkTagEditor } from '../components/BulkTagEditor';
 import { useMergeAlbums } from '../hooks/useCompilations';
-import { activeFilterCount, albumsQueryOf, toggleMulti, type AlbumsSearch } from './albumsSearch';
+import { activeFilterCount, albumsQueryOf, hasCurationFilters, toggleMulti, withoutCurationFilters, type AlbumsSearch } from './albumsSearch';
 import {
   albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, leaveMessage, rangeIds, rememberScroll, selectionSize,
   setAlbumListMemory, toggled, useAlbumListMemory, withIds,
@@ -41,7 +41,13 @@ const CHIP_LABEL: Record<string, string> = {
   q: 'search', artist: 'artist', state: 'state', decided: 'match', review: 'reviews', genre: 'genre', decade: 'decade',
   format: 'format', label: 'label', owned: 'collection', gap: 'attention',
 };
-const KIND_TAG: Record<string, string> = { chip_rule: 'chips', first_candidate: '1st cand', by_me: 'me', manual_mbid: 'mbid' };
+/** How a match was decided, in words (Maintenance only); the title says more. */
+const KIND_TAG: Record<string, { text: string; title: string }> = {
+  chip_rule: { text: 'by rule', title: 'Matched by one of your matching rules' },
+  first_candidate: { text: 'first pick', title: 'Matched to the closest candidate without a clear winner' },
+  by_me: { text: 'by you', title: 'You chose this match' },
+  manual_mbid: { text: 'by link', title: 'Matched from a release link you pasted' },
+};
 const BULK_LABEL: Record<BulkAlbumAction, string> = {
   identify: 'Re-identify', fetch_art: 'Fetch art', as_is: 'Keep as-is', ignore: 'Ignore', unignore: 'Un-ignore', prefer: 'Mark preferred',
 };
@@ -97,6 +103,14 @@ export function AlbumsPage() {
     }
     void goToList(next as AlbumsSearch);
   }, [goToList, search]);
+
+  // Maintenance off: curation filters (state, issues, match kind) are not
+  // offered, so one left over from upkeep is dropped instead of lingering.
+  useEffect(() => {
+    // (never while albums are selected: that would silently start a new selection)
+    if (maintenance || !hasCurationFilters(search) || selectionSize(getAlbumListMemory()) > 0) return;
+    void navigate({ to: '/albums', search: withoutCurationFilters(search) as never, replace: true });
+  }, [maintenance, search, navigate]);
 
   useEffect(() => { setQ(search.q ?? ''); }, [search.q]);
   useEffect(() => {
@@ -472,6 +486,7 @@ export function AlbumsPage() {
             onClear={clearAll}
             onApplyView={applyView}
             onSaveView={saveView}
+            curation={maintenance}
             onDeleteView={async (id) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected, only the saved filters.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); }}
           />
         )}
@@ -587,7 +602,7 @@ export function AlbumsPage() {
                                 {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
                                 {album.year ? ` · ${album.year}` : ''}
                                 {maintenance && album.matchKind && album.matchKind !== 'auto_strong' && (
-                                  <span className={styles.kindTag}> · {KIND_TAG[album.matchKind] ?? ''}</span>
+                                  KIND_TAG[album.matchKind] && <span className={styles.kindTag} title={KIND_TAG[album.matchKind]!.title}> · {KIND_TAG[album.matchKind]!.text}</span>
                                 )}
                               </p>
                             </div>

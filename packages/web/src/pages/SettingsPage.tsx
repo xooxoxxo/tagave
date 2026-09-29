@@ -55,9 +55,11 @@ export function SettingsPage() {
  */
 function MaintenanceSetting() {
   const [on, setOn] = useMaintenance();
-  return <div className={styles.modeSetting}>
-    <h3>Maintenance</h3>
+  // Same heading level and rhythm as Appearance above: siblings in the
+  // section's column, so the gap above the control matches too.
+  return <>
+    <h2 className={styles.modeSetting}>Maintenance</h2>
     <p className={styles.sectionDescription}>Off, albums show only the music and speak up only when something needs your decision. On, every album shows its match state, provider links, all library issues and the Manage menu. Also in the top bar, or press Shift+M. Remembered in this browser only.</p>
     <SegmentedControl label="Maintenance" value={on ? 'on' : 'off'} onChange={(v) => setOn(v === 'on')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
-  </div>;
+  </>;
 }

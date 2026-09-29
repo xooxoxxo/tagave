@@ -4,8 +4,9 @@
  * only places a length difference between the release and your files shows,
  * and only a difference beyond LENGTH_TOLERANCE_MS is marked.
  */
-import { Button } from '../components/ui';
-import { formatDelta, lengthDiscrepancy, LENGTH_TOLERANCE_MS } from '../utils/albumAttention';
+import { Fragment, useState } from 'react';
+import { Button, Collapse } from '../components/ui';
+import { candidateLengths, formatDelta, lengthDiscrepancy, LENGTH_TOLERANCE_MS, type CandidateLengthRow, type LocalLengthTrack } from '../utils/albumAttention';
 import type { Candidate, DetailTrack } from './albumDetailTypes';
 import { dur } from './albumFormat';
 import styles from './AlbumDetailPage.module.css';
@@ -14,6 +15,8 @@ export interface CandidateTableProps {
   candidates: Candidate[];
   /** your track count, to mark releases with more or fewer tracks */
   localTrackCount: number | null;
+  /** your tracks, to mark each release's lengths that differ beyond the tolerance */
+  localTracks?: readonly LocalLengthTrack[];
   showExcluded: boolean;
   onToggleExcluded: () => void;
   onAccept: (id: string) => void;
@@ -21,7 +24,13 @@ export interface CandidateTableProps {
   busy: boolean;
 }
 
-export function CandidateTable({ candidates, localTrackCount, showExcluded, onToggleExcluded, onAccept, onExclude, busy }: CandidateTableProps) {
+export function CandidateTable({ candidates, localTrackCount, localTracks, showExcluded, onToggleExcluded, onAccept, onExclude, busy }: CandidateTableProps) {
+  const [comparing, setComparing] = useState<ReadonlySet<string>>(new Set());
+  const toggleCompare = (id: string) => setComparing((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
   const visible = candidates.filter((c) => showExcluded || !c.excluded).sort((a, b) => a.distance - b.distance);
   const excluded = candidates.filter((c) => c.excluded).length;
   if (candidates.length === 0) return <p className={styles.muted}>No possible releases were found. Paste the release below if you know it.</p>;
@@ -50,8 +59,13 @@ export function CandidateTable({ candidates, localTrackCount, showExcluded, onTo
           <tbody>
             {visible.map((c) => {
               const trackOff = c.trackCount != null && localTrackCount != null && c.trackCount !== localTrackCount;
+              const lengths = localTracks ? candidateLengths(localTracks, c.tracks) : null;
+              const differ = lengths?.differing.length ?? 0;
+              const isComparing = comparing.has(c.id);
+              const compareId = `cand-compare-${c.id}`;
               return (
-                <tr key={c.id} className={c.excluded ? styles.candExcluded : ''}>
+                <Fragment key={c.id}>
+                <tr className={`${c.excluded ? styles.candExcluded : ''} ${differ > 0 ? styles.candHasCompare : ''}`}>
                   <td className={styles.candRelease}>
                     <div className={styles.candTitleRow}>
                       <span className={styles.candTitle}>{c.title}</span>
@@ -68,6 +82,13 @@ export function CandidateTable({ candidates, localTrackCount, showExcluded, onTo
                       {c.discogsReleaseId && (
                         <a className={styles.pillLink} href={`https://www.discogs.com/release/${c.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>
                       )}
+                      {differ > 0 ? (
+                        <button type="button" className={styles.lengthToggle} aria-expanded={isComparing} aria-controls={compareId} onClick={() => toggleCompare(c.id)}>
+                          {differ === 1 ? '1 length differs' : `${differ} lengths differ`}
+                        </button>
+                      ) : lengths && lengths.compared > 0 ? (
+                        <span title={`Every compared track is within ${LENGTH_TOLERANCE_MS / 1000} seconds of yours`}>Lengths match</span>
+                      ) : null}
                     </div>
                   </td>
                   <td className={styles.num}>{c.date ?? '–'}</td>
@@ -85,6 +106,16 @@ export function CandidateTable({ candidates, localTrackCount, showExcluded, onTo
                     )}
                   </td>
                 </tr>
+                {differ > 0 && lengths && (
+                  <tr className={styles.candCompareRow}>
+                    <td colSpan={5}>
+                      <Collapse open={isComparing} id={compareId}>
+                        <LengthRows rows={lengths.differing} />
+                      </Collapse>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -95,6 +126,34 @@ export function CandidateTable({ candidates, localTrackCount, showExcluded, onTo
           {showExcluded ? 'Hide' : 'Show'} {excluded} excluded
         </Button>
       )}
+    </div>
+  );
+}
+
+/** The tracks of one candidate whose length differs from yours beyond the tolerance. */
+function LengthRows({ rows }: { rows: CandidateLengthRow[] }) {
+  // A plain list, not a nested table: it sits inside the candidates table,
+  // whose cell rules (and phone reflow) must not reach it.
+  const multiDisc = rows.some((r) => r.disc > 1);
+  return (
+    <div className={styles.lengthList}>
+      <p className={styles.srOnly}>Tracks whose length differs from this release by more than {LENGTH_TOLERANCE_MS / 1000} seconds</p>
+      <div className={styles.lengthHead} aria-hidden="true">
+        <span>#</span><span>Title</span><span>Yours</span><span>Release</span>
+      </div>
+      <ul>
+        {rows.map((r) => (
+          <li key={r.key} className={styles.lengthRow}>
+            <span className={styles.num}>{multiDisc ? `${r.disc}-` : ''}{r.position}</span>
+            <span className={styles.lengthTitle}>{r.title}</span>
+            <span className={`${styles.num} ${styles.cellOff}`}>
+              <span className={styles.srOnly}>yours </span>{dur(r.localMs)}
+              {r.delta !== null && <span className={styles.delta}> {formatDelta(r.delta)}</span>}
+            </span>
+            <span className={styles.num}><span className={styles.srOnly}>release </span>{dur(r.releaseMs)}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

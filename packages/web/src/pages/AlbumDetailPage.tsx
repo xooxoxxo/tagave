@@ -28,7 +28,7 @@ import { useBarTitle } from '../components/appBarTitle';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
-import { attentionItems, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
+import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
 import { Button, Collapse, CoverArt, LinkButton, Menu, type MenuItem, confirmDialog } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
@@ -45,6 +45,9 @@ const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
   ['about', 'About'],
   ['activity', 'Activity'],
 ];
+
+const PANEL_MATCH_INPUT = 'manual-match-input';
+const ROW_MATCH_INPUT = 'manual-match-input-row';
 
 /** resolved tasks the owner already saw ("Got it"), per browser */
 const ACK_KEY = 'tagave-acked-tasks';
@@ -173,12 +176,13 @@ export function AlbumDetailPage() {
   const addToCollection = useAddCollectionItem(libraryId);
   const fingerprint = useFingerprintAlbum(libraryId);
 
-  // Old "Library health" links: Maintenance on, the strip open at its first row.
-  const [pendingIssues, setPendingIssues] = useState(!!search.issues);
+  // ?issues links (tasks, the attention list, old "Library health" links):
+  // Maintenance on, the strip open at the row the link is about.
+  const [pendingIssues, setPendingIssues] = useState<true | string | undefined>(search.issues);
   useEffect(() => {
     if (!search.issues) return;
     setMaintenance(true);
-    setPendingIssues(true);
+    setPendingIssues(search.issues);
     void navigate({ to: '/albums/$albumId', params: { albumId }, search: search.tab ? { tab: search.tab } : {}, replace: true, resetScroll: false });
   }, [search.issues]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -216,9 +220,9 @@ export function AlbumDetailPage() {
 
   useEffect(() => {
     if (!pendingIssues || !album) return;
-    const first = allItems.find((i) => !i.interrupts) ?? allItems[0];
-    if (first) setOpenRows((cur) => new Set(cur).add(first.id));
-    setPendingIssues(false);
+    const target = issuesTargetRow(allItems, pendingIssues);
+    if (target) setOpenRows((cur) => new Set(cur).add(target.id));
+    setPendingIssues(undefined);
   }, [pendingIssues, album, allItems]);
 
   /** the API's problem+json `detail` is the message the owner should read */
@@ -290,9 +294,18 @@ export function AlbumDetailPage() {
       setNote((e as { detail?: string })?.detail ?? 'The album could not be split back.');
     }
   };
+  // The manual match input lives in two places: the panel under the header,
+  // and inside an open "Choose a match" row. Each has its own id; when that
+  // row is already open, "Match to a release…" goes to its input instead of
+  // opening a second one.
+  const matchRowOpen = items.some((i) => (i.kind === 'review' || i.kind === 'unmatched') && openRows.has(i.id));
   const openManual = () => {
+    if (matchRowOpen) {
+      requestAnimationFrame(() => document.getElementById(ROW_MATCH_INPUT)?.focus());
+      return;
+    }
     setManualOpen(true);
-    requestAnimationFrame(() => document.getElementById('manual-match-input')?.focus({ preventScroll: true }));
+    requestAnimationFrame(() => document.getElementById(PANEL_MATCH_INPUT)?.focus({ preventScroll: true }));
   };
 
   const onAction = (item: AttentionItem) => {
@@ -340,10 +353,10 @@ export function AlbumDetailPage() {
     </table>
   );
 
-  const manualMatch = (
+  const manualMatch = (inputId: string) => (
     <div className={styles.mbidRow}>
       <input
-        id="manual-match-input"
+        id={inputId}
         aria-label="Release URL or ID for manual matching"
         className={styles.mbidInput}
         placeholder={requestLive ? 'A request is queued — cancel it to submit another' : 'MusicBrainz release or release-group link / ID, or a Discogs release link'}
@@ -412,6 +425,7 @@ export function AlbumDetailPage() {
             <CandidateTable
               candidates={album.candidates}
               localTrackCount={album.trackCount}
+              localTracks={album.tracks}
               showExcluded={showExcluded}
               onToggleExcluded={() => setShowExcluded((s) => !s)}
               onAccept={(id) => acceptCandidate.mutate(id)}
@@ -420,7 +434,7 @@ export function AlbumDetailPage() {
             />
             <div>
               <p className={styles.hint}>Not listed? Paste the release you have.</p>
-              {manualMatch}
+              {manualMatch(ROW_MATCH_INPUT)}
             </div>
           </div>
         );
@@ -466,7 +480,7 @@ export function AlbumDetailPage() {
       case 'gap':
         if (!g) return null;
         return (
-          <div className={styles.stack}>
+          <div className={`${styles.stack} ${styles.gapBody}`}>
             <p className={styles.bodyText}>{gapLine(g, { all: openFlags, mixed: album.mixed })}.</p>
             {g.kind === 'incomplete_album' && missingList}
             {g.kind === 'duplicate' && duplicatesList}
@@ -475,7 +489,7 @@ export function AlbumDetailPage() {
         );
       case 'missing':
         return (
-          <div className={styles.stack}>
+          <div className={`${styles.stack} ${styles.gapBody}`}>
             <p className={styles.bodyText}>The choices appear after the next gap check, which runs after a scan finds new files and every night.</p>
             {missingList}
           </div>
@@ -485,7 +499,7 @@ export function AlbumDetailPage() {
         const f = qualityIssue(g);
         if (!f) return null;
         return (
-          <div className={styles.stack}>
+          <div className={`${styles.stack} ${styles.gapBody}`}>
             <p className={styles.bodyText}>{f.explain}{f.guidance && <> {f.guidance}</>}</p>
             {f.affected?.map((line) => <div key={line} className={styles.affected}>{line}</div>)}
             {f.action === 'split' && (
@@ -636,13 +650,13 @@ export function AlbumDetailPage() {
         </div>
       </header>
 
-      <Collapse open={manualOpen}>
+      <Collapse open={manualOpen && !matchRowOpen}>
         <div className={styles.manualPanel}>
           <div className={styles.manualHead}>
             <span className={styles.manualTitle}>Match to a release</span>
             <Button variant="quiet" size="sm" onClick={() => setManualOpen(false)}>Close</Button>
           </div>
-          {manualMatch}
+          {manualMatch(PANEL_MATCH_INPUT)}
         </div>
       </Collapse>
 
@@ -682,6 +696,7 @@ export function AlbumDetailPage() {
             <CandidateTable
               candidates={album.candidates}
               localTrackCount={album.trackCount}
+              localTracks={album.tracks}
               showExcluded={showExcluded}
               onToggleExcluded={() => setShowExcluded((s) => !s)}
               onAccept={(id) => acceptCandidate.mutate(id)}

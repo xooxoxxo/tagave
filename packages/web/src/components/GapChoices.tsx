@@ -6,7 +6,7 @@
  * - Not a problem: it is real but fine by me. Hidden; can be shown again.
  * - This is wrong: the check made a mistake. Hidden, and the fix is offered.
  */
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { useDecideGap } from '../hooks/useGaps';
 import { Button } from './ui';
 import styles from './GapChoices.module.css';
@@ -49,6 +49,7 @@ export const CHOICE_HINT = {
 
 export function GapChoices({ gapId, subject, fix, onDecided, compact }: GapChoicesProps) {
   const decide = useDecideGap();
+  const hintBase = `gap-hint-${useId().replace(/:/g, '')}`;
   const pending = decide.isPending ? decide.variables?.choice : undefined;
   const choose = (choice: 'task' | 'not_a_problem' | 'wrong') =>
     decide.mutate({ id: gapId, choice } as Parameters<typeof decide.mutate>[0], { onSuccess: () => onDecided?.() });
@@ -58,22 +59,26 @@ export function GapChoices({ gapId, subject, fix, onDecided, compact }: GapChoic
       { choice: 'not_a_problem' as const, label: 'Not a problem', hint: CHOICE_HINT.notAProblem, title: CHOICE_HELP.notAProblem },
       { choice: 'wrong' as const, label: 'This is wrong', hint: CHOICE_HINT.wrong, title: CHOICE_HELP.wrong },
     ];
+    // Three small buttons sized to their words, each with its one-line hint
+    // under it; no container of their own (they sit in the row's body).
     return (
       <div className={styles.segmentWrap}>
         <div className={styles.segments} role="group" aria-label={`What to do about: ${subject}`}>
           {options.map((o) => (
-            <button
-              key={o.choice}
-              type="button"
-              className={styles.segment}
-              title={o.title}
-              disabled={decide.isPending}
-              aria-busy={pending === o.choice || undefined}
-              onClick={() => choose(o.choice)}
-            >
-              <span className={styles.segmentLabel}>{pending === o.choice ? 'Saving…' : o.label}</span>
-              <span className={styles.segmentHint}>{o.hint}</span>
-            </button>
+            <div key={o.choice} className={styles.segment}>
+              <Button
+                variant="secondary"
+                size="sm"
+                title={o.title}
+                loading={pending === o.choice}
+                disabled={decide.isPending}
+                aria-describedby={`${hintBase}-${o.choice}`}
+                onClick={() => choose(o.choice)}
+              >
+                {o.label}
+              </Button>
+              <span id={`${hintBase}-${o.choice}`} className={styles.segmentHint}>{o.hint}</span>
+            </div>
           ))}
         </div>
         {decide.isError && <span className={styles.error} role="alert">Couldn’t save that. Try again.</span>}

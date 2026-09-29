@@ -23,6 +23,8 @@ interface FilterRailProps {
   onApplyView: (view: SavedView) => void;
   onSaveView: () => void;
   onDeleteView: (id: string) => void;
+  /** Maintenance: offer the curation filters (identification, needs attention, match kind) */
+  curation?: boolean;
 }
 
 const STATE_LABEL: Record<string, string> = {
@@ -125,7 +127,7 @@ function SingleOptions({ items, labels, current, onPick, hideZero = true }: {
   );
 }
 
-export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView }: FilterRailProps) {
+export function FilterRail({ query, facets, savedViews, activeCount, onToggle, onSet, onClear, onApplyView, onSaveView, onDeleteView, curation = true }: FilterRailProps) {
   const [genreQuery, setGenreQuery] = useState('');
   const [labelQuery, setLabelQuery] = useState('');
   const genres = facets?.genres.filter((g) => !genreQuery || g.value.toLowerCase().includes(genreQuery.toLowerCase()));
@@ -155,9 +157,11 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
         </Button>
       </Section>
 
-      <Section title="Identification" count={len('state')}>
-        <MultiOptions items={facets?.states} labels={STATE_LABEL} isActive={active('state')} onToggle={on('state')} />
-      </Section>
+      {curation && (
+        <Section title="Identification" count={len('state')}>
+          <MultiOptions items={facets?.states} labels={STATE_LABEL} isActive={active('state')} onToggle={on('state')} />
+        </Section>
+      )}
       <Section title="Format" count={len('format')}>
         <MultiOptions items={facets?.formats} labels={FORMAT_LABEL} isActive={active('format')} onToggle={on('format')} />
         <div className={styles.subhead}>containers</div>
@@ -182,18 +186,22 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
         )}
         <MultiOptions items={labels} isActive={active('label')} onToggle={on('label')} />
       </Section>
-      <Section title="Needs attention" count={len('gap')}>
-        <MultiOptions items={facets?.gaps} labels={GAP_LABEL} isActive={active('gap')} onToggle={on('gap')} hideZero={false} />
-      </Section>
+      {curation && (
+        <Section title="Needs attention" count={len('gap')}>
+          <MultiOptions items={facets?.gaps} labels={GAP_LABEL} isActive={active('gap')} onToggle={on('gap')} hideZero={false} />
+        </Section>
+      )}
       <Section title="Collection">
         <SingleOptions items={facets?.owned} labels={OWNED_LABEL} current={query.owned} onPick={(v) => onSet('owned', v)} hideZero={false} />
       </Section>
       <Section title="Reviews & listens">
         <SingleOptions items={facets?.review} labels={REVIEW_LABEL} current={query.review} onPick={(v) => onSet('review', v)} hideZero={false} />
       </Section>
-      <Section title="Match kind" defaultOpen={false}>
-        <SingleOptions items={facets?.decided} labels={DECIDED_LABEL} current={query.decided} onPick={(v) => onSet('decided', v)} />
-      </Section>
+      {curation && (
+        <Section title="Match kind" defaultOpen={false}>
+          <SingleOptions items={facets?.decided} labels={DECIDED_LABEL} current={query.decided} onPick={(v) => onSet('decided', v)} />
+        </Section>
+      )}
     </aside>
   );
 }

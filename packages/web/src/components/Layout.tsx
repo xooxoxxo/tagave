@@ -82,6 +82,7 @@ export function Layout() {
       label={maintenance ? 'Turn off Maintenance' : 'Turn on Maintenance'}
       title={maintenance ? 'Maintenance is on: curation tools are showing (Shift+M)' : 'Maintenance: show curation tools (Shift+M)'}
       aria-pressed={maintenance}
+      variant="quiet"
       className={`${styles.modeToggle} ${maintenance ? styles.modeOn : ''}`}
       onClick={() => setMaintenance(!maintenance)}
     >

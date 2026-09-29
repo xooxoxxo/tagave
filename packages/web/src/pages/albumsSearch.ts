@@ -88,3 +88,23 @@ export function apiSearchParams(query: AlbumsQuery, extra: Record<string, string
   for (const [k, v] of Object.entries(extra)) params.set(k, String(v));
   return params;
 }
+
+/**
+ * Filters that are curation detail (match state, library issues, match
+ * kind): offered only in Maintenance, and dropped from the list when
+ * Maintenance is off so a filter set during upkeep does not linger.
+ */
+export const CURATION_FILTER_KEYS = ['state', 'gap', 'decided'] as const;
+
+export function hasCurationFilters(search: AlbumsSearch): boolean {
+  return CURATION_FILTER_KEYS.some((k) => {
+    const v = (search as Record<string, unknown>)[k];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== '';
+  });
+}
+
+export function withoutCurationFilters<T extends AlbumsSearch>(search: T): T {
+  const out: Record<string, unknown> = { ...search };
+  for (const k of CURATION_FILTER_KEYS) delete out[k];
+  return out as T;
+}

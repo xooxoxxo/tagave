@@ -36,7 +36,8 @@
   color: var(--ink-2);
 }
 
-/* compact: a recessed track of three choices, each a label over a one-line hint */
+/* compact: three small buttons sized to their words, a one-line hint under
+   each, no box of their own */
 .segmentWrap {
   display: flex;
   flex-direction: column;
@@ -46,52 +47,19 @@
 .segments {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--r-inner);
-  background: var(--mist);
-  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), 0.08), inset 0 0 0 1px var(--glass-edge);
+  gap: var(--space-sm) var(--space-md);
 }
 
 .segment {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  min-height: 44px;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: var(--r-inner);
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  transition: background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
-}
-
-.segment:hover:not(:disabled) {
-  background: var(--surface);
-  box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.12);
-  color: var(--ink);
-}
-
-.segment:active:not(:disabled) {
-  transform: none;
-}
-
-.segment:focus-visible {
-  outline-offset: -2px;
-}
-
-.segment:disabled {
-  opacity: .6;
-}
-
-.segmentLabel {
-  font: 600 13.5px / 1.3 var(--font-body);
+  gap: 6px;
+  min-width: 0;
 }
 
 .segmentHint {
-  font: 400 12px / 1.35 var(--font-body);
+  font: 400 12px / 1.4 var(--font-body);
   color: var(--ink-3);
 }
 
@@ -102,6 +70,18 @@
 @media (max-width: 720px) {
   .segments {
     grid-template-columns: 1fr;
+    gap: var(--space-sm);
+  }
+
+  .segment {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .segment > :first-child {
+    flex: none;
+    min-width: 9.5rem;
   }
 
   .help {

@@ -58,7 +58,7 @@ function TaskRow({ task }: { task: GapTask }) {
   const done = task.state === 'resolved';
   const text = taskText(task, task);
   const where = task.albumId ? (
-    <Link to="/albums/$albumId" params={{ albumId: task.albumId } as never} search={{ issues: true } as never} className={styles.subject}>
+    <Link to="/albums/$albumId" params={{ albumId: task.albumId } as never} search={{ issues: task.id } as never} className={styles.subject}>
       {task.title ?? 'Untitled'}{task.artist ? ` · ${task.artist}` : ''}
     </Link>
   ) : task.artistId ? (

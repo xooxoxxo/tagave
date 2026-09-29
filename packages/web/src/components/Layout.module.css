@@ -112,10 +112,14 @@ between browsing and upkeep: the hairline cut into the
 /* Desktop: the search pill and the Maintenance toggle share a row. */
 .tools { display: flex; align-items: center; gap: .5rem; }
 .tools .searchButton { flex: 1; min-width: 0; }
+/* off: the same flat outlined circle as search and the menu button, so the
+   curation toggle is never the loudest control; on: dew-tinted, pressed */
 .modeToggle { flex: none; }
-/* on: the toggle rests dew-tinted, like an active chip */
-.modeOn,
-.modeOn:hover:not(:disabled) { --b-ink: var(--chip-on-ink); background: var(--dew-tint); box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 40%, transparent); }
+.tools .modeToggle { --b-ink: var(--ink-2); width: 2.75rem; height: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid var(--line); background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); }
+.tools .modeToggle:hover:not(:disabled) { --b-ink: var(--ink); background: var(--mist); border-color: var(--line-strong); box-shadow: inset 0 1px 0 var(--highlight); }
+.tools .modeToggle:active:not(:disabled) { transform: none; background: var(--mist); }
+.tools .modeOn,
+.tools .modeOn:hover:not(:disabled) { --b-ink: var(--chip-on-ink); background: var(--dew-tint); border-color: color-mix(in srgb, var(--dew) 40%, transparent); box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .14); }
 
 .phoneBar { display: none; align-items: center; gap: .25rem; min-width: 0; }
 .backButton { flex: none; }

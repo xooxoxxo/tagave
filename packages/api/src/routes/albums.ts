@@ -744,6 +744,28 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .where(eq(matchCandidates.localAlbumId, albumId))
         .orderBy(sql`distance asc`);
 
+      // Each candidate's track lengths, so the "Choose a match" comparison can
+      // mark lengths that differ from your files (one query for all of them).
+      const candReleaseIds = [...new Set(candRows.map((c) => c.releaseId))];
+      const candTrackRows = candReleaseIds.length
+        ? await db
+            .select({
+              releaseId: canonicalTracks.releaseId,
+              mediumNo: canonicalTracks.mediumNo,
+              position: canonicalTracks.position,
+              title: canonicalTracks.title,
+              lengthMs: canonicalTracks.lengthMs,
+            })
+            .from(canonicalTracks)
+            .where(inArray(canonicalTracks.releaseId, candReleaseIds))
+        : [];
+      const candTracksByRelease = new Map<string, Array<{ disc: number; position: number | null; title: string; lengthMs: number | null }>>();
+      for (const t of candTrackRows) {
+        const list = candTracksByRelease.get(t.releaseId) ?? [];
+        list.push({ disc: t.mediumNo ?? 1, position: t.position, title: t.title, lengthMs: t.lengthMs });
+        candTracksByRelease.set(t.releaseId, list);
+      }
+
       const duplicateRows = album.releaseGroupId
         ? await db
             .select({
@@ -971,6 +993,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           provider: c.sourceOfTruth,
           rgMbid: c.rgMbid ?? null,
           excluded: c.excluded,
+          tracks: (candTracksByRelease.get(c.releaseId) ?? [])
+            .sort((a, b) => a.disc - b.disc || (a.position ?? 0) - (b.position ?? 0)),
         })),
         artists,
         genres,

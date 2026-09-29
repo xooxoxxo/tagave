@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   albumSearchRedirect,
   attentionItems,
+  candidateLengths,
   formatDelta,
+  issuesTargetRow,
   lengthDiscrepancy,
   LENGTH_TOLERANCE_MS,
   parseAlbumSearch,
@@ -255,5 +257,68 @@ describe('album tabs: old ids redirect', () => {
     expect(parseAlbumSearch({ issues: 'true' })).toEqual({ issues: true });
     expect(parseAlbumSearch({ issues: true, tab: 'about' })).toEqual({ tab: 'about', issues: true });
     expect(parseAlbumSearch({ issues: 'no' })).toEqual({});
+  });
+});
+
+describe('?issues deep links open the row they are about', () => {
+  const a = album({
+    gaps: [
+      gap({ id: 'g1', kind: 'incomplete_album', details: { have: 7, want: 10 } }),
+      quality('q1', 'noEmbeddedArt'),
+      gap({ id: 't1', kind: 'incomplete_album', state: 'todo', acceptedAt: daysAgo(3) }),
+      gap({ id: 't2', kind: 'quality', flag: 'noCover', state: 'todo', acceptedAt: daysAgo(2), details: { flags: { noCover: true } } }),
+    ],
+  });
+  const items = attentionItems(a, { now: NOW });
+
+  it('parses a target gap id or "tasks", and keeps plain links as true', () => {
+    expect(parseAlbumSearch({ issues: 't2' })).toEqual({ issues: 't2' });
+    expect(parseAlbumSearch({ issues: 'tasks' })).toEqual({ issues: 'tasks' });
+    expect(parseAlbumSearch({ issues: 'true' })).toEqual({ issues: true });
+    expect(parseAlbumSearch({ issues: '<script>' })).toEqual({});
+  });
+
+  it('a task link opens "On your task list", not the first issue', () => {
+    expect(issuesTargetRow(items, 't2')?.id).toBe('tasks');
+    expect(issuesTargetRow(items, 'tasks')?.id).toBe('tasks');
+  });
+
+  it('an issue link opens that issue', () => {
+    expect(issuesTargetRow(items, 'q1')?.id).toBe('gap:q1');
+    expect(issuesTargetRow(items, 'g1')?.id).toBe('gap:g1');
+  });
+
+  it('a plain or unknown target falls back to the first Maintenance-only row', () => {
+    expect(issuesTargetRow(items, true)?.id).toBe('gap:g1');
+    expect(issuesTargetRow(items, 'gone')?.id).toBe('gap:g1');
+    expect(issuesTargetRow(items, undefined)).toBeUndefined();
+  });
+});
+
+describe('candidate comparison uses the same tolerance', () => {
+  const local = [
+    { id: 'a', discNo: 1, trackNo: 1, title: 'One', durationMs: 200_000 },
+    { id: 'b', discNo: 1, trackNo: 2, title: 'Two', durationMs: 180_000 },
+    { id: 'c', discNo: 2, trackNo: 1, title: 'Three', durationMs: 240_000 },
+    { id: 'd', discNo: 1, trackNo: null, title: 'Hidden', durationMs: 60_000 },
+  ];
+
+  it('marks only lengths beyond the tolerance, paired by disc and position', () => {
+    const r = candidateLengths(local, [
+      { disc: 1, position: 1, title: 'One', lengthMs: 200_000 + LENGTH_TOLERANCE_MS },
+      { disc: 1, position: 2, title: 'Two', lengthMs: 190_000 },
+      { disc: 2, position: 1, title: 'Three', lengthMs: 236_000 },
+    ]);
+    expect(r?.compared).toBe(3);
+    expect(r?.differing.map((x) => x.key)).toEqual(['b', 'c']);
+    expect(r?.differing[0]?.delta).toBe(-10_000);
+  });
+
+  it('is null when the release has no tracks, and skips tracks without a length', () => {
+    expect(candidateLengths(local, undefined)).toBeNull();
+    expect(candidateLengths(local, [])).toBeNull();
+    const r = candidateLengths(local, [{ disc: 1, position: 1, title: 'One', lengthMs: null }]);
+    expect(r?.compared).toBe(0);
+    expect(r?.differing).toEqual([]);
   });
 });

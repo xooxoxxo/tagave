@@ -11,5 +11,4 @@
 @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--line); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }
 
 /* Appearance › Maintenance */
-.modeSetting { margin-top: var(--space-2xl); }
-.modeSetting h3 { margin: 0 0 var(--space-xs); }
+.modeSetting { margin-top: var(--space-xl); }

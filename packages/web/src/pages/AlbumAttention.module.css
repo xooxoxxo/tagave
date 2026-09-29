@@ -1,6 +1,10 @@
-/* One flat surface with hairline rows; the expanded body lives inside its
-   row, never in a card of its own. */
+/* One flat surface with full-width hairline rows; the expanded body lives
+   inside its row, never in a card of its own. */
 .strip {
+  --action-w: 12.5rem;
+  --chev-w: 2.75rem;
+  --head-pad: 20px;
+  --lead: calc(8px + 0.75rem); /* dot + gap: where the line's text starts */
   border: 1px solid var(--line);
   border-radius: var(--r-card);
   background: var(--surface);
@@ -18,41 +22,64 @@
   border-top: 1px solid var(--line);
 }
 
+/* line · action slot · chevron: the same columns on every row */
 .head {
-  display: flex;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--action-w) var(--chev-w);
+  grid-template-areas: "toggle action chev";
   align-items: center;
-  gap: var(--space-sm);
-  min-height: 56px;
-  padding: 6px 12px 6px 4px;
+  column-gap: 0.75rem;
+  min-height: 60px;
+  padding: 8px 6px 8px var(--head-pad);
+  transition: background-color var(--dur) var(--ease-out);
+}
+
+/* hover only (never left on after a click or while open), full-bleed like the hairlines */
+@media (hover: hover) {
+  .head:hover {
+    background: color-mix(in srgb, var(--mist) 55%, transparent);
+  }
 }
 
 .toggle {
+  grid-area: toggle;
   display: flex;
   align-items: center;
-  gap: 0.7rem;
-  flex: 1;
+  gap: 0.75rem;
   min-width: 0;
   min-height: 44px;
-  padding: 0 0.75rem 0 1rem;
+  padding: 0;
   border: 0;
-  border-radius: var(--r-pill);
+  border-radius: 0;
   background: transparent;
+  box-shadow: none;
   color: var(--ink);
   font: 500 0.9375rem / 1.35 var(--font-body);
   text-align: left;
 }
 
-.toggle:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--mist) 70%, transparent);
-  color: var(--ink);
+/* the line's button covers the whole row; the action sits above it */
+.toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
 }
 
+.toggle:hover:not(:disabled),
 .toggle:active:not(:disabled) {
+  background: transparent;
+  color: var(--ink);
   transform: none;
 }
 
 .toggle:focus-visible {
-  outline-offset: -2px;
+  outline: none;
+}
+
+.toggle:focus-visible::after {
+  outline: var(--focus-ring);
+  outline-offset: -3px;
 }
 
 .dot {
@@ -72,47 +99,103 @@
 .line {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.chevron {
+.actionSlot {
+  grid-area: action;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+  transition: opacity 180ms var(--ease-out), visibility 0s linear 0s;
+}
+
+.actionHidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 160ms var(--ease-out), visibility 0s linear 160ms;
+}
+
+.action {
   flex: none;
+  max-width: 100%;
+}
+
+/* A fixed square box that turns as a whole, the glyph centred in it, so the
+   chevron keeps its shape at every angle of the turn. */
+.chevron {
+  grid-area: chev;
+  justify-self: center;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
   color: var(--ink-3);
+  pointer-events: none;
   transition: transform 260ms var(--ease-out);
+}
+
+.chevron svg {
+  display: block;
+  overflow: visible;
 }
 
 .rowOpen .chevron {
   transform: rotate(180deg);
 }
 
-.action {
-  flex: none;
-}
-
 .body {
-  padding: 0 1.25rem 1.25rem calc(1rem + 4px + 8px + 0.7rem);
+  padding: 0 calc(var(--chev-w) + 6px) 1.25rem calc(var(--head-pad) + var(--lead));
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--ink-2);
 }
 
+/* Phone: every row the same shape. The line (up to two lines) with the
+   chevron pinned at the right edge, the action on its own line under it. */
 @media (max-width: 640px) {
+  .strip {
+    --head-pad: 16px;
+  }
   .head {
-    flex-wrap: wrap;
-    padding: 6px 8px 8px 0;
+    grid-template-columns: minmax(0, 1fr) var(--chev-w);
+    grid-template-areas:
+      "toggle chev"
+      "action .";
     row-gap: 2px;
+    min-height: 56px;
+    padding: 6px 2px 8px var(--head-pad);
   }
-  .toggle {
-    flex: 1 1 13rem;
-    padding-left: 0.85rem;
+  .line {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    white-space: normal;
   }
-  .action {
-    margin-left: calc(0.85rem + 8px + 0.7rem - 4px);
+  .actionSlot {
+    justify-content: flex-start;
+    padding-left: var(--lead);
+    max-height: 48px;
+    transition: opacity 180ms var(--ease-out), max-height 240ms var(--ease-out), visibility 0s linear 0s;
+  }
+  /* here the faded action gives its line back, in step with the accordion */
+  .actionHidden {
+    max-height: 0;
+    transition: opacity 120ms var(--ease-out), max-height 240ms var(--ease-out), visibility 0s linear 240ms;
   }
   .body {
-    padding: 0 1rem 1rem;
+    padding: 0 var(--head-pad) var(--head-pad);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chevron { transition: none; }
+  .head,
+  .chevron,
+  .actionSlot,
+  .actionHidden { transition: none; }
 }

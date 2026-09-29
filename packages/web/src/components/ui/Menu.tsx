@@ -117,7 +117,9 @@ export function Menu({ label, items, heading, icon, className }: MenuProps) {
     else if (e.key === 'Home') go(0);
     else if (e.key === 'End') go(els.length - 1);
     else if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === 'Tab') close(false);
+    // Tab: focus goes back to the trigger first, so the browser's own Tab
+    // continues from there (the menu is portalled to the end of <body>).
+    else if (e.key === 'Tab') close(true);
   };
 
   const pick = (item: MenuItem) => {

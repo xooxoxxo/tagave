@@ -227,6 +227,15 @@
   max-width: 66ch;
 }
 
+/* a gap's body: the text, the list and the three choices share one width */
+.gapBody {
+  max-width: 40rem;
+}
+.gapBody .bodyText,
+.gapBody .missingTable {
+  max-width: none;
+}
+
 .hint {
   margin: 0 0 var(--space-xs);
   font-size: 0.8125rem;
@@ -610,6 +619,77 @@ td.cellOff {
   opacity: 0.45;
 }
 
+/* "3 lengths differ": marked like a comparison cell, opens the tracks under the row */
+.lengthToggle {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--warning);
+  font: 600 0.75rem / 1.4 var(--font-body);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--warning) 40%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.lengthToggle:hover:not(:disabled) { background: none; color: var(--warning); text-decoration-color: currentColor; }
+.lengthToggle:active:not(:disabled) { transform: none; }
+
+.candHasCompare td { border-bottom: 0; }
+.candTable .candCompareRow > td {
+  height: auto;
+  padding: 0;
+}
+/* a candidate's differing lengths: # · title · yours · release */
+.lengthList {
+  margin: 0 0 var(--space-sm);
+  font-size: 0.8125rem;
+}
+.lengthList ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.lengthHead,
+.lengthRow {
+  display: grid;
+  grid-template-columns: 2.5rem minmax(0, 1fr) 6.5rem 4.5rem;
+  align-items: center;
+  column-gap: 0.75rem;
+  padding: 0 0.75rem;
+}
+.lengthHead {
+  padding-block: 0.4rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.lengthHead > :nth-child(n + 3),
+.lengthRow > :nth-child(n + 3) {
+  text-align: right;
+}
+.lengthRow {
+  min-height: 36px;
+  border-bottom: 1px solid var(--line);
+}
+.lengthRow:last-child { border-bottom: 0; }
+.lengthTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+}
+@media (max-width: 640px) {
+  .lengthHead,
+  .lengthRow {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto auto;
+    padding: 0;
+    column-gap: 0.5rem;
+  }
+}
+
 /* Missing tracks: a compact list read like the Tracks list. The number sits
    in a narrow tabular column right next to the title; the length hugs the
    right edge. */
@@ -691,20 +771,44 @@ td.cellOff {
   .coverBox {
     width: min(78vw, 320px);
   }
+  /* Under the centred cover the text reads left-aligned, like Spotify and
+     Qobuz: title, artist, then the meta line with "⋯" at its right end (the
+     row that will hold Play once a player exists), no band of its own. */
   .headInfo {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    justify-items: start;
+    column-gap: var(--space-sm);
+    row-gap: 0.3rem;
     width: 100%;
-    gap: 0.45rem;
+    text-align: left;
+    padding-bottom: 0;
+  }
+  .headInfo > * {
+    grid-column: 1 / -1;
   }
   .title {
+    grid-row: 1;
     font-size: clamp(28px, 8vw, 36px);
   }
   .artist {
+    grid-row: 2;
     font-size: 1rem;
   }
-  .statusLine,
-  .actionRow {
-    justify-content: center;
+  .headInfo > .metaRow {
+    grid-row: 3;
+    grid-column: 1;
+  }
+  .headInfo > .actionRow {
+    grid-row: 3;
+    grid-column: 2;
+    justify-self: end;
+    margin: 0;
+  }
+  .statusLine {
+    justify-content: flex-start;
+    margin-top: 0.2rem;
   }
   .facts > div {
     grid-template-columns: 1fr;
@@ -738,6 +842,9 @@ td.cellOff {
   .candTable .candRelease { grid-column: 1 / -1; }
   .candTable td[data-suffix]::after { content: attr(data-suffix); }
   .candTable .candActions { grid-column: 1 / -1; justify-self: start; }
+  .candTable tr.candHasCompare { border-bottom: 0; }
+  .candTable tr.candCompareRow { display: block; padding: 0; }
+  .candTable tr.candCompareRow > td { display: block; }
 }
 
 /* Editions on a phone: six columns do not fit, and the switch button ended

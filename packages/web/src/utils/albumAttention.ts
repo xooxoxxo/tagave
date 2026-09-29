@@ -34,8 +34,11 @@ export const RECENT_REQUEST_MS = 3 * 86_400_000;
 export type AlbumTab = 'tracks' | 'editions' | 'about' | 'activity';
 export interface AlbumSearch {
   tab?: AlbumTab;
-  /** open the attention strip (turns Maintenance on): old "Library health" links */
-  issues?: boolean;
+  /**
+   * open the attention strip (turns Maintenance on): true for old "Library
+   * health" links, or the row to open — a gap id, or "tasks"
+   */
+  issues?: true | string;
 }
 
 const LEGACY_TAB: Record<string, AlbumSearch> = {
@@ -57,7 +60,22 @@ export function parseAlbumSearch(search: Record<string, unknown>): AlbumSearch {
   else if (tab && LEGACY_TAB[tab]) Object.assign(out, LEGACY_TAB[tab]);
   const issues = search['issues'];
   if (issues === true || issues === 'true' || issues === 1 || issues === '1') out.issues = true;
+  else if (typeof issues === 'string' && !['false', 'no', '0'].includes(issues) && /^[\w:-]{1,80}$/.test(issues)) out.issues = issues;
   return out;
+}
+
+/**
+ * The strip row an ?issues link should open: the row whose id is the target,
+ * or that holds the target gap, or the task list for "tasks". A plain link
+ * (true) or a target no row holds opens the first Maintenance-only row.
+ */
+export function issuesTargetRow(items: readonly AttentionItem[], target: true | string | undefined): AttentionItem | undefined {
+  if (target === undefined) return undefined;
+  if (typeof target === 'string') {
+    const hit = items.find((i) => i.id === target || i.id === `gap:${target}` || (target === 'tasks' && i.kind === 'tasks') || i.gapIds?.includes(target));
+    if (hit) return hit;
+  }
+  return items.find((i) => !i.interrupts) ?? items[0];
 }
 
 /**
@@ -98,6 +116,60 @@ export function trackDiscrepancies<T extends ComparableTrack>(tracks: readonly T
     lengths: tracks.filter((t) => lengthDiscrepancy(t.durationMs, t.canonicalDurationMs) !== null),
     titles: tracks.filter((t) => !!t.canonicalTitle && !!t.title && t.canonicalTitle.trim().toLowerCase() !== t.title.trim().toLowerCase()),
   };
+}
+
+/** A local track as the candidate comparison needs it. */
+export interface LocalLengthTrack {
+  id: string;
+  discNo: number | null;
+  trackNo: number | null;
+  title: string | null;
+  durationMs: number | null;
+}
+
+/** One row of a candidate comparison: your track against the release's track at the same disc and position. */
+export interface CandidateLengthRow {
+  key: string;
+  disc: number;
+  position: number;
+  title: string;
+  localMs: number | null;
+  releaseMs: number | null;
+  /** the difference beyond the tolerance, else null */
+  delta: number | null;
+}
+
+/**
+ * Your tracks against a candidate release's tracks, paired by disc and
+ * position. Only pairs that both have a length are compared; `differing`
+ * are those beyond the tolerance. Null when the release's tracks are unknown.
+ */
+export function candidateLengths(
+  local: readonly LocalLengthTrack[],
+  release: ReadonlyArray<{ disc: number; position: number | null; title: string; lengthMs: number | null }> | undefined,
+  toleranceMs = LENGTH_TOLERANCE_MS,
+): { rows: CandidateLengthRow[]; differing: CandidateLengthRow[]; compared: number } | null {
+  if (!release || release.length === 0) return null;
+  const byPos = new Map(release.filter((t) => t.position != null).map((t) => [`${t.disc}:${t.position}`, t]));
+  const rows: CandidateLengthRow[] = [];
+  for (const t of local) {
+    if (t.trackNo == null) continue;
+    const disc = t.discNo ?? 1;
+    const r = byPos.get(`${disc}:${t.trackNo}`);
+    if (!r) continue;
+    rows.push({
+      key: t.id,
+      disc,
+      position: t.trackNo,
+      title: t.title ?? r.title,
+      localMs: t.durationMs,
+      releaseMs: r.lengthMs,
+      delta: lengthDiscrepancy(t.durationMs, r.lengthMs, toleranceMs),
+    });
+  }
+  rows.sort((a, b) => a.disc - b.disc || a.position - b.position);
+  const compared = rows.filter((r) => r.localMs && r.releaseMs).length;
+  return { rows, differing: rows.filter((r) => r.delta !== null), compared };
 }
 
 // ---- the attention strip ----
