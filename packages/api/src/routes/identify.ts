@@ -4,7 +4,8 @@
  *   GET  /libraries/:lib/identify/stats   coverage, G1 target, rate, ETA, series
  *   GET  /libraries/:lib/identify/triage  unidentified albums by reason (+ failed jobs)
  *   POST /libraries/:lib/identify/retry   re-run identification for a selection
- *   POST /libraries/:lib/identify/sweep   kick the sweep top-up now
+ *   POST /libraries/:lib/identify/sweep   queue the waiting albums now
+ *   POST /libraries/:lib/identify/status  owner-request state for a few albums
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, desc } from 'drizzle-orm';
@@ -12,7 +13,13 @@ import { libraries, jobRuns } from '@liner/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
-import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
+import {
+  IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob,
+  identifyRequestView, recordCancelled,
+} from '../lib/identifyRequests.js';
+
+/** Albums one status request may ask about (the plan page asks for its own). */
+const STATUS_CAP = 50;
 
 /** G1 (spec §2): 95% of albums identified by day 30 of the library's life. */
 const G1_SHARE = 0.95;
@@ -357,6 +364,41 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const pending = await pendingIdentifyJob(albumId);
     if (!pending) throw new ApiError(404, 'Not Found', 'No identification request is queued for this album');
     await cancelIdentifyJob(await getBoss(), pending.id);
+    if (pending.state !== 'active') await recordCancelled(albumId, pending);
     reply.send({ cancelled: pending.id, wasActive: pending.state === 'active' });
+  });
+
+  // Where identification stands for a few albums (the plan page's "not
+  // identified yet" albums): whether each still exists, its state, and the
+  // owner's request — queued, running, or how it ended.
+  fastify.post('/libraries/:libraryId/identify/status', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    await ownedLibrary(request.user.id, libraryId);
+    const body = (request.body ?? {}) as { albumIds?: unknown };
+    const ids = Array.isArray(body.albumIds)
+      ? [...new Set(body.albumIds.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x)))].slice(0, STATUS_CAP)
+      : [];
+    if (ids.length === 0) { reply.send({ items: [] }); return; }
+    const rows = await getDb().execute(sql`
+      select id, title_guess, artist_guess, state, identify_reason from local_albums
+       where library_id = ${libraryId} and id in (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})`) as unknown as Array<{
+      id: string; title_guess: string | null; artist_guess: string | null; state: string; identify_reason: string | null;
+    }>;
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const items = await Promise.all(ids.map(async (id) => {
+      const r = byId.get(id);
+      if (!r) return { albumId: id, exists: false as const };
+      return {
+        albumId: id,
+        exists: true as const,
+        title: r.title_guess,
+        artist: r.artist_guess,
+        state: r.state,
+        reason: r.identify_reason,
+        request: await identifyRequestView(id),
+      };
+    }));
+    reply.send({ items });
   });
 }

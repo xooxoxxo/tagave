@@ -265,3 +265,12 @@ export {
   compareArtistNames,
   artistInitials,
 } from './artistLabels.js';
+
+// Owner-requested identification: live job state + recorded outcome
+export type {
+  IdentifyRequestKind,
+  IdentifyOutcomeKind,
+  ReleaseChoice,
+  IdentifyOutcomeView,
+  IdentifyRequestView,
+} from './identify.js';

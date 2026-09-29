@@ -5,6 +5,7 @@
  * candidate accept/exclude, duplicate copies, art refetch, as-is/ignore.
  */
 import { Fragment, useRef, useState } from 'react';
+import type { IdentifyRequestView } from '@liner/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
@@ -15,6 +16,7 @@ import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { CompilationPanel, type MergeCandidateView } from '../components/CompilationPanel';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
+import { IdentifyRequestPanel, ACTIONABLE, requestSummary } from '../components/IdentifyRequestPanel';
 import styles from './AlbumDetailPage.module.css';
 import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlags } from '../utils/qualityFlags';
@@ -66,7 +68,7 @@ interface Candidate {
 interface PendingIdentify {
   id: string;
   state: 'created' | 'retry' | 'active';
-  kind: 'mbid' | 'discogs' | 'reidentify' | 'sweep';
+  kind: 'mbid' | 'release_group' | 'discogs' | 'reidentify' | 'sweep';
   pinned: string | null;
   priority: number;
   createdAt: string;
@@ -105,6 +107,8 @@ interface AlbumDetail {
   coverUrl: string | null;
   /** the one queued identify job for this album, if any (manual pin, re-identify or the sweep) */
   pendingIdentify?: PendingIdentify | null;
+  /** the owner's latest request: live job state, or how it ended (absent on an older API) */
+  identifyRequest?: IdentifyRequestView | null;
   coverOrigin: string | null;
   isCueImage: boolean;
   cueRelPath: string | null;
@@ -237,7 +241,17 @@ export function AlbumDetailPage() {
     queryKey: ['album', albumId],
     queryFn: () => api.get<AlbumDetail>(`/libraries/${libraryId}/albums/${albumId}`),
     enabled: !!libraryId && !!albumId,
+    // While a request is queued or running, ask again every few seconds: the
+    // job can end without changing the album (a release group, an unknown
+    // id), and then no queue event arrives to refresh the page.
+    refetchInterval: (q) => {
+      const r = (q.state.data as AlbumDetail | undefined)?.identifyRequest;
+      const live = r ? r.status !== 'done' : !!(q.state.data as AlbumDetail | undefined)?.pendingIdentify;
+      return live ? 2500 : false;
+    },
   });
+  // A finished request's note can be hidden; keyed by job so the next one shows.
+  const [dismissedRequest, setDismissedRequest] = useState<string | null>(null);
 
   const { data: editions } = useAlbumEditions(libraryId, albumId, { enabled: tab === 'editions' });
   const refreshEditions = useRefreshEditions(libraryId);
@@ -285,10 +299,31 @@ export function AlbumDetailPage() {
   const pending = album?.pendingIdentify ?? null;
   const PENDING_KIND: Record<string, string> = {
     mbid: 'Manual match (MusicBrainz release)',
+    release_group: 'Manual match (MusicBrainz release group)',
     discogs: 'Manual match (Discogs)',
     reidentify: 'Re-identify',
     sweep: 'Identification sweep',
   };
+  // The request as it really stands (API ≥ 0.4.2); an older API sends only
+  // the live job, which is shaped into the same view.
+  const request: IdentifyRequestView | null = album?.identifyRequest !== undefined
+    ? album.identifyRequest
+    : pending
+      ? {
+          status: pending.state === 'active' ? 'running' : pending.state === 'retry' ? 'retrying' : 'queued',
+          jobId: pending.id, kind: pending.kind, pinned: pending.pinned, createdAt: pending.createdAt,
+          startedAt: pending.startedAt, jobsAhead: pending.jobsAhead, outcome: null,
+        }
+      : null;
+  const requestLive = !!request && request.status !== 'done';
+  const requestKey = request ? `${request.jobId ?? ''}:${request.outcome?.finishedAt ?? ''}` : null;
+  // A finished request stays on the page while it is recent (3 days) or asks
+  // for something (pick a release, the id was wrong, it failed) and nothing
+  // decided the album since.
+  const decidedAfter = (iso: string) => !!album?.match?.decidedAt && new Date(album.match.decidedAt).getTime() > new Date(iso).getTime();
+  const showRequest = !!request && requestKey !== dismissedRequest && (requestLive || (!!request.outcome && (
+    Date.now() - new Date(request.outcome.finishedAt).getTime() < 3 * 86_400_000
+    || (ACTIONABLE.has(request.outcome.kind) && !decidedAfter(request.outcome.finishedAt)))));
 
   // Switching edition is a manual identification request: it queues on the
   // worker and the detail carries pendingIdentify until the decision lands, so
@@ -484,9 +519,21 @@ export function AlbumDetailPage() {
               {album.isCueImage && <div><dt>CUE sheet</dt><dd>{album.cueRelPath || 'CUE image album'}</dd></div>}
             </dl>
           </details>
+          {showRequest && request && (
+            <IdentifyRequestPanel
+              request={request}
+              onCancel={() => cancelRequest.mutate()}
+              cancelling={cancelRequest.isPending}
+              cancelError={cancelRequest.isError ? (errorDetail(cancelRequest) ?? 'Cancel failed') : null}
+              onPick={(mbid) => switchEdition.mutate(mbid)}
+              picking={switchingMbid}
+              pickError={switchEdition.isError ? errorDetail(switchEdition) : null}
+              {...(requestLive ? {} : { onDismiss: () => setDismissedRequest(requestKey) })}
+            />
+          )}
           <details ref={manageRef} className={styles.maintenance}><summary>Manage this album</summary>
           <div className={styles.actions}>
-            <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending} title={pending ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
+            <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || requestLive} title={requestLive ? 'A request is already queued for this album' : 'Queue a fresh identification'}>
               {reidentify.isPending ? 'Queued…' : 'Re-identify'}
             </Button>
             {album.state !== 'matched' && (
@@ -519,35 +566,21 @@ export function AlbumDetailPage() {
             {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
             {fingerprint.isError && <span className={styles.mbidError}>{errorDetail(fingerprint)}</span>}
           </div>
-          {pending && (
-            <div className={styles.pendingPanel} role="status">
-              <span className={styles.pendingTitle}>{PENDING_KIND[pending.kind] ?? 'Identification'} queued</span>
-              <span className={styles.pendingMeta}>
-                {pending.pinned ? `${pending.pinned} · ` : ''}
-                {pending.state === 'active' ? 'running now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `${pending.jobsAhead.toLocaleString()} ahead in the queue`}
-                {' · '}since {new Date(pending.createdAt).toLocaleString()}
-              </span>
-              <Button variant="secondary" size="sm" onClick={() => cancelRequest.mutate()} disabled={cancelRequest.isPending || pending.state === 'active'} title={pending.state === 'active' ? 'Already running on the worker' : 'Remove this request from the queue'}>
-                {cancelRequest.isPending ? 'Cancelling…' : 'Cancel'}
-              </Button>
-              {cancelRequest.isError && <span className={styles.mbidError}>Cancel failed</span>}
-            </div>
-          )}
           <div className={styles.mbidRow}>
             <input
               aria-label="Release URL or ID for manual matching"
               className={styles.mbidInput}
-              placeholder={pending ? 'A request is queued — cancel it to submit another' : 'Paste a MusicBrainz or Discogs release URL / ID to match manually'}
+              placeholder={requestLive ? 'A request is queued — cancel it to submit another' : 'Paste a MusicBrainz release or release-group URL / ID, or a Discogs release URL'}
               value={mbidInput}
-              disabled={!!pending}
+              disabled={requestLive}
               onChange={(e) => setMbidInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && mbidInput.trim() && !pending) matchMbid.mutate();
+                if (e.key === 'Enter' && mbidInput.trim() && !requestLive) matchMbid.mutate();
               }}
             />
             <Button
               onClick={() => matchMbid.mutate()}
-              disabled={!mbidInput.trim() || matchMbid.isPending || !!pending}
+              disabled={!mbidInput.trim() || matchMbid.isPending || requestLive}
             >
               {matchMbid.isPending ? 'Queuing…' : 'Match'}
             </Button>
@@ -557,7 +590,6 @@ export function AlbumDetailPage() {
                   (matchMbid.error as Error)?.message ?? 'Failed'}
               </span>
             )}
-            {matchMbid.isSuccess && !pending && <span className={styles.mbidOk}>Queued</span>}
           </div>
           </details>
         </div>
@@ -569,7 +601,7 @@ export function AlbumDetailPage() {
           ['care', `Library health${issueCount > 0 ? ` (${issueCount})` : ''}`],
           ['editions', 'Editions'],
           ['reviews', 'Reviews & listening'],
-          ['activity', pending ? 'Activity ·' : 'Activity'],
+          ['activity', requestLive ? 'Activity ·' : 'Activity'],
         ] as const).map(([key, label]) => (
           <button key={key} className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
             {label}
@@ -916,12 +948,18 @@ export function AlbumDetailPage() {
           <dl className={styles.activity}>
             <dt>Identification</dt>
             <dd>
-              {pending
-                ? `${PENDING_KIND[pending.kind] ?? 'Identification'} ${pending.state === 'active' ? 'running on the worker now' : pending.state === 'retry' ? 'retrying' : pending.jobsAhead === 0 ? 'next in line' : `queued, ${pending.jobsAhead.toLocaleString()} ahead`} · since ${new Date(pending.createdAt).toLocaleString()}`
+              {requestLive && request
+                ? requestSummary(request)
                 : album.match
                   ? `${album.match.decidedBy === 'system' ? 'Auto-matched' : 'Matched by you'} at distance ${album.match.distance.toFixed(4)}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleString()}` : ''}${album.match.reason ? ` — ${album.match.reason}` : ''}`
                   : `${STATE_LABEL[album.state] ?? album.state}; nothing queued.`}
             </dd>
+            {request && !requestLive && (
+              <>
+                <dt>Last request</dt>
+                <dd>{requestSummary(request)}</dd>
+              </>
+            )}
             <dt>Candidates</dt>
             <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — see the Album face while unmatched.</dd>
             <dt>Cover art</dt>

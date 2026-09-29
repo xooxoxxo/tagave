@@ -5,7 +5,7 @@ import {
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
   mediumCountOf,
-  type CanonicalRelease, type ReleaseQuery,
+  type CanonicalRelease, type ReleaseQuery, type EditionsPage, MB_BROWSE_LIMIT,
   pickByChipRule, chipCounts,
 } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
@@ -16,6 +16,8 @@ import {
 } from '../lib/providers.js';
 import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
+import { resolvePinnedMb } from '../lib/pinnedMb.js';
+import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
 
 export interface IdentifyAlbumJobData {
   localAlbumId: string;
@@ -24,6 +26,9 @@ export interface IdentifyAlbumJobData {
   /** IDN-6 manual entry: match this MB release MBID, bypassing search and
    * thresholds; decided_by=user */
   pinnedMbid?: string;
+  /** manual entry of a MusicBrainz release-group URL: list its releases for
+   * the owner to pick from (recorded as outcome release_group) */
+  pinnedReleaseGroup?: string;
   /** IDN-6 manual entry: Discogs release or master (master → its main
    * release), same semantics as pinnedMbid */
   pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
@@ -89,6 +94,11 @@ export function mbSearch(ctx: WorkerContext, p: Providers, q: ReleaseQuery) {
   return cached(ctx.sql, 'musicbrainz', cacheKey('search', JSON.stringify(q)), TTLs.discogsSearch,
     () => mbCall(ctx, () => p.mb.searchReleases(q, bg)));
 }
+export function mbReleaseGroupEditions(ctx: WorkerContext, p: Providers, rgMbid: string): Promise<EditionsPage> {
+  // same cache entry as editions.fetch's first page
+  return cached(ctx.sql, 'musicbrainz', cacheKey('rg-releases', rgMbid, 0), TTLs.mbRelease,
+    () => mbCall(ctx, () => p.mb.getReleaseGroupEditions(rgMbid, bg, { offset: 0, limit: MB_BROWSE_LIMIT })));
+}
 export function discogsRelease(ctx: WorkerContext, p: Providers, id: number | string): Promise<CanonicalRelease> {
   return cached(ctx.sql, 'discogs', cacheKey('release', id), TTLs.discogsEntity,
     () => discogsCall(ctx, p, () => p.discogs.getRelease(String(id), bg)), { strip: stripDiscogs });
@@ -141,18 +151,32 @@ export async function persistFetched(ctx: WorkerContext, r: CanonicalRelease): P
  * writes then fail on its foreign keys. That is not a failure of the job, so
  * when the album no longer exists it stops quietly.
  */
-export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<void> {
-  await unlessAlbumGone(ctx, data.localAlbumId, () => identifyAlbumRun(ctx, data));
+export async function identifyAlbumJob(
+  ctx: WorkerContext, data: IdentifyAlbumJobData, meta: { jobId?: string } = {},
+): Promise<IdentifyOutcome | undefined> {
+  // An owner request records how it ended (identify_runs): matched, could
+  // not be matched and why, a release group to pick from, or the failure.
+  // The album page used to show a finished request as queued.
+  const manual = isManualRequest(data);
+  let outcome: IdentifyOutcome | undefined;
+  try {
+    outcome = await unlessAlbumGone(ctx, data.localAlbumId, () => identifyAlbumRun(ctx, data));
+  } catch (err) {
+    if (manual) await recordIdentifyOutcome(ctx, data, meta.jobId, { outcome: 'failed', message: plainFailure(err) });
+    throw err;
+  }
+  if (manual && outcome) await recordIdentifyOutcome(ctx, data, meta.jobId, outcome);
+  return outcome;
 }
 
 /** Run `work`; if it throws and the album is gone by then, log at debug and return. */
-export async function unlessAlbumGone(ctx: WorkerContext, albumId: string, work: () => Promise<void>): Promise<void> {
+export async function unlessAlbumGone<T>(ctx: WorkerContext, albumId: string, work: () => Promise<T>): Promise<T | undefined> {
   try {
-    await work();
+    return await work();
   } catch (err) {
     if (await albumGone(ctx, albumId)) {
       ctx.logger.debug({ localAlbumId: albumId, err: (err as Error).message }, 'identify: album no longer exists (merged or regrouped), skipped');
-      return;
+      return undefined;
     }
     throw err;
   }
@@ -167,7 +191,15 @@ async function albumGone(ctx: WorkerContext, albumId: string): Promise<boolean> 
   }
 }
 
-async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<void> {
+const GIVE_UP_MESSAGE: Record<'no_tags' | 'no_candidates' | 'weak_candidates' | 'ambiguous', string> = {
+  no_tags: 'Could not be matched: the files carry no album title or artist to search with.',
+  no_candidates: 'Could not be matched: MusicBrainz and Discogs know no release with this title and artist.',
+  weak_candidates: 'Could not be matched: the closest releases differ too much from your files.',
+  ambiguous: 'Needs your review: more than one release fits about as well.',
+};
+
+/** Returns how the run ended; undefined when the album no longer exists. */
+async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<IdentifyOutcome | undefined> {
   const albumRows = await ctx.db
     .select()
     .from(localAlbums)
@@ -176,25 +208,27 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   const album = albumRows[0];
   if (!album) {
     ctx.logger.debug({ localAlbumId: data.localAlbumId }, 'identify: album no longer exists (merged or regrouped), skipped');
-    return;
+    return undefined;
   }
-  const pinned = !!(data.pinnedMbid || data.pinnedDiscogs);
-  if (!pinned && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
+  const pinned = !!(data.pinnedMbid || data.pinnedReleaseGroup || data.pinnedDiscogs);
+  if (!pinned && !data.force && album.state !== 'pending' && album.state !== 'unidentified') {
+    return { outcome: 'skipped', message: 'The album already has a decision.' };
+  }
   // Triage bookkeeping (XO-309): attempts + last run feed the sweep top-up
   // (eligibility) and the triage view; the reason explains every non-match.
   await ctx.db.update(localAlbums)
     .set({ identifyAttempts: album.identifyAttempts + 1, lastIdentifyAt: new Date() })
     .where(eq(localAlbums.id, album.id));
-  const giveUp = async (reason: 'no_tags' | 'no_candidates' | 'weak_candidates' | 'ambiguous') => {
+  const giveUp = async (reason: 'no_tags' | 'no_candidates' | 'weak_candidates' | 'ambiguous'): Promise<IdentifyOutcome> => {
     const state = reason === 'ambiguous' ? 'needs_review' : 'unidentified';
     await ctx.db.update(localAlbums)
       .set({ state, identifyReason: reason, updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
     await notifyQueueChanged(ctx, album.libraryId, album.id, state);
+    return { outcome: state, message: GIVE_UP_MESSAGE[reason] };
   };
   if (!pinned && (!album.titleGuess || !album.artistGuess)) {
-    await giveUp('no_tags');
-    return;
+    return giveUp('no_tags');
   }
 
   const settings = await libraryProviderSettings(ctx, album.libraryId);
@@ -204,7 +238,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     .select()
     .from(localTracks)
     .where(eq(localTracks.localAlbumId, album.id));
-  if (tracks.length === 0) return;
+  if (tracks.length === 0) return { outcome: 'skipped', message: 'The album has no tracks to compare.' };
 
   // Embedded IDs from the first tracks' file tags (IDN-1a).
   const fileRows = await ctx.db
@@ -342,8 +376,34 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
         ctx.logger.warn({ mbid, err: (err as Error).message }, 'identify: acoustid candidate fetch failed');
       }
     }
-    if (data.pinnedMbid) {
-      take(await mbRelease(ctx, p, data.pinnedMbid), 'user_mbid');
+    if (data.pinnedMbid || data.pinnedReleaseGroup) {
+      // A bare id may be a release group: list its releases, ranked by fit.
+      const resolved = await resolvePinnedMb({
+        release: (id) => mbRelease(ctx, p, id),
+        releaseGroupEditions: (rg) => mbReleaseGroupEditions(ctx, p, rg),
+      }, {
+        ...(data.pinnedMbid ? { mbid: data.pinnedMbid } : {}),
+        ...(data.pinnedReleaseGroup ? { releaseGroup: data.pinnedReleaseGroup } : {}),
+      }, {
+        trackCount: tracks.length,
+        ...(discsKnown && distinctDiscs > 0 ? { discCount: distinctDiscs } : {}),
+        ...(album.yearGuess ? { year: album.yearGuess } : {}),
+      });
+      if (resolved.kind === 'not_found') {
+        ctx.logger.warn({ album: album.titleGuess, pinned: data.pinnedMbid ?? data.pinnedReleaseGroup }, 'identify: pinned id not found');
+        return { outcome: 'not_found', message: resolved.message };
+      }
+      if (resolved.kind === 'release_group') {
+        ctx.logger.info({ album: album.titleGuess, releaseGroup: resolved.releaseGroup.mbid, releases: resolved.choices.length }, 'identify: pinned id is a release group');
+        return {
+          outcome: 'release_group',
+          message: data.pinnedReleaseGroup
+            ? 'That is a release group, not a release. Pick one of its releases:'
+            : 'No MusicBrainz release has this ID. It is a release group — pick one of its releases:',
+          detail: { releaseGroup: resolved.releaseGroup, choices: resolved.choices, moreChoices: resolved.moreChoices },
+        };
+      }
+      take(resolved.release, 'user_mbid');
     } else if (data.pinnedDiscogs) {
       let releaseId: number | undefined = data.pinnedDiscogs.id;
       if (data.pinnedDiscogs.kind === 'master') {
@@ -351,7 +411,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
         releaseId = master.mainReleaseId;
         if (!releaseId) {
           ctx.logger.warn({ album: album.titleGuess, masterId: data.pinnedDiscogs.id }, 'identify: pinned master has no main release');
-          return;
+          return { outcome: 'not_found', message: 'This Discogs master names no main release. Paste one of its release pages instead.' };
         }
       }
       take(await discogsRelease(ctx, p, releaseId), 'user_discogs');
@@ -403,7 +463,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     const status = (err as { status?: number }).status;
     if (pinned && status === 404) {
       ctx.logger.warn({ album: album.titleGuess, pinned: data.pinnedMbid ?? data.pinnedDiscogs }, 'identify: pinned id not found');
-      return; // bad user input; leave state untouched
+      // bad user input: leave the album state untouched and say so
+      return {
+        outcome: 'not_found',
+        message: data.pinnedDiscogs
+          ? `This ID does not exist on Discogs (${data.pinnedDiscogs.kind} ${data.pinnedDiscogs.id}).`
+          : 'This ID does not exist on MusicBrainz.',
+      };
     }
     ctx.logger.warn({ album: album.titleGuess, err: (err as Error).message }, 'identify: provider error');
     throw err; // pg-boss retry with backoff
@@ -419,17 +485,18 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   // A Discogs-only pass that settled nothing leaves the album pending for its
   // MusicBrainz pass (identify_attempts ≥ 1 → the sweep sends it MB-first);
   // whatever Discogs found stays as candidates for the album page.
-  const discogsLater = async (scoredCount: number, best: number | undefined) => {
+  const discogsLater = async (scoredCount: number, best: number | undefined): Promise<IdentifyOutcome> => {
     await ctx.db.update(localAlbums)
       .set({ identifyReason: 'discogs_pass', updatedAt: new Date() })
       .where(eq(localAlbums.id, album.id));
     ctx.logger.info({ album: album.titleGuess, candidates: scoredCount, best }, 'identify: discogs pass, MusicBrainz later');
+    return { outcome: 'unidentified', message: 'Discogs found nothing certain; MusicBrainz is asked on the next pass.' };
   };
 
   if (fetched.length === 0) {
-    if (discogsDone) { await discogsLater(0, undefined); return; }
-    await giveUp('no_candidates');
-    return;
+    if (discogsDone) return discogsLater(0, undefined);
+    if (pinned) return { outcome: 'failed', message: 'That release could not be compared with your files (its tracklist is too large).' };
+    return giveUp('no_candidates');
   }
 
   // Score (IDN-2).
@@ -457,7 +524,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   const goLive = async (
     releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',
     distance: number, reason: string, source: CandidateSource | null,
-  ) => {
+  ): Promise<IdentifyOutcome> => {
     // One live match per album: a re-identification (manual entry, or a
     // fingerprint-backed run on an album the sweep matched meanwhile)
     // supersedes the previous decision instead of tripping the unique index.
@@ -501,6 +568,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     } catch (err) {
       ctx.logger.warn({ err, localAlbumId: album.id }, 'identify: track linking failed');
     }
+    const rel = fetched.find((r) => releaseDbIds.get(r.id) === releaseDb);
+    const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
+    return {
+      outcome: 'matched',
+      message: label ? `Matched to ${label}.` : 'Matched.',
+      ...(rel ? { detail: { releaseTitle: rel.title } } : {}),
+    };
   };
 
   // IDN-6: a pinned entry is the owner's decision — match it outright, with
@@ -508,11 +582,10 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   if (pinned) {
     const top = scored[0];
     const topDb = top ? releaseDbIds.get(top.id) : undefined;
-    if (!top || !topDb) return;
-    await goLive(topDb, 'confirmed', 'user', top.distance,
+    if (!top || !topDb) return { outcome: 'failed', message: 'That release could not be compared with your files.' };
+    return goLive(topDb, 'confirmed', 'user', top.distance,
       data.pinnedMbid ? 'manual MBID entry' : 'manual Discogs entry',
       data.pinnedMbid ? 'user_mbid' : 'user_discogs');
-    return;
   }
 
   // IDN-5: accept on fingerprint evidence before the tag-based decision.
@@ -523,16 +596,14 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   if (viaFingerprint && viaFingerprintDb) {
     const cov = Math.round((data.acoustidCoverage?.[viaFingerprint.id] ?? 0) * 100);
     ctx.logger.info({ album: album.titleGuess, coverage: cov, distance: viaFingerprint.distance }, 'identify: acoustid auto-accept');
-    await goLive(viaFingerprintDb, 'auto', 'system', viaFingerprint.distance,
+    return goLive(viaFingerprintDb, 'auto', 'system', viaFingerprint.distance,
       `acoustid auto-accept: ${cov}% of tracks fingerprint-matched, ${viaFingerprint.tracks?.length ?? 0} vs ${local.tracks.length} tracks (distance ${viaFingerprint.distance.toFixed(4)})`,
       'acoustid');
-    return;
   }
 
   // Discogs-only first pass: settle only what the decision would accept.
   if (discogsDone && !bestIsAcceptable()) {
-    await discogsLater(scored.length, scored[0]?.distance);
-    return;
+    return discogsLater(scored.length, scored[0]?.distance);
   }
 
   // Decide (IDN-3).
@@ -545,7 +616,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
 
   if (best && bestDb && best.distance <= MATCHING_THRESHOLDS.strong && trackParity && !gapDemoted) {
     ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
-    await goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`,
+    return goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`,
       sourceOf.get(best.id) ?? null);
   } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
     // Owner chip rule (2026-09-05): no reds + ≥3 greens auto-accepts even in
@@ -556,10 +627,9 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
     if (chosen && chosenDb) {
       const cc = chipCounts(chosen.breakdown);
-      await goLive(chosenDb, 'auto', 'system', chosen.distance,
+      return goLive(chosenDb, 'auto', 'system', chosen.distance,
         `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
         sourceOf.get(chosen.id) ?? null);
-      return;
     }
     // Owner policy (2026-09-05): the top candidate in the band is what the
     // owner accepts by hand anyway — take it. Tightened 2026-09-09 (XO-379,
@@ -577,15 +647,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       const discsKnown = localDiscNos.length > 0;
       const localDiscs = discsKnown ? new Set(localDiscNos).size : 0;
       if (cc2.reds === 0 && (!discsKnown || mediaCount === 0 || mediaCount <= localDiscs)) {
-        await goLive(bestDb, 'auto', 'system', best.distance,
+        return goLive(bestDb, 'auto', 'system', best.distance,
           `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, 0 red)`,
           sourceOf.get(best.id) ?? null);
-        return;
       }
       ctx.logger.info({ album: album.titleGuess, distance: best.distance, reds: cc2.reds, mediaCount, localDiscs }, 'identify: top candidate held for review');
     }
-    await giveUp('ambiguous');
-  } else {
-    await giveUp('weak_candidates');
+    return giveUp('ambiguous');
   }
+  return giveUp('weak_candidates');
 }

@@ -1164,3 +1164,29 @@ export const workerHeartbeats = pgTable(
     seenAtIdx: index('idx_worker_heartbeats_seen_at').on(table.seenAt),
   })
 );
+
+/**
+ * Outcome of an owner-requested identification (manual MBID / Discogs id,
+ * release-group pick, re-identify), written by identify.album when it ends.
+ * outcome: matched | needs_review | unidentified | release_group |
+ * not_found | failed | cancelled | skipped.
+ */
+export const identifyRuns = pgTable(
+  'identify_runs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').notNull().references(() => localAlbums.id, { onDelete: 'cascade' }),
+    jobId: uuid('job_id'),
+    kind: text().notNull(),
+    pinned: text(),
+    outcome: text().notNull(),
+    message: text().notNull(),
+    detail: jsonb(),
+    finishedAt: timestamp('finished_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    albumIdx: index('idx_identify_runs_album').on(table.localAlbumId, table.finishedAt),
+    jobIdx: index('idx_identify_runs_job').on(table.jobId),
+  })
+);

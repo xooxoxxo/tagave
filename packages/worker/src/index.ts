@@ -5,6 +5,7 @@ import { readBuildInfo, WORKER_QUEUES } from '@liner/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import type { WorkerContext } from './lib/context.js';
+import { isManualRequest, plainFailure, recordIdentifyOutcome } from './lib/identifyRuns.js';
 import { scanRootJob, type ScanRootJobData } from './jobs/scanRoot.js';
 import { scanDirJob, type ScanDirJobData } from './jobs/scanDir.js';
 import { scanSweepJob, type ScanSweepJobData } from './jobs/scanSweep.js';
@@ -214,11 +215,16 @@ async function main() {
   const identifyHandler = (queue: 'identify.album' | 'identify.acoustid') => async (jobs: Array<{ id: string; data: IdentifyAlbumJobData }>) => {
     const results = await Promise.allSettled(jobs.map((job) =>
       tracked(queue, job.id, job.data.localAlbumId, () =>
-        withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `${queue} ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data)))));
+        withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `${queue} ${job.data.localAlbumId}`, () => identifyAlbumJob(ctx, job.data, { jobId: job.id })))));
     for (const [i, r] of results.entries()) {
       if (r.status !== 'rejected') continue;
       const job = jobs[i]!;
       const err = r.reason as Error;
+      // A run that threw has recorded its own failure; a timed-out one is
+      // still in flight, so the owner's request says so here.
+      if (err instanceof JobTimeoutError && isManualRequest(job.data)) {
+        await recordIdentifyOutcome(ctx, job.data, job.id, { outcome: 'failed', message: plainFailure(err) });
+      }
       logger.error({ queue, jobId: job.id, localAlbumId: job.data.localAlbumId, err: err.message, timedOut: err instanceof JobTimeoutError }, 'identify job failed');
       await boss.fail(queue, job.id, { message: err.message });
     }

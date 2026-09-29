@@ -203,21 +203,6 @@ one dew drop for the manual Match. */
   font-size: var(--font-size-xs);
 }
 
-/* queued identification request (manual pin / re-identify / sweep) */
-.pendingPanel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm) var(--space-md);
-  margin-top: var(--space-xs);
-  padding: .75rem 1rem .75rem 1.25rem;
-  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
-  border-radius: var(--r-inner);
-  background-color: var(--surface);
-  font-size: var(--font-size-sm);
-}
-.pendingTitle { font-weight: 600; }
-.pendingMeta { color: var(--text-secondary); flex: 1; }
 
 /* ---- faces ---- */
 
