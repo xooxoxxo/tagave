@@ -70,9 +70,12 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
         -- A name that already has a canonical row is dropped: the artist's
         -- undecided albums must not add a second, unclickable row for them.
         -- casts are required: a bare null in a CTE arm is text, and the
-        -- union against canon.id (uuid) / canon.sort_name (varchar) fails
+        -- union against canon.id (uuid) / canon.sort_name (varchar) fails.
+        -- Names group as shown (migration 0028): "02. Stephane Pompougnac"
+        -- … "17. Stephane Pompougnac" are one artist, and "Various", "VA"
+        -- and "Various Artists" one compilations row.
         select null::uuid as id,
-               la.artist_guess as name,
+               liner_display_artist(la.artist_guess) as name,
                null::varchar as sort_name,
                false as resolved,
                count(distinct la.id)::int as album_count,
@@ -81,14 +84,14 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
                max(la.year_guess)::int as year_to
           from local_albums la
          where la.library_id = ${libraryId}
-           and la.artist_guess is not null
+           and liner_display_artist(la.artist_guess) is not null
            and (la.release_group_id is null or not exists (
              select 1 from release_group_artists rga
               where rga.release_group_id = la.release_group_id))
            and not exists (
-             select 1 from canon_names cn where cn.lname = lower(la.artist_guess))
+             select 1 from canon_names cn where cn.lname = lower(liner_display_artist(la.artist_guess)))
            ${search ? sql`and la.artist_guess ilike ${('%' + search + '%')}` : sql``}
-         group by la.artist_guess
+         group by liner_display_artist(la.artist_guess)
       )
       select * from (select * from canon union all select * from guess) combined
       order by lower(name)

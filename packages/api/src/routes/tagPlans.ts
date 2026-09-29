@@ -15,6 +15,7 @@ import {
 import {
   type CreateTagPlan,
   createTagPlanSchema,
+  tagPlanScopeSchema,
   type TagPlan,
   type TagPlanItem,
   type TagPlanPreviewJob,
@@ -25,6 +26,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
+import { filesOfAlbums, resolveEditableScope, suggestBulkValues } from '../lib/bulkTagEdit.js';
 
 /**
  * Register tag plan routes.
@@ -97,6 +99,7 @@ async function scopeLabels(db: ReturnType<typeof getDb>, scopes: TagPlanScope[])
       case 'artist': return names.get(s.artistId) ?? 'One artist';
       case 'albumIds': return s.albumIds.length === 1 ? '1 album' : `${s.albumIds.length} albums`;
       case 'filterQuery': return 'Filtered albums';
+      case 'folder': return `Folder ${s.dirPath}`;
       default: return 'Unknown scope';
     }
   });
@@ -222,16 +225,44 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
 
-      const body = createTagPlanSchema.parse(request.body);
+      const parsed = createTagPlanSchema.safeParse(request.body);
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        throw new ApiError(400, 'Bad Request', issue ? `${issue.path.join('.') || 'body'}: ${issue.message}` : 'Invalid plan');
+      }
+      const body = parsed.data;
 
-      // A filter scope is resolved to the matching album ids now — the worker
-      // has no query builder — so the plan records what the filter meant today.
+      // A manual plan writes the values the owner typed; without any there is
+      // nothing to write, and the values mean nothing under another preset.
+      if (body.policy.preset === 'manual') {
+        const values = body.policy.values ?? {};
+        if (Object.keys(values).length === 0) {
+          throw new ApiError(400, 'Bad Request', 'Set at least one value to write (album artist, album, date, compilation, genre or track artist)');
+        }
+      } else if (body.policy.values) {
+        throw new ApiError(400, 'Bad Request', 'Typed values only apply to the manual preset');
+      }
+
+      // A filter or folder scope is resolved to the matching album ids now —
+      // the worker has no query builder — so the plan records what the scope
+      // meant today.
       let scope: TagPlanScope = body.scope;
       if (scope.type === 'filterQuery') {
         const { conds } = albumQueryParts(libraryId, request.user.id, scope.filterQuery as Record<string, unknown>);
         const rows = await db.select({ id: localAlbums.id }).from(localAlbums).where(and(...conds));
         if (rows.length === 0) throw new ApiError(400, 'Bad Request', 'The filter matches no albums');
         scope = { type: 'albumIds', albumIds: rows.map((r) => r.id) };
+      } else if (scope.type === 'folder') {
+        const ids = await resolveEditableScope(db, libraryId, scope);
+        if (ids.length === 0) throw new ApiError(400, 'Bad Request', `No album has files in ${scope.dirPath}`);
+        scope = { type: 'albumIds', albumIds: ids };
+      } else if (scope.type === 'albumIds') {
+        // The preview trusts the plan's album ids; they must be this library's.
+        const requested = [...new Set(scope.albumIds)];
+        const known = await db.select({ id: localAlbums.id }).from(localAlbums)
+          .where(and(eq(localAlbums.libraryId, libraryId), inArray(localAlbums.id, requested)));
+        if (known.length !== requested.length) throw new ApiError(400, 'Bad Request', 'Some of these albums are not in this library.');
+        scope = { type: 'albumIds', albumIds: requested };
       }
 
       const planId = uuidv7();
@@ -1002,6 +1033,38 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       reply.status(200).send({ planId, ...result, previewQueued });
+    }
+  );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-edit/suggest
+   * Body { scope } (albumIds or folder). What the files in the selection carry
+   * today and the album-level values the bulk editor starts from: the album
+   * artist with a baked-in track number stripped, "Various Artists" and the
+   * compilation flag when the track artists differ. Reads only.
+   */
+  fastify.post<{ Params: { libraryId: string } }>(
+    '/tag-edit/suggest',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      if (!request.user) {
+        throw new ApiError(401, 'Unauthorized', 'Authentication required');
+      }
+      const { libraryId } = request.params as { libraryId: string };
+      const db = getDb();
+      const lib = await db
+        .select({ id: libraries.id })
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+
+      const parsed = tagPlanScopeSchema.safeParse((request.body as { scope?: unknown } | null)?.scope);
+      if (!parsed.success || (parsed.data.type !== 'albumIds' && parsed.data.type !== 'folder')) {
+        throw new ApiError(400, 'Bad Request', 'scope must be { type: "albumIds", albumIds } or { type: "folder", dirPath }');
+      }
+      const albumIds = await resolveEditableScope(db, libraryId, parsed.data);
+      if (albumIds.length === 0) throw new ApiError(404, 'Not Found', 'No albums in this selection');
+      const files = await filesOfAlbums(db, albumIds);
+      reply.send({ albumIds, ...suggestBulkValues(files, albumIds.length) });
     }
   );
 

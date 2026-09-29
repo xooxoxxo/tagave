@@ -12,6 +12,8 @@ import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdenti
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
+import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
+import { displayArtistName } from '@liner/shared';
 import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -58,7 +60,9 @@ export function albumQueryParts(
   const conds = [eq(localAlbums.libraryId, libraryId)];
   const search = str(q['q']) ?? str(q['search']);
   const artist = str(q['artist']);
-  if (artist) conds.push(eq(localAlbums.artistGuess, artist));
+  // Unresolved artists are listed by their shown name (numbering stripped,
+  // VA spellings folded, migration 0028), so the filter matches the same way.
+  if (artist) conds.push(sql`liner_display_artist(${localAlbums.artistGuess}) = liner_display_artist(${artist}::text)`);
   if (search) {
     // Column references stay qualified: the facet queries join tables that
     // carry the same names (gaps.state, releases.date, …).
@@ -392,7 +396,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         libraryId: album.libraryId,
         localAlbumId: album.id,
         title: album.titleGuess ?? 'Unknown Album',
-        artistCredit: album.artistGuess ?? 'Unknown Artist',
+        artistCredit: displayArtistName(album.artistGuess) ?? 'Unknown Artist',
         ...(album.yearGuess ? { year: album.yearGuess } : {}),
         formats: album.formats ?? [],
         isLossless: losslessOf.get(album.id)?.all_lossless ?? false,
@@ -847,18 +851,24 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
          where lt.local_album_id = ${album.id}`)) as unknown as Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>;
       const mixed = mix?.any_lossless === true && mix?.any_lossy === true;
       const splitFrom = splitOriginOf(album.clusterKey);
+      // Compilations: an album built by "Treat as one album" can be split
+      // back; albums that look like more pieces of this one are offered.
+      const merged = isMergedKey(album.clusterKey);
+      const mergeCandidates = await findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 });
 
       reply.status(200).send({
         id: album.id,
         libraryId: album.libraryId,
         releaseGroupId: album.releaseGroupId ?? null,
         title: album.titleGuess,
-        artistCredit: album.artistGuess,
+        artistCredit: displayArtistName(album.artistGuess),
         year: album.yearGuess,
         state: album.state,
         pendingIdentify,
         mixed,
         splitFrom,
+        merged,
+        mergeCandidates,
         dirPaths: album.dirPaths,
         formats: album.formats,
         discCount: album.discCount,
@@ -1471,6 +1481,12 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     if (err instanceof SplitError) throw new ApiError(err.status, err.status === 404 ? 'Not Found' : 'Conflict', err.message);
     throw err;
   };
+  const mergeFailure = (err: unknown): never => {
+    if (err instanceof MergeError) {
+      throw new ApiError(err.status, err.status === 404 ? 'Not Found' : err.status === 400 ? 'Bad Request' : 'Conflict', err.message);
+    }
+    throw err;
+  };
 
   /**
    * Rescan the album's folder(s): one scan.dir per (root, directory) holding
@@ -1545,5 +1561,49 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     bustFacetCache(libraryId);
     await markFacetsDirty(db, libraryId);
     reply.send({ originalAlbumId: result.originalAlbumId, moved: result.fileIds.length });
+  });
+
+  /**
+   * "Treat as one album": the selected albums become one without moving a
+   * file. Every file is pinned to the kept album (targetId, else the one with
+   * the most tracks) so rescans keep the merge; the others are removed. An
+   * album that was not identified is queued for identification with all its
+   * tracks in view.
+   */
+  fastify.post('/libraries/:libraryId/albums/merge', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const db = getDb();
+    const lib = await db.select({ id: libraries.id }).from(libraries)
+      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+    if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+    const body = (request.body ?? {}) as { albumIds?: unknown; targetId?: unknown };
+    const uuid = /^[0-9a-f-]{36}$/i;
+    const albumIds = Array.isArray(body.albumIds) ? body.albumIds.filter((x): x is string => typeof x === 'string' && uuid.test(x)) : [];
+    const targetId = typeof body.targetId === 'string' && uuid.test(body.targetId) ? body.targetId : undefined;
+    if (albumIds.length > MERGE_MAX_ALBUMS) throw new ApiError(400, 'Bad Request', `At most ${MERGE_MAX_ALBUMS} albums can be merged at once`);
+
+    const result = await mergeAlbums(db, { libraryId, albumIds, userId: request.user.id, ...(targetId ? { targetId } : {}) }).catch(mergeFailure);
+    if (result.needsIdentify) {
+      const boss = await getBoss();
+      await boss.send('identify.album', { localAlbumId: result.albumId },
+        { singletonKey: IDENTIFY_SINGLETON(result.albumId), priority: IDENTIFY_PRIORITY.manual });
+    }
+    bustFacetCache(libraryId);
+    await markFacetsDirty(db, libraryId);
+    reply.send({ albumId: result.albumId, mergedAlbumIds: result.mergedAlbumIds, files: result.fileIds.length, identifyQueued: result.needsIdentify });
+  });
+
+  /** Undo "Treat as one album": the files are unpinned and their folders re-cluster by the usual rules. */
+  fastify.post('/libraries/:libraryId/albums/:albumId/unmerge', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, albumId } = request.params as { libraryId: string; albumId: string };
+    await ownedAlbum(request.user.id, libraryId, albumId);
+    const db = getDb();
+    const result = await unmergeAlbum(db, { libraryId, albumId }).catch(mergeFailure);
+    await recluster(libraryId, result.dirs);
+    bustFacetCache(libraryId);
+    await markFacetsDirty(db, libraryId);
+    reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length });
   });
 }

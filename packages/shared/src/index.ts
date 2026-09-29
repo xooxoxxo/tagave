@@ -225,4 +225,17 @@ export {
   type CreateTagPlan,
   tagPlanItemSchema,
   type TagPlanItem,
+  MANUAL_TAG_FIELDS,
+  type ManualTagField,
+  manualTagValuesSchema,
+  type ManualTagValues,
 } from './tagPlan.js';
+
+// Artist names as the library shows them (numbered album artists, VA spellings)
+export {
+  VARIOUS_ARTISTS,
+  isVariousArtists,
+  stripTrackNumberPrefix,
+  leadingNumberOf,
+  displayArtistName,
+} from './artistNames.js';

@@ -12,7 +12,7 @@ import {
 } from '@liner/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
-import { tagsPreviewJob, currentFieldsFrom, decideField, valueKey } from './tagsPreview.js';
+import { tagsPreviewJob, currentFieldsFrom, decideField, valueKey, manualCanonical, presetPolicy } from './tagsPreview.js';
 
 describe('preview helpers', () => {
   it('maps music-metadata common tags to canonical fields', () => {
@@ -44,6 +44,17 @@ describe('preview helpers', () => {
     expect(decideField('fill', 'kept', 'new', false).reason).toBe('no-change');
     expect(decideField('never', 'old', 'new', false).reason).toBe('no-change');
     expect(decideField('overwrite', 'old', 'new', true).reason).toBe('locked');
+  });
+
+  it('manual preset: only the typed fields, and compilation 0 equals no flag', () => {
+    expect(presetPolicy('manual', 'albumartist')).toBe('overwrite');
+    expect(presetPolicy('manual', 'musicbrainz_albumid')).toBe('never');
+    const values = { albumartist: 'Various Artists', compilation: '0' as const };
+    expect(manualCanonical(values, 'albumartist', '02. X')).toBe('Various Artists');
+    expect(manualCanonical(values, 'album', 'Old')).toBeNull();
+    expect(manualCanonical(values, 'compilation', null)).toBeNull();
+    expect(manualCanonical(values, 'compilation', '1')).toBe('0');
+    expect(manualCanonical(undefined, 'album', 'x')).toBeNull();
   });
 });
 
@@ -188,7 +199,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     expect(plan.status).toBe('previewed');
     const stats = plan.stats as any;
     expect(stats.filesTouched).toBe(2); // both fileA and fileB have diffs now (with track mbids)
-    expect(stats.filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'audio_file_error', message: 'album not identified' }]);
+    expect(stats.filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'album_not_identified', message: 'album not identified', localAlbumId: strayAlbum }]);
 
     const items = await itemsOf(planId);
     expect(items).toHaveLength(2);
@@ -337,6 +348,83 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     await tagsPreviewJob(ctx, grown);
     const [fresh] = await db.select().from(tagPlans).where(eq(tagPlans.id, grown));
     expect(fresh.status).toBe('previewed');
-    expect((fresh.stats as any).filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'audio_file_error', message: 'album not identified' }]);
+    expect((fresh.stats as any).filesSkipped).toEqual([{ audioFileId: strayFile, reason: 'album_not_identified', message: 'album not identified', localAlbumId: strayAlbum }]);
+  });
+
+  it('a manual plan writes typed values to an unidentified album and says why nothing else changed', async () => {
+    // "Hotel Costes Vol. 11" as it sits on disk: one folder per track, the
+    // track number baked into the album artist, a different artist per track.
+    const hcAlbums = [randomUUID(), randomUUID(), randomUUID()];
+    const hcFiles = [randomUUID(), randomUUID(), randomUUID()];
+    const artists = ['Lena Horne', 'Morten Varano', 'Vanessa Da Mata'];
+    await db.insert(localAlbums).values(hcAlbums.map((id, i) => ({
+      id, libraryId, clusterKey: `hc-${id}`, dirPaths: [`#/0${i + 1}. Stephane Pompougnac/2008 - Hotel Costes Vol. 11`],
+      titleGuess: 'Hotel Costes Vol. 11', artistGuess: `0${i + 1}. Stephane Pompougnac`, state: 'unidentified', trackCount: 1,
+    })));
+    await db.insert(audioFiles).values(hcFiles.map((id, i) => ({
+      id, libraryId, scanRootId: rootId, relPath: `#/0${i + 1}. Stephane Pompougnac/2008 - Hotel Costes Vol. 11/0${i + 1} - T.mp3`,
+      sizeBytes: 1, mtime: 1, status: 'present',
+      tagsRaw: { common: { title: `T${i + 1}`, artist: artists[i], albumartist: `0${i + 1}. Stephane Pompougnac`, album: 'Hotel Costes Vol. 11', year: 2008, track: { no: i + 1, of: null } } },
+    })));
+    await db.insert(localTracks).values(hcFiles.map((audioFileId, i) => ({ localAlbumId: hcAlbums[i], audioFileId, trackNo: i + 1 })));
+    // the owner locked the album title on the third piece
+    await db.insert(fieldLocks).values({ libraryId, scope: 'album', scopeId: hcAlbums[2]!, field: 'album', value: 'Hotel Costes Vol. 11', reason: 'owner', createdBy: userId });
+
+    const canonicalPlan = randomUUID();
+    const manualPlan = randomUUID();
+    planIds.push(canonicalPlan, manualPlan);
+    await db.insert(tagPlans).values([
+      { id: canonicalPlan, libraryId, name: 'canonical', scope: { type: 'albumIds', albumIds: hcAlbums }, policy: { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' }, status: 'draft', stats: {}, createdBy: userId },
+      {
+        id: manualPlan, libraryId, name: 'manual', scope: { type: 'albumIds', albumIds: hcAlbums },
+        policy: { preset: 'manual', id3Version: '2.4', multiValueSeparator: '; ', values: { albumartist: 'Various Artists', album: 'Hotel Costes Vol. 11 (Remix)', compilation: '1' } },
+        status: 'draft', stats: {}, createdBy: userId,
+      },
+    ]);
+    try {
+      // canonical: nothing to write, and the stats say it is because the albums are not identified
+      await tagsPreviewJob(ctx, canonicalPlan);
+      const [cp] = await db.select().from(tagPlans).where(eq(tagPlans.id, canonicalPlan));
+      const cs = cp.stats as any;
+      expect(cs.filesTouched).toBe(0);
+      expect(cs.filesInScope).toBe(3);
+      expect(cs.filesSkipped.map((f: any) => f.reason)).toEqual(['album_not_identified', 'album_not_identified', 'album_not_identified']);
+      expect(cs.filesSkipped.map((f: any) => f.localAlbumId).sort()).toEqual([...hcAlbums].sort());
+
+      // manual: every file gets the album-level values; per-track artist untouched; the lock holds
+      await tagsPreviewJob(ctx, manualPlan);
+      const [mp] = await db.select().from(tagPlans).where(eq(tagPlans.id, manualPlan));
+      const ms = mp.stats as any;
+      expect(mp.status).toBe('previewed');
+      expect(ms.filesTouched).toBe(3);
+      expect(ms.filesSkipped).toEqual([]);
+      expect(ms.lockedFieldsRespected).toBe(1);
+      const items = await itemsOf(manualPlan);
+      expect(items).toHaveLength(3);
+      for (const [i, id] of hcFiles.entries()) {
+        const d = diffMap(items.find((it: any) => it.audioFileId === id)!);
+        expect(d.albumartist).toMatchObject({ before: `0${i + 1}. Stephane Pompougnac`, after: 'Various Artists', reason: 'policy:overwrite' });
+        expect(d.compilation).toMatchObject({ before: null, after: '1', reason: 'policy:overwrite' });
+        expect(d.artist).toBeUndefined();
+        expect(d.title).toBeUndefined();
+        if (i === 2) expect(d.album).toBeUndefined();
+        else expect(d.album).toMatchObject({ before: 'Hotel Costes Vol. 11', after: 'Hotel Costes Vol. 11 (Remix)' });
+      }
+
+      // values the files already carry: nothing to write, every file already correct
+      const samePlan = randomUUID();
+      planIds.push(samePlan);
+      await db.insert(tagPlans).values({
+        id: samePlan, libraryId, name: 'same', scope: { type: 'albumIds', albumIds: hcAlbums },
+        policy: { preset: 'manual', id3Version: '2.4', multiValueSeparator: '; ', values: { date: '2008', compilation: '0' } },
+        status: 'draft', stats: {}, createdBy: userId,
+      });
+      await tagsPreviewJob(ctx, samePlan);
+      const [sp] = await db.select().from(tagPlans).where(eq(tagPlans.id, samePlan));
+      expect(sp.stats).toMatchObject({ filesTouched: 0, filesAlreadyCorrect: 3, filesLockedOnly: 0, filesInScope: 3 });
+    } finally {
+      await db.delete(fieldLocks).where(eq(fieldLocks.libraryId, libraryId));
+      for (const a of hcAlbums) await db.delete(localTracks).where(eq(localTracks.localAlbumId, a));
+    }
   });
 });

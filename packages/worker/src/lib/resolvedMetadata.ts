@@ -62,7 +62,7 @@ export interface FileResolution {
 
 export type FileResolutionResult =
   | { ok: true; value: FileResolution }
-  | { ok: false; reason: 'not_in_album' | 'album_not_identified' | 'release_missing' };
+  | { ok: false; reason: 'not_in_album' | 'album_not_identified' | 'release_missing'; localAlbumId?: string };
 
 /**
  * Canonical fields for one audio file: its album's matched release, the
@@ -95,12 +95,13 @@ export async function resolveMetadataForFile(
     .select({ id: localAlbums.id, releaseId: localAlbums.releaseId, state: localAlbums.state, discCount: localAlbums.discCount })
     .from(localAlbums)
     .where(and(eq(localAlbums.id, track.localAlbumId), eq(localAlbums.libraryId, libraryId)));
-  if (!album || !album.releaseId || album.state !== 'matched') return { ok: false, reason: 'album_not_identified' };
+  if (!album) return { ok: false, reason: 'not_in_album' };
+  if (!album.releaseId || album.state !== 'matched') return { ok: false, reason: 'album_not_identified', localAlbumId: album.id };
 
   const [releaseRow] = await ctx.db.select().from(releases).where(eq(releases.id, album.releaseId));
-  if (!releaseRow) return { ok: false, reason: 'release_missing' };
+  if (!releaseRow) return { ok: false, reason: 'release_missing', localAlbumId: album.id };
   const [releaseGroup] = await ctx.db.select().from(releaseGroups).where(eq(releaseGroups.id, releaseRow.releaseGroupId));
-  if (!releaseGroup) return { ok: false, reason: 'release_missing' };
+  if (!releaseGroup) return { ok: false, reason: 'release_missing', localAlbumId: album.id };
 
   // 0026: use canonicalTrackId link if present; fall back to position-based lookup
   let canonicalTrack: typeof canonicalTracks.$inferSelect | null = null;

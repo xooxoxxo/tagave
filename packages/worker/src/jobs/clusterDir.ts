@@ -2,6 +2,7 @@ import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@liner/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
+import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {
@@ -54,12 +55,18 @@ function tagsOf(tagsRaw: unknown): FileTags {
     return Number.isFinite(n) && n > 0 ? n : null;
   };
   const yearV = common['year'];
+  const track = no('track');
+  const albumartist = str('albumartist');
   return {
     album: str('album'),
-    albumartist: str('albumartist'),
+    // "02. Stephane Pompougnac" on track 2: the ripper wrote the track number
+    // into the album artist, which made every track of a compilation its own
+    // artist and its own album. The prefix only comes off when it IS the
+    // file's track number, so a name that starts with a number stays whole.
+    albumartist: albumartist === null ? null : stripTrackNumberPrefix(albumartist, track),
     artist: str('artist'),
     disc: no('disk'),
-    track: no('track'),
+    track,
     title: str('title'),
     year: typeof yearV === 'number' && yearV > 1000 ? yearV : extractYear(str('date')),
   };
@@ -274,7 +281,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   const stripDiscToken = (title: string): string =>
     scopeSpansDiscs ? stripDiscTokenFromTitle(title) : title;
 
-  interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string> }
+  interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string>; various: boolean }
   const byAlbum = new Map<string, FileRow[]>();
   const loose: FileRow[] = [];
   for (const f of inScope) {
@@ -293,11 +300,11 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   for (const [albumKey, files] of byAlbum) {
     const albumartists = new Set(files.map((f) => f.tags.albumartist).filter(Boolean).map((a) => normKey(a as string)));
     const artists = new Set(files.map((f) => f.tags.artist).filter(Boolean).map((a) => normKey(a as string)));
-    const assign = (artistKey: string, fs: FileRow[]) => {
+    const assign = (artistKey: string, fs: FileRow[], various = false) => {
       const key = albumKey + '\n' + artistKey;
       let g = groups.get(key);
       if (!g) {
-        g = { albumKey, artistKey, files: [], dirs: new Set() };
+        g = { albumKey, artistKey, files: [], dirs: new Set(), various };
         groups.set(key, g);
       }
       for (const f of fs) {
@@ -310,13 +317,20 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       // sole albumartist cluster rather than splintering.
       if (albumartists.size === 1) {
         assign([...albumartists][0] as string, files);
+      } else if (albumartists.size > 3 && files.every((f) => !f.tags.albumartist || !f.tags.artist
+        || normKey(f.tags.albumartist) === normKey(f.tags.artist))) {
+        // Taggers that copy each track's artist into ALBUMARTIST make a
+        // compilation look like one album per artist. Many distinct album
+        // artists that are exactly the track artists is a compilation (same
+        // >3 rule as untagged VA below).
+        assign('various artists', files, true);
       } else {
         for (const f of files) {
           assign(normKey(f.tags.albumartist ?? f.tags.artist ?? ''), [f]);
         }
       }
     } else if (artists.size > 3) {
-      assign('various artists', files);
+      assign('various artists', files, true);
     } else {
       for (const f of files) assign(normKey(f.tags.artist ?? ''), [f]);
     }
@@ -344,8 +358,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       titleGuess: sample.tags.album
         ? stripDiscToken(sample.tags.album)
         : sample.virtual?.sheet.title ?? null,
-      artistGuess: g.artistKey === 'various artists' && !sample.tags.albumartist
-        ? 'Various Artists'
+      artistGuess: g.various
+        ? VARIOUS_ARTISTS
         : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
       yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
         ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null)
@@ -391,6 +405,11 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     const f = inScope.find((x) => x.id === fileId);
     if (f) await replaceTracks(ctx, albumId ?? null, [f], resolveDiscs([f]));
   }
+  // An album built from pins (a split-off copy, albums merged into one) is
+  // never upserted above, so its counters come from its track rows here —
+  // otherwise a rescan of one of its folders would leave them stale.
+  const pinnedAlbums = [...new Set([...pinned.values()].filter((id): id is string => !!id))];
+  if (pinnedAlbums.length > 0) await refreshAlbumCounters(ctx, pinnedAlbums);
 
   // Clusters in scope that lost every track to regrouping are dead weight;
   // only untouched states are safe to reap.
@@ -424,6 +443,35 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     { scope, siblingDirs, groups: groups.size, loose: loose.length, pinned: pinned.size },
     'clustered directory',
   );
+}
+
+/**
+ * track_count, duration, formats, disc count and folders of albums from their
+ * track rows. dir_paths is the union of the folders its files live in (an
+ * album merged from several folders lists them all).
+ */
+export async function refreshAlbumCounters(ctx: Pick<WorkerContext, 'sql'>, albumIds: string[]): Promise<void> {
+  if (albumIds.length === 0) return;
+  await ctx.sql`
+    update local_albums la set
+      track_count = s.n,
+      total_duration_ms = s.dur,
+      formats = s.formats,
+      disc_count = greatest(s.discs, 1),
+      dir_paths = s.dirs,
+      updated_at = now()
+    from (
+      select lt.local_album_id as id,
+             count(*)::int as n,
+             coalesce(sum(lt.duration_ms), 0)::int as dur,
+             coalesce(array_agg(distinct lower(regexp_replace(af.rel_path, '^.*\.', ''))) filter (where af.rel_path like '%.%'), '{}') as formats,
+             count(distinct coalesce(lt.disc_no, 1))::int as discs,
+             array_agg(distinct case when strpos(af.rel_path, '/') = 0 then '' else regexp_replace(af.rel_path, '/[^/]*$', '') end) as dirs
+        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+       where lt.local_album_id = any(${albumIds}::uuid[])
+       group by lt.local_album_id
+    ) s
+    where la.id = s.id`;
 }
 
 /** LIKE is used for path prefixes; the archive has folders with '%' and '_'. */

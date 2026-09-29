@@ -22,6 +22,11 @@ export const tagPlanScopeSchema = z.discriminatedUnion('type', [
     type: z.literal('filterQuery').describe('Apply to albums matching a filter query'),
     filterQuery: z.record(z.any()).describe('Filter query object (same shape as GET /albums query)'),
   }).strict(),
+  z.object({
+    type: z.literal('folder').describe('Apply to every album with files in a folder (and its subfolders)'),
+    dirPath: z.string().min(1).describe('Folder relative to its scan root, as album dir_paths show it'),
+    scanRootId: z.string().uuid().optional().describe('Scan root holding the folder; any root when omitted'),
+  }).strict(),
 ]).describe('Scope of the plan: what files it applies to');
 
 export type TagPlanScope = z.infer<typeof tagPlanScopeSchema>;
@@ -35,7 +40,8 @@ export const tagPolicyPresetSchema = z.enum([
   'fill_blanks_only',
   'overwrite_all',
   'custom',
-]).describe('Policy preset name');
+  'manual',
+]).describe('Policy preset name; manual writes the values the owner typed (policy.values), identified or not');
 
 export type TagPolicyPreset = z.infer<typeof tagPolicyPresetSchema>;
 
@@ -52,6 +58,26 @@ export const tagFieldPolicySchema = z.enum([
 export type TagFieldPolicy = z.infer<typeof tagFieldPolicySchema>;
 
 /**
+ * Fields the manual bulk editor may set for every file in a selection. The
+ * album-level ones are the point; per-track artist is only written when the
+ * owner explicitly chooses it. Values are what goes into the tag: strings, a
+ * list for genre, and '1' / '0' for the compilation flag.
+ */
+export const MANUAL_TAG_FIELDS = ['albumartist', 'album', 'date', 'compilation', 'genre', 'artist'] as const;
+export type ManualTagField = typeof MANUAL_TAG_FIELDS[number];
+
+export const manualTagValuesSchema = z.object({
+  albumartist: z.string().trim().min(1).max(255).optional(),
+  album: z.string().trim().min(1).max(255).optional(),
+  date: z.string().trim().regex(/^\d{4}(-\d{2}(-\d{2})?)?$/, 'Use YYYY, YYYY-MM or YYYY-MM-DD').optional(),
+  compilation: z.enum(['1', '0']).optional(),
+  genre: z.array(z.string().trim().min(1).max(100)).min(1).max(20).optional(),
+  artist: z.string().trim().min(1).max(255).optional(),
+}).strict().describe('Values a manual plan writes to every file in scope; a field left out is not touched');
+
+export type ManualTagValues = z.infer<typeof manualTagValuesSchema>;
+
+/**
  * Tag write policy — controls which fields are updated and how.
  * Per Spec §9.5 TAG-2: A plan is created with a policy: fill blanks only,
  * overwrite with canonical, or per-field rules.
@@ -61,6 +87,7 @@ export const tagPoliciesSchema = z.object({
   id3Version: z.enum(['2.3', '2.4']).default('2.4').describe('ID3 version for MP3 files (default v2.4 UTF-8)'),
   multiValueSeparator: z.string().default('; ').describe('Separator for multi-value fields in ID3v2.3 (default "; ")'),
   overrides: z.record(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
+  values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
 }).strict().describe('Write policy: preset + per-field overrides');
 
 export type TagPolicies = z.infer<typeof tagPoliciesSchema>;
@@ -85,8 +112,15 @@ export type TagDiffEntry = z.infer<typeof tagDiffEntrySchema>;
  */
 export const tagPlanSkippedFileSchema = z.object({
   audioFileId: z.string().uuid().describe('Audio file ID'),
-  reason: z.enum(['scan_root_not_writable', 'audio_file_error']).describe('Why the file was skipped'),
+  reason: z.enum([
+    'scan_root_not_writable',
+    'audio_file_error',
+    'album_not_identified',
+    'not_in_album',
+    'release_missing',
+  ]).describe('Why the file was skipped'),
   message: z.string().optional().describe('Additional error details'),
+  localAlbumId: z.string().uuid().optional().describe('Album the file belongs to, so the page can offer to identify it'),
 }).strict().describe('Skipped file with reason');
 
 export type TagPlanSkippedFile = z.infer<typeof tagPlanSkippedFileSchema>;
@@ -101,6 +135,9 @@ export const tagPlanStatsSchema = z.object({
   fieldsModified: z.number().int().nonnegative().default(0).describe('Total number of field changes across all files'),
   lockedFieldsRespected: z.number().int().nonnegative().default(0).describe('Number of field changes blocked by locks'),
   filesSkipped: z.array(tagPlanSkippedFileSchema).default([]).describe('Files that could not be processed'),
+  filesInScope: z.number().int().nonnegative().optional().describe('Files the preview looked at'),
+  filesAlreadyCorrect: z.number().int().nonnegative().optional().describe('Files compared that already carry every value the policy would write'),
+  filesLockedOnly: z.number().int().nonnegative().optional().describe('Files whose only would-be changes are blocked by locks'),
   lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
 }).strict().describe('Aggregate summary of a plan preview');
 
