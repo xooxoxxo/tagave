@@ -6,7 +6,7 @@ import { Input, Select } from '../components/ui/FormControl';
  * per-field diff. Actions for the current state sit in the header. Nothing
  * is written until Apply.
  */
-import { useEffect, useMemo, useState, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
@@ -21,7 +21,9 @@ import {
   useResumeTagPlan,
   useRevertTagPlan,
   useDeleteTagPlan,
+  useRenameTagPlan,
   useTagPlan,
+  useTagPlanResults,
   useTagPlanItems,
   useTagPlanSummary,
   usePlanAppears,
@@ -34,6 +36,9 @@ import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, s
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
+import { InlineRename } from '../components/InlineRename';
+import { PlanResults } from './PlanResults';
+import { RESULT_STATUSES } from './planResultsText';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -59,17 +64,15 @@ const PRESET_LABEL: Record<string, string> = {
   revert: 'Revert',
 };
 
-/** "album artist → Various Artists · compilation → yes" for a manual plan */
-function manualSummary(values: Record<string, string | string[] | undefined> | undefined): string {
-  if (!values) return '';
+/** [label, value] per value a manual plan writes, for the Details list. */
+function manualValues(values: Record<string, string | string[] | undefined> | undefined): Array<[string, string]> {
+  if (!values) return [];
   return Object.entries(values)
-    .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => {
-      const label = (FIELD_LABELS[k] ?? k).toLowerCase();
-      if (k === 'compilation') return `${label} → ${v === '1' ? 'yes' : 'no'}`;
-      return `${label} → ${Array.isArray(v) ? v.join('; ') : v}`;
-    })
-    .join(' · ');
+    .filter((e): e is [string, string | string[]] => e[1] !== undefined)
+    .map(([k, v]) => [
+      FIELD_LABELS[k] ?? k,
+      k === 'compilation' ? (v === '1' ? 'Yes' : 'No') : Array.isArray(v) ? v.join('; ') : v,
+    ]);
 }
 
 /**
@@ -136,11 +139,11 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
   const type = scope?.type as string | undefined;
   switch (type) {
     case 'library': return 'Entire library';
-    case 'artist': return 'All albums by one artist';
-    case 'albumIds': return `${(scope?.albumIds as string[] | undefined)?.length ?? 0} album(s)`;
-    case 'filterQuery': return 'Albums matching a filter';
-    case 'folder': return `Every file in ${String(scope?.dirPath ?? '')}`;
-    default: return '—';
+    case 'artist': return 'One artist';
+    case 'albumIds': return plural((scope?.albumIds as string[] | undefined)?.length ?? 0, 'album');
+    case 'filterQuery': return 'Filtered albums';
+    case 'folder': return `Folder ${String(scope?.dirPath ?? '')}`;
+    default: return '';
   }
 }
 
@@ -274,6 +277,7 @@ export function PlanPage() {
   useEffect(() => {
     void qc.invalidateQueries({ queryKey: ['tag-plan-items', libraryId, planId] });
     void qc.invalidateQueries({ queryKey: ['tag-plan-summary', libraryId, planId] });
+    void qc.invalidateQueries({ queryKey: ['tag-plan-results', libraryId, planId] });
   }, [status, libraryId, planId, qc]);
 
   const settings = useLibrarySettings(libraryId);
@@ -285,6 +289,9 @@ export function PlanPage() {
   const cancelM = useCancelTagPlan(libraryId, planId);
   const revertM = useRevertTagPlan(libraryId, planId);
   const deleteM = useDeleteTagPlan(libraryId, planId);
+  const renameM = useRenameTagPlan(libraryId);
+  const hasResults = !!status && RESULT_STATUSES.has(status);
+  const results = useTagPlanResults(libraryId, planId, { enabled: hasResults });
 
   const previewed = !!p && p.status !== 'draft';
   const summary = useTagPlanSummary(libraryId, planId, { enabled: previewed, refetchInterval: polling ? 4000 : false });
@@ -495,21 +502,31 @@ export function PlanPage() {
   }
 
   const statusView = planStatusView(p.status, progress);
+  // A plan that wrote files keeps its journal for Revert; the API refuses to
+  // delete it, so the page does not offer it (a reverted plan can go).
+  const wroteFiles = (progress?.applied ?? 0) > 0 && p.status !== 'reverted';
+  const canDelete = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && !wroteFiles;
+  const when = p.appliedAt
+    ? <>applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>
+    : <>created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span></>;
+  const scopeText = p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>);
+  const values = isManual ? manualValues(p.policy.values as Record<string, string | string[] | undefined>) : [];
   const confirmStop: ConfirmOptions = { title: 'Stop applying?', message: 'Files already written stay written. You can revert them afterwards.', confirmLabel: 'Stop applying', cancelLabel: 'Keep going', tone: 'danger' };
 
   return (
     <PageShell
       title={<span className={styles.title}>
-        {p.name || 'Untitled plan'}
+        <InlineRename
+          value={p.name || 'Untitled plan'}
+          label="Rename plan"
+          onSave={(name) => renameM.mutateAsync({ planId, name })}
+        />
         <Badge tone={statusView.tone}>{statusView.label}</Badge>
       </span>}
       subtitle={
         <span className={styles.meta}>
           <Link to="/plans" className={styles.back}>Tag changes</Link>
-          {' › '}{p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset}{planUsesId3(p.formats) ? ` · ID3v${p.policy.id3Version}` : ''}
-          {isManual && p.policy.values ? <> · sets {manualSummary(p.policy.values as Record<string, string | string[] | undefined>)}</> : null}
-          {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
-          {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
+          {' › '}{scopeText ? <>{scopeText} · </> : null}{when}
         </span>
       }
       actions={
@@ -556,7 +573,7 @@ export function PlanPage() {
               {revertM.isPending || revertPlanId !== null ? 'Preparing…' : 'Revert'}
             </Button>
           )}
-          {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
+          {canDelete && (
             /* Quiet until confirmed: a destructive drop never sits right next
                to the primary; the second press turns it into the red drop. */
             <Button
@@ -596,7 +613,8 @@ export function PlanPage() {
       }
     >
       <div className={styles.body}>
-        {(tagWritesDisabled || noWritableRoots) && (
+        {/* Only while there is still something to apply: on a finished plan it is noise. */}
+        {(tagWritesDisabled || noWritableRoots) && (p.status === 'draft' || p.status === 'previewed') && (
           <Banner tone="warning">
             <strong>This plan can be previewed but not applied yet.</strong>
             <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
@@ -607,6 +625,10 @@ export function PlanPage() {
         )}
 
         {error && <Banner tone="danger">{error}</Banner>}
+
+        {hasResults && (progress?.applied ?? 0) > 0 && (
+          <PlanResults results={results.data} loading={results.isLoading} />
+        )}
 
         {!previewed && (
           <Banner tone={previewFailed ? 'danger' : previewStalled ? 'warning' : 'info'}>
@@ -663,10 +685,6 @@ export function PlanPage() {
           </Banner>
         )}
 
-        {p.status === 'applied' && (
-          <Banner tone="success">Tag changes applied. Review the files below. Revert restores the tags saved before this change.</Banner>
-        )}
-
         {outcome?.explained ? (
           <PreviewOutcomeNotice
             outcome={outcome}
@@ -684,17 +702,28 @@ export function PlanPage() {
           <BulkTagEditor libraryId={libraryId} scopes={valueScopes} title="Set the values yourself" onClose={() => setEditingValues(false)} />
         )}
 
-        {previewed && stats && (
+        {/* Before apply the counts say what will happen; after it the
+            result section says what did, so the cards step aside. */}
+        {previewed && stats && !hasResults && !nothingToDo && (
           <div className={styles.stats}>
             <StatCard label="Files affected" value={stats.filesTouched.toLocaleString()} />
             <StatCard label="Field changes" value={stats.fieldsModified.toLocaleString()} />
-            <StatCard label="Locked fields preserved" value={stats.lockedFieldsRespected.toLocaleString()} />
-            {stats.filesSkipped.length > 0 && <StatCard label="files skipped" value={stats.filesSkipped.length.toLocaleString()} tone="warning" />}
-            {progress && progress.total > 0 && p.status !== 'previewed' && (
-              <StatCard label="Files written" value={progress.applied.toLocaleString()} tone={progress.failed ? 'warning' : 'success'} hint={progress.failed ? `${progress.failed.toLocaleString()} failed` : undefined} />
-            )}
+            {stats.lockedFieldsRespected > 0 && <StatCard label="Locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />}
+            {stats.filesSkipped.length > 0 && <StatCard label="Files skipped" value={stats.filesSkipped.length.toLocaleString()} tone="warning" />}
           </div>
         )}
+
+        <details className={styles.details}>
+          <summary className={styles.detailsSummary}>Details</summary>
+          <dl className={styles.detailsList}>
+            <dt>Scope</dt><dd>{scopeText || '—'}</dd>
+            <dt>Policy</dt><dd>{PRESET_LABEL[p.policy.preset] ?? p.policy.preset}</dd>
+            {values.map(([k, v]) => <Fragment key={k}><dt>{k}</dt><dd>{v}</dd></Fragment>)}
+            {planUsesId3(p.formats) && <><dt>ID3 version</dt><dd>ID3v{p.policy.id3Version}</dd></>}
+            <dt>Created</dt><dd>{formatDateTime(p.createdAt)}</dd>
+            {p.appliedAt && <><dt>Applied</dt><dd>{formatDateTime(p.appliedAt)}</dd></>}
+          </dl>
+        </details>
 
         {progress && BUSY.has(p.status) && (
           <div className={styles.progress}>

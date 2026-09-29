@@ -757,6 +757,8 @@ export const tagPlans = pgTable(
       .notNull()
       .references(() => libraries.id, { onDelete: 'cascade' }),
     name: varchar({ length: 255 }).notNull(),
+    /** 0031: the owner typed this name (rename); never rewritten automatically */
+    nameByUser: boolean('name_by_user').notNull().default(false),
     scope: jsonb().notNull(),
     policy: jsonb().notNull(),
     status: varchar({ length: 20 }).notNull().default('draft'),

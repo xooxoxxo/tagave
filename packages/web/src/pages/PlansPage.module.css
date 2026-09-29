@@ -29,3 +29,12 @@
   min-width: 100px;
   text-align: center;
 }
+
+/* A refused delete, under the plan name: the API says why in one sentence. */
+.rowError {
+  display: block;
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--danger);
+  max-width: 36rem;
+}

@@ -13,6 +13,19 @@ export interface ApiError extends ProblemDetails {
   status: number;
 }
 
+/**
+ * A success body, or undefined when there is none. DELETE answers 204 with
+ * no body; calling response.json() on it threw "Unexpected end of JSON
+ * input" after the plan was already gone, and the page showed that as the
+ * delete failing.
+ */
+export async function readBody<T>(response: Response): Promise<T> {
+  if (response.status === 204 || response.status === 205) return undefined as T;
+  const text = await response.text();
+  if (text.trim() === '') return undefined as T;
+  return JSON.parse(text) as T;
+}
+
 class ApiClient {
   private baseUrl = '/api/v1';
 
@@ -50,7 +63,7 @@ class ApiClient {
       throw error;
     }
 
-    return response.json();
+    return readBody<T>(response);
   }
 
   get<T>(path: string, init?: RequestInit) {

@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, scanRoots, tagPlanItems, tagPlans, users } from '@liner/db';
+import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@liner/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 vi.mock('../boss.js', () => ({
@@ -285,5 +285,136 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     expect(ids).not.toContain(artistPlan);
     expect(body.items.every((p: { status: string; scope: { type: string } }) => ['draft', 'previewed'].includes(p.status) && p.scope.type === 'albumIds')).toBe(true);
     expect(body.total).toBe(body.items.length);
+  });
+
+  // ── rename ────────────────────────────────────────────────────────────
+  const rename = (planId: string, payload: unknown, as: string = ownerId) =>
+    app.inject({
+      method: 'PATCH',
+      url: `/libraries/${libraryId}/tag-plans/${planId}`,
+      headers: { 'x-test-user': as },
+      payload: payload as any,
+    });
+
+  it('renames a plan in any status, trimmed, and marks the name as the owner\'s', async () => {
+    for (const status of ['draft', 'applied']) {
+      const id = await makePlan(status);
+      const res = await rename(id, { name: '  Peter   Morén  tidy-up ' });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ id, name: 'Peter Morén tidy-up', nameByUser: true });
+      const row = await planRow(id);
+      expect(row.name).toBe('Peter Morén tidy-up');
+      expect(row.nameByUser).toBe(true);
+    }
+  });
+
+  it('refuses a blank or overlong name, a wrong body, and a plan of another library', async () => {
+    const id = await makePlan('draft');
+    const blank = await rename(id, { name: '   ' });
+    expect(blank.statusCode).toBe(400);
+    expect(blank.json().detail).toBe('The name cannot be empty');
+    const long = await rename(id, { name: 'x'.repeat(256) });
+    expect(long.statusCode).toBe(400);
+    expect(long.json().detail).toMatch(/at most 255/);
+    expect((await rename(id, { title: 'nope' })).statusCode).toBe(400);
+    expect((await rename(id, { name: 'Mine' }, strangerId)).statusCode).toBe(404);
+    expect((await rename(randomUUID(), { name: 'Ghost' })).statusCode).toBe(404);
+    expect((await planRow(id)).name).toBe('plan draft');
+  });
+
+  it('never auto-renames a name the owner set, even one that looks like the wizard\'s', async () => {
+    const id = await makePlan('draft');
+    expect((await rename(id, { name: 'Miles Davis — Kind of Blue tags' })).statusCode).toBe(200);
+    const res = await add(id, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.json()).toMatchObject({ added: 1, name: 'Miles Davis — Kind of Blue tags' });
+    expect((await planRow(id)).name).toBe('Miles Davis — Kind of Blue tags');
+  });
+
+  // ── delete ────────────────────────────────────────────────────────────
+  const del = (planId: string) =>
+    app.inject({ method: 'DELETE', url: `/libraries/${libraryId}/tag-plans/${planId}`, headers: { 'x-test-user': ownerId } });
+  const writeItem = async (planId: string, status: string) =>
+    db.insert(tagPlanItems).values({
+      tagPlanId: planId, audioFileId: fileId, before: { title: 'a' }, after: { title: 'b' },
+      diff: [{ field: 'title', before: 'a', after: 'b', reason: 'policy:overwrite' }], status,
+      ...(status === 'applied' ? { audioHashBefore: 'h', audioHashAfter: 'h' } : {}),
+    });
+
+  it('deletes a plan that wrote nothing with an empty 204', async () => {
+    const res = await del(previewed);
+    expect(res.statusCode).toBe(204);
+    expect(res.body).toBe('');
+    expect(await planRow(previewed)).toBeUndefined();
+  });
+
+  it.each(['applied', 'partially_failed', 'cancelled'])('keeps a %s plan that wrote files: its journal is what Revert uses', async (status) => {
+    const id = await makePlan(status);
+    await writeItem(id, 'applied');
+    const res = await del(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().detail).toMatch(/wrote tags to 1 file.*Revert it first/);
+    expect(await planRow(id)).toBeDefined();
+    expect(await itemsOf(id)).toHaveLength(1);
+  });
+
+  it('deletes a plan once it has been reverted, and one whose every write failed', async () => {
+    const reverted = await makePlan('reverted');
+    await writeItem(reverted, 'applied');
+    expect((await del(reverted)).statusCode).toBe(204);
+    const failed = await makePlan('partially_failed');
+    await writeItem(failed, 'failed');
+    expect((await del(failed)).statusCode).toBe(204);
+  });
+
+  it('refuses to delete a plan that is writing', async () => {
+    const id = await makePlan('applying');
+    const res = await del(id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().detail).toMatch(/writing tags right now/);
+  });
+
+  // ── results ───────────────────────────────────────────────────────────
+  it('reports the albums that hold the written files, and updating while a re-cluster is queued', async () => {
+    const id = await makePlan('applied');
+    await writeItem(id, 'applied');
+    await db.insert(localTracks).values({ localAlbumId: album1, audioFileId: fileId, trackNo: 1 });
+    const get = () => app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${id}/results`, headers: { 'x-test-user': ownerId } });
+
+    const jobId = randomUUID();
+    await client`insert into pgboss.job (id, name, state, priority, singleton_key, data)
+      values (${jobId}, 'cluster.dir', 'created', 0, null, ${JSON.stringify({ libraryId, scanRootId: rootId, dirPath: 'A/1' })}::jsonb)`;
+    let res = await get();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      filesWritten: 1, filesFailed: 0, albumsInScope: 1, looseFiles: 0, updating: true,
+      albums: [{ id: album1, title: 'Kind of Blue', artistCredit: 'Miles Davis', artistId: null, planFiles: 1, mergedFrom: 0 }],
+    });
+
+    await client`update pgboss.job set state = 'completed' where id = ${jobId}`;
+    res = await get();
+    expect(res.json().updating).toBe(false);
+    await client`delete from pgboss.job where id = ${jobId}`;
+    await db.delete(localTracks).where(eq(localTracks.audioFileId, fileId));
+
+    // Once no album holds the file, it is counted as loose.
+    res = await get();
+    expect(res.json()).toMatchObject({ filesWritten: 1, albums: [], looseFiles: 1 });
+  });
+
+  it('results of a plan that wrote nothing are empty; another library\'s plan is not found', async () => {
+    const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/results`, headers: { 'x-test-user': ownerId } });
+    expect(res.json()).toEqual({ filesWritten: 0, filesFailed: 0, albumsInScope: 1, albums: [], looseFiles: 0, updating: false });
+    const stranger = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/results`, headers: { 'x-test-user': strangerId } });
+    expect(stranger.statusCode).toBe(404);
+  });
+
+  it('list rows of plans that wrote files carry their counts', async () => {
+    const id = await makePlan('applied');
+    await writeItem(id, 'applied');
+    const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans?limit=200`, headers: { 'x-test-user': ownerId } });
+    const row = res.json().items.find((p: { id: string }) => p.id === id);
+    expect(row.progress).toEqual({ applied: 1, failed: 0 });
+    const draftRow = res.json().items.find((p: { id: string }) => p.id === previewed);
+    expect(draftRow.progress).toBeUndefined();
   });
 });

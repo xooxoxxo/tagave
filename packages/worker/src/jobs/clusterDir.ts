@@ -415,7 +415,10 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // never upserted above, so its counters come from its track rows here —
   // otherwise a rescan of one of its folders would leave them stale.
   const pinnedAlbums = [...new Set([...pinned.values()].filter((id): id is string => !!id))];
-  if (pinnedAlbums.length > 0) await refreshAlbumCounters(ctx, pinnedAlbums);
+  if (pinnedAlbums.length > 0) {
+    await refreshAlbumCounters(ctx, pinnedAlbums);
+    await refreshPinnedAlbumNames(ctx, pinnedAlbums);
+  }
 
   // Clusters in scope that lost every track to regrouping are dead weight;
   // only untouched states are safe to reap.
@@ -565,6 +568,62 @@ export async function refreshAlbumCounters(ctx: Pick<WorkerContext, 'sql'>, albu
        group by lt.local_album_id
     ) s
     where la.id = s.id`;
+}
+
+/**
+ * The title, album artist and year a pinned album should show, from the tags
+ * of every file it holds: a value changes only when all the files agree on
+ * it, and a file without the tag never blanks one. Null means keep the
+ * current value.
+ */
+export function agreedAlbumNames(files: FileTags[]): { title: string | null; artist: string | null; year: number | null } {
+  const agreed = <T>(values: Array<T | null>, key: (v: T) => string): T | null => {
+    if (values.length === 0 || values.some((v) => v === null)) return null;
+    const first = values[0] as T;
+    return values.every((v) => key(v as T) === key(first)) ? first : null;
+  };
+  return {
+    title: agreed(files.map((f) => f.album), (v) => normKey(v)),
+    artist: agreed(files.map((f) => f.albumartist), (v) => normKey(v)),
+    year: agreed(files.map((f) => f.year), (v) => String(v)),
+  };
+}
+
+/**
+ * An album built from pins (merged folders, a split-off copy) is never
+ * upserted from tags, so its title and artist stayed what the merge picked
+ * even after the owner wrote new tags to every file ("The Last Tycoon [2008]"
+ * by "Various Artists" after the files were tagged "The Last Tycoon" by
+ * "Peter Moren"). Bring them in line when the files agree.
+ */
+export async function refreshPinnedAlbumNames(ctx: Pick<WorkerContext, 'sql'>, albumIds: string[]): Promise<void> {
+  if (albumIds.length === 0) return;
+  const rows = (await ctx.sql`
+    select lt.local_album_id as id, af.tags_raw, la.title_guess, la.artist_guess, la.year_guess
+      from local_tracks lt
+      join audio_files af on af.id = lt.audio_file_id
+      join local_albums la on la.id = lt.local_album_id
+     where lt.local_album_id = any(${albumIds}::uuid[])`) as unknown as Array<{
+    id: string; tags_raw: unknown; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
+  }>;
+  const byAlbum = new Map<string, { current: { title: string | null; artist: string | null; year: number | null }; files: FileTags[] }>();
+  for (const r of rows) {
+    const raw = typeof r.tags_raw === 'string' ? JSON.parse(r.tags_raw) : r.tags_raw;
+    const entry = byAlbum.get(r.id) ?? { current: { title: r.title_guess, artist: r.artist_guess, year: r.year_guess }, files: [] };
+    entry.files.push(tagsOf(raw));
+    byAlbum.set(r.id, entry);
+  }
+  for (const [id, { current, files }] of byAlbum) {
+    const next = agreedAlbumNames(files);
+    const title = next.title ?? current.title;
+    const artist = next.artist ?? current.artist;
+    const year = next.year ?? current.year;
+    if (title === current.title && artist === current.artist && year === current.year) continue;
+    await ctx.sql`
+      update local_albums
+         set title_guess = ${title}, artist_guess = ${artist}, year_guess = ${year}, updated_at = now()
+       where id = ${id}`;
+  }
 }
 
 /** LIKE is used for path prefixes; the archive has folders with '%' and '_'. */

@@ -161,3 +161,20 @@ so the change reads at a glance. */
 .reasons { margin: var(--space-sm) 0 0; padding-left: 1.1rem; display: grid; gap: var(--space-sm); }
 .reasonActions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xs); }
 .reasonNote { display: block; margin-top: var(--space-xs); font-size: var(--font-size-sm); color: var(--text-secondary); }
+
+/* What the plan is, for whoever wants it: collapsed so the header stays one line. */
+.details { font-size: var(--font-size-sm); color: var(--ink-2); }
+.detailsSummary {
+  display: inline-flex; align-items: center; gap: var(--space-xs);
+  cursor: pointer; color: var(--ink-2); font-weight: 500; list-style: none;
+  border-radius: var(--r-pill); padding: 2px 0;
+}
+.detailsSummary::-webkit-details-marker { display: none; }
+.detailsSummary::before { content: '▸'; font-size: var(--font-size-xs); color: var(--ink-3); transition: transform var(--dur) var(--ease-out); }
+.details[open] > .detailsSummary::before { transform: rotate(90deg); }
+.detailsSummary:hover { color: var(--ink); }
+.detailsSummary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.detailsList { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-xs) var(--space-lg); margin: var(--space-sm) 0 0; padding: var(--space-md) var(--space-lg); border-left: 2px solid var(--line); }
+.detailsList dt { color: var(--ink-3); }
+.detailsList dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .detailsSummary::before { transition: none; } }

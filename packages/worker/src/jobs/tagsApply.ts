@@ -24,6 +24,7 @@ import path from 'node:path';
 import type { TagDiffEntry } from '@liner/shared';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 import { localTracks } from '@liner/db';
+import { clusterSingletonKey, relDirname } from '../lib/helpers.js';
 
 export interface TagsApplyJobData {
   planId: string;
@@ -447,6 +448,9 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
         .from(tagPlanItems)
         .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'failed')));
       const status = failed.length > 0 ? 'partially_failed' : 'applied';
+      // Queued before the status flips, so the plan page never sees a
+      // finished plan whose albums have not started updating yet.
+      await reclusterWrittenDirs(ctx, planId);
       await db
         .update(tagPlans)
         .set({ status, appliedAt: new Date() })
@@ -472,6 +476,39 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   }
 
   await relintTouchedAlbums(ctx, libraryId, fileIds);
+}
+
+/**
+ * The albums a plan's files form come from their tags, but the scan never
+ * re-reads a file the plan wrote: apply records the new size and mtime, so
+ * the walk sees nothing changed and the albums kept the old title and artist
+ * ("Various Artists" on an album the plan had just given one album artist).
+ * Re-cluster every folder the plan wrote to, as a rescan would. Singleton per
+ * folder, the same key scan.parse uses, so a re-cluster already queued for a
+ * folder covers it.
+ */
+export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss' | 'logger'>, planId: string): Promise<number> {
+  const rows = await ctx.db
+    .selectDistinct({ libraryId: audioFiles.libraryId, scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+    .from(tagPlanItems)
+    .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+    .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+  const dirs = new Map<string, { libraryId: string; scanRootId: string; dirPath: string }>();
+  for (const r of rows) {
+    const dirPath = relDirname(r.relPath);
+    dirs.set(`${r.scanRootId}\n${dirPath}`, { libraryId: r.libraryId, scanRootId: r.scanRootId, dirPath });
+  }
+  let queued = 0;
+  for (const d of dirs.values()) {
+    try {
+      await ctx.boss.send('cluster.dir', d, { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), singletonSeconds: 30 });
+      queued++;
+    } catch (error) {
+      ctx.logger.warn({ planId, dirPath: d.dirPath, error: String(error) }, 'tags.apply: could not queue re-cluster');
+    }
+  }
+  if (dirs.size > 0) ctx.logger.info({ planId, dirs: dirs.size, queued }, 'tags.apply: re-cluster queued');
+  return queued;
 }
 
 /**

@@ -1,0 +1,19 @@
+/* The name reads as plain text; the pencil stays faint until the row or the
+   title is hovered or focused, so an editable name adds no weight at rest. */
+.wrap { display: inline-flex; align-items: center; gap: var(--space-xs); min-width: 0; max-width: 100%; }
+.text { min-width: 0; overflow-wrap: anywhere; }
+.title .text { cursor: text; }
+.edit { flex-shrink: 0; opacity: 0.45; transition: opacity var(--dur) var(--ease-out); }
+.wrap:hover .edit,
+.edit:focus-visible { opacity: 1; }
+@media (hover: none) { .edit { opacity: 1; } }
+
+.editing { display: inline-flex; flex-direction: column; gap: var(--space-xs); width: min(100%, 40rem); }
+.input { width: 100%; }
+/* In the headline the field takes the title face so the name does not jump
+   in size when it turns editable; weight stays at the headline's 300. */
+.title .input { font: var(--type-title); min-height: var(--h-control); }
+.row .input { font-size: var(--font-size-sm); }
+
+.hint { font: 400 var(--font-size-xs) / 1.4 var(--font-body); color: var(--ink-3); letter-spacing: 0; }
+.error { color: var(--danger); }
