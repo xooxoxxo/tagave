@@ -24,11 +24,15 @@ import {
   useTagPlan,
   useTagPlanItems,
   useTagPlanSummary,
+  usePlanAppears,
   previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
 import { derivePreviewState, progressSignature } from './planPreviewState';
+import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
+import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
+import { useIdentifyAlbums } from '../hooks/useCompilations';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -55,7 +59,82 @@ const PRESET_LABEL: Record<string, string> = {
   fill_blanks_only: 'Fill blanks only',
   overwrite_all: 'Overwrite all',
   custom: 'Custom',
+  manual: 'Your values',
+  revert: 'Revert',
 };
+
+/** "album artist → Various Artists · compilation → yes" for a manual plan */
+function manualSummary(values: Record<string, string | string[] | undefined> | undefined): string {
+  if (!values) return '';
+  return Object.entries(values)
+    .filter(([, v]) => v !== undefined)
+    .map(([k, v]) => {
+      const label = (FIELD_LABELS[k] ?? k).toLowerCase();
+      if (k === 'compilation') return `${label} → ${v === '1' ? 'yes' : 'no'}`;
+      return `${label} → ${Array.isArray(v) ? v.join('; ') : v}`;
+    })
+    .join(' · ');
+}
+
+/**
+ * Why the preview changes nothing (or leaves files out), one line per reason
+ * with what can be done about it: identify the albums, set the values by
+ * hand, look at locks. Hidden when the stats name no reason.
+ */
+function PreviewOutcomeNotice({
+  outcome, manual, onIdentify, identifying, identifyNote, onSetValues,
+}: {
+  outcome: PreviewOutcome;
+  manual: boolean;
+  onIdentify: (albumIds: string[]) => void;
+  identifying: boolean;
+  identifyNote: string | null;
+  onSetValues: (() => void) | null;
+}) {
+  const { notIdentified, releaseMissing } = outcome;
+  const toIdentify = [...new Set([...notIdentified.albumIds, ...releaseMissing.albumIds])];
+  return (
+    <Banner tone={outcome.nothing ? 'info' : 'warning'}>
+      <strong>{outcome.nothing ? 'This plan changes nothing. Here is why:' : 'Some files are left out of this plan:'}</strong>
+      <ul className={styles.reasons}>
+        {notIdentified.files > 0 && (
+          <li>
+            {plural(notIdentified.files, 'file')} {verb(notIdentified.files, 'belongs', 'belong')} to {notIdentified.albumIds.length > 0 ? plural(notIdentified.albumIds.length, 'album') : 'albums'} that
+            {notIdentified.albumIds.length === 1 ? ' is' : ' are'} not identified yet, so there is no release to take canonical values from.
+            <span className={styles.reasonActions}>
+              {toIdentify.length > 0 && (
+                <Button variant="secondary" size="sm" loading={identifying} onClick={() => onIdentify(toIdentify)}>
+                  Identify {toIdentify.length === 1 ? 'the album' : `${toIdentify.length.toLocaleString()} albums`}
+                </Button>
+              )}
+              {onSetValues && <Button variant="primary" size="sm" onClick={onSetValues}>Set the values yourself</Button>}
+            </span>
+            {identifyNote && <span className={styles.reasonNote} role="status">{identifyNote}</span>}
+          </li>
+        )}
+        {releaseMissing.files > 0 && (
+          <li>{plural(releaseMissing.files, 'file')} {verb(releaseMissing.files, 'belongs', 'belong')} to albums whose matched release is no longer cached; identifying them again restores it.</li>
+        )}
+        {outcome.notInAlbum > 0 && <li>{plural(outcome.notInAlbum, 'file')} {verb(outcome.notInAlbum, 'is', 'are')} not part of any album.</li>}
+        {outcome.notWritable > 0 && (
+          <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Tag preferences › Scan roots</Link>.</li>
+        )}
+        {outcome.errors.files > 0 && (
+          <li>{plural(outcome.errors.files, 'file')} could not be read{outcome.errors.sample ? `: ${outcome.errors.sample}` : ''}.</li>
+        )}
+        {outcome.lockedOnly > 0 && (
+          <li>{plural(outcome.lockedOnly, 'file')} would change only in locked fields; locks always win ({plural(outcome.lockedChanges, 'change')} kept back).</li>
+        )}
+        {outcome.lockedOnly === 0 && outcome.lockedChanges > 0 && (
+          <li>{plural(outcome.lockedChanges, 'change')} kept back by locked fields.</li>
+        )}
+        {outcome.nothing && (outcome.alreadyCorrect ?? 0) > 0 && (
+          <li>{plural(outcome.alreadyCorrect!, 'file')} already {verb(outcome.alreadyCorrect!, 'carries', 'carry')} {manual ? 'the values you set' : 'the canonical values under this policy'}.</li>
+        )}
+      </ul>
+    </Banner>
+  );
+}
 
 function scopeLabel(scope: Record<string, unknown> | undefined): string {
   const type = scope?.type as string | undefined;
@@ -64,6 +143,7 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
     case 'artist': return 'All albums by one artist';
     case 'albumIds': return `${(scope?.albumIds as string[] | undefined)?.length ?? 0} album(s)`;
     case 'filterQuery': return 'Albums matching a filter';
+    case 'folder': return `Every file in ${String(scope?.dirPath ?? '')}`;
     default: return '—';
   }
 }
@@ -144,6 +224,27 @@ export function PlanPage() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   // Track whether we've fired auto-preview for this mount to prevent re-firing
   const previewAutoFiredRef = useRef(false);
+  const [editingValues, setEditingValues] = useState(false);
+  const [identifyNote, setIdentifyNote] = useState<string | null>(null);
+  const identifyAlbums = useIdentifyAlbums(libraryId);
+  // Revert builds a new, already previewed plan from the journal; open it
+  // as soon as the worker has written it.
+  const [revertPlanId, setRevertPlanId] = useState<string | null>(null);
+  const revertPlan = usePlanAppears(libraryId, revertPlanId);
+  useEffect(() => {
+    if (revertPlanId && revertPlan.data) {
+      setRevertPlanId(null);
+      void navigate({ to: '/plans/$planId', params: { planId: revertPlanId } });
+    }
+  }, [revertPlanId, revertPlan.data, navigate]);
+  useEffect(() => {
+    if (!revertPlanId) return;
+    const t = setTimeout(() => {
+      setRevertPlanId(null);
+      setError('The revert plan is taking long to build. It will appear under Tag changes when it is ready.');
+    }, AWAIT_MS);
+    return () => clearTimeout(t);
+  }, [revertPlanId]);
 
   const planQ = useTagPlan(libraryId, planId, { refetchInterval: 0 });
   const status = planQ.data?.status;
@@ -292,6 +393,29 @@ export function PlanPage() {
   const tagWritesDisabled = settings.data !== undefined && !settings.data.tagWritesEnabled;
   const noWritableRoots = roots.data !== undefined && !roots.data.some((r) => r.writable);
   const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
+  const outcome = previewed ? explainPreview(stats) : null;
+  const isManual = p?.policy.preset === 'manual';
+  const isRevert = p?.policy.preset === 'revert';
+  // "Set the values yourself" edits the albums this plan covers.
+  const planAlbumIds = p?.scope?.type === 'albumIds' ? (p.scope as { albumIds: string[] }).albumIds : null;
+  const planFolder = p?.scope?.type === 'folder' ? (p.scope as { dirPath: string; scanRootId?: string }) : null;
+  const valueScopes: EditScopeOption[] = planAlbumIds
+    ? [{ key: 'plan', label: `The ${planAlbumIds.length === 1 ? 'album' : `${planAlbumIds.length} albums`} in this plan`, scope: { type: 'albumIds', albumIds: planAlbumIds } }]
+    : planFolder
+      ? [{ key: 'plan', label: `Every file in ${planFolder.dirPath}`, scope: { type: 'folder', dirPath: planFolder.dirPath, ...(planFolder.scanRootId ? { scanRootId: planFolder.scanRootId } : {}) } }]
+    : outcome && outcome.notIdentified.albumIds.length > 0
+      ? [{ key: 'unidentified', label: 'The albums that are not identified', scope: { type: 'albumIds', albumIds: outcome.notIdentified.albumIds } }]
+      : [];
+  const identify = async (albumIds: string[]) => {
+    setIdentifyNote(null);
+    const capped = albumIds.slice(0, 50);
+    try {
+      const r = await identifyAlbums.mutateAsync(capped);
+      setIdentifyNote(`Identification queued for ${plural(r.queued, 'album')}${albumIds.length > capped.length ? ` (the first ${capped.length})` : ''}. Preview again once they are matched.`);
+    } catch (e) {
+      setIdentifyNote((e as { detail?: string })?.detail ?? 'Identification could not be queued.');
+    }
+  };
   const canApply = p?.status === 'previewed' && !nothingToDo && !tagWritesDisabled && !noWritableRoots;
   const applyTitle = !previewed ? 'Preview has not finished yet'
     : nothingToDo ? 'Nothing to change'
@@ -359,13 +483,14 @@ export function PlanPage() {
         <span className={styles.meta}>
           <Link to="/plans" className={styles.back}>Tag changes</Link>
           {' › '}{p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
+          {isManual && p.policy.values ? <> · sets {manualSummary(p.policy.values as Record<string, string | string[] | undefined>)}</> : null}
           {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
           {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
         </span>
       }
       actions={
         <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
+          {!isRevert && (p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
             <Button variant="secondary" loading={previewM.isPending} onClick={p.status === 'draft' ? startPreview : run(previewM)} disabled={previewBusy}>
               {previewButtonLabel}
             </Button>
@@ -388,8 +513,23 @@ export function PlanPage() {
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
-            <Button variant="danger" loading={revertM.isPending} onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending || awaiting !== null}>
-              {revertM.isPending || awaiting !== null ? 'Starting…' : 'Revert'}
+            <Button
+              variant="danger"
+              loading={revertM.isPending || revertPlanId !== null}
+              onClick={async () => {
+                if (!window.confirm(`Prepare a plan that restores the previous tags on ${progress?.applied ?? 0} file(s)? You will see it before anything is written.`)) return;
+                setError(null);
+                try {
+                  const r = await revertM.mutateAsync();
+                  if (r.revertPlanId) setRevertPlanId(r.revertPlanId);
+                  else await navigate({ to: '/plans' });
+                } catch (e) {
+                  setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+                }
+              }}
+              disabled={revertM.isPending || revertPlanId !== null || awaiting !== null}
+            >
+              {revertM.isPending || revertPlanId !== null ? 'Preparing…' : 'Revert'}
             </Button>
           )}
           {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
@@ -500,8 +640,21 @@ export function PlanPage() {
           <Banner tone="success">Tag changes applied. Review the files below. Revert restores the tags saved before this change.</Banner>
         )}
 
-        {nothingToDo && (
-          <Banner tone="info">Every file in scope already carries the canonical values under this policy. Nothing to apply.</Banner>
+        {outcome?.explained ? (
+          <PreviewOutcomeNotice
+            outcome={outcome}
+            manual={isManual}
+            onIdentify={(ids) => void identify(ids)}
+            identifying={identifyAlbums.isPending}
+            identifyNote={identifyNote}
+            onSetValues={valueScopes.length > 0 && libraryId ? () => setEditingValues(true) : null}
+          />
+        ) : nothingToDo ? (
+          <Banner tone="info">Every file in scope already carries {isManual ? 'the values you set' : 'the canonical values under this policy'}. Nothing to apply.</Banner>
+        ) : null}
+
+        {editingValues && libraryId && valueScopes.length > 0 && (
+          <BulkTagEditor libraryId={libraryId} scopes={valueScopes} title="Set the values yourself" onClose={() => setEditingValues(false)} />
         )}
 
         {previewed && stats && (

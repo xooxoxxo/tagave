@@ -75,6 +75,26 @@ export function useTagPlan(
   });
 }
 
+/**
+ * A plan the worker is about to create (the revert of an applied plan):
+ * polls until it exists, then returns it. A 404 is "not yet", not an error.
+ */
+export function usePlanAppears(libraryId: string | undefined, planId: string | null) {
+  return useQuery({
+    queryKey: ['tag-plan-appears', libraryId, planId],
+    queryFn: async () => {
+      try {
+        return await api.get<TagPlanDetail>(`/libraries/${libraryId}/tag-plans/${planId}`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!libraryId && !!planId,
+    retry: false,
+    refetchInterval: (q) => (q.state.data ? false : 1500),
+  });
+}
+
 export interface TagPlanItemsPage {
   items: TagPlanItem[];
   total: number;
@@ -201,10 +221,17 @@ export function useCancelTagPlan(libraryId: string | undefined, planId: string |
  * Revert a tag plan (POST /libraries/:libraryId/tag-plans/:planId/revert)
  * Returns 202 with jobId, singletonKey, and message
  */
+export interface RevertPlanResponse {
+  jobId: string | null;
+  /** the plan the worker builds from the journal; open it once it exists */
+  revertPlanId: string | null;
+  message: string;
+}
+
 export function useRevertTagPlan(libraryId: string | undefined, planId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/revert`, {}),
+    mutationFn: () => api.post<RevertPlanResponse>(`/libraries/${libraryId}/tag-plans/${planId}/revert`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });

@@ -243,6 +243,8 @@ export const localAlbums = pgTable(
     embeddedMbid: varchar('embedded_mbid', { length: 36 }),
     // 0026: when all local_tracks have been linked to canonical_tracks
     tracksLinkedAt: timestamp('tracks_linked_at', { withTimezone: true }),
+    // 0029: set by "Treat as one album"; what "Split back" restores (see mergeAlbums.ts)
+    mergedFrom: jsonb('merged_from'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

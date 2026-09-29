@@ -12,6 +12,8 @@ import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, S
 import { useCurrentLibrary, useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
 import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';
+import { BulkTagEditor } from '../components/BulkTagEditor';
+import { useMergeAlbums } from '../hooks/useCompilations';
 import { activeFilterCount, albumsQueryOf, toggleMulti, type AlbumsSearch } from './albumsSearch';
 import styles from './AlbumsPage.module.css';
 
@@ -115,6 +117,24 @@ export function AlbumsPage() {
     });
   };
   const clearSelection = () => { setSelected(new Set()); setAllMatching(false); anchor.current = null; };
+
+  /* ---- compilations: set album values for the selection, or treat it as one album ---- */
+  const [editingIds, setEditingIds] = useState<string[] | null>(null);
+  const [mergeNote, setMergeNote] = useState<string | null>(null);
+  const merge = useMergeAlbums(libraryId);
+  const mergeSelected = async () => {
+    const ids = [...selected];
+    if (ids.length < 2) return;
+    if (!window.confirm(`Treat these ${ids.length} albums as one? Nothing on disk moves; you can split them back from the album page.`)) return;
+    setMergeNote(null);
+    try {
+      const r = await merge.mutateAsync({ albumIds: ids });
+      clearSelection();
+      void navigate({ to: '/albums/$albumId', params: { albumId: r.albumId } });
+    } catch (e) {
+      setMergeNote((e as { detail?: string })?.detail ?? 'The albums could not be merged.');
+    }
+  };
 
   const runBulk = async (action: BulkAlbumAction) => {
     const count = selectionCount;
@@ -272,9 +292,34 @@ export function AlbumsPage() {
                   {BULK_LABEL[a]}
                 </button>
               ))}
+              <button
+                className={styles.toolButton}
+                disabled={allMatching || selected.size === 0 || selected.size > BULK_ID_CHUNK}
+                title={allMatching ? 'Pick albums one by one to edit their tags together' : 'Set album artist, title, year, compilation or genre for every file in the selection; you preview before anything is written'}
+                onClick={() => setEditingIds([...selected])}
+              >
+                Set album values…
+              </button>
+              <button
+                className={styles.toolButton}
+                disabled={allMatching || selected.size < 2 || selected.size > 200 || merge.isPending}
+                title={selected.size < 2 ? 'Select two or more albums' : 'Make the selected albums one album without moving files (for a compilation split across folders)'}
+                onClick={() => void mergeSelected()}
+              >
+                {merge.isPending ? 'Merging…' : 'Treat as one album'}
+              </button>
             </span>
             {bulk.isPending && <span className={styles.muted}>working…</span>}
+            {mergeNote && <span className={styles.muted} role="status">{mergeNote}</span>}
           </div>
+        )}
+        {editingIds && libraryId && (
+          <BulkTagEditor
+            libraryId={libraryId}
+            scopes={[{ key: 'selection', label: `${editingIds.length} selected album${editingIds.length === 1 ? '' : 's'}`, scope: { type: 'albumIds', albumIds: editingIds } }]}
+            title={`Set album values · ${editingIds.length} album${editingIds.length === 1 ? '' : 's'}`}
+            onClose={() => setEditingIds(null)}
+          />
         )}
         {bulkResult && !bulk.isPending && (
           <div className={styles.bulkResult}>

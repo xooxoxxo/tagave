@@ -146,7 +146,7 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
     if (policySeeded || !settings.data?.tagPolicy) return;
     const p = settings.data.tagPolicy;
     setStep2({
-      preset: p.preset,
+      preset: p.preset === 'manual' || p.preset === 'revert' ? 'canonical_ids_and_fill' : p.preset,
       id3Version: p.id3Version,
       multiValueSeparator: p.multiValueSeparator,
       ...(p.overrides ? { overrides: p.overrides } : {}),

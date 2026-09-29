@@ -6,16 +6,23 @@
  * file with its diff. No disk writes. Ends by setting the plan to
  * 'previewed' with the aggregate.
  *
+ * The manual preset (bulk edit) compares against the values the owner typed
+ * (policy.values) instead of a matched release, so it works for identified
+ * and unidentified albums alike; locks still win.
+ *
  * Rules that keep the preview honest:
- * - a file whose album is not identified is skipped (nothing canonical to
- *   write), and says so;
+ * - a file whose album is not identified is skipped under a canonical
+ *   policy (nothing canonical to write), and says so with its album id;
+ * - stats say why nothing changed: files already correct, files whose only
+ *   changes a lock blocked, files skipped and why;
  * - a field whose canonical value is unknown is never changed — no policy
  *   blanks a tag because the provider had no data;
  * - arrays compare as sets (genre order or a duplicate is not a change).
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import {
   audioFiles,
+  fieldLocks,
   localAlbums,
   localTracks,
   releaseGroupArtists,
@@ -23,7 +30,10 @@ import {
   tagPlanItems,
   tagPlans,
 } from '@liner/db';
-import { CanonicalField, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats } from '@liner/shared';
+import {
+  CanonicalField, MANUAL_TAG_FIELDS,
+  type ManualTagValues, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats,
+} from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
@@ -58,10 +68,27 @@ export function presetPolicy(preset: TagPolicies['preset'], field: string): Fiel
       return 'fill';
     case 'overwrite_all':
       return 'overwrite';
+    case 'manual':
+      // only the fields the owner filled in; see manualCanonical
+      return (MANUAL_TAG_FIELDS as readonly string[]).includes(field) ? 'overwrite' : 'never';
     case 'custom':
     default:
       return 'never';
   }
+}
+
+/**
+ * The "canonical" value per field for a manual plan: exactly what the owner
+ * typed, nothing for fields left out (so they are never touched). A
+ * compilation flag of '0' means "not a compilation": a file with no flag
+ * already says that, so it compares equal to a blank.
+ */
+export function manualCanonical(values: ManualTagValues | undefined, field: string, before: Value): Value {
+  if (!values) return null;
+  const v = (values as Record<string, string | string[] | undefined>)[field];
+  if (v === undefined) return null;
+  if (field === 'compilation' && v === '0' && (isBlank(before) || before === '0')) return before;
+  return v;
 }
 
 export function fieldPolicyFor(policy: TagPolicies, field: string): FieldPolicy {
@@ -99,12 +126,27 @@ export function decideField(
   return { after: canonical, reason: 'policy:overwrite' };
 }
 
+const likeEscape = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+
 /** Audio file ids in scope; only present files, and (for albums) only tracks of those albums. */
 async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
   const db = ctx.db;
   if (scope.type === 'library') {
     const files = await db.select({ id: audioFiles.id }).from(audioFiles)
       .where(and(eq(audioFiles.libraryId, libraryId), eq(audioFiles.status, 'present')));
+    return files.map((f) => f.id);
+  }
+  if (scope.type === 'folder') {
+    // Exactly the files under the folder, loose files included and files of
+    // the same albums that live elsewhere left out.
+    const dir = scope.dirPath.replace(/\/+$/, '');
+    const files = await db.select({ id: audioFiles.id }).from(audioFiles)
+      .where(and(
+        eq(audioFiles.libraryId, libraryId),
+        eq(audioFiles.status, 'present'),
+        scope.scanRootId ? eq(audioFiles.scanRootId, scope.scanRootId) : undefined,
+        like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+      ));
     return files.map((f) => f.id);
   }
   let albumIds: string[] = [];
@@ -133,6 +175,27 @@ async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, sco
 }
 
 void releaseGroupArtists; // referenced via raw SQL above; keeps the import meaningful for readers
+
+/**
+ * Locked fields for one file under a manual plan: file- and track-level locks
+ * and album-level locks of the album the file is in. A manual value never
+ * replaces a locked field; the lock's own value is what the owner chose.
+ */
+async function manualLocksFor(ctx: WorkerContext, libraryId: string, audioFileId: string): Promise<Set<string>> {
+  const tracks = await ctx.db
+    .select({ id: localTracks.id, localAlbumId: localTracks.localAlbumId })
+    .from(localTracks)
+    .where(eq(localTracks.audioFileId, audioFileId));
+  const trackScopes = [audioFileId, ...tracks.map((t) => t.id)];
+  const albumScopes = tracks.flatMap((t) => (t.localAlbumId ? [t.localAlbumId] : []));
+  const rows = await ctx.db
+    .select({ field: fieldLocks.field, scope: fieldLocks.scope, scopeId: fieldLocks.scopeId })
+    .from(fieldLocks)
+    .where(and(eq(fieldLocks.libraryId, libraryId), inArray(fieldLocks.scopeId, [...trackScopes, ...albumScopes])));
+  return new Set(rows
+    .filter((l) => (l.scope === 'track' && trackScopes.includes(l.scopeId)) || (l.scope === 'album' && albumScopes.includes(l.scopeId)))
+    .map((l) => l.field));
+}
 
 /** How often the preview rewrites its job_runs row while it walks files. */
 const PROGRESS_EVERY_MS = 1_000;
@@ -200,6 +263,16 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   const scope = plan.scope as TagPlanScope;
   const policy = plan.policy as TagPolicies;
 
+  // A revert plan's items come from the journal of the plan it undoes; a
+  // preview has nothing to recompute and must not replace them (a canonical
+  // re-preview skipped every unidentified file and left the revert empty).
+  if (policy.preset === 'revert') {
+    await db.update(tagPlans).set({ status: 'previewed' })
+      .where(and(eq(tagPlans.id, planId), eq(tagPlans.status, 'draft')));
+    await progress.done(0);
+    return;
+  }
+
   // One row per (plan, file): drop the previous preview's pending rows first.
   await db.delete(tagPlanItems).where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
 
@@ -216,7 +289,8 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   // On a large library that alone outlasts the plan page's 30 s wait. One
   // array parameter, not a list, so a whole-library scope stays one query
   // under the bind-parameter limit.
-  const albumsInScope = fileIds.length === 0 ? [] : (await ctx.sql`
+  // A manual plan writes typed values, not canonical ones: nothing to link.
+  const albumsInScope = fileIds.length === 0 || policy.preset === 'manual' ? [] : (await ctx.sql`
     select la.id::text as id, la.release_id::text as "releaseId", (la.tracks_linked_at is not null) as linked
       from local_albums la
      where la.library_id = ${libraryId}
@@ -239,8 +313,11 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   let filesTouched = 0;
   let fieldsModified = 0;
   let lockedFieldsRespected = 0;
+  let filesAlreadyCorrect = 0;
+  let filesLockedOnly = 0;
   const filesSkipped: TagPlanStats['filesSkipped'] = [];
   const fields = Object.values(CanonicalField) as CanonicalField[];
+  const manual = policy.preset === 'manual';
 
   for (const [i, audioFileId] of fileIds.entries()) {
     await progress.files(i, fileIds.length);
@@ -254,24 +331,44 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
         filesSkipped.push({ audioFileId, reason: 'scan_root_not_writable' });
         continue;
       }
-      const resolution = await resolveMetadataForFile(ctx, libraryId, audioFileId);
-      if (!resolution.ok) {
-        filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: resolution.reason.replaceAll('_', ' ') });
-        continue;
+      const before = currentFieldsFrom(file.tagsRaw);
+      /** per field: the value to compare against, and whether a lock holds it */
+      let target: (field: CanonicalField, current: Value) => { canonical: Value; locked: boolean };
+      if (manual) {
+        const locked = await manualLocksFor(ctx, libraryId, audioFileId);
+        target = (field, current) => ({ canonical: manualCanonical(policy.values, field, current), locked: locked.has(field) });
+      } else {
+        const resolution = await resolveMetadataForFile(ctx, libraryId, audioFileId);
+        if (!resolution.ok) {
+          filesSkipped.push({
+            audioFileId,
+            reason: resolution.reason,
+            message: resolution.reason.replaceAll('_', ' '),
+            ...(resolution.localAlbumId ? { localAlbumId: resolution.localAlbumId } : {}),
+          });
+          continue;
+        }
+        const resolved = resolution.value.resolved;
+        target = (field) => {
+          const r = resolved[field];
+          return { canonical: r?.value === undefined ? null : r.value, locked: r?.source === 'lock' };
+        };
       }
 
-      const before = currentFieldsFrom(file.tagsRaw);
       const diffs: TagDiffEntry[] = [];
       const after: Partial<Record<CanonicalField, Value>> = {};
+      let blockedByLock = 0;
       for (const field of fields) {
-        const resolved = resolution.value.resolved[field];
-        const canonical: Value = resolved?.value === undefined ? null : resolved.value;
-        const locked = resolved?.source === 'lock';
         const current: Value = before[field] ?? null;
-        const decision = decideField(fieldPolicyFor(policy, field), current, canonical, locked);
+        const { canonical, locked } = target(field, current);
+        const fieldPolicy = fieldPolicyFor(policy, field);
+        const decision = decideField(fieldPolicy, current, canonical, locked);
         if (decision.reason === 'locked') {
           // a lock only counts when the policy would otherwise have changed the field
-          if (fieldPolicyFor(policy, field) !== 'never' && valueKey(current) !== valueKey(canonical)) lockedFieldsRespected++;
+          if (fieldPolicy !== 'never' && !isBlank(canonical) && valueKey(current) !== valueKey(canonical)) {
+            lockedFieldsRespected++;
+            blockedByLock++;
+          }
           continue;
         }
         if (decision.reason === 'no-change') continue;
@@ -280,6 +377,10 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
         fieldsModified++;
       }
 
+      if (diffs.length === 0) {
+        if (blockedByLock > 0) filesLockedOnly++;
+        else filesAlreadyCorrect++;
+      }
       if (diffs.length === 0) continue;
       filesTouched++;
       await db.insert(tagPlanItems).values({
@@ -295,7 +396,10 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
     }
   }
 
-  const stats: TagPlanStats = { filesTouched, fieldsModified, lockedFieldsRespected, filesSkipped };
+  const stats: TagPlanStats = {
+    filesTouched, fieldsModified, lockedFieldsRespected, filesSkipped,
+    filesInScope: fileIds.length, filesAlreadyCorrect, filesLockedOnly,
+  };
   // Only mark the plan previewed if its scope is still the one this run read
   // (albums added mid-run would otherwise look previewed when they are not)
   // and nothing has moved it past preview. The request that changed the

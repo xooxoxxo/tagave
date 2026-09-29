@@ -12,6 +12,8 @@ import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
 import { AlbumEditionsPanel } from './AlbumEditionsPanel';
 import { AlbumMaintenanceActions } from '../components/AlbumMaintenanceActions';
+import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
+import { CompilationPanel, type MergeCandidateView } from '../components/CompilationPanel';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 import { uniqueGenres } from '../utils/albumPresentation';
@@ -107,6 +109,10 @@ interface AlbumDetail {
   mixed: boolean;
   /** set on an album split off another one; "Merge back" returns the files */
   splitFrom: string | null;
+  /** built by "Treat as one album"; can be split back */
+  merged?: boolean;
+  /** other albums with this title that fit together with this one */
+  mergeCandidates?: MergeCandidateView[];
   artists?: Array<{ id: string; name: string; position: number }>;
   genres?: {
     effective: string[];
@@ -207,6 +213,7 @@ export function AlbumDetailPage() {
   // Album first; editions, reviews and the background story live on their own
   // faces and load only when opened, so a page visit costs one detail request.
   const [tab, setTab] = useState<'album' | 'care' | 'editions' | 'reviews' | 'activity'>('album');
+  const [editingTags, setEditingTags] = useState(false);
   // the split options live in "Manage this album"; the Library health row opens it
   const manageRef = useRef<HTMLDetailsElement>(null);
   const openManage = () => {
@@ -341,6 +348,19 @@ export function AlbumDetailPage() {
 
   const genreLabels = uniqueGenres(album.genres?.effective, album.genres?.styles, album.release?.genres, album.release?.styles);
 
+  // The bulk editor covers this album, or everything in its folder (or the
+  // folder above it, where a compilation filed one folder per track lives).
+  const parentOf = (d: string) => (d.includes('/') ? d.slice(0, d.lastIndexOf('/')) : '');
+  const editScopes: EditScopeOption[] = [
+    { key: 'album', label: `This album (${album.trackCount ?? 0} track${album.trackCount === 1 ? '' : 's'})`, scope: { type: 'albumIds', albumIds: [album.id] } },
+    ...(album.dirPaths?.length === 1 && album.dirPaths[0]
+      ? [{ key: 'folder', label: `Every file in ${album.dirPaths[0]} (whichever album it is in)`, scope: { type: 'folder' as const, dirPath: album.dirPaths[0] } }]
+      : []),
+    ...(album.dirPaths?.length === 1 && parentOf(album.dirPaths[0] ?? '')
+      ? [{ key: 'parent', label: `Every file in ${parentOf(album.dirPaths[0]!)} and its subfolders`, scope: { type: 'folder' as const, dirPath: parentOf(album.dirPaths[0]!) } }]
+      : []),
+  ];
+
   const describeGap = (g: Gap): string => {
     if (g.kind === 'incomplete_album') {
       const d = g.details as { have?: number; want?: number };
@@ -449,6 +469,7 @@ export function AlbumDetailPage() {
               </button>
             )}
           </div>
+          {libraryId && <CompilationPanel libraryId={libraryId} album={album} onEditTags={() => setEditingTags(true)} />}
           <details className={styles.albumFacts}>
             <summary>Album details</summary>
             <dl>
@@ -487,6 +508,9 @@ export function AlbumDetailPage() {
                 Ignore
               </button>
             )}
+            <button className="secondary" onClick={() => setEditingTags(true)} title="Set album artist, title, year, compilation or genre for every track at once; you preview before anything is written">
+              Set album values…
+            </button>
             {libraryId && <AlbumMaintenanceActions libraryId={libraryId} album={album} />}
             {fingerprint.isError && <span className={styles.mbidError}>{errorDetail(fingerprint)}</span>}
           </div>
@@ -914,6 +938,14 @@ export function AlbumDetailPage() {
             </a>
           </span>
         </div>
+      )}
+      {editingTags && libraryId && (
+        <BulkTagEditor
+          libraryId={libraryId}
+          scopes={editScopes}
+          title={`Set album values · ${album.release?.title ?? album.title ?? 'this album'}`}
+          onClose={() => setEditingTags(false)}
+        />
       )}
     </div>
   );
