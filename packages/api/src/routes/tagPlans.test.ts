@@ -77,7 +77,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
       { id: otherLibraryId, name: 'Other', ownerUserId: strangerId, settings: {} },
     ]);
     await db.insert(localAlbums).values([
-      { id: album1, libraryId, clusterKey: `a1-${album1}`, dirPaths: ['A/1'], state: 'matched' },
+      { id: album1, libraryId, clusterKey: `a1-${album1}`, dirPaths: ['A/1'], state: 'matched', titleGuess: 'Kind of Blue', artistGuess: 'Miles Davis' },
       { id: album2, libraryId, clusterKey: `a2-${album2}`, dirPaths: ['A/2'], state: 'matched' },
       { id: album3, libraryId, clusterKey: `a3-${album3}`, dirPaths: ['A/3'], state: 'matched' },
       { id: foreignAlbum, libraryId: otherLibraryId, clusterKey: `f-${foreignAlbum}`, dirPaths: ['F'], state: 'matched' },
@@ -156,6 +156,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     // The queue is stately: sends under one key collapse into the one waiting
     // preview, which reads the final scope when it starts.
     expect(previewSends(draft).map((j) => j.opts.singletonKey)).toEqual([`tag_plan:${draft}`, `tag_plan:${draft}`]);
+  });
+
+  it('renames a plan the wizard named after its first album, keeps a typed name', async () => {
+    const named = await makePlan('draft');
+    await db.update(tagPlans).set({ name: 'Miles Davis — Kind of Blue tags' }).where(eq(tagPlans.id, named));
+    const res = await add(named, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.json()).toMatchObject({ added: 1, name: 'Miles Davis — Kind of Blue + 1 more album tags' });
+    expect((await planRow(named)).name).toBe('Miles Davis — Kind of Blue + 1 more album tags');
+
+    const typed = await makePlan('draft');
+    await db.update(tagPlans).set({ name: 'Jazz cleanup' }).where(eq(tagPlans.id, typed));
+    await add(typed, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect((await planRow(typed)).name).toBe('Jazz cleanup');
   });
 
   it.each(['applied', 'applying', 'paused', 'partially_failed', 'cancelled', 'reverted'])('refuses a plan that is %s', async (status) => {

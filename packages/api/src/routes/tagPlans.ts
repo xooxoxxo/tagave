@@ -25,6 +25,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
+import { grownPlanName } from '../lib/planName.js';
 
 /**
  * Register tag plan routes.
@@ -970,14 +971,28 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         const merged = Array.from(new Set([...existingScope.albumIds, ...requested]));
         const added = merged.length - existingScope.albumIds.length;
         if (added === 0) {
-          return { added: 0, albumCount: merged.length, status: plan.status as string };
+          return { added: 0, albumCount: merged.length, status: plan.status as string, name: plan.name };
         }
+
+        // A plan the wizard named after its first album ("Artist — Title
+        // tags") would keep describing only that album; rename it, unless the
+        // user typed the name.
+        const firstTitles = existingScope.albumIds.length === 1
+          ? ((await tx.execute(sql`
+              select la.title_guess as title, rg.title as rg_title
+                from local_albums la
+                left join release_groups rg on rg.id = la.release_group_id
+               where la.id = ${existingScope.albumIds[0]!}`)) as unknown as Array<{ title: string | null; rg_title: string | null }>)
+              .flatMap((r) => [r.title, r.rg_title])
+              .filter((t): t is string => !!t)
+          : [];
+        const newName = grownPlanName(plan.name ?? '', existingScope.albumIds.length, merged.length, firstTitles);
 
         // The status condition repeats the check above inside the write, so
         // nothing that moved the plan on in between gets reset to draft.
         const updated = await tx
           .update(tagPlans)
-          .set({ scope: { type: 'albumIds', albumIds: merged }, status: 'draft', stats: {} })
+          .set({ scope: { type: 'albumIds', albumIds: merged }, status: 'draft', stats: {}, ...(newName ? { name: newName } : {}) })
           .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, OPEN_PLAN_STATUSES)))
           .returning({ id: tagPlans.id });
         if (updated.length === 0) {
@@ -988,7 +1003,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           .delete(tagPlanItems)
           .where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
 
-        return { added, albumCount: merged.length, status: 'draft' };
+        return { added, albumCount: merged.length, status: 'draft', name: newName ?? plan.name };
       });
 
       let previewQueued = false;

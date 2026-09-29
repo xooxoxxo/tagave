@@ -28,7 +28,7 @@ vi.mock('../hooks/usePlanWizard', () => ({
   useOpenTagPlans: () => openPlans.current,
 }));
 
-import { PlanWizard } from './PlanWizard';
+import { PlanWizard, planIncludesAll } from './PlanWizard';
 
 const plan = (over: Partial<TagPlan>): TagPlan => ({
   id: 'p1',
@@ -72,21 +72,36 @@ describe('PlanWizard first step', () => {
     expect(html).toContain('Add to a plan you have not applied yet');
     expect(html).toContain('Jazz tags');
     expect(html).toContain('3 albums · Preview ready');
-    expect(html).toContain('1 album · Preview not run yet · Already includes this album');
+    expect(html).toContain('1 album · Preview not run yet');
+    expect(html).toContain('Already includes this album');
+    // the plan that already has the album cannot be picked; the other can
+    expect(html).toMatch(/<input(?=[^>]*value="p2")[^>]*disabled/);
+    expect(html).not.toMatch(/<input(?=[^>]*value="p1")[^>]*disabled/);
     expect(html).toContain('Start a new plan');
-    expect(html).not.toContain('Select policy preset');
+    expect(html).not.toContain('How should the tags be fixed?');
     expect(html).not.toContain('undefined');
   });
 
-  it('from the album page with no open plans, goes straight to the policy step', () => {
+  it('from the album page with no open plans, goes straight to the policy step and shows step 1 done', () => {
     const html = render({ initialScope: fromAlbumPage });
-    expect(html).toContain('Step 2: Select policy preset');
+    expect(html).toContain('How should the tags be fixed?');
+    expect(html).toContain('aria-label="Step 2 of 2"');
+    // step 1 is shown as done, with the album it holds, and can be reopened
+    expect(html).toContain('What it covers');
+    expect(html).toContain('Miles Davis — Kind of Blue');
+    expect(html).toMatch(/<button[^>]*class="[^"]*stepButton[^"]*"[^>]*>.*What it covers/);
     expect(html).not.toContain('Add to a plan you have not applied yet');
+  });
+
+  it('lays each preset out as radio plus one text column', () => {
+    const html = render({ initialScope: fromAlbumPage });
+    expect(html).toMatch(/<label class="[^"]*presetCard[^"]*"><input[^>]*value="fill_blanks_only"[^>]*\/><span class="[^"]*choiceText/);
   });
 
   it('from the plans page with no open plans, starts at the scope step with no extra choice', () => {
     const html = render();
-    expect(html).toContain('Step 1: Select scope');
+    expect(html).toContain('What should the plan cover?');
+    expect(html).toContain('aria-label="Step 1 of 2"');
     expect(html).not.toContain('Start a new plan');
   });
 
@@ -94,7 +109,7 @@ describe('PlanWizard first step', () => {
     openPlans.current = { isSuccess: true, isError: false, data: { items: [plan({})], total: 1, limit: 200, offset: 0 } };
     const html = render();
     expect(html).toContain('Start a new plan, or add albums to one you have not applied yet?');
-    expect(html).not.toContain('Step 1: Select scope');
+    expect(html).not.toContain('What should the plan cover?');
   });
 
   it('waits for the plan list instead of guessing', () => {
@@ -104,7 +119,7 @@ describe('PlanWizard first step', () => {
 
   it('treats a failed plan list as nothing to add to', () => {
     openPlans.current = { isSuccess: false, isError: true, data: undefined };
-    expect(render({ initialScope: fromAlbumPage })).toContain('Step 2: Select policy preset');
+    expect(render({ initialScope: fromAlbumPage })).toContain('How should the tags be fixed?');
   });
 
   it('has no stray separator when a plan has no scope label, and says when the list is cut short', () => {
@@ -117,5 +132,16 @@ describe('PlanWizard first step', () => {
     expect(html).toContain('Untitled plan');
     expect(html).toMatch(/>Preview ready</);
     expect(html).toContain('Showing the 1 newest of 250 plans you have not applied yet.');
+  });
+});
+
+describe('planIncludesAll', () => {
+  const p = plan({ scope: { type: 'albumIds', albumIds: ['a', 'b'] } });
+  it('is true only when every album is already in an album-list plan', () => {
+    expect(planIncludesAll(p, ['a'])).toBe(true);
+    expect(planIncludesAll(p, ['a', 'b'])).toBe(true);
+    expect(planIncludesAll(p, ['a', 'c'])).toBe(false);
+    expect(planIncludesAll(p, [])).toBe(false);
+    expect(planIncludesAll(plan({ scope: { type: 'library' } }), ['a'])).toBe(false);
   });
 });
