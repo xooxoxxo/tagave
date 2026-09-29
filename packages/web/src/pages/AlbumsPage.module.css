@@ -165,26 +165,44 @@
   flex: none;
 }
 
-.cardCheckbox,
-.cardCheckboxOn {
+/* The checkbox: a 24px box inside a 40px hit area in the cover's corner, so
+   it is easy to hit without opening the album. Hidden until the card is
+   hovered or focused, then always shown once anything is selected. */
+.cardCheck,
+.cardCheckOn {
   position: absolute;
-  top: 6px;
-  left: 6px;
+  top: 0;
+  left: 0;
   z-index: 2;
-  width: 16px;
-  height: 16px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.cardCheckbox {
+  width: 24px;
+  height: 24px;
   margin: 0;
   cursor: pointer;
   accent-color: var(--accent);
+  /* a halo so the box reads on any cover, light or dark */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--surface) 85%, transparent), 0 1px 4px rgba(var(--shadow-tint), .25);
 }
 
-/* The checkbox only appears on hover until something is selected. */
-.cardCheckbox {
-  opacity: 0;
-}
-
-.albumCard:hover .cardCheckbox,
 .cardCheckbox:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.cardCheckOn,
+.albumCard:hover .cardCheck,
+.albumCard:focus-within .cardCheck,
+[data-selecting] .cardCheck {
   opacity: 1;
 }
 
@@ -307,10 +325,20 @@
   background: var(--dew-tint);
 }
 
-.rowCheckbox {
+.rowCheck {
   flex: none;
-  width: 15px;
-  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-left: calc(-1 * var(--space-sm));
+  cursor: pointer;
+}
+
+.rowCheckbox {
+  width: 20px;
+  height: 20px;
   margin: 0;
   cursor: pointer;
   accent-color: var(--accent);
@@ -460,12 +488,18 @@
 @media (max-width: 640px) {
   .body { position: relative; }
   .body > aside { position: absolute; inset: 0 auto 0 0; z-index: 5; width: min(280px, 85vw); background: var(--surface); border-radius: 0 var(--r-card) var(--r-card) 0; box-shadow: 12px 0 24px rgba(var(--shadow-tint), .12); }
+  /* the selection bar stays one line of actions on a phone: they scroll sideways */
+  .bulkBar { padding: .6rem .75rem; gap: var(--space-xs) var(--space-sm); }
+  .bulkActions { flex-wrap: nowrap; overflow-x: auto; margin-left: 0; width: 100%; padding: 4px 2px 6px; scrollbar-width: none; }
+  .bulkActions > * { flex: none; }
   .listState, .listYear, .listTracks, .listBadges, .listRow > .formatTag, .listRow > .formatLossless, .listRow > .formatMixed { display: none; }
 }
-@media (hover: none) { .cardCheckbox { opacity: 1; } }
+@media (hover: none) { .cardCheck { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
   .albumCard,
-.albumCardSelected {
+  .albumCardSelected,
+  .cardCheck,
+  .cardCheckOn {
     transition: none;
   }
 }

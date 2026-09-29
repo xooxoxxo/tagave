@@ -4,6 +4,8 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { Button } from './ui';
 import { BrandMark } from './BrandMark';
+import { AlbumSelectionGuard } from './AlbumSelectionGuard';
+import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -18,6 +20,8 @@ export function Layout() {
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
   useJobEvents(user && libraryId ? libraryId : undefined);
+  // While albums are selected, "Albums" leads back to that list, selection intact.
+  const albumsReturnSearch = useAlbumsReturnSearch();
 
   useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
   useEffect(() => {
@@ -72,7 +76,7 @@ export function Layout() {
         <div id="main-navigation" className={styles.navSheet}>
         <nav className={styles.navLinks} aria-label="Main navigation">
           <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
-          <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
+          <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
           <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care</Link>
@@ -95,6 +99,7 @@ export function Layout() {
         </main>
       </div>
       {searchOpen && <SearchModal onClose={closeSearch} />}
+      <AlbumSelectionGuard />
     </div>
   );
 }

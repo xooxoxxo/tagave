@@ -16,6 +16,11 @@ import { FilterRail } from '../components/FilterRail';
 import { BulkTagEditor } from '../components/BulkTagEditor';
 import { useMergeAlbums } from '../hooks/useCompilations';
 import { activeFilterCount, albumsQueryOf, toggleMulti, type AlbumsSearch } from './albumsSearch';
+import {
+  albumsSelectionKey, clearAlbumSelection, getAlbumListMemory, rangeIds, rememberScroll, setAlbumListMemory, toggled,
+  useAlbumListMemory, withIds,
+} from './albumSelection';
+import { PlanWizard } from '../components/PlanWizard';
 import styles from './AlbumsPage.module.css';
 
 const MIN_CARD = 200;
@@ -85,39 +90,53 @@ export function AlbumsPage() {
   const items = useMemo(() => data?.pages.flatMap((p) => p.items) ?? [], [data]);
   const total = facets?.total ?? items.length;
 
-  /* ---- selection (§14.2: click, ⌘-click, shift-range, select-all-matching) ---- */
-  const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [allMatching, setAllMatching] = useState(false);
+  /* ---- selection (§14.2: checkbox, ⌘-click, shift-range, select-all-matching) ----
+     Lives in a store outside the page (albumSelection.ts) so it survives a trip
+     into an album and back; AlbumSelectionGuard asks before anything else drops it. */
+  const memory = useAlbumListMemory();
+  const queryKey = albumsSelectionKey(search);
   const [bulkResult, setBulkResult] = useState<BulkAlbumsResult | null>(null);
-  const anchor = useRef<number | null>(null);
-  const queryKey = JSON.stringify({ ...query, view: undefined });
+  const [rangeNote, setRangeNote] = useState<string | null>(null);
+  const shiftClick = useRef(false);
+  // Another list (a filter changed, or we came from elsewhere): a fresh selection.
+  const current = memory.queryKey === queryKey;
+  const searchJson = JSON.stringify(search);
   useEffect(() => {
-    setSelected(new Set());
-    setAllMatching(false);
-    anchor.current = null;
-  }, [queryKey]);
+    setAlbumListMemory((prev) => (prev.queryKey === queryKey
+      ? (JSON.stringify(prev.search) === searchJson ? prev : { ...prev, search })
+      : { queryKey, search, ids: [], allMatching: false, total: 0, anchorId: null, scrollTop: 0 }));
+    setRangeNote(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryKey, searchJson]);
+  useEffect(() => {
+    if (facets) setAlbumListMemory((prev) => (prev.queryKey === queryKey && prev.total !== facets.total ? { ...prev, total: facets.total } : prev));
+  }, [facets, queryKey]);
 
+  const allMatching = current && memory.allMatching;
+  const selectedIds = useMemo(() => (current ? memory.ids : []), [current, memory.ids]);
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const selectionCount = allMatching ? total : selected.size;
-  const toggleOne = (id: string, index: number) => {
-    setAllMatching(false);
-    anchor.current = index;
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
+  /** Toggling one album out of "all matching" starts from every loaded album. */
+  const baseIds = () => (allMatching ? items.map((it) => it.id) : selectedIds);
+  const toggleOne = (id: string) => {
+    setRangeNote(null);
+    setAlbumListMemory((prev) => ({ ...prev, queryKey, ids: toggled(baseIds(), id), allMatching: false, anchorId: id }));
   };
   const selectRange = (index: number) => {
-    const from = anchor.current ?? index;
-    const [lo, hi] = from <= index ? [from, index] : [index, from];
-    setAllMatching(false);
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (let i = lo; i <= hi; i++) { const it = items[i]; if (it) next.add(it.id); }
-      return next;
-    });
+    const { ids, anchorFound } = rangeIds(items, current ? memory.anchorId : null, index);
+    if (ids.length === 0) return;
+    setRangeNote(anchorFound ? null : 'The start of that range is no longer loaded, so only this album was added.');
+    setAlbumListMemory((prev) => ({
+      ...prev, queryKey, ids: withIds(baseIds(), ids), allMatching: false,
+      anchorId: anchorFound && prev.anchorId ? prev.anchorId : ids[ids.length - 1] ?? null,
+    }));
   };
-  const clearSelection = () => { setSelected(new Set()); setAllMatching(false); anchor.current = null; };
+  const setAllMatching = (on: boolean) => setAlbumListMemory((prev) => ({ ...prev, queryKey, allMatching: on }));
+  const clearSelection = () => { setRangeNote(null); clearAlbumSelection(); };
+  /** Checkbox or Space: toggle; with Shift: extend the range from the last one. */
+  const pick = (id: string, index: number, shift: boolean) => {
+    if (shift) selectRange(index); else toggleOne(id);
+  };
 
   /* ---- compilations: set album values for the selection, or treat it as one album ---- */
   const [editingIds, setEditingIds] = useState<string[] | null>(null);
@@ -201,6 +220,38 @@ export function AlbumsPage() {
 
   useEffect(() => { virtualizer.measure(); }, [rowHeight, virtualizer]);
 
+  /* ---- scroll: remembered per list, restored on the way back from an album ---- */
+  const restoreTo = useRef<number | null>(null);
+  const restoreKey = useRef<string | null>(null);
+  if (restoreKey.current !== queryKey) {
+    // First render for this list: pick up where it was left, if it was this list.
+    restoreKey.current = queryKey;
+    const m = getAlbumListMemory();
+    restoreTo.current = m.queryKey === queryKey && m.scrollTop > 0 ? m.scrollTop : null;
+  }
+  const totalSize = virtualizer.getTotalSize();
+  useEffect(() => {
+    const el = scrollRef.current;
+    const target = restoreTo.current;
+    if (!el || target == null || items.length === 0) return;
+    el.scrollTop = target;
+    // Reached it, or nothing more to load: done. Otherwise the scroll to the
+    // bottom pulls the next page and this runs again with a taller canvas.
+    if (Math.abs(el.scrollTop - target) < 2 || (!hasNextPage && !isFetchingNextPage)) restoreTo.current = null;
+  }, [totalSize, items.length, hasNextPage, isFetchingNextPage]);
+  const onGridScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (restoreTo.current != null) return;
+    rememberScroll(queryKey, e.currentTarget.scrollTop);
+  }, [queryKey]);
+  // The owner scrolling takes over from a restore still in progress.
+  const stopRestore = useCallback(() => { restoreTo.current = null; }, []);
+
+  const [planIds, setPlanIds] = useState<string[] | null>(null);
+  const labelsFor = (ids: string[]) => {
+    const want = new Set(ids);
+    return Object.fromEntries(items.filter((it) => want.has(it.id)).map((it) => [it.id, `${it.artistCredit} – ${it.title}`]));
+  };
+
   if (!libraryId) return <div className={styles.container} data-virtual-page>Loading library...</div>;
 
   const open = (albumId: string) => navigate({ to: `/albums/${albumId}` });
@@ -212,11 +263,26 @@ export function AlbumsPage() {
     createView.mutate({ name: name.trim(), query: albumsQueryOf(search) });
   };
   const onCardActivate = (e: React.MouseEvent, album: AlbumSummary, index: number) => {
-    if (e.metaKey || e.ctrlKey) { toggleOne(album.id, index); return; }
+    if (e.metaKey || e.ctrlKey) { toggleOne(album.id); return; }
     if (e.shiftKey) { selectRange(index); return; }
     open(album.id);
   };
   const isSelected = (id: string) => allMatching || selected.has(id);
+  /** Enter opens; Space toggles the focused album, Shift+Space extends the range to it. */
+  const onItemKey = (e: React.KeyboardEvent, album: AlbumSummary, index: number) => {
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter') { open(album.id); return; }
+    if (e.key === ' ') { e.preventDefault(); pick(album.id, index, e.shiftKey); }
+  };
+  /* The checkbox: a click toggles, a shift-click selects the range up to it.
+     React fires onClick before onChange for the same click, so the label (which
+     every click on the box bubbles through) notes Shift and keeps the click off
+     the card, and onChange acts on it. */
+  const onCheckClick = (e: React.MouseEvent) => { e.stopPropagation(); shiftClick.current = e.shiftKey; };
+  const onCheckChange = (album: AlbumSummary, index: number) => {
+    pick(album.id, index, shiftClick.current);
+    shiftClick.current = false;
+  };
 
   const chips = (Object.entries(query) as Array<[keyof typeof query, unknown]>)
     .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view')
@@ -287,6 +353,7 @@ export function AlbumsPage() {
               </Button>
             )}
             <Button variant="quiet" size="sm" onClick={clearSelection}>Clear selection</Button>
+            {rangeNote && <span className={styles.muted} role="status">{rangeNote}</span>}
             <span className={styles.bulkActions}>
               {(['identify', 'fetch_art', 'as_is', 'ignore', 'unignore', 'prefer'] as BulkAlbumAction[]).map((a) => (
                 <Button key={a} variant="secondary" size="sm" disabled={bulk.isPending} onClick={() => void runBulk(a)}>
@@ -310,6 +377,15 @@ export function AlbumsPage() {
               >
                 Set album values…
               </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={allMatching || selected.size === 0 || selected.size > BULK_ID_CHUNK}
+                title={allMatching ? 'Pick albums one by one to add them to a plan' : 'Add the selected albums to a tag plan; you preview every change before anything is written'}
+                onClick={() => setPlanIds([...selected])}
+              >
+                Add to plan…
+              </Button>
             </span>
             {bulk.isPending && <span className={styles.muted}>working…</span>}
             {mergeNote && <span className={styles.muted} role="status">{mergeNote}</span>}
@@ -321,6 +397,15 @@ export function AlbumsPage() {
             scopes={[{ key: 'selection', label: `${editingIds.length} selected album${editingIds.length === 1 ? '' : 's'}`, scope: { type: 'albumIds', albumIds: editingIds } }]}
             title={`Set album values · ${editingIds.length} album${editingIds.length === 1 ? '' : 's'}`}
             onClose={() => setEditingIds(null)}
+          />
+        )}
+        {/* Once the selection is in the plan it is dropped, so moving on to the plan page does not ask. */}
+        {planIds && libraryId && (
+          <PlanWizard
+            libraryId={libraryId}
+            initialScope={{ albumIds: planIds, albumLabels: labelsFor(planIds) }}
+            onDone={clearSelection}
+            onClose={() => setPlanIds(null)}
           />
         )}
         {bulkResult && !bulk.isPending && (
@@ -364,7 +449,7 @@ export function AlbumsPage() {
             </div>
           )}
 
-          <div className={styles.gridContainer} ref={attachScroller}>
+          <div className={styles.gridContainer} ref={attachScroller} data-selecting={selectionCount > 0 ? '' : undefined} onScroll={onGridScroll} onWheel={stopRestore} onTouchStart={stopRestore}>
             {items.length > 0 && (gridWidth > 0 || view === 'list') && (
               <div className={styles.virtualCanvas} style={{ height: virtualizer.getTotalSize() }}>
                 {virtualRows.map((row) => {
@@ -384,16 +469,18 @@ export function AlbumsPage() {
                         onClick={(e) => onCardActivate(e, album, row.index)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter') open(album.id); }}
+                        aria-label={album.title}
+                        onKeyDown={(e) => onItemKey(e, album, row.index)}
                       >
-                        <input
-                          type="checkbox"
-                          className={styles.rowCheckbox}
-                          checked={selectedRow}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={() => toggleOne(album.id, row.index)}
-                          aria-label={`Select ${album.title}`}
-                        />
+                        <label className={styles.rowCheck} onClick={onCheckClick}>
+                          <input
+                            type="checkbox"
+                            className={styles.rowCheckbox}
+                            checked={selectedRow}
+                            onChange={() => onCheckChange(album, row.index)}
+                            aria-label={`Select ${album.title}`}
+                          />
+                        </label>
                         <span className={styles.thumb}><CoverArt src={album.coverUrl} title={album.title} compact /></span>
                         <span className={styles.listTitle}>{album.title}</span>
                         <span className={styles.listArtist}>{album.artistCredit}</span>
@@ -429,17 +516,19 @@ export function AlbumsPage() {
                             onClick={(e) => onCardActivate(e, album, index)}
                             role="button"
                             tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') open(album.id); }}
+                            aria-label={`${album.title}, ${album.artistCredit}`}
+                            onKeyDown={(e) => onItemKey(e, album, index)}
                           >
                             <div className={styles.albumCover} style={{ height: cardWidth - 32 }}>
-                              <input
-                                type="checkbox"
-                                className={selectedCard ? styles.cardCheckboxOn : styles.cardCheckbox}
-                                checked={selectedCard}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={() => toggleOne(album.id, index)}
-                                aria-label={`Select ${album.title}`}
-                              />
+                              <label className={selectedCard ? styles.cardCheckOn : styles.cardCheck} onClick={onCheckClick}>
+                                <input
+                                  type="checkbox"
+                                  className={styles.cardCheckbox}
+                                  checked={selectedCard}
+                                  onChange={() => onCheckChange(album, index)}
+                                  aria-label={`Select ${album.title}`}
+                                />
+                              </label>
                               {album.needsAttention && <span className={styles.attentionDot} title="Needs attention" />}
                               {album.hasReview && <span className={styles.reviewedDot} title="Reviewed" />}
                               {album.ownRating != null && (
