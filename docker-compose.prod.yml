@@ -32,6 +32,9 @@ services:
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
       NODE_ENV: production
+      # Settings > Updates shows the source-build update steps first
+      TAGAVE_INSTALL_METHOD: source
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
     volumes:
       - cache:/cache
     ports:

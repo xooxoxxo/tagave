@@ -218,10 +218,10 @@ const followRulesRedirect = new Route({
   beforeLoad: () => redirect({ to: '/settings/$section', params: { section: 'following' } }),
 });
 
-const updatesRedirect = new Route({
+const settingsUpdatesRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/settings/updates',
-  beforeLoad: () => redirect({ to: '/settings/system' }),
+  component: SettingsPage,
 });
 
 const logoutRoute = new Route({
@@ -264,7 +264,7 @@ const routeTree = rootRoute.addChildren([
     tagWritesRedirect,
     genresRedirect,
     followRulesRedirect,
-    updatesRedirect,
+    settingsUpdatesRoute,
     logoutRoute,
   ]),
 ]);

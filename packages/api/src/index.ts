@@ -11,7 +11,7 @@ import { makeDb, runMigrations } from '@liner/db';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
-import { createUpdateRoutes } from './routes/updates.js';
+import { createUpdateRoutes, startUpdateChecks } from './routes/updates.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
@@ -299,6 +299,8 @@ const start = async () => {
     const host = process.env.HOST || '0.0.0.0';
 
     await app.listen({ port, host });
+    // Release feed: checked in the background at most every 12 hours.
+    startUpdateChecks(app.log);
     logger.info(`Server running at http://${host}:${port}`);
     logger.info(`API docs at http://${host}:${port}/api/v1/docs`);
   } catch (err) {

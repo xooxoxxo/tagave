@@ -210,3 +210,42 @@
 @media (max-width: 640px) {
   .container { padding: 1rem 0; }
 }
+
+.bannerAction { margin-left: auto; }
+
+.gateText { margin: 0 0 var(--space-xs); line-height: var(--line-height-relaxed); }
+
+.gateCheck {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.detected {
+  margin-left: var(--space-xs);
+  padding: 0 0.45rem;
+  border-radius: var(--radius-full);
+  background: var(--mist-2);
+  color: var(--ink-2);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+}
+
+.more {
+  margin-top: var(--space-sm);
+  font-size: var(--font-size-sm);
+}
+
+.more > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  padding: var(--space-xs) 0;
+}
+
+.more[open] > summary { color: var(--text-primary); margin-bottom: var(--space-xs); }
+
+.release > summary { cursor: pointer; }

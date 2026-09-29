@@ -1,36 +1,39 @@
 /**
  * Settings › Updates (spec PLT-5, XO-313): what is running where, whether
- * a newer release exists, and its notes. The feed is a GitHub Releases API
- * URL kept in library settings (`updates.feedUrl`); until the repository is
- * published it stays unset and the page explains why. Nothing here performs
- * an update — the mechanism is the per-host instructions the page renders
- * (docker-tag self-update arrives with the XO-296 cutover).
+ * a newer release exists, and its notes. Checks are on by default against
+ * the official GitHub releases (DEFAULT_RELEASES_URL); the owner can turn
+ * them off, use another feed, or skip a version, and TAGAVE_UPDATE_FEED
+ * ("off" or a URL) overrides that for the whole server. The server checks
+ * on its own at most every 12 hours (startUpdateChecks). A check is one GET
+ * to the feed; nothing about this server is sent. Nothing here performs an
+ * update: the page shows the command for the way this server was installed.
  */
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
 import { libraries } from '@liner/db';
 import { readBuildInfo } from '@liner/core';
 import {
-  compareVersions, setUpdatesFeedSchema,
-  type ReleaseNote, type UpdatesStatus, type WorkerVersion,
+  compareVersions, setUpdatesFeedSchema, skipUpdateSchema,
+  type ReleaseNote, type WorkerVersion,
 } from '@liner/shared';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import {
+  FEED_USER_AGENT, buildStatus, checkDue, detectInstall, effectiveFeed, toReleaseNote,
+  type UpdatesSettings,
+} from '../lib/updatesFeed.js';
 
 /** Workers that reported within this window count as live (matches the doctor). */
 const LIVE_WINDOW_SECONDS = 120;
 const FEED_TIMEOUT_MS = 10_000;
 const KEEP_RELEASES = 20;
+/** "Check now" is not throttled to 12 h, but a double click does not fetch twice. */
+const MANUAL_MIN_GAP_MS = 30_000;
+/** How often the background timer looks for libraries whose check is due. */
+const SCHEDULER_TICK_MS = 3600_000;
+const SCHEDULER_FIRST_DELAY_MS = 60_000;
 
-interface UpdatesSettings {
-  feedUrl?: string | null;
-  lastCheck?: {
-    at: string;
-    etag: string | null;
-    releases: ReleaseNote[];
-    error: string | null;
-  } | null;
-}
+const serverFeed = () => process.env['TAGAVE_UPDATE_FEED'];
 
 async function loadLibrary(userId: string, libraryId: string) {
   const rows = await getDb()
@@ -70,34 +73,14 @@ async function liveWorkers(): Promise<WorkerVersion[]> {
   });
 }
 
-/** GitHub Releases API item → ReleaseNote; unknown shapes are skipped. */
-function toReleaseNote(raw: unknown): ReleaseNote | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const r = raw as Record<string, unknown>;
-  const tag = typeof r['tag_name'] === 'string' ? r['tag_name'] : null;
-  if (!tag || r['draft'] === true) return null;
-  const labels = Array.isArray(r['labels']) ? (r['labels'] as Array<{ name?: string }>).map((l) => l?.name ?? '') : [];
-  const body = typeof r['body'] === 'string' ? r['body'] : null;
-  return {
-    tag,
-    version: tag.replace(/^v/i, ''),
-    name: typeof r['name'] === 'string' ? r['name'] : null,
-    body,
-    publishedAt: typeof r['published_at'] === 'string' ? r['published_at'] : null,
-    url: typeof r['html_url'] === 'string' ? r['html_url'] : null,
-    prerelease: r['prerelease'] === true,
-    requiresAttention: labels.includes('requires-attention') || /requires[- ]attention/i.test(body ?? ''),
-  };
-}
-
-async function fetchFeed(url: string, etag: string | null, userAgent: string): Promise<{ status: 'fresh'; etag: string | null; releases: ReleaseNote[] } | { status: 'unchanged' }> {
+async function fetchFeed(url: string, etag: string | null): Promise<{ status: 'fresh'; etag: string | null; releases: ReleaseNote[] } | { status: 'unchanged' }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FEED_TIMEOUT_MS);
   try {
     const res = await fetch(url, {
       headers: {
         Accept: 'application/vnd.github+json',
-        'User-Agent': userAgent,
+        'User-Agent': FEED_USER_AGENT,
         ...(etag ? { 'If-None-Match': etag } : {}),
       },
       signal: controller.signal,
@@ -115,26 +98,61 @@ async function fetchFeed(url: string, etag: string | null, userAgent: string): P
   }
 }
 
-function buildStatus(updates: UpdatesSettings, workers: WorkerVersion[]): UpdatesStatus {
+function status(updates: UpdatesSettings, workers: WorkerVersion[]) {
   const app = readBuildInfo();
-  const releases = updates.lastCheck?.releases ?? [];
-  const newer = releases.filter((r) => !r.prerelease && compareVersions(r.version, app.version) > 0);
-  const latest = releases.find((r) => !r.prerelease) ?? null;
-  const mismatch = workers.some((w) => w.sha && app.sha && w.sha !== app.sha);
-  return {
-    app,
-    workers,
-    mismatch,
-    updateAvailable: newer.length > 0,
-    feed: {
-      url: updates.feedUrl ?? null,
-      enabled: !!updates.feedUrl,
-      lastCheckedAt: updates.lastCheck?.at ?? null,
-      latest,
-      newer,
-      error: updates.lastCheck?.error ?? null,
-    },
+  return buildStatus({ updates, serverFeed: serverFeed(), app, install: detectInstall(process.env, app), workers });
+}
+
+/** Fetch the feed in force for one library and store the result (errors are stored, not thrown). */
+async function checkLibrary(libraryId: string, updates: UpdatesSettings): Promise<UpdatesSettings> {
+  const feed = effectiveFeed(updates, serverFeed());
+  if (!feed.url) return updates;
+  const previous = updates.lastCheck && (updates.lastCheck.url === undefined || updates.lastCheck.url === feed.url) ? updates.lastCheck : null;
+  const at = new Date().toISOString();
+  let lastCheck: NonNullable<UpdatesSettings['lastCheck']>;
+  try {
+    const result = await fetchFeed(feed.url, previous?.etag ?? null);
+    lastCheck = result.status === 'unchanged'
+      ? { at, url: feed.url, etag: previous?.etag ?? null, releases: previous?.releases ?? [], error: null }
+      : { at, url: feed.url, etag: result.etag, releases: result.releases, error: null };
+  } catch (err) {
+    lastCheck = { at, url: feed.url, etag: previous?.etag ?? null, releases: previous?.releases ?? [], error: (err as Error).message };
+  }
+  const next = { ...updates, lastCheck };
+  await saveUpdates(libraryId, next);
+  return next;
+}
+
+/**
+ * Background check: every hour, each library whose feed is on and whose last
+ * check is 12 hours old is checked once. Returns a stop function.
+ */
+export function startUpdateChecks(logger: FastifyBaseLogger): () => void {
+  let running = false;
+  const tick = async () => {
+    if (running) return;
+    running = true;
+    try {
+      const rows = await getDb().select({ id: libraries.id, settings: libraries.settings }).from(libraries);
+      const now = Date.now();
+      for (const row of rows) {
+        const settings = (typeof row.settings === 'string' ? JSON.parse(row.settings) : row.settings ?? {}) as Record<string, unknown>;
+        const updates = (settings['updates'] ?? {}) as UpdatesSettings;
+        if (!checkDue(updates, effectiveFeed(updates, serverFeed()), now)) continue;
+        const next = await checkLibrary(row.id, updates);
+        if (next.lastCheck?.error) logger.warn({ libraryId: row.id, error: next.lastCheck.error }, 'update check failed');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'update check skipped');
+    } finally {
+      running = false;
+    }
   };
+  const first = setTimeout(() => { void tick(); }, SCHEDULER_FIRST_DELAY_MS);
+  const every = setInterval(() => { void tick(); }, SCHEDULER_TICK_MS);
+  first.unref();
+  every.unref();
+  return () => { clearTimeout(first); clearInterval(every); };
 }
 
 export async function createUpdateRoutes(fastify: FastifyInstance) {
@@ -142,46 +160,46 @@ export async function createUpdateRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     const lib = await loadLibrary(request.user.id, libraryId);
-    reply.send(buildStatus(lib.updates, await liveWorkers()));
+    reply.send(status(lib.updates, await liveWorkers()));
   });
 
-  /** Set or clear the release feed URL (a GitHub Releases API endpoint). */
+  /** Turn checks on or off, or replace the feed URL (null: the official feed). */
   fastify.put('/libraries/:libraryId/updates/feed', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     const lib = await loadLibrary(request.user.id, libraryId);
     const parsed = setUpdatesFeedSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
-    const next: UpdatesSettings = { feedUrl: parsed.data.url, lastCheck: parsed.data.url === lib.updates.feedUrl ? lib.updates.lastCheck ?? null : null };
+    if (parsed.data.url && !/^https:\/\//i.test(parsed.data.url)) throw new ApiError(400, 'Bad Request', 'The feed must be an https URL');
+    const next: UpdatesSettings = { ...lib.updates };
+    if (parsed.data.enabled !== undefined) next.enabled = parsed.data.enabled;
+    if (parsed.data.url !== undefined) next.feedUrl = parsed.data.url;
     await saveUpdates(libraryId, next);
-    reply.send(buildStatus(next, await liveWorkers()));
+    reply.send(status(next, await liveWorkers()));
   });
 
-  /** Check the feed now (etag-cached; the page also does this daily). */
+  /** "Skip this version": no update badge until a release newer than it appears. */
+  fastify.put('/libraries/:libraryId/updates/skip', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    const lib = await loadLibrary(request.user.id, libraryId);
+    const parsed = skipUpdateSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
+    const next: UpdatesSettings = { ...lib.updates, skippedVersion: parsed.data.version ? parsed.data.version.replace(/^v/i, '') : null };
+    await saveUpdates(libraryId, next);
+    reply.send(status(next, await liveWorkers()));
+  });
+
+  /** Check the feed now (ETag-cached). */
   fastify.post('/libraries/:libraryId/updates/check', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     const lib = await loadLibrary(request.user.id, libraryId);
-    if (!lib.updates.feedUrl) throw new ApiError(409, 'Conflict', 'No release feed configured');
-    const app = readBuildInfo();
-    const contact = typeof lib.settings['contactString'] === 'string' ? ` (+${lib.settings['contactString']})` : '';
-    const previous = lib.updates.lastCheck ?? null;
-    let next: UpdatesSettings;
-    try {
-      const result = await fetchFeed(lib.updates.feedUrl, previous?.etag ?? null, `Liner/${app.version}${contact}`);
-      next = {
-        feedUrl: lib.updates.feedUrl,
-        lastCheck: result.status === 'unchanged'
-          ? { at: new Date().toISOString(), etag: previous?.etag ?? null, releases: previous?.releases ?? [], error: null }
-          : { at: new Date().toISOString(), etag: result.etag, releases: result.releases, error: null },
-      };
-    } catch (err) {
-      next = {
-        feedUrl: lib.updates.feedUrl,
-        lastCheck: { at: new Date().toISOString(), etag: previous?.etag ?? null, releases: previous?.releases ?? [], error: (err as Error).message },
-      };
-    }
-    await saveUpdates(libraryId, next);
-    reply.send(buildStatus(next, await liveWorkers()));
+    const feed = effectiveFeed(lib.updates, serverFeed());
+    if (!feed.enabled || !feed.url) throw new ApiError(409, 'Conflict', 'Update checks are turned off');
+    const last = lib.updates.lastCheck;
+    const recent = last && last.url === feed.url && !last.error && Date.now() - Date.parse(last.at) < MANUAL_MIN_GAP_MS;
+    const next = recent ? lib.updates : await checkLibrary(libraryId, lib.updates);
+    reply.send(status(next, await liveWorkers()));
   });
 }

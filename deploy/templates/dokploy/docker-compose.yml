@@ -1,0 +1,90 @@
+# tagave blueprint for Dokploy (https://github.com/Dokploy/templates).
+# Same stack as deploy/templates/compose.yml, with the web port exposed to
+# Dokploy's proxy instead of published. template.toml fills in the secrets
+# and the domain; set MUSIC_DIR to the host folder with your music.
+#
+# Keep the two LINER_QUEUES lists in step with deploy/compose.yml
+# (packages/worker/src/deployQueues.test.ts checks both).
+
+x-worker-env: &worker-env
+  DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/liner
+  APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+  CACHE_DIR: /cache
+  LINER_LIBRARY_ID: ""
+  LOG_LEVEL: info
+  TZ: ${TZ:-UTC}
+
+services:
+  postgres:
+    image: postgres:16
+    command: postgres -c max_connections=300
+    environment:
+      POSTGRES_USER: liner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: liner
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liner -d liner"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: ghcr.io/xooxoxxo/tagave-app:${TAGAVE_VERSION:-latest}
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/liner
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
+      CACHE_DIR: /cache
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
+      LOG_LEVEL: info
+      TZ: ${TZ:-UTC}
+      TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-dokploy}
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
+    volumes:
+      - cache:/cache
+    expose:
+      - "3000"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+
+  worker-identify:
+    image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+    volumes:
+      - cache:/cache
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker-files:
+    image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+    volumes:
+      - cache:/cache
+      # register /mnt/music as the music folder in the app
+      - ${MUSIC_DIR:?MUSIC_DIR is required}:/mnt/music:ro
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  cache:

@@ -83,6 +83,14 @@ export {
   type UpdatesStatus,
   setUpdatesFeedSchema,
   type SetUpdatesFeed,
+  skipUpdateSchema,
+  type SkipUpdate,
+  installMethodSchema,
+  type InstallMethod,
+  installInfoSchema,
+  type InstallInfo,
+  DEFAULT_RELEASES_URL,
+  UPDATE_CHECK_INTERVAL_MS,
   compareVersions,
 } from './updates.js';
 

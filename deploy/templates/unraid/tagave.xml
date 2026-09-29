@@ -1,0 +1,39 @@
+<?xml version="1.0"?>
+<!--
+  DRAFT Unraid Community Apps template for the tagave web app container.
+
+  Not submitted yet. A CA template describes one container, and tagave needs
+  three besides Postgres (app, identify worker, file worker). Until there is
+  an all-in-one image, this template covers the app only: install the stock
+  Postgres 16 template first, then this one, then the two workers by hand
+  (same image as below with -worker, same DATABASE_URL and APP_SECRET, and
+  LINER_QUEUES as in deploy/templates/compose.yml). The simpler route on
+  Unraid today is the Docker Compose Manager plugin with
+  deploy/templates/compose.yml.
+-->
+<Container version="2">
+  <Name>tagave</Name>
+  <Repository>ghcr.io/xooxoxxo/tagave-app:latest</Repository>
+  <Registry>https://github.com/xooxoxxo/tagave/pkgs/container/tagave-app</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/xooxoxxo/tagave/issues</Support>
+  <Project>https://github.com/xooxoxxo/tagave</Project>
+  <Overview>A home for your music: catalogues the albums you own, finds what is missing and fixes tags. This container is the web app; it needs a Postgres 16 database and the two tagave worker containers.</Overview>
+  <Category>MediaApp:Music MediaServer:Music</Category>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/xooxoxxo/tagave/main/deploy/templates/unraid/tagave.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/xooxoxxo/tagave/main/docs/images/mark.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <Requires>A Postgres 16 container (for example the official postgres template) and the two tagave worker containers.</Requires>
+  <Config Name="Web port" Target="3000" Default="3100" Mode="tcp" Description="Port for the web app." Type="Port" Display="always" Required="true" Mask="false">3100</Config>
+  <Config Name="Cache" Target="/cache" Default="/mnt/user/appdata/tagave/cache" Mode="rw" Description="Cover art, thumbnails and database backups. Share it with the worker containers." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/tagave/cache</Config>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="" Mode="" Description="postgres://liner:PASSWORD@POSTGRES_HOST:5432/liner" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="App secret" Target="APP_SECRET" Default="" Mode="" Description="At least 32 characters (openssl rand -hex 32). Encrypts stored provider tokens; keep a copy and never change it. Use the same value in the workers." Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Time zone" Target="TZ" Default="UTC" Mode="" Description="For example Europe/Amsterdam." Type="Variable" Display="always" Required="false" Mask="false">UTC</Config>
+  <Config Name="Allow plain http" Target="ALLOW_INSECURE_HTTP" Default="true" Mode="" Description="Set to false once tagave sits behind an https reverse proxy." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+  <Config Name="Cache directory" Target="CACHE_DIR" Default="/cache" Mode="" Description="Leave as is." Type="Variable" Display="advanced-hide" Required="true" Mask="false">/cache</Config>
+  <Config Name="Node environment" Target="NODE_ENV" Default="production" Mode="" Description="Leave as is." Type="Variable" Display="advanced-hide" Required="true" Mask="false">production</Config>
+  <Config Name="Install method" Target="TAGAVE_INSTALL_METHOD" Default="unraid" Mode="" Description="Tells Settings › Updates to show the Unraid update steps." Type="Variable" Display="advanced-hide" Required="false" Mask="false">unraid</Config>
+  <Config Name="Update checks" Target="TAGAVE_UPDATE_FEED" Default="" Mode="" Description="Empty: check the official GitHub releases every 12 hours. off: never check." Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+</Container>

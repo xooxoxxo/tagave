@@ -24,7 +24,13 @@ function queueLists(file: string): string[][] {
   return [...text.matchAll(/^\s*LINER_QUEUES:\s*(\S+)\s*$/gm)].map((m) => m[1]!.split(',').map((q) => q.trim()));
 }
 
-describe.each(['deploy/compose.yml', 'docker-compose.prod.yml'])('%s worker roles', (file) => {
+describe.each([
+  'deploy/compose.yml',
+  'docker-compose.prod.yml',
+  'deploy/templates/compose.yml',
+  'deploy/templates/dokploy/docker-compose.yml',
+  'deploy/templates/coolify/tagave.yml',
+])('%s worker roles', (file) => {
   const lists = queueLists(file);
 
   it('has a file worker and an identify worker', () => {

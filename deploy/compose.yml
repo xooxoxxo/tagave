@@ -58,6 +58,13 @@ services:
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
+      # Settings > Updates shows the update command for the way tagave was
+      # installed: the installer writes TAGAVE_ROLE, the platform templates set
+      # TAGAVE_INSTALL_METHOD. TAGAVE_UPDATE_FEED=off turns update checks off
+      # for the whole server (a URL replaces the official release feed).
+      TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-}
+      TAGAVE_ROLE: ${TAGAVE_ROLE:-}
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
     volumes:
       - cache:/cache
     ports:

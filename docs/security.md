@@ -67,6 +67,13 @@ docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
 
 **APP_SECRET itself must be backed up separately** in a secret store (HashiCorp Vault, AWS Secrets Manager, password manager, encrypted USB key, or a separate `.env.backup` file). If you lose it, you cannot decrypt stored credentials and must re-enter your Discogs token and AcoustID key. If you need to restore a database backup to a new system, provide the same `APP_SECRET` so the app can unseal stored credentials.
 
+## What leaves your server
+
+tagave has no telemetry. The server makes outbound requests only to:
+
+- the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
+- the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
+
 ## TLS and HTTPS
 
 **In production,** always run tagave behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS. Set:
