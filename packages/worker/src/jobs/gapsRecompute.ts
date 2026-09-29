@@ -3,6 +3,7 @@ import { lintAlbum } from '@liner/core';
 import { rawTracksForLint } from '../lib/canonicalTags.js';
 import type { WorkerContext } from '../lib/context.js';
 import { recomputeMissingAlbumGaps } from '../lib/missingAlbumGaps.js';
+import { keepDecisionOnConflict } from '../lib/gapUpsert.js';
 import { reportProgress } from './progress.js';
 
 export interface GapsRecomputeJobData {
@@ -17,9 +18,10 @@ export interface GapsRecomputeJobData {
 
 /**
  * spec GAP-1/4/5. Recomputes gap rows set-based in SQL; the natural key
- * (library, kind, subject_type, subject_id) lets each run upsert while
- * dismissed rows keep their state. Gaps whose condition no longer holds are
- * marked resolved.
+ * (library, kind, subject_type, subject_id, flag) lets each run upsert while
+ * dismissed rows and tasks keep their state (keepDecisionOnConflict). Gaps
+ * whose condition no longer holds are marked resolved — a task included: it
+ * keeps accepted_at, so the Tasks list shows it crossed out as done.
  */
 export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJobData): Promise<void> {
   const lib = data.libraryId;
@@ -59,10 +61,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       and la.state = 'matched'
       and r.track_count is not null
       and la.track_count < r.track_count
-    on conflict (library_id, kind, subject_type, subject_id)
-    do update set details = excluded.details,
-                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
-                  resolved_at = null`;
+    ${keepDecisionOnConflict(ctx.sql)}`;
 
   // resolve incomplete gaps that no longer hold
   await ctx.sql`
@@ -85,10 +84,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       where library_id = ${lib} and release_group_id is not null and state != 'ignored'
       group by release_group_id having count(*) > 1
     ) d
-    on conflict (library_id, kind, subject_type, subject_id)
-    do update set details = excluded.details,
-                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
-                  resolved_at = null`;
+    ${keepDecisionOnConflict(ctx.sql)}`;
   await ctx.sql`
     update gaps g set state = 'resolved', resolved_at = now()
     where g.library_id = ${lib} and g.kind = 'duplicate' and g.state != 'resolved'
@@ -103,7 +99,8 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
 
   }
 
-  // --- GAP-5: quality flags per album, one row per (album, flag) family in details
+  // --- GAP-5: quality flags per album, one row per (album, flag) (0032), so
+  // each flag can be hidden or taken on as a task on its own
   // Mark-and-sweep: pre-mark every live quality row, let the upsert clear the
   // mark on rows still flagged, then resolve whatever stayed marked. (A
   // condition-recheck here would have to mirror every flag; a stale mirror
@@ -195,12 +192,11 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
     if (Object.keys(allFlags).length > 0) {
       const flagsJson = JSON.stringify(allFlags);
       await ctx.sql`
-        insert into gaps (library_id, kind, subject_type, subject_id, details, state)
-        values (${lib}, 'quality', 'local_album', ${albumId}, jsonb_build_object('flags', ${flagsJson}::jsonb), 'open')
-        on conflict (library_id, kind, subject_type, subject_id)
-        do update set details = excluded.details,
-                      state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
-                      resolved_at = null`;
+        insert into gaps (library_id, kind, subject_type, subject_id, details, state, flag)
+        select ${lib}, 'quality', 'local_album', ${albumId},
+               jsonb_build_object('flags', jsonb_build_object(f.key, f.value)), 'open', f.key
+          from jsonb_each(${flagsJson}::jsonb) f
+        ${keepDecisionOnConflict(ctx.sql)}`;
     }
   }
 

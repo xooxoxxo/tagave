@@ -124,7 +124,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     }
 
     // Get discography grouped by release group primary type with ownership
-    // Left join with gaps to include missing_album gaps (open or dismissed)
+    // Left join with gaps to include missing_album gaps (open, on the task list, or dismissed)
     const discogRows = await db.execute(sql`
       select rg.id as release_group_id,
              rg.title,
@@ -147,7 +147,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
         left join gaps g on g.library_id = ${libraryId}
                          and g.subject_id = rg.id
                          and g.kind = 'missing_album'
-                         and g.state in ('open', 'dismissed')
+                         and g.state in ('open', 'todo', 'dismissed')
        where rga.artist_id = ${artistId}
          and (exists (select 1 from local_albums la
                       where la.release_group_id = rg.id and la.library_id = ${libraryId})
@@ -158,7 +158,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
                          where gx.library_id = ${libraryId}
                            and gx.subject_id = rg.id
                            and gx.kind = 'missing_album'
-                           and gx.state in ('open', 'dismissed')))
+                           and gx.state in ('open', 'todo', 'dismissed')))
     `) as unknown as Array<{
       release_group_id: string;
       title: string;

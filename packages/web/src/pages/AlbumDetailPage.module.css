@@ -335,8 +335,6 @@ one dew drop for the manual Match. */
 
 /* gaps */
 
-.gapRow,
-.gapRowDismissed,
 .dupRow {
   display: flex;
   align-items: center;
@@ -345,14 +343,37 @@ one dew drop for the manual Match. */
   border-top: 1px solid var(--border);
 }
 
-.gapRowDismissed {
-  opacity: 0.55;
+/* One gap per row: what is wrong on the left, the choices on the right
+   (0032). Rows never carry a group-wide button. */
+.gapItem {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-sm) var(--space-lg);
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--border);
+}
+
+.gapMain {
+  min-width: 0;
+}
+
+.gapHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem var(--space-sm);
 }
 
 .gapKind {
-  font-weight: 500;
-  min-width: 6.5rem;
+  font-weight: 600;
   font-size: var(--font-size-sm);
+  color: var(--ink);
+}
+
+.gapLine {
+  font-size: var(--font-size-sm);
+  color: var(--ink-2);
 }
 
 .gapDetail {
@@ -365,72 +386,54 @@ one dew drop for the manual Match. */
   white-space: nowrap;
 }
 
-/* Quality gap: collection of individual quality issues */
-.qualityGapGroup {
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border);
-}
-
-.qualityGapHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--space-md);
-  margin-bottom: var(--space-sm);
-}
-
-.qualityGapTitle {
-  margin: 0;
+.gapExplain {
+  margin: 0.25rem 0 0;
   font-size: var(--font-size-sm);
-  font-weight: 500;
-  color: var(--warning);
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 62ch;
 }
 
-/* Each quality issue row */
-.qualityFlag {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: var(--space-md);
-  padding: var(--space-sm) 0;
-  border-top: 1px solid var(--border);
-}
-
-.qualityFlagContent {
-  flex: 1;
-  min-width: 0;
-}
-
-.qualityFlagLabel {
-  font-weight: 500;
-  font-size: var(--font-size-sm);
-  color: var(--text-primary);
-}
-
-.qualityFlagDetail {
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  margin-top: 0.2rem;
-  line-height: 1.4;
-}
-
-.qualityFlagAction {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
-.qualityGapNote {
-  margin-top: 0.2rem;
+.gapGroupTitle {
+  margin: var(--space-lg) 0 0;
+  padding-bottom: var(--space-xs);
   font-size: var(--font-size-xs);
-  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
 }
 
-.qualityFlagCount {
-  font-weight: 400;
-  color: var(--text-secondary);
+.gapChoicesCol {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+/* the missing tracks, folded into the Incomplete row */
+.gapMore {
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-sm);
+}
+
+.gapMore > summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--dew);
+  font-weight: 500;
+  border-radius: var(--r-kbd);
+}
+
+.gapMore > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.gapMore .missingTable {
+  margin-top: var(--space-xs);
+  max-width: 34rem;
 }
 
 .qualityFlagAffected {
@@ -440,12 +443,34 @@ one dew drop for the manual Match. */
   line-height: 1.4;
 }
 
-.qualityFlagHint {
-  max-width: 16rem;
+/* tasks on the album page: an empty ring while to do, a filled one when a scan crossed it out */
+.taskText {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
   font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  white-space: normal;
-  text-align: right;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.taskMark {
+  flex: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: var(--r-pill);
+  border: 1.5px solid var(--line-strong);
+  transform: translateY(0.1rem);
+}
+
+.taskMarkDone {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+
+.taskDone .taskText {
+  color: var(--ink-3);
+  font-weight: 400;
 }
 
 /* tables */
@@ -698,13 +723,9 @@ the title-free placeholder label bottom-left. */
   .trackTable .discHeader td { display: block; height: auto; padding: var(--space-md) 0 0.4rem; }
 }
 @media (max-width: 700px) {
-  .gapRow { flex-wrap: wrap; align-items: flex-start; }
-  .gapKind { width: 100%; }
   .albumFacts dl > div { grid-template-columns: 1fr; gap: .2rem; }
-  .qualityGapHeader { flex-direction: column; align-items: flex-start; gap: .5rem; }
-  .qualityFlag { flex-direction: column; align-items: stretch; gap: .5rem; }
-  .qualityFlagAction { white-space: normal; }
-  .qualityFlagHint { max-width: none; text-align: left; }
+  .gapItem { grid-template-columns: minmax(0, 1fr); }
+  .gapChoicesCol { justify-content: flex-start; }
 }
 
 /* Editions on a phone: six columns do not fit in the card, and the switch

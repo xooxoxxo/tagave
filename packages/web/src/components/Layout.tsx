@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation } from '@tanstack/react-router';
-import { useMe, useCurrentLibrary, useJobEvents, useLogout } from '../hooks';
+import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { Button } from './ui';
 import { BrandMark } from './BrandMark';
@@ -18,6 +18,8 @@ export function Layout() {
   const menuButton = useRef<HTMLButtonElement>(null);
   const main = useRef<HTMLElement>(null);
   useJobEvents(user && libraryId ? libraryId : undefined);
+  // open tasks (gaps the owner took on) show as a count on Library care
+  const taskCount = useGapCounts(user ? libraryId : undefined).data?.tasks?.todo ?? 0;
 
   useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
   useEffect(() => {
@@ -75,7 +77,7 @@ export function Layout() {
           <Link to="/albums" className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
-          <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care</Link>
+          <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>
           <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
         </nav>

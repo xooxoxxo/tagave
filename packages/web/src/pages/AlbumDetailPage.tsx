@@ -17,7 +17,9 @@ import { CompilationPanel, type MergeCandidateView } from '../components/Compila
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
-import { describeQualityFlags } from '../utils/qualityFlags';
+import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
+import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
+import { GapChoices, GapChoicesHelp, ReopenGapButton } from '../components/GapChoices';
 import { Button, EmptyState, LinkButton, CoverArt } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
 
@@ -76,9 +78,15 @@ interface PendingIdentify {
 interface Gap {
   id: string;
   kind: string;
+  /** open | todo (on the task list) | dismissed | resolved (a task a scan crossed out) */
   state: string;
   dismissReason: string | null;
   details: Record<string, unknown>;
+  /** quality gaps: the one flag this row stands for (0032) */
+  flag?: string;
+  acceptedAt?: string | null;
+  resolvedAt?: string | null;
+  note?: string | null;
 }
 interface DiscogsCollectionItem {
   id: string;
@@ -200,12 +208,9 @@ const STATE_LABEL: Record<string, string> = {
   ignored: 'Ignored',
 };
 
-const GAP_LABEL: Record<string, string> = {
-  incomplete_album: 'Incomplete',
-  duplicate: 'Duplicate',
-  quality: 'Quality',
-  missing_album: 'Missing album',
-};
+const GAP_LABEL = GAP_KIND_LABEL;
+/** rows in this order on the album page; quality flags come last, under their own heading */
+const GAP_ORDER = ['incomplete_album', 'duplicate', 'missing_album'];
 
 export function AlbumDetailPage() {
   const { albumId } = useParams({ strict: false }) as { albumId: string };
@@ -309,15 +314,6 @@ export function AlbumDetailPage() {
   const addToCollection = useAddCollectionItem(libraryId);
   const fingerprint = useFingerprintAlbum(libraryId);
 
-  const dismissGap = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      api.post(`/gaps/${id}/dismiss`, { reason }),
-    onSuccess: () => refresh(),
-  });
-  const reopenGap = useMutation({
-    mutationFn: (id: string) => api.post(`/gaps/${id}/reopen`),
-    onSuccess: () => refresh(),
-  });
 
   if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div>;
 
@@ -330,26 +326,41 @@ export function AlbumDetailPage() {
 
   const openGaps = album.gaps.filter((g) => g.state === 'open');
   const dismissedGaps = album.gaps.filter((g) => g.state === 'dismissed');
+  const taskGaps = album.gaps.filter((g) => g.state === 'todo');
+  const doneTasks = album.gaps.filter((g) => g.state === 'resolved' && g.acceptedAt);
   const visibleCandidates = album.candidates
     .filter((c) => showExcluded || !c.excluded)
     .sort((a, b) => a.distance - b.distance);
   const excludedCount = album.candidates.filter((c) => c.excluded).length;
-  const qualityFlags = describeQualityFlags(
-    (openGaps.find((g) => g.kind === 'quality')?.details as { flags?: Record<string, unknown> } | undefined)?.flags,
-    { mixed: album.mixed },
-  );
-  // one number for the tab, the header link and the section heading: each
-  // quality problem counts on its own, every other open gap counts once
-  const otherGaps = openGaps.filter((g) => g.kind !== 'quality');
-  const issueCount = qualityFlags.length + otherGaps.length;
-  // A quality gap whose flags describe nothing we can show would render an
-  // empty group; matched albums keep their candidates but do not show them.
-  const shownOpenGaps = openGaps.filter((g) => g.kind !== 'quality' || qualityFlags.length > 0);
+  // Quality gaps are one row per flag (0032); a row's words can mention the
+  // album's other open flags ("fetching the cover art above clears this too").
+  const openFlags: Record<string, unknown> = {};
+  for (const g of openGaps) {
+    const f = g.kind === 'quality' ? qualityFlagOf(g) : null;
+    if (f) openFlags[f.key] = f.value;
+  }
+  const qualityIssue = (g: Gap): QualityIssue | null => {
+    const f = qualityFlagOf(g);
+    return f ? describeQualityFlag(f.key, f.value, openFlags, { mixed: album.mixed }) : null;
+  };
+  const qualityRows = openGaps
+    .filter((g) => g.kind === 'quality')
+    .map((g) => ({ gap: g, issue: qualityIssue(g) }))
+    .filter((r): r is { gap: Gap; issue: QualityIssue } => r.issue !== null);
+  const otherGaps = openGaps
+    .filter((g) => g.kind !== 'quality')
+    .sort((a, b) => GAP_ORDER.indexOf(a.kind) - GAP_ORDER.indexOf(b.kind));
+  // one number for the tab, the header link and the section heading: every
+  // open row counts once (tasks and hidden rows do not)
+  const issueCount = qualityRows.length + otherGaps.length;
+  // missing tracks without any incomplete gap yet (the check has not run since)
+  const hasIncompleteGap = album.gaps.some((g) => g.kind === 'incomplete_album');
+  // matched albums keep their candidates but do not show them
   const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
   // A compilation (or any album whose tracks credit other artists) gets a
   // per-track Artist column.
   const trackArtists = showsTrackArtists(album.tracks, album.artistCredit);
-  const careEmpty = shownOpenGaps.length === 0 && dismissedGaps.length === 0
+  const careEmpty = issueCount === 0 && dismissedGaps.length === 0 && taskGaps.length === 0 && doneTasks.length === 0
     && album.missingTracks.length === 0 && album.duplicates.length === 0 && !showCandidates;
   const issueNoun = issueCount === 1 ? 'issue' : 'issues';
 
@@ -368,13 +379,71 @@ export function AlbumDetailPage() {
       : []),
   ];
 
-  const describeGap = (g: Gap): string => {
-    if (g.kind === 'incomplete_album') {
-      const d = g.details as { have?: number; want?: number };
-      return `${d.have}/${d.want} tracks`;
+  const gapLabel = (g: Gap): string => (g.kind === 'quality' ? qualityIssue(g)?.title ?? GAP_LABEL['quality']! : GAP_LABEL[g.kind] ?? g.kind);
+  /** a hidden row's label: its flag's own name, whether or not the flag is still open */
+  const hiddenLabel = (g: Gap): string => {
+    if (g.kind !== 'quality') return GAP_LABEL[g.kind] ?? g.kind;
+    const f = qualityFlagOf(g);
+    return f ? describeQualityFlag(f.key, f.value).title : GAP_LABEL['quality']!;
+  };
+  const lineOf = (g: Gap): string => gapLine(g, { all: openFlags, mixed: album.mixed });
+  const taskSubject = { title: album.release?.title ?? album.title, folder: album.dirPaths?.[0] ?? null };
+  const shortDate = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+
+  // The missing tracks, folded into the Incomplete row instead of a card of their own.
+  const missingList = album.missingTracks.length > 0 && (
+    <details className={styles.gapMore}>
+      <summary>Show the {album.missingTracks.length === 1 ? 'missing track' : `${album.missingTracks.length} missing tracks`}</summary>
+      <table className={styles.missingTable}>
+        <tbody>
+          {album.missingTracks.map((m, i) => (
+            <tr key={i}>
+              <td className={`${styles.num} ${styles.missingNo}`}>
+                {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
+                {m.position}
+              </td>
+              <td className={styles.missingTitle}>{m.title}</td>
+              <td className={`${styles.num} ${styles.missingLen}`}>{dur(m.lengthMs)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </details>
+  );
+
+  /** A fix-it-now button for a quality row (fetch art, fix tags, split by format). */
+  const qualityFix = (f: QualityIssue) => (
+    <>
+      {f.action === 'art' && (
+        <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending || fetchArt.isSuccess} title={f.guidance}>
+          {fetchArt.isPending ? 'Queuing…' : fetchArt.isSuccess ? 'Art fetch queued' : 'Fetch art'}
+        </Button>
+      )}
+      {f.action === 'tags' && (
+        <LinkButton variant="secondary" size="sm" to="/plans" search={{ album: albumId }} title="Fix this album's tags in a new plan, or add it to a plan you have not applied yet">
+          Fix tags
+        </LinkButton>
+      )}
+      {f.action === 'split' && (
+        <Button variant="secondary" size="sm" onClick={openManage} title={f.guidance}>
+          Split by format
+        </Button>
+      )}
+    </>
+  );
+
+  /** The way to put right a gap marked as wrong: the editions, a re-identify, or the follow rules. */
+  const wrongFixAction = (fix: WrongFix) => {
+    if (fix.action === 'editions') return <Button variant="secondary" size="sm" onClick={() => setTab('editions')}>{fix.actionLabel}</Button>;
+    if (fix.action === 'reidentify') {
+      return (
+        <Button variant="secondary" size="sm" onClick={() => reidentify.mutate()} disabled={reidentify.isPending || !!pending}>
+          {reidentify.isPending ? 'Queued…' : fix.actionLabel}
+        </Button>
+      );
     }
-    if (g.kind === 'duplicate') return `${(g.details as { count?: number }).count} copies of this release group`;
-    return '';
+    if (fix.action === 'follow-rules') return <LinkButton variant="secondary" size="sm" to="/settings/$section" params={{ section: 'following' }}>{fix.actionLabel}</LinkButton>;
+    return null;
   };
 
   return (
@@ -578,106 +647,114 @@ export function AlbumDetailPage() {
       </nav>
 
       {tab === 'care' && (<>
-      {(shownOpenGaps.length > 0 || dismissedGaps.length > 0) && (
+      {(issueCount > 0 || (!hasIncompleteGap && album.missingTracks.length > 0)) && (
         <div className={styles.section}>
-          <h2 className={styles.sectionTitle}>{issueCount > 0 ? `Needs attention (${issueCount})` : 'Hidden issues'}</h2>
-          {shownOpenGaps.map((g) =>
-            g.kind === 'quality' ? (
-              <div key={g.id} className={styles.qualityGapGroup}>
-                <div className={styles.qualityGapHeader}>
-                  <div>
-                    <h3 className={styles.qualityGapTitle}>Tags, artwork and files</h3>
-                    <p className={styles.qualityGapNote}>Each row says what is wrong and what to do next. Hiding or marking as wrong applies to every row in this list.</p>
-                  </div>
-                  <span className={styles.gapActions}>
-                    <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} disabled={dismissGap.isPending} title="Stop showing these issues for this album. You can bring them back from the bottom of this list.">
-                      {qualityFlags.length === 1 ? 'Hide this issue' : `Hide all ${qualityFlags.length} issues`}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })} disabled={dismissGap.isPending} title="Hide these issues and record that the checks got this album wrong, so they can be improved.">
-                      {qualityFlags.length === 1 ? 'This is wrong' : 'These are wrong'}
-                    </Button>
+          <h2 className={styles.sectionTitle}>Needs attention ({issueCount})</h2>
+          {issueCount > 0 && <GapChoicesHelp />}
+          {otherGaps.map((g) => (
+            <div key={g.id} className={styles.gapItem}>
+              <div className={styles.gapMain}>
+                <div className={styles.gapHead}>
+                  <span className={styles.gapKind}>{gapLabel(g)}</span>
+                  <span className={styles.gapLine}>{lineOf(g)}</span>
+                </div>
+                {g.kind === 'incomplete_album' && missingList}
+              </div>
+              <GapChoices gapId={g.id} subject={gapLabel(g)} onDecided={() => refresh()} />
+            </div>
+          ))}
+          {!hasIncompleteGap && album.missingTracks.length > 0 && (
+            <div className={styles.gapItem}>
+              <div className={styles.gapMain}>
+                <div className={styles.gapHead}>
+                  <span className={styles.gapKind}>{GAP_LABEL['incomplete_album']}</span>
+                  <span className={styles.gapLine}>
+                    {album.missingTracks.length === 1 ? '1 track is missing' : `${album.missingTracks.length} tracks are missing`}
                   </span>
                 </div>
-                {qualityFlags.map((f) => (
-                  <div key={f.key} className={styles.qualityFlag}>
-                    <div className={styles.qualityFlagContent}>
-                      <div className={styles.qualityFlagLabel}>
-                        {f.title}
-                        {f.count && <span className={styles.qualityFlagCount}> · {f.count}</span>}
-                      </div>
-                      <div className={styles.qualityFlagDetail}>{f.explain}</div>
-                      {f.affected?.map((line) => <div key={line} className={styles.qualityFlagAffected}>{line}</div>)}
-                    </div>
-                    <div className={styles.qualityFlagAction}>
-                      {f.action === 'art' && (
-                        <Button variant="secondary" size="sm" onClick={() => fetchArt.mutate()} disabled={fetchArt.isPending || fetchArt.isSuccess} title={f.guidance}>
-                          {fetchArt.isPending ? 'Queuing…' : fetchArt.isSuccess ? 'Art fetch queued' : 'Fetch art'}
-                        </Button>
-                      )}
-                      {f.action === 'tags' && (
-                        <LinkButton variant="secondary" size="sm" to="/plans" search={{ album: albumId }} title="Fix this album's tags in a new plan, or add it to a plan you have not applied yet">
-                          Fix tags
-                        </LinkButton>
-                      )}
-                      {f.action === 'split' && (
-                        <Button variant="secondary" size="sm" onClick={openManage} title={f.guidance}>
-                          Split by format
-                        </Button>
-                      )}
-                      {!f.action && f.guidance && <span className={styles.qualityFlagHint}>{f.guidance}</span>}
-                    </div>
-                  </div>
-                ))}
+                <p className={styles.gapExplain}>The choices appear after the next gap check, which runs after a scan finds new files and every night.</p>
+                {missingList}
               </div>
-            ) : (
-              /* Other gaps: incomplete, duplicate, missing */
-              <div key={g.id} className={styles.gapRow}>
-                <span className={styles.gapKind}>{GAP_LABEL[g.kind] ?? g.kind}</span>
-                <span className={styles.gapDetail}>{describeGap(g)}</span>
-                <span className={styles.gapActions}>
-                  <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'not_interested' })} disabled={dismissGap.isPending} title="Stop showing this issue for this album. You can bring it back below.">
-                    Hide
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => dismissGap.mutate({ id: g.id, reason: 'wrong_data' })} disabled={dismissGap.isPending} title="Hide this issue and record that the check got this album wrong.">
-                    This is wrong
-                  </Button>
-                </span>
-              </div>
-            ),
+            </div>
           )}
-          {dismissedGaps.map((g) => (
-            <div key={g.id} className={styles.gapRowDismissed}>
-              <span className={styles.gapKind}>{g.kind === 'quality' ? 'Tags, artwork and files' : GAP_LABEL[g.kind] ?? g.kind}</span>
-              <span className={styles.gapDetail}>
-                {g.dismissReason === 'wrong_data' ? 'Hidden, marked as wrong' : 'Hidden by you'}
-              </span>
-              <span className={styles.gapActions}>
-                <Button variant="ghost" size="sm" onClick={() => reopenGap.mutate(g.id)} disabled={reopenGap.isPending}>Show again</Button>
-              </span>
+          {qualityRows.length > 0 && <h3 className={styles.gapGroupTitle}>{GAP_LABEL['quality']}</h3>}
+          {qualityRows.map(({ gap: g, issue: f }) => (
+            <div key={g.id} className={styles.gapItem}>
+              <div className={styles.gapMain}>
+                <div className={styles.gapHead}>
+                  <span className={styles.gapKind}>{f.title}</span>
+                  {f.count && <span className={styles.gapLine}>{f.count}</span>}
+                </div>
+                <p className={styles.gapExplain}>
+                  {f.explain}
+                  {!f.action && f.guidance && <> {f.guidance}</>}
+                </p>
+                {f.affected?.map((line) => <div key={line} className={styles.qualityFlagAffected}>{line}</div>)}
+              </div>
+              <GapChoices gapId={g.id} subject={f.title} fix={qualityFix(f)} onDecided={() => refresh()} />
             </div>
           ))}
         </div>
       )}
 
-      {album.missingTracks.length > 0 && (
+      {(taskGaps.length > 0 || doneTasks.length > 0) && (
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>
-            Missing tracks ({album.missingTracks.length})
+            On your task list ({taskGaps.length})
+            <LinkButton variant="quiet" size="sm" to="/work" search={{ tab: 'tasks' }}>All tasks</LinkButton>
           </h2>
-          <table className={styles.missingTable}>
-            <tbody>
-              {album.missingTracks.map((m, i) => (
-                <tr key={i}>
-                  <td className={`${styles.num} ${styles.missingNo}`}>
-                    {(album.discCount ?? 1) > 1 ? `${m.disc}-` : ''}
-                    {m.position}
-                  </td>
-                  <td className={styles.missingTitle}>{m.title}</td>
-                  <td className={`${styles.num} ${styles.missingLen}`}>{dur(m.lengthMs)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {taskGaps.map((g) => {
+            const f = g.kind === 'quality' ? qualityIssue(g) : null;
+            return (
+              <div key={g.id} className={styles.gapItem}>
+                <div className={styles.gapMain}>
+                  <div className={styles.taskText}><span className={styles.taskMark} aria-hidden="true" />{taskText(g, taskSubject)}</div>
+                  <p className={styles.gapExplain}>
+                    Added {shortDate(g.acceptedAt)}. The first scan that finds it fixed crosses it out.
+                    {g.note && <> Note: {g.note}</>}
+                  </p>
+                  {g.kind === 'incomplete_album' && missingList}
+                </div>
+                <div className={styles.gapChoicesCol}>
+                  {f && qualityFix(f)}
+                  <ReopenGapButton gapId={g.id} onDecided={() => refresh()} title="Take it off your task list; it shows under Needs attention again">Remove from tasks</ReopenGapButton>
+                </div>
+              </div>
+            );
+          })}
+          {doneTasks.map((g) => (
+            <div key={g.id} className={`${styles.gapItem} ${styles.taskDone}`}>
+              <div className={styles.gapMain}>
+                <div className={styles.taskText}><span className={`${styles.taskMark} ${styles.taskMarkDone}`} aria-hidden="true" /><s>{taskText(g, taskSubject)}</s></div>
+                <p className={styles.gapExplain}>{doneLabel({ resolvedAt: g.resolvedAt ?? null, subjectGone: false })}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {dismissedGaps.length > 0 && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>Hidden ({dismissedGaps.length})</h2>
+          {dismissedGaps.map((g) => {
+            const wrong = g.dismissReason === 'wrong_data';
+            const fix = wrong ? wrongFix(g) : null;
+            return (
+              <div key={g.id} className={styles.gapItem}>
+                <div className={styles.gapMain}>
+                  <div className={styles.gapHead}>
+                    <span className={styles.gapKind}>{hiddenLabel(g)}</span>
+                    <span className={styles.gapLine}>{wrong ? 'You marked this as wrong' : 'Not a problem, hidden by you'}</span>
+                  </div>
+                  {fix && <p className={styles.gapExplain}>{fix.text}</p>}
+                </div>
+                <div className={styles.gapChoicesCol}>
+                  {fix && wrongFixAction(fix)}
+                  <ReopenGapButton gapId={g.id} onDecided={() => refresh()}>Show again</ReopenGapButton>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -941,7 +1018,7 @@ export function AlbumDetailPage() {
             <dt>Reviews</dt>
             <dd>fetched only on request from the Reviews tab (one call per source: CritiqueBrainz, MusicBrainz, Wikipedia, Discogs)</dd>
             <dt>Open gaps</dt>
-            <dd>{openGaps.length ? openGaps.map((g) => GAP_LABEL[g.kind] ?? g.kind).join(', ') : 'none'}{dismissedGaps.length ? ` · ${dismissedGaps.length} dismissed` : ''}</dd>
+            <dd>{openGaps.length ? [...new Set(openGaps.map((g) => GAP_LABEL[g.kind] ?? g.kind))].join(', ') : 'none'}{taskGaps.length ? ` · ${taskGaps.length} on your task list` : ''}{dismissedGaps.length ? ` · ${dismissedGaps.length} hidden` : ''}</dd>
             <dt>Folder</dt>
             <dd className={styles.dirPath}>{album.dirPaths?.join('\n')}</dd>
           </dl>

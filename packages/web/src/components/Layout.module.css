@@ -42,6 +42,10 @@ between browsing and upkeep: the hairline cut into the
 .navUser { margin-top: auto; padding: 1rem 0 0 .25rem; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-3); display: flex; flex-direction: column; align-items: stretch; gap: .35rem; }
 .userEmail { display: block; min-width: 0; padding-inline: 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .logoutBtn { align-self: flex-start; }
+/* open tasks on Library care */
+.navCount { display: inline-grid; place-items: center; min-width: 1.35rem; height: 1.35rem; margin-left: .5rem; padding: 0 .35rem; border-radius: var(--r-pill); background: var(--mist-2); color: var(--ink-2); font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; vertical-align: 1px; }
+.navLinkActive .navCount { background: var(--surface); color: var(--chip-on-ink); }
+.srOnly { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .main { flex: 1; min-width: 0; overflow-y: auto; outline: none; }
 .contentArea { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .page { min-height: 100%; }

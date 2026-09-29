@@ -6,7 +6,8 @@
  *
  * Mark-and-sweep on the natural key (library, kind, subject_type, subject_id):
  * pre-mark every live row, let the upsert clear the mark on rows still
- * missing, resolve whatever stayed marked. Dismissed rows keep their state.
+ * missing, resolve whatever stayed marked. Dismissed rows and tasks keep
+ * their state until resolved.
  *
  * `artistId` scopes the pass to release groups linked to one artist — the
  * artist.refresh job runs it so the artist page and the Attention list show
@@ -16,6 +17,7 @@
  */
 import type { WorkerContext } from './context.js';
 import { loadLibraryFollowRules } from './followRules.js';
+import { keepDecisionOnConflict } from './gapUpsert.js';
 
 export async function recomputeMissingAlbumGaps(
   ctx: WorkerContext,
@@ -61,10 +63,7 @@ export async function recomputeMissingAlbumGaps(
             and la.release_group_id = rga.release_group_id
             and la.state != 'ignored')
      order by rga.release_group_id
-    on conflict (library_id, kind, subject_type, subject_id)
-    do update set details = excluded.details,
-                  state = case when gaps.state = 'dismissed' then 'dismissed' else 'open' end,
-                  resolved_at = null`;
+    ${keepDecisionOnConflict(sql)}`;
 
   await sql`
     update gaps set state = 'resolved', resolved_at = now()

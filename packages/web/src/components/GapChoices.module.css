@@ -1,0 +1,47 @@
+.choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-xs);
+}
+
+.error {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: var(--font-size-xs);
+  color: var(--danger);
+}
+
+/* the legend: three short definitions, side by side where there is room */
+.help {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm) var(--space-md);
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--r-inner);
+  background: var(--mist);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.help dt {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.help dd {
+  margin: 0.15rem 0 0;
+  color: var(--ink-2);
+}
+
+@media (max-width: 720px) {
+  .help {
+    grid-template-columns: 1fr;
+  }
+
+  .choices {
+    justify-content: flex-start;
+  }
+}
