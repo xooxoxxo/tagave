@@ -27,8 +27,8 @@ describe.skipIf(!url)('worker heartbeat checks (integration)', () => {
   it('fails with no heartbeat, then passes once a worker has checked in', async () => {
     expect((await checkWorkerHeartbeat(url!, 1)).status).toBe('fail');
     await sql`insert into worker_heartbeats (worker_id, info) values (${ids[0]!}, ${sql.json({ workerId: ids[0]!, sha: 'abc1234' })})`;
-    expect((await checkWorkerHeartbeat(url!, 1)).status).toBe('pass');
-    expect((await checkWorkerHeartbeat(url!, 2)).status).toBe('warn');
+    expect(await checkWorkerHeartbeat(url!, 1)).toMatchObject({ status: 'pass', detail: '1 worker running' });
+    expect(await checkWorkerHeartbeat(url!, 2)).toMatchObject({ status: 'warn', detail: '1 worker running, 2 expected' });
   });
 
   it('ignores a heartbeat older than two minutes', async () => {
@@ -38,5 +38,7 @@ describe.skipIf(!url)('worker heartbeat checks (integration)', () => {
     expect(check.status).toBe('warn');
     const versions = await checkWorkerVersions(url!);
     expect(versions.detail).not.toContain('old0000');
+    // plain words on the status page, not process internals
+    expect(versions.detail).not.toMatch(/this process|\(\d+\)/);
   });
 });

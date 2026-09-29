@@ -67,6 +67,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     end $$`;
     await client`create table if not exists pgboss.job (
       id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
+    // the preview route orders queued jobs by created_on
+    await client`alter table pgboss.job add column if not exists created_on timestamptz default now()`;
 
     await db.insert(users).values([
       { id: ownerId, email: `owner-${ownerId}@test.com`, passwordHash: 'x' },
@@ -77,7 +79,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
       { id: otherLibraryId, name: 'Other', ownerUserId: strangerId, settings: {} },
     ]);
     await db.insert(localAlbums).values([
-      { id: album1, libraryId, clusterKey: `a1-${album1}`, dirPaths: ['A/1'], state: 'matched' },
+      { id: album1, libraryId, clusterKey: `a1-${album1}`, dirPaths: ['A/1'], state: 'matched', titleGuess: 'Kind of Blue', artistGuess: 'Miles Davis' },
       { id: album2, libraryId, clusterKey: `a2-${album2}`, dirPaths: ['A/2'], state: 'matched' },
       { id: album3, libraryId, clusterKey: `a3-${album3}`, dirPaths: ['A/3'], state: 'matched' },
       { id: foreignAlbum, libraryId: otherLibraryId, clusterKey: `f-${foreignAlbum}`, dirPaths: ['F'], state: 'matched' },
@@ -156,6 +158,48 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     // The queue is stately: sends under one key collapse into the one waiting
     // preview, which reads the final scope when it starts.
     expect(previewSends(draft).map((j) => j.opts.singletonKey)).toEqual([`tag_plan:${draft}`, `tag_plan:${draft}`]);
+  });
+
+  it('renames a plan the wizard named after its first album, keeps a typed name', async () => {
+    const named = await makePlan('draft');
+    await db.update(tagPlans).set({ name: 'Miles Davis — Kind of Blue tags' }).where(eq(tagPlans.id, named));
+    const res = await add(named, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect(res.json()).toMatchObject({ added: 1, name: 'Miles Davis — Kind of Blue + 1 more album tags' });
+    expect((await planRow(named)).name).toBe('Miles Davis — Kind of Blue + 1 more album tags');
+
+    const typed = await makePlan('draft');
+    await db.update(tagPlans).set({ name: 'Jazz cleanup' }).where(eq(tagPlans.id, typed));
+    await add(typed, { scope: { type: 'albumIds', albumIds: [album2] } });
+    expect((await planRow(typed)).name).toBe('Jazz cleanup');
+  });
+
+  const preview = (planId: string) =>
+    app.inject({ method: 'POST', url: `/libraries/${libraryId}/tag-plans/${planId}/preview`, headers: { 'x-test-user': ownerId } });
+
+  it('re-previews a previewed plan: back to draft, old rows dropped, one preview queued', async () => {
+    const res = await preview(previewed);
+    expect(res.statusCode).toBe(202);
+    const plan = await planRow(previewed);
+    expect(plan.status).toBe('draft');
+    expect(plan.stats).toEqual({});
+    expect(await itemsOf(previewed)).toHaveLength(0);
+    expect(previewSends(previewed)).toHaveLength(1);
+  });
+
+  it('refuses to re-preview while an apply is queued, and leaves the preview alone', async () => {
+    await client`insert into pgboss.job (id, name, state, priority, singleton_key, data)
+      values (${randomUUID()}, 'tags.apply', 'created', 0, null, ${JSON.stringify({ planId: previewed })}::jsonb)`;
+    const res = await preview(previewed);
+    expect(res.statusCode).toBe(409);
+    expect((await planRow(previewed)).status).toBe('previewed');
+    expect(await itemsOf(previewed)).toHaveLength(1);
+    expect(previewSends(previewed)).toHaveLength(0);
+  });
+
+  it.each(['applied', 'applying', 'paused', 'partially_failed', 'cancelled', 'reverted'])('refuses to preview a plan that is %s', async (status) => {
+    const closed = await makePlan(status);
+    expect((await preview(closed)).statusCode).toBe(400);
+    expect(previewSends(closed)).toHaveLength(0);
   });
 
   it.each(['applied', 'applying', 'paused', 'partially_failed', 'cancelled', 'reverted'])('refuses a plan that is %s', async (status) => {

@@ -166,9 +166,30 @@ export function useCreateTagPlan(libraryId: string | undefined) {
  * Returns 202 with jobId, singletonKey, and message
  */
 export function usePreviewTagPlan(libraryId: string | undefined, planId: string | undefined) {
-  return useMutation({
+  const queryClient = useQueryClient();
+  return useMutation(previewTagPlanOptions(queryClient, libraryId, planId));
+}
+
+/**
+ * Options behind usePreviewTagPlan. A re-preview moves a previewed plan back
+ * to draft and drops its items on the server, so the cached plan, its items
+ * and its summary are stale the moment the 202 arrives: refetch them rather
+ * than keep showing the old diff with Apply enabled.
+ */
+export function previewTagPlanOptions(
+  queryClient: Pick<ReturnType<typeof useQueryClient>, 'invalidateQueries'>,
+  libraryId: string | undefined,
+  planId: string | undefined,
+) {
+  return {
     mutationFn: () => api.post<JobResponse>(`/libraries/${libraryId}/tag-plans/${planId}/preview`, {}),
-  });
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan-items', libraryId, planId] });
+      void queryClient.invalidateQueries({ queryKey: ['tag-plan-summary', libraryId, planId] });
+    },
+  };
 }
 
 /**

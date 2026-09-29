@@ -27,6 +27,7 @@ import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
 import { filesInFolder, filesOfAlbums, resolveEditableScope, suggestBulkValues } from '../lib/bulkTagEdit.js';
+import { grownPlanName } from '../lib/planName.js';
 
 /**
  * Register tag plan routes.
@@ -570,8 +571,41 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
 
       const plan = plans[0]!;
-      if (plan.status !== 'draft') {
+      if (!OPEN_PLAN_STATUSES.includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot preview plan in status '${plan.status}'`);
+      }
+
+      // Re-running a finished preview: the plan goes back to draft first, in
+      // one locked transaction, so Apply cannot run against a preview that is
+      // being rebuilt. Same reset (and the same refusal when an apply is
+      // already queued) as adding albums.
+      if (plan.status === 'previewed') {
+        await db.transaction(async (tx) => {
+          const [locked] = await tx
+            .select({ status: tagPlans.status })
+            .from(tagPlans)
+            .where(eq(tagPlans.id, planId))
+            .for('update');
+          if (!locked || !OPEN_PLAN_STATUSES.includes(locked.status as string)) {
+            throw new ApiError(409, 'Conflict', PLAN_CLOSED);
+          }
+          const applyQueued = (await tx.execute(sql`
+            select 1 from pgboss.job
+             where name = 'tags.apply'
+               and data->>'planId' = ${planId}
+               and state in ('created', 'active', 'retry')
+             limit 1`)) as unknown as unknown[];
+          if (applyQueued.length > 0) {
+            throw new ApiError(409, 'Conflict', PLAN_CLOSED);
+          }
+          await tx
+            .update(tagPlans)
+            .set({ status: 'draft', stats: {} })
+            .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, OPEN_PLAN_STATUSES)));
+          await tx
+            .delete(tagPlanItems)
+            .where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
+        });
       }
 
       // Enqueue the tags.preview job with singletonKey.
@@ -1047,14 +1081,28 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         const merged = Array.from(new Set([...existingScope.albumIds, ...requested]));
         const added = merged.length - existingScope.albumIds.length;
         if (added === 0) {
-          return { added: 0, albumCount: merged.length, status: plan.status as string };
+          return { added: 0, albumCount: merged.length, status: plan.status as string, name: plan.name };
         }
+
+        // A plan the wizard named after its first album ("Artist — Title
+        // tags") would keep describing only that album; rename it, unless the
+        // user typed the name.
+        const firstTitles = existingScope.albumIds.length === 1
+          ? ((await tx.execute(sql`
+              select la.title_guess as title, rg.title as rg_title
+                from local_albums la
+                left join release_groups rg on rg.id = la.release_group_id
+               where la.id = ${existingScope.albumIds[0]!}`)) as unknown as Array<{ title: string | null; rg_title: string | null }>)
+              .flatMap((r) => [r.title, r.rg_title])
+              .filter((t): t is string => !!t)
+          : [];
+        const newName = grownPlanName(plan.name ?? '', existingScope.albumIds.length, merged.length, firstTitles);
 
         // The status condition repeats the check above inside the write, so
         // nothing that moved the plan on in between gets reset to draft.
         const updated = await tx
           .update(tagPlans)
-          .set({ scope: { type: 'albumIds', albumIds: merged }, status: 'draft', stats: {} })
+          .set({ scope: { type: 'albumIds', albumIds: merged }, status: 'draft', stats: {}, ...(newName ? { name: newName } : {}) })
           .where(and(eq(tagPlans.id, planId), inArray(tagPlans.status, OPEN_PLAN_STATUSES)))
           .returning({ id: tagPlans.id });
         if (updated.length === 0) {
@@ -1065,7 +1113,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           .delete(tagPlanItems)
           .where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));
 
-        return { added, albumCount: merged.length, status: 'draft' };
+        return { added, albumCount: merged.length, status: 'draft', name: newName ?? plan.name };
       });
 
       let previewQueued = false;

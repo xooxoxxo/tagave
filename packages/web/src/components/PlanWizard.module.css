@@ -227,13 +227,21 @@
   border-radius: var(--radius-sm);
 }
 
+/* The footer sticks to the bottom of the scrolling body, so Back and Create
+   stay on screen however long the step is (1440x900 cut them off before).
+   The negative margins take it to the body's edges over its padding. */
 .stepActions {
+  position: sticky;
+  bottom: calc(-1 * var(--space-md));
+  z-index: 1;
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-md);
   justify-content: flex-end;
-  margin-top: var(--space-lg);
-  padding-top: var(--space-md);
+  margin: var(--space-lg) calc(-1 * var(--space-md)) calc(-1 * var(--space-md));
+  padding: var(--space-md);
   border-top: 1px solid var(--border);
+  background: var(--bg-primary);
 }
 
 
@@ -348,3 +356,165 @@
   color: var(--text-primary);
 }
 
+
+.radioLabelDisabled {
+  cursor: not-allowed;
+  color: var(--text-secondary);
+}
+
+.radioLabelDisabled:hover {
+  background-color: transparent;
+}
+
+.radioLabelDisabled input {
+  cursor: not-allowed;
+}
+
+.choiceLabel {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.choiceNote {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.comboItemDisabled {
+  cursor: not-allowed;
+  color: var(--text-secondary);
+}
+
+/* Policy presets: every card is radio + one text column, so the titles and
+   descriptions start at the same x on every row. */
+.presetGrid {
+  gap: var(--space-sm);
+}
+
+.presetCard {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  column-gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal);
+}
+
+.presetCard:hover {
+  background-color: var(--bg-hover);
+}
+
+.presetCard:has(input:checked) {
+  border-color: var(--accent);
+  background-color: var(--surface-accent);
+}
+
+.presetCard input {
+  margin: 3px 0 0;
+  cursor: pointer;
+}
+
+/* Step indicator for a new plan */
+.stepper {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+
+.stepItem {
+  min-width: 0;
+  border-bottom: 2px solid var(--border);
+}
+
+.stepItemCurrent {
+  border-bottom-color: var(--accent);
+}
+
+.stepItemDone {
+  border-bottom-color: var(--border-secondary);
+}
+
+.stepButton {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-xs) 0 var(--space-sm);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+}
+
+button.stepButton {
+  cursor: pointer;
+}
+
+button.stepButton:hover .stepName {
+  text-decoration: underline;
+}
+
+button.stepButton:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.stepItemCurrent .stepButton {
+  color: var(--text-primary);
+}
+
+.stepDot {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-secondary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.stepItemCurrent .stepDot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg-secondary);
+}
+
+.stepText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stepName {
+  font-weight: 600;
+}
+
+.stepDetail {
+  font-size: var(--font-size-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .stepActions {
+    justify-content: stretch;
+  }
+
+  .stepActions > * {
+    flex: 1 1 auto;
+  }
+}

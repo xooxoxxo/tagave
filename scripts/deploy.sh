@@ -72,6 +72,15 @@ fi
 cd "$SRC_DIR"
 EXPORT_DIR=""; case "$SRC_DIR" in /tmp/liner-deploy-src.*) EXPORT_DIR="$SRC_DIR" ;; esac
 
+# The release version the app and workers report (Settings › Updates compares
+# it with the latest release). Read from the root package.json of what ships;
+# without it the image fell back to its 0.1.0 default.
+VERSION=$(sed -n 's/^  "version": *"\([^"]*\)".*/\1/p' package.json | head -n 1)
+case "$VERSION" in
+  [0-9]*.[0-9]*.[0-9]*) ;;
+  *) echo "cannot read the version from package.json (got '$VERSION')"; exit 2 ;;
+esac
+
 # Local lock (mkdir is atomic on APFS; macOS has no flock binary).
 LOCK=/tmp/liner-deploy.lock
 if ! mkdir "$LOCK" 2>/dev/null; then
@@ -103,9 +112,10 @@ deploy_app() {
   remote_lock "$APP_HOST"
   # never --delete and never touch the host's own env file
   rsync -az "${EXCLUDES[@]}" --exclude '.env' ./ "$APP_HOST:$APP_DIR/"
-  # GIT_SHA/BUILT_AT become build args → LINER_GIT_SHA/LINER_BUILT_AT in the
-  # image, which /version and Settings › Updates report (XO-313).
-  ssh "$APP_HOST" "cd $APP_DIR && GIT_SHA=$COMMIT BUILT_AT=$(date -u +%FT%TZ) docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
+  # GIT_SHA/BUILT_AT/LINER_VERSION become build args → LINER_GIT_SHA,
+  # LINER_BUILT_AT and LINER_VERSION in the image, which /version and
+  # Settings › Updates report (XO-313).
+  ssh "$APP_HOST" "cd $APP_DIR && GIT_SHA=$COMMIT BUILT_AT=$(date -u +%FT%TZ) LINER_VERSION=$VERSION docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
   echo "== health"; curl -sf "$APP_HEALTH_URL" && echo
   remote_unlock "$APP_HOST"
 }
@@ -125,7 +135,8 @@ deploy_workers() {
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/doctor --filter @liner/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
   # migrations before the workers restart (the app applies them on boot too; this is idempotent)
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && DATABASE_URL='$WORKER_DATABASE_URL' node -e \"import('$WORKER_DIR/packages/db/dist/migrations-lib.js').then(m=>m.runMigrations(process.env.DATABASE_URL))\" 2>&1 | grep -E 'applying|rror' || true"
-  ssh "$WORKER_HOST" "$WORKER_RESTART_CMD"
+  # exported for the relaunched workers, which report it in their heartbeat
+  ssh "$WORKER_HOST" "export LINER_VERSION=$VERSION; $WORKER_RESTART_CMD"
 }
 
 case "$WHAT" in
@@ -134,4 +145,4 @@ case "$WHAT" in
   all) deploy_app; deploy_workers ;;
   *) echo "usage: $0 [app|workers|all]"; exit 2 ;;
 esac
-echo "== deployed $COMMIT ($WHAT)"
+echo "== deployed $VERSION @ $COMMIT ($WHAT)"

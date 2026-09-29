@@ -144,9 +144,11 @@ function SettingsTagWritesContentInner() {
                 {roots.isLoading
                   ? 'Checking…'
                   : rootList.length === 0
-                    ? 'No scan roots configured'
+                    ? 'No music folders set up'
                     : writableRoots.length === 0
-                      ? `None of ${rootList.length} root(s) allow writes`
+                      ? rootList.length === 1
+                        ? 'Your music folder does not allow writes'
+                        : `None of your ${rootList.length} music folders allow writes`
                       : writableRoots.map((r) => r.path).join(', ')}
               </span>
             </div>

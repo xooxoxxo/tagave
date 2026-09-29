@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { TagPlanPreviewJob } from '@liner/shared';
-import { derivePreviewState, progressSignature, type PreviewInput } from './planPreviewState';
+import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan, type PreviewInput } from './planPreviewState';
+import { previewTagPlanOptions } from '../hooks/usePlanWizard';
 
 const base: PreviewInput = {
   job: undefined,
@@ -68,11 +69,57 @@ describe('derivePreviewState', () => {
   });
 });
 
+describe('canPreview', () => {
+  it('offers a preview only where the API accepts one', () => {
+    expect(canPreview('draft')).toBe(true);
+    expect(canPreview('previewed')).toBe(true);
+    for (const s of ['applying', 'applied', 'paused', 'partially_failed', 'cancelled', 'reverted', undefined]) {
+      expect(canPreview(s)).toBe(false);
+    }
+  });
+});
+
 describe('progressSignature', () => {
   it('changes when the worker reports new progress and not otherwise', () => {
     const a = job({ state: 'running', done: 1, total: 15, message: 'Comparing tags: 1 of 15 files' });
     expect(progressSignature(a)).toBe(progressSignature({ ...a }));
     expect(progressSignature(a)).not.toBe(progressSignature({ ...a, done: 2, message: 'Comparing tags: 2 of 15 files' }));
     expect(progressSignature(undefined)).toBe('');
+  });
+});
+
+describe('re-preview of a previewed plan', () => {
+  it('keeps polling after the click until the plan leaves previewed', () => {
+    const wait = awaitAfterPreview('previewed');
+    expect(wait).toBe('previewed');
+    // The plan still reads 'previewed' from cache and no draft job is known
+    // yet: polling must stay on.
+    expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: wait, status: 'previewed' })).toBe(true);
+    // Without the wait the page would stop polling and keep the stale diff.
+    expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'previewed' })).toBe(false);
+  });
+
+  it('does not wait on a draft, which polls through its preview job', () => {
+    expect(awaitAfterPreview('draft')).toBeNull();
+    expect(shouldPollPlan({ previewRequested: false, jobActive: true, awaiting: null, status: 'draft' })).toBe(true);
+  });
+
+  it('polls while an apply runs or is paused', () => {
+    expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'applying' })).toBe(true);
+    expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'paused' })).toBe(true);
+    expect(shouldPollPlan({ previewRequested: false, jobActive: false, awaiting: null, status: 'applied' })).toBe(false);
+  });
+
+  it('refetches the plan, its items and its summary once POST /preview succeeds', () => {
+    const keys: unknown[] = [];
+    const qc = { invalidateQueries: (f: { queryKey: unknown }) => { keys.push(f.queryKey); return Promise.resolve(); } };
+    const opts = previewTagPlanOptions(qc as never, 'lib', 'plan');
+    opts.onSuccess();
+    expect(keys).toEqual(expect.arrayContaining([
+      ['tag-plan', 'lib', 'plan'],
+      ['tag-plan-items', 'lib', 'plan'],
+      ['tag-plan-summary', 'lib', 'plan'],
+      ['tag-plans', 'lib'],
+    ]));
   });
 });

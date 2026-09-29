@@ -3,6 +3,7 @@
  */
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../services/api';
+import { useCurrentLibrary } from './useCurrentLibrary';
 import type { SystemCheck } from '../pages/setupWizard';
 
 /**
@@ -53,9 +54,14 @@ export function useSystemChecks(
   opts: { refetchInterval?: number | false | ((data: SystemChecksResponse | undefined) => number | false) } = {},
 ) {
   const interval = opts.refetchInterval ?? false;
+  // Music folders are checked for the library on screen only.
+  const { libraryId, isLoading: libraryLoading } = useCurrentLibrary();
   return useQuery({
-    queryKey: ['system', 'checks'],
-    queryFn: () => api.get<SystemChecksResponse>('/system/checks'),
+    queryKey: ['system', 'checks', libraryId ?? null],
+    queryFn: () =>
+      api.get<SystemChecksResponse>(libraryId ? `/system/checks?libraryId=${encodeURIComponent(libraryId)}` : '/system/checks'),
+    // wait for the library so the checks do not run twice (all, then scoped)
+    enabled: !libraryLoading,
     refetchInterval: typeof interval === 'function' ? (q) => interval(q.state.data) : interval,
   });
 }

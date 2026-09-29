@@ -45,7 +45,9 @@ RUN python3 -m venv packages/tagwriter-py/.venv \
 # Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
 ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown
-ARG LINER_VERSION=0.1.0
+# Empty unless CI or deploy.sh passes it: readBuildInfo() then reads the
+# root package.json, so a plain build never reports a stale version.
+ARG LINER_VERSION=
 ENV LINER_GIT_SHA=$GIT_SHA \
     LINER_BUILT_AT=$BUILT_AT \
     LINER_VERSION=$LINER_VERSION \

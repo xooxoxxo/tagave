@@ -7,12 +7,15 @@
 .brandCaption { width: 100%; font-size: .72rem; font-weight: 400; letter-spacing: .01em; color: var(--text-secondary); }
 .searchButton { display: flex; align-items: center; justify-content: space-between; gap: .4rem; padding: .65rem; background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); font-size: .75rem; font-weight: 400; text-align: left; }
 .searchButton:hover { background: var(--bg-hover); }
-.searchButton kbd { font: inherit; white-space: nowrap; opacity: .75; }
+.searchButton kbd { font: inherit; white-space: nowrap; opacity: .75; margin-left: auto; }
+.searchIcon { width: 1rem; height: 1rem; flex: 0 0 auto; }
+.searchLabel { min-width: 0; }
+.labelShort { display: none; }
 .navLinks { display: flex; flex-direction: column; gap: .2rem; }
 .groupLabel { margin: 1.25rem .75rem .5rem; font-size: .68rem; letter-spacing: .09em; text-transform: uppercase; color: var(--text-tertiary); }
 .groupLabel:first-child { margin-top: 0; }
 .navLinks [data-group="manage"] { margin-top: .8rem; border-top: 1px solid var(--border); padding-top: .7rem; }
-.navLink { padding: .7rem .85rem; color: var(--text-secondary); border-radius: var(--radius-md); font-size: .875rem; }
+.navLink { position: relative; padding: .7rem .85rem; color: var(--text-secondary); border-radius: var(--radius-md); font-size: .875rem; }
 .navLink:hover { background: var(--bg-hover); color: var(--text-primary); }
 .navLinkActive { composes: navLink; background: var(--surface-selected); color: var(--text-selected); font-weight: 600; }
 .navUser { margin-top: auto; padding: 1.25rem .5rem 0; border-top: 1px solid var(--border); font-size: .75rem; color: var(--text-secondary); }
@@ -41,5 +44,25 @@
   .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
   .userEmail { display: none; }
   .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
+  /* The divider above Library care belongs to the sidebar; in a wrapped row
+     it pushed that one link down, out of line with the others. */
+  .navLinks [data-group="manage"] { margin-top: 0; border-top: 0; padding-top: .5rem; }
   .main { min-height: 0; }
+}
+/* Phone: one line of brand, search and sign out, then the links on two
+   rows. The search box row and the long "Physical collection" label made
+   the header take a quarter of an 860px screen. */
+@media (max-width: 600px) {
+  .nav { grid-template-columns: 1fr auto auto; gap: .5rem .5rem; padding: .6rem 1rem .5rem; }
+  .brand { font-size: 1.25rem; gap: .45rem; }
+  .brandMark { width: 1.35rem; height: 1.35rem; }
+  .searchButton { grid-column: 2; grid-row: 1; width: 2.5rem; height: 2.5rem; padding: 0; justify-content: center; border-radius: var(--radius-full); }
+  .searchLabel, .searchButton kbd { display: none; }
+  .searchIcon { width: 1.1rem; height: 1.1rem; }
+  .navUser { grid-column: 3; grid-row: 1; align-self: center; }
+  .logoutBtn { padding: .5rem .25rem; }
+  .navLinks { gap: .15rem; }
+  .navLink { padding: .45rem .6rem; }
+  .labelLong { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .labelShort { display: inline; }
 }

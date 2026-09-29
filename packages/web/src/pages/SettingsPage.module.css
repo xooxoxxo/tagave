@@ -1,5 +1,5 @@
 .layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
-.sectionNav { display: flex; flex-direction: column; gap: .2rem; }
+.sectionNav { position: relative; display: flex; flex-direction: column; gap: .2rem; }
 .groupLabel { font-size: .7rem; letter-spacing: .025em; color: var(--text-tertiary); margin: 1.5rem .75rem .6rem; }
 .sectionNav > div:first-child .groupLabel { margin-top: 0; }
 .sectionLink { display: block; padding: .7rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }

@@ -1,6 +1,11 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { runDoctor, remediationFor } from '@liner/doctor';
+import { and, eq } from 'drizzle-orm';
+import { libraries } from '@liner/db';
+import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * How many live workers this install expects. Defaults to one so a
@@ -24,6 +29,20 @@ export async function createSystemRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     if (request.user.role !== 'owner') throw new ApiError(403, 'Forbidden', 'Only the owner can see system checks');
 
+    // ?libraryId= scopes the music-folder check to the library on screen;
+    // without it the check covers every library, as the CLI does.
+    const { libraryId } = request.query as { libraryId?: string };
+    if (libraryId !== undefined) {
+      // A malformed id would reach Postgres as a uuid cast and come back as
+      // a 500; it is a bad request.
+      if (!UUID_RE.test(libraryId)) throw new ApiError(400, 'Bad Request', 'libraryId must be a UUID');
+      const owned = await getDb()
+        .select({ id: libraries.id })
+        .from(libraries)
+        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      if (owned.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+    }
+
     const checkedAt = new Date().toISOString();
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
@@ -36,6 +55,11 @@ export async function createSystemRoutes(fastify: FastifyInstance) {
       ...(process.env.CACHE_DIR ? { cacheDir: process.env.CACHE_DIR } : {}),
       expectWorkers: expectedWorkers(process.env.EXPECT_WORKERS),
       offline: true,
+      offlineDetail: 'Not tested from this page, so opening it never uses up MusicBrainz or Discogs requests. Lookups in Background activity show whether they answer.',
+      // The workers read the music folders; the app host usually has none
+      // mounted, so looking for them here would only add noise.
+      probeHost: false,
+      ...(libraryId ? { libraryId } : {}),
     });
 
     return reply.status(200).send({

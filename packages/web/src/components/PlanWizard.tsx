@@ -136,6 +136,20 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
   })();
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  // What step 1 chose, in a few words, for the step indicator.
+  const scopeSummary = (() => {
+    switch (step1.scopeType) {
+      case 'artist': return step1.artistName ?? 'An artist';
+      case 'albumIds': {
+        const ids = step1.albumIds ?? [];
+        if (ids.length === 1) return step1.albumLabels?.[ids[0]!] ?? '1 album';
+        return `${ids.length} albums`;
+      }
+      case 'filterQuery': return 'Albums matching a filter';
+      case 'library': return 'Entire library';
+      default: return null;
+    }
+  })();
 
   const settings = useLibrarySettings(libraryId);
   const scanRoots = useScanRoots(libraryId);
@@ -363,6 +377,17 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
           />
         )}
 
+        {!showHelp && effectiveMode === 'new-plan' && (
+          <StepIndicator
+            step={step}
+            scopeSummary={canProceedStep1 ? scopeSummary : null}
+            onPick={(s) => {
+              if (s === 1) setStep(1);
+              else if (canProceedStep1) setStep(2);
+            }}
+          />
+        )}
+
         {!showHelp && effectiveMode === 'new-plan' && step === 1 && (
           <Step1ScopePicker
             libraryId={libraryId}
@@ -398,6 +423,13 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
 
 const PLAN_STATUS_LABEL: Record<string, string> = { draft: 'Preview not run yet', previewed: 'Preview ready' };
 
+/** True when the plan is a list of albums that already has every one of these. */
+export function planIncludesAll(plan: TagPlan, albumIds: string[]): boolean {
+  if (albumIds.length === 0 || plan.scope.type !== 'albumIds') return false;
+  const inPlan = new Set(plan.scope.albumIds);
+  return albumIds.every((id) => inPlan.has(id));
+}
+
 /**
  * First step when there are plans that have not been applied yet: add to one
  * of them, or start a new plan. From the album page the album is already
@@ -426,6 +458,7 @@ function StepChoosePlan({
 }) {
   const [choice, setChoice] = useState<string | null>(null);
   const addingTo = choice && choice !== 'new' ? choice : null;
+  const firstPickable = openPlans.find((p) => !planIncludesAll(p, albumIds))?.id;
   return (
     <div className={styles.step}>
       <p className={styles.stepTitle}>
@@ -434,30 +467,35 @@ function StepChoosePlan({
 
       <fieldset className={styles.fieldset}>
         <legend className={styles.legend}>Add to a plan you have not applied yet</legend>
-        {openPlans.map((plan, i) => (
-          <label key={plan.id} className={styles.radioLabel}>
-            <input
-              type="radio"
-              name="plan-choice"
-              value={plan.id}
-              checked={choice === plan.id}
-              onChange={() => setChoice(plan.id)}
-              autoFocus={i === 0}
-            />
-            <span className={styles.choiceText}>
-              <span>{plan.name || 'Untitled plan'}</span>
-              <span className={styles.choiceMeta}>
-                {[
-                  plan.scopeLabel,
-                  PLAN_STATUS_LABEL[plan.status],
-                  albumIds.length > 0 && plan.scope.type === 'albumIds' && albumIds.every((id) => plan.scope.type === 'albumIds' && plan.scope.albumIds.includes(id))
-                    ? 'Already includes this album'
-                    : null,
-                ].filter(Boolean).join(' · ')}
+        {openPlans.map((plan) => {
+          // Adding an album a plan already covers would change nothing, so
+          // that plan cannot be picked; the note says why.
+          const already = planIncludesAll(plan, albumIds);
+          return (
+            <label key={plan.id} className={`${styles.radioLabel} ${already ? styles.radioLabelDisabled : ''}`}>
+              <input
+                type="radio"
+                name="plan-choice"
+                value={plan.id}
+                checked={choice === plan.id}
+                disabled={already}
+                onChange={() => setChoice(plan.id)}
+                autoFocus={plan.id === firstPickable}
+              />
+              <span className={styles.choiceText}>
+                <span>{plan.name || 'Untitled plan'}</span>
+                <span className={styles.choiceMeta}>
+                  {[plan.scopeLabel, PLAN_STATUS_LABEL[plan.status]].filter(Boolean).join(' · ')}
+                </span>
+                {already && (
+                  <span className={styles.choiceNote}>
+                    Already includes {albumIds.length === 1 ? 'this album' : 'these albums'}
+                  </span>
+                )}
               </span>
-            </span>
-          </label>
-        ))}
+            </label>
+          );
+        })}
         {openPlansTotal > openPlans.length && (
           <p className={styles.choiceMeta}>
             Showing the {openPlans.length} newest of {openPlansTotal.toLocaleString()} plans you have not applied yet.
@@ -529,6 +567,7 @@ function StepPickAlbumsForPlan({
         selectedIds={state.albumIds ?? []}
         labels={state.albumLabels ?? {}}
         onChange={(albumIds, albumLabels) => onChange({ ...state, albumIds, albumLabels })}
+        alreadyIn={plan?.scope.type === 'albumIds' ? plan.scope.albumIds : []}
       />
 
       {error && <Banner tone="danger">{error}</Banner>}
@@ -618,11 +657,14 @@ function AlbumPicker({
   selectedIds,
   labels,
   onChange,
+  alreadyIn = [],
 }: {
   libraryId: string;
   selectedIds: string[];
   labels: Record<string, string>;
   onChange: (ids: string[], labels: Record<string, string>) => void;
+  /** albums the target plan already covers: shown, but cannot be ticked */
+  alreadyIn?: string[];
 }) {
   const [q, setQ] = useState('');
   const debounced = useDebounced(q.trim(), 250);
@@ -665,14 +707,15 @@ function AlbumPicker({
           {!results.isLoading && items.length === 0 && <li className={styles.comboEmpty}>No albums match “{debounced}”.</li>}
           {items.map((al) => {
             const label = `${al.artistCredit} — ${al.title}`;
-            const checked = selectedIds.includes(al.id);
+            const inPlan = alreadyIn.includes(al.id);
+            const checked = inPlan || selectedIds.includes(al.id);
             return (
               <li key={al.id}>
-                <label className={`${styles.comboItem} ${checked ? styles.comboItemChecked : ''}`}>
-                  <input type="checkbox" checked={checked} onChange={() => toggle(al.id, label)} />
+                <label className={`${styles.comboItem} ${checked ? styles.comboItemChecked : ''} ${inPlan ? styles.comboItemDisabled : ''}`}>
+                  <input type="checkbox" checked={checked} disabled={inPlan} onChange={() => toggle(al.id, label)} />
                   <span>{label}</span>
                   <span className={styles.comboMeta}>
-                    {al.year ?? '—'} · {al.trackCount} tracks · {al.formats.join('/')}
+                    {inPlan ? 'Already in this plan' : `${al.year ?? '—'} · ${al.trackCount} tracks · ${al.formats.join('/')}`}
                   </span>
                 </label>
               </li>
@@ -704,7 +747,7 @@ function Step1ScopePicker({
   const pick = (scopeType: WizardStep1State['scopeType']) => onChange({ ...state, scopeType });
   return (
     <div className={styles.step}>
-      <p className={styles.stepTitle}>Step 1: Select scope</p>
+      <p className={styles.stepTitle}>What should the plan cover?</p>
 
       <fieldset className={styles.fieldset}>
         <label className={styles.radioLabel}>
@@ -810,11 +853,12 @@ function Step2PolicyPicker({
 }) {
   return (
     <div className={styles.step}>
-      <p className={styles.stepTitle}>Step 2: Select policy preset</p>
+      <p className={styles.stepTitle}>How should the tags be fixed?</p>
 
       <div className={styles.formGroup}>
-        <label className={styles.label}>Plan name</label>
+        <label className={styles.label} htmlFor="plan-wizard-name">Plan name</label>
         <input
+          id="plan-wizard-name"
           type="text"
           className={styles.input}
           value={planName}
@@ -823,10 +867,10 @@ function Step2PolicyPicker({
         />
       </div>
 
-      <fieldset className={styles.fieldset}>
+      <fieldset className={`${styles.fieldset} ${styles.presetGrid}`}>
         <legend className={styles.legend}>Policy preset</legend>
 
-        <label className={styles.radioLabel}>
+        <label className={styles.presetCard}>
           <input
             type="radio"
             name="preset"
@@ -834,13 +878,13 @@ function Step2PolicyPicker({
             checked={state.preset === 'canonical_ids_and_fill'}
             onChange={() => onChange({ ...state, preset: 'canonical_ids_and_fill' })}
           />
-          Canonical IDs + fill (default)
-          <p className={styles.hint}>
-            Overwrite ID tags and key fields; fill blanks for title, artist, genre, compilation
-          </p>
+          <span className={styles.choiceText}>
+            <span className={styles.choiceLabel}>Canonical IDs + fill (default)</span>
+            <span className={styles.choiceMeta}>Overwrite ID tags and key fields; fill blanks for title, artist, genre, compilation</span>
+          </span>
         </label>
 
-        <label className={styles.radioLabel}>
+        <label className={styles.presetCard}>
           <input
             type="radio"
             name="preset"
@@ -848,11 +892,13 @@ function Step2PolicyPicker({
             checked={state.preset === 'fill_blanks_only'}
             onChange={() => onChange({ ...state, preset: 'fill_blanks_only' })}
           />
-          Fill blanks only
-          <p className={styles.hint}>Never overwrite; only set empty fields</p>
+          <span className={styles.choiceText}>
+            <span className={styles.choiceLabel}>Fill blanks only</span>
+            <span className={styles.choiceMeta}>Never overwrite; only set empty fields</span>
+          </span>
         </label>
 
-        <label className={styles.radioLabel}>
+        <label className={styles.presetCard}>
           <input
             type="radio"
             name="preset"
@@ -860,11 +906,13 @@ function Step2PolicyPicker({
             checked={state.preset === 'overwrite_all'}
             onChange={() => onChange({ ...state, preset: 'overwrite_all' })}
           />
-          Overwrite all
-          <p className={styles.hint}>Replace all canonical fields with new values</p>
+          <span className={styles.choiceText}>
+            <span className={styles.choiceLabel}>Overwrite all</span>
+            <span className={styles.choiceMeta}>Replace all canonical fields with new values</span>
+          </span>
         </label>
 
-        <label className={styles.radioLabel}>
+        <label className={styles.presetCard}>
           <input
             type="radio"
             name="preset"
@@ -872,14 +920,17 @@ function Step2PolicyPicker({
             checked={state.preset === 'custom'}
             onChange={() => onChange({ ...state, preset: 'custom' })}
           />
-          Custom (per-field rules)
-          <p className={styles.hint}>Advanced: configure each field individually</p>
+          <span className={styles.choiceText}>
+            <span className={styles.choiceLabel}>Custom (per-field rules)</span>
+            <span className={styles.choiceMeta}>Advanced: configure each field individually</span>
+          </span>
         </label>
       </fieldset>
 
       <div className={styles.formGroup}>
-        <label className={styles.label}>ID3 version (for MP3 files)</label>
+        <label className={styles.label} htmlFor="plan-wizard-id3">ID3 version (for MP3 files)</label>
         <select
+          id="plan-wizard-id3"
           className={styles.select}
           value={state.id3Version}
           onChange={(e) => onChange({ ...state, id3Version: e.target.value as '2.3' | '2.4' })}
@@ -904,6 +955,59 @@ function Step2PolicyPicker({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Where the user is in a new plan. From the album page the wizard opens on
+ * step 2 with the album already chosen; step 1 still shows, done, with what
+ * it holds, and can be reopened.
+ */
+function StepIndicator({
+  step,
+  scopeSummary,
+  onPick,
+}: {
+  step: WizardStep;
+  scopeSummary: string | null;
+  onPick: (step: WizardStep) => void;
+}) {
+  const items: { n: WizardStep; label: string; detail: string | null }[] = [
+    { n: 1, label: 'What it covers', detail: scopeSummary },
+    { n: 2, label: 'How tags are fixed', detail: null },
+  ];
+  return (
+    <ol className={styles.stepper} aria-label={`Step ${step} of ${items.length}`}>
+      {items.map((it) => {
+        const current = it.n === step;
+        const done = it.n < step;
+        const reachable = !current && (it.n === 1 || !!scopeSummary);
+        const body = (
+          <>
+            <span className={styles.stepDot} aria-hidden="true">{done ? '✓' : it.n}</span>
+            <span className={styles.stepText}>
+              <span className={styles.stepName}>{it.label}</span>
+              {done && it.detail && <span className={styles.stepDetail}>{it.detail}</span>}
+            </span>
+          </>
+        );
+        return (
+          <li
+            key={it.n}
+            className={`${styles.stepItem} ${current ? styles.stepItemCurrent : ''} ${done ? styles.stepItemDone : ''}`}
+            aria-current={current ? 'step' : undefined}
+          >
+            {reachable ? (
+              <button type="button" className={styles.stepButton} onClick={() => onPick(it.n)}>
+                {body}
+              </button>
+            ) : (
+              <span className={styles.stepButton}>{body}</span>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

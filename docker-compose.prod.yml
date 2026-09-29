@@ -24,6 +24,8 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
+        # empty: the image reads the version from its root package.json
+        LINER_VERSION: ${LINER_VERSION:-}
     environment:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
@@ -51,6 +53,8 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
+        # empty: the image reads the version from its root package.json
+        LINER_VERSION: ${LINER_VERSION:-}
     environment:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
@@ -75,6 +79,8 @@ services:
       args:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
+        # empty: the image reads the version from its root package.json
+        LINER_VERSION: ${LINER_VERSION:-}
     environment:
       DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
       APP_SECRET: ${APP_SECRET:?set in .env}
