@@ -140,3 +140,8 @@
   .cellField { white-space: normal; overflow-wrap: anywhere; color: var(--text-primary); font-weight: 600; }
   .cellWhy { white-space: normal; }
 }
+
+/* Why a preview changes nothing: one line per reason, actions inline. */
+.reasons { margin: var(--space-sm) 0 0; padding-left: 1.1rem; display: grid; gap: var(--space-sm); }
+.reasonActions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xs); }
+.reasonNote { display: block; margin-top: var(--space-xs); font-size: var(--font-size-sm); color: var(--text-secondary); }
