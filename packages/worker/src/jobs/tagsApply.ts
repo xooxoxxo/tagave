@@ -4,7 +4,7 @@
  * pauses on audio-hash mismatch (P0 defect), continues on other errors.
  */
 
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, isNotNull, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import {
   tagPlans,
@@ -88,6 +88,13 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
 }
 
 async function parkPlan(ctx: WorkerContext, planId: string, message: string) {
+  // Whatever was written before the failure is re-clustered like a finished
+  // apply, so a plan cancelled from 'paused' still shows its real albums.
+  try {
+    await reclusterWrittenDirs(ctx, planId);
+  } catch (error) {
+    ctx.logger.warn({ planId, error: String(error) }, 'tags.apply: could not queue re-cluster for a parked plan');
+  }
   try {
     await ctx.db
       .update(tagPlanItems)
@@ -185,10 +192,18 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
     fileInfoMap.set(file.id, { audioFile: file, scanRoot: root });
   }
 
-  // Update plan status to 'applying'
+  // Update plan status to 'applying'. The first run also records how many
+  // albums the files sat in before anything was written, so the results can
+  // say "3 albums became 1" only when this plan did that (a resumed run keeps
+  // the first count: its folders may have been re-clustered since).
+  const albumsBefore = await countAlbumsOf(ctx, fileIds);
   await db
     .update(tagPlans)
-    .set({ status: 'applying' })
+    .set({
+      status: 'applying',
+      stats: sql`case when coalesce(${tagPlans.stats}, '{}'::jsonb)->'albumsBefore' is not null then ${tagPlans.stats}
+                 else coalesce(${tagPlans.stats}, '{}'::jsonb) || jsonb_build_object('albumsBefore', ${albumsBefore}::int) end`,
+    })
     .where(eq(tagPlans.id, planId));
 
   // Mark every item we are about to write as 'applying'. Items already in
@@ -407,6 +422,9 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
 
   // Update plan status based on results
   if (hashMismatchEncountered) {
+    // The files written before the stop form new albums too; a plan that is
+    // then cancelled from here would otherwise show the old albums for good.
+    await reclusterWrittenDirs(ctx, planId);
     // Pause the plan
     await db
       .update(tagPlans)
@@ -509,6 +527,16 @@ export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss
   }
   if (dirs.size > 0) ctx.logger.info({ planId, dirs: dirs.size, queued }, 'tags.apply: re-cluster queued');
   return queued;
+}
+
+/** How many different albums hold these files now. */
+async function countAlbumsOf(ctx: Pick<WorkerContext, 'db'>, fileIds: string[]): Promise<number> {
+  if (fileIds.length === 0) return 0;
+  const rows = await ctx.db
+    .selectDistinct({ albumId: localTracks.localAlbumId })
+    .from(localTracks)
+    .where(and(inArray(localTracks.audioFileId, fileIds), isNotNull(localTracks.localAlbumId)));
+  return rows.length;
 }
 
 /**

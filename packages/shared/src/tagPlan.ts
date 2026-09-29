@@ -141,6 +141,7 @@ export const tagPlanStatsSchema = z.object({
   filesAlreadyCorrect: z.number().int().nonnegative().optional().describe('Files compared that already carry every value the policy would write'),
   filesLockedOnly: z.number().int().nonnegative().optional().describe('Files whose only would-be changes are blocked by locks'),
   lastError: z.string().optional().describe('Why the last apply run stopped before finishing; set when the worker parks a plan as paused'),
+  albumsBefore: z.number().int().nonnegative().optional().describe('Different albums that held the files to write when the first apply run started'),
 }).strict().describe('Aggregate summary of a plan preview');
 
 export type TagPlanStats = z.infer<typeof tagPlanStatsSchema>;
@@ -241,8 +242,6 @@ export const tagPlanResultAlbumSchema = z.object({
   trackCount: z.number().int().nonnegative(),
   /** files of this plan that now sit in this album */
   planFiles: z.number().int().nonnegative(),
-  /** how many albums were merged into this one ("Treat as one album"); 0 when none */
-  mergedFrom: z.number().int().nonnegative(),
 }).strict();
 
 export type TagPlanResultAlbum = z.infer<typeof tagPlanResultAlbumSchema>;
@@ -255,8 +254,13 @@ export type TagPlanResultAlbum = z.infer<typeof tagPlanResultAlbumSchema>;
 export const tagPlanResultsSchema = z.object({
   filesWritten: z.number().int().nonnegative(),
   filesFailed: z.number().int().nonnegative(),
-  /** albums the plan was scoped to (album plans only) */
-  albumsInScope: z.number().int().nonnegative().nullable(),
+  /**
+   * how many different albums held the plan's files when it started writing
+   * (recorded by tags.apply); null for plans applied before it was recorded
+   */
+  albumsBefore: z.number().int().nonnegative().nullable(),
+  /** how many albums hold the plan's written files now; `albums` lists at most the first 60 */
+  albumCount: z.number().int().nonnegative(),
   albums: z.array(tagPlanResultAlbumSchema),
   /** written files that belong to no album */
   looseFiles: z.number().int().nonnegative(),

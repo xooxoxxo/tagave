@@ -43,3 +43,6 @@
   .results { padding: var(--space-lg); }
   .albums { grid-template-columns: 1fr; }
 }
+
+/* A reverted plan: one plain sentence, no card. */
+.reverted { margin: 0; font-size: var(--font-size-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }

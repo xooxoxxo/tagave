@@ -386,8 +386,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
     let res = await get();
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({
-      filesWritten: 1, filesFailed: 0, albumsInScope: 1, looseFiles: 0, updating: true,
-      albums: [{ id: album1, title: 'Kind of Blue', artistCredit: 'Miles Davis', artistId: null, planFiles: 1, mergedFrom: 0 }],
+      filesWritten: 1, filesFailed: 0, albumsBefore: null, albumCount: 1, looseFiles: 0, updating: true,
+      albums: [{ id: album1, title: 'Kind of Blue', artistCredit: 'Miles Davis', artistId: null, planFiles: 1 }],
     });
 
     await client`update pgboss.job set state = 'completed' where id = ${jobId}`;
@@ -398,12 +398,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
 
     // Once no album holds the file, it is counted as loose.
     res = await get();
-    expect(res.json()).toMatchObject({ filesWritten: 1, albums: [], looseFiles: 1 });
+    expect(res.json()).toMatchObject({ filesWritten: 1, albumCount: 0, albums: [], looseFiles: 1 });
+  });
+
+  it('albumsBefore comes from what tags.apply recorded, never from the scope', async () => {
+    // The scope names three albums (one since merged away); apply saw two.
+    const id = await makePlan('applied', { type: 'albumIds', albumIds: [album1, album2, album3] });
+    await db.update(tagPlans).set({ stats: { albumsBefore: 2 } }).where(eq(tagPlans.id, id));
+    await writeItem(id, 'applied');
+    await db.insert(localTracks).values({ localAlbumId: album1, audioFileId: fileId, trackNo: 1 });
+    try {
+      const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${id}/results`, headers: { 'x-test-user': ownerId } });
+      expect(res.json()).toMatchObject({ albumsBefore: 2, albumCount: 1 });
+    } finally {
+      await db.delete(localTracks).where(eq(localTracks.audioFileId, fileId));
+    }
+  });
+
+  it('cancelling a paused plan re-clusters the folders it already wrote', async () => {
+    const id = await makePlan('paused');
+    await writeItem(id, 'applied');
+    const res = await app.inject({ method: 'POST', url: `/libraries/${libraryId}/tag-plans/${id}/cancel`, headers: { 'x-test-user': ownerId } });
+    expect(res.statusCode).toBe(200);
+    expect(sent.filter((j) => j.name === 'cluster.dir')).toEqual([
+      { name: 'cluster.dir', data: { libraryId, scanRootId: rootId, dirPath: 'A/1' }, opts: expect.objectContaining({ singletonSeconds: 30 }) },
+    ]);
   });
 
   it('results of a plan that wrote nothing are empty; another library\'s plan is not found', async () => {
     const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/results`, headers: { 'x-test-user': ownerId } });
-    expect(res.json()).toEqual({ filesWritten: 0, filesFailed: 0, albumsInScope: 1, albums: [], looseFiles: 0, updating: false });
+    expect(res.json()).toEqual({ filesWritten: 0, filesFailed: 0, albumsBefore: null, albumCount: 0, albums: [], looseFiles: 0, updating: false });
     const stranger = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/tag-plans/${previewed}/results`, headers: { 'x-test-user': strangerId } });
     expect(stranger.statusCode).toBe(404);
   });

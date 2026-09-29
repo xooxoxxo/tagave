@@ -161,9 +161,9 @@ export async function planResults(
   db: ReturnType<typeof getDb>,
   planId: string,
   status: string,
-  rawScope: unknown,
+  rawStats: unknown,
 ): Promise<TagPlanResults> {
-  const scope = (typeof rawScope === 'string' ? JSON.parse(rawScope) : rawScope) as TagPlanScope | null;
+  const stats = (typeof rawStats === 'string' ? JSON.parse(rawStats) : rawStats) as { albumsBefore?: unknown } | null;
   const counts = await db
     .select({ status: tagPlanItems.status, n: sql<number>`count(*)::int` })
     .from(tagPlanItems)
@@ -171,14 +171,17 @@ export async function planResults(
     .groupBy(tagPlanItems.status);
   const filesWritten = counts.find((c) => c.status === 'applied')?.n ?? 0;
   const filesFailed = counts.find((c) => c.status === 'failed')?.n ?? 0;
-  const albumsInScope = scope?.type === 'albumIds' ? scope.albumIds.length : null;
+  // What tags.apply counted before it wrote anything: the albums the plan
+  // really started from (not the scope, which may name albums a merge has
+  // since removed, nor a merge that happened before this plan).
+  const albumsBefore = typeof stats?.albumsBefore === 'number' && Number.isInteger(stats.albumsBefore) && stats.albumsBefore >= 0
+    ? stats.albumsBefore : null;
   if (filesWritten === 0) {
-    return { filesWritten, filesFailed, albumsInScope, albums: [], looseFiles: 0, updating: status === 'applying' };
+    return { filesWritten, filesFailed, albumsBefore, albumCount: 0, albums: [], looseFiles: 0, updating: status === 'applying' };
   }
 
   const albumRows = (await db.execute(sql`
     select la.id, la.title_guess, la.artist_guess, la.year_guess, la.track_count, la.release_group_id,
-           coalesce(jsonb_array_length(la.merged_from->'sources'), 0)::int as merged_from,
            count(distinct i.audio_file_id)::int as plan_files
       from tag_plan_items i
       join local_tracks lt on lt.audio_file_id = i.audio_file_id
@@ -188,8 +191,14 @@ export async function planResults(
      order by plan_files desc, lower(coalesce(la.title_guess, '')), la.id
      limit ${RESULT_ALBUMS_MAX}`)) as unknown as Array<{
     id: string; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
-    track_count: number | null; release_group_id: string | null; merged_from: number; plan_files: number;
+    track_count: number | null; release_group_id: string | null; plan_files: number;
   }>;
+  const [countRow] = (await db.execute(sql`
+    select count(distinct lt.local_album_id)::int as n
+      from tag_plan_items i
+      join local_tracks lt on lt.audio_file_id = i.audio_file_id
+     where i.tag_plan_id = ${planId} and i.status = 'applied' and lt.local_album_id is not null`)) as unknown as Array<{ n: number }>;
+  const albumCount = countRow?.n ?? albumRows.length;
 
   const [loose] = (await db.execute(sql`
     select count(distinct i.audio_file_id)::int as n
@@ -226,7 +235,6 @@ export async function planResults(
     coverUrl: withArt.has(r.id) ? `/api/v1/images/album/${r.id}` : null,
     trackCount: r.track_count ?? 0,
     planFiles: r.plan_files,
-    mergedFrom: r.merged_from,
   }));
 
   let updating = status === 'applying';
@@ -250,7 +258,40 @@ export async function planResults(
     }
   }
 
-  return { filesWritten, filesFailed, albumsInScope, albums, looseFiles: loose?.n ?? 0, updating };
+  return { filesWritten, filesFailed, albumsBefore, albumCount, albums, looseFiles: loose?.n ?? 0, updating };
+}
+
+/**
+ * Queue cluster.dir for every folder a plan wrote to (the worker does the
+ * same when an apply finishes or stops). Best effort: a failure is logged,
+ * never shown, since the plan itself is already in its new state.
+ */
+async function queueReclusterOfWrittenDirs(
+  db: ReturnType<typeof getDb>,
+  log: { warn: (obj: object, msg: string) => void },
+  libraryId: string,
+  planId: string,
+): Promise<void> {
+  try {
+    const rows = await db
+      .selectDistinct({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .from(tagPlanItems)
+      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+      .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+    const dirs = new Map<string, { scanRootId: string; dirPath: string }>();
+    for (const r of rows) {
+      const dirPath = relDir(r.relPath);
+      dirs.set(`${r.scanRootId}\n${dirPath}`, { scanRootId: r.scanRootId, dirPath });
+    }
+    if (dirs.size === 0) return;
+    const boss = await getBoss();
+    for (const d of dirs.values()) {
+      await boss.send('cluster.dir', { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
+        { singletonKey: `cluster:${d.scanRootId}:${d.dirPath}`, singletonSeconds: 30 });
+    }
+  } catch (error) {
+    log.warn({ planId, error: String(error) }, 'tag plan cancel: could not queue re-cluster');
+  }
 }
 
 export async function createTagPlansRoutes(fastify: FastifyInstance) {
@@ -1082,6 +1123,10 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .set({ status: 'cancelled' })
         .where(eq(tagPlans.id, planId));
 
+      // Files written before the stop regroup by their new tags, as they do
+      // when an apply finishes; the results then show the albums they form.
+      await queueReclusterOfWrittenDirs(db, request.log, libraryId, planId);
+
       reply.send({ status: 'cancelled', message: 'Plan cancelled' });
     }
   );
@@ -1407,13 +1452,13 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
       const [plan] = await db
-        .select({ status: tagPlans.status, scope: tagPlans.scope })
+        .select({ status: tagPlans.status, stats: tagPlans.stats })
         .from(tagPlans)
         .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
       if (!plan) {
         throw new ApiError(404, 'Not Found', 'Tag plan not found');
       }
-      reply.send(await planResults(db, planId, plan.status as string, plan.scope));
+      reply.send(await planResults(db, planId, plan.status as string, plan.stats));
     }
   );
 

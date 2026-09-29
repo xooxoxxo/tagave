@@ -17,13 +17,13 @@ vi.mock('@tanstack/react-router', () => ({
   },
 }));
 
-import { PlanResults } from './PlanResults';
+import { PlanResults, PlanReverted } from './PlanResults';
 
 const merged: TagPlanResults = {
-  filesWritten: 10, filesFailed: 0, albumsInScope: 1, looseFiles: 0, updating: false,
+  filesWritten: 10, filesFailed: 0, albumsBefore: 3, albumCount: 1, looseFiles: 0, updating: false,
   albums: [{
     id: 'a1', title: 'The Last Tycoon', artistCredit: 'Peter Moren', artistId: null, year: 2008,
-    coverUrl: '/api/v1/images/album/a1', trackCount: 10, planFiles: 10, mergedFrom: 2,
+    coverUrl: '/api/v1/images/album/a1', trackCount: 10, planFiles: 10,
   }],
 };
 
@@ -43,5 +43,12 @@ describe('PlanResults', () => {
     expect(html).toContain('href="/artists/art1"');
     expect(html).toContain('Updating albums from the new tags');
     expect(html).toContain('4 from this plan');
+  });
+
+  it('a reverted plan gets one plain line, no album cards and no "became"', () => {
+    const html = renderToStaticMarkup(<PlanReverted filesWritten={10} />);
+    expect(html).toContain('Reverted: the tags from before this plan are back on 10 files.');
+    expect(html).not.toContain('became');
+    expect(html).not.toContain('href=');
   });
 });

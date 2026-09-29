@@ -8,7 +8,7 @@
 import { Link } from '@tanstack/react-router';
 import type { TagPlanResultAlbum, TagPlanResults } from '@liner/shared';
 import { plural } from './planOutcome';
-import { resultsFilesLine, resultsHeadline } from './planResultsText';
+import { resultsFilesLine, resultsHeadline, revertedLine } from './planResultsText';
 import styles from './PlanResults.module.css';
 
 function ArtistLink({ album }: { album: TagPlanResultAlbum }) {
@@ -18,6 +18,14 @@ function ArtistLink({ album }: { album: TagPlanResultAlbum }) {
   // Known only from tags: the albums page filtered to the name, as the
   // artists list does for unlinked names.
   return <Link className={styles.artist} to="/albums" search={{ artist: album.artistCredit }}>{album.artistCredit}</Link>;
+}
+
+/**
+ * A reverted plan's line: the albums it made are gone and its tags are back
+ * to what they were, so it gets one plain sentence instead of result cards.
+ */
+export function PlanReverted({ filesWritten }: { filesWritten: number }) {
+  return <p className={styles.reverted} role="status">{revertedLine(filesWritten)}</p>;
 }
 
 export function PlanResults({ results, loading }: { results: TagPlanResults | undefined; loading: boolean }) {

@@ -10,10 +10,17 @@
 
 .editing { display: inline-flex; flex-direction: column; gap: var(--space-xs); width: min(100%, 40rem); }
 .input { width: 100%; }
-/* In the headline the field takes the title face so the name does not jump
-   in size when it turns editable; weight stays at the headline's 300. */
-.title .input { font: var(--type-title); min-height: var(--h-control); }
-.row .input { font-size: var(--font-size-sm); }
+/* In the headline the field inherits the headline's face (PageShell's
+   --type-headline) so the name does not change size when it turns editable.
+   Doubled classes: the Input primitive's own `font` rule must not win. */
+.editing.title .input.input { font: inherit; letter-spacing: inherit; min-height: 0; padding-block: 0.12em; }
+.editing.row .input.input { font-size: var(--font-size-sm); }
+
+/* In the headline the name wraps like text and the pencil rides after its
+   last word, instead of a flex row that parks the pencil at the far edge. */
+.wrap.title { display: inline; }
+.wrap.title .text { display: inline; }
+.wrap.title .edit { display: inline-flex; vertical-align: middle; margin-inline-start: var(--space-xs); }
 
 .hint { font: 400 var(--font-size-xs) / 1.4 var(--font-body); color: var(--ink-3); letter-spacing: 0; }
 .error { color: var(--danger); }

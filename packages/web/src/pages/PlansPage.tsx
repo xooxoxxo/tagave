@@ -15,6 +15,7 @@ import { PlanWizard } from '../components/PlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { planStatusView } from '../utils/planStatus';
 import styles from './PlansPage.module.css';
+import { KEPT_PLAN_NOTE } from './planResultsText';
 
 export function PlansPage() {
   const { libraryId } = useCurrentLibrary();
@@ -211,6 +212,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
   const deleteM = useDeleteTagPlan(libraryId, plan.id);
   const renameM = useRenameTagPlan(libraryId);
   const [error, setError] = useState<string | null>(null);
+  const [keptNote, setKeptNote] = useState(false);
   const status = planStatusView(plan.status, plan.progress);
 
   const handleDelete = async () => {
@@ -231,7 +233,8 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
   // A plan that wrote files holds the old tags Revert puts back; it is kept
   // (the API refuses too). Once reverted it can go.
   const wroteFiles = (plan.progress?.['applied'] ?? 0) > 0 && plan.status !== 'reverted';
-  const canDelete = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(plan.status) && !wroteFiles;
+  const deletableStatus = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(plan.status);
+  const canDelete = deletableStatus && !wroteFiles;
 
   const cells = (
     <>
@@ -243,6 +246,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
           onSave={(name) => renameM.mutateAsync({ planId: plan.id, name })}
         />
         {error && <span className={styles.rowError} role="alert">{error}</span>}
+        {keptNote && wroteFiles && <span className={styles.rowNote} role="status">{KEPT_PLAN_NOTE}</span>}
       </Td>
       <Td className={styles.cellScope}>{scope}</Td>
       <Td>
@@ -266,6 +270,20 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
         )}
       </Td>
       <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        {deletableStatus && wroteFiles && (
+          /* Kept: a faint Delete that says why rather than a gap in the row. */
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.keptDelete}
+            aria-disabled="true"
+            aria-expanded={keptNote}
+            title={KEPT_PLAN_NOTE}
+            onClick={() => setKeptNote((v) => !v)}
+          >
+            Delete
+          </Button>
+        )}
         {canDelete && (
           <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end', alignItems: 'center' }}>
             {/* Quiet until it is armed. A destructive action on every row

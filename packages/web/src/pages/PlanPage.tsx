@@ -37,8 +37,8 @@ import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
 import { InlineRename } from '../components/InlineRename';
-import { PlanResults } from './PlanResults';
-import { RESULT_STATUSES } from './planResultsText';
+import { PlanResults, PlanReverted } from './PlanResults';
+import { KEPT_PLAN_NOTE, RESULT_STATUSES } from './planResultsText';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -221,6 +221,8 @@ export function PlanPage() {
   const [awaiting, setAwaiting] = useState<string | null>(null);
   // For delete confirmation: two-step inline (first click shows "Really delete?")
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // A plan that wrote files is kept; pressing its Delete says why.
+  const [keptNote, setKeptNote] = useState(false);
   // Track whether we've fired auto-preview for this mount to prevent re-firing
   const previewAutoFiredRef = useRef(false);
   const [editingValues, setEditingValues] = useState(false);
@@ -505,7 +507,8 @@ export function PlanPage() {
   // A plan that wrote files keeps its journal for Revert; the API refuses to
   // delete it, so the page does not offer it (a reverted plan can go).
   const wroteFiles = (progress?.applied ?? 0) > 0 && p.status !== 'reverted';
-  const canDelete = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && !wroteFiles;
+  const deletableStatus = ['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status);
+  const canDelete = deletableStatus && !wroteFiles;
   const when = p.appliedAt
     ? <>applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>
     : <>created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span></>;
@@ -599,6 +602,20 @@ export function PlanPage() {
               {deleteM.isPending ? 'Deleting…' : confirmDelete ? 'Really delete?' : 'Delete'}
             </Button>
           )}
+          {deletableStatus && wroteFiles && (
+            /* Kept, but not silently: the owner used Delete here before, so it
+               stays where it was and says why instead of vanishing. */
+            <Button
+              variant="quiet"
+              className={styles.keptDelete}
+              aria-disabled="true"
+              aria-expanded={keptNote}
+              title={KEPT_PLAN_NOTE}
+              onClick={() => setKeptNote((v) => !v)}
+            >
+              Delete
+            </Button>
+          )}
           {confirmDelete && (
             <Button
               variant="secondary"
@@ -625,10 +642,12 @@ export function PlanPage() {
         )}
 
         {error && <Banner tone="danger">{error}</Banner>}
+        {keptNote && wroteFiles && <p className={styles.keptNote} role="status">{KEPT_PLAN_NOTE}</p>}
 
         {hasResults && (progress?.applied ?? 0) > 0 && (
           <PlanResults results={results.data} loading={results.isLoading} />
         )}
+        {p.status === 'reverted' && <PlanReverted filesWritten={progress?.applied ?? 0} />}
 
         {!previewed && (
           <Banner tone={previewFailed ? 'danger' : previewStalled ? 'warning' : 'info'}>
@@ -704,7 +723,7 @@ export function PlanPage() {
 
         {/* Before apply the counts say what will happen; after it the
             result section says what did, so the cards step aside. */}
-        {previewed && stats && !hasResults && !nothingToDo && (
+        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (
           <div className={styles.stats}>
             <StatCard label="Files affected" value={stats.filesTouched.toLocaleString()} />
             <StatCard label="Field changes" value={stats.fieldsModified.toLocaleString()} />

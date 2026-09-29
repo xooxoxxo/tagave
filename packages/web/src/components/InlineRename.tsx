@@ -69,17 +69,21 @@ export function InlineRename({
     setError(null);
     setEditing(true);
   };
-  const stop = () => {
+  /**
+   * Leave the field. After Enter or Esc focus goes back to the pencil, so a
+   * keyboard user keeps their place; after a blur (a click on another
+   * control, Tab) focus stays wherever the user sent it.
+   */
+  const stop = (returnFocus: boolean) => {
     setEditing(false);
     setError(null);
-    // Back to the pencil, so a keyboard user does not lose their place.
-    requestAnimationFrame(() => editButtonRef.current?.focus());
+    if (returnFocus) requestAnimationFrame(() => editButtonRef.current?.focus());
   };
   const cancel = () => {
     cancelled.current = true;
-    stop();
+    stop(true);
   };
-  const commit = async () => {
+  const commit = async (fromKey: boolean) => {
     if (cancelled.current || saving) return;
     const problem = nameProblem(draft);
     if (problem) {
@@ -88,13 +92,13 @@ export function InlineRename({
     }
     const name = normaliseName(draft);
     if (name === value) {
-      stop();
+      stop(fromKey);
       return;
     }
     setSaving(true);
     try {
       await onSave(name);
-      stop();
+      stop(fromKey);
     } catch (e) {
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error)?.message ?? 'The name could not be saved.');
     } finally {
@@ -110,7 +114,7 @@ export function InlineRename({
       cancel();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      void commit();
+      void commit(true);
     }
   };
 
@@ -144,7 +148,7 @@ export function InlineRename({
         disabled={saving}
         onChange={(e) => { setDraft(e.target.value); if (error) setError(null); }}
         onKeyDown={onKeyDown}
-        onBlur={() => void commit()}
+        onBlur={() => void commit(false)}
       />
       <span className={styles.hint}>
         {error

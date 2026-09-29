@@ -13,6 +13,8 @@ import {
   scanRoots,
   audioFiles,
   tagPlanItems,
+  localAlbums,
+  localTracks,
 } from '@liner/db';
 import { makeDb } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
@@ -155,6 +157,32 @@ describe('tagsApply job', () => {
     expect((plan.stats as any).filesTouched).toBe(1);
     const [item] = await dbClient.select().from(tagPlanItems).where(eq(tagPlanItems.id, itemId));
     expect(item.status).toBe('pending');
+  });
+
+  it('records how many albums the files sat in before the first write, and a resumed run keeps it', async () => {
+    const { planId } = await seedPlan('previewed');
+    const [item] = await dbClient.select().from(tagPlanItems).where(eq(tagPlanItems.tagPlanId, planId));
+    const albumId = randomUUID();
+    await dbClient.insert(localAlbums).values({ id: albumId, libraryId, clusterKey: `before-${albumId}`, dirPaths: [''], state: 'unidentified' });
+    await dbClient.insert(localTracks).values({ localAlbumId: albumId, audioFileId: item.audioFileId, trackNo: 1 });
+    // Stop the run right after it marks the plan applying (nothing is written).
+    await ctx.sql.unsafe(`alter table tag_plan_items add constraint test_block_applying check (status <> 'applying') not valid`);
+    try {
+      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+      let [plan] = await dbClient.select().from(tagPlans).where(eq(tagPlans.id, planId));
+      expect((plan.stats as any).albumsBefore).toBe(1);
+      expect((plan.stats as any).filesTouched).toBe(1);
+
+      // A later run (Resume) must not recount: by then the folders may have
+      // been re-clustered into fewer albums.
+      await dbClient.update(tagPlans).set({ stats: { ...(plan.stats as object), albumsBefore: 3 } }).where(eq(tagPlans.id, planId));
+      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+      [plan] = await dbClient.select().from(tagPlans).where(eq(tagPlans.id, planId));
+      expect((plan.stats as any).albumsBefore).toBe(3);
+    } finally {
+      await ctx.sql.unsafe(`alter table tag_plan_items drop constraint test_block_applying`);
+      await dbClient.delete(localAlbums).where(eq(localAlbums.id, albumId));
+    }
   });
 
   it('should skip items when gates flip per-item (finding 3) - implementation verified in code', async () => {

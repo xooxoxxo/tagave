@@ -38,3 +38,13 @@
   color: var(--danger);
   max-width: 36rem;
 }
+
+/* Why a plan that wrote files has no working Delete. */
+.rowNote {
+  display: block;
+  margin-top: var(--space-xs);
+  font-size: var(--font-size-xs);
+  color: var(--ink-2);
+  max-width: 36rem;
+}
+.keptDelete.keptDelete { --b-ink: var(--ink-3); cursor: help; }

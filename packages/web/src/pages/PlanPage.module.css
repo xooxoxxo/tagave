@@ -12,6 +12,9 @@
 no drop. Doubled
    class so it wins over the quiet variant's dew ink whatever the load order. */
 .dangerQuiet.dangerQuiet { --b-ink: var(--danger); }
+/* Delete on a plan that is kept: faint, still pressable (it says why). */
+.keptDelete.keptDelete { --b-ink: var(--ink-3); cursor: help; }
+.keptNote { margin: 0; font-size: var(--font-size-sm); color: var(--ink-2); }
 .meta { color: var(--text-secondary); font-size: var(--font-size-sm); }
 .error { color: var(--error); margin: 0; }
 
