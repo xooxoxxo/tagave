@@ -2,7 +2,7 @@
  * Hooks for artists and genres (XO-310 enrichment plan)
  */
 import { useEffect, useRef } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 
 export interface ArtistListItem {
@@ -14,6 +14,17 @@ export interface ArtistListItem {
   yearFrom: number | null;
   yearTo: number | null;
   resolved: boolean;
+  /** when the artist's newest album was first scanned (ISO) */
+  addedAt?: string | null;
+  /** up to four of the artist's albums that have a front cover, oldest first */
+  coverAlbumIds?: string[];
+}
+
+export type ArtistSort = 'name' | 'albums' | 'recent';
+
+export interface ArtistGroupCount {
+  key: string;
+  count: number;
 }
 
 export interface ArtistDiscographyItem {
@@ -69,6 +80,10 @@ export interface ArtistDetail {
 export interface ArtistsListResponse {
   items: ArtistListItem[];
   nextCursor: string | null;
+  /** every artist matching search and group */
+  total?: number;
+  /** artists per A–Z group for the search, before the group filter */
+  groups?: ArtistGroupCount[];
 }
 
 export interface GenreMap {
@@ -120,6 +135,32 @@ export function useArtistsList(
     },
     enabled: !!libraryId,
     staleTime: 60_000,
+  });
+}
+
+export const ARTISTS_PAGE_SIZE = 120;
+
+/**
+ * The artists browser: pages of ARTISTS_PAGE_SIZE behind a virtualized grid
+ * or list, ordered and filtered by the server.
+ */
+export function useArtistsInfinite(
+  libraryId: string | undefined,
+  opts: { search: string; sort: ArtistSort; group: string | null },
+) {
+  const params = new URLSearchParams({ sort: opts.sort, limit: String(ARTISTS_PAGE_SIZE) });
+  if (opts.search) params.set('search', opts.search);
+  if (opts.group) params.set('group', opts.group);
+  const query = params.toString();
+  return useInfiniteQuery({
+    queryKey: ['artists-list', 'infinite', libraryId, query],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      api.get<ArtistsListResponse>(`/libraries/${libraryId}/artists?${query}&offset=${pageParam as number}`),
+    getNextPageParam: (last) => (last.nextCursor ? Number(last.nextCursor) : undefined),
+    enabled: !!libraryId,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
   });
 }
 

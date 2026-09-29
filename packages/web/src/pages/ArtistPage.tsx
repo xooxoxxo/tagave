@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules, type ArtistDiscographyItem } from '../hooks';
 import { PageShell, Button, IconButton, Badge, Card, CoverArt, CoverChip, UndoIcon, type CoverChipTone } from '../components/ui';
+import { artistLabel } from '@liner/shared';
 import styles from './ArtistPage.module.css';
 
 const OWNERSHIP_LABEL: Record<ArtistDiscographyItem['ownership'], string> = {
@@ -128,7 +129,7 @@ export function ArtistPage() {
 
   return (
     <PageShell
-      title={artist.name}
+      title={artistLabel(artist.name)}
       subtitle={subtitle}
       actions={actions}
     >
@@ -282,30 +283,6 @@ export function ArtistPage() {
           <p className={styles.emptyDiscography}>No albums in library</p>
         ) : (
           <div className={styles.discography}>
-            <div className={styles.ownershipLegend}>
-              {(['digital', 'physical', 'both', 'missing', 'ignored'] as const).map((ownership) => {
-                const labels = {
-                  digital: 'Digital',
-                  physical: 'Physical',
-                  both: 'Digital & Physical',
-                  missing: 'Missing',
-                  ignored: 'Ignored',
-                };
-                const tones = {
-                  digital: 'neutral',
-                  physical: 'neutral',
-                  both: 'accent',
-                  missing: 'warning',
-                  ignored: 'neutral',
-                } as const;
-                return (
-                  <div key={ownership} className={styles.legendItem}>
-                    <Badge tone={tones[ownership]}>{labels[ownership]}</Badge>
-                  </div>
-                );
-              })}
-            </div>
-
             {artist.discography.map((section) => (
               <div key={section.type} className={styles.discographySection}>
                 <h2 className={styles.discographyTitle}>{section.type}s</h2>
@@ -332,7 +309,9 @@ export function ArtistPage() {
                         title={item.title}
                         dimmed={item.ownership === 'missing' || item.ownership === 'ignored' ? item.ownership : undefined}
                       >
-                        <CoverChip tone={OWNERSHIP_CHIP_TONE[item.ownership]}>{OWNERSHIP_LABEL[item.ownership]}</CoverChip>
+                        {item.ownership !== 'digital' && (
+                          <CoverChip tone={OWNERSHIP_CHIP_TONE[item.ownership]}>{OWNERSHIP_LABEL[item.ownership]}</CoverChip>
+                        )}
                         {item.ownership === 'ignored' && item.gapId && (
                           <IconButton
                             size="sm"

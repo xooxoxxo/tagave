@@ -14,6 +14,7 @@ import { normalizeFollowRules } from '@liner/core';
 import { followRulesSchema } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { followDefaultsFor } from '../lib/followRules.js';
+import { coverKey, coversFor, fetchArtistRows, orderArtists, parseArtistGroup, parseArtistSort } from '../lib/artistList.js';
 
 const ENRICH_TTL_DAYS = 7;
 
@@ -29,98 +30,50 @@ async function ownedLibrary(userId: string, libraryId: string) {
 export async function createArtistsRoutes(fastify: FastifyInstance) {
   /**
    * GET /libraries/:libraryId/artists
-   * List canonical + unresolved artists (union of canonical artists linked to the library's RGs,
-   * and unresolved artist_guess entries).
+   * Canonical artists linked to the library's release groups plus unresolved
+   * artist_guess names, ordered and paged.
+   *
+   * Query: search (name contains), sort = name | albums | recent,
+   * group = one ARTIST_GROUP_ORDER key ("A", "0-9", "other", "#"),
+   * limit (<=500), offset. Each item carries up to four album ids with a
+   * front cover (coverAlbumIds) for the card mosaic; `groups` counts every
+   * group before the group filter so a jump bar can grey out empty letters.
    */
   fastify.get('/libraries/:libraryId/artists', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
-    const { search = '', limit = '100', offset = '0' } = request.query as Record<string, string>;
+    const query = request.query as Record<string, string | undefined>;
+    const search = (query['search'] ?? '').trim();
+    const sort = parseArtistSort(query['sort']);
+    const group = parseArtistGroup(query['group']);
 
     await ownedLibrary(request.user.id, libraryId);
     const db = getDb();
 
-    const limitN = Math.min(parseInt(limit, 10) || 100, 500);
-    const offsetN = parseInt(offset, 10) || 0;
+    const limitN = Math.max(1, Math.min(parseInt(query['limit'] ?? '', 10) || 100, 500));
+    const offsetN = Math.max(0, parseInt(query['offset'] ?? '', 10) || 0);
 
-    // Union of canonical artists and unresolved guesses
-    const rows = await db.execute(sql`
-      with canon as (
-        -- Canonical artists linked to release groups of the library's albums
-        select a.id,
-               a.name,
-               a.sort_name,
-               true as resolved,
-               count(distinct la.id)::int as album_count,
-               coalesce(sum(la.track_count), 0)::int as track_count,
-               min(la.year_guess)::int as year_from,
-               max(la.year_guess)::int as year_to
-          from artists a
-          join release_group_artists rga on a.id = rga.artist_id
-          join release_groups rg on rga.release_group_id = rg.id
-          join local_albums la on rg.id = la.release_group_id
-         where la.library_id = ${libraryId}
-           ${search ? sql`and (a.name ilike ${('%' + search + '%')}
-                             or a.sort_name ilike ${('%' + search + '%')})` : sql``}
-         group by a.id, a.name, a.sort_name
-      ),
-      canon_names as (select distinct lower(name) as lname from canon),
-      guess as (
-        -- Unresolved artist guesses (no release group, or one with no credits).
-        -- A name that already has a canonical row is dropped: the artist's
-        -- undecided albums must not add a second, unclickable row for them.
-        -- casts are required: a bare null in a CTE arm is text, and the
-        -- union against canon.id (uuid) / canon.sort_name (varchar) fails.
-        -- Names group as shown (migration 0028): "02. Stephane Pompougnac"
-        -- … "17. Stephane Pompougnac" are one artist, and "Various", "VA"
-        -- and "Various Artists" one compilations row.
-        select null::uuid as id,
-               liner_display_artist(la.artist_guess) as name,
-               null::varchar as sort_name,
-               false as resolved,
-               count(distinct la.id)::int as album_count,
-               coalesce(sum(la.track_count), 0)::int as track_count,
-               min(la.year_guess)::int as year_from,
-               max(la.year_guess)::int as year_to
-          from local_albums la
-         where la.library_id = ${libraryId}
-           and liner_display_artist(la.artist_guess) is not null
-           and (la.release_group_id is null or not exists (
-             select 1 from release_group_artists rga
-              where rga.release_group_id = la.release_group_id))
-           and not exists (
-             select 1 from canon_names cn where cn.lname = lower(liner_display_artist(la.artist_guess)))
-           ${search ? sql`and la.artist_guess ilike ${('%' + search + '%')}` : sql``}
-         group by liner_display_artist(la.artist_guess)
-      )
-      select * from (select * from canon union all select * from guess) combined
-      order by lower(name)
-      limit ${limitN + 1} offset ${offsetN}
-    `) as unknown as Array<{
-      id: string | null;
-      name: string;
-      sort_name: string | null;
-      resolved: boolean;
-      album_count: number;
-      track_count: number;
-      year_from: number | null;
-      year_to: number | null;
-    }>;
-
-    const items = rows.slice(0, limitN).map((r) => ({
-      id: r.id,
-      name: r.name,
-      sortName: r.sort_name,
-      albumCount: r.album_count,
-      trackCount: r.track_count,
-      yearFrom: r.year_from,
-      yearTo: r.year_to,
-      resolved: r.resolved,
-    }));
+    const rows = await fetchArtistRows(db, libraryId, search);
+    const ordered = orderArtists(rows, { sort, group });
+    const page = ordered.items.slice(offsetN, offsetN + limitN);
+    const covers = await coversFor(db, libraryId, page);
 
     reply.send({
-      items,
-      nextCursor: rows.length > limitN ? String(offsetN + limitN) : null,
+      items: page.map((r) => ({
+        id: r.id,
+        name: r.name,
+        sortName: r.sortName,
+        albumCount: r.albumCount,
+        trackCount: r.trackCount,
+        yearFrom: r.yearFrom,
+        yearTo: r.yearTo,
+        resolved: r.resolved,
+        addedAt: r.addedAt,
+        coverAlbumIds: covers.get(coverKey(r)) ?? [],
+      })),
+      total: ordered.items.length,
+      groups: ordered.groups,
+      nextCursor: offsetN + limitN < ordered.items.length ? String(offsetN + limitN) : null,
     });
   });
 

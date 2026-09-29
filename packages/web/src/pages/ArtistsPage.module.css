@@ -1,55 +1,208 @@
-.searchInput { width: min(100%, 320px); }
-
-.content {
+.container {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
-  padding: 0;
-}
-
-.loading,
-.error {
-  padding: var(--space-xl);
-  text-align: center;
-  color: var(--text-secondary);
-}
-
-.error {
-  color: var(--error);
-}
-
-.numericCell {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.headerAlignRight {
-  text-align: right;
-}
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   gap: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--line);
+  height: 100%;
+  min-height: 0;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--page-pad);
+  box-sizing: border-box;
+  width: 100%;
 }
 
-.pageInfo {
-  color: var(--text-secondary);
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.title { margin: 0; }
+
+.count {
+  color: var(--ink-3);
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
-  min-width: 5rem;
-  text-align: center;
 }
-.toolbar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
-.searchInput { width: min(100%, 320px); min-height: 2.5rem; }
-.resultCount { font-size: .8125rem; color: var(--text-secondary); margin-left: auto; }
-.artistLink { color: var(--ink); font-weight: 500; }
-.artistLink:hover { color: var(--dew); text-decoration: underline; }
-.artistStatus { font-size: .8125rem; }
-.statusHint { display: block; margin-top: .2rem; color: var(--text-secondary); font-size: .75rem; }
-@media (max-width: 640px) { .resultCount { margin-left: 0; } }
+.updating { color: var(--ink-3); }
 
-.content th:first-child, .content td:first-child { min-width: 12rem; }
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.search { flex: 1 1 220px; max-width: 360px; }
+.sort { flex: none; width: auto; }
+
+/* Grid / List: two small bubbles in a recessed pill track (as on Albums). */
+.viewToggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  padding: 4px;
+  border-radius: var(--r-pill);
+  background: var(--mist);
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .08);
+}
+
+/* A–Z: one quiet line of letters; scrolls sideways on a phone. */
+.jumpBar {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 calc(-1 * var(--space-xs));
+  padding: 2px var(--space-xs);
+}
+.jumpBar::-webkit-scrollbar { display: none; }
+
+.jump {
+  flex: none;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 .75rem/1 var(--font-body);
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.jump:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
+.jump[aria-pressed='true'] { background: var(--dew-tint); color: var(--dew); }
+.jump:disabled { color: var(--ink-3); opacity: .45; cursor: default; }
+@media (pointer: coarse) { .jump { min-width: 36px; height: 36px; } }
+
+.status,
+.error,
+.more {
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+}
+.error { color: var(--danger); }
+.clear { margin: 0; text-align: center; }
+
+.scroller,
+.scrollerList {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+  scrollbar-gutter: stable;
+  contain: layout style paint;
+  /* room for a focus ring on the edge cards (SCROLL_PAD in the page) */
+  padding: 4px;
+  margin: -4px;
+}
+
+.canvas { position: relative; width: 100%; }
+
+.gridRow { display: flex; align-items: flex-start; }
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--ink);
+  text-decoration: none;
+  border-radius: var(--r-cover);
+  outline-offset: 3px;
+}
+.card > :first-child {
+  margin-bottom: var(--space-sm);
+  transition: transform var(--dur) var(--ease-spring), box-shadow var(--dur) var(--ease-out);
+}
+.card:hover > :first-child { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+
+.cardName,
+.rowName {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.cardName { font-size: .9375rem; font-weight: 500; line-height: 1.35; }
+
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.cardMeta {
+  color: var(--ink-3);
+  font-size: .8125rem;
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact list: short rows, one header row that stays put above the scroller. */
+.listHead,
+.row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 5rem 5rem 7.5rem;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-sm);
+}
+
+.listHead {
+  scrollbar-gutter: stable;
+  overflow: hidden;
+  margin-bottom: calc(-1 * var(--space-md));
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--line-strong);
+  color: var(--ink-3);
+  font: 500 .6875rem/1.2 var(--font-body);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.row {
+  height: 100%;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+.row:hover { background: var(--bg-hover); }
+.rowName { font-weight: 500; }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.secondary { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .viewToggle { margin-left: 0; }
+  .search { max-width: none; flex-basis: 100%; }
+  .listHead,
+  .row { grid-template-columns: 36px minmax(0, 1fr) 3.25rem 5.5rem; gap: var(--space-md); padding: 0 var(--space-xs); }
+  .listHead > :nth-child(4),
+  .row > :nth-child(4) { display: none; }
+  .cardName { font-size: .875rem; }
+  .cardMeta { font-size: .75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card > :first-child,
+  .jump { transition: none; }
+  .card:hover > :first-child { transform: none; }
+}

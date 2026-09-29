@@ -171,22 +171,6 @@
   gap: var(--space-xl);
 }
 
-.ownershipLegend {
-  display: flex;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-  padding: .85rem 1.25rem;
-  background: var(--surface);
-  border-radius: var(--r-pill);
-  border: 1px solid var(--line);
-}
-
-.legendItem {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
 .discographySection {
   display: flex;
   flex-direction: column;
