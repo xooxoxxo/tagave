@@ -8,7 +8,7 @@ import {
 import { parseDiscogsRef, normalizeGenreMap, effectiveGenres } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelIdentifyJob } from '../lib/identifyRequests.js';
+import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob } from '../lib/identifyRequests.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
@@ -1557,6 +1557,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const db = getDb();
 
     const result = await mergeSplitAlbum(db, { libraryId, albumId }).catch(splitFailure);
+    // The split-off album is gone: its queued identify jobs go too.
+    await cancelQueuedIdentifyFor(await getBoss(), [albumId]).catch((err: Error) =>
+      request.log.warn({ err: err.message }, 'could not cancel identify jobs of the merged-back album'));
     await recluster(libraryId, result.dirs);
     bustFacetCache(libraryId);
     await markFacetsDirty(db, libraryId);
@@ -1584,8 +1587,11 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     if (albumIds.length > MERGE_MAX_ALBUMS) throw new ApiError(400, 'Bad Request', `At most ${MERGE_MAX_ALBUMS} albums can be merged at once`);
 
     const result = await mergeAlbums(db, { libraryId, albumIds, userId: request.user.id, ...(targetId ? { targetId } : {}) }).catch(mergeFailure);
+    const boss = await getBoss();
+    // The merged-away albums are gone: their queued identify jobs go too.
+    await cancelQueuedIdentifyFor(boss, result.mergedAlbumIds).catch((err: Error) =>
+      request.log.warn({ err: err.message }, 'could not cancel identify jobs of merged albums'));
     if (result.needsIdentify) {
-      const boss = await getBoss();
       await boss.send('identify.album', { localAlbumId: result.albumId },
         { singletonKey: IDENTIFY_SINGLETON(result.albumId), priority: IDENTIFY_PRIORITY.manual });
     }

@@ -37,7 +37,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   const {
     databaseUrl,
     cacheDir,
-    expectWorkers = 2,
+    expectWorkers = 1,
     offline = false,
     offlineDetail,
     timeoutMs = 10000,

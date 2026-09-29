@@ -15,6 +15,7 @@ import {
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
+import { scanRootCounts } from '../lib/scanRootCounts.js';
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Get library settings (spec PLT-4)
@@ -501,10 +502,13 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(scanRoots)
       .where(eq(scanRoots.libraryId, libraryId));
+    const counts = await scanRootCounts(db, libraryId);
 
     reply.status(200).send({
       data: roots.map((sr) =>
         scanRootSchema.parse({
+          albumsFound: counts.get(sr.id)?.albumsFound ?? 0,
+          tracksFound: counts.get(sr.id)?.tracksFound ?? 0,
           id: sr.id,
           libraryId: sr.libraryId,
           path: sr.path,

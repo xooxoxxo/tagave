@@ -130,16 +130,20 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       order by rank asc, score desc nulls last, album_count desc, lower(name) asc
       limit 8`) as unknown as Record<string, unknown>[];
 
+    // Tracks match on their title or their own artist: on a compilation
+    // each track credits someone else, and the row names that artist.
     const tracks = await db.execute(sql`
       select lt.id, lt.title_guess as title, lt.local_album_id,
-             la.title_guess as album_title, la.artist_guess as artist,
-             ${rank(sql`lt.title_guess`)} as rank,
-             similarity(lt.title_guess, ${query}) as score
+             la.title_guess as album_title,
+             coalesce(nullif(btrim(lt.artist_guess), ''), la.artist_guess) as artist,
+             least(${rank(sql`lt.title_guess`)}, ${rank(sql`lt.artist_guess`)} + 1) as rank,
+             greatest(similarity(lt.title_guess, ${query}), similarity(coalesce(lt.artist_guess, ''), ${query})) as score
       from local_tracks lt
       join local_albums la on la.id = lt.local_album_id
       where la.library_id = ${libraryId}
         and (lt.title_guess ilike ${like}
-             ${useSimilarity ? sql`or lt.title_guess % ${query}` : sql``})
+             or lt.artist_guess ilike ${like}
+             ${useSimilarity ? sql`or lt.title_guess % ${query} or lt.artist_guess % ${query}` : sql``})
       order by rank asc, score desc nulls last, lower(lt.title_guess) asc
       limit 8`) as unknown as Record<string, unknown>[];
 

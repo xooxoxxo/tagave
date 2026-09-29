@@ -323,12 +323,12 @@ export function PlanWizard({ libraryId, onClose, initialScope }: PlanWizardProps
               <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
                 {tagWritesDisabled && (
                   <li>
-                    Tag writes are off — <Link to="/settings/library">Settings › Tag writes</Link>
+                    Tag writes are off — <Link to="/settings/$section" params={{ section: 'metadata' }}>Settings › Tag preferences › Tag writes</Link>
                   </li>
                 )}
                 {noWritableRoots && (
                   <li>
-                    No scan root allows writes — <Link to="/settings/library">Settings › Scan roots</Link>
+                    No scan root allows writes — <Link to="/settings/library">Settings › Music folders</Link>
                   </li>
                 )}
               </ul>

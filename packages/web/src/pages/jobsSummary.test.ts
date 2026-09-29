@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summaryMessage } from './jobsSummary';
+import { identifyRateLine, summaryMessage } from './jobsSummary';
 
 const quiet = { running: 0, waiting: 0, needsAttention: 0, lastFinishedAt: '2026-09-28T10:00:00.000Z', queue: { waiting: 0, active: 0 } };
 const base = { runningNames: [], anyRetryable: false, relative: () => '5 minutes ago' };
@@ -36,5 +36,21 @@ describe('summaryMessage', () => {
       const m = summaryMessage({ ...base, summary: old, pendingAlbums });
       expect(`${m.lead} ${m.text}`).not.toContain('undefined');
     }
+  });
+});
+
+describe('identifyRateLine', () => {
+  it('never says "about 0 albums a minute": a slow rate is given per hour', () => {
+    expect(identifyRateLine({ perMin: 0.4 }, 480)).toBe('About 24 albums an hour, done in about 8 min.');
+    expect(identifyRateLine({ perMin: 12.3 }, 480)).toBe('About 12 albums a minute, done in about 8 min.');
+  });
+  it('has no line, and so no finish time, without a rate', () => {
+    expect(identifyRateLine({ perMin: 0 }, 480)).toBeNull();
+    expect(identifyRateLine({ perMin: 0.001 }, 480)).toBeNull();
+  });
+  it('drops the finish time when there is none', () => {
+    expect(identifyRateLine({ perMin: 1 }, null)).toBe('About 1 album a minute.');
+    expect(identifyRateLine({ perMin: 3 }, 30)).toBe('About 3 albums a minute, done in under a minute.');
+    expect(identifyRateLine({ perMin: 3 }, 3 * 3600 + 600)).toBe('About 3 albums a minute, done in about 3 h 10 min.');
   });
 });

@@ -32,6 +32,8 @@ export interface IdentifyStatsResponse {
     retry: number;
     failed: number;
   };
+  /** scan.parse and cluster.dir jobs still queued or running: files found but not grouped into albums yet (absent on an older API) */
+  grouping?: number;
   rate: {
     perMin: number;
     perHour: number;

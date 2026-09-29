@@ -671,6 +671,9 @@ the title-free placeholder label bottom-left. */
   .trackTable .trackCanon { grid-column: 3; grid-row: 2; font-size: var(--font-size-xs); color: var(--ink-3); }
   .trackTable .trackCanon::before { content: attr(data-label) " "; }
   .trackTable .fileCell { grid-column: 2; grid-row: 2; font-size: var(--font-size-xs); white-space: normal; overflow-wrap: anywhere; }
+  /* compilations: the per-track artist sits under the title, the file below it */
+  .trackTable .trackArtist { grid-column: 2; grid-row: 2; font-size: var(--font-size-xs); color: var(--ink-2); overflow-wrap: anywhere; }
+  .trackTable .trackRow:has(.trackArtist) .fileCell { grid-row: 3; }
   .trackTable .discHeader { display: block; }
   .trackTable .discHeader td { display: block; height: auto; padding: var(--space-md) 0 0.4rem; }
 }

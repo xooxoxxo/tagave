@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { runDoctor, remediationFor } from '@liner/doctor';
 import { readBuildInfo } from '@liner/core';
 import { getDb } from '../db.js';
+import { expectedWorkers } from './system.js';
 
 export async function createHealthRoutes(fastify: FastifyInstance) {
   // Health check endpoint
@@ -22,7 +23,7 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
       const result = await runDoctor({
         databaseUrl,
         ...(process.env.CACHE_DIR ? { cacheDir: process.env.CACHE_DIR } : {}),
-        expectWorkers: 2,
+        expectWorkers: expectedWorkers(process.env.EXPECT_WORKERS),
         offline: true,
       });
 

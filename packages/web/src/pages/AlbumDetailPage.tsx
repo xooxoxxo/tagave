@@ -16,7 +16,7 @@ import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor
 import { CompilationPanel, type MergeCandidateView } from '../components/CompilationPanel';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
-import { uniqueGenres } from '../utils/albumPresentation';
+import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlags } from '../utils/qualityFlags';
 import { Button, EmptyState, LinkButton } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
@@ -26,6 +26,8 @@ interface DetailTrack {
   discNo: number | null;
   trackNo: number | null;
   title: string | null;
+  /** the track's own artist tag; on a compilation it differs per track */
+  artist?: string | null;
   durationMs: number | null;
   origin: string;
   cueStartMs: number | null;
@@ -344,6 +346,9 @@ export function AlbumDetailPage() {
   // empty group; matched albums keep their candidates but do not show them.
   const shownOpenGaps = openGaps.filter((g) => g.kind !== 'quality' || qualityFlags.length > 0);
   const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
+  // A compilation (or any album whose tracks credit other artists) gets a
+  // per-track Artist column.
+  const trackArtists = showsTrackArtists(album.tracks, album.artistCredit);
   const careEmpty = shownOpenGaps.length === 0 && dismissedGaps.length === 0
     && album.missingTracks.length === 0 && album.duplicates.length === 0 && !showCandidates;
   const issueNoun = issueCount === 1 ? 'issue' : 'issues';
@@ -797,6 +802,7 @@ export function AlbumDetailPage() {
           <tr>
             <th className={styles.num}>#</th>
             <th>Title</th>
+            {trackArtists && <th>Artist</th>}
             <th className={styles.num}>Length</th>
             {album.release && <th className={styles.num}>Canonical</th>}
             <th>File</th>
@@ -807,7 +813,7 @@ export function AlbumDetailPage() {
             {/* multi-disc sets: one header row per disc (tracks arrive sorted by disc, then number) */}
             {(album.discCount ?? 1) > 1 && (i === 0 || (album.tracks[i - 1]?.discNo ?? 1) !== (t.discNo ?? 1)) && (
               <tr className={styles.discHeader}>
-                <td colSpan={album.release ? 5 : 4}>Disc {t.discNo ?? 1}</td>
+                <td colSpan={(album.release ? 5 : 4) + (trackArtists ? 1 : 0)}>Disc {t.discNo ?? 1}</td>
               </tr>
             )}
             <tr className={`${styles.trackRow} ${t.file.status === 'error' ? styles.trackError : ''}`}>
@@ -820,6 +826,7 @@ export function AlbumDetailPage() {
                   <span className={styles.canonTitle}> → {t.canonicalTitle}</span>
                 )}
               </td>
+              {trackArtists && <td className={styles.trackArtist}>{t.artist?.trim() || album.artistCredit || '—'}</td>}
               <td className={`${durationDrift(t) ? styles.durDrift : styles.num} ${styles.trackLen}`}>
                 {dur(t.durationMs)}
                 {t.origin === 'cue' && t.cueStartMs !== null && (

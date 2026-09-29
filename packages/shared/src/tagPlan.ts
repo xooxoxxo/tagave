@@ -170,6 +170,8 @@ export const tagPlanSchema = z.object({
   createdBy: z.string().uuid().describe('User ID who created the plan'),
   createdAt: z.string().datetime().describe('ISO 8601 creation timestamp'),
   appliedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when plan was fully or partially applied'),
+  formats: z.array(z.string()).optional().describe('Distinct lower-case file extensions of the files in the plan (detail only, once previewed): the ID3 version matters only when one is an ID3 format'),
+  progress: z.record(z.string(), z.number()).optional().describe('Item counts by status (applied, failed, …); on the detail, and on list rows whose apply finished with failures'),
 }).strict().describe('A tag correction plan');
 
 export type TagPlan = z.infer<typeof tagPlanSchema>;

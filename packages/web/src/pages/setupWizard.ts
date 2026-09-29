@@ -82,6 +82,25 @@ export function folderCheckerLive(workers: Array<{ queues: string[] }> | undefin
   return workers.some((w) => w.queues.includes('*') || w.queues.includes('scan.root'));
 }
 
+/**
+ * What the first-album card says once a scan has started. A finished scan
+ * leaves parse and cluster.dir jobs queued (cluster.dir waits 30 s), so no
+ * albums yet means "empty" only when nothing is left to group.
+ */
+export type FirstScanState = 'scanning' | 'grouping' | 'empty' | 'found';
+
+export function firstScanState(input: {
+  scanStatus: string | undefined;
+  albumsFound: number;
+  /** undefined while the stats are loading */
+  grouping: number | undefined;
+  statsLoaded: boolean;
+}): FirstScanState {
+  if (input.albumsFound > 0) return 'found';
+  if (input.scanStatus !== 'done' || !input.statsLoaded) return 'scanning';
+  return (input.grouping ?? 0) > 0 ? 'grouping' : 'empty';
+}
+
 export function workerLive(checks: SystemCheck[] | undefined): boolean | undefined {
   const heartbeat = checks?.find((c) => c.id === 'workerHeartbeat');
   if (!heartbeat) return undefined;

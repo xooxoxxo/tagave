@@ -135,14 +135,49 @@ export async function persistFetched(ctx: WorkerContext, r: CanonicalRelease): P
   return ids;
 }
 
+/**
+ * Identify one local album. Provider lookups take seconds to minutes, and the
+ * album can be merged into another (or retired by regrouping) meanwhile: the
+ * writes then fail on its foreign keys. That is not a failure of the job, so
+ * when the album no longer exists it stops quietly.
+ */
 export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<void> {
+  await unlessAlbumGone(ctx, data.localAlbumId, () => identifyAlbumRun(ctx, data));
+}
+
+/** Run `work`; if it throws and the album is gone by then, log at debug and return. */
+export async function unlessAlbumGone(ctx: WorkerContext, albumId: string, work: () => Promise<void>): Promise<void> {
+  try {
+    await work();
+  } catch (err) {
+    if (await albumGone(ctx, albumId)) {
+      ctx.logger.debug({ localAlbumId: albumId, err: (err as Error).message }, 'identify: album no longer exists (merged or regrouped), skipped');
+      return;
+    }
+    throw err;
+  }
+}
+
+async function albumGone(ctx: WorkerContext, albumId: string): Promise<boolean> {
+  try {
+    const rows = await ctx.db.select({ id: localAlbums.id }).from(localAlbums).where(eq(localAlbums.id, albumId)).limit(1);
+    return rows.length === 0;
+  } catch {
+    return false; // cannot tell: let the original error stand
+  }
+}
+
+async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData): Promise<void> {
   const albumRows = await ctx.db
     .select()
     .from(localAlbums)
     .where(eq(localAlbums.id, data.localAlbumId))
     .limit(1);
   const album = albumRows[0];
-  if (!album) return;
+  if (!album) {
+    ctx.logger.debug({ localAlbumId: data.localAlbumId }, 'identify: album no longer exists (merged or regrouped), skipped');
+    return;
+  }
   const pinned = !!(data.pinnedMbid || data.pinnedDiscogs);
   if (!pinned && !data.force && album.state !== 'pending' && album.state !== 'unidentified') return;
   // Triage bookkeeping (XO-309): attempts + last run feed the sweep top-up
@@ -475,7 +510,7 @@ export async function identifyAlbumJob(ctx: WorkerContext, data: IdentifyAlbumJo
     const topDb = top ? releaseDbIds.get(top.id) : undefined;
     if (!top || !topDb) return;
     await goLive(topDb, 'confirmed', 'user', top.distance,
-      data.pinnedMbid ? 'manual MBID entry (IDN-6)' : 'manual Discogs entry (IDN-6)',
+      data.pinnedMbid ? 'manual MBID entry' : 'manual Discogs entry',
       data.pinnedMbid ? 'user_mbid' : 'user_discogs');
     return;
   }

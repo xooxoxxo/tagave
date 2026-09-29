@@ -8,9 +8,10 @@ import { ApiError } from '../middleware/errorHandler.js';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * How many live workers this install expects. Defaults to one so a
- * single-worker install reads as healthy; a split install that runs a files
- * worker and an identify worker sets EXPECT_WORKERS=2.
+ * EXPECT_WORKERS=0 marks an install that runs no workers on purpose. Any
+ * other value only says workers are expected: whether there are enough is
+ * judged by the work the live workers cover (their queues), so a single
+ * worker and a split install read the same everywhere.
  */
 export function expectedWorkers(raw: string | undefined): number {
   const n = raw === undefined || raw.trim() === '' ? NaN : Number(raw);

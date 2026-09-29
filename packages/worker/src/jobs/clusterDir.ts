@@ -1,5 +1,6 @@
 import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@liner/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@liner/shared';
@@ -418,12 +419,13 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
 
   // Clusters in scope that lost every track to regrouping are dead weight;
   // only untouched states are safe to reap.
-  await ctx.sql`
+  const reaped = (await ctx.sql`
     delete from local_albums la
     where la.library_id = ${data.libraryId}
       and la.state in ('pending', 'unidentified')
       and ${scope === '' ? ctx.sql`true` : ctx.sql`la.dir_paths && ARRAY[${scope}]::text[]`}
-      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)`;
+      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
+    returning la.id`) as unknown as Array<{ id: string }>;
 
   // Merging sibling folders supersedes the per-folder clusters they used to
   // form, and those are exactly the ones the query above cannot reach: a new
@@ -442,6 +444,16 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     returning la.id, la.state, la.title_guess`) as unknown as Array<{ id: string; state: string; title_guess: string | null }>;
   if (superseded.length > 0) {
     ctx.logger.info({ scope, retired: superseded }, 'retired superseded local albums');
+  }
+  // Identify jobs queued for the albums just removed would only find them gone.
+  // Best effort: a job that slips through stops quietly on its own.
+  const removedIds = [...reaped, ...superseded].map((r) => r.id);
+  if (removedIds.length > 0) {
+    try {
+      await cancelQueuedIdentify(ctx, removedIds);
+    } catch (err) {
+      ctx.logger.warn({ scope, err: (err as Error).message }, 'could not cancel identify jobs of removed albums');
+    }
   }
 
   ctx.logger.debug(

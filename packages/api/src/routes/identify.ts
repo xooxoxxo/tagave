@@ -67,6 +67,13 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const queueRows = await db.execute(sql`
       select state, count(*)::int as n from pgboss.job
        where name = 'identify.album' group by 1`) as unknown as Array<{ state: string; n: number }>;
+    // Files a scan found but that are not in albums yet: parse batches and
+    // debounced cluster.dir jobs (they start 30 s after the parse). Until
+    // they drain, "no albums" does not mean the folder has none.
+    const [grouping] = await db.execute(sql`
+      select count(*)::int as n from pgboss.job
+       where state in ('created', 'retry', 'active')
+         and (name = 'scan.parse' or (name = 'cluster.dir' and data->>'libraryId' = ${libraryId}))`) as unknown as [{ n: number }];
     const failedAlbumRows = await db.execute(sql`
       select count(distinct data->>'localAlbumId')::int as n from pgboss.job j
        where j.name = 'identify.album' and j.state = 'failed' and ${NO_LIVE_JOB}
@@ -165,6 +172,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
         retry: queue['retry'] ?? 0,
         failed: queue['failed'] ?? 0,
       },
+      grouping: grouping?.n ?? 0,
       rate: { perMin: Math.round(perMin15 * 10) / 10, perHour },
       etaSeconds: perMin15 > 0 && pending > 0 ? Math.round((pending / perMin15) * 60) : null,
       reasons,
