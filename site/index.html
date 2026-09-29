@@ -25,8 +25,8 @@
 <link rel="icon" type="image/png" sizes="48x48" href="img/favicon-48.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 
-<!-- Self-hosted fonts (SIL OFL), preloaded and set to font-display:optional: a font that is not
-     ready for first paint is skipped for this visit instead of swapped in, so text never reflows. -->
+<!-- Self-hosted fonts (SIL OFL), preloaded and set to font-display:swap. The metric-matched
+     fallbacks below keep the swap from reflowing text; "optional" left first visits in Arial. -->
 <link rel="preload" href="fonts/urbanist-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/figtree-latin.woff2" as="font" type="font/woff2" crossorigin>
 
@@ -42,11 +42,11 @@
 
 <style>
 /* ============ fonts ============ */
-@font-face{font-family:"Urbanist";font-style:normal;font-weight:200 400;font-display:optional;
+@font-face{font-family:"Urbanist";font-style:normal;font-weight:200 400;font-display:swap;
   src:url(fonts/urbanist-latin.woff2) format("woff2")}
-@font-face{font-family:"Figtree";font-style:normal;font-weight:400 600;font-display:optional;
+@font-face{font-family:"Figtree";font-style:normal;font-weight:400 600;font-display:swap;
   src:url(fonts/figtree-latin.woff2) format("woff2")}
-@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:optional;
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:swap;
   src:url(fonts/jetbrains-mono-latin-400.woff2) format("woff2")}
 /* Fallbacks scaled to the real fonts' width and vertical metrics (measured with fontTools against
    Arial and Courier New), so a visit that falls back lays out the same lines. */
