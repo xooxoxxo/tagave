@@ -21,6 +21,7 @@
 <meta property="og:image:alt" content="tagave: your library, quietly in order.">
 <meta name="twitter:card" content="summary_large_image">
 
+<link rel="icon" type="image/svg+xml" href="img/mark.svg">
 <link rel="icon" type="image/png" sizes="48x48" href="img/favicon-48.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 
@@ -139,9 +140,8 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 /* ============ nav ============ */
 .nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:28px 0}
 .brand{display:flex;align-items:center;gap:10px;font:300 22px/1 var(--font-display);letter-spacing:.02em;color:var(--ink);text-decoration:none}
-.drop{width:18px;height:18px;border-radius:50%;flex:none;
-  background:radial-gradient(circle at 35% 30%, var(--spec) 0 18%, transparent 40%),linear-gradient(160deg,var(--dew-hi),var(--dew-lo));
-  box-shadow:0 2px 6px -2px rgba(var(--shadow-tint),.45)}
+/* the mark: an agave rosette in a dew-glass orb (same drawing as the app and favicon) */
+.mark{width:26px;height:26px;flex:none;filter:drop-shadow(0 2px 4px rgba(var(--shadow-tint),.28))}
 .navlinks{display:flex;gap:28px;align-items:center}
 .navlinks a{color:var(--ink-2);text-decoration:none;font-size:15px}
 .navlinks a:hover{color:var(--ink)}
@@ -170,18 +170,18 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
   transition:transform var(--dur) var(--ease-spring),box-shadow 200ms ease,filter 200ms ease;
   -webkit-tap-highlight-color:transparent;
 }
+/* Specular sheen: a soft band that fades out by 30% of the height, above the cap line, so every
+   glyph pixel of the label sits on the body colour (4.5:1 or better). No discrete glint: a small
+   white dot at the top-left read as a rendering bug. */
 .btn::before{
-  content:"";position:absolute;z-index:-1;left:10%;right:10%;top:3px;height:46%;
+  content:"";position:absolute;z-index:-1;left:4%;right:4%;top:2px;height:30%;
   border-radius:var(--r-pill);pointer-events:none;
-  background:linear-gradient(180deg,rgba(255,255,255,var(--b-sheen)),rgba(255,255,255,.04));
+  background:linear-gradient(180deg,rgba(255,255,255,var(--b-sheen)) 0%,rgba(255,255,255,calc(var(--b-sheen)*.35)) 55%,rgba(255,255,255,0) 100%);
+  -webkit-mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
+  mask-image:linear-gradient(90deg,transparent,#000 22%,#000 78%,transparent);
   transition:opacity 200ms ease;
 }
-.btn::after{
-  content:"";position:absolute;z-index:-1;left:18%;top:7px;width:10px;height:5px;
-  border-radius:50%;background:rgba(255,255,255,.8);filter:blur(.5px);pointer-events:none;
-}
-.btn.sm::after{display:none}
-.btn > *{position:relative}
+.btn > *{position:relative;font-weight:600}
 .btn:hover{
   text-decoration:none;
   transform:translateY(-1px) scale(1.015);
@@ -219,7 +219,7 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .btn.secondary:active{transform:translateY(1px) scale(.97);box-shadow:inset 0 2px 6px rgba(var(--shadow-tint),.22),inset 0 0 0 1px var(--glass-edge)}
 
 .btn.quiet{--b-ink:var(--dew);background:transparent;border-color:transparent;box-shadow:none;text-shadow:none;padding:0 18px}
-.btn.quiet::before,.btn.quiet::after{opacity:0}
+.btn.quiet::before{opacity:0}
 .btn.quiet:hover{background:color-mix(in srgb,var(--dew) 10%,transparent);transform:none;filter:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
 .btn.quiet:active{background:color-mix(in srgb,var(--dew) 16%,transparent);box-shadow:inset 0 2px 4px rgba(var(--shadow-tint),.15)}
 
@@ -235,12 +235,10 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
   :root:not([data-theme="light"]) .btn{text-shadow:0 1px 0 rgba(255,255,255,.18)}
   :root:not([data-theme="light"]) .btn.secondary,:root:not([data-theme="light"]) .btn.quiet{text-shadow:none}
   :root:not([data-theme="light"]) .btn.secondary{--b-sheen:.16;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -3px 8px rgba(0,0,0,.35),0 10px 22px -14px rgba(0,0,0,.8)}
-  :root:not([data-theme="light"]) .btn.secondary::after{background:rgba(255,255,255,.35)}
 }
 :root[data-theme="dark"] .btn{text-shadow:0 1px 0 rgba(255,255,255,.18)}
 :root[data-theme="dark"] .btn.secondary,:root[data-theme="dark"] .btn.quiet{text-shadow:none}
 :root[data-theme="dark"] .btn.secondary{--b-sheen:.16;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -3px 8px rgba(0,0,0,.35),0 10px 22px -14px rgba(0,0,0,.8)}
-:root[data-theme="dark"] .btn.secondary::after{background:rgba(255,255,255,.35)}
 
 /* theme toggle icon swap */
 .theme-toggle .moon{display:none}
@@ -263,15 +261,16 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 
 /* glass command pill */
 .cmd{display:flex;align-items:center;gap:12px;
-  padding:8px 8px 8px 22px;border-radius:var(--r-pill);
+  padding:10px 10px 10px 22px;border-radius:26px;
   background:var(--glass);border:1px solid var(--glass-edge);
   -webkit-backdrop-filter:blur(var(--glass-blur)) saturate(1.3);backdrop-filter:blur(var(--glass-blur)) saturate(1.3);
   box-shadow:0 1px 0 rgba(255,255,255,.5) inset,0 12px 32px -18px rgba(var(--shadow-tint),.35);text-align:left}
-.cmd code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;color:var(--ink);font:400 14px/1.5 var(--font-mono);scrollbar-width:none;padding:6px 0}
-.cmd code::-webkit-scrollbar{display:none}
+/* The whole command, wrapped at the URL's slashes when it has to: a hidden scroller cut it off. */
+.cmd code{flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;color:var(--ink);font:400 13.5px/1.6 var(--font-mono);padding:4px 0}
 .cmd .p{color:var(--ink-3);user-select:none;-webkit-user-select:none}
 .cmd .btn{flex:none;min-width:84px}
-.hero .cmd{margin:48px auto 0;max-width:620px}
+.hero .cmd{margin:48px auto 0;max-width:760px}
+@media (max-width:600px){.cmd{flex-direction:column;align-items:stretch;padding:16px 16px 12px 18px}.cmd .btn{align-self:flex-end}}
 .hero .cmd-note{margin:14px auto 0;font-size:13px;color:var(--ink-3)}
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
   .cmd{background:var(--surface)} .btn.secondary{background:var(--surface)}
@@ -281,6 +280,14 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .frame{margin:0;padding:10px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line);
   box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 40px 80px -48px rgba(var(--shadow-tint),.45)}
 .frame img{border-radius:var(--r-cover);width:100%;background:var(--mist)}
+.zoom{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;border-radius:var(--r-cover)}
+.zoom:focus-visible{outline:2px solid var(--ring);outline-offset:4px}
+/* full-size view of a screenshot */
+.lightbox{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:24px;border:0;background:transparent;display:none}
+.lightbox[open]{display:grid;place-items:center}
+.lightbox::backdrop{background:rgba(8,14,20,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.lightbox img{max-width:min(1600px,100%);max-height:calc(100dvh - 96px);width:auto;height:auto;border-radius:var(--r-cover);box-shadow:0 40px 80px -30px rgba(0,0,0,.6);cursor:zoom-out}
+.lightbox .btn{position:fixed;top:16px;right:16px}
 .frame figcaption{font-size:13px;color:var(--ink-3);padding:12px 8px 2px;text-align:left}
 .showcase{padding:8px 0 24px}
 
@@ -297,20 +304,24 @@ section.block .wrap > header .body{margin-top:16px}
 .fgrid h3{font:400 22px/1.3 var(--font-display);margin:0 0 10px}
 @media (max-width:760px){.fgrid{grid-template-columns:1fr;gap:40px}}
 
-.tour{display:grid;gap:96px}
-.row{display:grid;grid-template-columns:5fr 7fr;gap:56px;align-items:center}
-.row.flip{grid-template-columns:7fr 5fr}
-.row.flip .text{order:2}
+/* Each stop of the tour: the words in two columns, then the screenshot at full content width,
+   so the interface is large enough to read. */
+.tour{display:grid;gap:112px}
+.row{display:grid;gap:40px}
+.row .text{display:grid;grid-template-columns:5fr 6fr;gap:16px 56px;align-items:start}
+.row .text .intro{grid-column:1}
+.row .text .ticks{grid-column:2;margin-top:34px}
 .row .headline{margin-top:14px}
 .row .body{margin-top:16px}
-.ticks{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:10px}
+.ticks{list-style:none;padding:0;margin:24px 0 0;display:grid;gap:12px}
 .ticks li{position:relative;padding-left:22px;color:var(--ink-2);font-size:15px}
 .ticks li::before{content:"";position:absolute;left:2px;top:.62em;width:8px;height:8px;border-radius:50%;
   background:radial-gradient(circle at 35% 30%, var(--spec) 0 18%, transparent 45%),linear-gradient(160deg,var(--dew-hi),var(--dew-lo))}
 @media (max-width:860px){
-  .tour{gap:72px}
-  .row,.row.flip{grid-template-columns:1fr;gap:32px}
-  .row.flip .text{order:0}
+  .tour{gap:80px}
+  .row{gap:28px}
+  .row .text{grid-template-columns:1fr}
+  .row .text .ticks{grid-column:1;margin-top:8px}
 }
 
 /* install */
@@ -363,17 +374,42 @@ footer p{margin:0 0 8px;max-width:78ch}
 }
 @media (forced-colors: active){
   .btn{border:2px solid ButtonText;background:ButtonFace;color:ButtonText;forced-color-adjust:none}
-  .btn::before,.btn::after{display:none}
-  .drop,.ticks li::before{forced-color-adjust:none;background:CanvasText}
+  .btn::before{display:none}
+  .ticks li::before{forced-color-adjust:none;background:CanvasText}
 }
 </style>
 </head>
 <body>
+<!-- The mark, drawn once. Its colours are the dew tokens, so it follows the theme like the primary
+     button: a deep drop with a white plant in light, a lit drop with a dark plant in dark. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <linearGradient id="mark-body" x1="18" y1="4" x2="46" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="var(--dew-hi)"/><stop offset=".55" stop-color="var(--dew)"/><stop offset="1" stop-color="var(--dew-lo)"/>
+    </linearGradient>
+    <radialGradient id="mark-sheen" cx="23" cy="17" r="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="tagave-mark" viewBox="0 0 64 64">
+      <circle cx="32" cy="32" r="30" fill="url(#mark-body)"/>
+      <circle cx="32" cy="32" r="30" fill="url(#mark-sheen)"/>
+      <g fill="var(--dew-ink)">
+        <path d="M26.5 50C27 38 29 25 32 13C35 25 37 38 37.5 50Z"/>
+        <path d="M25 50C23.5 40 21 31 16.5 22.5C24.5 28.5 30 37.5 32.5 50Z"/>
+        <path d="M39 50C40.5 40 43 31 47.5 22.5C39.5 28.5 34 37.5 31.5 50Z"/>
+        <path d="M24 50.5C19.5 45 14.5 41.5 8.8 39.2C17 38 24.5 41.5 30 50.5Z"/>
+        <path d="M40 50.5C44.5 45 49.5 41.5 55.2 39.2C47 38 39.5 41.5 34 50.5Z"/>
+        <path d="M22 49.2Q32 47.6 42 49.2Q41 52 32 52Q23 52 22 49.2Z"/>
+      </g>
+      <circle cx="32" cy="32" r="29.4" fill="none" stroke="var(--rim-a)" stroke-opacity=".6" stroke-width="1.2"/>
+    </symbol>
+  </defs>
+</svg>
 <a class="skip" href="#main">Skip to content</a>
 
 <div class="wrap">
   <nav class="nav" aria-label="Main">
-    <a class="brand" href="./" aria-label="tagave home"><span class="drop" aria-hidden="true"></span>tagave</a>
+    <a class="brand" href="./" aria-label="tagave home"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#tagave-mark"/></svg>tagave</a>
     <div class="navlinks">
       <a class="hide-s" href="#features">Features</a>
       <a class="hide-s" href="#install">Install</a>
@@ -406,12 +442,14 @@ footer p{margin:0 0 8px;max-width:78ch}
 
     <div class="showcase">
       <figure class="frame">
-        <picture>
-          <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/albums-dark-800.webp 800w, img/albums-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
-          <img src="img/albums-light-1600.webp" srcset="img/albums-light-800.webp 800w, img/albums-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
-               width="1600" height="1000" alt="The album grid sorted by year, with cover art, artist, format, track count and year under each cover. One album carries a small 8/9 badge because a track is missing." fetchpriority="high">
-        </picture>
-        <figcaption>The album grid. The 8/9 badge marks an album that is one track short.</figcaption>
+          <button class="zoom" type="button" title="See it full size">
+            <picture>
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/albums-dark-800.webp 800w, img/albums-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
+              <img src="img/albums-light-1600.webp" srcset="img/albums-light-800.webp 800w, img/albums-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
+                   width="1600" height="1000" fetchpriority="high" alt="The album grid sorted by year, with cover art, artist, format, track count and year under each cover.">
+            </picture>
+          </button>
+        <figcaption>The album grid. Select a screenshot to see it full size.</figcaption>
       </figure>
     </div>
   </div>
@@ -452,9 +490,11 @@ footer p{margin:0 0 8px;max-width:78ch}
       <div class="tour">
         <div class="row">
           <div class="text">
-            <span class="label">Tag plans</span>
-            <h3 class="headline">Every change, before it happens.</h3>
-            <p class="body">A plan lists each file, each field, the value it has now and the value it would get, and why. You apply it when it looks right, or change the policy and preview again.</p>
+            <div class="intro">
+              <span class="label">Tag plans</span>
+              <h3 class="headline">Every change, before it happens.</h3>
+              <p class="body">A plan lists each file, each field, the value it has now and the value it would get, and why. You apply it when it looks right, or change the policy and preview again.</p>
+            </div>
             <ul class="ticks">
               <li>Nothing is written until you apply</li>
               <li>The audio is hashed before and after each write, and a mismatch stops the job</li>
@@ -463,19 +503,47 @@ footer p{margin:0 0 8px;max-width:78ch}
             </ul>
           </div>
           <figure class="frame">
+          <button class="zoom" type="button" title="See it full size">
             <picture>
-              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/plan-dark-800.webp 800w, img/plan-dark-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px">
-              <img src="img/plan-light-1600.webp" srcset="img/plan-light-800.webp 800w, img/plan-light-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
-                   width="1600" height="860" loading="lazy" decoding="async" alt="A tag plan preview: one file expanded, with each tag field shown as before and after values, such as the title juggernaut becoming Juggernaut and an empty label becoming Infacted Recordings.">
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/plan-dark-800.webp 800w, img/plan-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
+              <img src="img/plan-light-1600.webp" srcset="img/plan-light-800.webp 800w, img/plan-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
+                   width="1600" height="1000" loading="lazy" decoding="async" alt="A tag plan preview: one file expanded, with each tag field shown as its value now and the value it would get.">
             </picture>
+          </button>
           </figure>
         </div>
 
-        <div class="row flip">
+        <div class="row">
           <div class="text">
-            <span class="label">Library care</span>
-            <h3 class="headline">See what is missing.</h3>
-            <p class="body">Once albums are identified, tagave can tell which ones are short of tracks, which are duplicated across formats or editions, and which releases by artists you follow are not in the library at all.</p>
+            <div class="intro">
+              <span class="label">Compilations</span>
+              <h3 class="headline">One album again, without moving a file.</h3>
+              <p class="body">A compilation filed one folder per artist turns into a row of one-track albums. tagave notices the pieces that share a title and fit together, treats them as one album, and sets the album values for every track in one previewed plan.</p>
+            </div>
+            <ul class="ticks">
+              <li>Nothing on disk moves, and rescans keep the album together</li>
+              <li>Split it back into its pieces at any time</li>
+              <li>Album artist, title and the compilation flag are set for all tracks at once, after a preview</li>
+            </ul>
+          </div>
+          <figure class="frame">
+          <button class="zoom" type="button" title="See it full size">
+            <picture>
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/compilation-dark-800.webp 800w, img/compilation-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
+              <img src="img/compilation-light-1600.webp" srcset="img/compilation-light-800.webp 800w, img/compilation-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
+                   width="1600" height="1000" loading="lazy" decoding="async" alt="An album page for a compilation, offering to treat three albums with the same title as one album, above its track list.">
+            </picture>
+          </button>
+          </figure>
+        </div>
+
+        <div class="row">
+          <div class="text">
+            <div class="intro">
+              <span class="label">Library care</span>
+              <h3 class="headline">See what is missing.</h3>
+              <p class="body">Once albums are identified, tagave can tell which ones are short of tracks, which are duplicated across formats or editions, and which releases by artists you follow are not in the library at all.</p>
+            </div>
             <ul class="ticks">
               <li>Incomplete albums name the missing tracks</li>
               <li>Dismiss a gap once and it stays dismissed</li>
@@ -484,11 +552,13 @@ footer p{margin:0 0 8px;max-width:78ch}
             </ul>
           </div>
           <figure class="frame">
+          <button class="zoom" type="button" title="See it full size">
             <picture>
-              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/gaps-dark-800.webp 800w, img/gaps-dark-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px">
-              <img src="img/gaps-light-1600.webp" srcset="img/gaps-light-800.webp 800w, img/gaps-light-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
-                   width="1600" height="600" loading="lazy" decoding="async" alt="The Library care page listing incomplete albums, each with the number of tracks present and the titles of the missing ones.">
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/gaps-dark-800.webp 800w, img/gaps-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
+              <img src="img/gaps-light-1600.webp" srcset="img/gaps-light-800.webp 800w, img/gaps-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
+                   width="1600" height="720" loading="lazy" decoding="async" alt="The Library care page listing incomplete albums, each with the number of tracks present and the titles of the missing ones.">
             </picture>
+          </button>
           </figure>
         </div>
       </div>
@@ -597,7 +667,7 @@ footer p{margin:0 0 8px;max-width:78ch}
 <footer>
   <div class="wrap">
     <div class="top">
-      <a class="brand" href="./"><span class="drop" aria-hidden="true"></span>tagave</a>
+      <a class="brand" href="./"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#tagave-mark"/></svg>tagave</a>
       <div class="links">
         <a href="https://github.com/xooxoxxo/tagave">GitHub</a>
         <a href="https://github.com/xooxoxxo/tagave/tree/main/docs">Documentation</a>
@@ -606,9 +676,14 @@ footer p{margin:0 0 8px;max-width:78ch}
       </div>
     </div>
     <p>Metadata comes from <a href="https://musicbrainz.org">MusicBrainz</a> and <a href="https://www.discogs.com">Discogs</a>. tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
-    <p>Screenshots show a demo library of twenty albums taken from a real archive, with a demo account. Cover art is from the Cover Art Archive and belongs to its owners.</p>
+    <p>Screenshots show a small demo library taken from a real archive, with a demo account. Cover art is from the Cover Art Archive and belongs to its owners.</p>
   </div>
 </footer>
+
+<dialog class="lightbox" id="lightbox" aria-label="Screenshot, full size">
+  <img alt="">
+  <button class="btn secondary sm" type="button" data-close><span>Close</span></button>
+</dialog>
 
 <script>
 (function () {
@@ -635,6 +710,22 @@ footer p{margin:0 0 8px;max-width:78ch}
     root.setAttribute('data-theme', next);
     syncShots();
     try { localStorage.setItem('tagave-theme', next); } catch (e) { /* not persisted */ }
+  });
+
+  /* Screenshots open full size in a modal dialog: Esc, the Close button or a click closes it. */
+  var box = document.getElementById('lightbox');
+  var big = box.querySelector('img');
+  var zooms = document.querySelectorAll('.zoom');
+  for (var z = 0; z < zooms.length; z++) {
+    zooms[z].addEventListener('click', function (ev) {
+      var img = ev.currentTarget.querySelector('img');
+      var src = (img.currentSrc || img.src).replace(/-800\.webp$/, '-1600.webp');
+      big.src = src; big.alt = img.alt;
+      if (box.showModal) box.showModal(); else box.setAttribute('open', '');
+    });
+  }
+  box.addEventListener('click', function (ev) {
+    if (ev.target === box || ev.target === big || ev.target.closest('[data-close]')) box.close();
   });
 
   var buttons = document.querySelectorAll('.copy');
