@@ -1,0 +1,92 @@
+/* Chips: 30px pills, a soft lift, no glint. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--h-chip);
+  min-height: 0;
+  padding: 0 13px;
+  border: 0;
+  border-radius: var(--r-pill);
+  font: 500 13px / 1 var(--font-body);
+  letter-spacing: 0;
+  color: var(--ink-2);
+  white-space: nowrap;
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge), 0 2px 6px -4px rgba(var(--shadow-tint), 0.4);
+  font-variant-numeric: tabular-nums;
+}
+
+.active {
+  color: var(--chip-on-ink);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--dew-tint) 60%, var(--surface)), var(--dew-tint));
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 35%, transparent);
+}
+
+.interactive {
+  cursor: pointer;
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) ease, color var(--dur) ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.interactive:hover:not(:disabled) {
+  color: var(--ink);
+  filter: none;
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px color-mix(in srgb, var(--dew) 35%, transparent), 0 4px 10px -6px rgba(var(--shadow-tint), 0.45);
+}
+
+.interactive.active:hover:not(:disabled) {
+  color: var(--chip-on-ink);
+}
+
+.interactive:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.18), inset 0 0 0 1px var(--glass-edge);
+}
+
+.interactive:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.interactive:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.dot-neutral { background: var(--ink-3); }
+.dot-ok { background: var(--ok); }
+.dot-warn { background: var(--warn); }
+.dot-danger { background: var(--danger); }
+.dot-accent { background: var(--dew); }
+
+@media (pointer: coarse) {
+  .interactive {
+    position: relative;
+  }
+
+  /* 44px touch target without a taller chip */
+  .interactive::before {
+    content: "";
+    position: absolute;
+    inset: -7px -2px;
+  }
+}
+
+@media (forced-colors: active) {
+  .chip {
+    border: 1px solid CanvasText;
+  }
+
+  .active {
+    border: 2px solid Highlight;
+  }
+}

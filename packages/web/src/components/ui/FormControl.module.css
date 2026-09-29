@@ -1,13 +1,186 @@
-.control { min-height: var(--control-height); min-width: 0; max-width: 100%; padding: .5rem var(--control-padding-x); border: 1px solid var(--control-border); border-radius: var(--radius-md); background: var(--bg-secondary); color: var(--text-primary); font: inherit; font-size: var(--font-size-sm); line-height: var(--line-height-normal); transition: border-color var(--transition-normal), background-color var(--transition-normal); }
-.control:hover:not(:disabled) { border-color: var(--text-tertiary); }
-.control:focus { border-color: var(--accent); box-shadow: none; outline: var(--focus-ring); outline-offset: 2px; }
-.control::placeholder { color: var(--text-tertiary); opacity: 1; }
-.control:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; background: var(--bg-tertiary); }
-.control[aria-invalid="true"] { border-color: var(--error); }
-.control[aria-invalid="true"]:focus { outline-color: var(--error); }
-.textarea { min-height: 7rem; resize: vertical; }
-.field { display: flex; flex-direction: column; gap: var(--space-sm); min-width: 0; }
-.label { color: var(--text-primary); font-size: var(--font-size-sm); font-weight: 600; }
-.hint, .error { font-size: var(--font-size-xs); line-height: var(--line-height-normal); max-width: 65ch; }
-.hint { color: var(--text-secondary); }
-.error { color: var(--error); }
+/* Recessed pills: quiet, no gloss. The drops are the only shiny controls. */
+.control {
+  min-height: var(--h-control);
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface));
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.07);
+  color: var(--ink);
+  font: 400 15px / 1.4 var(--font-body);
+  transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+}
+
+.control:hover:not(:disabled) {
+  border-color: var(--line-strong);
+}
+
+.control:focus,
+.control:focus-visible {
+  outline: none;
+  border-color: var(--dew);
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.05), 0 0 0 4px color-mix(in srgb, var(--dew) 22%, transparent);
+}
+
+.control::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+.control:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+  background: var(--mist);
+}
+
+.control[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.control[aria-invalid="true"]:focus {
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.05), 0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent);
+}
+
+.select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 44px;
+  background:
+    var(--chevron) no-repeat right 18px center / 12px 12px,
+    linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface));
+  cursor: pointer;
+}
+
+.textarea {
+  min-height: 7rem;
+  padding: 14px 18px;
+  border-radius: var(--r-inner);
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.dense {
+  min-height: var(--h-control-sm);
+  padding-inline: 16px;
+  font-size: var(--font-size-sm);
+}
+
+.select.dense {
+  padding-right: 38px;
+  background-position: right 14px center, 0 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.label {
+  color: var(--ink-2);
+  font: 500 13px / 1.2 var(--font-body);
+}
+
+.hint,
+.error {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  max-width: 65ch;
+  padding-inline: 20px;
+}
+
+.hint {
+  color: var(--ink-2);
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* ---- Search pill: leading icon, trailing "/" hint ---- */
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.search > .control {
+  width: 100%;
+  padding-left: 46px;
+  padding-right: 52px;
+}
+
+.search > .control::-webkit-search-decoration,
+.search > .control::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+.kbd {
+  position: absolute;
+  right: 14px;
+  font: 400 11px / 1 var(--font-mono);
+  color: var(--ink-3);
+  padding: 5px 8px;
+  border-radius: var(--r-kbd);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  pointer-events: none;
+}
+
+.search > .control:focus ~ .kbd,
+.search > .control:not(:placeholder-shown) ~ .kbd {
+  visibility: hidden;
+}
+
+.search > .dense {
+  padding-left: 40px;
+}
+
+.search > .dense ~ .searchIcon {
+  left: 14px;
+  width: 16px;
+  height: 16px;
+}
+
+/* ---- Pending change (bulk tag editing): old value struck through, dew dot ---- */
+.pending {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding-inline: 20px;
+  font-size: var(--font-size-xs);
+  color: var(--ink-3);
+}
+
+.pending s {
+  text-decoration-thickness: 1px;
+  overflow-wrap: anywhere;
+}
+
+.pendingDot {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--dew);
+}
+
+@media (forced-colors: active) {
+  .control:focus {
+    outline: 2px solid Highlight;
+  }
+}

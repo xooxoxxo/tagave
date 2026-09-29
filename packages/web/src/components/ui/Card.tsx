@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { HTMLAttributes, ReactNode } from 'react';
 import styles from './Card.module.css';
 
 interface CardProps {
@@ -40,4 +40,17 @@ export function StatCard({ label, value, hint, tone = 'neutral' }: StatCardProps
       {hint && <div className={styles.statHint}>{hint}</div>}
     </div>
   );
+}
+
+export type SurfaceVariant = 'card' | 'inset' | 'glass';
+
+interface SurfaceProps extends HTMLAttributes<HTMLDivElement> {
+  /** card: opaque content surface. inset: recessed well. glass: floating layers only (popovers, sticky bars, toasts). */
+  variant?: SurfaceVariant;
+  padded?: boolean;
+}
+
+/** A plain surface without Card's header structure. */
+export function Surface({ variant = 'card', padded = true, className, ...props }: SurfaceProps) {
+  return <div className={[styles.surface, styles[`surface-${variant}`], padded ? styles['surface-padded'] : undefined, className].filter(Boolean).join(' ')} {...props} />;
 }

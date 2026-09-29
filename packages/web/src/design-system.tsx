@@ -1,5 +1,14 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { DesignSystemCatalog } from './components/ui/DesignSystemCatalog';
+import '@fontsource/urbanist/200.css';
+import '@fontsource/urbanist/300.css';
+import '@fontsource/urbanist/400.css';
+import '@fontsource/figtree/400.css';
+import '@fontsource/figtree/500.css';
+import '@fontsource/figtree/600.css';
+import '@fontsource/jetbrains-mono/400.css';
 import './styles/index.css';
+import { applyTheme, readThemePreference } from './theme';
+applyTheme(readThemePreference());
 ReactDOM.createRoot(document.getElementById('root')!).render(<React.StrictMode><DesignSystemCatalog /></React.StrictMode>);

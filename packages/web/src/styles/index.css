@@ -1,10 +1,10 @@
 @import "./tokens.css";
 /**
- * Global design system tokens and baseline styles
- * Light, artwork-led library design system
+ * Baseline styles. Everything here is quiet on purpose: flat surfaces, 1px
+ * hairlines, no gloss. Gloss, depth and colour belong to the pressable
+ * primitives in components/ui. Element selectors are wrapped in :where() so
+ * any component or page class overrides them.
  */
-
-
 
 * {
   box-sizing: border-box;
@@ -17,13 +17,14 @@ body {
 }
 
 body {
-  font-family: var(--font-family);
-  font-size: var(--font-size-base);
-  line-height: var(--line-height-normal);
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
+  font: var(--type-body);
+  font-family: var(--font-body);
+  background: var(--canvas) var(--wash) no-repeat;
+  background-attachment: fixed;
+  color: var(--ink);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
 #root {
@@ -38,141 +39,175 @@ body {
   min-width: 0;
 }
 
-/* Typography baseline */
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+/* ---- Typography ---- */
+:where(h1, h2, h3, h4, h5, h6) {
   margin: 0;
-  font-weight: 600;
   line-height: var(--line-height-tight);
+  color: var(--ink);
 }
 
-h1 {
+/* Thin display face for page and section titles only; everything someone has
+ * to read or scan stays in the body face. */
+:where(h1) {
+  font-family: var(--font-display);
+  font-weight: 300;
   font-size: var(--font-size-2xl);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
-h2 {
+:where(h2) {
+  font-family: var(--font-display);
+  font-weight: 400;
   font-size: var(--font-size-xl);
+  letter-spacing: 0;
 }
 
-h3 {
+:where(h3, h4, h5, h6) {
+  font-weight: 600;
   font-size: var(--font-size-lg);
+  letter-spacing: -0.005em;
 }
 
-p {
+:where(p) {
   margin: 0;
 }
 
-/* Form elements */
-input,
-textarea,
-select {
+:where(code, kbd, samp, pre) {
+  font-family: var(--font-mono);
+}
+
+:where(kbd) {
+  font-size: 0.6875rem;
+  line-height: 1;
+  padding: 0.3em 0.55em;
+  border: 1px solid var(--line);
+  border-radius: var(--r-kbd);
+  background: var(--surface);
+  color: var(--ink-3);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--dew) 28%, transparent);
+}
+
+/* ---- Form elements (baseline for page-level controls) ---- */
+:where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"]), textarea, select) {
   font-family: inherit;
   font-size: inherit;
-  color: inherit;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 0.5rem 0.75rem;
+  color: var(--ink);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--mist) 70%, var(--surface)), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  min-height: 2.5rem;
+  padding: 0.5rem 1rem;
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.07);
   transition: border-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
-input:hover,
-textarea:hover,
-select:hover {
-  border-color: var(--border-secondary);
+:where(textarea) {
+  border-radius: var(--r-inner);
 }
 
-input:focus,
-textarea:focus,
-select:focus {
+:where(input, textarea, select):hover {
+  border-color: var(--line-strong);
+}
+
+:where(input, textarea, select):focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.1);
+  border-color: var(--dew);
+  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.05), 0 0 0 4px color-mix(in srgb, var(--dew) 22%, transparent);
 }
 
-input:disabled,
-textarea:disabled,
-select:disabled {
-  opacity: 0.6;
+:where(input, textarea, select):disabled {
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
-/* Buttons */
+:where(input, textarea)::placeholder {
+  color: var(--ink-3);
+  opacity: 1;
+}
+
+:where(input[type="checkbox"], input[type="radio"], input[type="range"]) {
+  accent-color: var(--dew);
+}
+
+/* ---- Buttons (baseline for page-level buttons not yet on <Button>) ---- */
 :where(button) {
   font-family: inherit;
-  font-size: inherit;
-  padding: 0.5rem 1rem;
-  border: none;
-  border-radius: var(--radius-md);
-  background-color: var(--accent);
-  color: white;
+  font-size: var(--font-size-sm);
   font-weight: 600;
+  letter-spacing: 0.01em;
+  min-height: 2.5rem;
+  padding: 0.5rem 1.125rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%);
+  color: var(--dew-ink);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -2px 6px rgba(0, 0, 0, 0.14), 0 6px 14px -10px rgba(var(--shadow-tint), 0.6);
   cursor: pointer;
-  transition: background-color var(--transition-normal);
+  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) ease, filter var(--dur) ease;
 }
 
-:where(button:hover) {
-  background-color: var(--accent-hover);
+:where(button:hover:not(:disabled)) {
+  filter: brightness(1.05) saturate(1.05);
 }
 
-:where(button:active) {
-  background-color: var(--accent-active);
+:where(button:active:not(:disabled)) {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.25);
 }
 
 :where(button:disabled) {
-  opacity: 0.6;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
-button.secondary {
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+:where(button.secondary) {
+  background: linear-gradient(180deg, var(--surface), var(--mist));
+  color: var(--ink);
+  border-color: var(--glass-edge);
+  box-shadow: inset 0 1px 0 var(--highlight), 0 6px 14px -12px rgba(var(--shadow-tint), 0.5);
 }
 
-button.secondary:hover {
-  background-color: var(--bg-hover);
-}
-
-/* Links */
-a {
-  color: var(--accent);
+/* ---- Links ---- */
+:where(a) {
+  color: var(--dew);
   text-decoration: none;
   transition: color var(--transition-normal);
 }
 
-a:hover {
+:where(a:hover) {
   color: var(--accent-hover);
 }
 
-a:active {
-  color: var(--accent-active);
+/* ---- Scrollbars ---- */
+* {
+  scrollbar-color: var(--line-strong) transparent;
 }
 
-/* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--border-secondary);
-  border-radius: 4px;
+  background: var(--line-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--r-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+  background-color: var(--ink-3);
 }
 
-/* Utility classes */
+/* ---- Utilities ---- */
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -185,15 +220,22 @@ a:active {
   border-width: 0;
 }
 
-:focus-visible { outline: var(--focus-ring); outline-offset: var(--focus-offset); }
-h1 { letter-spacing: -0.03em; text-wrap: balance; }
-h2, h3 { letter-spacing: -0.02em; }
-button, input, select { min-height: 2.5rem; }
-input[type="checkbox"], input[type="radio"] { min-height: auto; accent-color: var(--accent); }
-:where(button) { transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease; }
-:where(button:active:not(:disabled)) { transform: translateY(1px); }
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
 }
 
-input::placeholder, textarea::placeholder { color: var(--text-tertiary); opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(button) {
+    border: 2px solid ButtonText;
+  }
+}

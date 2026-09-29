@@ -4,7 +4,7 @@
 .sectionNav > div:first-child .groupLabel { margin-top: 0; }
 .sectionLink { display: block; padding: .7rem .75rem; border-radius: var(--radius-md); color: var(--text-secondary); font-size: .85rem; }
 .sectionLink:hover { background: var(--bg-hover); }
-.activeSection { composes: sectionLink; color: var(--accent); background: #e4ece1; font-weight: 600; }
+.activeSection { composes: sectionLink; color: var(--text-selected); background: var(--surface-selected); font-weight: 600; }
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
 .sectionDescription { color: var(--text-secondary); font-size: .875rem; }
 @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--border); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }
