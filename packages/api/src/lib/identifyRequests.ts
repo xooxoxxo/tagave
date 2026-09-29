@@ -106,3 +106,22 @@ export async function listPendingIdentifyRequests(libraryId: string, limit = 200
 export async function cancelIdentifyJob(boss: PgBoss, jobId: string): Promise<void> {
   await boss.cancel('identify.album', jobId);
 }
+
+/**
+ * Cancel identify jobs still waiting for albums that were just removed (merged
+ * into another). A running one stops quietly on its own when it finds the
+ * album gone.
+ */
+export async function cancelQueuedIdentifyFor(boss: PgBoss, albumIds: readonly string[]): Promise<number> {
+  if (albumIds.length === 0) return 0;
+  const rows = await getDb().execute(sql`
+    select id, name from pgboss.job
+     where name in ('identify.album', 'identify.acoustid')
+       and state in ('created', 'retry')
+       and data->>'localAlbumId' in (${sql.join(albumIds.map((id) => sql`${id}`), sql`, `)})`) as unknown as Array<{ id: string; name: string }>;
+  for (const name of ['identify.album', 'identify.acoustid']) {
+    const ids = rows.filter((r) => r.name === name).map((r) => r.id);
+    if (ids.length > 0) await boss.cancel(name, ids);
+  }
+  return rows.length;
+}
