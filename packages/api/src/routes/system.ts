@@ -5,6 +5,8 @@ import { libraries } from '@liner/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * How many live workers this install expects. Defaults to one so a
  * single-worker install reads as healthy; a split install that runs a files
@@ -31,6 +33,9 @@ export async function createSystemRoutes(fastify: FastifyInstance) {
     // without it the check covers every library, as the CLI does.
     const { libraryId } = request.query as { libraryId?: string };
     if (libraryId !== undefined) {
+      // A malformed id would reach Postgres as a uuid cast and come back as
+      // a 500; it is a bad request.
+      if (!UUID_RE.test(libraryId)) throw new ApiError(400, 'Bad Request', 'libraryId must be a UUID');
       const owned = await getDb()
         .select({ id: libraries.id })
         .from(libraries)

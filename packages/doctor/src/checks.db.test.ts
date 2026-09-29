@@ -38,5 +38,7 @@ describe.skipIf(!url)('worker heartbeat checks (integration)', () => {
     expect(check.status).toBe('warn');
     const versions = await checkWorkerVersions(url!);
     expect(versions.detail).not.toContain('old0000');
+    // plain words on the status page, not process internals
+    expect(versions.detail).not.toMatch(/this process|\(\d+\)/);
   });
 });

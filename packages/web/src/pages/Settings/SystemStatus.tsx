@@ -1,8 +1,9 @@
 /**
  * Settings › System status: the same checks as `liner-doctor`, each with
  * what was found and, when it did not pass, how to fix it. Checks run on the
- * app host against the shared database, so worker and music-folder results
- * cover every host of a split install.
+ * app host against the shared database, so worker results cover every host
+ * of a split install. Music folders are those of the library on screen
+ * (useSystemChecks sends its id), not every library in the database.
  */
 import { Banner, Button } from '../../components/ui';
 import { SystemCheckList } from '../../components/SystemCheckList';

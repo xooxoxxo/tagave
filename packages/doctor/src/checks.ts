@@ -679,7 +679,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
               id: 'appSecret',
               title: 'App Secret',
               status: 'warn',
-              detail: `Worker host with ${plural(sealedCount, 'sealed credential')} but APP_SECRET not set`,
+              detail: `${sealedCount === 1 ? 'A library keeps' : `${sealedCount} libraries keep`} an encrypted Discogs token or AcoustID key, but the secret that unlocks them is not set here`,
               durationMs: Date.now() - start,
             };
           }
@@ -695,7 +695,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
       id: 'appSecret',
       title: 'App Secret',
       status: 'skip',
-      detail: 'Worker host (APP_SECRET not set)',
+      detail: 'Not needed here: no encrypted provider keys to unlock',
       durationMs: Date.now() - start,
     };
   }
@@ -708,7 +708,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
       id: 'appSecret',
       title: 'App Secret',
       status: 'fail',
-      detail: `Too short: ${secret.length} < 32 characters (openssl rand -hex 32)`,
+      detail: `The secret is too short: ${plural(secret.length, 'character')}, it needs at least 32`,
       durationMs: Date.now() - start,
     };
   }
@@ -717,7 +717,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
       id: 'appSecret',
       title: 'App Secret',
       status: 'warn',
-      detail: `${secret.length} hex characters (< 32 bytes of entropy); rotate via liner-doctor reseal`,
+      detail: `The secret is ${plural(secret.length, 'hex character')}; 64 or more makes it hard to guess`,
       durationMs: Date.now() - start,
     };
   }
@@ -726,7 +726,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
     id: 'appSecret',
     title: 'App Secret',
     status: 'pass',
-    detail: `Set, length ${secret.length}`,
+    detail: 'Set and long enough',
     durationMs: Date.now() - start,
   };
 }
@@ -747,14 +747,14 @@ export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
         from worker_heartbeats
         where seen_at > now() - interval '120 seconds'`;
       if (rows.length === 0) {
-        return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `No worker running to compare with; this process runs ${me.version}${me.sha ? ` (${me.sha})` : ''}`, durationMs: Date.now() - start };
+        return { id: 'versions', title: 'Build Versions', status: 'skip', detail: `No worker is running to compare with; the app runs ${me.version}${me.sha ? ` (${me.sha})` : ''}`, durationMs: Date.now() - start };
       }
       const shas = new Map<string, number>();
       for (const r of rows) {
         const sha = (r['sha'] as string | null) ?? 'unknown';
         shas.set(sha, (shas.get(sha) ?? 0) + 1);
       }
-      const summary = [...shas.entries()].map(([sha, n]) => `${sha} (${n})`).join(', ');
+      const summary = [...shas.entries()].map(([sha, n]) => `${sha} (${plural(n, 'worker')})`).join(', ');
       const mine = me.sha ?? 'unknown';
       const allMatch = shas.size === 1 && shas.has(mine);
       return {
@@ -763,7 +763,7 @@ export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
         status: allMatch ? 'pass' : 'warn',
         detail: allMatch
           ? `The app and ${plural(rows.length, 'worker')} run the same build (${mine})`
-          : `this process ${mine} (${me.source}); workers at ${summary} — redeploy the lagging side`,
+          : `The app runs ${mine} but the workers run ${summary}; deploy again so they match`,
         durationMs: Date.now() - start,
       };
     } finally {

@@ -141,6 +141,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
       // someone else's library is not a scope this owner can ask for
       const foreign = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${theirs}` });
       expect(foreign.statusCode).toBe(404);
+
+      // a malformed id is a bad request, not a database error
+      for (const bad of ['not-a-uuid', '1234', `${mine}x`]) {
+        const res400 = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${encodeURIComponent(bad)}` });
+        expect(res400.statusCode, bad).toBe(400);
+      }
     } finally {
       await getDb().delete(scanRoots).where(inArray(scanRoots.libraryId, [mine, theirs]));
       await getDb().delete(libraries).where(inArray(libraries.id, [mine, theirs]));
