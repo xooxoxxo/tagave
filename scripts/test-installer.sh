@@ -99,6 +99,9 @@ mkdir -p "$work/releases"
 printf '{\n  "tag_name": "v0.5.0",\n  "name": "0.5.0"\n}\n' >"$work/releases/latest"
 releases="file://$work/releases"
 
+# A registry no local image comes from, so the re-run below cannot read a
+# version off an image this computer happens to have.
+export TAGAVE_REGISTRY=example.invalid/tagave-test
 TAGAVE_SKIP_IMAGE_CHECK=1 TAGAVE_RELEASES_API="$releases" "$installer" --yes --no-start --timezone UTC \
   --role all --dir "$work/pin" --music "$work/music" >"$work/pin.log" 2>&1 </dev/null \
   || { cat "$work/pin.log" >&2; fail "pinning"; }
@@ -110,7 +113,8 @@ TAGAVE_SKIP_IMAGE_CHECK=1 TAGAVE_RELEASES_API="$releases" "$installer" --yes --n
   --dir "$work/pin" >"$work/pin2.log" 2>&1 </dev/null \
   || { cat "$work/pin2.log" >&2; fail "pinning, re-run"; }
 [ "$(env_value TAGAVE_VERSION "$work/pin/.env")" = "0.5.0" ] || fail "pinning: re-run left TAGAVE_VERSION=latest"
-pass "installer pins the newest release number, and re-pins 'latest'"
+unset TAGAVE_REGISTRY
+pass "installer pins the newest release number, and re-pins 'latest' when nothing runs"
 
 # --- update and status, against a stand-in docker -----------------------------
 # The stand-in answers what the installer asks, logs every call, keeps the
@@ -124,7 +128,12 @@ case "$1" in
   info) exit 0 ;;
   version) echo 27.0.0; exit 0 ;;
   manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
-  inspect) echo healthy; exit 0 ;;
+  inspect)
+    case "$*" in
+      *Config.Env*) [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf 'NODE_ENV=production\nLINER_VERSION=%s\n' "$(cat "$FAKE_STATE/version")" ;;
+      *) echo healthy ;;
+    esac
+    exit 0 ;;
   volume) exit 1 ;;
   compose) shift ;;
   *) exit 0 ;;
@@ -140,7 +149,8 @@ case "$1" in
     fi ;;
   exec)
     case "$*" in
-      *" app node "*) printf '%s ok ok ok pass\n' "$(cat "$FAKE_STATE/version")" ;;
+      *" app node "*) [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf '%s ok ok ok pass\n' "$(cat "$FAKE_STATE/version")" ;;
+      *psql*) cat >/dev/null; echo "${FAKE_FILE_WORKERS:-0}" ;;
       *pg_dump*) printf 'PGDMP fake dump' ;;
       *"pg_restore --list"*) cat >/dev/null; printf ';\n; Archive\n215; 1259 16385 TABLE public albums liner\n' ;;
     esac ;;
@@ -236,5 +246,62 @@ fake update --dir "$work/split-files" --app-url "file://$work/appsrv" --yes >"$w
 grep -q 'pg_dump' "$work/docker.log" && fail "split update: the music computer has no database to back up"
 grep -q 'same build' "$work/split-update.log" || fail "split update: did not confirm matching builds"
 pass "update on the music computer follows the app computer"
+
+# An app computer warns while the music computer's file worker still checks in.
+printf '0.4.1' >"$work/state/version"
+FAKE_FILE_WORKERS=1 fake update --dir "$work/split-app" --dry-run >"$work/split-live.log" 2>&1 \
+  || { cat "$work/split-live.log" >&2; fail "split update: dry run with a live file worker"; }
+grep -q 'on the music computer: docker compose stop worker-files' "$work/split-live.log" \
+  || fail "split update: the plan does not say to stop the file worker first"
+grep -q 'file worker on the music computer is still running' "$work/split-live.log" \
+  || fail "split update: no warning while the file worker still runs"
+FAKE_FILE_WORKERS=0 fake update --dir "$work/split-app" --dry-run >"$work/split-quiet.log" 2>&1 \
+  || { cat "$work/split-quiet.log" >&2; fail "split update: dry run without a file worker"; }
+grep -q 'still running' "$work/split-quiet.log" && fail "split update: warned although no file worker checks in"
+pass "update on the app computer asks to stop the file worker first"
+
+# --- an .env from an older installer: TAGAVE_VERSION=latest ------------------
+float_env() { sed 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=latest/' "$work/float/.env" >"$work/float/.env.new" && mv "$work/float/.env.new" "$work/float/.env"; }
+at_version 0.4.1 --role all --dir "$work/float" --music "$work/music" >"$work/float-install.log" 2>&1 \
+  || { cat "$work/float-install.log" >&2; fail "latest: install"; }
+printf '0.4.1' >"$work/state/version"
+float_env
+
+# Re-running the installer pins the version that runs, not the newest release.
+TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --no-start --dir "$work/float" >"$work/float-rerun.log" 2>&1 \
+  || { cat "$work/float-rerun.log" >&2; fail "latest: installer re-run"; }
+[ "$(env_value TAGAVE_VERSION "$work/float/.env")" = "0.4.1" ] \
+  || fail "latest: installer re-run pinned $(env_value TAGAVE_VERSION "$work/float/.env"), not the running 0.4.1"
+pass "re-running the installer on 'latest' pins the running version"
+
+# update treats the running version as the one to roll back to.
+float_env
+: >"$work/docker.log"
+fake update --dir "$work/float" --yes >"$work/float-update.log" 2>&1 \
+  || { cat "$work/float-update.log" >&2; fail "latest: update"; }
+[ "$(env_value TAGAVE_VERSION "$work/float/.env")" = "0.5.0" ] || fail "latest: update did not pin 0.5.0"
+backup="$(find "$work/float/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
+[ -n "$backup" ] || fail "latest: backup folder is not named after the running 0.4.1"
+[ "$(env_value TAGAVE_VERSION "$backup/.env")" = "0.4.1" ] \
+  || fail "latest: the saved .env says $(env_value TAGAVE_VERSION "$backup/.env"); a roll back would pull the newest release"
+grep -q 'How to roll back to 0.4.1' "$work/float-update.log" || fail "latest: roll back does not name 0.4.1"
+pass "update on 'latest' backs up and rolls back to the running version"
+
+# A downgrade below the running version is refused although .env floats.
+float_env
+if fake update --dir "$work/float" --version 0.4.0 --yes >"$work/float-down.log" 2>&1; then
+  fail "latest: accepted a downgrade below the running 0.5.0"
+fi
+grep -q 'older than 0.5.0' "$work/float-down.log" || { cat "$work/float-down.log" >&2; fail "latest: downgrade refused without saying why"; }
+[ "$(env_value TAGAVE_VERSION "$work/float/.env")" = "latest" ] || fail "latest: a refused downgrade changed .env"
+pass "update on 'latest' refuses to go below the running version"
+
+# Nothing names the running version: refuse without --yes.
+if FAKE_APP_DOWN=1 fake update --dir "$work/float" >"$work/float-unknown.log" 2>&1; then
+  fail "latest: updated without knowing the running version"
+fi
+grep -q 'Cannot tell which version runs here' "$work/float-unknown.log" \
+  || { cat "$work/float-unknown.log" >&2; fail "latest: unknown version refused without saying why"; }
+pass "update refuses without --yes when the running version is unknown"
 
 echo "test-installer: all roles pass"

@@ -551,9 +551,22 @@ resolve_version() {
 
   VERSION="$(normalize_version "$VERSION")"
   # "latest" floats: every pull could move the install to a new release. An
-  # older installer wrote it to .env; pin it to the release it stands for.
+  # older installer wrote it to .env. Pin it to the release running here, so
+  # re-running the installer never updates by the back door (no backup, no
+  # workers stopped first). Moving to a newer release is "update".
   if [ "$VERSION" = "latest" ]; then
     VERSION=""
+    if [ "$VERSION_FROM_ENV_FILE" = "1" ]; then
+      local running
+      running="$(installed_version latest)"
+      if [ -n "$running" ]; then
+        VERSION="$running"
+        say "  .env said 'latest'; pinning it to $running, the version this install runs now."
+        say "  To move to a newer release afterwards: ./install-tagave.sh update"
+      else
+        warn "Could not tell which version runs here, so .env is pinned to the newest release. If an older version was running, this starts the newer one without the backup that install-tagave.sh update takes."
+      fi
+    fi
   fi
   # An install that recorded edge before any release existed moves to the
   # stable release once one is published; an explicit --version stays put.
@@ -651,7 +664,10 @@ fetch_compose_files() {
   local self="$INSTALL_DIR/install-tagave.sh"
   if [ -n "$src" ]; then
     cp "${BASH_SOURCE[0]}" "$self.tmp" && chmod 755 "$self.tmp" && mv "$self.tmp" "$self"
-  elif download "https://raw.githubusercontent.com/$TAGAVE_REPO/$ref/install-tagave.sh" "$self.tmp" 2>/dev/null; then
+  elif download "https://raw.githubusercontent.com/$TAGAVE_REPO/$ref/install-tagave.sh" "$self.tmp" 2>/dev/null \
+       && { grep -q '^run_update()' "$self.tmp" \
+            || download "https://raw.githubusercontent.com/$TAGAVE_REPO/main/install-tagave.sh" "$self.tmp" 2>/dev/null; }; then
+    # A release from before "update" existed gets the current installer.
     chmod 755 "$self.tmp" && mv "$self.tmp" "$self"
   else
     rm -f "$self.tmp"
@@ -1046,6 +1062,8 @@ main() {
 # ---------------------------------------------------------------------------
 
 CURRENT=""        # TAGAVE_VERSION in .env before the update
+FROM_VERSION=""   # the release running before the update: CURRENT, or what
+                  # runs now when CURRENT floats (latest, edge); empty if unknown
 TARGET=""         # the version the update moves to
 BACKUP_DIR=""     # this update's copy of the configuration and database
 NEW_APP_STARTED=0 # the new app has started, so it may have changed the database
@@ -1061,6 +1079,9 @@ load_install() {
   ROLE="$(env_get TAGAVE_ROLE "$env_file")"
   case "$ROLE" in all|app|files) ;; *) die "$env_file has no TAGAVE_ROLE; run the installer once to record it." ;; esac
   CURRENT="$(env_get TAGAVE_VERSION "$env_file")"
+  local registry
+  registry="$(env_get TAGAVE_REGISTRY "$env_file")"
+  [ -z "$registry" ] || TAGAVE_REGISTRY="$registry"
   PORT="$(env_get TAGAVE_PORT "$env_file")"
   DB_HOST="$(env_get DB_HOST "$env_file")"
   [ -n "$APP_URL" ] || APP_URL="$(env_get TAGAVE_APP_URL "$env_file")"
@@ -1093,6 +1114,56 @@ probe_app() {
   out="$(compose exec -T app node -e "$PROBE_JS" 2>/dev/null | tail -n 1 || true)"
   [ -n "$out" ] || out="- down - - -"
   read -r P_VERSION P_STATUS P_DB P_MIG P_BUILDS <<<"$out"
+}
+
+# local_image_version SERVICE IMAGE: the release the local container of
+# SERVICE (or, when there is none, the local IMAGE) was built as, from its
+# LINER_VERSION. Prints nothing when unknown.
+local_image_version() {
+  local id ref out
+  id="$(compose ps -q "$1" 2>/dev/null | head -n 1 || true)"
+  ref="${id:-$2}"
+  out="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$ref" 2>/dev/null \
+    | sed -n 's/^LINER_VERSION=//p' | head -n 1 || true)"
+  if is_release "$out"; then printf '%s' "$out"; fi
+}
+
+# installed_version TAG: the release this install runs now (the app's own
+# answer, or the version its local image was built as), for when .env names
+# the floating TAG. Prints nothing when it cannot tell.
+installed_version() {
+  local tag="$1" registry out=""
+  [ -f "$INSTALL_DIR/.env" ] || return 0
+  registry="$(env_get TAGAVE_REGISTRY "$INSTALL_DIR/.env")"
+  registry="${registry:-$TAGAVE_REGISTRY}"
+  if [ "$ROLE" = "files" ]; then
+    out="$(local_image_version worker-files "$registry/tagave-worker:$tag")"
+  else
+    probe_app
+    if is_release "$P_VERSION"; then
+      out="$P_VERSION"
+    else
+      out="$(local_image_version app "$registry/tagave-app:$tag")"
+    fi
+  fi
+  printf '%s' "$out"
+}
+
+# Sets FROM_VERSION: CURRENT when it is a release, otherwise the release that
+# runs now (a roll back to "latest" would pull the newest release, not the old
+# one). When that is unknown too, a roll back cannot name the version to go
+# back to, so the update only goes ahead with --yes.
+settle_from_version() {
+  FROM_VERSION="$CURRENT"
+  if is_release "$CURRENT"; then return 0; fi
+  FROM_VERSION="$(installed_version "${CURRENT:-latest}")"
+  if [ -n "$FROM_VERSION" ]; then
+    say "  .env says '${CURRENT:-nothing}', which is not a fixed release; the version running here is $FROM_VERSION."
+    return 0
+  fi
+  warn "Cannot tell which version runs here: .env says '${CURRENT:-nothing}', and neither the running app nor the local image names a release. The roll back printed afterwards could then not name the version to go back to."
+  [ "$ASSUME_YES" = "1" ] \
+    || die "start tagave (docker compose up -d) so the update can read its version and try again, or re-run with --yes to update anyway."
 }
 
 # The version the app computer reports over the network (music computer).
@@ -1135,13 +1206,29 @@ set_env_version() {
 # Copies the configuration this update is about to change, so a roll back can
 # put it back as it was.
 save_configuration() {
-  local name
-  BACKUP_DIR="$INSTALL_DIR/backups/pre-update-${CURRENT:-unknown}-$(date +%Y%m%d-%H%M%S)"
+  local name file
+  BACKUP_DIR="$INSTALL_DIR/backups/pre-update-${FROM_VERSION:-unknown}-$(date +%Y%m%d-%H%M%S)"
   ( umask 077; mkdir -p "$BACKUP_DIR" )
   chmod 700 "$INSTALL_DIR/backups" "$BACKUP_DIR"
   for name in .env "$WORKER_ENV_NAME" "$COMPOSE_MAIN" "$COMPOSE_DB"; do
     [ ! -f "$INSTALL_DIR/$name" ] || cp -p "$INSTALL_DIR/$name" "$BACKUP_DIR/$name"
   done
+  # A saved .env that says "latest" would roll forward, not back: pin the
+  # release that runs now in the copy.
+  if [ -n "$FROM_VERSION" ] && [ "$FROM_VERSION" != "$CURRENT" ]; then
+    for name in .env "$WORKER_ENV_NAME"; do
+      file="$BACKUP_DIR/$name"
+      [ -f "$file" ] || continue
+      if grep -q '^TAGAVE_VERSION=' "$file"; then
+        ( umask 077; sed "s/^TAGAVE_VERSION=.*/TAGAVE_VERSION=$FROM_VERSION/" "$file" >"$file.tmp" )
+      else
+        ( umask 077; { cat "$file"; printf 'TAGAVE_VERSION=%s\n' "$FROM_VERSION"; } >"$file.tmp" )
+      fi
+      chmod 600 "$file.tmp"
+      mv "$file.tmp" "$file"
+    done
+    say "     the saved .env pins TAGAVE_VERSION=$FROM_VERSION (it said '${CURRENT:-nothing}')"
+  fi
   ok "Configuration saved to $BACKUP_DIR"
 }
 
@@ -1171,8 +1258,12 @@ print_rollback() {
   rel="${BACKUP_DIR#"$INSTALL_DIR"/}"
   workers="$(local_workers | tr '\n' ' ')"
   say ""
-  say "${C_BOLD}How to roll back to ${CURRENT:-the previous version}${C_OFF}"
+  say "${C_BOLD}How to roll back to ${FROM_VERSION:-the previous version}${C_OFF}"
   say "  cd $INSTALL_DIR"
+  if [ -z "$FROM_VERSION" ]; then
+    say "  # the version from before the update is unknown: after copying .env back,"
+    say "  # set TAGAVE_VERSION in it to that version (not latest) before 'docker compose pull'"
+  fi
   if [ "$ROLE" = "files" ]; then
     say "  cp -p $rel/.env $rel/*.yml ."
     say "  docker compose pull && docker compose up -d"
@@ -1232,6 +1323,50 @@ wait_for_update_health() {
   return 1
 }
 
+# TARGET already runs here; only .env may still float. Pins it, restarts nothing.
+pin_in_place() {
+  if [ "$CURRENT" = "$TARGET" ]; then
+    ok "Already on $TARGET; nothing to do."
+    return 0
+  fi
+  if [ "$DRY_RUN" = "1" ]; then
+    say "  $TARGET already runs here; the update would only pin TAGAVE_VERSION=$TARGET in .env."
+    say "  Dry run: nothing changed."
+    return 0
+  fi
+  set_env_version "$INSTALL_DIR/.env" "$TARGET"
+  set_env_version "$INSTALL_DIR/$WORKER_ENV_NAME" "$TARGET"
+  ok "$TARGET already runs here; pinned TAGAVE_VERSION=$TARGET in .env (it said '${CURRENT:-nothing}'), so a pull stays on it."
+}
+
+# How many file workers checked in over the last 90 seconds. Workers delete
+# their heartbeat when they stop, so a fresh one serving the scan queues is a
+# file worker that still runs. Prints nothing when the database cannot tell.
+FILE_WORKER_SQL="select count(*) from worker_heartbeats where seen_at > now() - interval '90 seconds' and info->'queues' ? 'scan.root';"
+live_file_workers() {
+  # shellcheck disable=SC2016 # $POSTGRES_USER and $POSTGRES_DB expand inside the container
+  printf '%s\n' "$FILE_WORKER_SQL" \
+    | compose_in exec -T postgres sh -c 'psql -X -q -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB"' 2>/dev/null \
+    | tr -dc '0-9' || true
+}
+
+# On a split install the file worker runs on the music computer, out of this
+# script's reach. Left running, it would run old code against the changed
+# database, and whatever it writes after the backup is lost on a roll back.
+check_remote_file_worker() {
+  local live answer
+  [ "$(container_health postgres)" = "healthy" ] || return 0
+  while :; do
+    live="$(live_file_workers)"
+    { [ -n "$live" ] && [ "$live" -gt 0 ]; } || return 0
+    warn "The file worker on the music computer is still running. Stop it there first, so it does not write to the database while the update changes it: docker compose stop worker-files"
+    if [ "$DRY_RUN" = "1" ] || [ "$ASSUME_YES" = "1" ] || [ -z "$TTY" ]; then return 0; fi
+    printf 'Press Enter once it is stopped to check again, or type "go on" to update anyway: ' >"$TTY"
+    IFS= read -r answer <"$TTY" || answer="go on"
+    [ "$answer" != "go on" ] || return 0
+  done
+}
+
 run_update() {
   say "${C_BOLD}tagave update${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
@@ -1260,19 +1395,24 @@ update_app_computer() {
   fi
   check_tag "$TARGET"
   say "  Target:           $TARGET"
+  settle_from_version
 
-  if [ "$TARGET" = "$CURRENT" ] && { ! is_release "$TARGET" || [ "$P_VERSION" = "$TARGET" ]; }; then
-    ok "Already on $TARGET; nothing to do."
+  if [ "$TARGET" = "$FROM_VERSION" ] && { ! is_release "$TARGET" || [ "$P_VERSION" = "$TARGET" ]; }; then
+    pin_in_place
     return 0
   fi
-  if is_release "$TARGET" && is_release "$CURRENT" && version_lt "$TARGET" "$CURRENT"; then
-    die "$TARGET is older than $CURRENT. tagave's database changes only go forward, so going back means restoring the backup taken before the update: see docs/operations.md, section Roll back."
+  if is_release "$TARGET" && is_release "$FROM_VERSION" && version_lt "$TARGET" "$FROM_VERSION"; then
+    die "$TARGET is older than $FROM_VERSION, which runs here. tagave's database changes only go forward, so going back means restoring the backup taken before the update: see docs/operations.md, section Roll back."
   fi
   check_target_images
 
   workers="$(local_workers)"
-  step "Update ${CURRENT:-unknown} -> $TARGET"
+  step "Update ${FROM_VERSION:-unknown} -> $TARGET"
   if is_release "$TARGET"; then say "  Release notes: $(release_notes_url "$TARGET")"; fi
+  if [ "$ROLE" = "app" ]; then
+    say "  0. first, on the music computer: docker compose stop worker-files"
+    say "     (an old file worker must not write to the database while it changes)"
+  fi
   say "  1. back up the database and this configuration to $INSTALL_DIR/backups/"
   say "  2. set TAGAVE_VERSION=$TARGET in .env"
   say "  3. download the $TARGET images"
@@ -1281,6 +1421,7 @@ update_app_computer() {
   if [ "$ROLE" = "app" ]; then
     say "  Afterwards, run install-tagave.sh update on the music computer too."
   fi
+  [ "$ROLE" != "app" ] || check_remote_file_worker
   if [ "$DRY_RUN" = "1" ]; then
     say ""
     say "  Dry run: nothing changed."
@@ -1354,13 +1495,14 @@ update_files_computer() {
   fi
   check_tag "$TARGET"
   say "  Target:           $TARGET"
-  if [ "$TARGET" = "$CURRENT" ]; then
-    ok "Already on $TARGET; nothing to do."
+  settle_from_version
+  if [ "$TARGET" = "$FROM_VERSION" ]; then
+    pin_in_place
     return 0
   fi
   check_target_images
 
-  step "Update ${CURRENT:-unknown} -> $TARGET"
+  step "Update ${FROM_VERSION:-unknown} -> $TARGET"
   say "  1. save this configuration to $INSTALL_DIR/backups/ (the database lives on the app computer)"
   say "  2. set TAGAVE_VERSION=$TARGET in .env"
   say "  3. download the $TARGET worker image and restart the file worker"
@@ -1403,7 +1545,7 @@ update_files_computer() {
 }
 
 run_status() {
-  local latest app_version builds
+  local latest app_version builds have
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
   load_install
   check_docker
@@ -1429,6 +1571,12 @@ run_status() {
     say "  Health:           $P_STATUS (database $P_DB, migrations $P_MIG)"
     say "  Worker builds:    $P_BUILDS (pass means the app and every worker match)"
   fi
+  # A floating .env (latest) is judged by the version that runs.
+  have="$CURRENT"
+  if ! is_release "$have" && [ "$ROLE" != "files" ] && is_release "$P_VERSION"; then have="$P_VERSION"; fi
+  if ! is_release "$CURRENT" && [ -n "$CURRENT" ]; then
+    warn ".env says TAGAVE_VERSION=$CURRENT, which moves with every pull. Pin it with: install-tagave.sh update"
+  fi
 
   step "Containers"
   compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}' || true
@@ -1437,17 +1585,17 @@ run_status() {
   latest="$(latest_release)"
   if [ -z "$latest" ]; then
     say "  Could not look up the newest release (https://github.com/$TAGAVE_REPO/releases)."
-  elif is_release "$CURRENT" && version_lt "$CURRENT" "$latest"; then
+  elif is_release "$have" && version_lt "$have" "$latest"; then
     say "  tagave $latest is out: $(release_notes_url "$latest")"
     if [ "$ROLE" = "files" ]; then
       say "  Update the app computer first, then run here: install-tagave.sh update"
     else
       say "  To update: install-tagave.sh update"
     fi
-  elif [ "$CURRENT" = "$latest" ]; then
+  elif [ "$have" = "$latest" ]; then
     ok "Up to date ($latest is the newest release)"
   else
-    say "  Newest release: $latest (this install runs $CURRENT)"
+    say "  Newest release: $latest (this install runs ${have:-an unknown version})"
   fi
 }
 

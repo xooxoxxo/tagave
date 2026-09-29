@@ -171,7 +171,7 @@ export function SettingsUpdatesPage() {
         <p className={styles.hint}>
           Run this in the folder the installer wrote to (<code>~/tagave</code> unless you chose another). It backs up the database, moves to the newest release, restarts the app and then the workers, and prints how to roll back.
           On a split install, run it on the app computer first, then on the computer with the music.
-          If <code>install-tagave.sh</code> is not in that folder yet, run the one-command installer once more first; it keeps your settings and adds it.
+          If <code>install-tagave.sh</code> is not in that folder yet, run the one-command installer once more first. It keeps your settings and the version you run now (it does not update), and adds the script; then run the update.
         </p>
         <pre className={styles.code}>{INSTALLER_UPDATE_CMD}</pre>
         <h3 className={styles.subTitle}>If you built from source</h3>
