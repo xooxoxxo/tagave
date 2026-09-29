@@ -1,6 +1,6 @@
 .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
 .sectionNav { position: relative; display: flex; flex-direction: column; gap: .2rem; }
-.groupLabel { font: var(--type-label); text-transform: uppercase; letter-spacing: .14em; color: var(--ink-3); margin: 1.75rem 1rem .6rem; }
+.groupLabel { font: var(--type-label); text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; color: var(--ink-3); margin: 1.75rem .75rem .6rem 1rem; }
 .sectionNav > div:first-child .groupLabel { margin-top: 0; }
 .sectionLink { display: block; padding: .6rem 1rem; border-radius: var(--r-pill); color: var(--ink-2); font-size: .875rem; font-weight: 500; transition: background-color var(--dur) ease, color var(--dur) ease; }
 .sectionLink:hover { background: var(--mist); color: var(--ink); }
