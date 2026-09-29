@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { artists, libraries, localAlbums, releaseGroupArtists, releaseGroups, users } from '@liner/db';
+import { artists, audioFiles, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@liner/db';
 import { foldWords } from './search.js';
 
 describe('foldWords', () => {
@@ -40,6 +40,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
     return res.json() as {
       albums: { title: string }[];
       artists: { id: string | null; name: string; albumCount: number }[];
+      tracks: { title: string; artist: string | null; albumTitle: string }[];
     };
   };
 
@@ -62,6 +63,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
       album('Sea Salt Songs', 'Salt Cellar'),
       album('Salty Dog', 'Procol Harum'),
     ]);
+    // A compilation: the album artist is Various Artists, each track its own.
+    const rootId = randomUUID();
+    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/search-root', displayName: 's', validationStatus: 'ok' });
+    const comp = album('Late Night Tales', 'Various Artists');
+    await db.insert(localAlbums).values(comp);
+    for (const [title, artist] of [['Nights Interlude', 'Nightmares on Wax'], ['Teardrop', 'Massive Attack'], ['Opener', null]] as const) {
+      const fileId = randomUUID();
+      await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${title}.flac`, status: 'present' });
+      await db.insert(localTracks).values({ localAlbumId: comp.id, audioFileId: fileId, trackNo: 1, titleGuess: title, artistGuess: artist });
+    }
 
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const { createSearchRoutes } = await import('./search.js');
@@ -111,6 +122,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
 
     const tagOnly = (await search('salt cellar')).artists;
     expect(tagOnly[0]).toMatchObject({ id: null, name: 'Salt Cellar', albumCount: 1 });
+  });
+
+  it('finds compilation tracks by their own artist and names that artist', async () => {
+    const { tracks } = await search('massive attack');
+    expect(tracks[0]).toMatchObject({ title: 'Teardrop', artist: 'Massive Attack', albumTitle: 'Late Night Tales' });
+    const typo = await search('nightmares on wx');
+    expect(typo.tracks.map((t) => t.title)).toContain('Nights Interlude');
+  });
+
+  it('falls back to the album artist for a track without its own', async () => {
+    const { tracks } = await search('opener');
+    expect(tracks[0]).toMatchObject({ title: 'Opener', artist: 'Various Artists' });
   });
 
   it('treats LIKE wildcards in the query literally', async () => {
