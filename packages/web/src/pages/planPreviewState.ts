@@ -75,3 +75,29 @@ export function progressSignature(job: TagPlanPreviewJob | undefined): string {
   if (!job) return '';
   return [job.jobId, job.state, job.message ?? '', job.done ?? '', job.total ?? ''].join('|');
 }
+
+const APPLY_BUSY = new Set(['applying', 'paused']);
+
+/**
+ * Whether the plan page polls the plan: while this page's preview request is
+ * open, a preview job is queued or running, the page waits for a status it
+ * asked for to change, or an apply is running or paused.
+ */
+export function shouldPollPlan(i: {
+  previewRequested: boolean;
+  jobActive: boolean;
+  awaiting: string | null;
+  status: string | undefined;
+}): boolean {
+  return i.previewRequested || i.jobActive || i.awaiting !== null || (i.status !== undefined && APPLY_BUSY.has(i.status));
+}
+
+/**
+ * The status the page waits to see change after POST /preview succeeds.
+ * A previewed plan goes back to draft on the server, and until the page sees
+ * that it must keep polling, or it would go on showing the old diff with
+ * Apply enabled. A draft already polls through its preview job.
+ */
+export function awaitAfterPreview(statusBefore: string | undefined): string | null {
+  return statusBefore === 'previewed' ? 'previewed' : null;
+}

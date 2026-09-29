@@ -28,7 +28,7 @@ import {
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import styles from './PlanPage.module.css';
-import { canPreview, derivePreviewState, progressSignature } from './planPreviewState';
+import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -147,11 +147,16 @@ export function PlanPage() {
 
   const planQ = useTagPlan(libraryId, planId, { refetchInterval: 0 });
   const status = planQ.data?.status;
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  // The status the auto-preview effect last acted on: its reset branch runs
+  // when the plan leaves draft, not on every re-render of a previewed plan.
+  const lastPreviewStatusRef = useRef<string | undefined>(undefined);
   // A draft's preview job as the API reports it: queue state plus what the
   // worker says it is doing. Both queries share one cache entry.
   const job = status === 'draft' ? planQ.data?.previewJob : undefined;
   const jobActive = job?.state === 'queued' || job?.state === 'running';
-  const polling = previewRequested || jobActive || awaiting !== null || (status !== undefined && BUSY.has(status));
+  const polling = shouldPollPlan({ previewRequested, jobActive, awaiting, status });
   const liveQ = useTagPlan(libraryId, planId, { refetchInterval: polling ? 2000 : false });
   const p = liveQ.data ?? planQ.data;
 
@@ -160,7 +165,12 @@ export function PlanPage() {
   }, [awaiting, status]);
   useEffect(() => {
     if (awaiting === null) return;
-    const t = setTimeout(() => setAwaiting(null), AWAIT_MS);
+    const t = setTimeout(() => {
+      setAwaiting(null);
+      // A re-preview the page never saw leave 'previewed' must not leave the
+      // button saying "Previewing…" for good.
+      if (statusRef.current !== 'draft') setPreviewRequested(false);
+    }, AWAIT_MS);
     return () => clearTimeout(t);
   }, [awaiting]);
   // Items and the summary change together with the plan status.
@@ -192,7 +202,11 @@ export function PlanPage() {
 
   // A freshly created plan (or one reverted to draft) previews itself once.
   // Use progress.total to detect if a job is already running rather than just status.
+  const previewMutate = previewM.mutateAsync;
+  const previewPending = previewM.isPending;
   useEffect(() => {
+    const statusChanged = lastPreviewStatusRef.current !== p?.status;
+    lastPreviewStatusRef.current = p?.status;
     if (p?.status === 'draft') {
       const previewJobRunning = jobActive || (p.progress?.total ?? 0) > 0;
 
@@ -207,26 +221,28 @@ export function PlanPage() {
         try { return sessionStorage.getItem(guardKey) === '1'; } catch { return previewAutoFiredRef.current; }
       })();
 
-      if (!previewJobRunning && !alreadyAsked && !previewAutoFiredRef.current && !previewM.isPending) {
+      if (!previewJobRunning && !alreadyAsked && !previewAutoFiredRef.current && !previewPending) {
         previewAutoFiredRef.current = true;
         try { sessionStorage.setItem(guardKey, '1'); } catch { /* private mode: the ref still guards this mount */ }
         setPreviewRequested(true);
-        previewM.mutateAsync().catch((e: { detail?: string; message?: string }) => {
+        previewMutate().catch((e: { detail?: string; message?: string }) => {
           // Same as a click that fails: nothing is on its way, so the button
           // comes back and no timeout warning follows.
           setPreviewRequested(false);
           setError(e?.detail ?? e?.message ?? 'The preview could not be started.');
         });
       }
-    } else {
+    } else if (statusChanged) {
       // Plan left draft state; clear the guard so a later revert to draft
-      // auto-previews once again.
+      // auto-previews once again. Only on the change itself: this effect
+      // also re-runs while a re-preview of a previewed plan is in flight,
+      // and resetting then would drop the request the click just made.
       previewAutoFiredRef.current = false;
       try { sessionStorage.removeItem(previewGuardKey(planId)); } catch { /* nothing to clear */ }
       setPreviewRequested(false);
       setPreviewTimedOut(false);
     }
-  }, [p?.status, p?.progress?.total, jobActive, previewM, planId]);
+  }, [p?.status, p?.progress?.total, jobActive, previewMutate, previewPending, planId]);
 
   // Timeout for draft previews: after PREVIEW_TIMEOUT_MS with no progress, show timeout state.
   // Each request (auto or a click) restarts the clock.
@@ -240,11 +256,22 @@ export function PlanPage() {
   }, [previewRequested, previewAttempt, p?.status]);
 
   const startPreview = async () => {
+    const before = p?.status;
     setError(null);
     setPreviewRequested(true);
     setPreviewAttempt((n) => n + 1);
+    if (before === 'previewed') {
+      // The server puts the plan back to draft before it answers. This click
+      // is that draft's preview, so the draft must not auto-preview again.
+      previewAutoFiredRef.current = true;
+      try { sessionStorage.setItem(previewGuardKey(planId), '1'); } catch { /* the ref guards this mount */ }
+    }
     try {
       await previewM.mutateAsync();
+      // Keep polling until the page sees the plan leave 'previewed'; the
+      // mutation also refetches the plan, its items and its summary.
+      const wait = awaitAfterPreview(before);
+      if (wait) setAwaiting(wait);
     } catch (e) {
       setPreviewRequested(false);
       setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
