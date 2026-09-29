@@ -115,7 +115,7 @@ EOF
 # Arguments
 # ---------------------------------------------------------------------------
 
-need_arg() { [ "$#" -ge 2 ] && [ -n "$2" ] || die "$1 needs a value (see --help)"; }
+need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -578,8 +578,9 @@ settle_secrets() {
     new_password="$(env_get POSTGRES_PASSWORD "$FROM_FILE")"
     new_user="$(env_get POSTGRES_USER "$FROM_FILE")"
     new_db="$(env_get POSTGRES_DB "$FROM_FILE")"
-    [ -n "$new_secret" ] && [ -n "$new_password" ] \
-      || die "$FROM_FILE has no APP_SECRET or POSTGRES_PASSWORD; copy it again from the app computer"
+    if [ -z "$new_secret" ] || [ -z "$new_password" ]; then
+      die "$FROM_FILE has no APP_SECRET or POSTGRES_PASSWORD; copy it again from the app computer"
+    fi
     if { [ -n "$APP_SECRET" ] && [ "$APP_SECRET" != "$new_secret" ]; } \
        || { [ -n "$POSTGRES_PASSWORD" ] && [ "$POSTGRES_PASSWORD" != "$new_password" ]; }; then
       [ "$REPLACE_SECRETS" = "1" ] \
@@ -594,8 +595,9 @@ settle_secrets() {
   fi
 
   if [ "$ROLE" = "files" ]; then
-    [ -n "$APP_SECRET" ] && [ -n "$POSTGRES_PASSWORD" ] \
-      || die "a file worker needs the app computer's secrets: pass --from $WORKER_ENV_NAME"
+    if [ -z "$APP_SECRET" ] || [ -z "$POSTGRES_PASSWORD" ]; then
+      die "a file worker needs the app computer's secrets: pass --from $WORKER_ENV_NAME"
+    fi
     return 0
   fi
 
@@ -606,13 +608,15 @@ settle_secrets() {
   fi
 
   if [ -z "$APP_SECRET" ]; then
-    APP_SECRET="$(generate_secret)" && [ -n "$APP_SECRET" ] || die "generating the app secret failed"
+    APP_SECRET="$(generate_secret)" || die "generating the app secret failed"
+    [ -n "$APP_SECRET" ] || die "generating the app secret failed"
     ok "Generated a new app secret"
   else
     ok "Kept the app secret already in .env"
   fi
   if [ -z "$POSTGRES_PASSWORD" ]; then
-    POSTGRES_PASSWORD="$(generate_password)" && [ -n "$POSTGRES_PASSWORD" ] || die "generating the database password failed"
+    POSTGRES_PASSWORD="$(generate_password)" || die "generating the database password failed"
+    [ -n "$POSTGRES_PASSWORD" ] || die "generating the database password failed"
     ok "Generated a new database password"
   else
     ok "Kept the database password already in .env"
@@ -648,8 +652,9 @@ write_env() {
     app)   profiles="app";       files="$COMPOSE_MAIN:$COMPOSE_DB" ;;
     files) profiles="files";     files="$COMPOSE_MAIN" ;;
   esac
-  [ -n "$APP_SECRET" ] && [ -n "$POSTGRES_PASSWORD" ] \
-    || die "refusing to write .env without an app secret and a database password"
+  if [ -z "$APP_SECRET" ] || [ -z "$POSTGRES_PASSWORD" ]; then
+    die "refusing to write .env without an app secret and a database password"
+  fi
   insecure="true"
   if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
 
