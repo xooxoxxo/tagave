@@ -13,7 +13,7 @@ import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { Button } from '../components/ui';
-import { attentionReleases, guideOrder, rollbackCommand, updateGuide, type UpdateGuide } from '../utils/updateGuide';
+import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import styles from './SettingsUpdatesPage.module.css';
 
 function when(iso: string | null | undefined): string {
@@ -26,7 +26,7 @@ function workerName(w: WorkerVersion): string {
   return w.host ?? w.workerId.replace(/^worker-/, '');
 }
 
-function GuideSteps({ guide }: { guide: UpdateGuide }) {
+function GuideSteps({ guide }: { guide: RollbackGuide }) {
   return (
     <>
       <p className={styles.hint}>{guide.intro}</p>
@@ -141,9 +141,9 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
             <details className={styles.more}>
               <summary>If something goes wrong</summary>
               <p className={styles.hint}>
-                Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took:
+                Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took.
               </p>
-              <pre className={styles.code}>{rollbackCommand(detected, app.version)}</pre>
+              <GuideSteps guide={rollbackGuide(primary!.method, install, app.version, target?.version ?? null)} />
             </details>
             {others.map((g) => (
               <details key={g.method} className={styles.more}>
@@ -244,7 +244,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
                 Save
               </Button>
             </div>
-            {setFeed.isError && <p className={styles.error}>Could not save: the feed must be an https URL.</p>}
+            {setFeed.isError && <p className={styles.error}>Could not save: the feed must be a GitHub releases API URL, such as https://api.github.com/repos/OWNER/REPO/releases.</p>}
           </details>
         )}
       </section>

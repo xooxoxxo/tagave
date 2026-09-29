@@ -91,6 +91,8 @@ export {
   type InstallInfo,
   DEFAULT_RELEASES_URL,
   UPDATE_CHECK_INTERVAL_MS,
+  GITHUB_RELEASES_URL_RE,
+  isGithubReleasesUrl,
   compareVersions,
 } from './updates.js';
 

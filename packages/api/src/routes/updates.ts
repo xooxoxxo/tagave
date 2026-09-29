@@ -13,7 +13,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { libraries } from '@liner/db';
 import { readBuildInfo } from '@liner/core';
 import {
-  compareVersions, setUpdatesFeedSchema, skipUpdateSchema,
+  compareVersions, isGithubReleasesUrl, setUpdatesFeedSchema, skipUpdateSchema,
   type ReleaseNote, type WorkerVersion,
 } from '@liner/shared';
 import { getDb } from '../db.js';
@@ -45,11 +45,22 @@ async function loadLibrary(userId: string, libraryId: string) {
   return { id: rows[0].id, settings, updates: (settings['updates'] ?? {}) as UpdatesSettings };
 }
 
-async function saveUpdates(libraryId: string, updates: UpdatesSettings): Promise<void> {
-  // jsonb concatenation merges at the top level, so the other settings keys survive.
-  await getDb().execute(sql`
-    update libraries set settings = coalesce(settings, '{}'::jsonb) || ${JSON.stringify({ updates })}::jsonb
-    where id = ${libraryId}`);
+/**
+ * Merge `patch` into settings.updates and return the updates as stored now.
+ * Each write names only the fields it changes, so a feed check that takes up
+ * to FEED_TIMEOUT_MS and an owner's change made meanwhile (checks off, a
+ * skipped version, a new feed) do not undo each other.
+ */
+async function patchUpdates(libraryId: string, patch: Partial<UpdatesSettings>): Promise<UpdatesSettings> {
+  const rows = (await getDb().execute(sql`
+    update libraries set settings = jsonb_set(
+      coalesce(settings, '{}'::jsonb),
+      '{updates}',
+      coalesce(settings->'updates', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)
+    where id = ${libraryId}
+    returning settings->'updates' as updates`)) as unknown as Array<{ updates: UpdatesSettings | string | null }>;
+  const raw = rows[0]?.updates ?? null;
+  return (typeof raw === 'string' ? JSON.parse(raw) : raw ?? patch) as UpdatesSettings;
 }
 
 async function liveWorkers(): Promise<WorkerVersion[]> {
@@ -118,9 +129,7 @@ async function checkLibrary(libraryId: string, updates: UpdatesSettings): Promis
   } catch (err) {
     lastCheck = { at, url: feed.url, etag: previous?.etag ?? null, releases: previous?.releases ?? [], error: (err as Error).message };
   }
-  const next = { ...updates, lastCheck };
-  await saveUpdates(libraryId, next);
-  return next;
+  return patchUpdates(libraryId, { lastCheck });
 }
 
 /**
@@ -170,11 +179,15 @@ export async function createUpdateRoutes(fastify: FastifyInstance) {
     const lib = await loadLibrary(request.user.id, libraryId);
     const parsed = setUpdatesFeedSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
-    if (parsed.data.url && !/^https:\/\//i.test(parsed.data.url)) throw new ApiError(400, 'Bad Request', 'The feed must be an https URL');
-    const next: UpdatesSettings = { ...lib.updates };
-    if (parsed.data.enabled !== undefined) next.enabled = parsed.data.enabled;
-    if (parsed.data.url !== undefined) next.feedUrl = parsed.data.url;
-    await saveUpdates(libraryId, next);
+    // The server fetches this URL on its own every 12 h, so a library owner
+    // may only name a GitHub releases list; TAGAVE_UPDATE_FEED can be anything.
+    if (parsed.data.url && !isGithubReleasesUrl(parsed.data.url)) {
+      throw new ApiError(400, 'Bad Request', 'The feed must be a GitHub releases API URL: https://api.github.com/repos/OWNER/REPO/releases');
+    }
+    const patch: Partial<UpdatesSettings> = {};
+    if (parsed.data.enabled !== undefined) patch.enabled = parsed.data.enabled;
+    if (parsed.data.url !== undefined) patch.feedUrl = parsed.data.url;
+    const next = await patchUpdates(lib.id, patch);
     reply.send(status(next, await liveWorkers()));
   });
 
@@ -185,8 +198,7 @@ export async function createUpdateRoutes(fastify: FastifyInstance) {
     const lib = await loadLibrary(request.user.id, libraryId);
     const parsed = skipUpdateSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
-    const next: UpdatesSettings = { ...lib.updates, skippedVersion: parsed.data.version ? parsed.data.version.replace(/^v/i, '') : null };
-    await saveUpdates(libraryId, next);
+    const next = await patchUpdates(lib.id, { skippedVersion: parsed.data.version ? parsed.data.version.replace(/^v/i, '') : null });
     reply.send(status(next, await liveWorkers()));
   });
 

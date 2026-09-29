@@ -48,6 +48,18 @@ export type ReleaseNote = z.infer<typeof releaseNoteSchema>;
  */
 export const DEFAULT_RELEASES_URL = 'https://api.github.com/repos/xooxoxxo/tagave/releases';
 
+/**
+ * A feed the page may set: the releases list of one GitHub repository and
+ * nothing else. The server fetches it on its own, so an arbitrary URL would
+ * let any library owner make the server call internal addresses. A server
+ * admin can still point TAGAVE_UPDATE_FEED anywhere.
+ */
+export const GITHUB_RELEASES_URL_RE = /^https:\/\/api\.github\.com\/repos\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/releases$/;
+
+export function isGithubReleasesUrl(url: string): boolean {
+  return GITHUB_RELEASES_URL_RE.test(url) && !/\/\.\.?\//.test(url);
+}
+
 /** The server checks the feed on its own at most this often. */
 export const UPDATE_CHECK_INTERVAL_MS = 12 * 3600 * 1000;
 

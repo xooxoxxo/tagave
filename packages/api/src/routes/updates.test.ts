@@ -85,12 +85,39 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('update routes (integration)', (
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('accepts only https feeds and returns to the official one on null', async () => {
-    const bad = await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: true, url: 'http://example.test/releases' } });
-    expect(bad.statusCode).toBe(400);
+  it('accepts only GitHub releases feeds and returns to the official one on null', async () => {
+    for (const url of ['http://example.test/releases', 'https://10.0.0.5/releases', 'https://localhost:8443/', 'https://api.github.com.example.test/repos/a/b/releases']) {
+      const bad = await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: true, url } });
+      expect(bad.statusCode).toBe(400);
+    }
     const custom = (await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: true, url: 'https://api.github.com/repos/me/fork/releases' } })).json() as UpdatesStatus;
     expect(custom.feed).toMatchObject({ enabled: true, custom: true, url: 'https://api.github.com/repos/me/fork/releases', lastCheckedAt: null });
     const reset = (await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { url: null } })).json() as UpdatesStatus;
     expect(reset.feed).toMatchObject({ custom: false, url: DEFAULT_RELEASES_URL });
+  });
+
+  it('keeps a change the owner makes while a check is still fetching', async () => {
+    const fork = 'https://api.github.com/repos/me/slow/releases';
+    await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: true, url: fork } });
+    let answer!: (r: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => { answer = resolve; }));
+    const checking = app.inject({ method: 'POST', url: `${base}/check` });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const off = (await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: false } })).json() as UpdatesStatus;
+    expect(off.feed.enabled).toBe(false);
+    await app.inject({ method: 'PUT', url: `${base}/skip`, payload: { version: '98.0.0' } });
+
+    answer(new Response(JSON.stringify([{ tag_name: 'v99.0.0', prerelease: false }]), { status: 200 }));
+    expect((await checking).statusCode).toBe(200);
+
+    const after = (await app.inject({ method: 'GET', url: base })).json() as UpdatesStatus;
+    expect(after.feed.enabled).toBe(false);
+    expect(after.feed.skippedVersion).toBe('98.0.0');
+    // the check's own result was kept too
+    const on = (await app.inject({ method: 'PUT', url: `${base}/feed`, payload: { enabled: true } })).json() as UpdatesStatus;
+    expect(on.feed).toMatchObject({ url: fork, custom: true });
+    expect(on.feed.lastCheckedAt).not.toBeNull();
+    expect(on.feed.newer.map((r) => r.version)).toEqual(['99.0.0']);
   });
 });

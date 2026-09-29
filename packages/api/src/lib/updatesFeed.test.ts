@@ -25,6 +25,12 @@ describe('effectiveFeed', () => {
       .toMatchObject({ url: 'https://api.github.com/repos/me/fork/releases', enabled: true, custom: true });
   });
 
+  it('ignores a stored library feed that is not a GitHub releases URL', () => {
+    for (const feedUrl of ['https://10.0.0.5/admin', 'https://localhost/releases', 'https://api.github.com.evil.test/repos/a/b/releases', 'https://api.github.com/repos/a/b/releases?x=1']) {
+      expect(effectiveFeed({ feedUrl }, undefined)).toMatchObject({ url: DEFAULT_RELEASES_URL, custom: false });
+    }
+  });
+
   it('lets TAGAVE_UPDATE_FEED override the library', () => {
     expect(effectiveFeed({ enabled: true }, 'off')).toEqual({ url: null, enabled: false, custom: false, lockedByServer: true });
     expect(effectiveFeed({ enabled: false }, 'https://example.test/releases'))

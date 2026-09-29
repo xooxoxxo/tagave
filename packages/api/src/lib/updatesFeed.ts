@@ -7,7 +7,7 @@
  * User-Agent. No version, id, contact or library data is sent.
  */
 import {
-  DEFAULT_RELEASES_URL, UPDATE_CHECK_INTERVAL_MS, compareVersions, installMethodSchema,
+  DEFAULT_RELEASES_URL, UPDATE_CHECK_INTERVAL_MS, compareVersions, installMethodSchema, isGithubReleasesUrl,
   type BuildInfoView, type InstallInfo, type ReleaseNote, type UpdatesStatus, type WorkerVersion,
 } from '@liner/shared';
 
@@ -18,7 +18,11 @@ export const FEED_USER_AGENT = 'tagave-update-check';
 export interface UpdatesSettings {
   /** false turns checks off. Unset means on (the default). */
   enabled?: boolean;
-  /** A replacement feed URL. Unset or null means the official feed. */
+  /**
+   * A replacement feed URL. Unset or null means the official feed. Only a
+   * GitHub releases API URL counts (isGithubReleasesUrl); anything else
+   * stored here is ignored and the official feed is read instead.
+   */
   feedUrl?: string | null;
   skippedVersion?: string | null;
   lastCheck?: {
@@ -41,7 +45,8 @@ export interface EffectiveFeed {
 /**
  * TAGAVE_UPDATE_FEED, when set, wins: "off" (or false/0/no) turns checks off
  * for every library, a URL replaces the official feed. Otherwise the
- * library's own choice, and the official feed when it made none.
+ * library's own choice, and the official feed when it made none (or chose
+ * something other than a GitHub releases URL).
  */
 export function effectiveFeed(updates: UpdatesSettings, serverSetting: string | undefined): EffectiveFeed {
   const server = serverSetting?.trim();
@@ -50,7 +55,7 @@ export function effectiveFeed(updates: UpdatesSettings, serverSetting: string | 
     return { url: server, enabled: true, custom: server !== DEFAULT_RELEASES_URL, lockedByServer: true };
   }
   if (updates.enabled === false) return { url: null, enabled: false, custom: !!updates.feedUrl, lockedByServer: false };
-  const url = updates.feedUrl || DEFAULT_RELEASES_URL;
+  const url = updates.feedUrl && isGithubReleasesUrl(updates.feedUrl) ? updates.feedUrl : DEFAULT_RELEASES_URL;
   return { url, enabled: true, custom: url !== DEFAULT_RELEASES_URL, lockedByServer: false };
 }
 

@@ -132,7 +132,9 @@ When a newer release is out, a small dot appears on **Settings** and **Settings 
 
 **Skip this version** hides the dot until a later release appears.
 
-To turn checks off, untick **Check for new versions** on that page, or set `TAGAVE_UPDATE_FEED=off` in the app's environment to turn them off for the whole server. `TAGAVE_UPDATE_FEED` can also hold another GitHub releases API URL, for a fork.
+To turn checks off, untick **Check for new versions** on that page, or set `TAGAVE_UPDATE_FEED=off` in the app's environment to turn them off for the whole server. For a fork, the page takes another GitHub releases API URL (`https://api.github.com/repos/OWNER/REPO/releases`) and nothing else, because the server fetches it on its own. `TAGAVE_UPDATE_FEED` can hold any https URL; only whoever runs the server can set it.
+
+Under **If something goes wrong**, the page shows how to go back to the version you had, using the backup its own update steps took: the installer's `backups/pre-update-…` folder, the `tagave-before-<version>.pgdump` file for plain Compose and source installs, or `/cache/backups` inside the app container on the platforms. The commands stop at the first one that fails, so the older version never starts on a database that was not restored.
 
 The update page decides which steps to show first from `TAGAVE_INSTALL_METHOD` (`installer`, `compose`, `source`, `portainer`, `dokploy`, `coolify` or `unraid`). The templates set it and the installer's `.env` is recognised on its own; you only need it when you wrote your own compose file for a platform.
 
