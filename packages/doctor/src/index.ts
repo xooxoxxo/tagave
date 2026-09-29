@@ -19,7 +19,13 @@ export interface DoctorOptions {
   cacheDir?: string;
   expectWorkers?: number;
   offline?: boolean;
+  /** What the skipped provider check says when offline (the CLI names its flag). */
+  offlineDetail?: string;
   timeoutMs?: number;
+  /** Only this library's music folders; every library's when absent. */
+  libraryId?: string;
+  /** Look for each music folder on this host too (default true). */
+  probeHost?: boolean;
 }
 
 export interface DoctorResult {
@@ -33,7 +39,10 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
     cacheDir,
     expectWorkers = 2,
     offline = false,
+    offlineDetail,
     timeoutMs = 10000,
+    libraryId,
+    probeHost,
   } = opts;
 
   const checks: Check[] = [];
@@ -44,9 +53,12 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   checks.push(await checkContactString(databaseUrl));
   checks.push(await checkWorkerHeartbeat(databaseUrl, expectWorkers));
   checks.push(await checkWorkerVersions(databaseUrl));
-  checks.push(await checkScanRoots(databaseUrl));
+  checks.push(await checkScanRoots(databaseUrl, {
+    ...(libraryId ? { libraryId } : {}),
+    ...(probeHost !== undefined ? { probeHost } : {}),
+  }));
   checks.push(await checkCacheDir(cacheDir));
-  checks.push(await checkProviders(databaseUrl, offline, timeoutMs));
+  checks.push(await checkProviders(databaseUrl, offline, timeoutMs, offlineDetail));
   checks.push(await checkAppSecret(databaseUrl));
 
   // Determine if all checks passed (warnings are not failures)

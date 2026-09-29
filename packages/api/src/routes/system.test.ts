@@ -8,8 +8,8 @@ import os from 'node:os';
 import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
-import { eq } from 'drizzle-orm';
-import { users } from '@liner/db';
+import { eq, inArray } from 'drizzle-orm';
+import { libraries, scanRoots, users } from '@liner/db';
 import type { SessionUser } from '@liner/shared/auth';
 import { initDb, getDb } from '../db.js';
 import { errorHandler } from '../middleware/errorHandler.js';
@@ -111,6 +111,40 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
       else expect(c.remediation, c.id).toMatch(/\w+/);
     }
     expect(body.ok).toBe(body.checks.every((c) => c.status !== 'fail'));
+  });
+
+  it('scopes music folders to the library asked for, in plain words', async () => {
+    const owner = await addUser('owner');
+    const other = await addUser('owner');
+    const mine = randomUUID();
+    const theirs = randomUUID();
+    await getDb().insert(libraries).values([
+      { id: mine, name: 'Mine', ownerUserId: owner.id, settings: {} },
+      { id: theirs, name: 'Theirs', ownerUserId: other.id, settings: {} },
+    ]);
+    try {
+      await getDb().insert(scanRoots).values([
+        { libraryId: mine, path: `/mine-${mine}`, displayName: 'mine', writable: false, validationStatus: 'ok', validatedAt: new Date() },
+        { libraryId: theirs, path: `/theirs-${theirs}`, displayName: 'theirs', writable: false, validationStatus: 'pending' },
+      ]);
+
+      as = owner;
+      const res = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${mine}` });
+      expect(res.statusCode).toBe(200);
+      const checks = (res.json() as { checks: Array<{ id: string; status: string; detail: string }> }).checks;
+      const folders = checks.find((c) => c.id === 'scanRoots')!;
+      expect(folders).toMatchObject({ status: 'pass', detail: '1 music folder OK' });
+      for (const c of checks) {
+        expect(c.detail, c.id).not.toMatch(/\(s\)|--offline|not mounted on this host/);
+      }
+
+      // someone else's library is not a scope this owner can ask for
+      const foreign = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${theirs}` });
+      expect(foreign.statusCode).toBe(404);
+    } finally {
+      await getDb().delete(scanRoots).where(inArray(scanRoots.libraryId, [mine, theirs]));
+      await getDb().delete(libraries).where(inArray(libraries.id, [mine, theirs]));
+    }
   });
 
   it('the unauthenticated path probe and system/health are gone', async () => {

@@ -15,6 +15,11 @@ export interface Check {
   durationMs: number;
 }
 
+/** "1 worker", "2 workers": details are read by people, not parsed. */
+export function plural(n: number, one: string, many: string = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 // Helper to format duration for display
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -199,7 +204,7 @@ export async function checkWorkerHeartbeat(
           id: 'workerHeartbeat',
           title: 'Worker Heartbeat',
           status: liveWorkers === 0 ? 'skip' : 'pass',
-          detail: liveWorkers === 0 ? 'no workers expected (--expect-workers 0)' : `${liveWorkers} live worker(s)`,
+          detail: liveWorkers === 0 ? 'This install is set to run without workers' : `${plural(liveWorkers, 'worker')} running`,
           durationMs: Date.now() - start,
         };
       }
@@ -208,7 +213,7 @@ export async function checkWorkerHeartbeat(
           id: 'workerHeartbeat',
           title: 'Worker Heartbeat',
           status: 'fail',
-          detail: 'No live workers detected (last heartbeat >120s ago)',
+          detail: 'No worker has checked in during the last two minutes',
           durationMs: Date.now() - start,
         };
       }
@@ -218,7 +223,7 @@ export async function checkWorkerHeartbeat(
           id: 'workerHeartbeat',
           title: 'Worker Heartbeat',
           status: 'warn',
-          detail: `${liveWorkers} live worker(s), expected ${expectWorkers}`,
+          detail: `${plural(liveWorkers, 'worker')} running, ${expectWorkers} expected`,
           durationMs: Date.now() - start,
         };
       }
@@ -227,7 +232,7 @@ export async function checkWorkerHeartbeat(
         id: 'workerHeartbeat',
         title: 'Worker Heartbeat',
         status: 'pass',
-        detail: `${liveWorkers} live worker(s) detected`,
+        detail: `${plural(liveWorkers, 'worker')} running`,
         durationMs: Date.now() - start,
       };
     } finally {
@@ -245,8 +250,20 @@ export async function checkWorkerHeartbeat(
 }
 
 // Check 5: Scan roots validation
-export async function checkScanRoots(databaseUrl: string): Promise<Check> {
+export interface ScanRootsCheckOptions {
+  /** Only this library's folders (the status page of one library); all when absent (the CLI). */
+  libraryId?: string;
+  /**
+   * Also look for each path on the host running the check. Right for the CLI
+   * on a worker host; wrong for the web app, whose container usually has no
+   * music mounted (the workers read the folders, not the app).
+   */
+  probeHost?: boolean;
+}
+
+export async function checkScanRoots(databaseUrl: string, opts: ScanRootsCheckOptions = {}): Promise<Check> {
   const start = Date.now();
+  const probeHost = opts.probeHost ?? true;
   try {
     const sql = postgres(databaseUrl, { max: 1 });
     try {
@@ -254,6 +271,7 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
         select path, writable, validation_status, validation_message, validated_at, probe_writable
         from scan_roots
         where enabled = true
+          ${opts.libraryId ? sql`and library_id = ${opts.libraryId}` : sql``}
         order by path
       `;
 
@@ -262,7 +280,7 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
           id: 'scanRoots',
           title: 'Scan Roots',
           status: 'warn',
-          detail: 'No enabled scan roots configured',
+          detail: 'No music folder is set up yet',
           durationMs: Date.now() - start,
         };
       }
@@ -280,34 +298,35 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
 
         // Check if path exists on this host
         let hostProbe: string | undefined;
-        try {
-          await fs.stat(rootPath);
+        if (probeHost) {
           try {
-            const dir = await fs.opendir(rootPath);
-            await dir.close();
-            hostProbe = 'readable';
+            await fs.stat(rootPath);
+            try {
+              const dir = await fs.opendir(rootPath);
+              await dir.close();
+              hostProbe = 'readable here';
+            } catch {
+              hostProbe = 'present here but not readable';
+            }
           } catch {
-            hostProbe = 'present but not readable';
+            hostProbe = 'not mounted on this host';
           }
-        } catch {
-          hostProbe = 'not mounted on this host';
         }
+        const where = hostProbe ? ` [${hostProbe}]` : '';
 
-        // Evaluate status
+        // Evaluate status. validated_at is a string on some clients.
         if (status === 'ok') {
-          const ageMinutes = validatedAt ? (Date.now() - new Date(validatedAt).getTime()) / 60000 : 999;
-          let statusDetail = `${rootPath} (validated ${Math.round(ageMinutes)}m ago)`;
-          if (hostProbe) statusDetail += ` [${hostProbe}]`;
-
+          const ageMinutes = validatedAt ? (Date.now() - new Date(validatedAt).getTime()) / 60000 : Infinity;
           if (ageMinutes > 60) {
-            warnings.push(`${statusDetail} (validation >1h old)`);
+            warnings.push(`${rootPath}: last checked ${ageText(ageMinutes)}${where}`);
           } else if (writable && !probeWritable) {
-            warnings.push(`${statusDetail} (writable intent but probe_writable=false)`);
+            warnings.push(`${rootPath}: set to allow tag writes, but the last check could not write there${where}`);
           }
         } else if (status === 'pending') {
-          warnings.push(`${rootPath} (validation pending)`);
+          warnings.push(`${rootPath}: not checked yet${where}`);
         } else if (status === 'missing' || status === 'not_directory' || status === 'unreadable') {
-          issues.push(`${rootPath} (${status}): ${message || 'unknown reason'}`);
+          const why = status === 'missing' ? 'not found' : status === 'not_directory' ? 'not a folder' : 'cannot be read';
+          issues.push(`${rootPath}: ${why}${message ? ` (${message})` : ''}`);
         }
       }
 
@@ -316,7 +335,7 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
           id: 'scanRoots',
           title: 'Scan Roots',
           status: 'fail',
-          detail: `${issues.length} failed: ${issues.slice(0, 2).join('; ')}${issues.length > 2 ? '; ...' : ''}`,
+          detail: `${plural(issues.length, 'folder')} failed: ${issues.slice(0, 2).join('; ')}${issues.length > 2 ? `; and ${issues.length - 2} more` : ''}`,
           durationMs: Date.now() - start,
         };
       }
@@ -326,7 +345,7 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
           id: 'scanRoots',
           title: 'Scan Roots',
           status: 'warn',
-          detail: `${warnings.length} warning(s): ${warnings.slice(0, 2).join('; ')}${warnings.length > 2 ? '; ...' : ''}`,
+          detail: `${plural(warnings.length, 'folder')} to look at: ${warnings.slice(0, 2).join('; ')}${warnings.length > 2 ? `; and ${warnings.length - 2} more` : ''}`,
           durationMs: Date.now() - start,
         };
       }
@@ -335,7 +354,7 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
         id: 'scanRoots',
         title: 'Scan Roots',
         status: 'pass',
-        detail: `${result.length} root(s) OK`,
+        detail: `${plural(result.length, 'music folder')} OK`,
         durationMs: Date.now() - start,
       };
     } finally {
@@ -350,6 +369,15 @@ export async function checkScanRoots(databaseUrl: string): Promise<Check> {
       durationMs: Date.now() - start,
     };
   }
+}
+
+/** "5 hours ago", "3 days ago", "never" for a folder that was never checked. */
+function ageText(minutes: number): string {
+  if (!Number.isFinite(minutes)) return 'never';
+  if (minutes < 120) return `${plural(Math.round(minutes), 'minute')} ago`;
+  const hours = minutes / 60;
+  if (hours < 48) return `${plural(Math.round(hours), 'hour')} ago`;
+  return `${plural(Math.round(hours / 24), 'day')} ago`;
 }
 
 // Check 6: Cache directory writability
@@ -426,6 +454,7 @@ export async function checkProviders(
   databaseUrl: string,
   offline: boolean = false,
   timeoutMs: number = 10000,
+  offlineDetail: string = 'Skipped (--offline)',
 ): Promise<Check> {
   const start = Date.now();
 
@@ -434,7 +463,7 @@ export async function checkProviders(
       id: 'providers',
       title: 'Providers',
       status: 'skip',
-      detail: '--offline flag set',
+      detail: offlineDetail,
       durationMs: Date.now() - start,
     };
   }
@@ -650,7 +679,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
               id: 'appSecret',
               title: 'App Secret',
               status: 'warn',
-              detail: `Worker host with ${sealedCount} sealed credential(s) but APP_SECRET not set`,
+              detail: `Worker host with ${plural(sealedCount, 'sealed credential')} but APP_SECRET not set`,
               durationMs: Date.now() - start,
             };
           }
@@ -733,7 +762,7 @@ export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
         title: 'Build Versions',
         status: allMatch ? 'pass' : 'warn',
         detail: allMatch
-          ? `${rows.length} worker(s) and this process at ${mine}`
+          ? `The app and ${plural(rows.length, 'worker')} run the same build (${mine})`
           : `this process ${mine} (${me.source}); workers at ${summary} — redeploy the lagging side`,
         durationMs: Date.now() - start,
       };
