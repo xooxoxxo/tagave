@@ -24,12 +24,10 @@
 <link rel="icon" type="image/png" sizes="48x48" href="img/favicon-48.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<!-- Fonts load without blocking first paint; the fallback stacks below carry the page until they arrive. -->
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@200;300;400&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@200;300;400&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" media="print" onload="this.media='all'">
-<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Urbanist:wght@200;300;400&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap"></noscript>
+<!-- Self-hosted fonts (SIL OFL), preloaded and set to font-display:optional: a font that is not
+     ready for first paint is skipped for this visit instead of swapped in, so text never reflows. -->
+<link rel="preload" href="fonts/urbanist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/figtree-latin.woff2" as="font" type="font/woff2" crossorigin>
 
 <script>
   /* Apply the saved theme before first paint so nothing flashes. */
@@ -42,12 +40,28 @@
 </script>
 
 <style>
+/* ============ fonts ============ */
+@font-face{font-family:"Urbanist";font-style:normal;font-weight:200 400;font-display:optional;
+  src:url(fonts/urbanist-latin.woff2) format("woff2")}
+@font-face{font-family:"Figtree";font-style:normal;font-weight:400 600;font-display:optional;
+  src:url(fonts/figtree-latin.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-style:normal;font-weight:400;font-display:optional;
+  src:url(fonts/jetbrains-mono-latin-400.woff2) format("woff2")}
+/* Fallbacks scaled to the real fonts' width and vertical metrics (measured with fontTools against
+   Arial and Courier New), so a visit that falls back lays out the same lines. */
+@font-face{font-family:"Urbanist Fallback";src:local("Arial"),local("ArialMT"),local("Liberation Sans");
+  size-adjust:98.32%;ascent-override:96.62%;descent-override:25.43%;line-gap-override:0%}
+@font-face{font-family:"Figtree Fallback";src:local("Arial"),local("ArialMT"),local("Liberation Sans");
+  size-adjust:101.53%;ascent-override:93.57%;descent-override:24.62%;line-gap-override:0%}
+@font-face{font-family:"JetBrains Mono Fallback";src:local("Courier New"),local("CourierNewPSMT"),local("Liberation Mono");
+  size-adjust:99.98%;ascent-override:102.02%;descent-override:30%;line-gap-override:0%}
+
 /* ============ tokens: Porcelain & Dew ============ */
 :root{
   color-scheme:light;
-  --font-display:"Urbanist","Avenir Next","Segoe UI Variable Display","Helvetica Neue",sans-serif;
-  --font-body:"Figtree","Segoe UI",system-ui,-apple-system,sans-serif;
-  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --font-display:"Urbanist","Urbanist Fallback",sans-serif;
+  --font-body:"Figtree","Figtree Fallback",sans-serif;
+  --font-mono:"JetBrains Mono","JetBrains Mono Fallback",monospace;
 
   --canvas:#F6F8FA; --surface:#FFFFFF; --mist:#EBEFF3; --line:#DCE2E8;
   --ink:#16202A; --ink-2:#46525E; --ink-3:#66717D;
@@ -57,7 +71,6 @@
   --spec:rgba(255,255,255,.85);
   --shadow-tint:22,52,70;
   --ring:#276A82; --warn:#9A6A12;
-  --shot-filter:none;
   --wash:radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--dew-tint) 70%, transparent), transparent 70%);
 
   --r-pill:999px; --r-card:28px; --r-cover:18px; --r-inner:14px; --r-kbd:8px;
@@ -76,7 +89,6 @@
     --spec:rgba(255,255,255,.55);
     --shadow-tint:0,0,0;
     --ring:#8ACBE0; --warn:#D9A94A;
-    --shot-filter:brightness(.86) contrast(1.04);
     --wash:radial-gradient(1200px 600px at 80% -10%, rgba(22,48,58,.55), transparent 70%);
   }
 }
@@ -90,7 +102,6 @@
   --spec:rgba(255,255,255,.55);
   --shadow-tint:0,0,0;
   --ring:#8ACBE0; --warn:#D9A94A;
-  --shot-filter:brightness(.86) contrast(1.04);
   --wash:radial-gradient(1200px 600px at 80% -10%, rgba(22,48,58,.55), transparent 70%);
 }
 
@@ -269,7 +280,7 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 /* ============ screenshots ============ */
 .frame{margin:0;padding:10px;border-radius:var(--r-card);background:var(--surface);border:1px solid var(--line);
   box-shadow:0 1px 0 rgba(255,255,255,.6) inset,0 40px 80px -48px rgba(var(--shadow-tint),.45)}
-.frame img{border-radius:var(--r-cover);width:100%;filter:var(--shot-filter);background:var(--mist)}
+.frame img{border-radius:var(--r-cover);width:100%;background:var(--mist)}
 .frame figcaption{font-size:13px;color:var(--ink-3);padding:12px 8px 2px;text-align:left}
 .showcase{padding:8px 0 24px}
 
@@ -395,9 +406,12 @@ footer p{margin:0 0 8px;max-width:78ch}
 
     <div class="showcase">
       <figure class="frame">
-        <img src="img/albums-1600.webp" srcset="img/albums-800.webp 800w, img/albums-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
-             width="1600" height="1000" alt="The album grid, filtered to identified albums, with cover art, artist, format, track count and year under each cover." fetchpriority="high">
-        <figcaption>The album grid, filtered to identified albums.</figcaption>
+        <picture>
+          <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/albums-dark-800.webp 800w, img/albums-dark-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px">
+          <img src="img/albums-light-1600.webp" srcset="img/albums-light-800.webp 800w, img/albums-light-1600.webp 1600w" sizes="(max-width:1080px) calc(100vw - 54px), 1016px"
+               width="1600" height="1000" alt="The album grid sorted by year, with cover art, artist, format, track count and year under each cover. One album carries a small 8/9 badge because a track is missing." fetchpriority="high">
+        </picture>
+        <figcaption>The album grid. The 8/9 badge marks an album that is one track short.</figcaption>
       </figure>
     </div>
   </div>
@@ -449,8 +463,11 @@ footer p{margin:0 0 8px;max-width:78ch}
             </ul>
           </div>
           <figure class="frame">
-            <img src="img/plan-1600.webp" srcset="img/plan-800.webp 800w, img/plan-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
-                 width="1600" height="1000" loading="lazy" decoding="async" alt="A tag plan preview: one file expanded, with each tag field shown as before and after values, such as the title juggernaut becoming Juggernaut and an empty label becoming Infacted Recordings.">
+            <picture>
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/plan-dark-800.webp 800w, img/plan-dark-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px">
+              <img src="img/plan-light-1600.webp" srcset="img/plan-light-800.webp 800w, img/plan-light-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
+                   width="1600" height="860" loading="lazy" decoding="async" alt="A tag plan preview: one file expanded, with each tag field shown as before and after values, such as the title juggernaut becoming Juggernaut and an empty label becoming Infacted Recordings.">
+            </picture>
           </figure>
         </div>
 
@@ -463,11 +480,15 @@ footer p{margin:0 0 8px;max-width:78ch}
               <li>Incomplete albums name the missing tracks</li>
               <li>Dismiss a gap once and it stays dismissed</li>
               <li>A review queue for matches it is not sure about</li>
+              <li>Quality flags mark albums whose files still lack MusicBrainz IDs or cover art, which a tag plan and an art fetch fill in</li>
             </ul>
           </div>
           <figure class="frame">
-            <img src="img/gaps-1600.webp" srcset="img/gaps-800.webp 800w, img/gaps-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
-                 width="1600" height="689" loading="lazy" decoding="async" alt="The Library care page listing incomplete albums, each with the number of tracks present and the titles of the missing ones.">
+            <picture>
+              <source data-theme-shot media="(prefers-color-scheme: dark)" srcset="img/gaps-dark-800.webp 800w, img/gaps-dark-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px">
+              <img src="img/gaps-light-1600.webp" srcset="img/gaps-light-800.webp 800w, img/gaps-light-1600.webp 1600w" sizes="(max-width:860px) calc(100vw - 54px), 580px"
+                   width="1600" height="600" loading="lazy" decoding="async" alt="The Library care page listing incomplete albums, each with the number of tracks present and the titles of the missing ones.">
+            </picture>
           </figure>
         </div>
       </div>
@@ -513,7 +534,7 @@ footer p{margin:0 0 8px;max-width:78ch}
         <span class="dot" aria-hidden="true"></span>
         <div>
           <h2 class="title" id="status-title">Early, and honest about it.</h2>
-          <p class="body">tagave catalogues one real library every day. It has one user so far, so expect rough edges, and read the operations guide before you trust it with anything you cannot re-rip.</p>
+          <p class="body">tagave catalogues one real library every day. It has one user so far, so expect rough edges, and read the <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/operations.md">operations guide</a> before you trust it with anything you cannot re-rip.</p>
           <div class="nums">
             <div>27,000<span>albums</span></div>
             <div>240,000<span>files</span></div>
@@ -553,7 +574,7 @@ footer p{margin:0 0 8px;max-width:78ch}
         <details>
           <summary>Does it need the cloud or an account?</summary>
           <div class="answer">
-            <p>No. It runs on your own computer or server in Docker, and your library and account stay there. It talks to the metadata services it uses (MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID if you add keys for them) and checks GitHub for new releases. There is no telemetry.</p>
+            <p>No. It runs on your own computer or server in Docker, and your library and account stay there. It talks to the metadata services it uses (MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID if you add keys for them). If you set a release feed under Settings › Updates, it checks that feed for new versions when you open that page or press Check now. Nothing else leaves your server, and there is no telemetry.</p>
           </div>
         </details>
         <details>
@@ -585,7 +606,7 @@ footer p{margin:0 0 8px;max-width:78ch}
       </div>
     </div>
     <p>Metadata comes from <a href="https://musicbrainz.org">MusicBrainz</a> and <a href="https://www.discogs.com">Discogs</a>. tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
-    <p>Screenshots show a real library. Cover art is from the Cover Art Archive and belongs to its owners.</p>
+    <p>Screenshots show a demo library of twenty albums taken from a real archive, with a demo account. Cover art is from the Cover Art Archive and belongs to its owners.</p>
   </div>
 </footer>
 
@@ -598,9 +619,21 @@ footer p{margin:0 0 8px;max-width:78ch}
     if (t) return t;
     return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
+  /* Screenshots follow the system theme through <picture> media queries; when the visitor has
+     picked a theme with the toggle, point the dark sources at that choice instead. */
+  var shots = document.querySelectorAll('source[data-theme-shot]');
+  function syncShots() {
+    var t = root.getAttribute('data-theme');
+    var media = t === 'dark' ? 'all' : t === 'light' ? 'not all' : '(prefers-color-scheme: dark)';
+    for (var i = 0; i < shots.length; i++) {
+      if (shots[i].getAttribute('media') !== media) shots[i].setAttribute('media', media);
+    }
+  }
+  syncShots();
   toggle.addEventListener('click', function () {
     var next = current() === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
+    syncShots();
     try { localStorage.setItem('tagave-theme', next); } catch (e) { /* not persisted */ }
   });
 
