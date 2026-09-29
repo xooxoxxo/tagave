@@ -463,6 +463,13 @@ async function main() {
     } catch (err) {
       logger.error({ err }, 'error stopping pg-boss');
     }
+    // A stopped worker must not count as live for two more minutes: after a
+    // deploy the system check would report old and new builds side by side.
+    try {
+      await ctx.sql`delete from worker_heartbeats where worker_id = ${workerId}`;
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'could not clear heartbeat');
+    }
     try {
       await client.end({ timeout: 5 });
     } catch {
