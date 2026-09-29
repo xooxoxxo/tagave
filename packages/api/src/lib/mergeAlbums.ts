@@ -12,12 +12,20 @@
  * becomes "merge:<its old key>", which marks it as merged and remembers the
  * key to go back to.
  *
- * Split back removes the pins, restores the key and re-clusters the folders:
- * the target's own files land on it again (same key), the rest form their
- * albums again by the usual rules.
+ * What the merge changed is kept on the target (local_albums.merged_from,
+ * migration 0029): the target's identification before the merge, and per
+ * merged album its id, key, identification, files and album-level locks.
+ * Album-level locks of the merged albums become per-file locks on their
+ * files, so a lock keeps protecting exactly the files it protected.
+ *
+ * Split back removes the pins, recreates every merged album with its own id,
+ * key and identification, moves its files back, turns its per-file locks
+ * back into album locks, restores the target's identification (a match made
+ * for the merged whole does not fit the part that is left), and re-clusters
+ * the folders so the usual rules confirm the result.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, localAlbums, localTracks } from '@liner/db';
+import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { audioFiles, clusterOverrides, fieldLocks, localAlbums, localTracks } from '@liner/db';
 import { VARIOUS_ARTISTS, displayArtistName, isVariousArtists, stripTrackNumberPrefix } from '@liner/shared';
 import type { getDb } from '../db.js';
 import { SPLIT_KEY_PREFIX } from './splitByFormat.js';
@@ -45,6 +53,9 @@ export function mergedOriginalKey(clusterKey: string | null | undefined): string
   const rest = clusterKey!.slice(MERGE_KEY_PREFIX.length);
   return rest || null;
 }
+
+/** A Postgres array literal: drizzle would expand a JS array into a record. */
+const pgUuidArray = (ids: string[]) => `{${ids.join(',')}}`;
 
 const relDirname = (relPath: string) => {
   const i = relPath.lastIndexOf('/');
@@ -86,6 +97,50 @@ function mostCommon<T>(values: Array<T | null | undefined>): T | null {
   for (const [v, c] of counts) if (c > n) { best = v; n = c; }
   return best;
 }
+
+/** Identification fields a merge may change and split back restores. */
+interface IdentState {
+  state: string;
+  releaseId: string | null;
+  releaseGroupId: string | null;
+  identifyReason: string | null;
+  identifiedAt: string | null;
+}
+
+interface MergedSource extends IdentState {
+  id: string;
+  clusterKey: string;
+  titleGuess: string | null;
+  artistGuess: string | null;
+  yearGuess: number | null;
+  preferred: boolean | null;
+  createdAt: string;
+  fileIds: string[];
+  /** album-level locks, as they were */
+  locks: Array<{ field: string; value: unknown; reason: string | null; createdBy: string; createdAt: string }>;
+}
+
+/** local_albums.merged_from */
+export interface MergeRecord {
+  version: 1;
+  target: IdentState;
+  sources: MergedSource[];
+  /** the per-file locks the merge created from the sources' album locks */
+  fileLockIds: string[];
+}
+
+const identOf = (a: { state: string; releaseId: string | null; releaseGroupId: string | null; identifyReason: string | null; identifiedAt: Date | string | null }): IdentState => ({
+  state: a.state,
+  releaseId: a.releaseId,
+  releaseGroupId: a.releaseGroupId,
+  identifyReason: a.identifyReason,
+  identifiedAt: a.identifiedAt ? new Date(a.identifiedAt).toISOString() : null,
+});
+
+const readRecord = (raw: unknown): MergeRecord | null => {
+  const r = (typeof raw === 'string' ? JSON.parse(raw) : raw) as MergeRecord | null;
+  return r && r.version === 1 && Array.isArray(r.sources) ? r : null;
+};
 
 export interface MergeAlbumsResult {
   albumId: string;
@@ -146,6 +201,39 @@ export async function mergeAlbums(
     const sources = albums.filter((a) => a.id !== target.id);
     const sourceIds = sources.map((a) => a.id);
 
+    // An album that was itself merged from others is split back first: one
+    // level of merge keeps split back exact.
+    const nested = sources.find((a) => isMergedKey(a.clusterKey));
+    if (nested) throw new MergeError(409, `"${nested.titleGuess ?? 'An album'}" was already made from several albums; split it back first, or keep it and merge the others into it`);
+
+    // A source that has a split-off copy would take the copy's "Merge back"
+    // target with it when it goes.
+    if (sourceIds.length > 0) {
+      const [origin] = await tx.select({ id: localAlbums.id, title: localAlbums.titleGuess }).from(localAlbums)
+        .where(and(
+          eq(localAlbums.libraryId, input.libraryId),
+          or(...sourceIds.map((id) => like(localAlbums.clusterKey, `${SPLIT_KEY_PREFIX}${id}:%`))),
+        ))
+        .limit(1);
+      if (origin) throw new MergeError(409, `"${origin.title ?? 'An album'}" was split off one of these albums; merge it back first`);
+    }
+
+    // Pieces fit together; two copies of the same tracks are duplicates, and
+    // merging them would put two track 1s on one album.
+    const clash = (await tx.execute(sql`
+      select a.track_no, coalesce(a.disc_no, 1) as disc_no
+        from local_tracks a
+        join local_tracks b on b.track_no = a.track_no
+                           and coalesce(b.disc_no, 1) = coalesce(a.disc_no, 1)
+                           and b.local_album_id <> a.local_album_id
+       where a.local_album_id = any(${pgUuidArray(ids)}::uuid[])
+         and b.local_album_id = any(${pgUuidArray(ids)}::uuid[])
+         and a.track_no is not null
+       limit 1`)) as unknown as Array<{ track_no: number; disc_no: number }>;
+    if (clash[0]) {
+      throw new MergeError(409, `Two of these albums both have track ${clash[0].track_no}${clash[0].disc_no > 1 ? ` on disc ${clash[0].disc_no}` : ''}; they look like copies of the same tracks rather than pieces of one album`);
+    }
+
     const rows = await tx
       .select({
         audioFileId: localTracks.audioFileId,
@@ -171,6 +259,61 @@ export async function mergeAlbums(
         createdBy: input.userId,
       })));
     }
+    // What split back needs, per source: who it was, its files, its locks.
+    const filesBySource = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (!r.localAlbumId || r.localAlbumId === target.id) continue;
+      const set = filesBySource.get(r.localAlbumId) ?? new Set<string>();
+      set.add(r.audioFileId);
+      filesBySource.set(r.localAlbumId, set);
+    }
+    const sourceLocks = sourceIds.length === 0 ? [] : await tx.select().from(fieldLocks)
+      .where(and(eq(fieldLocks.libraryId, input.libraryId), eq(fieldLocks.scope, 'album'), inArray(fieldLocks.scopeId, sourceIds)));
+    const previous = readRecord(target.mergedFrom);
+    const record: MergeRecord = {
+      version: 1,
+      // merging more into an album that is already merged keeps the state
+      // from before the first merge
+      target: previous?.target ?? identOf(target),
+      sources: [
+        ...(previous?.sources ?? []),
+        ...sources.map((a): MergedSource => ({
+          id: a.id,
+          clusterKey: a.clusterKey,
+          titleGuess: a.titleGuess,
+          artistGuess: a.artistGuess,
+          yearGuess: a.yearGuess,
+          preferred: a.preferred,
+          createdAt: new Date(a.createdAt).toISOString(),
+          ...identOf(a),
+          fileIds: [...(filesBySource.get(a.id) ?? [])],
+          locks: sourceLocks.filter((l) => l.scopeId === a.id).map((l) => ({
+            field: l.field, value: l.value, reason: l.reason, createdBy: l.createdBy, createdAt: new Date(l.createdAt).toISOString(),
+          })),
+        })),
+      ],
+      fileLockIds: [...(previous?.fileLockIds ?? [])],
+    };
+
+    // An album lock on a piece protected that piece's files: it becomes a
+    // lock on each of those files (track scope by audio file id, which
+    // survives rescans), never a lock on the whole merged album.
+    for (const lock of sourceLocks) {
+      for (const audioFileId of filesBySource.get(lock.scopeId) ?? []) {
+        const [made] = await tx.insert(fieldLocks).values({
+          libraryId: input.libraryId,
+          scope: 'track',
+          scopeId: audioFileId,
+          field: lock.field,
+          value: lock.value,
+          reason: lock.reason ?? 'kept from an album merged by "Treat as one album"',
+          createdBy: lock.createdBy,
+        }).returning({ id: fieldLocks.id });
+        if (made) record.fileLockIds.push(made.id);
+      }
+    }
+    if (sourceLocks.length > 0) await tx.delete(fieldLocks).where(inArray(fieldLocks.id, sourceLocks.map((l) => l.id)));
+
     // Tracks move before the source albums go (deleting an album cascades to
     // its track rows). A moved track's link belonged to another album's match.
     if (sourceIds.length > 0) {
@@ -196,6 +339,7 @@ export async function mergeAlbums(
 
     await tx.update(localAlbums).set({
       clusterKey: `${MERGE_KEY_PREFIX}${originalKey}`,
+      mergedFrom: record,
       titleGuess,
       artistGuess,
       yearGuess,
@@ -216,9 +360,16 @@ export interface UnmergeResult {
   fileIds: string[];
   /** (scanRootId, rel dir) pairs to re-cluster */
   dirs: Array<{ scanRootId: string; dirPath: string }>;
+  /** albums recreated with their own ids */
+  restoredAlbumIds: string[];
 }
 
-/** Undo mergeAlbums: unpin the files and give the folders back to the clustering rules. */
+/**
+ * Undo mergeAlbums: unpin the files, recreate the merged albums as they were
+ * (id, key, identification, files, album locks), put the kept album's
+ * identification back to what it was before the merge, and hand the folders
+ * to the clustering rules to confirm.
+ */
 export async function unmergeAlbum(db: Db, input: { libraryId: string; albumId: string }): Promise<UnmergeResult> {
   return db.transaction(async (tx) => {
     const [album] = await tx.select().from(localAlbums)
@@ -227,6 +378,7 @@ export async function unmergeAlbum(db: Db, input: { libraryId: string; albumId: 
     if (!album) throw new MergeError(404, 'Album not found');
     const originalKey = mergedOriginalKey(album.clusterKey);
     if (!originalKey) throw new MergeError(409, 'This album was not merged from others');
+    const record = readRecord(album.mergedFrom);
 
     const files = await tx
       .select({ audioFileId: localTracks.audioFileId, relPath: audioFiles.relPath, scanRootId: audioFiles.scanRootId })
@@ -243,18 +395,73 @@ export async function unmergeAlbum(db: Db, input: { libraryId: string; albumId: 
     const dirs = [...new Map(all.map((f) => [`${f.scanRootId}\n${relDirname(f.relPath)}`, { scanRootId: f.scanRootId, dirPath: relDirname(f.relPath) }])).values()];
 
     await tx.delete(clusterOverrides).where(eq(clusterOverrides.localAlbumId, album.id));
-    // Back to the old key so the re-cluster of its own folder lands on this
-    // row (same id, same history). Should another album hold that key by now,
-    // this one gets a key nothing produces and is retired once it is empty.
-    const [taken] = await tx.select({ id: localAlbums.id }).from(localAlbums)
-      .where(and(eq(localAlbums.libraryId, input.libraryId), eq(localAlbums.clusterKey, originalKey)));
+    // The key goes first so a source that had the same key cannot collide.
+    const keyOwner = async (key: string) => (await tx.select({ id: localAlbums.id }).from(localAlbums)
+      .where(and(eq(localAlbums.libraryId, input.libraryId), eq(localAlbums.clusterKey, key))))[0];
+    await tx.update(localAlbums).set({ clusterKey: `unmerged:${album.id}` }).where(eq(localAlbums.id, album.id));
+
+    const present = new Set(fileIds);
+    for (const src of record?.sources ?? []) {
+      const moving = src.fileIds.filter((id) => present.has(id));
+      if (moving.length === 0) continue; // its files are gone; nothing to give back
+      const taken = await keyOwner(src.clusterKey);
+      await tx.insert(localAlbums).values({
+        id: src.id,
+        libraryId: input.libraryId,
+        // Should another album hold that key by now, this one gets a key
+        // nothing produces; the re-cluster then decides where its files go.
+        clusterKey: taken ? `unmerged:${src.id}` : src.clusterKey,
+        titleGuess: src.titleGuess,
+        artistGuess: src.artistGuess,
+        yearGuess: src.yearGuess,
+        preferred: src.preferred ?? false,
+        state: src.state,
+        releaseId: src.releaseId,
+        releaseGroupId: src.releaseGroupId,
+        identifyReason: src.identifyReason,
+        identifiedAt: src.identifiedAt ? new Date(src.identifiedAt) : null,
+        createdAt: new Date(src.createdAt),
+      }).onConflictDoNothing({ target: localAlbums.id });
+      await tx.update(localTracks)
+        .set({ localAlbumId: src.id, canonicalTrackId: null, state: 'unmatched' })
+        .where(and(eq(localTracks.localAlbumId, album.id), inArray(localTracks.audioFileId, moving)));
+      for (const l of src.locks) {
+        await tx.insert(fieldLocks).values({
+          libraryId: input.libraryId, scope: 'album', scopeId: src.id,
+          field: l.field, value: l.value, reason: l.reason, createdBy: l.createdBy, createdAt: new Date(l.createdAt),
+        });
+      }
+      await refreshAlbumCounters(tx as unknown as Db, src.id);
+    }
+    if (record && record.fileLockIds.length > 0) {
+      await tx.delete(fieldLocks).where(inArray(fieldLocks.id, record.fileLockIds));
+    }
+
+    // The kept album goes back to its own key and to the identification it
+    // had before the merge. Without a record (a merge from before 0029), a
+    // match can only belong to the merged whole, so identification restarts.
+    const taken = await keyOwner(originalKey);
+    const ident: IdentState = record?.target
+      ?? (album.state === 'matched'
+        ? { state: 'pending', releaseId: null, releaseGroupId: null, identifyReason: null, identifiedAt: null }
+        : identOf(album));
     await tx.update(localAlbums).set({
       clusterKey: taken ? `unmerged:${album.id}` : originalKey,
+      mergedFrom: null,
+      state: ident.state,
+      releaseId: ident.releaseId,
+      releaseGroupId: ident.releaseGroupId,
+      identifyReason: ident.identifyReason,
+      identifiedAt: ident.identifiedAt ? new Date(ident.identifiedAt) : null,
       tracksLinkedAt: null,
       updatedAt: new Date(),
     }).where(eq(localAlbums.id, album.id));
+    await tx.update(localTracks)
+      .set({ canonicalTrackId: null, state: 'unmatched' })
+      .where(eq(localTracks.localAlbumId, album.id));
+    await refreshAlbumCounters(tx as unknown as Db, album.id);
 
-    return { albumId: album.id, fileIds, dirs };
+    return { albumId: album.id, fileIds, dirs, restoredAlbumIds: (record?.sources ?? []).map((s) => s.id) };
   });
 }
 
@@ -286,6 +493,9 @@ export async function findMergeCandidates(db: Db, input: { libraryId: string; al
      where la.library_id = ${input.libraryId}
        and la.id <> ${album.id}
        and la.cluster_key not like 'split:%'
+       and la.cluster_key not like 'merge:%'
+       and not exists (select 1 from local_albums s
+                        where s.library_id = la.library_id and s.cluster_key like 'split:' || la.id::text || ':%')
        and lower(btrim(la.title_guess)) = lower(btrim(${album.titleGuess}))
        and (la.year_guess is null or ${album.yearGuess}::int is null or la.year_guess = ${album.yearGuess}::int)
        and (
@@ -304,7 +514,27 @@ export async function findMergeCandidates(db: Db, input: { libraryId: string; al
     id: string; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
     track_count: number | null; state: string; dir_paths: string[] | string | null;
   }>;
-  return rows.map((r) => ({
+  // Candidates must also fit one another: the merge refuses two albums that
+  // share a track number, so a second copy among them is left out (first
+  // come by folder order wins, the album itself always does).
+  const numbers = rows.length === 0 ? [] : (await db.execute(sql`
+    select local_album_id::text as id, coalesce(disc_no, 1) as disc, track_no as track
+      from local_tracks
+     where local_album_id = any(${pgUuidArray([album.id, ...rows.map((r) => r.id)])}::uuid[]) and track_no is not null`)) as unknown as Array<{ id: string; disc: number; track: number }>;
+  const byAlbum = new Map<string, string[]>();
+  for (const n of numbers) {
+    const list = byAlbum.get(n.id) ?? [];
+    list.push(`${n.disc}:${n.track}`);
+    byAlbum.set(n.id, list);
+  }
+  const taken = new Set(byAlbum.get(album.id) ?? []);
+  const fitting = rows.filter((r) => {
+    const mine = byAlbum.get(r.id) ?? [];
+    if (mine.some((k) => taken.has(k))) return false;
+    for (const k of mine) taken.add(k);
+    return true;
+  });
+  return fitting.map((r) => ({
     id: r.id,
     title: r.title_guess,
     artist: displayArtistName(r.artist_guess),

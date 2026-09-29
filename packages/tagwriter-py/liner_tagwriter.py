@@ -501,17 +501,24 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
     joined = False
 
     requested = {k: v for k, v in tags.items() if not k.startswith("__") and v is not None}
+    # Explicit removals (a revert restoring a tag that was absent before the
+    # plan wrote it). A None value alone never deletes: no policy blanks a tag
+    # because data is missing, so removal has to be asked for by name.
+    delete_raw = tags.get("__delete__") or []
+    deletes = {str(f) for f in delete_raw if isinstance(f, str) and f in TAG_MAPPING and f not in requested}
 
     # tracknumber/totaltracks and discnumber/totaldiscs share one native tag
     existing = read_tags(path)
     def pair(num_field: str, total_field: str) -> str | None:
-        if num_field not in requested and total_field not in requested:
+        if num_field not in requested and total_field not in requested and num_field not in deletes and total_field not in deletes:
             return None
-        n = requested.get(num_field, existing.get(num_field))
-        t = requested.get(total_field, existing.get(total_field))
+        n = None if num_field in deletes else requested.get(num_field, existing.get(num_field))
+        t = None if total_field in deletes else requested.get(total_field, existing.get(total_field))
         if n is None and t is None:
-            return None
-        return f"{n or ''}/{t}" if t else str(n)
+            return ""  # both gone: remove the native tag
+        if n is None:
+            return f"/{t}" if t else ""
+        return f"{n}/{t}" if t else str(n)
 
     native: dict[str, list[str]] = {}
     number_fields = ("tracknumber", "totaltracks", "discnumber", "totaldiscs")
@@ -535,10 +542,30 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
         native[name] = _values_for(field, value, separator, joined)
     trk = pair("tracknumber", "totaltracks") if family != "vorbis" else None
     dsc = pair("discnumber", "totaldiscs") if family != "vorbis" else None
+    # native tag names to remove outright
+    remove: set[str] = set()
+    def first_name(field: str) -> str:
+        n = TAG_MAPPING[field][key]
+        return n[0] if isinstance(n, list) else n
     if trk is not None:
-        native[TAG_MAPPING["tracknumber"][key] if not isinstance(TAG_MAPPING["tracknumber"][key], list) else TAG_MAPPING["tracknumber"][key][0]] = [trk]
+        if trk == "":
+            remove.add(first_name("tracknumber"))
+        else:
+            native[first_name("tracknumber")] = [trk]
     if dsc is not None:
-        native[TAG_MAPPING["discnumber"][key] if not isinstance(TAG_MAPPING["discnumber"][key], list) else TAG_MAPPING["discnumber"][key][0]] = [dsc]
+        if dsc == "":
+            remove.add(first_name("discnumber"))
+        else:
+            native[first_name("discnumber")] = [dsc]
+    for field in deletes:
+        if field in number_fields and family != "vorbis":
+            continue  # handled through the shared pair tag above
+        names = TAG_MAPPING[field].get(key)
+        if not names:
+            continue
+        for n in (names if isinstance(names, list) else [names]):
+            if n not in native:
+                remove.add(n)
 
     mapped_names = set()
     for field, mapping in TAG_MAPPING.items():
@@ -551,6 +578,8 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
         if getattr(audio, "tags", None) is None:
             audio.add_tags()
         id3 = audio.tags
+        for name in remove:
+            id3.delall(name)
         for name, vals in native.items():
             if name.startswith("TXXX:"):
                 desc = name[5:]
@@ -591,6 +620,9 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
         if getattr(audio, "tags", None) is None:
             audio.add_tags()
         vc = audio.tags
+        for name in remove:
+            if name.upper() in vc:
+                del vc[name.upper()]
         for name, vals in native.items():
             vc[name.upper()] = vals
         if strip_unknown:
@@ -605,6 +637,9 @@ def write_tags(path: str, tags: dict[str, Any], options: dict[str, Any]) -> None
         if getattr(audio, "tags", None) is None:
             audio.add_tags()
         mp4 = audio.tags
+        for name in remove:
+            if name in mp4:
+                del mp4[name]
         for name, vals in native.items():
             if name in ("trkn", "disk"):
                 n, t = _split_pair(vals[0])

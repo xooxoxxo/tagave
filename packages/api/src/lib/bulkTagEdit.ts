@@ -53,6 +53,12 @@ export interface BulkTagSuggestion {
   albumArtistOptions: string[];
   /** why the suggestion looks the way it does, one short line each */
   notes: string[];
+  /**
+   * true when the selection reads as one album (one album, or files that
+   * agree on the title): the editor may start with the album-level
+   * suggestion ticked. Otherwise it is offered, never pre-applied.
+   */
+  confident: boolean;
 }
 
 const counts = (values: Array<string | null | undefined>): ValueCount[] => {
@@ -118,7 +124,12 @@ export function suggestBulkValues(files: BulkFileTags[], albums: number): BulkTa
   const genreSets = counts(files.map((f) => (f.genre.length ? [...new Set(f.genre)].sort().join('\u0000') : null)));
   if (genreSets[0] && genreSets[0].files * 2 > files.length) suggested.genre = genreSets[0].value.split('\u0000');
 
-  if (albums > 1) notes.push(`${albums} albums are selected; album-level values apply to every file in all of them.`);
+  const confident = albums <= 1 || albumCounts.length <= 1;
+  if (albums > 1) {
+    notes.push(confident
+      ? `${albums} albums share this title; album-level values apply to every file in all of them.`
+      : `${albums} albums with ${albumCounts.length} different titles are selected; nothing is ticked for you. Use the suggestion only if they really are one album.`);
+  }
 
   const compYes = files.filter((f) => f.compilation).length;
   const rawAlbumArtists = counts(files.map((f) => f.albumartist));
@@ -146,6 +157,7 @@ export function suggestBulkValues(files: BulkFileTags[], albums: number): BulkTa
     suggested,
     albumArtistOptions: [...options].slice(0, 4),
     notes,
+    confident,
   };
 }
 
@@ -192,6 +204,36 @@ export async function albumIdsInFolder(db: Db, libraryId: string, dirPath: strin
       sql`${localTracks.localAlbumId} is not null`,
     ));
   return rows.map((r) => r.id).filter((id): id is string => !!id);
+}
+
+/**
+ * Tags of every present file in `dirPath` or below it (loose files too), and
+ * how many albums they belong to. A folder edit covers exactly these files.
+ */
+export async function filesInFolder(
+  db: Db, libraryId: string, dirPath: string, scanRootId?: string,
+): Promise<{ files: BulkFileTags[]; albumIds: string[] }> {
+  const dir = dirPath.replace(/\/+$/, '');
+  const rows = await db
+    .select({ audioFileId: audioFiles.id, tagsRaw: audioFiles.tagsRaw, trackNo: localTracks.trackNo, albumId: localTracks.localAlbumId })
+    .from(audioFiles)
+    .leftJoin(localTracks, eq(localTracks.audioFileId, audioFiles.id))
+    .where(and(
+      eq(audioFiles.libraryId, libraryId),
+      eq(audioFiles.status, 'present'),
+      scanRootId ? eq(audioFiles.scanRootId, scanRootId) : undefined,
+      like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+    ));
+  const seen = new Set<string>();
+  const albumIds = new Set<string>();
+  const files: BulkFileTags[] = [];
+  for (const r of rows) {
+    if (r.albumId) albumIds.add(r.albumId);
+    if (seen.has(r.audioFileId)) continue;
+    seen.add(r.audioFileId);
+    files.push(bulkTagsFrom(r.tagsRaw, r.trackNo ?? null));
+  }
+  return { files, albumIds: [...albumIds] };
 }
 
 /** The album ids a scope names, checked against the library; library/artist scopes are not bulk-editable. */

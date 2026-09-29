@@ -1604,6 +1604,6 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     await recluster(libraryId, result.dirs);
     bustFacetCache(libraryId);
     await markFacetsDirty(db, libraryId);
-    reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length });
+    reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length, restoredAlbumIds: result.restoredAlbumIds });
   });
 }

@@ -317,12 +317,15 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       // sole albumartist cluster rather than splintering.
       if (albumartists.size === 1) {
         assign([...albumartists][0] as string, files);
-      } else if (albumartists.size > 3 && files.every((f) => !f.tags.albumartist || !f.tags.artist
-        || normKey(f.tags.albumartist) === normKey(f.tags.artist))) {
+      } else if ((albumartists.size > 3 || new Set(files.map((f) => relDirname(f.relPath))).size === 1)
+        && files.every((f) => !f.tags.albumartist || !f.tags.artist
+          || normKey(f.tags.albumartist) === normKey(f.tags.artist))) {
         // Taggers that copy each track's artist into ALBUMARTIST make a
-        // compilation look like one album per artist. Many distinct album
-        // artists that are exactly the track artists is a compilation (same
-        // >3 rule as untagged VA below).
+        // compilation look like one album per artist. Distinct album artists
+        // that are exactly the track artists is a compilation: always when
+        // the files share one folder and one album title (a 2-3 artist split
+        // or compilation), and across folders from the same >3 rule as
+        // untagged VA below.
         assign('various artists', files, true);
       } else {
         for (const f of files) {
@@ -382,6 +385,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     // clustered concurrently — a select-then-insert let both jobs miss and
     // both insert, leaving two rows nothing could reconcile. state is set on
     // insert only; an existing album keeps whatever it reached.
+    await carryOverRekeyedAlbum(ctx, data.libraryId, ckey, g.files.map((f) => f.id));
+
     const ins = await ctx.db
       .insert(localAlbums)
       .values({ libraryId: data.libraryId, clusterKey: ckey, state: 'pending', ...albumValues })
@@ -443,6 +448,82 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     { scope, siblingDirs, groups: groups.size, loose: loose.length, pinned: pinned.size },
     'clustered directory',
   );
+}
+
+/**
+ * A rule change (numbered album artists, copied album artists) gives files a
+ * new cluster key. Without this the upsert would create a fresh 'pending'
+ * album and the superseded sweep would delete the old one in any state, its
+ * match, history and album locks with it (33 numbered albums on prod alone).
+ *
+ * When no album holds the new key yet and the group's files currently belong
+ * to albums that this group takes over completely (every file of theirs is
+ * in it, so the sweep would retire them), the best of them — matched first,
+ * then the most files — is re-keyed to the new key and the upsert lands on
+ * it: same id, same history. If the group is larger than what that album
+ * held, its match described fewer files, so identification starts over (the
+ * id and history stay). The other albums absorbed into the group hand their
+ * album locks to their files (track scope by audio file id) before the sweep
+ * removes them. Pinned albums (merged, split-off) never take part.
+ */
+export async function carryOverRekeyedAlbum(
+  ctx: Pick<WorkerContext, 'sql' | 'logger'>,
+  libraryId: string,
+  newKey: string,
+  fileIds: string[],
+): Promise<void> {
+  if (fileIds.length === 0) return;
+  const existing = await ctx.sql`
+    select 1 from local_albums where library_id = ${libraryId} and cluster_key = ${newKey} limit 1`;
+  if (existing.length > 0) return;
+
+  // Albums holding these files now, with how many of their files are in the
+  // group and how many they hold in all.
+  const owners = (await ctx.sql`
+    select la.id::text as id, la.state, la.cluster_key as "clusterKey",
+           count(distinct lt.audio_file_id) filter (where lt.audio_file_id = any(${fileIds}::uuid[]))::int as inside,
+           count(distinct lt.audio_file_id)::int as total
+      from local_albums la
+      join local_tracks lt on lt.local_album_id = la.id
+     where la.library_id = ${libraryId}
+       and la.cluster_key not like 'split:%'
+       and la.cluster_key not like 'merge:%'
+       and la.id in (select local_album_id from local_tracks where audio_file_id = any(${fileIds}::uuid[]) and local_album_id is not null)
+     group by la.id`) as unknown as Array<{ id: string; state: string; clusterKey: string; inside: number; total: number }>;
+  const absorbed = owners.filter((o) => o.inside === o.total && o.clusterKey !== newKey);
+  if (absorbed.length === 0) return;
+  const keep = [...absorbed].sort((a, b) =>
+    Number(b.state === 'matched') - Number(a.state === 'matched') || b.inside - a.inside)[0]!;
+  const grows = fileIds.length > keep.total;
+
+  try {
+    await ctx.sql`
+      update local_albums set
+        cluster_key = ${newKey},
+        ${grows && keep.state === 'matched'
+          ? ctx.sql`state = 'pending', release_id = null, release_group_id = null, identify_reason = null, tracks_linked_at = null,`
+          : ctx.sql``}
+        updated_at = now()
+      where id = ${keep.id}
+        and not exists (select 1 from local_albums o where o.library_id = ${libraryId} and o.cluster_key = ${newKey})`;
+  } catch (err) {
+    // a concurrent job took the key first; its row is the album now
+    if ((err as { code?: string }).code !== '23505') throw err;
+    return;
+  }
+
+  for (const other of absorbed) {
+    if (other.id === keep.id) continue;
+    await ctx.sql`
+      insert into field_locks (library_id, scope, scope_id, field, value, reason, created_by, created_at)
+      select fl.library_id, 'track', lt.audio_file_id, fl.field, fl.value,
+             coalesce(fl.reason, 'kept from an album that regrouped into another'), fl.created_by, fl.created_at
+        from field_locks fl
+        join (select distinct audio_file_id from local_tracks where local_album_id = ${other.id}) lt on true
+       where fl.scope = 'album' and fl.scope_id = ${other.id}`;
+    await ctx.sql`delete from field_locks where scope = 'album' and scope_id = ${other.id}`;
+  }
+  ctx.logger.info({ albumId: keep.id, from: keep.clusterKey, absorbed: absorbed.length, grows }, 'album re-keyed by a clustering rule change; id and history kept');
 }
 
 /**

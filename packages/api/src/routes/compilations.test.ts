@@ -138,7 +138,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
     expect((await post(`/libraries/${libraryId}/tag-edit/suggest`, { scope: { type: 'albumIds', albumIds: pieces } }, strangerId)).statusCode).toBe(404);
   });
 
-  it('creates a manual plan; a folder scope resolves to its albums', async () => {
+  it('creates a manual plan; a folder plan keeps the folder (its files, not whole albums)', async () => {
     const res = await post(`/libraries/${libraryId}/tag-plans`, {
       name: 'Hotel Costes', scope: { type: 'albumIds', albumIds: pieces }, policy: manual({ albumartist: 'Various Artists', compilation: '1' }),
     });
@@ -149,7 +149,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
       name: 'Folder', scope: { type: 'folder', dirPath: '#/' }, policy: manual({ genre: ['Lounge'] }),
     });
     expect(byFolder.statusCode).toBe(201);
-    expect([...byFolder.json().scope.albumIds].sort()).toEqual([...pieces].sort());
+    expect(byFolder.json().scope).toEqual({ type: 'folder', dirPath: '#/' });
   });
 
   it('refuses manual plans without values, values under another preset, and foreign albums', async () => {
@@ -160,6 +160,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
     expect((await post(url, { name: 'x', scope, policy: manual({ date: 'last year' }) })).statusCode).toBe(400);
     expect((await post(url, { name: 'x', scope: { type: 'albumIds', albumIds: [pieces[0], foreignAlbum] }, policy: manual({ album: 'A' }) })).statusCode).toBe(400);
     expect((await post(url, { name: 'x', scope: { type: 'folder', dirPath: 'Nowhere' }, policy: manual({ album: 'A' }) })).statusCode).toBe(400);
+    // revert plans only come from the journal of an applied plan
+    expect((await post(url, { name: 'x', scope, policy: { preset: 'revert', id3Version: '2.4', multiValueSeparator: '; ' } })).statusCode).toBe(400);
   });
 
   it('the album page offers the other pieces, and treating them as one keeps the page', async () => {

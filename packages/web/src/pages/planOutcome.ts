@@ -24,7 +24,12 @@ export interface PreviewOutcome {
   /** field changes blocked by locks, over all files */
   lockedChanges: number;
   alreadyCorrect: number | null;
-  /** at least one reason can be named */
+  /**
+   * there is something to tell: when the plan changes nothing, any named
+   * reason; when it does change files, only files it leaves out (skipped, or
+   * changing only in locked fields). Files already correct are not "left
+   * out" and are not worth a notice next to real changes.
+   */
   explained: boolean;
 }
 
@@ -70,8 +75,9 @@ export function explainPreview(stats: Partial<TagPlanStats> | undefined | null):
   const lockedOnly = stats.filesLockedOnly ?? 0;
   const lockedChanges = stats.lockedFieldsRespected ?? 0;
   const alreadyCorrect = stats.filesAlreadyCorrect ?? null;
+  const nothing = (stats.filesTouched ?? 0) === 0;
   return {
-    nothing: (stats.filesTouched ?? 0) === 0,
+    nothing,
     filesInScope: stats.filesInScope ?? null,
     notIdentified: { files: notIdentified, albumIds: [...notIdentifiedAlbums] },
     releaseMissing: { files: releaseMissing, albumIds: [...releaseMissingAlbums] },
@@ -81,7 +87,9 @@ export function explainPreview(stats: Partial<TagPlanStats> | undefined | null):
     lockedOnly,
     lockedChanges,
     alreadyCorrect,
-    explained: skipped.length > 0 || lockedOnly > 0 || lockedChanges > 0 || (alreadyCorrect ?? 0) > 0,
+    explained: nothing
+      ? skipped.length > 0 || lockedOnly > 0 || lockedChanges > 0 || (alreadyCorrect ?? 0) > 0
+      : skipped.length > 0 || lockedOnly > 0,
   };
 }
 

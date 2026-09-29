@@ -354,10 +354,10 @@ export function AlbumDetailPage() {
   const editScopes: EditScopeOption[] = [
     { key: 'album', label: `This album (${album.trackCount ?? 0} track${album.trackCount === 1 ? '' : 's'})`, scope: { type: 'albumIds', albumIds: [album.id] } },
     ...(album.dirPaths?.length === 1 && album.dirPaths[0]
-      ? [{ key: 'folder', label: `Everything in ${album.dirPaths[0]}`, scope: { type: 'folder' as const, dirPath: album.dirPaths[0] } }]
+      ? [{ key: 'folder', label: `Every file in ${album.dirPaths[0]} (whichever album it is in)`, scope: { type: 'folder' as const, dirPath: album.dirPaths[0] } }]
       : []),
     ...(album.dirPaths?.length === 1 && parentOf(album.dirPaths[0] ?? '')
-      ? [{ key: 'parent', label: `Everything in ${parentOf(album.dirPaths[0]!)}`, scope: { type: 'folder' as const, dirPath: parentOf(album.dirPaths[0]!) } }]
+      ? [{ key: 'parent', label: `Every file in ${parentOf(album.dirPaths[0]!)} and its subfolders`, scope: { type: 'folder' as const, dirPath: parentOf(album.dirPaths[0]!) } }]
       : []),
   ];
 

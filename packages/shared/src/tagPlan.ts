@@ -23,7 +23,7 @@ export const tagPlanScopeSchema = z.discriminatedUnion('type', [
     filterQuery: z.record(z.any()).describe('Filter query object (same shape as GET /albums query)'),
   }).strict(),
   z.object({
-    type: z.literal('folder').describe('Apply to every album with files in a folder (and its subfolders)'),
+    type: z.literal('folder').describe('Apply to every file in a folder and its subfolders, whichever album it belongs to'),
     dirPath: z.string().min(1).describe('Folder relative to its scan root, as album dir_paths show it'),
     scanRootId: z.string().uuid().optional().describe('Scan root holding the folder; any root when omitted'),
   }).strict(),
@@ -41,7 +41,8 @@ export const tagPolicyPresetSchema = z.enum([
   'overwrite_all',
   'custom',
   'manual',
-]).describe('Policy preset name; manual writes the values the owner typed (policy.values), identified or not');
+  'revert',
+]).describe('Policy preset name; manual writes the values the owner typed (policy.values), identified or not; revert is built from the journal of an applied plan and restores its before-values');
 
 export type TagPolicyPreset = z.infer<typeof tagPolicyPresetSchema>;
 
@@ -88,6 +89,7 @@ export const tagPoliciesSchema = z.object({
   multiValueSeparator: z.string().default('; ').describe('Separator for multi-value fields in ID3v2.3 (default "; ")'),
   overrides: z.record(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
   values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
+  revertOf: z.string().uuid().optional().describe('Revert preset only: the plan whose writes this plan undoes'),
 }).strict().describe('Write policy: preset + per-field overrides');
 
 export type TagPolicies = z.infer<typeof tagPoliciesSchema>;
@@ -101,7 +103,7 @@ export const tagDiffEntrySchema = z.object({
   field: canonicalFieldSchema.describe('Canonical field name'),
   before: z.union([z.string(), z.array(z.string()), z.null()]).describe('Current value (null if not set)'),
   after: z.union([z.string(), z.array(z.string()), z.null()]).describe('New value (null if will not be set)'),
-  reason: z.enum(['policy:overwrite', 'policy:fill', 'locked', 'no-change']).describe('Why this change (or lack thereof)'),
+  reason: z.enum(['policy:overwrite', 'policy:fill', 'locked', 'no-change', 'revert']).describe('Why this change (or lack thereof); revert restores the journalled before-value, and a null after removes the tag'),
 }).strict().describe('Per-file diff for one field');
 
 export type TagDiffEntry = z.infer<typeof tagDiffEntrySchema>;

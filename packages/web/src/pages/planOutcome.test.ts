@@ -36,6 +36,19 @@ describe('explainPreview', () => {
     expect(o).toMatchObject({ nothing: true, alreadyCorrect: 5, lockedOnly: 1, lockedChanges: 2, explained: true });
   });
 
+  it('a plan with changes says nothing about files that are already correct', () => {
+    const o = explainPreview({ filesTouched: 12, fieldsModified: 30, lockedFieldsRespected: 0, filesSkipped: [], filesAlreadyCorrect: 40, filesLockedOnly: 0 })!;
+    expect(o.nothing).toBe(false);
+    expect(o.explained).toBe(false);
+  });
+
+  it('a plan with changes still names the files it leaves out', () => {
+    const skippedOne = explainPreview({ filesTouched: 3, fieldsModified: 3, lockedFieldsRespected: 0, filesAlreadyCorrect: 9, filesSkipped: [{ audioFileId: f(1), reason: 'album_not_identified', localAlbumId: a1 }] })!;
+    expect(skippedOne.explained).toBe(true);
+    const lockedOne = explainPreview({ filesTouched: 3, fieldsModified: 3, lockedFieldsRespected: 1, filesAlreadyCorrect: 0, filesLockedOnly: 1, filesSkipped: [] })!;
+    expect(lockedOne.explained).toBe(true);
+  });
+
   it('an old plan with no detail explains nothing', () => {
     const o = explainPreview({ filesTouched: 0, fieldsModified: 0, lockedFieldsRespected: 0, filesSkipped: [] })!;
     expect(o.explained).toBe(false);

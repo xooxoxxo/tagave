@@ -31,6 +31,22 @@ describe('artist names', () => {
 });
 
 describe('suggestBulkValues', () => {
+  it('is confident only when the selection reads as one album', () => {
+    const pieces = [
+      file({ album: 'Hotel Costes Vol. 11', artist: 'A', trackNo: 1 }),
+      file({ album: 'Hotel Costes Vol. 11', artist: 'B', trackNo: 2 }),
+    ];
+    expect(suggestBulkValues(pieces, 2).confident).toBe(true);
+    const unrelated = [
+      file({ album: 'Kid A', albumartist: 'Radiohead', artist: 'Radiohead' }),
+      file({ album: 'Mezzanine', albumartist: 'Massive Attack', artist: 'Massive Attack' }),
+    ];
+    const s = suggestBulkValues(unrelated, 2);
+    expect(s.confident).toBe(false);
+    expect(s.notes.join(' ')).toMatch(/nothing is ticked/);
+    expect(suggestBulkValues(unrelated.slice(0, 1), 1).confident).toBe(true);
+  });
+
   it('Hotel Costes: stripped album artist, shared title and year, a compilation', () => {
     const files = [
       file({ albumartist: '01. Stephane Pompougnac', artist: 'Lena Horne', album: 'Hotel Costes Vol. 11', date: '2008', trackNo: 1 }),

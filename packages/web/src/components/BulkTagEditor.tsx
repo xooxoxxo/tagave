@@ -40,12 +40,25 @@ const LABEL: Record<TextField, string> = {
 const allAlready = (current: ValueCount[], files: number, value: string | undefined) =>
   value !== undefined && current.length === 1 && current[0]!.value === value && current[0]!.files === files;
 
-export function formFromSuggestion(s: TagEditSuggestion): Form {
+/**
+ * The selection reads as one album: one album (a merged one included), or
+ * files that already agree on the title. Only then does the editor start
+ * with the album-level suggestion ticked; several unrelated albums (a grid
+ * selection to set a genre, a whole discography folder) start with nothing
+ * ticked, and the suggestion is one click away instead.
+ */
+export function selectionIsOneAlbum(s: TagEditSuggestion): boolean {
+  if (typeof s.confident === 'boolean') return s.confident;
+  return s.albums <= 1 || (s.distinct?.album ?? s.current.album.length) <= 1;
+}
+
+export function formFromSuggestion(s: TagEditSuggestion, opts: { applySuggestion?: boolean } = {}): Form {
   const sug = s.suggested;
+  const tick = opts.applySuggestion ?? selectionIsOneAlbum(s);
   const genre = sug.genre?.join('; ') ?? '';
   const field = (name: 'albumartist' | 'album' | 'date', current: ValueCount[]): FieldState => ({
     value: sug[name] ?? current[0]?.value ?? '',
-    on: sug[name] !== undefined && !allAlready(current, s.files, sug[name]),
+    on: tick && sug[name] !== undefined && !allAlready(current, s.files, sug[name]),
   });
   return {
     albumartist: field('albumartist', s.current.albumartist),
@@ -53,8 +66,18 @@ export function formFromSuggestion(s: TagEditSuggestion): Form {
     date: field('date', s.current.date),
     genre: { value: genre, on: false },
     artist: { value: s.current.artist[0]?.value ?? '', on: false },
-    compilation: sug.compilation === '1' && s.current.compilation.yes < s.files ? '1' : 'leave',
+    compilation: tick && sug.compilation === '1' && s.current.compilation.yes < s.files ? '1' : 'leave',
   };
+}
+
+/** "album artist Various Artists, album “Hotel Costes Vol. 11”, compilation" */
+function suggestionSummary(s: TagEditSuggestion): string | null {
+  const parts: string[] = [];
+  if (s.suggested.albumartist) parts.push(`album artist ${s.suggested.albumartist}`);
+  if (s.suggested.album) parts.push(`album “${s.suggested.album}”`);
+  if (s.suggested.date) parts.push(`year ${s.suggested.date}`);
+  if (s.suggested.compilation === '1') parts.push('compilation');
+  return parts.length ? parts.join(', ') : null;
 }
 
 /** The manual values a form asks for; throws a readable message for a bad date. */
@@ -124,6 +147,8 @@ export function BulkTagEditor({
   }, [suggestion.data]);
 
   const s = suggestion.data;
+  const oneAlbum = s ? selectionIsOneAlbum(s) : true;
+  const offer = s && !oneAlbum ? suggestionSummary(s) : null;
   const values = useMemo(() => {
     if (!form) return null;
     try { return valuesFromForm(form); } catch { return null; }
@@ -140,9 +165,11 @@ export function BulkTagEditor({
     try { v = valuesFromForm(form); } catch (e) { setError((e as Error).message); return; }
     if (Object.keys(v).length === 0) { setError('Tick at least one field to change.'); return; }
     try {
+      // A folder edit covers exactly the files in the folder, so the plan
+      // keeps the folder as its scope; a selection of albums keeps the ids.
       const plan = await createPlan.mutateAsync({
         name: `Set values: ${v.album ?? s.current.album[0]?.value ?? chosen.label}`,
-        scope: { type: 'albumIds', albumIds: s.albumIds },
+        scope: chosen.scope.type === 'folder' ? chosen.scope : { type: 'albumIds', albumIds: s.albumIds },
         policy: { preset: 'manual', id3Version: '2.4', multiValueSeparator: '; ', values: v },
       });
       onClose();
@@ -211,6 +238,14 @@ export function BulkTagEditor({
               <ul className={styles.notes}>
                 {s.notes.map((n) => <li key={n}>{n}</li>)}
               </ul>
+            )}
+            {offer && (
+              <div className={styles.offer}>
+                <span>Suggested if these are one album: {offer}.</span>
+                <Button variant="secondary" size="sm" onClick={() => setForm(formFromSuggestion(s, { applySuggestion: true }))}>
+                  Use the suggestion
+                </Button>
+              </div>
             )}
             {row('albumartist', s.albumArtistOptions.length > 0 && (
               <span className={styles.options}>

@@ -18,7 +18,7 @@ export function tagSettingsOf(settings: unknown): { tagWritesEnabled: boolean; t
   return {
     // only an explicit true opens the gate; the worker applies the same test per file
     tagWritesEnabled: s['tagWritesEnabled'] === true,
-    // the manual preset only makes sense with typed values, never as a default
-    tagPolicy: parsed.success && parsed.data.preset !== 'manual' ? parsed.data : { ...DEFAULT_TAG_POLICY },
+    // manual needs typed values and revert a journal; neither is a default
+    tagPolicy: parsed.success && parsed.data.preset !== 'manual' && parsed.data.preset !== 'revert' ? parsed.data : { ...DEFAULT_TAG_POLICY },
   };
 }

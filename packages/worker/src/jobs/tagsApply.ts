@@ -46,6 +46,28 @@ function reconstructAfterTags(
 }
 
 /**
+ * What the sidecar is asked to write for one item: the fields a policy
+ * changed, and the journalled before-values a revert restores. A revert
+ * whose before-value was absent removes the tag (named in __delete__); no
+ * other diff ever removes one, so missing data never blanks a tag.
+ */
+export function fieldsToWriteFrom(diffs: TagDiffEntry[]): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  const deletes: string[] = [];
+  for (const d of diffs) {
+    if (d.reason === 'policy:fill' || d.reason === 'policy:overwrite') {
+      if (d.after !== null) out[d.field] = d.after;
+    } else if (d.reason === 'revert') {
+      const blank = d.after === null || (typeof d.after === 'string' && d.after === '') || (Array.isArray(d.after) && d.after.length === 0);
+      if (blank) deletes.push(d.field);
+      else out[d.field] = d.after as string | string[];
+    }
+  }
+  if (deletes.length > 0) out['__delete__'] = deletes;
+  return out;
+}
+
+/**
  * Apply a tag plan: write tags to files in pending status, update journal,
  * pause on hash mismatch, continue on other errors.
  */
@@ -204,11 +226,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
           // The journal keeps the complete after-tag set; the file gets only
           // the fields the policy changed (a lock or no-change row is not a write).
           const afterTags = reconstructAfterTags(beforeTags, diffs);
-          const fieldsToWrite = Object.fromEntries(
-            (diffs as TagDiffEntry[])
-              .filter((d) => d.reason === 'policy:fill' || d.reason === 'policy:overwrite')
-              .map((d) => [d.field, d.after]),
-          );
+          const fieldsToWrite = fieldsToWriteFrom(diffs as TagDiffEntry[]);
 
           // CRITICAL: Re-check gates immediately before writing (finding 3: per-item gate verification)
           // Check 1: scan root writable
@@ -433,6 +451,14 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
         .update(tagPlans)
         .set({ status, appliedAt: new Date() })
         .where(eq(tagPlans.id, planId));
+      // A fully applied revert plan marks the plan it undid as reverted.
+      const revertOf = (plan.policy as { preset?: string; revertOf?: string } | null);
+      if (status === 'applied' && revertOf?.preset === 'revert' && revertOf.revertOf) {
+        await db
+          .update(tagPlans)
+          .set({ status: 'reverted' })
+          .where(and(eq(tagPlans.id, revertOf.revertOf), inArray(tagPlans.status, ['applied', 'partially_failed', 'cancelled'])));
+      }
 
       logger.info({ planId, failed: failed.length }, `Tag apply: finished (${status})`);
     } else {

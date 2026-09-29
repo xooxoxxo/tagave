@@ -162,7 +162,7 @@ export const patchLibrarySettingsSchema = z.object({
   onboardingCompletedAt: z.string().datetime().nullable().optional().describe('ISO 8601 timestamp when onboarding was completed'),
   genreMap: genreMapSchema.optional().describe('Genre canonicalisation configuration'),
   lintRules: lintRulesSchema.optional().describe('Lint rule toggles (TAG-6)'),
-  tagPolicy: tagPoliciesSchema.refine((p) => p.preset !== 'manual' && !p.values, { message: 'The manual preset is for one-off edits, not a library default' }).optional().describe('Tag write policy (preset + per-field overrides)'),
+  tagPolicy: tagPoliciesSchema.refine((p) => p.preset !== 'manual' && p.preset !== 'revert' && !p.values && !p.revertOf, { message: 'The manual and revert presets are for one-off plans, not a library default' }).optional().describe('Tag write policy (preset + per-field overrides)'),
   tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
   discographyRefreshEnabled: z.boolean().optional().describe('Whether weekly discography refreshes are enabled (XO-301)'),
   followRules: followRulesSchema.optional().describe('Rules for following artists and filtering release groups (XO-301)'),

@@ -19,7 +19,7 @@
  *   blanks a tag because the provider had no data;
  * - arrays compare as sets (genre order or a duplicate is not a change).
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import {
   audioFiles,
   fieldLocks,
@@ -126,12 +126,27 @@ export function decideField(
   return { after: canonical, reason: 'policy:overwrite' };
 }
 
+const likeEscape = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+
 /** Audio file ids in scope; only present files, and (for albums) only tracks of those albums. */
 async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
   const db = ctx.db;
   if (scope.type === 'library') {
     const files = await db.select({ id: audioFiles.id }).from(audioFiles)
       .where(and(eq(audioFiles.libraryId, libraryId), eq(audioFiles.status, 'present')));
+    return files.map((f) => f.id);
+  }
+  if (scope.type === 'folder') {
+    // Exactly the files under the folder, loose files included and files of
+    // the same albums that live elsewhere left out.
+    const dir = scope.dirPath.replace(/\/+$/, '');
+    const files = await db.select({ id: audioFiles.id }).from(audioFiles)
+      .where(and(
+        eq(audioFiles.libraryId, libraryId),
+        eq(audioFiles.status, 'present'),
+        scope.scanRootId ? eq(audioFiles.scanRootId, scope.scanRootId) : undefined,
+        like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+      ));
     return files.map((f) => f.id);
   }
   let albumIds: string[] = [];
@@ -247,6 +262,16 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   const libraryId = plan.libraryId;
   const scope = plan.scope as TagPlanScope;
   const policy = plan.policy as TagPolicies;
+
+  // A revert plan's items come from the journal of the plan it undoes; a
+  // preview has nothing to recompute and must not replace them (a canonical
+  // re-preview skipped every unidentified file and left the revert empty).
+  if (policy.preset === 'revert') {
+    await db.update(tagPlans).set({ status: 'previewed' })
+      .where(and(eq(tagPlans.id, planId), eq(tagPlans.status, 'draft')));
+    await progress.done(0);
+    return;
+  }
 
   // One row per (plan, file): drop the previous preview's pending rows first.
   await db.delete(tagPlanItems).where(and(eq(tagPlanItems.tagPlanId, planId), inArray(tagPlanItems.status, ['pending', 'applying'])));

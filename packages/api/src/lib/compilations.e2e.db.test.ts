@@ -21,9 +21,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
+  audioFiles, clusterOverrides, fieldLocks, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@liner/db';
-import { findMergeCandidates, mergeAlbums, unmergeAlbum, isMergedKey } from './mergeAlbums.js';
+import { findMergeCandidates, mergeAlbums, unmergeAlbum, isMergedKey, MergeError } from './mergeAlbums.js';
 import { filesOfAlbums, suggestBulkValues } from './bulkTagEdit.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -88,6 +88,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
       (await db.select({ id: tagPlans.id }).from(tagPlans).where(eq(tagPlans.libraryId, libraryId))).map((p: any) => p.id).concat([randomUUID()])));
     await db.delete(tagPlans).where(eq(tagPlans.libraryId, libraryId));
     await db.delete(clusterOverrides).where(eq(clusterOverrides.libraryId, libraryId));
+    await db.delete(fieldLocks).where(eq(fieldLocks.libraryId, libraryId));
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId)); // cascades files and their tracks
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
@@ -115,7 +116,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     expect(candidates.map((c) => c.id).sort()).toEqual(pieces.filter((a: any) => a.id !== targetId).map((a: any) => a.id).sort());
   });
 
+  it('refuses to merge copies of the same tracks (the full copy overlaps every piece)', async () => {
+    const va = (await albumsNow()).find((a: any) => a.titleGuess === 'Hotel Costes 11 By Stephane Pompougnac');
+    const err = await mergeAlbums(db, { libraryId, albumIds: [targetId, va.id], userId }).catch((e) => e);
+    expect(err).toBeInstanceOf(MergeError);
+    expect(err.status).toBe(409);
+    expect(err.message).toMatch(/both have track 2/);
+    expect((await albumsNow()).find((a: any) => a.id === va.id)).toBeDefined();
+  });
+
+  let lockedPiece: any;
+  let lockedFileId: string;
+
   it('treats the pieces as one album without moving a file, and a rescan keeps it', async () => {
+    // An owner lock on one piece: after the merge it must still protect that file.
+    lockedPiece = pieces.find((a: any) => a.dirPaths[0] === dirOf(0));
+    const [t] = await db.select({ audioFileId: localTracks.audioFileId }).from(localTracks).where(eq(localTracks.localAlbumId, lockedPiece.id));
+    lockedFileId = t.audioFileId;
+    await db.insert(fieldLocks).values({ libraryId, scope: 'album', scopeId: lockedPiece.id, field: 'albumartist', value: '01. Stephane Pompougnac', createdBy: userId });
+
     const r = await mergeAlbums(db, { libraryId, albumIds: pieces.map((a: any) => a.id), userId, targetId });
     expect(r.albumId).toBe(targetId);
     expect(r.mergedAlbumIds).toHaveLength(3);
@@ -137,6 +156,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     await check();
     await clusterAll(); // every folder rescanned
     await check();
+
+    // the piece's album lock became a lock on its file; nothing points at the removed album
+    const locks = await db.select().from(fieldLocks).where(eq(fieldLocks.libraryId, libraryId));
+    expect(locks.map((l: any) => ({ scope: l.scope, scopeId: l.scopeId, field: l.field }))).toEqual([
+      { scope: 'track', scopeId: lockedFileId, field: 'albumartist' },
+    ]);
   });
 
   it('suggests album-level values: the stripped album artist, the title, the year, a compilation', async () => {
@@ -159,24 +184,71 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     await tagsPreviewJob(ctx, planId);
     const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
     expect(plan.status).toBe('previewed');
-    expect(plan.stats).toMatchObject({ filesTouched: 4, fieldsModified: 8, filesSkipped: [] });
+    // the locked piece keeps its album artist: 4 files, 7 changes, 1 kept back
+    expect(plan.stats).toMatchObject({ filesTouched: 4, fieldsModified: 7, lockedFieldsRespected: 1, filesSkipped: [] });
     const items = await db.select().from(tagPlanItems).where(eq(tagPlanItems.tagPlanId, planId));
     expect(items).toHaveLength(4);
     for (const item of items) {
       const fields = (item.diff as any[]).map((d) => d.field).sort();
+      if (item.audioFileId === lockedFileId) {
+        expect(fields).toEqual(['compilation']);
+        continue;
+      }
       expect(fields).toEqual(['albumartist', 'compilation']);
       expect((item.diff as any[]).find((d) => d.field === 'albumartist').before).toMatch(/^0\d\. Stephane Pompougnac$/);
     }
   });
 
-  it('splits back into the pieces; the kept album keeps its id', async () => {
+  it('a folder plan covers exactly the files in the folder, not the rest of the merged album', async () => {
+    const planId = randomUUID();
+    await db.insert(tagPlans).values({
+      id: planId, libraryId, name: 'One folder', scope: { type: 'folder', dirPath: dirOf(2) },
+      policy: { preset: 'manual', id3Version: '2.4', multiValueSeparator: '; ', values: { genre: ['Lounge'] } },
+      status: 'draft', stats: {}, createdBy: userId,
+    });
+    await tagsPreviewJob(ctx, planId);
+    const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
+    expect(plan.stats).toMatchObject({ filesInScope: 1, filesTouched: 1, fieldsModified: 1 });
+    const items = await db.select({ relPath: audioFiles.relPath }).from(tagPlanItems)
+      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId)).where(eq(tagPlanItems.tagPlanId, planId));
+    expect(items.map((i: any) => i.relPath)).toEqual([`${dirOf(2)}/03 - Boa Sorte.mp3`]);
+  });
+
+  it('splits back into the pieces, as they were, even after the merged album was identified', async () => {
+    // identification matched the merged whole to the full release; that
+    // match cannot describe the one file the kept album holds afterwards
+    await db.update(localAlbums).set({ state: 'matched', releaseId: randomUUID(), releaseGroupId: randomUUID(), identifyReason: null })
+      .where(eq(localAlbums.id, targetId));
+
     const r = await unmergeAlbum(db, { libraryId, albumId: targetId });
+    expect(r.restoredAlbumIds.sort()).toEqual(pieces.filter((a: any) => a.id !== targetId).map((a: any) => a.id).sort());
     expect([...r.dirs.map((d) => d.dirPath)].sort()).toEqual([...dirs].sort());
     expect(await db.select().from(clusterOverrides).where(eq(clusterOverrides.libraryId, libraryId))).toHaveLength(0);
     for (const d of r.dirs) await clusterDirJob(ctx, { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath });
     const hc = (await albumsNow()).filter((a: any) => a.titleGuess === 'Hotel Costes Vol. 11');
     expect(hc).toHaveLength(4);
-    expect(hc.map((a: any) => a.id)).toContain(targetId);
+    // every piece is back under its own id, not a fresh one
+    expect(hc.map((a: any) => a.id).sort()).toEqual(pieces.map((a: any) => a.id).sort());
     expect(hc.every((a: any) => a.trackCount === 1 && !isMergedKey(a.clusterKey))).toBe(true);
+    const kept = hc.find((a: any) => a.id === targetId);
+    expect(kept).toMatchObject({ state: 'pending', releaseId: null, releaseGroupId: null, mergedFrom: null });
+    // the lock is an album lock on its piece again
+    const locks = await db.select().from(fieldLocks).where(eq(fieldLocks.libraryId, libraryId));
+    expect(locks.map((l: any) => ({ scope: l.scope, scopeId: l.scopeId, field: l.field }))).toEqual([
+      { scope: 'album', scopeId: lockedPiece.id, field: 'albumartist' },
+    ]);
+  });
+
+  it('refuses to merge away an album that has a split-off copy', async () => {
+    const [a, b] = (await albumsNow()).filter((x: any) => x.titleGuess === 'Hotel Costes Vol. 11');
+    const splitId = randomUUID();
+    await db.insert(localAlbums).values({ id: splitId, libraryId, clusterKey: `split:${b.id}:lossy`, titleGuess: 'Hotel Costes Vol. 11', state: 'pending' });
+    try {
+      const err = await mergeAlbums(db, { libraryId, albumIds: [a.id, b.id], userId, targetId: a.id }).catch((e) => e);
+      expect(err).toBeInstanceOf(MergeError);
+      expect(err.message).toMatch(/split off/);
+    } finally {
+      await db.delete(localAlbums).where(eq(localAlbums.id, splitId));
+    }
   });
 });

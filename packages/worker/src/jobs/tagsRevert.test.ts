@@ -169,7 +169,9 @@ describe('tagsRevert job', () => {
 
     const revertPlan = revertPlans.find((p: any) => p.name.startsWith('Revert'));
     expect(revertPlan).toBeDefined();
-    expect(revertPlan?.status).toBe('draft');
+    // born previewed: the journal is the diff, nothing to recompute
+    expect(revertPlan?.status).toBe('previewed');
+    expect(revertPlan?.stats).toMatchObject({ filesTouched: 1, fieldsModified: 3, filesSkipped: [] });
 
     // Verify revert items were created
     const revertItems = await dbClient
@@ -199,10 +201,21 @@ describe('tagsRevert job', () => {
       ? JSON.parse(revertPlan.policy)
       : revertPlan.policy;
 
-    expect(policy.preset).toBe('custom');
-    expect(policy.overrides.title).toBe('overwrite');
-    expect(policy.overrides.artist).toBe('overwrite');
-    expect(policy.overrides.album).toBe('overwrite');
+    expect(policy.preset).toBe('revert');
+    expect(policy.revertOf).toBe(planId);
+  });
+
+  it('a tag that was absent before comes back as a removal, and equal arrays are not a change', async () => {
+    const { revertDiffsFor } = await import('./tagsRevert.js');
+    const diffs = revertDiffsFor(
+      { album: 'Hotel Costes Vol. 11', albumartist: '02. Stephane Pompougnac', compilation: null, genre: ['Lounge', 'Downtempo'] },
+      { album: 'Hotel Costes Vol. 11', albumartist: 'Various Artists', compilation: '1', genre: ['Downtempo', 'Lounge'], title: 'x' },
+    );
+    expect(diffs).toEqual([
+      { field: 'albumartist', before: 'Various Artists', after: '02. Stephane Pompougnac', reason: 'revert' },
+      { field: 'compilation', before: '1', after: null, reason: 'revert' },
+      { field: 'title', before: 'x', after: null, reason: 'revert' },
+    ]);
   });
 
   it('should throw error if plan has no applied items', async () => {

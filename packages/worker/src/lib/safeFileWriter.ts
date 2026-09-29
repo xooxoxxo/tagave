@@ -179,7 +179,17 @@ export class SafeFileWriter {
 
       // Verify that the intended fields from tagSet are present in the written tags
       // We check each field that was supposed to be written
+      // Fields the write was asked to remove must be gone.
+      const deletes = (tagSet as Record<string, unknown>)['__delete__'];
+      for (const field of Array.isArray(deletes) ? deletes.map(String) : []) {
+        const left = writtenTags[field];
+        if (left !== undefined && left !== null && !(Array.isArray(left) && left.length === 0) && left !== '') {
+          return { error: `Field mismatch: ${field} - expected it removed, got "${String(left)}"`, code: 'field_mismatch' };
+        }
+      }
+
       for (const [field, intendedValue] of Object.entries(tagSet)) {
+        if (field.startsWith('__')) continue; // instructions, not fields
         if (intendedValue === undefined) {
           // Field was explicitly cleared (undefined means remove it)
           // We don't strictly verify absence, but we could check if field is not present
@@ -191,8 +201,10 @@ export class SafeFileWriter {
         // Formats and the sidecar's read() differ on whether a single value
         // comes back as a string or a one-element list, so compare as sets of
         // strings (order may vary between tag formats too).
+        // The sidecar reads the compilation flag back as a boolean.
+        const one = (x: unknown): string => (x === true ? '1' : x === false ? '0' : String(x));
         const asList = (v: unknown): string[] =>
-          v === undefined || v === null ? [] : Array.isArray(v) ? v.map(String) : [String(v)];
+          v === undefined || v === null ? [] : Array.isArray(v) ? v.map(one) : [one(v)];
         const intended = new Set(asList(intendedValue));
         const written = new Set(asList(writtenValue));
         if (intended.size !== written.size || ![...intended].every((v) => written.has(v))) {

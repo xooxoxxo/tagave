@@ -26,7 +26,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { albumQueryParts } from './albums.js';
-import { filesOfAlbums, resolveEditableScope, suggestBulkValues } from '../lib/bulkTagEdit.js';
+import { filesInFolder, filesOfAlbums, resolveEditableScope, suggestBulkValues } from '../lib/bulkTagEdit.js';
 
 /**
  * Register tag plan routes.
@@ -153,6 +153,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             eq(tagPlans.libraryId, libraryId),
             inArray(tagPlans.status, OPEN_PLAN_STATUSES),
             sql`${tagPlans.scope}->>'type' = 'albumIds'`,
+            sql`coalesce(${tagPlans.policy}->>'preset', '') <> 'revert'`,
           )
         : eq(tagPlans.libraryId, libraryId);
 
@@ -232,6 +233,12 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       }
       const body = parsed.data;
 
+      // Revert plans are built by the worker from an applied plan's journal
+      // (POST /tag-plans/:id/revert); they cannot be written by hand.
+      if (body.policy.preset === 'revert' || body.policy.revertOf) {
+        throw new ApiError(400, 'Bad Request', 'A revert plan is made from an applied plan: use Revert on that plan');
+      }
+
       // A manual plan writes the values the owner typed; without any there is
       // nothing to write, and the values mean nothing under another preset.
       if (body.policy.preset === 'manual') {
@@ -253,9 +260,16 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         if (rows.length === 0) throw new ApiError(400, 'Bad Request', 'The filter matches no albums');
         scope = { type: 'albumIds', albumIds: rows.map((r) => r.id) };
       } else if (scope.type === 'folder') {
-        const ids = await resolveEditableScope(db, libraryId, scope);
-        if (ids.length === 0) throw new ApiError(400, 'Bad Request', `No album has files in ${scope.dirPath}`);
-        scope = { type: 'albumIds', albumIds: ids };
+        // A folder plan covers exactly the files under the folder (loose
+        // files too, and never files of the same albums filed elsewhere);
+        // the worker enumerates them by path when it previews.
+        if (scope.scanRootId) {
+          const [root] = await db.select({ id: scanRoots.id }).from(scanRoots)
+            .where(and(eq(scanRoots.id, scope.scanRootId), eq(scanRoots.libraryId, libraryId)));
+          if (!root) throw new ApiError(400, 'Bad Request', 'That scan root is not in this library');
+        }
+        const { files } = await filesInFolder(db, libraryId, scope.dirPath, scope.scanRootId);
+        if (files.length === 0) throw new ApiError(400, 'Bad Request', `No files in ${scope.dirPath}`);
       } else if (scope.type === 'albumIds') {
         // The preview trusts the plan's album ids; they must be this library's.
         const requested = [...new Set(scope.albumIds)];
@@ -902,18 +916,45 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
 
       const plan = plans[0]!;
 
-      if (plan.status !== 'applied' && plan.status !== 'partially_failed') {
+      // A cancelled plan may have written some files before it stopped;
+      // those are revertible too (the worker only reverts applied items).
+      if (!['applied', 'partially_failed', 'cancelled'].includes(plan.status as string)) {
         throw new ApiError(400, 'Bad Request', `Cannot revert plan in status '${plan.status}'`);
       }
+      const [appliedCount] = await db
+        .select({ n: count() })
+        .from(tagPlanItems)
+        .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
+      if (!appliedCount || Number(appliedCount.n) === 0) {
+        throw new ApiError(400, 'Bad Request', 'This plan wrote no files, so there is nothing to revert');
+      }
 
-      // Enqueue the tags.revert job
+      // The revert plan's id is chosen here so the page can open it as soon
+      // as the worker has built it (from the journal, already previewed).
+      const revertPlanId = uuidv7();
       const boss = await getBoss();
-      const jobId = await boss.send('tags.revert', { planId }, {
+      const jobId = await boss.send('tags.revert', { planId, revertPlanId }, {
         singletonKey: `tags.revert:${planId}`,
       });
+      if (!jobId) {
+        // a revert for this plan is already queued; its plan id is the one to open
+        const [queued] = (await db.execute(sql`
+          select data->>'revertPlanId' as id from pgboss.job
+           where name = 'tags.revert' and data->>'planId' = ${planId}
+             and state in ('created', 'active', 'retry')
+           order by created_on desc limit 1`)) as unknown as Array<{ id: string | null }>;
+        reply.status(202).send({
+          jobId: null,
+          revertPlanId: queued?.id ?? null,
+          singletonKey: `tags.revert:${planId}`,
+          message: 'A revert for this plan is already being built',
+        });
+        return;
+      }
 
       reply.status(202).send({
         jobId,
+        revertPlanId,
         singletonKey: `tags.revert:${planId}`,
         message: 'Revert job enqueued',
       });
@@ -981,6 +1022,11 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           throw new ApiError(409, 'Conflict', PLAN_CLOSED);
         }
 
+        const planPolicy = (typeof plan.policy === 'string' ? JSON.parse(plan.policy) : plan.policy) as { preset?: string } | null;
+        if (planPolicy?.preset === 'revert') {
+          // its items come from a journal; a reset would throw them away
+          throw new ApiError(409, 'Conflict', 'A revert plan undoes one earlier plan; albums cannot be added to it. Start a new plan instead.');
+        }
         const existingScope = (typeof plan.scope === 'string' ? JSON.parse(plan.scope) : plan.scope) as TagPlanScope;
         if (existingScope.type !== 'albumIds') {
           throw new ApiError(409, 'Conflict', 'This plan covers an artist or the whole library, so albums cannot be added to it. Start a new plan instead.');
@@ -1060,6 +1106,12 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const parsed = tagPlanScopeSchema.safeParse((request.body as { scope?: unknown } | null)?.scope);
       if (!parsed.success || (parsed.data.type !== 'albumIds' && parsed.data.type !== 'folder')) {
         throw new ApiError(400, 'Bad Request', 'scope must be { type: "albumIds", albumIds } or { type: "folder", dirPath }');
+      }
+      if (parsed.data.type === 'folder') {
+        const { files, albumIds } = await filesInFolder(db, libraryId, parsed.data.dirPath, parsed.data.scanRootId);
+        if (files.length === 0) throw new ApiError(404, 'Not Found', `No files in ${parsed.data.dirPath}`);
+        reply.send({ albumIds, ...suggestBulkValues(files, albumIds.length) });
+        return;
       }
       const albumIds = await resolveEditableScope(db, libraryId, parsed.data);
       if (albumIds.length === 0) throw new ApiError(404, 'Not Found', 'No albums in this selection');

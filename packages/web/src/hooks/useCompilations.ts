@@ -30,6 +30,8 @@ export interface TagEditSuggestion {
   suggested: ManualTagValues;
   albumArtistOptions: string[];
   notes: string[];
+  /** the selection reads as one album; the editor may start with the suggestion ticked */
+  confident?: boolean;
 }
 
 const scopeKey = (scope: EditScope | null) =>

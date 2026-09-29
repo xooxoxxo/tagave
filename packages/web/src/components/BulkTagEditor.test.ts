@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { formFromSuggestion, valuesFromForm } from './BulkTagEditor';
+import { formFromSuggestion, selectionIsOneAlbum, valuesFromForm } from './BulkTagEditor';
 import type { TagEditSuggestion } from '../hooks/useCompilations';
 
 const hotelCostes: TagEditSuggestion = {
@@ -30,6 +30,34 @@ describe('bulk tag editor form', () => {
     expect(form.artist.on).toBe(false);
     expect(form.compilation).toBe('1');
     expect(valuesFromForm(form)).toEqual({ albumartist: 'Stephane Pompougnac', compilation: '1' });
+  });
+
+  it('several unrelated albums start with nothing ticked; the suggestion is one click away', () => {
+    const three: TagEditSuggestion = {
+      ...hotelCostes,
+      albumIds: ['a', 'b', 'c'],
+      albums: 3,
+      current: {
+        ...hotelCostes.current,
+        album: [{ value: 'Kid A', files: 1 }, { value: 'Blue Lines', files: 1 }, { value: 'Mezzanine', files: 1 }],
+        albumartist: [{ value: 'Radiohead', files: 1 }, { value: 'Massive Attack', files: 2 }],
+      },
+      distinct: { albumartist: 2, album: 3, artist: 3, date: 1, genre: 0 },
+      suggested: { albumartist: 'Various Artists', album: 'Blue Lines', compilation: '1' },
+      confident: false,
+    };
+    expect(selectionIsOneAlbum(three)).toBe(false);
+    const form = formFromSuggestion(three);
+    expect(form.albumartist.on).toBe(false);
+    expect(form.album.on).toBe(false);
+    expect(form.compilation).toBe('leave');
+    expect(valuesFromForm(form)).toEqual({});
+    // "Use the suggestion" ticks it on purpose
+    const chosen = formFromSuggestion(three, { applySuggestion: true });
+    expect(valuesFromForm(chosen)).toEqual({ albumartist: 'Various Artists', album: 'Blue Lines', compilation: '1' });
+    // pieces of one album (one shared title) still start ticked
+    const { confident: _ignored, ...legacy } = three;
+    expect(selectionIsOneAlbum({ ...legacy, distinct: { ...three.distinct!, album: 1 } })).toBe(true);
   });
 
   it('turns the form into manual values, genres split, bad dates refused', () => {

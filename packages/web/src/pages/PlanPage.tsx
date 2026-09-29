@@ -24,6 +24,7 @@ import {
   useTagPlan,
   useTagPlanItems,
   useTagPlanSummary,
+  usePlanAppears,
   previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
@@ -59,6 +60,7 @@ const PRESET_LABEL: Record<string, string> = {
   overwrite_all: 'Overwrite all',
   custom: 'Custom',
   manual: 'Your values',
+  revert: 'Revert',
 };
 
 /** "album artist → Various Artists · compilation → yes" for a manual plan */
@@ -126,7 +128,7 @@ function PreviewOutcomeNotice({
         {outcome.lockedOnly === 0 && outcome.lockedChanges > 0 && (
           <li>{plural(outcome.lockedChanges, 'change')} kept back by locked fields.</li>
         )}
-        {(outcome.alreadyCorrect ?? 0) > 0 && (
+        {outcome.nothing && (outcome.alreadyCorrect ?? 0) > 0 && (
           <li>{plural(outcome.alreadyCorrect!, 'file')} already {verb(outcome.alreadyCorrect!, 'carries', 'carry')} {manual ? 'the values you set' : 'the canonical values under this policy'}.</li>
         )}
       </ul>
@@ -141,6 +143,7 @@ function scopeLabel(scope: Record<string, unknown> | undefined): string {
     case 'artist': return 'All albums by one artist';
     case 'albumIds': return `${(scope?.albumIds as string[] | undefined)?.length ?? 0} album(s)`;
     case 'filterQuery': return 'Albums matching a filter';
+    case 'folder': return `Every file in ${String(scope?.dirPath ?? '')}`;
     default: return '—';
   }
 }
@@ -224,6 +227,24 @@ export function PlanPage() {
   const [editingValues, setEditingValues] = useState(false);
   const [identifyNote, setIdentifyNote] = useState<string | null>(null);
   const identifyAlbums = useIdentifyAlbums(libraryId);
+  // Revert builds a new, already previewed plan from the journal; open it
+  // as soon as the worker has written it.
+  const [revertPlanId, setRevertPlanId] = useState<string | null>(null);
+  const revertPlan = usePlanAppears(libraryId, revertPlanId);
+  useEffect(() => {
+    if (revertPlanId && revertPlan.data) {
+      setRevertPlanId(null);
+      void navigate({ to: '/plans/$planId', params: { planId: revertPlanId } });
+    }
+  }, [revertPlanId, revertPlan.data, navigate]);
+  useEffect(() => {
+    if (!revertPlanId) return;
+    const t = setTimeout(() => {
+      setRevertPlanId(null);
+      setError('The revert plan is taking long to build. It will appear under Tag changes when it is ready.');
+    }, AWAIT_MS);
+    return () => clearTimeout(t);
+  }, [revertPlanId]);
 
   const planQ = useTagPlan(libraryId, planId, { refetchInterval: 0 });
   const status = planQ.data?.status;
@@ -374,10 +395,14 @@ export function PlanPage() {
   const nothingToDo = previewed && stats !== undefined && stats.filesTouched === 0;
   const outcome = previewed ? explainPreview(stats) : null;
   const isManual = p?.policy.preset === 'manual';
+  const isRevert = p?.policy.preset === 'revert';
   // "Set the values yourself" edits the albums this plan covers.
   const planAlbumIds = p?.scope?.type === 'albumIds' ? (p.scope as { albumIds: string[] }).albumIds : null;
+  const planFolder = p?.scope?.type === 'folder' ? (p.scope as { dirPath: string; scanRootId?: string }) : null;
   const valueScopes: EditScopeOption[] = planAlbumIds
     ? [{ key: 'plan', label: `The ${planAlbumIds.length === 1 ? 'album' : `${planAlbumIds.length} albums`} in this plan`, scope: { type: 'albumIds', albumIds: planAlbumIds } }]
+    : planFolder
+      ? [{ key: 'plan', label: `Every file in ${planFolder.dirPath}`, scope: { type: 'folder', dirPath: planFolder.dirPath, ...(planFolder.scanRootId ? { scanRootId: planFolder.scanRootId } : {}) } }]
     : outcome && outcome.notIdentified.albumIds.length > 0
       ? [{ key: 'unidentified', label: 'The albums that are not identified', scope: { type: 'albumIds', albumIds: outcome.notIdentified.albumIds } }]
       : [];
@@ -465,7 +490,7 @@ export function PlanPage() {
       }
       actions={
         <div style={{ display: 'flex', gap: 'var(--space-sm)', flexWrap: 'wrap', alignItems: 'center' }}>
-          {(p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
+          {!isRevert && (p.status === 'previewed' || p.status === 'draft' || p.status === 'reverted' || p.status === 'cancelled') && (
             <Button variant="secondary" loading={previewM.isPending} onClick={p.status === 'draft' ? startPreview : run(previewM)} disabled={previewBusy}>
               {previewButtonLabel}
             </Button>
@@ -488,8 +513,23 @@ export function PlanPage() {
             </>
           )}
           {(p.status === 'applied' || p.status === 'partially_failed' || p.status === 'cancelled') && (progress?.applied ?? 0) > 0 && (
-            <Button variant="danger" loading={revertM.isPending} onClick={run(revertM, `Restore the previous tags on ${progress?.applied ?? 0} file(s)?`)} disabled={revertM.isPending || awaiting !== null}>
-              {revertM.isPending || awaiting !== null ? 'Starting…' : 'Revert'}
+            <Button
+              variant="danger"
+              loading={revertM.isPending || revertPlanId !== null}
+              onClick={async () => {
+                if (!window.confirm(`Prepare a plan that restores the previous tags on ${progress?.applied ?? 0} file(s)? You will see it before anything is written.`)) return;
+                setError(null);
+                try {
+                  const r = await revertM.mutateAsync();
+                  if (r.revertPlanId) setRevertPlanId(r.revertPlanId);
+                  else await navigate({ to: '/plans' });
+                } catch (e) {
+                  setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message);
+                }
+              }}
+              disabled={revertM.isPending || revertPlanId !== null || awaiting !== null}
+            >
+              {revertM.isPending || revertPlanId !== null ? 'Preparing…' : 'Revert'}
             </Button>
           )}
           {['draft', 'previewed', 'reverted', 'cancelled', 'applied', 'partially_failed'].includes(p.status) && (
