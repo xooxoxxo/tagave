@@ -45,3 +45,11 @@ export function orderScoreKeys(keys: Iterable<string>): string[] {
     return ia - ib || a.localeCompare(b);
   });
 }
+
+/**
+ * The most scored keys one album's candidates carry between them, so the most
+ * dots the review table's Match column has to show without clipping.
+ * Measured on the live library (2026-09): 4 to 7 for almost every album, 8 for
+ * 144, 9 for one. The column is sized for this; any more wrap to a second line.
+ */
+export const MAX_SCORE_DOTS = 9;

@@ -96,7 +96,7 @@
      below), so neither the rows nor the album change the layout. Below the
      min-width the wrapper scrolls sideways instead of squeezing Release. */
   table-layout: fixed;
-  min-width: 60rem;
+  min-width: 61.5rem;
   border-collapse: collapse;
   font-size: var(--font-size-sm);
   font-variant-numeric: tabular-nums;
@@ -106,7 +106,7 @@
 .wYear { width: 4.5rem; }
 .wCountry { width: 6.5rem; }
 .wTracks { width: 6rem; }
-.wScores { width: 8.5rem; }
+.wScores { width: 10rem; } /* 9 dots (the most any album carries) + cell padding: 9*12 + 8*2 + 32 = 156px */
 .wStatus { width: 7rem; }
 .wDistance { width: 6.5rem; }
 .wLinks { width: 3.5rem; }
@@ -184,7 +184,9 @@
 
 /* ---- score strip ---------------------------------------------------- */
 
-.scoreStrip { display: inline-flex; gap: 2px; vertical-align: middle; }
+/* An album with more scored keys than the column holds wraps its dots onto a
+   second line instead of clipping the last ones. */
+.scoreStrip { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 2px; vertical-align: middle; }
 
 .cellGood,
 .cellNear,

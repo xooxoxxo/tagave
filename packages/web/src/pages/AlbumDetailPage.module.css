@@ -549,8 +549,10 @@ td.num {
 .missingNo {
   width: 1%;
   min-width: 2.5ch;
-  padding-right: 0.25rem;
+  text-align: right;
 }
+/* doubled up to beat `.missingTable td`'s padding */
+.missingTable .missingNo { padding-right: 0.25rem; }
 .missingTitle {
   width: auto;
   overflow-wrap: anywhere;

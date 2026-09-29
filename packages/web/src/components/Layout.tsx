@@ -80,7 +80,7 @@ export function Layout() {
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
         </nav>
         <div className={styles.navUser}>
-          <span className={styles.userEmail}>{user.email}</span>
+          <span className={styles.userEmail} title={user.email}>{user.email}</span>
           <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
           {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
         </div>

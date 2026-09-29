@@ -36,7 +36,6 @@ export function InlineRename({
   onSave,
   label = 'Rename',
   size = 'title',
-  maxChars,
   after,
 }: {
   value: string;
@@ -46,9 +45,8 @@ export function InlineRename({
   label?: string;
   /** title: the page headline; row: a table cell. */
   size?: 'title' | 'row';
-  /** Shorten a longer name to this many characters with an ellipsis; the full name is the hover text. */
-  maxChars?: number;
-  /** Shown after the pencil and kept on its line (a status chip). */
+  /** Shown after the pencil, and next to the field while editing, kept on
+      the name's line (a status chip). */
   after?: ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
@@ -125,8 +123,6 @@ export function InlineRename({
   };
 
   const sizeClass = size === 'title' ? styles.title : styles.row;
-  const shortened = maxChars !== undefined && value.length > maxChars;
-  const shown = shortened ? `${value.slice(0, maxChars - 1).trimEnd()}…` : value;
   const keepInside = (e: { stopPropagation: () => void }) => e.stopPropagation();
 
   if (!editing) {
@@ -137,8 +133,8 @@ export function InlineRename({
         <span
           className={styles.text}
           onClick={size === 'title' ? start : undefined}
-          title={shortened ? value : undefined}
-        >{shown}</span>
+          title={value}
+        >{value}</span>
         {after ? (
           <span className={styles.tail}>
             <IconButton ref={editButtonRef} variant="quiet" size="sm" label={label} className={styles.edit} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); start(); }}>
@@ -157,20 +153,23 @@ export function InlineRename({
 
   return (
     <span className={`${styles.editing} ${sizeClass}`} onKeyDown={keepInside} onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}>
-      <Input
-        ref={inputRef}
-        className={styles.input}
-        dense={size === 'row'}
-        value={draft}
-        maxLength={NAME_MAX + 40}
-        aria-label={label}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
-        disabled={saving}
-        onChange={(e) => { setDraft(e.target.value); if (error) setError(null); }}
-        onKeyDown={onKeyDown}
-        onBlur={() => void commit(false)}
-      />
+      <span className={styles.editRow}>
+        <Input
+          ref={inputRef}
+          className={styles.input}
+          dense={size === 'row'}
+          value={draft}
+          maxLength={NAME_MAX + 40}
+          aria-label={label}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
+          disabled={saving}
+          onChange={(e) => { setDraft(e.target.value); if (error) setError(null); }}
+          onKeyDown={onKeyDown}
+          onBlur={() => void commit(false)}
+        />
+        {after}
+      </span>
       <span className={styles.hint}>
         {error
           ? <span id={errorId} role="alert" className={styles.error}>{error}</span>
