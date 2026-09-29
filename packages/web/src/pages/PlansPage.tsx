@@ -146,11 +146,11 @@ export function PlansPage() {
         {canDelete && (
           <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 'var(--space-xs)', justifyContent: 'flex-end', alignItems: 'center' }}>
-              {/* Quiet until it is armed. A destructive action on every row
-                  should not outweigh "Create plan", which is the thing the
-                  page is actually for; it turns red only once it means it. */}
+              {/* Quiet danger text in both states. A destructive action on
+                  every row should not outweigh "Create plan"; arming it only
+                  changes the label. */}
               <Button
-                variant={isConfirming ? 'danger' : 'ghost'}
+                variant="quiet-danger"
                 size="sm"
                 loading={deleteM.isPending}
                 onClick={handleDelete}

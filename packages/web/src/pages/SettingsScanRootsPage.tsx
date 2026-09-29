@@ -357,7 +357,7 @@ function SettingsScanRootsContentInner() {
                   {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow tag writes'}
                 </Button>
                 <Button
-                  variant="secondary"
+                  variant="quiet-danger"
                   size="sm"
                   onClick={() => handleDelete(root.id)}
                   disabled={isPending(root.id)}

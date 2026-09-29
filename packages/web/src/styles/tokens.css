@@ -124,6 +124,10 @@
   --dur-slow: 280ms;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
   --ease-spring: cubic-bezier(0.3, 1.6, 0.5, 1);   /* hover lift only */
+  /* Button release: a quick squash on press, then a springy overshoot back to
+     size, like a bubble popping back. */
+  --dur-pop: 360ms;
+  --ease-pop: cubic-bezier(0.34, 1.9, 0.55, 1);
 
   --shadow-card: inset 0 1px 0 var(--highlight), 0 24px 48px -32px rgba(var(--shadow-tint), 0.4);
   --shadow-float: inset 0 1px 0 color-mix(in srgb, var(--highlight) 60%, transparent), 0 18px 40px -18px rgba(var(--shadow-tint), 0.45);

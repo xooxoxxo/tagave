@@ -27,17 +27,6 @@
   box-shadow: 0 24px 48px -28px rgba(var(--shadow-tint), 0.45);
 }
 
-.coverPlaceholder {
-  width: 220px;
-  height: 220px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--bg-tertiary), var(--bg-secondary));
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 2.5rem;
-  color: var(--text-tertiary);
-}
 
 .headInfo {
   display: flex;
@@ -618,7 +607,7 @@ td.num {
 .container { max-width: var(--content-max); margin: 0 auto; gap: 2rem; }
 .header { gap: clamp(1.5rem, 4vw, 4rem); }
 .coverBox { width: clamp(200px, 24vw, 300px); }
-.cover, .coverPlaceholder { width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--r-cover); }
+.cover { width: 100%; height: auto; aspect-ratio: 1; border-radius: var(--r-cover); }
 /* The album title is the one display-sized line on the page. */
 .title { font: 300 clamp(32px, 4.5vw, 52px) / 1.08 var(--font-display); letter-spacing: -.02em; }
 .headInfo { gap: .85rem; }
@@ -636,7 +625,6 @@ td.num {
 .genreText { font-size: .875rem; color: var(--text-secondary); line-height: 1.6; }
 /* No art: the dew mist,
 the title-free placeholder label bottom-left. */
-.coverPlaceholder { align-items: flex-end; justify-content: flex-start; padding: 1.25rem; background: radial-gradient(120% 90% at 30% 20%, var(--surface) 0, var(--dew-tint) 55%, var(--mist) 100%); font: 200 1.75rem / 1.1 var(--font-display); color: var(--ink-2); }
 .pillLink { border: 0; background: none; box-shadow: none; padding: .2rem .25rem; border-radius: var(--r-pill); }
 .pillLink:hover { text-decoration: underline; }
 .albumFacts summary, .maintenance summary { font-size: .875rem; font-weight: 500; cursor: pointer; color: var(--ink-2); }

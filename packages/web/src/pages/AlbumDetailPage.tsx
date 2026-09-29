@@ -18,7 +18,7 @@ import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import styles from './AlbumDetailPage.module.css';
 import { showsTrackArtists, uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlags } from '../utils/qualityFlags';
-import { Button, EmptyState, LinkButton } from '../components/ui';
+import { Button, EmptyState, LinkButton, CoverArt } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
 
 interface DetailTrack {
@@ -382,11 +382,7 @@ export function AlbumDetailPage() {
       <Link to="/albums" className={styles.backLink}>← All albums</Link>
       <div className={styles.header}>
         <div className={styles.coverBox}>
-          {album.coverUrl ? (
-            <img className={styles.cover} src={album.coverUrl} alt="" />
-          ) : (
-            <div className={styles.coverPlaceholder}><span>No artwork</span></div>
-          )}
+          <CoverArt src={album.coverUrl} title={album.release?.title ?? album.title ?? 'Untitled'} loading="eager" className={styles.cover} />
         </div>
         <div className={styles.headInfo}>
           <h1 className={styles.title}>{album.release?.title ?? album.title ?? 'Untitled'}</h1>

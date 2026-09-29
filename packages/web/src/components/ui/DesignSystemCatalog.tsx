@@ -11,6 +11,7 @@ import { Table, Th, Td } from './Table';
 import { EmptyState } from './EmptyState';
 import { Tooltip } from './Tooltip';
 import { ThemeSwitch } from './SegmentedControl';
+import { UndoIcon } from './icons';
 import styles from './DesignSystemCatalog.module.css';
 
 const swatches = ['canvas', 'surface', 'mist', 'line', 'ink', 'ink-2', 'ink-3', 'dew-tint', 'dew-hi', 'dew', 'dew-lo', 'danger'];
@@ -51,9 +52,9 @@ export function DesignSystemCatalog() {
       {tab === 'controls' && <>
         <section>
           <h2>Buttons</h2>
-          <div className={styles.row}><Button>Apply plan</Button><Button variant="secondary">Preview</Button><Button variant="quiet">Cancel</Button><Button variant="danger">Revert all</Button></div>
-          <div className={styles.row}><Button disabled>Apply plan</Button><Button variant="secondary" disabled>Preview</Button><Button variant="quiet" disabled>Cancel</Button><Button variant="danger" disabled>Revert all</Button></div>
-          <div className={styles.row}><Button size="sm">Fix folder tags</Button><Button size="sm" variant="secondary">Details</Button><Button size="sm" variant="quiet">Skip</Button><Button size="sm" variant="danger">Discard</Button></div>
+          <div className={styles.row}><Button>Apply plan</Button><Button variant="secondary">Preview</Button><Button variant="quiet">Cancel</Button><Button variant="secondary"><UndoIcon />Revert</Button><Button variant="quiet-danger">Delete</Button></div>
+          <div className={styles.row}><Button disabled>Apply plan</Button><Button variant="secondary" disabled>Preview</Button><Button variant="quiet" disabled>Cancel</Button><Button variant="secondary" disabled><UndoIcon />Revert</Button><Button variant="quiet-danger" disabled>Delete</Button></div>
+          <div className={styles.row}><Button size="sm">Fix folder tags</Button><Button size="sm" variant="secondary">Details</Button><Button size="sm" variant="quiet">Skip</Button><Button size="sm" variant="quiet-danger">Discard</Button><Button size="sm" variant="danger">Delete (dialog only)</Button></div>
           <div className={styles.row}>
             <IconButton label="Play" variant="primary"><PlayIcon /></IconButton>
             <IconButton label="Edit tags"><EditIcon /></IconButton>

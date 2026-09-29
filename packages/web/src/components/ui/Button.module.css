@@ -43,7 +43,8 @@
     inset 0 -3px 8px rgba(0, 0, 0, 0.18),
     0 1px 1px rgba(var(--shadow-tint), 0.18),
     0 10px 22px -10px color-mix(in srgb, var(--b-glow) 70%, transparent);
-  transition: transform var(--dur) var(--ease-spring), box-shadow 200ms ease, filter 200ms ease;
+  /* the release: back to size with a small springy overshoot */
+  transition: transform var(--dur-pop) var(--ease-pop), box-shadow 220ms ease, background-color 200ms ease;
   -webkit-tap-highlight-color: transparent;
   user-select: none;
 }
@@ -91,29 +92,32 @@
   flex-shrink: 0;
 }
 
-/* Colour and hover apply only to live buttons; a disabled or busy drop stays put. */
+/* Hover is a gentle lift: the drop rises 1px and its shadow loosens a little.
+   No scale, no colour or brightness change, no bigger glow. */
 .button:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  transform: translateY(-1px) scale(1.015);
-  filter: saturate(1.08) brightness(1.04);
+  transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -3px 8px rgba(0, 0, 0, 0.16),
-    0 2px 3px rgba(var(--shadow-tint), 0.16),
-    0 16px 30px -12px color-mix(in srgb, var(--b-glow) 80%, transparent);
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -3px 8px rgba(0, 0, 0, 0.18),
+    0 2px 2px rgba(var(--shadow-tint), 0.14),
+    0 12px 22px -12px color-mix(in srgb, var(--b-glow) 70%, transparent);
 }
 
+/* Press is a quick squash (80ms); letting go runs the base transition, which
+   springs back past full size and settles: the pop. The shadow compresses
+   under the drop while it is held. */
 .button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  transform: translateY(1px) scale(0.97);
-  filter: brightness(0.97);
+  transform: scale(0.96);
   transition-duration: var(--dur-fast);
+  transition-timing-function: ease-out;
   box-shadow:
-    inset 0 2px 6px rgba(0, 0, 0, 0.28),
+    inset 0 2px 5px rgba(0, 0, 0, 0.2),
     inset 0 -1px 0 rgba(255, 255, 255, 0.25),
-    0 4px 10px -8px color-mix(in srgb, var(--b-glow) 70%, transparent);
+    0 2px 6px -4px color-mix(in srgb, var(--b-glow) 60%, transparent);
 }
 
 .button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"])::before {
-  opacity: 0.45;
+  opacity: 0.6;
 }
 
 .button:focus-visible {
@@ -151,17 +155,15 @@
 }
 
 .secondary:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  transform: translateY(-1px);
-  filter: none;
   box-shadow:
     inset 0 1px 0 var(--clear-hi),
-    inset 0 0 0 1px color-mix(in srgb, var(--dew) 35%, transparent),
-    0 14px 26px -14px rgba(var(--shadow-tint), 0.5);
+    inset 0 -3px 8px rgba(var(--shadow-tint), 0.06),
+    0 1px 1px rgba(var(--shadow-tint), 0.1),
+    0 12px 22px -14px rgba(var(--shadow-tint), 0.45);
 }
 
 .secondary:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  filter: none;
-  box-shadow: inset 0 2px 6px rgba(var(--shadow-tint), 0.22), inset 0 0 0 1px var(--glass-edge);
+  box-shadow: inset 0 2px 5px rgba(var(--shadow-tint), 0.18), inset 0 0 0 1px var(--glass-edge);
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -172,10 +174,22 @@
   }
 }
 
-/* ---- Quiet (and its old name, ghost): text until touched ---- */
+/* ---- Quiet (and its old name, ghost): text until touched ----
+   Quiet danger is the same text button in the danger ink: Delete, Stop and
+   other destructive triggers. No fill and no glow; the action is confirmed in
+   the dialog, whose final button is the only full danger drop. */
 .quiet,
 .ghost {
   --b-ink: var(--dew);
+}
+
+.quiet-danger {
+  --b-ink: var(--danger);
+}
+
+.quiet,
+.ghost,
+.quiet-danger {
   background: transparent;
   border-color: transparent;
   box-shadow: none;
@@ -184,35 +198,38 @@
 }
 
 .quiet::before,
-.ghost::before {
+.ghost::before,
+.quiet-danger::before {
   opacity: 0;
 }
 
 .quiet:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
-.ghost:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  background: color-mix(in srgb, var(--dew) 10%, transparent);
+.ghost:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
+.quiet-danger:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+  background: color-mix(in srgb, var(--b-ink) 7%, transparent);
   transform: none;
-  filter: none;
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--clear-hi) 40%, transparent);
+  box-shadow: none;
 }
 
 .quiet:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
-.ghost:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
-  background: color-mix(in srgb, var(--dew) 16%, transparent);
-  transform: none;
-  filter: none;
-  box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.15);
+.ghost:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
+.quiet-danger:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
+  background: color-mix(in srgb, var(--b-ink) 12%, transparent);
+  transform: scale(0.96);
+  box-shadow: none;
 }
 
 .quiet:disabled:not([aria-busy="true"]),
 .ghost:disabled:not([aria-busy="true"]),
+.quiet-danger:disabled:not([aria-busy="true"]),
 .quiet[aria-disabled="true"],
-.ghost[aria-disabled="true"] {
+.ghost[aria-disabled="true"],
+.quiet-danger[aria-disabled="true"] {
   box-shadow: none;
-  filter: none;
 }
 
-/* ---- Danger: the same drop, danger tint ---- */
+/* ---- Danger: the same drop, danger tint. Only for the confirm dialog's
+   final button (and a second-press confirmation), never at rest on a page. ---- */
 .danger {
   --b-top: var(--danger-hi);
   --b-mid: var(--danger);
@@ -233,7 +250,8 @@
 }
 
 .button.quiet.size-sm,
-.button.ghost.size-sm {
+.button.ghost.size-sm,
+.button.quiet-danger.size-sm {
   padding: 0 12px;
 }
 

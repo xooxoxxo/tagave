@@ -1,5 +1,5 @@
 import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip, confirmDialog } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt } from '../components/ui';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -394,9 +394,7 @@ export function AlbumsPage() {
                           onChange={() => toggleOne(album.id, row.index)}
                           aria-label={`Select ${album.title}`}
                         />
-                        {album.coverUrl
-                          ? <img className={styles.thumb} src={album.coverUrl} alt="" loading="lazy" />
-                          : <span className={styles.thumbPlaceholder} />}
+                        <span className={styles.thumb}><CoverArt src={album.coverUrl} title={album.title} compact /></span>
                         <span className={styles.listTitle}>{album.title}</span>
                         <span className={styles.listArtist}>{album.artistCredit}</span>
                         <span className={styles.listYear}>{album.year ?? '–'}</span>
@@ -450,9 +448,7 @@ export function AlbumsPage() {
                               {album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount && (
                                 <span className={styles.trackBadge}>{album.trackCount}/{album.canonicalTrackCount}</span>
                               )}
-                              {album.coverUrl
-                                ? <img className={styles.coverImg} src={album.coverUrl} alt="" loading="lazy" />
-                                : <div className={styles.coverPlaceholder}><span className={styles.fileCount}>{album.trackCount}</span></div>}
+                              <CoverArt src={album.coverUrl} title={album.title} fill />
                             </div>
                             <div className={styles.albumInfo}>
                               <h3 className={styles.albumTitle}>{album.title}</h3>
