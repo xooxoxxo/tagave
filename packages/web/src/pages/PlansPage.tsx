@@ -7,11 +7,12 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { api } from '../services/api';
 import type { TagPlan } from '@liner/shared';
-import { PageShell, Button, Badge, statusTone, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
+import { PageShell, Button, Badge, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan } from '../hooks/usePlanWizard';
 import { PlanWizard } from '../components/PlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
+import { planStatusView } from '../utils/planStatus';
 import styles from './PlansPage.module.css';
 
 export function PlansPage() {
@@ -121,8 +122,8 @@ export function PlansPage() {
         <Td>{plan.name || 'Untitled plan'}</Td>
         <Td className={styles.cellScope}>{scopeLabel(plan)}</Td>
         <Td>
-          <Badge tone={statusTone(plan.status)}>
-            {plan.status.replaceAll('_', ' ')}
+          <Badge tone={planStatusView(plan.status, plan.progress).tone}>
+            {planStatusView(plan.status, plan.progress).label}
           </Badge>
         </Td>
         <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>

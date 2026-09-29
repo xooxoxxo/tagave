@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
-import { PageShell, Button, Badge, statusTone, Banner, StatCard, Card } from '../components/ui';
+import { PageShell, Button, Badge, Banner, StatCard, Card } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -28,6 +28,7 @@ import {
   previewGuardKey,
 } from '../hooks/usePlanWizard';
 import { formatDateTime, formatRelativeTime } from '../utils';
+import { planStatusView, planUsesId3, diffRowKind, diffValueText } from '../utils/planStatus';
 import styles from './PlanPage.module.css';
 import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan } from './planPreviewState';
 import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome';
@@ -48,11 +49,6 @@ const ITEM_TONE: Record<ItemStatus, 'neutral' | 'info' | 'success' | 'danger' | 
   pending: 'neutral', applying: 'info', applied: 'success', failed: 'danger', skipped: 'warning',
 };
 
-function fmtValue(v: string | string[] | null): string {
-  if (v === null || v === undefined) return '—';
-  if (Array.isArray(v)) return v.join('; ');
-  return v === '' ? '(empty)' : v;
-}
 
 const PRESET_LABEL: Record<string, string> = {
   canonical_ids_and_fill: 'Canonical IDs + fill',
@@ -117,7 +113,7 @@ function PreviewOutcomeNotice({
         )}
         {outcome.notInAlbum > 0 && <li>{plural(outcome.notInAlbum, 'file')} {verb(outcome.notInAlbum, 'is', 'are')} not part of any album.</li>}
         {outcome.notWritable > 0 && (
-          <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Tag preferences › Scan roots</Link>.</li>
+          <li>{plural(outcome.notWritable, 'file')} {verb(outcome.notWritable, 'sits', 'sit')} on a scan root that does not allow writes — <Link to="/settings/library">Settings › Music folders</Link>.</li>
         )}
         {outcome.errors.files > 0 && (
           <li>{plural(outcome.errors.files, 'file')} could not be read{outcome.errors.sample ? `: ${outcome.errors.sample}` : ''}.</li>
@@ -498,18 +494,19 @@ export function PlanPage() {
     );
   }
 
+  const statusView = planStatusView(p.status, progress);
   const confirmStop = 'Stop applying? Files already written stay written; you can revert them afterwards.';
 
   return (
     <PageShell
       title={<span className={styles.title}>
         {p.name || 'Untitled plan'}
-        <Badge tone={statusTone(p.status)}>{p.status.replaceAll('_', ' ')}</Badge>
+        <Badge tone={statusView.tone}>{statusView.label}</Badge>
       </span>}
       subtitle={
         <span className={styles.meta}>
           <Link to="/plans" className={styles.back}>Tag changes</Link>
-          {' › '}{p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset} · ID3v{p.policy.id3Version}
+          {' › '}{p.scopeLabel || scopeLabel(p.scope as Record<string, unknown>)} · {PRESET_LABEL[p.policy.preset] ?? p.policy.preset}{planUsesId3(p.formats) ? ` · ID3v${p.policy.id3Version}` : ''}
           {isManual && p.policy.values ? <> · sets {manualSummary(p.policy.values as Record<string, string | string[] | undefined>)}</> : null}
           {' · '}created <span title={formatDateTime(p.createdAt)}>{formatRelativeTime(p.createdAt)}</span>
           {p.appliedAt && <> · applied <span title={formatDateTime(p.appliedAt)}>{formatRelativeTime(p.appliedAt)}</span></>}
@@ -603,8 +600,8 @@ export function PlanPage() {
           <Banner tone="warning">
             <strong>This plan can be previewed but not applied yet.</strong>
             <ul style={{ margin: '0.4rem 0 0 0', paddingLeft: '1.1rem' }}>
-              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/library">Settings › Tag preferences › Tag writes</Link></li>}
-              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Tag preferences › Scan roots</Link></li>}
+              {tagWritesDisabled && <li>Tag writes are off — <Link to="/settings/$section" params={{ section: 'metadata' }}>Settings › Tag preferences › Tag writes</Link></li>}
+              {noWritableRoots && <li>No scan root allows writes — <Link to="/settings/library">Settings › Music folders</Link></li>}
             </ul>
           </Banner>
         )}
@@ -660,8 +657,8 @@ export function PlanPage() {
         )}
 
         {p.status === 'partially_failed' && (
-          <Banner tone="warning">
-            <strong>{(statusCounts['failed'] ?? progress?.failed ?? 0).toLocaleString()} file(s) were not written.</strong>{' '}
+          <Banner tone={statusView.allFailed ? 'danger' : 'warning'}>
+            <strong>{statusView.allFailed ? 'No file was written: ' : ''}{(statusCounts['failed'] ?? progress?.failed ?? 0).toLocaleString()} file(s) failed.</strong>{' '}
             Filter the list by status "failed" to see why. A new plan over the same scope previews only what is still different.
           </Banner>
         )}
@@ -788,9 +785,9 @@ export function PlanPage() {
                           {rows.map((d) => (
                             <tr key={d.field}>
                               <td className={styles.cellField}>{d.field}</td>
-                              <td className={styles.cellBefore} data-label="Before">{fmtValue(d.before)}</td>
-                              <td className={styles.cellAfter} data-label="After">{d.reason === 'locked' ? <em>kept (locked)</em> : fmtValue(d.after)}</td>
-                              <td className={styles.cellWhy} data-label="Why">{reasonLabel(d.reason)}</td>
+                              <td className={styles.cellBefore} data-label="Before">{diffValueText(d.before)}</td>
+                              <td className={styles.cellAfter} data-label="After">{d.reason === 'locked' ? <em>kept (locked)</em> : diffValueText(d.after)}</td>
+                              <td className={styles.cellWhy} data-label="Why">{diffRowKind(d)}</td>
                             </tr>
                           ))}
                         </tbody>

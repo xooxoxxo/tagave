@@ -178,6 +178,21 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const scopes = plans.map((p) => (typeof p.scope === 'string' ? JSON.parse(p.scope) : p.scope) as TagPlanScope);
       const labels = await scopeLabels(db, scopes);
 
+      // A plan whose apply finished with failures may have written nothing at
+      // all: send its applied/failed counts so the list can say "failed"
+      // instead of "partially failed".
+      const failedIds = plans.filter((p) => p.status === 'partially_failed').map((p) => p.id);
+      const outcomes = new Map<string, Record<string, number>>();
+      if (failedIds.length > 0) {
+        const rows = await db
+          .select({ planId: tagPlanItems.tagPlanId, status: tagPlanItems.status, n: sql<number>`count(*)::int` })
+          .from(tagPlanItems)
+          .where(and(inArray(tagPlanItems.tagPlanId, failedIds), inArray(tagPlanItems.status, ['applied', 'failed'])))
+          .groupBy(tagPlanItems.tagPlanId, tagPlanItems.status);
+        for (const id of failedIds) outcomes.set(id, { applied: 0, failed: 0 });
+        for (const r of rows) outcomes.get(r.planId)![r.status ?? 'failed'] = r.n;
+      }
+
       const formatted: TagPlan[] = plans.map((p, i) => {
         const scopeData = scopes[i]!;
         const policyData = typeof p.policy === 'string' ? JSON.parse(p.policy) : p.policy;
@@ -194,6 +209,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           createdBy: p.createdBy,
           createdAt: p.createdAt.toISOString(),
           appliedAt: p.appliedAt?.toISOString(),
+          ...(outcomes.has(p.id) ? { progress: outcomes.get(p.id) } : {}),
         };
       });
 
@@ -383,6 +399,16 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // page can show it instead of a bare spinner (and link to it).
       const previewJob = plan.status === 'draft' ? await latestPreviewJob(db, planId) : undefined;
 
+      // Which file formats the plan writes to (by extension, as the writer
+      // picks the tag family): the page names the ID3 version only when an
+      // ID3 format (MP3, WAV, AIFF, DSF) is among them.
+      const formatRows = await db
+        .selectDistinct({ ext: sql<string | null>`lower(substring(${audioFiles.relPath} from '\\.([^./]+)$'))` })
+        .from(tagPlanItems)
+        .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+        .where(eq(tagPlanItems.tagPlanId, planId));
+      const formats = formatRows.map((r) => r.ext).filter((e): e is string => !!e).sort();
+
       const formatted: TagPlan & { progress: Record<string, number>; previewJob?: TagPlanPreviewJob } = {
         id: plan.id,
         libraryId: plan.libraryId,
@@ -395,6 +421,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         createdAt: plan.createdAt.toISOString(),
         appliedAt: plan.appliedAt?.toISOString(),
         progress,
+        formats,
         ...(previewJob ? { previewJob } : {}),
       };
 
