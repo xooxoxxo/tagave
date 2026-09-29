@@ -106,7 +106,7 @@ async function main() {
         console.log(JSON.stringify(result, null, 2));
       } else {
         console.log(
-          `${statusIcon('pass')} backup written ${result.path} (${formatBytes(result.bytes)}, ${result.tocEntries} TOC entries, ${(result.durationMs / 1000).toFixed(1)} s)`,
+          `${statusIcon('pass')} backup written ${result.path} (verified, ${formatBytes(result.bytes)}, ${result.tocEntries} TOC entries, ${(result.durationMs / 1000).toFixed(1)} s)`,
         );
         if (result.pruned.length > 0) {
           console.log(`  pruned ${result.pruned.length} older dump(s): ${result.pruned.join(', ')}`);
@@ -115,6 +115,85 @@ async function main() {
       process.exit(0);
     } catch (err) {
       const message = (err as Error).message || String(err);
+      console.error(colorize(`FATAL: ${message}`, 'red'));
+      process.exit(1);
+    }
+  }
+
+  // Handle restore subcommand
+  if (command === 'restore') {
+    const { defaultBackupDir, isSafeBackupName } = await import('./backup.js');
+    const { runRestore, RestoreRefused, databaseName } = await import('./restore.js');
+    const { existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const usage = 'usage: restore <file> --yes [--in-place] [--force] [--json]';
+    let file: string | undefined;
+    let yes = false;
+    let force = false;
+    let inPlace = false;
+    let jsonOut = false;
+    for (const arg of args.slice(1)) {
+      if (arg === '--yes') yes = true;
+      else if (arg === '--force') force = true;
+      else if (arg === '--in-place') inPlace = true;
+      else if (arg === '--json') jsonOut = true;
+      else if (!arg.startsWith('--') && file === undefined) file = arg;
+      else {
+        console.error(colorize(`ERROR: unknown option ${arg}; ${usage}`, 'red'));
+        process.exit(2);
+      }
+    }
+    if (!file) {
+      console.error(colorize(`ERROR: name the backup to restore; ${usage}`, 'red'));
+      process.exit(2);
+    }
+    const backupDir = defaultBackupDir(process.env);
+    // A bare name from Settings › Backups is looked up in the backups folder.
+    const path = !existsSync(file) && isSafeBackupName(file) && existsSync(join(backupDir, file)) ? join(backupDir, file) : file;
+    const mode = inPlace ? 'in-place' : 'swap';
+    if (!yes) {
+      const target = databaseName(databaseUrl);
+      console.error(
+        [
+          `This replaces everything in the database "${target}" with ${path}.`,
+          mode === 'swap'
+            ? `The current database is kept, renamed to ${target}_pre_restore_<time>.`
+            : `A pre-restore backup is written to ${backupDir} first.`,
+          'Stop the app and both workers before you restore. Run again with --yes to go ahead.',
+        ].join('\n'),
+      );
+      process.exit(2);
+    }
+    try {
+      const result = await runRestore({
+        databaseUrl,
+        file: path,
+        mode,
+        force,
+        backupDir,
+        log: (line) => { if (!jsonOut) console.log(`  ${line}`); },
+      });
+      if (jsonOut) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`${statusIcon('pass')} restored ${path} into ${result.database} (${result.tocEntries} TOC entries, ${(result.durationMs / 1000).toFixed(1)} s)`);
+        if (result.migrationsInDump !== null) {
+          console.log(`  the backup has ${result.migrationsInDump} migrations applied, latest ${result.latestMigration ?? 'none'}; the app applies any newer ones when it starts`);
+        }
+        if (result.previousDatabase) {
+          console.log(`  the database it replaced is kept as ${result.previousDatabase}; drop it once you are happy:`);
+          console.log(`    docker compose exec postgres dropdb -U <user> ${result.previousDatabase}`);
+        }
+        if (result.preRestoreBackup) console.log(`  pre-restore backup: ${result.preRestoreBackup}`);
+        console.log('  start the app and workers again: docker compose up -d');
+      }
+      process.exit(0);
+    } catch (err) {
+      const message = (err as Error).message || String(err);
+      if (err instanceof RestoreRefused) {
+        console.error(colorize(`REFUSED: ${message}`, 'yellow'));
+        process.exit(3);
+      }
       console.error(colorize(`FATAL: ${message}`, 'red'));
       process.exit(1);
     }

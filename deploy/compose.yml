@@ -58,8 +58,13 @@ services:
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
+      # Nightly and pre-update database backups (Settings › Backups).
+      BACKUP_DIR: /backups
     volumes:
       - cache:/cache
+      # A volume of its own, or a folder on this computer when
+      # TAGAVE_BACKUP_DIR is set in .env (easier to copy somewhere else).
+      - ${TAGAVE_BACKUP_DIR:-backups}:/backups
     ports:
       - "${TAGAVE_PORT:-3100}:3000"
     restart: unless-stopped
@@ -123,3 +128,4 @@ services:
 volumes:
   pgdata:
   cache:
+  backups:

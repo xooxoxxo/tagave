@@ -32,8 +32,13 @@ services:
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
       NODE_ENV: production
+      # Nightly and pre-update database backups (Settings › Backups).
+      BACKUP_DIR: /backups
+      TZ: ${TZ:-UTC}
     volumes:
       - cache:/cache
+      # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.
+      - ${TAGAVE_BACKUP_DIR:-backups}:/backups
     ports:
       - "${LINER_PORT:-3100}:3000"
     restart: unless-stopped
@@ -98,3 +103,4 @@ services:
 volumes:
   pgdata:
   cache:
+  backups:

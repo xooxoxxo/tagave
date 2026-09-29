@@ -40,6 +40,10 @@ RUN npm install -g pnpm@10.30.1
 # fragile; ship the whole built workspace.
 COPY --from=builder /app ./
 
+# Mount point for the backups volume (compose sets BACKUP_DIR=/backups); a
+# fresh named volume copies this directory's ownership.
+RUN mkdir -p /backups
+
 # Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
 ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown

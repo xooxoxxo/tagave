@@ -15,33 +15,83 @@ Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm do
 ## Where data lives
 
 - **Database:** `pgdata` volume
-- **Cache:** `cache` volume (thumbnails, converted audio, database dumps)
+- **Backups:** `backups` volume, mounted at `/backups` in the app container, or a folder on the host when `TAGAVE_BACKUP_DIR` is set in `.env`
+- **Cache:** `cache` volume (thumbnails, converted audio). The cache is not a backup location.
 
-## Taking a backup
+The commands below are for an install made with the installer: run them in its folder (`~/tagave` unless you chose another). For a source install, add `-f docker-compose.prod.yml` after `docker compose`.
 
-Take a verified dump of the database using custom `pg_dump` format, checked with `pg_restore --list` before the command reports success, and older dumps pruned to the newest 14:
+## Backups
+
+The app backs the database up every night and keeps a set of recent dumps. Settings › Backups lists them, takes one on demand, downloads or deletes one, and changes the schedule and how many are kept.
+
+Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --list` before it counts as written. A dump that fails that check is removed, and the failure is shown on the Backups page.
+
+| Kind | Taken | Deleted |
+|---|---|---|
+| Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
+| Manual | "Back up now", or `liner-doctor backup` | only when you delete it |
+| Before update | by the app, before it changes the database for a new version | only when you delete it |
+| Before restore | by `liner-doctor restore --in-place` | only when you delete it |
+
+Files are named `liner-<UTC time>[-<kind>].pgdump`. The `liner-` prefix is the project's old name, kept so older dumps sort with new ones. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
+
+Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` picks the folder; the compose files set it to `/backups`.
+
+### Take a backup by hand
 
 ```sh
-docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
+docker compose exec app node packages/doctor/dist/cli.js backup
 ```
 
-Dumps land in `/cache/backups/liner-<timestamp>.pgdump` inside the app container.
-The `liner-` prefix is the old project name and is still what the code writes;
-it is a filename, not a display string, so it has deliberately not been renamed. Use `--out DIR` or set `LINER_BACKUP_DIR` to change the location.
+`--keep N` prunes to the newest N dumps of any kind, `--out DIR` writes somewhere else, `--json` prints the result as JSON.
 
-Copy dumps off the host. The cache volume is not a backup location:
+### Copy backups somewhere else
+
+A backup on the same disk as the database does not survive that disk. Copy the folder off the computer regularly:
 
 ```sh
-docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
+docker compose cp app:/backups ./tagave-backups
 ```
 
-Restore into an empty database:
+Or set `TAGAVE_BACKUP_DIR=/path/on/host` in `.env` and run `docker compose up -d`. The app then writes straight to that folder, and any sync or backup tool on the host (rclone, restic, a NAS sync app) can pick it up from there. Dumps already in the old volume stay there until you copy them over.
+
+Keep `APP_SECRET` from `.env` in a password manager too. A database restored without it loses only the saved Discogs and AcoustID keys, which you then enter again.
+
+### Restore a backup
+
+`liner-doctor restore` replaces the whole database with a dump. It refuses to run while the app or a worker is connected, so stop them first and run it from a one-off container:
 
 ```sh
-pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
+docker compose stop app worker-identify worker-files
+docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore liner-<time>.pgdump --yes
+docker compose up -d
 ```
 
-Run `backup` before every upgrade, and put it on a nightly timer once you rely on the catalog.
+A bare file name is looked up in the backups folder; a path works too. Without `--yes` the command only says what it would do. On a split install, stop the file worker on the other computer as well.
+
+By default the dump is restored into a new database next to the current one. Once that has worked, the current database is renamed to `<name>_pre_restore_<time>` and the restored one takes its name. To go back, stop the app and swap the names back. Once you are happy, drop the old one:
+
+```sh
+docker compose exec postgres dropdb -U liner liner_pre_restore_<time>
+```
+
+Options:
+
+- `--in-place` restores into the existing database instead, for a database user that may not create databases. A pre-restore backup is written first, and if the restore fails that backup is put back.
+- `--force` restores even though the app or workers are connected. Their connections are closed.
+- `--json` prints the result as JSON.
+
+The restore does not run migrations. The app applies any the dump is missing when it starts.
+
+### Roll back an update
+
+Database changes only go forward, so an older version cannot run on a database a newer one has changed. To go back:
+
+1. Find the backup taken before the update on the Backups page (kind "Before update"), or one of your own.
+2. Set the previous version in `.env` (`TAGAVE_VERSION=<old version>`) and run `docker compose pull`.
+3. Restore that backup as above, then run `docker compose up -d`.
+
+From source, check out the previous version and rebuild instead of step 2.
 
 ## Moving workers into containers
 

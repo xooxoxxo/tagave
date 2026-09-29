@@ -86,6 +86,20 @@ export {
   compareVersions,
 } from './updates.js';
 
+// Database backups (Settings › Backups)
+export {
+  backupKindSchema,
+  type BackupKindView,
+  backupEntrySchema,
+  type BackupEntryView,
+  backupSettingsSchema,
+  type BackupSettingsView,
+  backupRunSchema,
+  type BackupRunView,
+  backupsStatusSchema,
+  type BackupsStatus,
+} from './backups.js';
+
 // Album grid query, facets, saved views (BRW-1)
 export {
   albumsQuerySchema,

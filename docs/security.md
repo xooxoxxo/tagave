@@ -51,17 +51,13 @@ The reseal command decrypts all stored credentials with the old secret and encry
 
 ## Backup security
 
-**Database backups** include encrypted credential material (safe without `APP_SECRET`). Dump backups with:
+**Database backups** include encrypted credential material (safe without `APP_SECRET`) and everything else in the catalog, including account email addresses and password hashes. The app writes one every night to the backups folder (`/backups` in the app container); only the owner can list, download or delete them in Settings › Backups. Treat copies you make like the database itself. Copy them off the host with:
 
 ```sh
-docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
+docker compose cp app:/backups ./tagave-backups
 ```
 
-Dumps land in `/cache/backups/liner-<timestamp>.pgdump` inside the app container. Copy them off the host, because the cache volume is not a backup location:
-
-```sh
-docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
-```
+See [operations](operations.md#backups) for the schedule, retention and restoring.
 
 **Cache volume** (thumbnails and converted audio) is not sensitive.
 

@@ -13,6 +13,28 @@ import {
 
 export type { Check, CheckStatus } from './checks.js';
 export { remediationFor } from './remediation.js';
+export {
+  BACKUP_KINDS,
+  SETTINGS_LIMITS,
+  applyRetention,
+  defaultBackupDir,
+  defaultBackupSettings,
+  deleteBackup,
+  isSafeBackupName,
+  listBackups,
+  readBackupSettings,
+  readBackupStatus,
+  retentionDeletes,
+  runBackup,
+  runRecordedBackup,
+  writeBackupSettings,
+  type BackupEntry,
+  type BackupKind,
+  type BackupRunRecord,
+  type BackupSettings,
+  type BackupStatusFile,
+  type RetentionPolicy,
+} from './backup.js';
 
 export interface DoctorOptions {
   databaseUrl: string;
