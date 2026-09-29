@@ -24,10 +24,10 @@ import { parseAlbumsSearch } from './pages/albumsSearch';
  */
 function parseWorkSearch(search: Record<string, unknown>) {
   const tab = search.tab as string | undefined;
-  if (tab && !['review', 'identify', 'attention'].includes(tab)) {
+  if (tab && !['review', 'identify', 'attention', 'tasks'].includes(tab)) {
     throw new Error(`Invalid work tab: ${tab}`);
   }
-  return { tab: (tab as 'review' | 'identify' | 'attention' | undefined) ?? 'review' };
+  return { tab: (tab as 'review' | 'identify' | 'attention' | 'tasks' | undefined) ?? 'review' };
 }
 
 // Root route - handles auth redirection

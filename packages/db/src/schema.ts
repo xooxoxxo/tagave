@@ -851,6 +851,14 @@ export const gaps = pgTable(
     dismissReason: varchar('dismiss_reason', { length: 50 }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    /** quality gaps: one row per flag (noCover, lowBitrate, …); '' for every other kind (0032) */
+    flag: varchar({ length: 50 }).notNull().default(''),
+    /** set when the owner chose "Add to my tasks"; kept after a scan resolves it, so it shows as done */
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    /** the owner's note on a task */
+    note: text(),
+    /** when the owner last chose hide / wrong / task */
+    decidedAt: timestamp('decided_at', { withTimezone: true }),
   },
   (table) => ({
     libraryIdx: index('idx_gaps_library').on(table.libraryId),

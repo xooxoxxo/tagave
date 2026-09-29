@@ -20,6 +20,7 @@ import { createAlbumRoutes } from './routes/albums.js';
 import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
 import { createQueueRoutes } from './routes/queue.js';
+import { createGapRoutes } from './routes/gaps.js';
 import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
 import { createCollectionRoutes } from './routes/collection.js';
@@ -267,6 +268,9 @@ app.register(async (instance) => {
 
   // Review queue routes
   instance.register(createQueueRoutes, { prefix: '/api/v1' });
+
+  // Gaps, their three-way decisions and the Tasks list (0032)
+  instance.register(createGapRoutes, { prefix: '/api/v1' });
 
   // Image serving
   instance.register(createImageRoutes, { prefix: '/api/v1' });

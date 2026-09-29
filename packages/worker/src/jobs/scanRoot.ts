@@ -17,6 +17,8 @@ export interface ScanRootJobData {
 }
 
 const PARSE_BATCH = 50;
+/** seconds between a scan that changed files and the gap check it queues */
+const GAPS_AFTER_SCAN_S = 15 * 60;
 /** directories walked at once — NFS round trips dominate, not CPU */
 const WALK_CONCURRENCY = 8;
 
@@ -113,6 +115,15 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
   }
   await enqueueReclusters(ctx, root, walk.dirsWithMissing);
+  // Files came or went: check the gaps again once parsing and clustering have
+  // had time to settle, so a task like "find the 4 missing tracks" is crossed
+  // out by the scan that saw the files arrive, not by the nightly run. One
+  // pending run per library (same key as a retry from the Jobs page).
+  if (walk.added + walk.changed + walk.missing > 0) {
+    await ctx.boss.send('gaps.recompute', { libraryId: root.libraryId }, {
+      singletonKey: `gaps:${root.libraryId}`, startAfter: GAPS_AFTER_SCAN_S,
+    });
+  }
 
   const elapsedS = Math.round((Date.now() - startedMs) / 1000);
   const stats = {

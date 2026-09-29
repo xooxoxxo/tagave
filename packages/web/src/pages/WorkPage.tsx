@@ -1,24 +1,22 @@
 /**
- * Work page: review, identify, attention tabs
- * Combines QueuePage (review), IdentifyPage (identify), and AttentionPage (attention)
+ * Work page: review, identify, attention and tasks tabs
+ * Combines QueuePage (review), IdentifyPage (identify), AttentionPage
+ * (attention) and TasksPage (tasks: gaps the owner took on, 0032)
  */
 import { useMemo } from 'react';
 import { useSearch, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { useCurrentLibrary, useIdentifyStats } from '../hooks';
+import { useCurrentLibrary, useIdentifyStats, useGapCounts } from '../hooks';
 import { api } from '../services/api';
 import { PageShell, TabItem } from '../components/ui';
 import { ReviewPanel } from './QueuePage';
 import { IdentifyPanel } from './IdentifyPage';
 import { AttentionPanel } from './AttentionPage';
+import { TasksPanel } from './TasksPage';
 
 interface QueueData {
   items: unknown[];
   total?: number;
-}
-
-interface GapsData {
-  counts: Record<string, number>;
 }
 
 export function WorkPage() {
@@ -38,15 +36,9 @@ export function WorkPage() {
   // Fetch identify stats for identify tab count
   const { data: stats } = useIdentifyStats(libraryId);
 
-  // Fetch gaps for attention tab count
-  const { data: gapsData } = useQuery({
-    queryKey: ['gaps', libraryId],
-    queryFn: () =>
-      api.get<GapsData>(
-        `/libraries/${libraryId}/gaps?limit=1`,
-      ),
-    enabled: !!libraryId,
-  });
+  // Open gaps for the attention tab count, open tasks for the tasks tab
+  const { data: gapsData } = useGapCounts(libraryId);
+  const taskCount = gapsData?.tasks?.todo ?? 0;
 
   const queueCount = queueData?.total ?? 0;
   const needsReviewCount = stats?.states.needsReview ?? 0;
@@ -73,12 +65,17 @@ export function WorkPage() {
         value: 'attention',
         ...(attentionTotal > 0 && { count: attentionTotal }),
       },
+      {
+        label: 'Tasks',
+        value: 'tasks',
+        ...(taskCount > 0 && { count: taskCount }),
+      },
     ],
-    [queueCount, needsReviewCount, attentionTotal],
+    [queueCount, needsReviewCount, attentionTotal, taskCount],
   );
 
   const handleTabChange = (newTab: string) => {
-    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' } });
+    navigate({ to: '/work', search: { tab: newTab as 'review' | 'identify' | 'attention' | 'tasks' } });
   };
 
   const renderPanel = () => {
@@ -87,6 +84,8 @@ export function WorkPage() {
         return <IdentifyPanel />;
       case 'attention':
         return <AttentionPanel />;
+      case 'tasks':
+        return <TasksPanel />;
       default:
         return <ReviewPanel />;
     }

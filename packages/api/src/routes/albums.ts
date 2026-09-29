@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
+import { eq, and, or, isNotNull, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
@@ -339,7 +339,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               .select({ subjectId: gaps.subjectId })
               .from(gaps)
               .where(and(
-                eq(gaps.state, 'open'),
+                inArray(gaps.state, ['open', 'todo']),
                 inArray(gaps.kind, ['incomplete_album', 'duplicate']),
                 inArray(gaps.subjectId, subjectIds),
               ))
@@ -701,12 +701,20 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .limit(1);
 
       // Everything the album page needs to act without leaving (XO-311):
-      // open/dismissed gaps, scored candidates, sibling copies of the same RG.
+      // open/dismissed gaps, tasks (open, and done in the last 30 days),
+      // scored candidates, sibling copies of the same RG.
       const gapSubjects = album.releaseGroupId ? [albumId, album.releaseGroupId] : [albumId];
       const gapRows = await db
         .select()
         .from(gaps)
-        .where(and(inArray(gaps.subjectId, gapSubjects), inArray(gaps.state, ['open', 'dismissed'])));
+        .where(and(
+          inArray(gaps.subjectId, gapSubjects),
+          or(
+            inArray(gaps.state, ['open', 'todo', 'dismissed']),
+            and(eq(gaps.state, 'resolved'), isNotNull(gaps.acceptedAt), sql`${gaps.resolvedAt} > now() - interval '30 days'`),
+          ),
+        ))
+        .orderBy(gaps.kind, gaps.flag);
 
       const candRows = await db
         .select({
@@ -930,6 +938,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           state: g.state,
           dismissReason: g.dismissReason,
           details: g.details,
+          flag: g.flag,
+          acceptedAt: g.acceptedAt?.toISOString() ?? null,
+          resolvedAt: g.resolvedAt?.toISOString() ?? null,
+          note: g.note,
         })),
         candidates: candRows.map((c) => ({
           id: c.id,

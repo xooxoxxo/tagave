@@ -265,3 +265,14 @@ export {
   compareArtistNames,
   artistInitials,
 } from './artistLabels.js';
+
+// Gap decisions and the Tasks list (0032)
+export {
+  TASK_DONE_DAYS,
+  TASK_NOTE_MAX,
+  type GapState,
+  type GapDismissReason,
+  type GapTask,
+  type GapTasksResponse,
+  type GapTaskCounts,
+} from './gaps.js';

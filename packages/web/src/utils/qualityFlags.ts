@@ -1,9 +1,9 @@
 /**
  * Plain-language rows for an album's quality flags (GAP-5).
  *
- * The worker stores one quality gap per album whose `details.flags` merges two
- * sources: audio checks (`true` or a count) and the TAG-6 lint rules in
- * @liner/core, which keep their own shapes — `missing: number[]`,
+ * The worker stores one quality gap per album and flag (0032), each with
+ * `details.flags` holding that one flag. The flags come from two sources:
+ * audio checks (`true` or a count) and the TAG-6 lint rules in @liner/core, which keep their own shapes — `missing: number[]`,
  * `tracks: number[]`, `issues: string[]`, `fields: string[]` and
  * `gap: { missing: number[] }`. Track references are 0-based positions in the
  * album's disc/track order; rows show them 1-based.
@@ -251,6 +251,15 @@ function describeOne(key: string, value: unknown, all: Record<string, unknown>, 
       };
     }
   }
+}
+
+/**
+ * One flag's row. Quality gaps are one row per flag since 0032; `all` is every
+ * open flag of the album, which some rows mention ("fetching the cover art
+ * above clears this too").
+ */
+export function describeQualityFlag(key: string, value: unknown, all: Record<string, unknown> = { [key]: value }, opts: DescribeOptions = {}): QualityIssue {
+  return describeOne(key, value, all, opts);
 }
 
 /** One row per flag, in the order they were stored. */

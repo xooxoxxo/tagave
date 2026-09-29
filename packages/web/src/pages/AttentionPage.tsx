@@ -1,17 +1,20 @@
 /**
- * Needs Attention (spec §14.2): open gaps grouped by kind, dismissible.
+ * Needs Attention (spec §14.2): open gaps grouped by kind. Each row offers
+ * the three choices (0032): add to my tasks, not a problem, this is wrong.
  */
 import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
-import { Button } from '../components/ui';
+import { GapChoices, GapChoicesHelp } from '../components/GapChoices';
+import { gapLine, missingTrackLabel, titleList, type MissingTrack } from '../utils/gapTasks';
 import styles from './AttentionPage.module.css';
 
 interface GapItem {
   id: string;
   kind: string;
+  flag?: string;
   subjectType: string;
   subjectId: string;
   subjectTitle: string | null;
@@ -23,14 +26,13 @@ interface GapItem {
 const KIND_LABEL: Record<string, string> = {
   incomplete_album: 'Incomplete albums',
   duplicate: 'Duplicates',
-  quality: 'Quality flags',
+  quality: 'Tags, artwork and files',
   missing_album: 'Missing albums',
 };
 
 export function AttentionPanel() {
   const { libraryId } = useCurrentLibrary();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const [kind, setKind] = useState<string>('incomplete_album');
 
   const { data, isLoading } = useQuery({
@@ -42,31 +44,14 @@ export function AttentionPanel() {
     enabled: !!libraryId,
   });
 
-  const dismiss = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
-      api.post(`/gaps/${id}/dismiss`, { reason }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['gaps', libraryId] }),
-  });
-
   const counts = data?.counts ?? {};
 
-  const describe = (g: GapItem): string => {
-    if (g.kind === 'incomplete_album') {
-      const d = g.details as { have?: number; want?: number; missing?: { title?: string }[] };
-      const names = (d.missing ?? []).slice(0, 3).map((m) => m.title).filter(Boolean).join(', ');
-      return `${d.have}/${d.want} tracks — missing: ${names}${(d.missing?.length ?? 0) > 3 ? '…' : ''}`;
-    }
-    if (g.kind === 'duplicate') {
-      const d = g.details as { count?: number };
-      return `${d.count} local copies of the same release group`;
-    }
-    if (g.kind === 'quality') {
-      const f = (g.details as { flags?: Record<string, unknown> }).flags ?? {};
-      return Object.entries(f)
-        .map(([k, v]) => (v === true ? k : `${k}: ${v}`))
-        .join(' · ');
-    }
-    return JSON.stringify(g.details);
+  /** which tracks an incomplete album lacks, as a second line */
+  const missingLine = (g: GapItem): string | null => {
+    if (g.kind !== 'incomplete_album') return null;
+    const missing = ((g.details as { missing?: MissingTrack[] }).missing ?? []);
+    if (missing.length === 0) return null;
+    return `${missingTrackLabel(missing)}: ${titleList(missing, 4)}`;
   };
 
   return (
@@ -87,6 +72,7 @@ export function AttentionPanel() {
       {data && data.items.length === 0 && (
         <div className={styles.empty}>Nothing open in this category.</div>
       )}
+      {data && data.items.length > 0 && <GapChoicesHelp />}
 
       <div className={styles.list}>
         {data?.items.map((g) => (
@@ -105,21 +91,10 @@ export function AttentionPanel() {
                 {g.subjectArtist ? `${g.subjectArtist} — ` : ''}
                 {g.subjectTitle ?? g.subjectId}
               </span>
-              <span className={styles.detail}>{describe(g)}</span>
+              <span className={styles.detail}>{gapLine(g)}</span>
+              {missingLine(g) && <span className={styles.detailMore}>{missingLine(g)}</span>}
             </div>
-            <div className={styles.rowActions}>
-              <Button variant="secondary" size="sm" onClick={() => dismiss.mutate({ id: g.id, reason: 'not_interested' })}>
-                Dismiss
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                title="The data is wrong (feeds the false-positive metric)"
-                onClick={() => dismiss.mutate({ id: g.id, reason: 'wrong_data' })}
-              >
-                Wrong
-              </Button>
-            </div>
+            <GapChoices gapId={g.id} subject={`${g.subjectTitle ?? 'this album'}: ${gapLine(g)}`} />
           </div>
         ))}
       </div>
