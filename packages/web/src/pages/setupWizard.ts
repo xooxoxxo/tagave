@@ -61,7 +61,7 @@ export interface SystemCheck {
  * and music-folder checks always fail on a fresh install; they are later
  * steps of the wizard, not problems.
  */
-const INFRASTRUCTURE = ['database', 'migrations', 'workerHeartbeat', 'versions', 'cacheDir', 'appSecret'];
+const INFRASTRUCTURE = ['database', 'migrations', 'workerHeartbeat', 'versions', 'cacheDir', 'backups', 'appSecret'];
 
 export function infrastructureChecks(checks: SystemCheck[]): SystemCheck[] {
   return checks.filter((c) => INFRASTRUCTURE.includes(c.id) && c.status !== 'skip');

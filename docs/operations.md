@@ -1,6 +1,6 @@
 # Operations
 
-This page covers the health check, backups, and the cutover from external workers to containers. Return here when you need to verify the system is running, take a backup before an upgrade, or move workers into the Compose stack.
+This page covers the health check, backups, what happens when you update, and the cutover from external workers to containers. Return here when you need to verify the system is running, take a backup before an upgrade, or move workers into the Compose stack.
 
 ## Health check
 
@@ -15,7 +15,8 @@ Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm do
 ## Where data lives
 
 - **Database:** `pgdata` volume
-- **Cache:** `cache` volume (thumbnails, converted audio, database dumps)
+- **Cache:** `cache` volume (thumbnails, converted audio)
+- **Backups:** `backups` volume, mounted at `/backups` in the app container (the automatic backups taken before each update, and `backup` dumps). Set `BACKUP_DIR` in `.env` to a folder on the host instead.
 
 ## Taking a backup
 
@@ -25,14 +26,15 @@ Take a verified dump of the database using custom `pg_dump` format, checked with
 docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
 ```
 
-Dumps land in `/cache/backups/liner-<timestamp>.pgdump` inside the app container.
+Dumps land in `/backups/liner-<timestamp>.pgdump` inside the app container.
+Older versions wrote these dumps to `/cache/backups`. If a copy job or timer reads that folder, point it at `/backups` (the `backups` volume, or `BACKUP_DIR`).
 The `liner-` prefix is the old project name and is still what the code writes;
 it is a filename, not a display string, so it has deliberately not been renamed. Use `--out DIR` or set `LINER_BACKUP_DIR` to change the location.
 
-Copy dumps off the host. The cache volume is not a backup location:
+Copy dumps off the host. A Docker volume on the same disk is not a backup location:
 
 ```sh
-docker compose -f docker-compose.prod.yml cp app:/cache/backups ./backups
+docker compose -f docker-compose.prod.yml cp app:/backups ./backups
 ```
 
 Restore into an empty database:
@@ -41,7 +43,58 @@ Restore into an empty database:
 pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
 ```
 
-Run `backup` before every upgrade, and put it on a nightly timer once you rely on the catalog.
+Put `backup` on a nightly timer once you rely on the catalog. The app also takes its own backup before every update that changes the database (below).
+
+## What happens when you update
+
+When the app starts, it updates the database to match its version (migrations). In order:
+
+1. **One at a time.** The app holds a database lock for the whole update. A second app that starts at the same moment waits ("another tagave process is migrating the database"), then finds nothing left to do.
+2. **Never onto a newer database.** If a newer version of tagave has already updated the database, an older app refuses to start. Update the app, or roll back as below.
+3. **Backup first.** If an existing database has updates to apply, the app writes `pre-migrate-<timestamp>.pgdump` into `/backups`, checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
+4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 5 (`LINER_PREMIGRATE_BACKUP_KEEP`).
+
+If a migration fails, the app exits and Docker restarts it. The database now has some of the update's migrations and not others. On the restart the app does not take a new backup, because that backup would hold the half-updated database. It keeps the first backup of this update as the rollback point (the log says "keeping its backup") and deletes nothing.
+
+Before you update from a version without automatic backups, run the installer again (or replace `compose.yml` with the current one). The old file has no `/backups` volume. Settings › System shows "not a mounted volume" when that is the case.
+
+The workers wait for the app: in the Compose files they start only once the app is healthy. A worker that is newer than the database waits until the app has updated it (up to `LINER_SCHEMA_WAIT_SECONDS`, 15 minutes by default, then it exits and Compose restarts it). A worker that is older than the database refuses to start, and a running worker stops when the app updates the database under it; its log says `will not run:` and which version it needs. On a split install, update the app computer first, then the music computer.
+
+The status page (Settings › System) and `liner-doctor doctor` show this as two checks: **Database schema** (pending updates, or a database newer than this build) and **Backups before updates** (whether the next backup can be written, and where the last one is).
+
+Overrides, for when you know why you need them:
+
+| Setting | Effect |
+|---|---|
+| `LINER_SKIP_PREMIGRATE_BACKUP=1` | Update without the backup. The status page warns afterwards. With the installer, set `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` in `.env`. |
+| `LINER_ALLOW_SCHEMA_SKEW=1` | Let an app or worker run on a database a newer version updated. With the installer: `TAGAVE_ALLOW_SCHEMA_SKEW=1`. |
+| `LINER_BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
+| `LINER_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
+| `LINER_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep (default 5). With the installer: `TAGAVE_PREMIGRATE_BACKUP_KEEP`. |
+
+Outside Docker (a source checkout), the app needs `pg_dump` and `pg_restore` of the same major version as the server on its `PATH` (or `PG_DUMP` and `PG_RESTORE` pointing at them) before it will apply an update. On a throwaway development database you can set `LINER_SKIP_PREMIGRATE_BACKUP=1` instead.
+
+### Roll back an update
+
+Migrations only go forward, so going back means restoring the backup the update took:
+
+1. Stop everything: `docker compose down` (the volumes stay).
+2. Set `TAGAVE_VERSION` in `.env` back to the version you had.
+3. Start only the database: `docker compose up -d postgres`.
+4. Find the backup taken before the update you are undoing. It is the **first** backup that update took, which is not always the newest file. The app log shows it ("backup written ..."), and so does the database's record:
+   ```sh
+   docker compose exec -T postgres psql -U liner liner -c \
+     "select created_at, path, from_version, to_version from _migration_backups order by id desc limit 5"
+   ```
+   Use the row whose `to_version` is the version you are leaving and whose `from_version` is the version you are going back to.
+   Restore that file into an empty database:
+   ```sh
+   docker compose exec -T postgres dropdb -U liner liner
+   docker compose exec -T postgres createdb -U liner liner
+   docker compose run --rm --no-deps -T app pg_restore --no-owner \
+     --dbname=postgres://liner:<password>@postgres:5432/liner /backups/pre-migrate-<timestamp>.pgdump
+   ```
+5. `docker compose up -d`.
 
 ## Moving workers into containers
 
