@@ -310,3 +310,6 @@ export type {
   IdentifyRequestView,
 } from './identify.js';
 export { IDENTIFY_REQUESTED_BY_OWNER } from './identify.js';
+
+// Open-folder links (album page, Settings › Scan roots)
+export { FOLDER_LINK_SCHEMES, folderLinkBaseProblem, normalizeFolderLinkBase, folderLinkFor } from './folderLink.js';

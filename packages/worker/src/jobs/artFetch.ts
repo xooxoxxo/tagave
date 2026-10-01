@@ -74,7 +74,11 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
     .from(images)
     .where(and(eq(images.localAlbumId, album.id), eq(images.kind, 'front')))
     .limit(1);
-  if (existing.length > 0) return;
+  if (existing.length > 0) {
+    // the art is already here: a noCover flag left from before it landed is stale
+    await settleCoverGap(ctx, album.libraryId, album.id);
+    return;
+  }
 
   const tracks = await ctx.db
     .select({ audioFileId: localTracks.audioFileId })
@@ -277,6 +281,29 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
       fetchedAt: new Date(),
     })
     .onConflictDoNothing();
+
+  await settleCoverGap(ctx, album.libraryId, album.id);
+}
+
+/**
+ * The album has a front image now, so its "No cover art" flag no longer
+ * holds. gaps.recompute would clear it, but that runs after a scan and every
+ * night; until then the album page said "No cover art · Fetch art" under the
+ * cover it was showing. Resolve the flag at once (as the recompute's sweep
+ * would: a hidden flag or a task included, the task keeping accepted_at so
+ * it reads as done), then re-lint just this album, so flags that read the
+ * art (noEmbeddedArt) are recomputed too.
+ */
+export async function settleCoverGap(ctx: WorkerContext, libraryId: string, albumId: string): Promise<void> {
+  await ctx.sql`
+    update gaps set state = 'resolved', resolved_at = coalesce(resolved_at, now())
+    where library_id = ${libraryId} and kind = 'quality' and flag = 'noCover'
+      and subject_id = ${albumId} and state != 'resolved'`;
+  try {
+    await ctx.boss.send('gaps.recompute', { libraryId, albumIds: [albumId] }, {});
+  } catch (error) {
+    ctx.logger.warn({ libraryId, albumId, error: String(error) }, 'art.fetch: could not queue re-lint');
+  }
 }
 
 /** Enqueue art.fetch for albums without a front image yet. */

@@ -12,12 +12,14 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
-import { Button, EmptyState, SearchField, Select } from '../components/ui';
+import { Button, EmptyState, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
 import {
   ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsView,
 } from './artistsView';
 import styles from './ArtistsPage.module.css';
+
+const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
 
 const MIN_CARD = 150;
 const MIN_CARD_NARROW = 132;
@@ -139,9 +141,8 @@ export function ArtistsPage() {
           <Select dense className={styles.sort} aria-label="Sort artists" value={sort} onChange={(e) => setSort(e.target.value as ArtistSort)}>
             {ARTIST_SORT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
           </Select>
-          <div className={styles.viewToggle} role="group" aria-label="View mode">
-            <Button size="sm" variant={view === 'grid' ? 'secondary' : 'quiet'} aria-pressed={view === 'grid'} onClick={() => setView('grid')}>Grid</Button>
-            <Button size="sm" variant={view === 'list' ? 'secondary' : 'quiet'} aria-pressed={view === 'list'} onClick={() => setView('list')}>List</Button>
+          <div className={styles.viewToggle}>
+            <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setView('grid') : setView('list'))} options={VIEW_OPTIONS} />
           </div>
         </div>
         {/* One tab stop: arrow keys, Home and End move between letters. */}

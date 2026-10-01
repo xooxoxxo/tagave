@@ -64,3 +64,8 @@ export function trackArtistIfDifferent(trackArtist: string | null | undefined, a
   }
   return t;
 }
+
+/** How often the album page looks again while a cover-art lookup is queued or running: quickly only while the owner is watching for it. */
+export function artPollMs(asked: boolean, maintenance: boolean): number {
+  return asked || maintenance ? 2500 : 10000;
+}

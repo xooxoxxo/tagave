@@ -43,15 +43,10 @@
 .search { flex: 1 1 220px; max-width: 360px; }
 .sort { flex: none; width: auto; }
 
-/* Grid / List: two small bubbles in a recessed pill track (as on Albums). */
+/* Grid / List: the shared segmented control, pushed to the row's end. */
 .viewToggle {
-  display: inline-flex;
-  gap: 4px;
+  display: flex;
   margin-left: auto;
-  padding: 4px;
-  border-radius: var(--r-pill);
-  background: var(--mist);
-  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .08);
 }
 
 /* A–Z: one quiet line of letters; scrolls sideways on a phone. */

@@ -34,15 +34,10 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Grid / List: two small bubbles in a recessed pill track. */
+/* Grid / List: the shared segmented control, pushed to the row's end. */
 .viewToggle {
-  display: inline-flex;
-  gap: 4px;
+  display: flex;
   margin-left: auto;
-  padding: 4px;
-  border-radius: var(--r-pill);
-  background: var(--mist);
-  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .08);
 }
 
 .chips {

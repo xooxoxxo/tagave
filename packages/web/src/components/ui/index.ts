@@ -6,7 +6,7 @@ export { Badge, statusTone, type BadgeTone } from './Badge';
 export { Table, Th, Td, TableRow } from './Table';
 export { EmptyState } from './EmptyState';
 export { Banner, type BannerTone } from './Banner';
-export { Tabs, type TabItem } from './Tabs';
+export { Tabs, tabIdFor, type TabItem } from './Tabs';
 export { Tooltip } from './Tooltip';
 export { PageShell } from './PageShell';
 export { Input, Select, Textarea, TextField, SearchField, PendingValue, type TextFieldProps, type SearchFieldProps } from './FormControl';

@@ -16,6 +16,8 @@ import {
 import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
 import { scanRootCounts } from '../lib/scanRootCounts.js';
+import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
+import { normalizeFolderLinkBase } from '@liner/shared';
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Get library settings (spec PLT-4)
@@ -503,10 +505,12 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .from(scanRoots)
       .where(eq(scanRoots.libraryId, libraryId));
     const counts = await scanRootCounts(db, libraryId);
+    const links = folderLinksOf(lib[0]?.settings);
 
     reply.status(200).send({
       data: roots.map((sr) =>
         scanRootSchema.parse({
+          folderLink: links[sr.id] ?? null,
           albumsFound: counts.get(sr.id)?.albumsFound ?? 0,
           tracksFound: counts.get(sr.id)?.tracksFound ?? 0,
           id: sr.id,
@@ -644,6 +648,18 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       if (body.writable !== undefined) updates.writable = body.writable;
       if (body.pollIntervalS) updates.pollIntervalS = body.pollIntervalS;
 
+      // The open-folder base lives in the library settings, keyed by root
+      // (no column of its own): the album page reads it to link folders.
+      let links = folderLinksOf(lib[0]?.settings);
+      if (body.folderLink !== undefined) {
+        const next = { ...links };
+        const base = normalizeFolderLinkBase(body.folderLink);
+        if (base) next[scanRootId] = base; else delete next[scanRootId];
+        const current = settingsObject(lib[0]?.settings);
+        await db.update(libraries).set({ settings: sql`${JSON.stringify({ ...current, folderLinks: next })}::jsonb` }).where(eq(libraries.id, libraryId));
+        links = next;
+      }
+
       // drizzle throws "No values to set" on an empty set(); an empty patch is a no-op
       if (Object.keys(updates).length > 0) {
         await db.update(scanRoots).set(updates).where(eq(scanRoots.id, scanRootId));
@@ -661,6 +677,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       }
       reply.status(200).send(
         scanRootSchema.parse({
+          folderLink: links[sr.id] ?? null,
           id: sr.id,
           libraryId: sr.libraryId,
           path: sr.path,

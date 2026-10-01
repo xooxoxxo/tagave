@@ -9,7 +9,7 @@ import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@liner
 export type AlbumsSearch = AlbumsQuery;
 
 export const ALBUMS_SORTS = ['artist', 'title', 'year', 'added_date', 'rating', 'listened'] as const;
-const SINGLE_KEYS = ['q', 'artist', 'decided', 'review', 'owned'] as const;
+const SINGLE_KEYS = ['q', 'artist', 'folder', 'root', 'decided', 'review', 'owned'] as const;
 const MULTI_KEYS = MULTI_FILTER_KEYS;
 
 function toArray(v: unknown): string[] {
@@ -55,7 +55,8 @@ export function albumsQueryOf(search: AlbumsSearch): AlbumsQuery {
 }
 
 export function activeFilterCount(search: AlbumsSearch): number {
-  const { sort: _s, view: _v, ...rest } = search;
+  // root only narrows the folder filter; it is not a filter of its own
+  const { sort: _s, view: _v, root: _r, ...rest } = search;
   return Object.values(rest).reduce<number>(
     (n, v) => n + (Array.isArray(v) ? v.length : v === undefined || v === '' ? 0 : 1),
     0,

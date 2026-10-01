@@ -16,6 +16,8 @@ import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
 import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@liner/shared';
 import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
+import { albumFolders } from '../lib/folderLinks.js';
+import { artFetchState } from '../lib/artFetchState.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -64,6 +66,18 @@ export function albumQueryParts(
   // Unresolved artists are listed by their shown name (numbering stripped,
   // VA spellings folded, migration 0028), so the filter matches the same way.
   if (artist) conds.push(sql`liner_display_artist(${localAlbums.artistGuess}) = liner_display_artist(${artist}::text)`);
+  // "Show albums in this folder" (album page): the folder itself or anything
+  // below it, relative to the scan root as dir_paths are.
+  const folder = str(q['folder'])?.replace(/\/+$/, '');
+  if (folder) conds.push(sql`exists (select 1 from unnest(${localAlbums.dirPaths}) as d(p) where d.p = ${folder} or starts_with(d.p, ${folder + '/'}))`);
+  // ...and, with `root`, only under that scan root (the same relative path
+  // can exist under two roots). A malformed id matches nothing.
+  const root = str(q['root']);
+  if (root) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(root)) conds.push(sql`false`);
+    else conds.push(sql`exists (select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      where lt.local_album_id = ${localAlbums.id} and af.scan_root_id = ${root}::uuid)`);
+  }
   if (search) {
     // Column references stay qualified: the facet queries join tables that
     // carry the same names (gaps.state, releases.date, …).
@@ -915,6 +929,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         totalDurationMs: album.totalDurationMs,
         coverUrl: art[0] ? `/api/v1/images/album/${album.id}` : null,
         coverOrigin: art[0]?.origin ?? null,
+        artFetch: await artFetchState(album.id),
+        folders: await albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
         isCueImage,
         cueRelPath,
         release,
@@ -963,7 +979,9 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           }),
         createdAt: album.createdAt?.toISOString() || new Date().toISOString(),
         missingTracks,
-        gaps: gapRows.map((g) => ({
+        // A noCover flag on an album that has its front image is stale (the
+        // flag was computed before the art landed); never show it.
+        gaps: gapRows.filter((g) => !(art[0] && g.kind === 'quality' && g.flag === 'noCover' && g.state !== 'resolved')).map((g) => ({
           id: g.id,
           kind: g.kind,
           state: g.state,
@@ -1023,8 +1041,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const boss = await getBoss();
-      await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
-      reply.status(202).send({ ok: true });
+      const jobId = await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
+      reply.status(202).send({ ok: true, jobId: jobId ?? null, artFetch: await artFetchState(albumId) });
     }
   );
 

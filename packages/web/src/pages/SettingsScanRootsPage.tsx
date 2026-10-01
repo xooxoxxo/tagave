@@ -3,9 +3,9 @@
  * Add, edit, enable/disable scan roots
  */
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { SCAN_ROOT_EMPTY_MESSAGE, type ScanRoot } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, folderLinkFor, type ScanRoot } from '@liner/shared';
 import { Button, confirmDialog } from '../components/ui';
 import styles from './SettingsScanRootsPage.module.css';
 
@@ -365,6 +365,13 @@ function SettingsScanRootsContentInner() {
                   {isPending(root.id) ? 'Deleting...' : 'Delete'}
                 </Button>
               </div>
+              <FolderLinkField
+                root={root}
+                saving={isPending(root.id)}
+                onSave={(folderLink) => withPending(root.id, () => {
+                  updateMutation.mutate({ rootId: root.id, data: { folderLink } }, { onSettled: clearPending(root.id) });
+                })}
+              />
               {root.writable && root.probeWritable === false && (
                 <p className={styles.rootWarning}>
                   Marked writable, but the worker cannot write to this mount — tag plans will not apply here until it is remounted read-write.
@@ -374,6 +381,50 @@ function SettingsScanRootsContentInner() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Open folder" link base for albums under this root: where the owner's own
+ * computer sees this folder. The album page then links each album folder as
+ * this base plus the folder path (URL-encoded).
+ */
+function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boolean; onSave: (link: string | null) => void }) {
+  const id = useId();
+  const saved = root.folderLink ?? '';
+  const [value, setValue] = useState(saved);
+  const problem = folderLinkBaseProblem(value);
+  const example = folderLinkFor(value, 'Artist/2013 - Album');
+  const dirty = value.trim() !== saved.trim();
+  return (
+    <div className={styles.folderLink}>
+      <label htmlFor={id} className={styles.folderLinkLabel}>Open-folder link</label>
+      <div className={styles.folderLinkRow}>
+        <input
+          id={id}
+          className={styles.folderLinkInput}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder="smb://nas/music/ or file:///Volumes/music/"
+          aria-invalid={problem ? true : undefined}
+          aria-describedby={`${id}-help`}
+          spellCheck={false}
+          autoCapitalize="off"
+        />
+        <Button size="sm" variant="secondary" disabled={!dirty || !!problem || saving} onClick={() => onSave(value.trim() || null)}>
+          {saving ? 'Saving...' : value.trim() || !saved ? 'Save link' : 'Remove link'}
+        </Button>
+      </div>
+      <p id={`${id}-help`} className={problem ? styles.error : styles.folderLinkHelp}>
+        {problem ?? (
+          <>
+            Where your computer sees <code>{root.path}</code>. Album pages then offer “Open folder”
+            {example ? <>, e.g. <code>{example}</code></> : null}. smb:// opens Finder or Explorer on most systems;
+            browsers usually block file:// links from a web page, so “Copy path” is always there too.
+          </>
+        )}
+      </p>
     </div>
   );
 }

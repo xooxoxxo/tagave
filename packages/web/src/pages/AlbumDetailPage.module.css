@@ -1,47 +1,70 @@
-/* Album page: the album first, a calm vertical rhythm, one content width. */
+/* Album page: the album first, a calm vertical rhythm, one content width.
+   The header is a full-bleed band (its backdrop runs edge to edge of the
+   pane); everything under it sits in the content column. */
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .container {
+  position: relative; /* paints over the band's backdrop where it fades out */
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
   width: 100%;
   max-width: var(--content-max);
-  min-height: 100%;
-  margin: 0 auto;
+  margin: 1.75rem auto 0;
   padding: 0 var(--page-pad) var(--page-pad);
-  /* the header's blurred backdrop bleeds to the edges but never scrolls sideways */
-  overflow-x: clip;
+}
+
+/* the panel the tab strip controls: the same rhythm as the column */
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  min-width: 0;
 }
 
 /* ---- identity header ---- */
 
-.hero {
+.heroBand {
   position: relative;
   isolation: isolate;
-  display: grid;
-  grid-template-columns: clamp(200px, 24vw, 280px) minmax(0, 1fr);
-  align-items: end;
-  gap: clamp(1.5rem, 3.5vw, 3rem);
-  padding-top: 0.5rem;
+  padding: 0 var(--page-pad);
 }
 
 /* A soft wash of the cover's own colours behind the header (Roon, Qobuz).
-   The image is blurred far past recognition and fades into the canvas. */
+   The frame spans the whole main pane, from the very top (behind the back
+   button's bar) to below the header, and clips the blurred image: the image
+   is larger than the frame, so its blurred-out edges never show and the
+   sides stay coloured at any width. The frame's mask fades it into the
+   canvas at the bottom; there is no hard edge anywhere. */
+.backdropFrame {
+  position: absolute;
+  z-index: -1;
+  top: calc(-1 * var(--album-bar-h, 56px));
+  right: 0;
+  bottom: -96px;
+  left: 0;
+  overflow: hidden;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, var(--canvas) 0%, var(--canvas) 40%, transparent 100%);
+  mask-image: linear-gradient(to bottom, var(--canvas) 0%, var(--canvas) 40%, transparent 100%);
+}
+
 .backdrop,
 .backdropPlain {
   position: absolute;
-  z-index: -1;
-  inset: -120px calc(-1 * var(--page-pad)) -64px;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, var(--canvas) 30%, transparent 100%);
-  mask-image: linear-gradient(to bottom, var(--canvas) 30%, transparent 100%);
+  inset: 0;
 }
 
 .backdrop {
+  inset: -240px;
   background-size: cover;
   background-position: center;
   filter: blur(72px) saturate(1.35);
-  opacity: 0.38;
-  transform: scale(1.15);
+  opacity: 0.4;
 }
 
 .backdropPlain {
@@ -50,9 +73,19 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .backdrop { opacity: 0.3; }
+  :root:not([data-theme="light"]) .backdrop { opacity: 0.32; }
 }
-:root[data-theme="dark"] .backdrop { opacity: 0.3; }
+:root[data-theme="dark"] .backdrop { opacity: 0.32; }
+
+.hero {
+  display: grid;
+  grid-template-columns: clamp(200px, 24vw, 280px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.5rem, 3.5vw, 3rem);
+  max-width: calc(var(--content-max) - 2 * var(--page-pad));
+  margin: 0 auto;
+  padding-top: 0.5rem;
+}
 
 .coverBox {
   width: 100%;
@@ -106,17 +139,68 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "⋯", then the physical chip and (Maintenance) state and provider links,
+   all on one line under the meta line. */
+.headTools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  margin-top: 0.4rem;
+}
+
 .actionRow {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  margin-top: 0.4rem;
+}
+
+/* A passing status ("Looking for cover art…"): quiet, inline, under the
+   tools. The slot keeps no height when empty. */
+.statusSlot:empty {
+  display: none;
 }
 
 .statusNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--ink-2);
+}
+
+.statusSpinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--dew) 30%, transparent);
+  border-top-color: var(--dew);
+  animation: album-spin 0.9s linear infinite;
+}
+
+@keyframes album-spin {
+  to { transform: rotate(360deg); }
+}
+
+.statusDismiss {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 0.75rem;
+}
+
+.statusDismiss:hover:not(:disabled) {
+  background: var(--mist);
+  color: var(--ink);
 }
 
 /* Maintenance: state and provider links in one quiet line */
@@ -325,62 +409,7 @@
 
 /* ---- faces ---- */
 
-/* The same recessed pill track as the Tabs primitive; the current face is a
-   clear bubble resting in it. */
-.tabs {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
-  width: max-content;
-  max-width: 100%;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--r-pill);
-  background: var(--mist);
-  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), 0.1), inset 0 0 0 1px var(--glass-edge);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.tabs::-webkit-scrollbar {
-  display: none;
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 40px;
-  padding: 0 18px;
-  font: 500 14px / 1 var(--font-body);
-  letter-spacing: 0.01em;
-  white-space: nowrap;
-  background: transparent;
-  border: none;
-  border-radius: var(--r-pill);
-  color: var(--ink-2);
-}
-
-.tab:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--surface) 45%, transparent);
-  color: var(--ink);
-}
-
-.tab:active:not(:disabled) {
-  transform: none;
-}
-
-.tab:focus-visible {
-  outline-offset: -2px;
-}
-
-.tabActive,
-.tabActive:hover:not(:disabled) {
-  color: var(--ink);
-  font-weight: 600;
-  background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--mist) 40%, var(--surface)));
-  box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
-}
+/* ---- faces (the shared Tabs strip) ---- */
 
 .liveDot {
   width: 6px;
@@ -753,9 +782,20 @@ td.cellOff {
 
 /* ---- phone: the album centred like a player's album view ---- */
 
+/* the app bar of detail pages is hidden here (the back button lives in the
+   phone bar above the scroll area), so the backdrop starts at the top */
+@media (max-width: 720px) {
+  .heroBand {
+    --album-bar-h: 0px;
+  }
+}
+
 @media (max-width: 640px) {
   .container {
     gap: 1.5rem;
+  }
+  .container {
+    margin-top: 1.5rem;
   }
   .hero {
     grid-template-columns: minmax(0, 1fr);
@@ -764,9 +804,8 @@ td.cellOff {
     gap: 1.25rem;
     padding-top: 1.25rem;
   }
-  .backdrop,
-  .backdropPlain {
-    inset: -40px calc(-1 * var(--page-pad)) -40px;
+  .backdropFrame {
+    bottom: -48px;
   }
   .coverBox {
     width: min(78vw, 320px);
@@ -800,15 +839,25 @@ td.cellOff {
     grid-row: 3;
     grid-column: 1;
   }
-  .headInfo > .actionRow {
+  /* the tools line dissolves into the grid: "⋯" at the meta line's end,
+     the chips on their own line under it */
+  .headTools {
+    display: contents;
+  }
+  .headTools > .actionRow {
     grid-row: 3;
     grid-column: 2;
     justify-self: end;
     margin: 0;
   }
-  .statusLine {
+  .headTools > .statusLine {
+    grid-row: 4;
+    grid-column: 1 / -1;
     justify-content: flex-start;
     margin-top: 0.2rem;
+  }
+  .headInfo > .statusSlot {
+    grid-row: 5;
   }
   .facts > div {
     grid-template-columns: 1fr;
@@ -872,14 +921,6 @@ td.cellOff {
 }
 
 /* "Physical · CD": the album is on the shelf too. Shown in both modes. */
-.physicalLine {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: 10px 0 0;
-}
-
 .physicalChip {
   display: inline-flex;
   align-items: center;

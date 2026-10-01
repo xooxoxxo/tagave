@@ -1,5 +1,5 @@
 import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip, confirmDialog, CoverArt } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt, SegmentedControl, type SegmentedOption } from '../components/ui';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -24,6 +24,8 @@ import { PlanWizard } from '../components/PlanWizard';
 import { useMaintenance } from '../maintenance';
 import styles from './AlbumsPage.module.css';
 
+const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
+
 const MIN_CARD = 200;
 const GRID_GAP = 24;
 /** Card chrome around the square cover: padding, gap, title (2 lines), artist, stats. */
@@ -38,7 +40,7 @@ const STATE_LABEL: Record<string, string> = {
   matched: 'Matched', needs_review: 'Needs review', unidentified: 'Unidentified', pending: 'Pending', as_is: 'Kept as-is', ignored: 'Ignored',
 };
 const CHIP_LABEL: Record<string, string> = {
-  q: 'search', artist: 'artist', state: 'state', decided: 'match', review: 'reviews', genre: 'genre', decade: 'decade',
+  q: 'search', artist: 'artist', folder: 'folder', state: 'state', decided: 'match', review: 'reviews', genre: 'genre', decade: 'decade',
   format: 'format', label: 'label', owned: 'collection', gap: 'attention',
 };
 /** How a match was decided, in words (Maintenance only); the title says more. */
@@ -339,7 +341,7 @@ export function AlbumsPage() {
   };
 
   const chips = (Object.entries(query) as Array<[keyof typeof query, unknown]>)
-    .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view')
+    .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view' && k !== 'root')
     .flatMap(([k, v]) => {
       const label = CHIP_LABEL[k] ?? k;
       if (Array.isArray(v)) {
@@ -349,7 +351,8 @@ export function AlbumsPage() {
           clear: () => setSearch({ [k]: toggleMulti(search, k as MultiFilterKey, item as string | number) } as SearchPatch),
         }));
       }
-      return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch({ [k]: undefined } as SearchPatch) }];
+      // the scan root only narrows a folder filter: it goes with it, unseen
+      return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch((k === 'folder' ? { folder: undefined, root: undefined } : { [k]: undefined }) as SearchPatch) }];
     });
 
   const showEmpty = !isLoading && !error && items.length === 0;
@@ -383,9 +386,8 @@ export function AlbumsPage() {
           <span className={styles.countInfo}>
             {facets ? `${total.toLocaleString()} albums` : ''}
           </span>
-          <div className={styles.viewToggle} role="group" aria-label="View mode">
-            <Button size="sm" variant={view === 'grid' ? 'secondary' : 'quiet'} aria-pressed={view === 'grid'} onClick={() => setSearch({ view: undefined })}>Grid</Button>
-            <Button size="sm" variant={view === 'list' ? 'secondary' : 'quiet'} aria-pressed={view === 'list'} onClick={() => setSearch({ view: 'list' })}>List</Button>
+          <div className={styles.viewToggle}>
+            <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setSearch({ view: undefined }) : setSearch({ view: 'list' }))} options={VIEW_OPTIONS} />
           </div>
         </div>
 

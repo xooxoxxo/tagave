@@ -30,13 +30,13 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Collapse, CoverArt, LinkButton, Menu, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
-import { useScrollFade } from '../components/ui/useScrollFade';
+import { Button, Collapse, CoverArt, LinkButton, Menu, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
-import { STATE_LABEL, dur, totalLength } from './albumFormat';
+import { STATE_LABEL, artPollMs, dur, totalLength } from './albumFormat';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -47,6 +47,9 @@ const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
 ];
 
 const PANEL_MATCH_INPUT = 'manual-match-input';
+/** the one panel the album's tab strip controls */
+const TAB_PANEL_ID = 'album-section-panel';
+
 const ROW_MATCH_INPUT = 'manual-match-input-row';
 
 /** resolved tasks the owner already saw ("Got it"), per browser */
@@ -78,7 +81,6 @@ export function AlbumDetailPage() {
   const tab: AlbumTab = search.tab ?? 'tracks';
   const setTab = (next: AlbumTab) =>
     void navigate({ to: '/albums/$albumId', params: { albumId }, search: next === 'tracks' ? {} : { tab: next }, replace: true, resetScroll: false });
-  const tabStrip = useScrollFade<HTMLElement>(tab);
 
   const [showExcluded, setShowExcluded] = useState(false);
   const [mbidInput, setMbidInput] = useState('');
@@ -87,6 +89,19 @@ export function AlbumDetailPage() {
   const [openRows, setOpenRows] = useState<Set<string>>(new Set());
   const [acked, setAcked] = useState<Set<string>>(readAcked);
   const [note, setNote] = useState<string | null>(null);
+  // A note is a passing status ("3 tracks are now one album."): it goes by itself.
+  useEffect(() => {
+    if (!note) return;
+    const t = setTimeout(() => setNote(null), 12000);
+    return () => clearTimeout(t);
+  }, [note]);
+  /** the owner asked for cover art on this visit: say how the lookup ends */
+  const [artAsked, setArtAsked] = useState(false);
+  // read inside the query's refetchInterval, which is not re-created per render
+  const artAskedRef = useRef(artAsked);
+  artAskedRef.current = artAsked;
+  const maintenanceRef = useRef(maintenance);
+  maintenanceRef.current = maintenance;
   const toggleRow = (id: string) => setOpenRows((cur) => {
     const next = new Set(cur);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -110,6 +125,12 @@ export function AlbumDetailPage() {
       const r = (q.state.data as AlbumDetail | undefined)?.identifyRequest;
       const live = r ? r.status !== 'done' : !!(q.state.data as AlbumDetail | undefined)?.pendingIdentify;
       if (live) return 2500;
+      // a cover-art lookup on its way: the page shows the art (or says none
+      // was found) when it ends. Quickly when the owner is watching for it
+      // (asked on this visit, or Maintenance shows the note); slowly for a
+      // background sweep's job, which can sit in the queue for a long time.
+      const art = (q.state.data as AlbumDetail | undefined)?.artFetch?.state;
+      if (art === 'queued' || art === 'running') return artPollMs(artAskedRef.current, maintenanceRef.current);
       // a physical copy on its way to Discogs: "adding to Discogs…" clears itself
       return (q.state.data as AlbumDetail | undefined)?.discogsCollectionItems?.some((i) => i.pushState === 'pending') ? 5000 : false;
     },
@@ -131,7 +152,7 @@ export function AlbumDetailPage() {
   });
   const fetchArt = useMutation({
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/fetch-art`),
-    onSuccess: () => { setNote('Cover art lookup queued; the page updates when it lands.'); refresh(5000); },
+    onSuccess: () => { setArtAsked(true); refresh(0); },
   });
   const keepAsIs = useMutation({
     mutationFn: () => api.post(`/albums/${albumId}/as-is`),
@@ -673,8 +694,20 @@ export function AlbumDetailPage() {
     { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
   ];
 
-  const statusNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
-    ?? (reidentify.isError ? errorDetail(reidentify) : null);
+  // The cover-art lookup as it really stands (not a fixed "queued" line):
+  // live while the job is queued or running, then gone when the art lands,
+  // or a plain "none found" when the lookup came back empty.
+  const artState = album.artFetch?.state;
+  const artLive = artState === 'queued' || artState === 'running';
+  const artNote: { text: string; live: boolean } | null =
+    artLive && (artAsked || maintenance) ? { text: artState === 'running' ? 'Looking for cover art…' : 'Cover art lookup queued…', live: true }
+      : artAsked && !album.coverUrl && artState === 'done' ? { text: 'No cover art found: none in the files or the folder, and none on Cover Art Archive or Discogs.', live: false }
+        : artAsked && artState === 'failed' ? { text: 'The cover art lookup failed. Try again from the ⋯ menu.', live: false }
+          : null;
+  const plainNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
+    ?? (reidentify.isError ? errorDetail(reidentify) : null) ?? (fetchArt.isError ? errorDetail(fetchArt) : null);
+  const statusNote: { text: string; live: boolean } | null = artNote ?? (plainNote ? { text: plainNote, live: false } : null);
+  const dismissNote = () => { setNote(null); setArtAsked(false); };
 
   const facts: Array<[string, ReactNode]> = [
     ['Released', album.release?.date ?? (album.year ? String(album.year) : null)],
@@ -684,7 +717,7 @@ export function AlbumDetailPage() {
     ['Format', album.formats?.join(', ') || null],
     ['Genres & styles', genreLabels.join(', ') || null],
     ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.format, i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
-    ['Local folder', album.dirPaths?.length ? <span className={styles.pathLine}>{album.dirPaths.join('\n')}</span> : null],
+    ['Local folder', album.dirPaths?.length ? <AlbumFolders folders={album.folders ?? album.dirPaths.map((path) => ({ path, scanRootId: null, link: null }))} /> : null],
     ...(maintenance ? [
       ['Identification', album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'] as [string, ReactNode],
       ['Artwork source', album.coverOrigin ?? null] as [string, ReactNode],
@@ -693,53 +726,76 @@ export function AlbumDetailPage() {
   ];
 
   return (
-    <div className={styles.container}>
-      <header className={styles.hero}>
-        <div className={album.coverUrl ? styles.backdrop : styles.backdropPlain} style={album.coverUrl ? { backgroundImage: `url("${album.coverUrl}")` } : undefined} aria-hidden="true" />
-        <div className={styles.coverBox}>
-          <CoverArt src={album.coverUrl} title={title ?? 'Untitled'} loading="eager" className={styles.cover} />
+    <div className={styles.page}>
+      <header className={styles.heroBand}>
+        {/* The cover's own colours behind the whole header, edge to edge of
+            the pane and up behind the back button, fading into the page. */}
+        <div className={styles.backdropFrame} aria-hidden="true">
+          <div className={album.coverUrl ? styles.backdrop : styles.backdropPlain} style={album.coverUrl ? { backgroundImage: `url("${album.coverUrl}")` } : undefined} />
         </div>
-        <div className={styles.headInfo}>
-          <h1 ref={titleRef} className={styles.title}>{title}</h1>
-          <div className={styles.artist}>
-            {album.artists && album.artists.length > 0
-              ? album.artists.map((artist, idx) => (
-                <span key={artist.id}>
-                  <Link to="/artists/$artistId" params={{ artistId: artist.id }}>{artist.name}</Link>
-                  {idx < album.artists!.length - 1 && ', '}
-                </span>
-              ))
-              : albumArtist ?? 'Unknown artist'}
+        <div className={styles.hero}>
+          <div className={styles.coverBox}>
+            <CoverArt src={album.coverUrl} title={title ?? 'Untitled'} loading="eager" className={styles.cover} />
           </div>
-          {meta && <p className={styles.metaRow}>{meta}</p>}
-          {ownsPhysical && (
-            <p className={styles.physicalLine}>
-              <Link className={styles.physicalChip} to="/collection" title="In your physical collection">
-                <span className={styles.physicalDot} aria-hidden="true" />
-                Physical{physicalFormats ? ` · ${physicalFormats}` : ''}
-              </Link>
-              {physicalPending && <span className={styles.physicalNote}>adding to Discogs…</span>}
-            </p>
-          )}
-          {maintenance && (
-            <div className={styles.statusLine}>
-              <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>
-              {album.match?.releaseGroupOnly && (
-                <Button variant="quiet" size="sm" title="Matched to the release group, not one edition — click to pin one again" onClick={() => clearAnyEdition.mutate(albumId)}>Any edition ✕</Button>
-              )}
-              {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs only</span>}
-              {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
-              {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
-              {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
+          <div className={styles.headInfo}>
+            <h1 ref={titleRef} className={styles.title}>{title}</h1>
+            <div className={styles.artist}>
+              {album.artists && album.artists.length > 0
+                ? album.artists.map((artist, idx) => (
+                  <span key={artist.id}>
+                    <Link to="/artists/$artistId" params={{ artistId: artist.id }}>{artist.name}</Link>
+                    {idx < album.artists!.length - 1 && ', '}
+                  </span>
+                ))
+                : albumArtist ?? 'Unknown artist'}
             </div>
-          )}
-          <div className={styles.actionRow}>
-            {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
-            <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
+            {meta && <p className={styles.metaRow}>{meta}</p>}
+            {/* One line: what the album is (a physical copy; in Maintenance
+                its state, then its provider pages), and "⋯" trailing it. */}
+            <div className={styles.headTools}>
+              {(ownsPhysical || maintenance) && (
+                <div className={styles.statusLine}>
+                  {ownsPhysical && (
+                    <Link className={styles.physicalChip} to="/collection" title="In your physical collection">
+                      <span className={styles.physicalDot} aria-hidden="true" />
+                      Physical{physicalFormats ? ` · ${physicalFormats}` : ''}
+                    </Link>
+                  )}
+                  {physicalPending && <span className={styles.physicalNote}>adding to Discogs…</span>}
+                  {maintenance && (<>
+                    <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>
+                    {album.match?.releaseGroupOnly && (
+                      <Button variant="quiet" size="sm" title="Matched to the release group, not one edition — click to pin one again" onClick={() => clearAnyEdition.mutate(albumId)}>Any edition ✕</Button>
+                    )}
+                    {album.release?.sourceOfTruth === 'discogs' && !album.release?.mbid && <span className={`${styles.pill} ${styles.pillMuted}`}>Discogs only</span>}
+                    {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
+                    {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
+                    {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
+                  </>)}
+                </div>
+              )}
+              {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
+              <div className={styles.actionRow}>
+                <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
+              </div>
+            </div>
+            {/* a passing status: quiet, inline, gone when the thing it is about is done */}
+            <div className={styles.statusSlot} role="status" aria-live="polite">
+              {statusNote && (
+                <p className={styles.statusNote}>
+                  {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
+                  <span>{statusNote.text}</span>
+                  {!statusNote.live && (
+                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss">✕</button>
+                  )}
+                </p>
+              )}
+            </div>
           </div>
-          {statusNote && <p className={styles.statusNote} role="status">{statusNote}</p>}
         </div>
       </header>
+
+      <div className={styles.container}>
 
       <Collapse open={manualOpen && !matchRowOpen}>
         <div className={styles.manualPanel}>
@@ -761,14 +817,18 @@ export function AlbumDetailPage() {
         busy={busy}
       />
 
-      <nav ref={tabStrip} className={styles.tabs} aria-label="Album sections">
-        {TABS.map(([key, label]) => (
-          <button key={key} type="button" className={`${styles.tab} ${tab === key ? styles.tabActive : ''}`} onClick={() => setTab(key)} aria-current={tab === key ? 'page' : undefined}>
-            {key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label}
-          </button>
-        ))}
-      </nav>
+      <Tabs
+        label="Album sections"
+        panelId={TAB_PANEL_ID}
+        value={tab}
+        onChange={(next) => setTab(next as AlbumTab)}
+        items={TABS.map(([key, label]) => ({
+          value: key,
+          label: key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label,
+        }))}
+      />
 
+      <div id={TAB_PANEL_ID} role="tabpanel" aria-labelledby={tabIdFor(TAB_PANEL_ID, tab)} className={styles.tabPanel}>
       {tab === 'tracks' && (
         <AlbumTracks
           tracks={album.tracks}
@@ -915,6 +975,7 @@ export function AlbumDetailPage() {
           </p>
         </section>
       )}
+      </div>
 
 
       {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId)) && (
@@ -933,6 +994,7 @@ export function AlbumDetailPage() {
           onClose={() => setEditingTags(false)}
         />
       )}
+      </div>
     </div>
   );
 }
