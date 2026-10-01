@@ -1,0 +1,58 @@
+{
+  "version": "3",
+  "templates": [
+    {
+      "type": 3,
+      "title": "tagave",
+      "name": "tagave",
+      "description": "A home for your music: catalogues the albums you own, finds what is missing and fixes tags. Postgres, the web app and both workers on one host.",
+      "note": "Fill in a database password, an app secret (at least 32 characters, e.g. the output of <code>openssl rand -hex 32</code>) and the host folder with your music. Open the app on port 3100 (or the port you chose) and register <code>/mnt/music</code> as the music folder. To update, set TAGAVE_VERSION to the new release and redeploy with Re-pull image on.",
+      "categories": ["media", "music"],
+      "platform": "linux",
+      "logo": "https://raw.githubusercontent.com/xooxoxxo/tagave/main/docs/images/mark.png",
+      "repository": {
+        "url": "https://github.com/xooxoxxo/tagave",
+        "stackfile": "deploy/templates/compose.yml"
+      },
+      "env": [
+        {
+          "name": "POSTGRES_PASSWORD",
+          "label": "Database password",
+          "description": "A long random password, letters and digits only. Keep a copy: it opens your catalogue."
+        },
+        {
+          "name": "APP_SECRET",
+          "label": "App secret",
+          "description": "At least 32 characters (openssl rand -hex 32). It encrypts stored provider tokens; keep a copy and never change it."
+        },
+        {
+          "name": "MUSIC_DIR",
+          "label": "Music folder on the host",
+          "description": "Absolute path, e.g. /srv/music. Mounted read-only at /mnt/music."
+        },
+        {
+          "name": "TAGAVE_PORT",
+          "label": "Web port",
+          "default": "3100"
+        },
+        {
+          "name": "TAGAVE_VERSION",
+          "label": "Version",
+          "description": "Image tag, e.g. 0.4.1. Pin a release so a redeploy never changes version by surprise.",
+          "default": "latest"
+        },
+        {
+          "name": "TZ",
+          "label": "Time zone",
+          "default": "UTC"
+        },
+        {
+          "name": "TAGAVE_INSTALL_METHOD",
+          "label": "Install method",
+          "default": "portainer",
+          "preset": true
+        }
+      ]
+    }
+  ]
+}

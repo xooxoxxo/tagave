@@ -1,0 +1,22 @@
+# tagave blueprint for Dokploy: secrets are generated on deploy, the app is
+# served on the generated domain. Set MUSIC_DIR to the host folder with your
+# music (it is mounted read-only in the file worker at /mnt/music).
+
+[variables]
+main_domain = "${domain}"
+postgres_password = "${password:64}"
+app_secret = "${password:64}"
+
+[config]
+[[config.domains]]
+serviceName = "app"
+port = 3000
+host = "${main_domain}"
+
+[config.env]
+POSTGRES_PASSWORD = "${postgres_password}"
+APP_SECRET = "${app_secret}"
+MUSIC_DIR = "/srv/music"
+TAGAVE_VERSION = "latest"
+TZ = "UTC"
+TAGAVE_INSTALL_METHOD = "dokploy"

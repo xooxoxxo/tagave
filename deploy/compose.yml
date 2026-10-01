@@ -86,6 +86,13 @@ services:
       LINER_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
       LINER_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
       LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
+      # Settings > Updates shows the update command for the way tagave was
+      # installed: the installer writes TAGAVE_ROLE, the platform templates set
+      # TAGAVE_INSTALL_METHOD. TAGAVE_UPDATE_FEED=off turns update checks off
+      # for the whole server (a URL replaces the official release feed).
+      TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-}
+      TAGAVE_ROLE: ${TAGAVE_ROLE:-}
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
     volumes:
       - cache:/cache
       # A volume of its own by default; set TAGAVE_BACKUP_DIR in .env to a

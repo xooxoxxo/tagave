@@ -7,6 +7,8 @@ import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
 import { useAppBarTitle } from './appBarTitle';
 import { BrandMark } from './BrandMark';
+import { UpdateDot } from './UpdateDot';
+import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import styles from './Layout.module.css';
@@ -32,6 +34,8 @@ export function Layout() {
   useJobEvents(user && libraryId ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
   const taskCount = useGapCounts(user ? libraryId : undefined).data?.tasks?.todo ?? 0;
+  // a newer release (not skipped) shows as a quiet dot on Settings
+  const updateAvailable = useUpdateAvailable(user ? libraryId : undefined);
   // While albums are selected, "Albums" leads back to that list, selection intact.
   const albumsReturnSearch = useAlbumsReturnSearch();
 
@@ -118,12 +122,13 @@ export function Layout() {
           className={styles.menuButton}
           aria-expanded={menuOpen}
           aria-controls="main-navigation"
-          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-label={menuOpen ? 'Close menu' : updateAvailable ? 'Open menu (a new version is available)' : 'Open menu'}
           onClick={() => setMenuOpen((open) => !open)}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             {menuOpen ? <path d="M6 6l12 12M18 6 6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
           </svg>
+          {updateAvailable && !menuOpen && <span className={styles.menuDot} aria-hidden="true" />}
         </button>
         <div id="main-navigation" className={styles.navSheet}>
         <nav className={styles.navLinks} aria-label="Main navigation">
@@ -133,7 +138,7 @@ export function Layout() {
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
           <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>
           <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
-          <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings</Link>
+          <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings{updateAvailable && <UpdateDot />}</Link>
         </nav>
         <div className={styles.navUser}>
           <span className={styles.userEmail} title={user.email}>{user.email}</span>

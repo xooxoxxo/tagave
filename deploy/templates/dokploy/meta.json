@@ -1,0 +1,13 @@
+{
+  "id": "tagave",
+  "name": "tagave",
+  "version": "latest",
+  "description": "A home for your music: catalogue the albums you own, find what is missing and fix tags.",
+  "logo": "https://raw.githubusercontent.com/xooxoxxo/tagave/main/docs/images/mark.png",
+  "links": {
+    "github": "https://github.com/xooxoxxo/tagave",
+    "website": "https://github.com/xooxoxxo/tagave",
+    "docs": "https://github.com/xooxoxxo/tagave/blob/main/docs/install.md"
+  },
+  "tags": ["music", "media", "library"]
+}

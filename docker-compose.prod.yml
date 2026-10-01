@@ -41,6 +41,9 @@ services:
       LINER_SKIP_PREMIGRATE_BACKUP: ${LINER_SKIP_PREMIGRATE_BACKUP:-}
       LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
       TZ: ${TZ:-UTC}
+      # Settings > Updates shows the source-build update steps first
+      TAGAVE_INSTALL_METHOD: source
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
     volumes:
       - cache:/cache
       # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.

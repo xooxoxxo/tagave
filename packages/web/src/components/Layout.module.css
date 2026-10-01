@@ -24,6 +24,9 @@ not as a drop. */
 .menuButton:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
 .menuButton:active:not(:disabled) { transform: none; background: var(--mist); }
 .menuButton svg { width: 1.25rem; height: 1.25rem; }
+.menuButton { position: relative; }
+.menuDot { position: absolute; top: .45rem; right: .45rem; width: .5rem; height: .5rem; border-radius: var(--r-pill); background: var(--dew); box-shadow: 0 0 0 2px var(--surface); }
+@media (forced-colors: active) { .menuDot { background: Highlight; } }
 
 /* A gap,
 not a rule,

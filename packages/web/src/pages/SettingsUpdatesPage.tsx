@@ -1,38 +1,20 @@
 /**
- * Settings › Updates (spec PLT-5, XO-313): what is running where (app vs
- * workers, with a mismatch warning for a lagging host), the release feed
- * with in-app changelogs, and the per-host update procedure. The feed is
- * checked once a day when the page is opened, or on demand.
+ * Settings › Updates (spec PLT-5, XO-313): whether a newer release exists
+ * and what it changes, the update steps for the way this server was
+ * installed (that one first, the others folded away), what is running where
+ * (app vs workers, with a warning for a lagging host), and the update-check
+ * switch. The server checks the official release feed on its own at most
+ * every 12 hours; nothing here performs an update.
  */
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
-import type { ReleaseNote, WorkerVersion } from '@liner/shared';
+import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
-import { useCheckUpdates, useSetUpdatesFeed, useUpdates } from '../hooks/useUpdates';
+import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { Button } from '../components/ui';
+import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import styles from './SettingsUpdatesPage.module.css';
-
-const DAY_MS = 24 * 3600 * 1000;
-
-// Update commands for the shipped docker-compose.prod.yml. It builds from the
-// checkout (no published image to pull), so an update is pull + rebuild; the
-// build args are what the "same build" check above compares.
-const COMPOSE = 'docker compose -f docker-compose.prod.yml';
-const REBUILD = `GIT_SHA=$(git rev-parse --short HEAD) BUILT_AT=$(date -u +%FT%TZ) \\
-  ${COMPOSE} --profile workers up -d --build`;
-const BACKUP_CMD = `${COMPOSE} exec -T postgres pg_dump -U liner -Fc liner > tagave-$(date +%F).pgdump`;
-const UPDATE_CMD = `git pull\n${REBUILD}`;
-// The one-command installer pins the release in ~/tagave/.env and keeps a
-// copy of itself there; its update command backs up, moves the pin, pulls and
-// restarts, so a plain `docker compose pull` no longer changes the version.
-const INSTALLER_UPDATE_CMD = 'cd ~/tagave\n./install-tagave.sh update';
-const ROLLBACK_CMD = [
-  'git checkout <previous version>',
-  `${COMPOSE} --profile workers stop app worker-files worker-identify`,
-  `${COMPOSE} exec -T postgres pg_restore -U liner -d liner --clean --if-exists < tagave-<date>.pgdump`,
-  REBUILD,
-].join('\n');
 
 function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString() : '–';
@@ -44,42 +26,136 @@ function workerName(w: WorkerVersion): string {
   return w.host ?? w.workerId.replace(/^worker-/, '');
 }
 
+function GuideSteps({ guide }: { guide: RollbackGuide }) {
+  return (
+    <>
+      <p className={styles.hint}>{guide.intro}</p>
+      {guide.steps.map((step, i) => (
+        <div key={i}>
+          {step.text && <p className={styles.hint}>{step.text}</p>}
+          {step.command && <pre className={styles.code}>{step.command}</pre>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean }) {
+  return (
+    <details className={styles.release} open={open}>
+      <summary className={styles.releaseHead}>
+        <strong>{release.tag}</strong>
+        {release.name && release.name !== release.tag && <span>{release.name}</span>}
+        {release.publishedAt && <span className={styles.muted}>{new Date(release.publishedAt).toLocaleDateString()}</span>}
+        {release.requiresAttention && <span className={styles.attention}>requires attention</span>}
+      </summary>
+      <div className={styles.markdown}>
+        {release.body ? <ReactMarkdown>{release.body}</ReactMarkdown> : <p className={styles.muted}>No release notes.</p>}
+        {release.url && <p><a href={release.url} target="_blank" rel="noreferrer">Release page ↗</a></p>}
+      </div>
+    </details>
+  );
+}
+
 export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
   const { data, isLoading, error } = useUpdates(libraryId);
-  const setFeed = useSetUpdatesFeed(libraryId);
-  const check = useCheckUpdates(libraryId);
-  const [feedUrl, setFeedUrl] = useState('');
-  useEffect(() => { setFeedUrl(data?.feed.url ?? ''); }, [data?.feed.url]);
-
-  // Daily check on open (spec: "daily + manual").
-  useEffect(() => {
-    if (!data?.feed.enabled || check.isPending) return;
-    const last = data.feed.lastCheckedAt ? Date.parse(data.feed.lastCheckedAt) : 0;
-    if (Date.now() - last > DAY_MS) check.mutate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data?.feed.enabled, data?.feed.lastCheckedAt]);
-
   if (isLoading) return <div className={styles.container}>Loading…</div>;
   if (error || !data) return <div className={styles.container}><div className={styles.error}>Could not load update status.</div></div>;
+  return <UpdatesContent data={data} libraryId={libraryId} />;
+}
 
-  const { app, workers, feed } = data;
-  const current = `${app.version}${app.sha ? ` @ ${shortSha(app.sha)}` : ''}`;
+function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: string | undefined }) {
+  const setFeed = useSetUpdatesFeed(libraryId);
+  const check = useCheckUpdates(libraryId);
+  const skip = useSkipUpdate(libraryId);
+  const { app, workers, feed, install } = data;
+  const target = feed.newer[0] ?? null;
+  const attention = attentionReleases(feed.newer);
+  const [readFor, setReadFor] = useState<string | null>(null);
+  const confirmed = attention.length === 0 || readFor === target?.version;
+  const [feedUrl, setFeedUrl] = useState(feed.custom ? feed.url ?? '' : '');
+  useEffect(() => { setFeedUrl(feed.custom ? feed.url ?? '' : ''); }, [feed.custom, feed.url]);
+
+  const detected: InstallMethod = install.method;
+  const [primary, ...others] = guideOrder(detected).map((m) => updateGuide(m, install, target?.version ?? null));
+  const skipped = target && feed.skippedVersion && !data.updateAvailable;
 
   return (
     <div className={styles.container}>
       {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
-      {data.updateAvailable && feed.newer[0] && (
+      {target && data.updateAvailable && (
         <div className={styles.banner}>
-          <strong>Update available:</strong> {feed.newer[0].tag}{feed.newer[0].name ? ` — ${feed.newer[0].name}` : ''}
-          {feed.newer[0].requiresAttention && <span className={styles.attention}>requires attention</span>}
+          <span><strong>tagave {target.version} is out.</strong> You run {app.version}.</span>
+          {target.requiresAttention && <span className={styles.attention}>requires attention</span>}
+          <Button size="sm" variant="quiet" className={styles.bannerAction} disabled={skip.isPending} onClick={() => skip.mutate(target.version)}>
+            Skip this version
+          </Button>
         </div>
+      )}
+      {skipped && (
+        <p className={styles.muted}>
+          You skipped {feed.skippedVersion}. You will hear about the next release.{' '}
+          <Button size="sm" variant="quiet" disabled={skip.isPending} onClick={() => skip.mutate(null)}>Show it again</Button>
+        </p>
       )}
       {data.mismatch && (
         <div className={styles.warn}>
-          A worker runs a different build than the app. Bring the lagging side to the same version and restart it, as described under How to update below.
+          A worker runs a different build than the app. Bring the lagging side to the same version and restart it, as described under How to update.
         </div>
       )}
+
+      {feed.newer.length > 0 && (
+        <section className={styles.section}>
+          <h2 className={styles.sectionTitle}>What’s new</h2>
+          {feed.newer.map((r) => <ReleaseArticle key={r.tag} release={r} open={r.requiresAttention || r === target} />)}
+        </section>
+      )}
+
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>{target ? `Update to ${target.version}` : 'How to update'}</h2>
+        {attention.length > 0 && target && (
+          <div className={styles.warn}>
+            <div>
+              <p className={styles.gateText}>
+                {attention.length === 1 ? `${attention[0]!.tag} is` : `${attention.map((r) => r.tag).join(', ')} are`} marked
+                {' '}<strong>requires attention</strong>: the update may need a step from you. Read the notes above before you update.
+              </p>
+              <label className={styles.gateCheck}>
+                <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
+                I have read the notes marked requires attention
+              </label>
+            </div>
+          </div>
+        )}
+        {confirmed ? (
+          <>
+            <h3 className={styles.subTitle}>
+              {primary!.title}
+              {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
+            </h3>
+            <GuideSteps guide={primary!} />
+            <p className={styles.hint}>
+              Then check: the table below lists every process at {target ? target.version : 'the new version'}, and <Link to="/settings/system">System status</Link> shows no failures.
+            </p>
+            <details className={styles.more}>
+              <summary>If something goes wrong</summary>
+              <p className={styles.hint}>
+                Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took.
+              </p>
+              <GuideSteps guide={rollbackGuide(primary!.method, install, app.version, target?.version ?? null)} />
+            </details>
+            {others.map((g) => (
+              <details key={g.method} className={styles.more}>
+                <summary>{g.title}</summary>
+                <GuideSteps guide={g} />
+              </details>
+            ))}
+          </>
+        ) : (
+          <p className={styles.muted}>The update steps appear once you have read the notes.</p>
+        )}
+      </section>
 
       <section className={styles.section}>
         <h2 className={styles.sectionTitle}>Running now</h2>
@@ -125,79 +201,52 @@ export function SettingsUpdatesPage() {
       </section>
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Release feed</h2>
+        <h2 className={styles.sectionTitle}>Update checks</h2>
         <p className={styles.hint}>
-          A GitHub Releases API URL, e.g. <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Checked daily when this page is open and on demand;
-          responses are cached by ETag. Leave it empty to turn update checks off.
+          Every 12 hours the server asks GitHub for the list of tagave releases. That request carries nothing about you, this server or your library, and there is no other telemetry.
         </p>
+        {feed.lockedByServer ? (
+          <p className={styles.hint}>
+            {feed.enabled ? <>Set on the server with <code>TAGAVE_UPDATE_FEED</code>: checks read <code>{feed.url}</code>.</> : <>Turned off on the server with <code>TAGAVE_UPDATE_FEED=off</code>.</>}
+          </p>
+        ) : (
+          <label className={styles.gateCheck}>
+            <input type="checkbox" checked={feed.enabled} disabled={setFeed.isPending} onChange={(e) => setFeed.mutate({ enabled: e.target.checked })} />
+            Check for new versions
+          </label>
+        )}
         <div className={styles.row}>
-          <input
-            className={styles.input}
-            placeholder="https://api.github.com/repos/…/releases"
-            value={feedUrl}
-            onChange={(e) => setFeedUrl(e.target.value)}
-          />
-          <Button disabled={setFeed.isPending || feedUrl.trim() === (feed.url ?? '')} onClick={() => setFeed.mutate(feedUrl.trim() || null)}>
-            Save
-          </Button>
-          <Button variant="secondary" disabled={!feed.enabled || check.isPending} onClick={() => check.mutate()}>
+          <Button variant="secondary" size="sm" disabled={!feed.enabled || check.isPending} onClick={() => check.mutate()}>
             {check.isPending ? 'Checking…' : 'Check now'}
           </Button>
+          <span className={styles.muted}>
+            {!feed.enabled ? 'Update checks are off.'
+              : feed.lastCheckedAt ? `Last checked ${when(feed.lastCheckedAt)}.` : 'Not checked yet; the first check runs a minute after the server starts.'}
+            {feed.enabled && feed.error ? ` The last check failed: ${feed.error}.` : ''}
+            {feed.enabled && !feed.error && feed.lastCheckedAt && feed.newer.length === 0 ? ` ${app.version} is the latest release.` : ''}
+          </span>
         </div>
-        <p className={styles.muted}>
-          {feed.enabled ? `Last checked ${when(feed.lastCheckedAt)}` : 'Feed disabled'}
-          {feed.error ? ` · last error: ${feed.error}` : ''}
-          {feed.enabled && !feed.error && feed.lastCheckedAt && !data.updateAvailable ? ` · ${current} is the latest known release` : ''}
-        </p>
-        {feed.newer.map((r: ReleaseNote) => (
-          <article key={r.tag} className={styles.release}>
-            <header className={styles.releaseHead}>
-              <strong>{r.tag}</strong>
-              {r.name && <span>{r.name}</span>}
-              {r.publishedAt && <span className={styles.muted}>{when(r.publishedAt)}</span>}
-              {r.requiresAttention && <span className={styles.attention}>requires attention</span>}
-              {r.url && <a href={r.url} target="_blank" rel="noreferrer">release page ↗</a>}
-            </header>
-            <div className={styles.markdown}>
-              {r.body ? <ReactMarkdown>{r.body}</ReactMarkdown> : <p className={styles.muted}>No release notes.</p>}
+        {!feed.lockedByServer && feed.enabled && (
+          <details className={styles.more} open={feed.custom}>
+            <summary>Use a different release feed</summary>
+            <p className={styles.hint}>
+              For a fork: a GitHub Releases API URL, such as <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Empty means the official feed, <code>{feed.defaultUrl}</code>.
+            </p>
+            <div className={styles.row}>
+              <input
+                className={styles.input}
+                aria-label="Release feed URL"
+                placeholder={feed.defaultUrl}
+                value={feedUrl}
+                onChange={(e) => setFeedUrl(e.target.value)}
+              />
+              <Button size="sm" disabled={setFeed.isPending || feedUrl.trim() === (feed.custom ? feed.url ?? '' : '')} onClick={() => setFeed.mutate({ url: feedUrl.trim() || null })}>
+                Save
+              </Button>
             </div>
-          </article>
-        ))}
-      </section>
-
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>How to update</h2>
-        <h3 className={styles.subTitle}>If you used the installer</h3>
-        <p className={styles.hint}>
-          Run this in the folder the installer wrote to (<code>~/tagave</code> unless you chose another). It backs up the database, moves to the newest release, restarts the app and then the workers, and prints how to roll back.
-          On a split install, run it on the app computer first, then on the computer with the music.
-          If <code>install-tagave.sh</code> is not in that folder yet, run the one-command installer once more first. It keeps your settings and the version you run now (it does not update), and adds the script; then run the update.
-        </p>
-        <pre className={styles.code}>{INSTALLER_UPDATE_CMD}</pre>
-        <h3 className={styles.subTitle}>If you built from source</h3>
-        <p className={styles.hint}>
-          Run these in the folder you installed from, on the machine that runs the app. Database changes are applied when the app starts and only go forward: an older version cannot use a database a newer one has changed, so take the backup first.
-        </p>
-        <ol className={styles.steps}>
-          <li>
-            <strong>Back up the database.</strong>
-            <pre className={styles.code}>{BACKUP_CMD}</pre>
-          </li>
-          <li>
-            <strong>Get the new version and rebuild.</strong> This restarts the app and, if they run on this machine, both workers.
-            <pre className={styles.code}>{UPDATE_CMD}</pre>
-          </li>
-          <li>
-            <strong>Workers on another machine</strong> need the same version: update that copy to the same commit, run <code>pnpm install &amp;&amp; pnpm -r build</code>, then restart both worker processes.
-          </li>
-          <li>
-            <strong>Check.</strong> The table above lists every process at the same build, and <Link to="/settings/system">System status</Link> shows no failures.
-          </li>
-          <li>
-            <strong>If something goes wrong</strong>, go back to the version you had and restore the backup from step 1:
-            <pre className={styles.code}>{ROLLBACK_CMD}</pre>
-          </li>
-        </ol>
+            {setFeed.isError && <p className={styles.error}>Could not save: the feed must be a GitHub releases API URL, such as https://api.github.com/repos/OWNER/REPO/releases.</p>}
+          </details>
+        )}
       </section>
     </div>
   );

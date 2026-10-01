@@ -1,0 +1,107 @@
+# documentation: https://github.com/xooxoxxo/tagave/blob/main/docs/install.md
+# slogan: A home for your music: catalogue the albums you own, find what is missing, fix tags.
+# tags: music,library,catalog,musicbrainz,tags
+# logo: https://raw.githubusercontent.com/xooxoxxo/tagave/main/docs/images/mark.png
+# port: 3000
+#
+# tagave service template for Coolify. Coolify generates the database
+# password and the app secret (SERVICE_PASSWORD_64_*) and routes its proxy to
+# the app through SERVICE_URL_APP_3000. Set MUSIC_DIR to the host folder with
+# your music before the first deploy. Served over https by Coolify, so
+# ALLOW_INSECURE_HTTP defaults to false (secure session cookies).
+#
+# Keep the two LINER_QUEUES lists in step with deploy/compose.yml
+# (packages/worker/src/deployQueues.test.ts checks both).
+
+x-worker-env: &worker-env
+  DATABASE_URL: postgres://liner:${SERVICE_PASSWORD_64_POSTGRES}@postgres:5432/liner
+  APP_SECRET: ${SERVICE_PASSWORD_64_APPSECRET}
+  CACHE_DIR: /cache
+  LINER_LIBRARY_ID: ""
+  LOG_LEVEL: info
+  TZ: ${TZ:-UTC}
+
+services:
+  postgres:
+    image: postgres:16
+    command: postgres -c max_connections=300
+    environment:
+      POSTGRES_USER: liner
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_64_POSTGRES}
+      POSTGRES_DB: liner
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liner -d liner"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    image: ghcr.io/xooxoxxo/tagave-app:${TAGAVE_VERSION:-latest}
+    environment:
+      SERVICE_URL_APP_3000: ""
+      NODE_ENV: production
+      DATABASE_URL: postgres://liner:${SERVICE_PASSWORD_64_POSTGRES}@postgres:5432/liner
+      APP_SECRET: ${SERVICE_PASSWORD_64_APPSECRET}
+      CACHE_DIR: /cache
+      ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
+      LOG_LEVEL: info
+      TZ: ${TZ:-UTC}
+      TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-coolify}
+      TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
+    volumes:
+      - cache:/cache
+      # nightly backups and the checked dump the app takes before it
+      # changes the database on an update (Settings > Backups)
+      - backups:/backups
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      # long enough for the backup and database changes of an update
+      start_period: 600s
+      retries: 5
+
+  worker-identify:
+    image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+    volumes:
+      - cache:/cache
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # healthy = the app has finished updating the database
+      app:
+        condition: service_healthy
+
+  worker-files:
+    image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
+    environment:
+      <<: *worker-env
+      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+    volumes:
+      - cache:/cache
+      # register /mnt/music as the music folder in the app
+      - ${MUSIC_DIR:?MUSIC_DIR is required}:/mnt/music:ro
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # healthy = the app has finished updating the database
+      app:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  cache:
+  backups:
