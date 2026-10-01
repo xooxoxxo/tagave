@@ -160,10 +160,47 @@ export class PreMigrationBackupError extends Error {
 }
 
 export interface BackupRecord {
-  status: 'ok' | 'skipped';
+  /**
+   * 'reused': an earlier attempt at this same update already took the dump
+   * and then failed part way; that dump stays the rollback point and no new
+   * row is recorded.
+   */
+  status: 'ok' | 'skipped' | 'reused';
   path: string | null;
   bytes: number | null;
   note?: string;
+}
+
+/** The newest _migration_backups row, as beforeApply sees it. */
+export interface PreviousBackup {
+  id: number;
+  status: string;
+  path: string | null;
+  bytes: number | null;
+  fromVersion: string | null;
+  toVersion: string | null;
+  pending: string[];
+  createdAt: Date;
+}
+
+/**
+ * Is `state` a retry of the update `previous` was taken for? True when that
+ * update targeted this same version and every file it had pending is now
+ * either still pending or applied (it failed part way, or before the first
+ * file). A dump taken now would hold the half-migrated schema, so the earlier
+ * one must stay the rollback point.
+ */
+export function isRetryOfUpdate(
+  previous: PreviousBackup | null,
+  state: SchemaState,
+  appVersion: string | null | undefined,
+): boolean {
+  if (!previous || previous.status !== 'ok' || !previous.path) return false;
+  if ((previous.toVersion ?? null) !== (appVersion ?? null)) return false;
+  const was = new Set(previous.pending);
+  if (!state.pending.every((f) => was.has(f))) return false;
+  const applied = new Set(state.applied);
+  return previous.pending.every((f) => state.pending.includes(f) || applied.has(f));
 }
 
 export interface RunMigrationsOptions {
@@ -173,9 +210,10 @@ export interface RunMigrationsOptions {
   log?: (msg: string) => void;
   /**
    * Called once, under the lock, when an existing database has pending
-   * migrations. Throwing aborts the run before anything is applied.
+   * migrations, with the newest recorded backup (null when none). Throwing
+   * aborts the run before anything is applied.
    */
-  beforeApply?: (state: SchemaState) => Promise<BackupRecord>;
+  beforeApply?: (state: SchemaState, previous: PreviousBackup | null) => Promise<BackupRecord>;
   /** Start even though a newer app migrated the database (LINER_ALLOW_SCHEMA_SKEW). */
   allowNewerSchema?: boolean;
   /** How often to say "still waiting" while another start holds the lock. */
@@ -269,11 +307,29 @@ export async function runMigrations(
 
     let backup: BackupRecord | null = null;
     if (state.pending.length > 0 && !state.fresh && opts.beforeApply) {
-      backup = await opts.beforeApply(state);
-      await conn`
-        insert into _migration_backups (status, path, bytes, from_version, to_version, pending, note)
-        values (${backup.status}, ${backup.path}, ${backup.bytes}, ${state.schemaAppVersion},
-                ${opts.appVersion ?? null}, ${state.pending}, ${backup.note ?? null})`;
+      const rows = await conn`
+        select id, status, path, bytes, from_version, to_version, pending, created_at
+        from _migration_backups order by id desc limit 1`;
+      const r = rows[0];
+      const previous: PreviousBackup | null = r
+        ? {
+            id: Number(r['id']),
+            status: r['status'] as string,
+            path: (r['path'] as string | null) ?? null,
+            bytes: r['bytes'] === null || r['bytes'] === undefined ? null : Number(r['bytes']),
+            fromVersion: (r['from_version'] as string | null) ?? null,
+            toVersion: (r['to_version'] as string | null) ?? null,
+            pending: (r['pending'] as string[] | null) ?? [],
+            createdAt: r['created_at'] as Date,
+          }
+        : null;
+      backup = await opts.beforeApply(state, previous);
+      if (backup.status !== 'reused') {
+        await conn`
+          insert into _migration_backups (status, path, bytes, from_version, to_version, pending, note)
+          values (${backup.status}, ${backup.path}, ${backup.bytes}, ${state.schemaAppVersion},
+                  ${opts.appVersion ?? null}, ${state.pending}, ${backup.note ?? null})`;
+      }
     }
 
     const applied: string[] = [];

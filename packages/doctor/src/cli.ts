@@ -75,7 +75,7 @@ async function main() {
 
   // Handle backup subcommand
   if (command === 'backup') {
-    const { runBackup, defaultBackupDir } = await import('./backup.js');
+    const { runBackup, defaultBackupDir, isSeparateMount, backupMountRequired } = await import('./backup.js');
     let outDir = defaultBackupDir(process.env);
     let keep: number | undefined;
     let jsonOut = false;
@@ -99,6 +99,14 @@ async function main() {
         console.error(colorize(`ERROR: unknown option ${arg}; usage: backup [--out DIR] [--keep N] [--json]`, 'red'));
         process.exit(2);
       }
+    }
+    if (backupMountRequired(process.env) && isSeparateMount(outDir) === false) {
+      console.error(
+        colorize(
+          `WARNING: ${outDir} is not a mounted volume or host folder; this dump is lost when the container is recreated. Re-run the installer or mount a volume there.`,
+          'yellow',
+        ),
+      );
     }
     try {
       const result = await runBackup({ databaseUrl, outDir, ...(keep !== undefined ? { keep } : {}) });

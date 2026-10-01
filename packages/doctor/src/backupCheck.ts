@@ -10,7 +10,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import postgres from 'postgres';
 import type { Check } from './checks.js';
-import { defaultBackupDir } from './backup.js';
+import { defaultBackupDir, isSeparateMount } from './backup.js';
+import { backupFolderProblem } from './premigrate.js';
 
 const run = promisify(execFile);
 
@@ -27,6 +28,8 @@ export interface BackupCheckOptions {
   backupDir?: string;
   pgDump?: string;
   env?: NodeJS.ProcessEnv;
+  /** Test seam: whether the backup folder is a mount (volume or host folder). */
+  isMount?: (dir: string) => boolean | null;
 }
 
 /** "pg_dump (PostgreSQL) 16.4 (Debian 16.4-1.pgdg120+2)" -> 16 */
@@ -84,11 +87,15 @@ export async function checkBackups(databaseUrl: string, opts: BackupCheckOptions
     problems.push(`backup folder ${dir} is not writable (${(err as NodeJS.ErrnoException).code ?? (err as Error).message})`);
   }
 
+  // 2. In the app image the folder must be a volume or host folder, or the dump dies with the container.
+  const folderProblem = backupFolderProblem(dir, env, opts.isMount ?? isSeparateMount);
+  if (folderProblem) problems.push(`${folderProblem}; the app refuses to update until then`);
+
   let last = null as LastBackup | null;
   try {
     const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined });
     try {
-      // 2. pg_dump refuses a server newer than itself.
+      // 3. pg_dump refuses a server newer than itself.
       const v = await pgDumpVersion(bin);
       if (v.error) {
         problems.push(v.error);
@@ -99,7 +106,7 @@ export async function checkBackups(databaseUrl: string, opts: BackupCheckOptions
           problems.push(`pg_dump ${v.major} cannot back up the Postgres ${serverMajor} server`);
         }
       }
-      // 3. The last update's backup.
+      // 4. The last update's backup.
       const t = await sql`select to_regclass('public._migration_backups') as t`;
       if (t[0]?.['t']) {
         const rows = await sql`

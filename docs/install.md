@@ -26,6 +26,8 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/ins
 
 Running it again is safe. It keeps the secrets already in `~/tagave/.env`, backs up any `.env` it changes, and refuses to invent a new database password when a database already exists. To update, run `docker compose pull && docker compose up -d` in `~/tagave`, or run the installer again. Before an update changes the database, the app backs it up into the `backups` volume and stops if that backup fails; the workers start once the app is done. See [What happens when you update](operations.md#what-happens-when-you-update).
 
+Updating from a version without automatic backups: run the installer again first (or replace `~/tagave/compose.yml` with the current one). The old `compose.yml` has no `backups` volume. Without it, the app writes its backup into a Docker volume with no name, which is easy to lose, and it refuses to back up into a folder that is not mounted.
+
 `~/tagave/.env` holds the secrets that open your database and your stored provider tokens. It is written readable only by you; keep a copy somewhere safe.
 
 ### Music on another computer

@@ -52,9 +52,15 @@ ENV LINER_GIT_SHA=$GIT_SHA \
     LINER_BUILT_AT=$BUILT_AT \
     LINER_VERSION=$LINER_VERSION
 
-# Pre-migration backups (mount a volume or a host folder here).
+# Pre-migration backups (mount a volume or a host folder here). VOLUME gives
+# an older compose.yml without a /backups mount a persistent anonymous volume
+# instead of the container layer; the app refuses to back up into a folder
+# that is not a mount (LINER_BACKUP_REQUIRE_MOUNT), since recreating the
+# container would delete the dump.
 RUN mkdir -p /backups
-ENV LINER_BACKUP_DIR=/backups
+VOLUME /backups
+ENV LINER_BACKUP_DIR=/backups \
+    LINER_BACKUP_REQUIRE_MOUNT=1
 
 EXPOSE 3000
 

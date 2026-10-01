@@ -21,6 +21,7 @@ import { checkMigrations } from './checks.js';
 import { checkBackups } from './backupCheck.js';
 import { migrateOnBoot, PREMIGRATE_PREFIX } from './premigrate.js';
 import { remediationFor } from './remediation.js';
+import type { BackupOptions, BackupResult } from './backup.js';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -213,6 +214,53 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     expect(check.status).toBe('pass');
     expect(check.detail).toMatch(/last backup before an update to 1\.0\.4/);
   }, 60_000);
+
+  it('a failed update keeps its first dump through restarts, and prunes only after success', async () => {
+    const db = await fresh();
+    const backups = await mkdtemp(join(tmpdir(), 'liner-premig-retry-'));
+    dirs.push(backups);
+    // Three dumps from earlier updates; keep 2.
+    for (const d of ['2026-01-01', '2026-02-01', '2026-03-01']) {
+      await writeFile(join(backups, `${PREMIGRATE_PREFIX}${d}T00-00-00Z.pgdump`), 'old');
+    }
+    const env = { LINER_BACKUP_DIR: backups, LINER_PREMIGRATE_BACKUP_KEEP: '2' };
+    const migs = await dir({ '0001_a.sql': 'create table a (id int);' });
+    await migrateOnBoot({ databaseUrl: db, appVersion: '1.0.0', env, log: quiet, migrationsDir: migs });
+
+    await writeFile(join(migs, '0002_b.sql'), 'create table b (id int);');
+    await writeFile(join(migs, '0003_c.sql'), 'this is not sql;');
+    let dumps = 0;
+    const backup = async (o: BackupOptions): Promise<BackupResult> => {
+      dumps++;
+      const p = join(o.outDir, `${o.prefix}2026-09-0${dumps}T00-00-00Z.pgdump`);
+      await writeFile(p, 'dump');
+      return { path: p, bytes: 4, tocEntries: 1, pruned: [], durationMs: 1 };
+    };
+    const boot = () => migrateOnBoot({ databaseUrl: db, appVersion: '1.1.0', env, log: quiet, migrationsDir: migs, backup });
+
+    // 0002 applies, 0003 fails: three restarts in a row.
+    for (let i = 0; i < 3; i++) await expect(boot()).rejects.toThrow();
+    expect(dumps).toBe(1);
+    const first = join(backups, `${PREMIGRATE_PREFIX}2026-09-01T00-00-00Z.pgdump`);
+    expect((await readdir(backups)).filter((f) => f.startsWith(PREMIGRATE_PREFIX))).toHaveLength(4); // nothing pruned
+    const sql = postgres(db, { max: 1 });
+    const rows = await sql`select path, pending from _migration_backups order by id`;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ path: first, pending: ['0002_b.sql', '0003_c.sql'] });
+
+    // Fixed: the run succeeds, still on the first dump, then prunes to the newest 2.
+    await writeFile(join(migs, '0003_c.sql'), 'create table c (id int);');
+    const ok = await boot();
+    expect(ok.applied).toEqual(['0003_c.sql']);
+    expect(ok.backup).toMatchObject({ status: 'reused', path: first });
+    expect(dumps).toBe(1);
+    expect((await readdir(backups)).filter((f) => f.startsWith(PREMIGRATE_PREFIX)).sort()).toEqual([
+      `${PREMIGRATE_PREFIX}2026-03-01T00-00-00Z.pgdump`,
+      `${PREMIGRATE_PREFIX}2026-09-01T00-00-00Z.pgdump`,
+    ]);
+    expect(await sql`select count(*)::int as n from _migration_backups`).toEqual([{ n: 1 }]);
+    await sql.end({ timeout: 2 });
+  });
 
   it('the backups check warns when the folder cannot take a file', async () => {
     const db = await fresh();

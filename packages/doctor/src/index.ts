@@ -17,6 +17,7 @@ export { remediationFor } from './remediation.js';
 export {
   migrateOnBoot,
   preMigrationBackup,
+  backupFolderProblem,
   preMigrationKeep,
   skipPreMigrationBackup,
   allowSchemaSkew,
