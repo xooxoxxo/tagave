@@ -5,7 +5,7 @@ import {
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog,
 } from '@liner/db';
-import { normalizeGenreMap, effectiveGenres } from '@liner/core';
+import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@liner/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
@@ -113,7 +113,8 @@ export function albumQueryParts(
       labelNames.map((l) => sql`r.labels @> ${JSON.stringify([{ name: l }])}::jsonb`),
     )})`);
   }
-  const ownedSql = sql`exists (select 1 from collection_items ci where ci.release_group_id = ${localAlbums.releaseGroupId} and ci.removed_at is null)`;
+  const ownedSql = sql`exists (select 1 from collection_items ci where ci.library_id = ${localAlbums.libraryId} and ci.removed_at is null and ci.push_state is distinct from 'removing'
+    and (ci.release_group_id = ${localAlbums.releaseGroupId} or ci.local_album_id = ${localAlbums.id}))`;
   const owned = str(q['owned']);
   if (owned === 'both') conds.push(ownedSql);
   else if (owned === 'digital') conds.push(sql`not ${ownedSql}`);
@@ -786,16 +787,20 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
       // GAP-3: physical copies of this release group from the synced Discogs
       // collection (user data — stays inside this library).
-      const physicalRows = album.releaseGroupId
-        ? await db.execute(sql`
-            select id, folder_name, media_condition, sleeve_condition, rating, push_state, push_error
+      // An item the owner added from this album carries local_album_id even
+      // before the album has a release group.
+      const physicalRows = await db.execute(sql`
+            select id, folder_name, media_condition, sleeve_condition, rating, push_state, push_error,
+                   formats, basic_info, discogs_release_id, created_at
             from collection_items
-            where library_id = ${libraryId} and release_group_id = ${album.releaseGroupId} and removed_at is null
-            order by date_added desc nulls last`) as unknown as Array<Record<string, unknown>>
-        : [];
+            where library_id = ${libraryId} and removed_at is null and push_state is distinct from 'removing'
+              and (local_album_id = ${albumId}${album.releaseGroupId ? sql` or release_group_id = ${album.releaseGroupId}` : sql``})
+            order by date_added desc nulls last, created_at desc`) as unknown as Array<Record<string, unknown>>;
       const discogsCollectionItems = physicalRows.map((r) => ({
         id: String(r['id']),
         folder: String(r['folder_name'] ?? 'All'),
+        format: physicalFormatLabel(r['formats']) ?? physicalFormatLabel((r['basic_info'] as Record<string, unknown> | null)?.['formats']),
+        ...(r['discogs_release_id'] != null ? { discogsReleaseId: Number(r['discogs_release_id']) } : {}),
         ...(r['media_condition'] ? { mediaCondition: String(r['media_condition']) } : {}),
         ...(r['sleeve_condition'] ? { sleeveCondition: String(r['sleeve_condition']) } : {}),
         ...(typeof r['rating'] === 'number' && r['rating'] > 0 ? { rating: r['rating'] } : {}),

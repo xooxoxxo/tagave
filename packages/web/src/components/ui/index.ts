@@ -16,3 +16,4 @@ export { UndoIcon } from './icons';
 export { CoverArt, CoverChip, coverInitials, type CoverChipTone } from './CoverArt';
 export { Menu, MoreIcon, type MenuItem, type MenuProps } from './Menu';
 export { Collapse, type CollapseProps } from './Collapse';
+export { ToastHost, showToast, updateToast, dismissToast, type ToastOptions } from './Toast';

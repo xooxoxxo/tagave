@@ -182,5 +182,9 @@ export {
   hashDffStream,
 } from './audio/streamHash.js';
 
+// Physical collection: format lines and one-click album suggestions
+export { physicalFormatLabel, discogsArtistName, matchTitle, scoreSuggestion, rankPhysicalSuggestions } from './collection/index.js';
+export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from './collection/index.js';
+
 // Worker queues and the work each serves
 export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, unservedWork } from './queues.js';

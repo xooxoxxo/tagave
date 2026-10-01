@@ -36,7 +36,7 @@ export async function refreshLibraryFacets(
     select fs.computed_at, fs.dirty_at,
            (select max(updated_at) from local_albums where library_id = ${libraryId}) as albums_changed,
            (select greatest(max(first_seen_at), max(resolved_at)) from gaps where library_id = ${libraryId}) as gaps_changed,
-           (select greatest(max(created_at), max(removed_at)) from collection_items where library_id = ${libraryId}) as collection_changed
+           (select greatest(max(created_at), max(removed_at), max(mapped_at)) from collection_items where library_id = ${libraryId}) as collection_changed
     from (select 1) x
     left join facet_state fs on fs.library_id = ${libraryId}`) as unknown as Array<{
     computed_at: Date | string | null; dirty_at: Date | string | null;
@@ -70,7 +70,8 @@ export async function refreshLibraryFacets(
              coalesce(lb.labels, '{}'),
              coalesce(g.genres, '{}'),
              coalesce(gp.kinds, '{}'),
-             exists (select 1 from collection_items ci where ci.release_group_id = la.release_group_id and ci.removed_at is null),
+             exists (select 1 from collection_items ci where ci.library_id = la.library_id and ci.removed_at is null and ci.push_state is distinct from 'removing'
+                       and (ci.release_group_id = la.release_group_id or ci.local_album_id = la.id)),
              array_remove(array[
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
                                    and am.decided_by = 'system' and am.reason like 'auto-accept:%') then 'auto_strong' end,

@@ -404,21 +404,38 @@ export async function collectionPushJob(ctx: WorkerContext, data: CollectionPush
         .where(eq(collectionSources.id, item.collectionSourceId));
     }
 
-    // Add to Discogs collection
-    const addResult = await discogsCall(ctx, providers, () =>
-      providers.discogs.addToCollection(
-        identity.username,
-        item.folderId || 1,
-        item.discogsReleaseId!,
-        bg
-      ));
+    // Add to Discogs collection — once. An item that already has an instance
+    // (a retry after a field error, a second job for the same item) reuses
+    // it instead of adding a second copy on Discogs.
+    let instanceId: number;
+    if (item.providerItemId) {
+      instanceId = parseInt(item.providerItemId, 10);
+      logger.info({ instanceId }, 'Item already on Discogs; not adding it again');
+    } else {
+      const addResult = await discogsCall(ctx, providers, () =>
+        providers.discogs.addToCollection(
+          identity.username,
+          item.folderId || 1,
+          item.discogsReleaseId!,
+          bg
+        ));
+      instanceId = addResult.instanceId;
 
-    const instanceId = addResult.instanceId;
+      // Immediately persist the instanceId before field/rating writes to prevent duplicates on retry
+      const kept = await ctx.db.update(collectionItems)
+        .set({ providerItemId: String(instanceId) })
+        .where(eq(collectionItems.id, itemId))
+        .returning({ id: collectionItems.id });
 
-    // Immediately persist the instanceId before field/rating writes to prevent duplicates on retry
-    await ctx.db.update(collectionItems)
-      .set({ providerItemId: String(instanceId) })
-      .where(eq(collectionItems.id, itemId));
+      // The owner pressed Undo while Discogs was answering: the row is gone,
+      // so take the new instance back off Discogs instead of orphaning it.
+      if (kept.length === 0) {
+        await discogsCall(ctx, providers, () =>
+          providers.discogs.removeFromCollection(identity.username, item.folderId || 1, item.discogsReleaseId!, instanceId, bg));
+        logger.info({ instanceId }, 'Item was undone during the push; removed it from Discogs again');
+        return;
+      }
+    }
 
     // Set custom fields
     let fieldErrors: string[] = [];
@@ -530,6 +547,7 @@ export async function collectionPushJob(ctx: WorkerContext, data: CollectionPush
         year: release.year,
         formats: release.mediaList,
         thumb: release.images?.find(i => i.primary)?.url,
+        thumbUrl: release.images?.find(i => i.primary)?.url,
       };
     } catch (err) {
       logger.warn({ err }, 'Failed to fetch basic info');
@@ -539,6 +557,7 @@ export async function collectionPushJob(ctx: WorkerContext, data: CollectionPush
     const hasFatalErrors = fieldErrors.length > 0;
     const pushError = hasFatalErrors ? fieldErrors.join('; ') : null;
 
+    // a removal queued meanwhile keeps its 'removing' state
     await ctx.db.update(collectionItems)
       .set({
         pushState: hasFatalErrors ? 'failed' : 'synced',
@@ -547,7 +566,7 @@ export async function collectionPushJob(ctx: WorkerContext, data: CollectionPush
         lastSeenAt: new Date(),
         ...(basicInfo ? { basicInfo } : {}),
       })
-      .where(eq(collectionItems.id, itemId));
+      .where(and(eq(collectionItems.id, itemId), dsql`push_state is distinct from 'removing'`));
 
     if (hasFatalErrors) {
       logger.warn({ instanceId, errors: fieldErrors }, 'Item pushed with field errors');
@@ -651,8 +670,8 @@ export async function collectionRemoveJob(ctx: WorkerContext, data: CollectionRe
       throw err;
     }
 
-    // Set error state
-    let errorMsg = err?.message || 'Unknown error';
+    // Set error state; the prefix tells Retry to remove again, not add again
+    let errorMsg = `Removing from Discogs failed: ${err?.message || 'Unknown error'}`;
     await ctx.db.update(collectionItems)
       .set({
         pushState: 'failed',

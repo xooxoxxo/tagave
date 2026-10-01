@@ -280,7 +280,7 @@ export function useClearAnyEdition(libraryId: string | undefined) {
 const COLLECTION_QUERY_KEY = ['collection'];
 
 interface CollectionFilters {
-  view?: 'physical_only' | 'both' | 'unmapped' | 'removed' | 'all';
+  view?: 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates' | 'all';
   folder?: string;
   q?: string;
   limit?: number;
@@ -350,27 +350,105 @@ export function useRemapCollection(libraryId: string | undefined) {
   });
 }
 
-export function useMapCollectionItem(libraryId: string | undefined) {
+/**
+ * Physical ownership shows on the collection page, the album page, the album
+ * grid's "owned" facet and the artist page: every change refreshes all four.
+ */
+export function useInvalidatePhysical(libraryId: string | undefined) {
   const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: COLLECTION_QUERY_KEY });
+    void queryClient.invalidateQueries({ queryKey: ['album'] });
+    void queryClient.invalidateQueries({ queryKey: ['albums'] });
+    void queryClient.invalidateQueries({ queryKey: ['artist', libraryId] });
+  };
+}
 
+export function useMapCollectionItem(libraryId: string | undefined) {
+  const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
     mutationFn: ({ itemId, input }: { itemId: string; input: string }) =>
       api.post(`/collection-items/${itemId}/map`, { input }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
-    },
+    onSuccess: invalidate,
   });
 }
 
 export function useUnmapCollectionItem(libraryId: string | undefined) {
-  const queryClient = useQueryClient();
-
+  const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
-    mutationFn: (itemId: string) =>
-      api.delete(`/collection-items/${itemId}/map`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
-    },
+    mutationFn: (itemId: string) => api.delete(`/collection-items/${itemId}/map`),
+    onSuccess: invalidate,
+  });
+}
+
+export interface CollectionSuggestion {
+  id: string;
+  title: string | null;
+  artist: string | null;
+  year: number | null;
+  trackCount: number | null;
+  coverUrl: string | null;
+  score: number;
+  sameDiscogsRelease: boolean;
+}
+
+/** Albums in the library this unmapped record likely is, best first. */
+export function useCollectionSuggestions(itemId: string, enabled = true) {
+  return useQuery({
+    queryKey: [...COLLECTION_QUERY_KEY, 'suggestions', itemId],
+    queryFn: () => api.get<{ suggestions: CollectionSuggestion[] }>(`/collection-items/${itemId}/suggestions`),
+    enabled,
+    staleTime: 1000 * 60,
+  });
+}
+
+/** "This is <album>" or "Not in my library". */
+export function useLinkCollectionItem(libraryId: string | undefined) {
+  const invalidate = useInvalidatePhysical(libraryId);
+  return useMutation({
+    mutationFn: ({ itemId, ...body }: { itemId: string; localAlbumId?: string; notInLibrary?: boolean }) =>
+      api.post(`/collection-items/${itemId}/link`, body),
+    onSuccess: invalidate,
+  });
+}
+
+/** How a copy was placed before an add linked it: what Undo puts back. */
+export interface PreviousPhysicalLink {
+  releaseId: string | null;
+  releaseGroupId: string | null;
+  localAlbumId: string | null;
+  mappingState: string | null;
+  mappingSource: string | null;
+  mappedAt: string | null;
+}
+
+export interface AddPhysicalResponse {
+  itemId: string;
+  created: boolean;
+  /** the add linked a copy already in the collection instead of adding one */
+  linkedExisting?: boolean;
+  previous?: PreviousPhysicalLink;
+}
+
+/** 409 body when the collection already holds this Discogs release. */
+export interface AlreadyOwnedError {
+  status: 409;
+  code: 'already_owned';
+  detail: string;
+  existing: Array<{ id: string; format: string | null; createdAt: string }>;
+}
+
+export function isAlreadyOwned(err: unknown): err is AlreadyOwnedError {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'already_owned';
+}
+
+/** "I own this on vinyl/CD" from an album: linked to the album at once. */
+export function useAddAlbumToCollection(libraryId: string | undefined, albumId: string) {
+  const invalidate = useInvalidatePhysical(libraryId);
+  return useMutation({
+    mutationFn: (body: { discogsReleaseId?: number; anotherCopy?: boolean }) =>
+      api.post<AddPhysicalResponse>(`/libraries/${libraryId}/albums/${albumId}/collection`, body),
+    onSettled: invalidate,
   });
 }
 
@@ -395,40 +473,35 @@ interface AddCollectionItemInput {
 }
 
 export function useAddCollectionItem(libraryId: string | undefined) {
-  const queryClient = useQueryClient();
-
+  const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
-    mutationFn: (data: AddCollectionItemInput) =>
-      api.post(`/libraries/${libraryId}/collection/items`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
-    },
+    mutationFn: (data: AddCollectionItemInput & { anotherCopy?: boolean }) =>
+      api.post<AddPhysicalResponse>(`/libraries/${libraryId}/collection/items`, data),
+    onSuccess: invalidate,
   });
 }
 
 export function useRemoveCollectionItem(libraryId: string | undefined) {
-  const queryClient = useQueryClient();
-
+  const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
-    mutationFn: (itemId: string) =>
-      api.delete(`/collection-items/${itemId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
-    },
+    mutationFn: (itemId: string) => api.delete(`/collection-items/${itemId}`),
+    onSuccess: invalidate,
+  });
+}
+
+/** "I own both": the copies of a Discogs release are all real, none is a duplicate. */
+export function useKeepBothCopies(libraryId: string | undefined) {
+  const invalidate = useInvalidatePhysical(libraryId);
+  return useMutation({
+    mutationFn: (itemId: string) => api.post(`/collection-items/${itemId}/keep-both`),
+    onSuccess: invalidate,
   });
 }
 
 export function useRetryPush(libraryId: string | undefined) {
-  const queryClient = useQueryClient();
-
+  const invalidate = useInvalidatePhysical(libraryId);
   return useMutation({
-    mutationFn: (itemId: string) =>
-      api.post(`/collection-items/${itemId}/retry-push`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'sources', libraryId] });
-      queryClient.invalidateQueries({ queryKey: [...COLLECTION_QUERY_KEY, 'items', libraryId] });
-    },
+    mutationFn: (itemId: string) => api.post(`/collection-items/${itemId}/retry-push`),
+    onSuccess: invalidate,
   });
 }

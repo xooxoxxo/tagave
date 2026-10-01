@@ -88,6 +88,9 @@ export interface Gap {
 export interface DiscogsCollectionItem {
   id: string;
   folder: string;
+  /** "CD", "2×Vinyl"; null until Discogs answers */
+  format?: string | null;
+  discogsReleaseId?: number;
   mediaCondition?: string;
   sleeveCondition?: string;
   rating?: number;

@@ -25,6 +25,7 @@ import '@fontsource/jetbrains-mono/400.css';
 import './styles/index.css';
 import { applyTheme, readThemePreference } from './theme';
 import { ConfirmHost } from './components/ui/ConfirmDialog';
+import { ToastHost } from './components/ui/Toast';
 
 applyTheme(readThemePreference());
 
@@ -36,6 +37,7 @@ ReactDOM.createRoot(rootElement).render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
       <ConfirmHost />
+      <ToastHost />
     </QueryClientProvider>
   </React.StrictMode>
 );

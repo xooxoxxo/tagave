@@ -137,7 +137,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
                      where la.release_group_id = rg.id and la.library_id = ${libraryId}) as has_digital,
              exists (select 1 from collection_items ci
                      where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                       and ci.removed_at is null) as has_physical,
+                       and ci.removed_at is null and ci.push_state is distinct from 'removing') as has_physical,
              g.id as gap_id,
              g.state as gap_state,
              g.dismiss_reason,
@@ -153,7 +153,7 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
                       where la.release_group_id = rg.id and la.library_id = ${libraryId})
               or exists (select 1 from collection_items ci
                          where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                           and ci.removed_at is null)
+                           and ci.removed_at is null and ci.push_state is distinct from 'removing')
               or exists (select 1 from gaps gx
                          where gx.library_id = ${libraryId}
                            and gx.subject_id = rg.id

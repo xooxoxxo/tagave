@@ -870,3 +870,46 @@ td.cellOff {
   .editionsTable .ownedRow { background: var(--surface-success); padding-inline: var(--space-sm); }
   .editionsTable .ownedRow td { background: transparent; }
 }
+
+/* "Physical · CD": the album is on the shelf too. Shown in both modes. */
+.physicalLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+
+.physicalChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink, var(--dew-lo));
+  font: 600 13px / 1 var(--font-body);
+  text-decoration: none;
+}
+
+.physicalChip:hover {
+  text-decoration: underline;
+}
+
+.physicalChip:focus-visible {
+  outline: 2px solid var(--dew);
+  outline-offset: 2px;
+}
+
+.physicalDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.physicalNote {
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+}

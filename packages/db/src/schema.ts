@@ -925,6 +925,8 @@ export const collectionItems = pgTable(
     pushState: varchar('push_state', { length: 20 }).default('synced'),
     pushError: text('push_error'),
     localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
+    /** the owner said they own this copy on top of an earlier one of the same release: not a duplicate */
+    extraCopy: boolean('extra_copy').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

@@ -10,11 +10,11 @@
  * "Library health" face lives in the attention strip; its old links
  * (?tab=care) open the strip with Maintenance on.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@liner/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddCollectionItem } from '../hooks';
+import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { api } from '../services/api';
 import { ReviewsSection } from '../components/ReviewsSection';
@@ -30,7 +30,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Collapse, CoverArt, LinkButton, Menu, type MenuItem, confirmDialog } from '../components/ui';
+import { Button, Collapse, CoverArt, LinkButton, Menu, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { useScrollFade } from '../components/ui/useScrollFade';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -109,7 +109,9 @@ export function AlbumDetailPage() {
     refetchInterval: (q) => {
       const r = (q.state.data as AlbumDetail | undefined)?.identifyRequest;
       const live = r ? r.status !== 'done' : !!(q.state.data as AlbumDetail | undefined)?.pendingIdentify;
-      return live ? 2500 : false;
+      if (live) return 2500;
+      // a physical copy on its way to Discogs: "adding to Discogs…" clears itself
+      return (q.state.data as AlbumDetail | undefined)?.discogsCollectionItems?.some((i) => i.pushState === 'pending') ? 5000 : false;
     },
   });
   // A finished request's note can be hidden; keyed by job so the next one shows.
@@ -173,7 +175,11 @@ export function AlbumDetailPage() {
     onSuccess: () => refresh(0),
     onSettled: () => setSwitchingMbid(null),
   });
-  const addToCollection = useAddCollectionItem(libraryId);
+  const addPhysical = useAddAlbumToCollection(libraryId, albumId);
+  const invalidatePhysical = useInvalidatePhysical(libraryId);
+  // a second click while the first is on its way does nothing (the server
+  // also answers a repeat with the same item)
+  const addingPhysical = useRef(false);
   const fingerprint = useFingerprintAlbum(libraryId);
 
   // ?issues links (tasks, the attention list, old "Library health" links):
@@ -258,6 +264,81 @@ export function AlbumDetailPage() {
   const discrepancies = trackDiscrepancies(album.tracks);
   const showCandidates = album.candidates.length > 0 && album.state !== 'matched';
   const ownsPhysical = (album.discogsCollectionItems?.length ?? 0) > 0;
+  const physicalFormats = [...new Set((album.discogsCollectionItems ?? []).map((i) => i.format).filter(Boolean))].join(' and ');
+  const physicalPending = (album.discogsCollectionItems ?? []).some((i) => i.pushState === 'pending');
+  const canOwnPhysical = !!(album.release?.discogsReleaseId || album.releaseGroupId);
+
+  // "I own this on vinyl/CD": the album shows the copy at once (optimistic),
+  // a toast says what happened and offers Undo, and a copy already in the
+  // collection asks before adding a second one.
+  // Undo takes the copy off the album at once; the server agrees (a copy on
+  // its way out of Discogs no longer counts), so the refetch keeps it off.
+  // A copy that was already in the collection is unlinked, not removed.
+  const undoPhysical = async (itemId: string, previous?: PreviousPhysicalLink) => {
+    const key = ['album', albumId];
+    const before = queryClient.getQueryData<AlbumDetail>(key);
+    if (before) {
+      queryClient.setQueryData<AlbumDetail>(key, {
+        ...before,
+        discogsCollectionItems: (before.discogsCollectionItems ?? []).filter((i) => i.id !== itemId),
+      });
+    }
+    const t = showToast({ message: previous ? 'Unlinking it again…' : 'Removing it again…', durationMs: 0 });
+    try {
+      if (previous) await api.post(`/collection-items/${itemId}/restore-link`, previous);
+      else await api.delete(`/collection-items/${itemId}`);
+      updateToast(t, { message: previous ? 'Unlinked: the copy stays in your collection' : 'Removed from your physical collection', durationMs: 5000 });
+    } catch (err) {
+      if (before) queryClient.setQueryData(key, before);
+      updateToast(t, { message: `Could not undo: ${(err as { detail?: string })?.detail ?? 'the server did not answer'}`, tone: 'danger', durationMs: 10000 });
+    } finally {
+      invalidatePhysical();
+    }
+  };
+  const ownPhysical = async (anotherCopy = false) => {
+    if (addingPhysical.current) return;
+    addingPhysical.current = true;
+    const key = ['album', albumId];
+    const prev = queryClient.getQueryData<AlbumDetail>(key);
+    if (prev) {
+      queryClient.setQueryData<AlbumDetail>(key, {
+        ...prev,
+        discogsCollectionItems: [...(prev.discogsCollectionItems ?? []), { id: `pending-${Date.now()}`, folder: 'Uncategorized', pushState: 'pending' }],
+      });
+    }
+    const t = showToast({ message: anotherCopy ? 'Adding another copy…' : 'Adding to your physical collection…', durationMs: 0 });
+    try {
+      const discogsReleaseId = album.release?.discogsReleaseId;
+      const res = await addPhysical.mutateAsync({ ...(discogsReleaseId ? { discogsReleaseId } : {}), ...(anotherCopy ? { anotherCopy: true } : {}) });
+      updateToast(t, {
+        message: res.linkedExisting
+          ? 'Linked the copy already in your collection'
+          : res.created ? 'Added to your physical collection' : 'Already added: it is in your physical collection',
+        action: { label: 'Undo', onClick: () => void undoPhysical(res.itemId, res.linkedExisting ? res.previous : undefined) },
+        durationMs: 10000,
+      });
+    } catch (err) {
+      if (prev) queryClient.setQueryData(key, prev);
+      if (isAlreadyOwned(err)) {
+        dismissToast(t);
+        addingPhysical.current = false;
+        const formats = [...new Set(err.existing.map((e) => e.format).filter(Boolean))].join(' and ');
+        const ok = await confirmDialog({
+          title: `You already have this${formats ? ` on ${formats}` : ''}. Add another copy?`,
+          message: 'Add another copy only if you really own two. Each copy is its own item in your Discogs collection.',
+          confirmLabel: 'Add another copy',
+        });
+        if (ok) await ownPhysical(true);
+        return;
+      }
+      updateToast(t, { message: `Could not add it: ${(err as { detail?: string })?.detail ?? 'the server did not answer'}`, tone: 'danger', durationMs: 12000 });
+    } finally {
+      addingPhysical.current = false;
+    }
+  };
+  const physicalMenuItem: MenuItem[] = !ownsPhysical && canOwnPhysical
+    ? [{ key: 'own', label: addPhysical.isPending ? 'Adding…' : 'I own this on vinyl/CD', hint: 'Adds it to your physical collection and Discogs', disabled: addPhysical.isPending, onSelect: () => void ownPhysical() }]
+    : [];
 
   // The bulk editor covers this album, or everything in its folder (or the
   // folder above it, where a compilation filed one folder per track lives).
@@ -582,16 +663,18 @@ export function AlbumDetailPage() {
       { key: 'split-lossless', label: 'Split off lossless copies', hint: 'Lossy stays here', disabled: folder.busy, onSelect: () => void folder.split('lossy') },
     ] : []),
     ...(folder.canMergeBack ? [{ key: 'merge-back', label: 'Merge back', hint: 'Return these files to the album they came from', disabled: folder.busy, onSelect: () => void folder.mergeBack() }] : []),
-    ...(!ownsPhysical && album.release?.discogsReleaseId ? [{ key: 'own', label: 'I own this on vinyl/CD', hint: 'Adds it to your Discogs collection', disabled: addToCollection.isPending, onSelect: () => addToCollection.mutate({ input: String(album.release?.discogsReleaseId) }, { onSuccess: () => refresh(1500) }) }] : []),
+    ...physicalMenuItem,
+    ...(ownsPhysical && canOwnPhysical ? [{ key: 'own-more', label: 'Add another physical copy', hint: 'Only if you own two', disabled: addPhysical.isPending, onSelect: () => void ownPhysical(true) }] : []),
     ...(album.state !== 'as_is' ? [{ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() }] : []),
     ...(album.state !== 'ignored' ? [{ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() }] : []),
     { key: 'mode', label: 'Turn off Maintenance', separated: true, onSelect: () => setMaintenance(false) },
   ] : [
-    { key: 'mode', label: 'Turn on Maintenance', hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
+    ...physicalMenuItem,
+    { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
   ];
 
   const statusNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
-    ?? (reidentify.isError ? errorDetail(reidentify) : null) ?? (addToCollection.isError ? errorDetail(addToCollection) : null);
+    ?? (reidentify.isError ? errorDetail(reidentify) : null);
 
   const facts: Array<[string, ReactNode]> = [
     ['Released', album.release?.date ?? (album.year ? String(album.year) : null)],
@@ -600,7 +683,7 @@ export function AlbumDetailPage() {
     ['Tracks', [trackCountText, album.discCount && album.discCount > 1 ? `${album.discCount} discs` : null, dur(album.totalDurationMs)].filter(Boolean).join(' · ')],
     ['Format', album.formats?.join(', ') || null],
     ['Genres & styles', genreLabels.join(', ') || null],
-    ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
+    ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.format, i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
     ['Local folder', album.dirPaths?.length ? <span className={styles.pathLine}>{album.dirPaths.join('\n')}</span> : null],
     ...(maintenance ? [
       ['Identification', album.match ? `${album.match.decidedBy === 'system' ? 'Automatic match' : 'Matched by you'}${album.match.decidedAt ? ` on ${new Date(album.match.decidedAt).toLocaleDateString()}` : ''}` : 'No release matched'] as [string, ReactNode],
@@ -629,6 +712,15 @@ export function AlbumDetailPage() {
               : albumArtist ?? 'Unknown artist'}
           </div>
           {meta && <p className={styles.metaRow}>{meta}</p>}
+          {ownsPhysical && (
+            <p className={styles.physicalLine}>
+              <Link className={styles.physicalChip} to="/collection" title="In your physical collection">
+                <span className={styles.physicalDot} aria-hidden="true" />
+                Physical{physicalFormats ? ` · ${physicalFormats}` : ''}
+              </Link>
+              {physicalPending && <span className={styles.physicalNote}>adding to Discogs…</span>}
+            </p>
+          )}
           {maintenance && (
             <div className={styles.statusLine}>
               <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>
@@ -639,7 +731,6 @@ export function AlbumDetailPage() {
               {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
               {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
               {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
-              {ownsPhysical && <Link className={styles.pillLink} to="/collection">On vinyl/CD</Link>}
             </div>
           )}
           <div className={styles.actionRow}>
