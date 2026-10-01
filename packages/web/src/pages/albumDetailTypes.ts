@@ -116,6 +116,10 @@ export interface AlbumDetail {
   /** the owner's latest request: live job state, or how it ended (absent on an older API) */
   identifyRequest?: IdentifyRequestView | null;
   coverOrigin: string | null;
+  /** the latest cover-art lookup (API ≥ 0.6): live while queued or running */
+  artFetch?: { state: 'queued' | 'running' | 'done' | 'failed'; finishedAt: string | null } | null;
+  /** each folder with its scan root and "Open folder" link (API ≥ 0.6) */
+  folders?: Array<{ path: string; scanRootId: string | null; link: string | null }>;
   isCueImage: boolean;
   cueRelPath: string | null;
   /** the folder mixes lossless and lossy files (XO-364: can be split by format) */

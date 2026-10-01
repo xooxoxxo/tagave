@@ -157,7 +157,8 @@
 }
 
 /* Phone: every row the same shape. The line (up to two lines) with the
-   chevron pinned at the right edge, the action on its own line under it. */
+   chevron pinned at the right edge (it still opens the details), then the
+   action as a full-width, thumb-sized button under it. */
 @media (max-width: 640px) {
   .strip {
     --head-pad: 16px;
@@ -166,10 +167,10 @@
     grid-template-columns: minmax(0, 1fr) var(--chev-w);
     grid-template-areas:
       "toggle chev"
-      "action .";
-    row-gap: 2px;
+      "action action";
+    row-gap: 6px;
     min-height: 56px;
-    padding: 6px 2px 8px var(--head-pad);
+    padding: 8px 4px 12px var(--head-pad);
   }
   .line {
     display: -webkit-box;
@@ -178,10 +179,16 @@
     white-space: normal;
   }
   .actionSlot {
-    justify-content: flex-start;
-    padding-left: var(--lead);
-    max-height: 48px;
+    justify-content: stretch;
+    padding-right: calc(var(--head-pad) - 4px);
+    max-height: 56px;
     transition: opacity 180ms var(--ease-out), max-height 240ms var(--ease-out), visibility 0s linear 0s;
+  }
+  .actionSlot .action {
+    flex: 1 1 auto;
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
   }
   /* here the faded action gives its line back, in step with the accordion */
   .actionHidden {

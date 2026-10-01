@@ -24,6 +24,7 @@ export const albumGapFilterSchema = z.enum(['incomplete_album', 'duplicate', 'qu
 export const albumsQuerySchema = z.object({
   q: z.string().max(200).optional().describe('Title/artist substring'),
   artist: z.string().max(255).optional(),
+  folder: z.string().max(2048).optional().describe('Folder relative to its scan root: albums in it or below it'),
   sort: z.enum(['artist', 'title', 'year', 'added_date', 'rating', 'listened']).optional(),
   state: multi(albumStateFilterSchema, 6),
   decided: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid']).optional(),

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { folderLinkBaseProblem } from './folderLink.js';
 import { tagPoliciesSchema } from './tagPlan.js';
 
 /**
@@ -21,6 +22,7 @@ export const scanRootSchema = z.object({
   lastStatus: z.string().nullable().optional().describe('Status of the last scan; null until the first scan'),
   albumsFound: z.number().int().nonnegative().optional().describe('Albums with at least one present file under this root (list only)'),
   tracksFound: z.number().int().nonnegative().optional().describe('Present audio files under this root (list only)'),
+  folderLink: z.string().nullable().optional().describe('Base the album page opens folders under this root with, e.g. smb://nas/music/ (null: no link)'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();
@@ -55,6 +57,9 @@ export const patchScanRootSchema = z.object({
   writable: z.boolean().optional(),
   enabled: z.boolean().optional(),
   pollIntervalS: z.number().int().positive().optional(),
+  folderLink: z.string().max(1024).nullable().optional()
+    .refine((v) => v == null || folderLinkBaseProblem(v) === null, { message: 'Use a link such as smb://nas/music/ or file:///Volumes/music/' })
+    .describe('Open-folder base for albums under this root; empty or null removes it'),
 }).strict();
 
 export type PatchScanRootRequest = z.infer<typeof patchScanRootSchema>;

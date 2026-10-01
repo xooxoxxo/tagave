@@ -1,98 +1,135 @@
+/*
+ * Reviews & listening: one porcelain card of rows. Each row is a label, what
+ * is there now, and one control: three columns on a wide screen, stacked on
+ * a phone with the control full width under the value (≥44px tall).
+ */
 .section {
   margin-top: var(--space-lg);
-  padding: 1.25rem 1.5rem;
+  padding: 0.5rem 1.5rem;
   border: 1px solid var(--line);
   border-radius: var(--r-card);
   background: var(--surface);
   box-shadow: var(--shadow-card);
 }
 
-.head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-}
-
 .title {
   margin: 0;
-}
-
-.headMeta {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  font-size: var(--font-size-sm);
-}
-
-.gathering {
-  color: var(--info);
-}
-
-.gathering::after {
-  content: '';
-  display: inline-block;
-  width: 0.6em;
-  height: 0.6em;
-  margin-left: 0.4em;
-  border-radius: 50%;
-  border: 2px solid var(--info);
-  border-right-color: transparent;
-  animation: spin 0.9s linear infinite;
-  vertical-align: middle;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.block {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--line);
-}
-
-.blockHead {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-md);
-  flex-wrap: wrap;
-}
-
-.blockTitle {
-  margin: 0 0 var(--space-sm);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.count {
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-  font-weight: 400;
+  padding: 1rem 0 0.75rem;
 }
 
 .row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  margin-top: var(--space-xs);
+  display: grid;
+  grid-template-columns: 9rem minmax(0, 1fr) auto;
+  grid-template-areas: "label value control";
+  align-items: start;
+  column-gap: var(--space-lg);
+  row-gap: var(--space-sm);
+  padding: 1.1rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.rowLabel {
+  grid-area: label;
+  margin: 0;
+  padding-top: 0.6rem;
   font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.rowValue {
+  grid-area: value;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding-top: 0.5rem;
+  font-size: var(--font-size-sm);
+  color: var(--ink-2);
+}
+
+.rowControl {
+  grid-area: control;
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* the one control: ≥44px everywhere */
+.control {
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.clear {
+  min-height: 44px;
+}
+
+.ratingLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+  margin-top: -0.4rem;
+}
+
+.ratingHint {
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  margin: 0;
+  color: var(--ink-3);
+  line-height: var(--line-height-relaxed);
+}
+
+.summary {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* a text-sized action inside a sentence; the row's button stays the obvious one */
+.inlineLink {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  color: var(--dew);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.inlineLink:hover:not(:disabled),
+.inlineLink:active:not(:disabled) {
+  background: none;
+  color: var(--dew);
+  transform: none;
 }
 
 .muted {
+  margin: 0;
   color: var(--text-tertiary);
   font-size: var(--font-size-sm);
 }
 
 .error {
+  margin: 0;
   color: var(--error);
   font-size: var(--font-size-sm);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  color: var(--ink-3);
+  font-size: var(--font-size-xs);
 }
 
 .removeButton {
@@ -100,17 +137,25 @@
 }
 
 .editor {
-  margin-top: var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
 }
 
 .textarea {
   width: 100%;
-  margin-top: var(--space-xs);
-  padding: .75rem 1rem;
+  padding: 0.75rem 1rem;
   font-size: var(--font-size-sm);
   line-height: var(--line-height-relaxed);
   resize: vertical;
   border-radius: var(--r-inner);
+}
+
+.formActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
 }
 
 .markdown {
@@ -121,6 +166,10 @@
 
 .markdown p {
   margin: 0 0 0.75em;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
 }
 
 .markdown h1,
@@ -141,21 +190,6 @@
   color: var(--accent);
 }
 
-.history {
-  list-style: none;
-  margin: var(--space-sm) 0 0;
-  padding: 0;
-}
-
-.historyRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 0.25rem 0;
-  font-size: var(--font-size-sm);
-  border-top: 1px solid var(--line);
-}
-
 .historyBody {
   color: var(--text-secondary);
   white-space: nowrap;
@@ -163,36 +197,30 @@
   text-overflow: ellipsis;
 }
 
-.listenForm {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  margin-top: var(--space-sm);
-}
-
-.input {
-  min-height: var(--h-control-sm);
-  padding: 0 0.9rem;
-  font-size: var(--font-size-sm);
-  min-width: 8rem;
-  flex: 1 1 8rem;
-}
-
 .list {
   list-style: none;
-  margin: var(--space-sm) 0 0;
+  margin: 0;
   padding: 0;
 }
 
 .listRow {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-sm);
-  padding: 0.35rem 0;
-  font-size: var(--font-size-sm);
+  min-height: 44px;
+  padding: 0.2rem 0;
   border-top: 1px solid var(--line);
-  flex-wrap: wrap;
+  font-size: var(--font-size-sm);
+}
+
+.listRow:first-child {
+  border-top: 0;
+}
+
+.listDate {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .note {
@@ -220,6 +248,14 @@
   white-space: nowrap;
 }
 
+.chipLink,
+.chipSearch {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 0.9rem;
+}
+
 .chipLink {
   background: var(--dew-tint);
   color: var(--chip-on-ink);
@@ -240,12 +276,12 @@
 .ratingsRow {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-md);
-  margin-bottom: var(--space-sm);
+  gap: var(--space-sm);
 }
 
 .ratingCard {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-xs);
   padding: 0.35rem 0.9rem;
@@ -256,7 +292,6 @@
 }
 
 .reviewCard {
-  margin-top: var(--space-sm);
   padding: 1rem 1.25rem;
   border: 1px solid var(--line);
   border-radius: var(--r-inner);
@@ -274,6 +309,7 @@
 
 .reviewFoot {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-sm);
   margin-top: var(--space-xs);
@@ -290,4 +326,144 @@
 .reviewFoot a:hover,
 .extLink:hover {
   text-decoration: underline;
+}
+
+/* ---- the Add sheet: a card on a scrim; a bottom sheet on a phone ---- */
+
+.sheet {
+  width: min(32rem, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-float);
+  overflow: auto;
+}
+
+.sheet[open] {
+  animation: sheetIn var(--dur-slow) var(--ease-out);
+}
+
+.sheet::backdrop {
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+@keyframes sheetIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.sheetPanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: 20px 24px 24px;
+}
+
+.sheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.sheetTitle {
+  margin: 0;
+  font: var(--type-title);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.field em {
+  font-style: normal;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.field input,
+.field select,
+.field textarea {
+  min-height: 44px;
+  width: 100%;
+  font-size: 16px; /* no zoom-on-focus on iOS */
+}
+
+.fieldPair {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: var(--space-md);
+}
+
+@media (max-width: 640px) {
+  .section {
+    padding: 0.25rem 1rem;
+  }
+  .row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label label"
+      "value value"
+      "control control";
+    row-gap: var(--space-xs);
+    padding: 1rem 0;
+  }
+  .rowLabel,
+  .rowValue {
+    padding-top: 0;
+  }
+  .rowControl {
+    justify-content: stretch;
+    margin-top: var(--space-xs);
+  }
+  .rowControl > * {
+    flex: 1 1 auto;
+    width: 100%;
+    justify-content: center;
+  }
+  .ratingLine {
+    margin-top: 0;
+  }
+  .sheet {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 92dvh;
+    margin: auto 0 0;
+    border-radius: var(--r-card) var(--r-card) 0 0;
+    border-bottom: 0;
+  }
+  .sheetPanel {
+    padding: 16px 16px calc(20px + env(safe-area-inset-bottom));
+  }
+  .formActions > * {
+    flex: 1 1 0;
+  }
+  .fieldPair {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet[open] {
+    animation: none;
+  }
 }

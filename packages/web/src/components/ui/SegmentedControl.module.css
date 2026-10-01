@@ -11,6 +11,7 @@
   border-radius: var(--r-pill);
   background: var(--mist);
   box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), 0.1), inset 0 0 0 1px var(--glass-edge);
+  position: relative;
 }
 
 .option {
@@ -25,8 +26,21 @@
   color: var(--ink-2);
   font: 500 14px / 1 var(--font-body);
   cursor: pointer;
+  z-index: 1;
   transition: color var(--dur) ease, background-color var(--dur) ease, box-shadow var(--dur) ease;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* toolbar size: Grid · List next to a search field */
+.small {
+  padding: 3px;
+}
+
+.small .option {
+  min-height: 34px;
+  min-width: 0;
+  padding: 0 14px;
+  font-size: 13px;
 }
 
 .option:hover {
@@ -34,12 +48,33 @@
   background: color-mix(in srgb, var(--surface) 45%, transparent);
 }
 
+/* The clear bubble: the selected option paints it until the sliding
+   indicator is placed, then the indicator carries it from option to option
+   (useSlidingIndicator, same as Tabs). The weight stays put so nothing
+   resizes under the moving pill. */
 .selected,
-.selected:hover {
+.selected:hover,
+.indicator {
   color: var(--ink);
-  font-weight: 600;
   background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--mist) 40%, var(--surface)));
   box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
+}
+
+.indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  border-radius: var(--r-pill);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.track[data-indicator] .selected,
+.track[data-indicator] .selected:hover {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* The native radio stays in the accessibility tree and keyboard order. */
@@ -67,11 +102,22 @@
   .selected {
     border: 2px solid Highlight;
   }
+
+  .indicator {
+    display: none;
+  }
 }
 
 @media (max-width: 400px) {
   .option {
     min-width: 0;
     padding: 0 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .option,
+  .indicator {
+    transition: none !important;
   }
 }

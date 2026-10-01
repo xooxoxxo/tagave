@@ -36,6 +36,7 @@
   font: 500 14px / 1 var(--font-body);
   letter-spacing: 0.01em;
   cursor: pointer;
+  z-index: 1;
   white-space: nowrap;
   transition: color var(--dur) ease, background-color var(--dur) ease, box-shadow var(--dur) ease;
   -webkit-tap-highlight-color: transparent;
@@ -51,17 +52,50 @@
   transform: none;
 }
 
+/* A ring for keyboard focus only: a click or tap never leaves one behind. */
+.tab:focus {
+  outline: none;
+}
+
 .tab:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 
+/* The clear bubble. Until the sliding indicator is placed (no JS, server
+   markup) the active tab paints it itself; once placed, the indicator is the
+   bubble and slides from tab to tab (useSlidingIndicator). The label weight
+   never changes, so no tab resizes under a moving pill. */
 .active,
-.active:hover {
+.active:hover,
+.indicator {
   color: var(--ink);
-  font-weight: 600;
   background: linear-gradient(180deg, var(--surface), color-mix(in srgb, var(--mist) 40%, var(--surface)));
   box-shadow: inset 0 1px 0 var(--clear-hi), 0 1px 2px rgba(var(--shadow-tint), 0.14), 0 6px 14px -8px rgba(var(--shadow-tint), 0.4);
+}
+
+.indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
+  width: 0;
+  height: 0;
+  border-radius: var(--r-pill);
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform, width;
+}
+
+.tablist[data-indicator] .active,
+.tablist[data-indicator] .active:hover {
+  background: transparent;
+  box-shadow: none;
+}
+
+.tab > * {
+  position: relative;
+  z-index: 1;
 }
 
 .inactive {
@@ -89,8 +123,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab {
-    transition: none;
+  .tab,
+  .indicator {
+    transition: none !important;
   }
 }
 
@@ -101,5 +136,9 @@
 
   .active {
     border: 2px solid Highlight;
+  }
+
+  .indicator {
+    display: none;
   }
 }

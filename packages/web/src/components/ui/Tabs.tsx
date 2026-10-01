@@ -1,6 +1,7 @@
-import { type ReactNode, useRef } from 'react';
+import { type ReactNode, useCallback, useRef } from 'react';
 import { nextTabIndex } from './tabNavigation';
 import { useScrollFade } from './useScrollFade';
+import { useSlidingIndicator } from './useSlidingIndicator';
 import styles from './Tabs.module.css';
 
 export interface TabItem {
@@ -22,8 +23,11 @@ interface TabsProps {
 export function Tabs({ items, value, onChange, label = 'Sections', panelId }: TabsProps) {
   const refs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const strip = useScrollFade<HTMLDivElement>(value);
+  const { trackRef, indicatorRef } = useSlidingIndicator<HTMLDivElement>(value);
+  const setStrip = useCallback((el: HTMLDivElement | null) => { strip(el); trackRef(el); }, [strip, trackRef]);
   const activate = (item: TabItem) => { item.onClick?.(); onChange?.(item.value); };
-  return <div ref={strip} className={styles.tablist} role="tablist" aria-label={label}>
+  return <div ref={setStrip} className={styles.tablist} role="tablist" aria-label={label}>
+    <span ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
     {items.map((item, index) => <button
       type="button"
       key={item.value}
@@ -31,6 +35,7 @@ export function Tabs({ items, value, onChange, label = 'Sections', panelId }: Ta
       role="tab"
       tabIndex={item.value === value ? 0 : -1}
       aria-selected={item.value === value}
+      data-active={item.value === value}
       aria-controls={panelId}
       className={[styles.tab, item.value === value ? styles.active : styles.inactive].join(' ')}
       onClick={() => activate(item)}

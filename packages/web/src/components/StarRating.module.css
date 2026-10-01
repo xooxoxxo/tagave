@@ -30,15 +30,17 @@
 
 .half {
   position: absolute;
-  top: 0;
-  width: 50%;
-  height: 100%;
+  z-index: 1;
   margin: 0;
   padding: 0;
   border: 0;
   background: transparent;
   cursor: pointer;
   opacity: 0;
+}
+
+.half:focus {
+  outline: none;
 }
 
 .half:focus-visible {
@@ -54,4 +56,30 @@
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+}
+
+/* interactive: the empty stars read as slots to fill, the chosen ones in dew */
+.interactive .star {
+  color: color-mix(in srgb, var(--ink-3) 45%, transparent);
+  cursor: pointer;
+}
+
+.interactive .starFill {
+  transition: width var(--dur-fast) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .interactive:hover .starFill {
+    color: color-mix(in srgb, var(--dew) 75%, var(--surface));
+  }
+}
+
+.rated .starFill {
+  color: var(--dew);
+  text-shadow: 0 1px 6px color-mix(in srgb, var(--dew) 35%, transparent);
+}
+
+@media (forced-colors: active) {
+  .starFill { color: Highlight; }
+  .half:focus-visible { outline-color: Highlight; }
 }

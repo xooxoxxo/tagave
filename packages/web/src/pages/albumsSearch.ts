@@ -9,7 +9,7 @@ import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@liner
 export type AlbumsSearch = AlbumsQuery;
 
 export const ALBUMS_SORTS = ['artist', 'title', 'year', 'added_date', 'rating', 'listened'] as const;
-const SINGLE_KEYS = ['q', 'artist', 'decided', 'review', 'owned'] as const;
+const SINGLE_KEYS = ['q', 'artist', 'folder', 'decided', 'review', 'owned'] as const;
 const MULTI_KEYS = MULTI_FILTER_KEYS;
 
 function toArray(v: unknown): string[] {

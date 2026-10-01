@@ -1,0 +1,61 @@
+/* "Local folder": the path in mono, then its actions on one wrapping line. */
+.folders {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.path {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-left: -0.5rem; /* quiet buttons: their text lines up with the path */
+}
+
+.open {
+  margin-left: 0.5rem;
+}
+
+.open svg {
+  margin-right: 0.4rem;
+  vertical-align: -3px;
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--ink-3);
+}
+
+.hint a {
+  color: var(--dew);
+}
+
+/* phone: each action a full-width, thumb-sized row */
+@media (max-width: 640px) {
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+    margin-left: 0;
+  }
+  .actions > * {
+    justify-content: center;
+    min-height: 44px;
+    margin-left: 0;
+  }
+}

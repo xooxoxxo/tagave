@@ -215,3 +215,45 @@
   background: var(--danger-tint);
   color: var(--danger);
 }
+
+/* Open-folder link: one labelled field with its save button, help under it. */
+.folderLink {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--line);
+}
+
+.folderLinkLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.folderLinkRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.folderLinkInput {
+  flex: 1 1 16rem;
+  min-width: 0;
+  min-height: 44px;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.folderLinkHelp {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.folderLinkHelp code {
+  overflow-wrap: anywhere;
+}
