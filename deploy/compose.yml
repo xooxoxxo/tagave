@@ -25,6 +25,9 @@ x-worker-env: &worker-env
   LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   TZ: ${TZ:-UTC}
+  # A worker waits while the app has not applied the database updates it
+  # needs, and stops if a newer app has updated the database.
+  LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
 
 services:
   postgres:
@@ -58,8 +61,19 @@ services:
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
+      # Before it applies a database update, the app writes a checked pg_dump
+      # here and refuses to update if that fails. It keeps the newest
+      # TAGAVE_PREMIGRATE_BACKUP_KEEP of them. Set TAGAVE_SKIP_PREMIGRATE_BACKUP=1
+      # only to update without a backup on purpose.
+      LINER_BACKUP_DIR: /backups
+      LINER_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
+      LINER_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
+      LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
     volumes:
       - cache:/cache
+      # A named volume by default; set BACKUP_DIR in .env to a folder on this
+      # computer (or a NAS mount) to keep the backups outside Docker.
+      - ${BACKUP_DIR:-backups}:/backups
     ports:
       - "${TAGAVE_PORT:-3100}:3000"
     restart: unless-stopped
@@ -72,7 +86,9 @@ services:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
       interval: 15s
       timeout: 5s
-      start_period: 60s
+      # Long enough for the backup and migrations an update runs before the
+      # app listens; a normal start turns healthy at the first passing check.
+      start_period: 600s
       retries: 5
 
   # MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes and
@@ -90,6 +106,9 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      # healthy = the app has finished updating the database
+      app:
         condition: service_healthy
 
   # Scanning, clustering, cover art, fingerprints, tag plans: everything that
@@ -119,7 +138,11 @@ services:
       postgres:
         condition: service_healthy
         required: false
+      app:
+        condition: service_healthy
+        required: false
 
 volumes:
   pgdata:
   cache:
+  backups:

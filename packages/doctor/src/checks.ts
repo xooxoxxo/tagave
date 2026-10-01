@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import postgres from 'postgres';
-import { MIGRATIONS_DIR } from '@liner/db';
+import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@liner/db';
 import { MusicBrainzProvider, DiscogsProvider, isSealed, openSecret, unservedWork } from '@liner/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
@@ -81,17 +81,30 @@ export async function checkDatabase(databaseUrl: string): Promise<Check> {
   }
 }
 
-// Check 2: Migrations status
-export async function checkMigrations(databaseUrl: string): Promise<Check> {
+// Check 2: Migrations status, and whether this build may run on this schema
+export async function checkMigrations(databaseUrl: string, ownVersion?: string): Promise<Check> {
   const start = Date.now();
   try {
     const sql = postgres(databaseUrl, { max: 1 });
     try {
       const allFiles = await getMigrationFiles();
-      const applied = await getAppliedMigrations(sql);
+      const state = await readSchemaState(sql, allFiles);
+      const version = ownVersion ?? (await import('@liner/core')).readBuildInfo().version;
+
+      // A newer app migrated this database: this build must not run on it.
+      const skew = classifySkew(state, version);
+      if (skew.verdict === 'newer' && compareVersions(state.schemaAppVersion, version) === 1) {
+        return {
+          id: 'migrations',
+          title: 'Migrations',
+          status: 'fail',
+          detail: `Database is newer than this build: ${skew.detail}`,
+          durationMs: Date.now() - start,
+        };
+      }
 
       // Check for pending migrations
-      const pending = allFiles.filter((f) => !applied.has(f));
+      const pending = state.pending;
       if (pending.length > 0) {
         return {
           id: 'migrations',
@@ -103,7 +116,7 @@ export async function checkMigrations(databaseUrl: string): Promise<Check> {
       }
 
       // Check for unknown ledger rows
-      const unknownRows = Array.from(applied).filter((name) => !allFiles.includes(name));
+      const unknownRows = state.unknown;
       if (unknownRows.length > 0) {
         return {
           id: 'migrations',
@@ -118,7 +131,7 @@ export async function checkMigrations(databaseUrl: string): Promise<Check> {
         id: 'migrations',
         title: 'Migrations',
         status: 'pass',
-        detail: `${allFiles.length} applied`,
+        detail: `${allFiles.length} applied${state.schemaAppVersion ? `, schema from tagave ${state.schemaAppVersion}` : ''}`,
         durationMs: Date.now() - start,
       };
     } finally {

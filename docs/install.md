@@ -24,7 +24,7 @@ Every question has a flag, so it also runs unattended (`--help` lists them all).
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)" _ --yes --music /srv/music
 ```
 
-Running it again is safe. It keeps the secrets already in `~/tagave/.env`, backs up any `.env` it changes, and refuses to invent a new database password when a database already exists. To update, run `docker compose pull && docker compose up -d` in `~/tagave`, or run the installer again.
+Running it again is safe. It keeps the secrets already in `~/tagave/.env`, backs up any `.env` it changes, and refuses to invent a new database password when a database already exists. To update, run `docker compose pull && docker compose up -d` in `~/tagave`, or run the installer again. Before an update changes the database, the app backs it up into the `backups` volume and stops if that backup fails; the workers start once the app is done. See [What happens when you update](operations.md#what-happens-when-you-update).
 
 `~/tagave/.env` holds the secrets that open your database and your stored provider tokens. It is written readable only by you; keep a copy somewhere safe.
 

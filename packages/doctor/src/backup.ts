@@ -9,19 +9,19 @@ export const BACKUP_PREFIX = 'liner-';
 export const BACKUP_SUFFIX = '.pgdump';
 
 /** liner-2026-09-08T00-30-00Z.pgdump — sorts chronologically; no colons so SMB/Windows shares accept it. */
-export function backupFileName(now: Date): string {
+export function backupFileName(now: Date, prefix: string = BACKUP_PREFIX): string {
   const ts = now.toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '-');
-  return `${BACKUP_PREFIX}${ts}${BACKUP_SUFFIX}`;
+  return `${prefix}${ts}${BACKUP_SUFFIX}`;
 }
 
 /** Our dump files among `files`, oldest first. Foreign files in the directory are never touched. */
-export function ownBackups(files: string[]): string[] {
-  return files.filter((f) => f.startsWith(BACKUP_PREFIX) && f.endsWith(BACKUP_SUFFIX)).sort();
+export function ownBackups(files: string[], prefix: string = BACKUP_PREFIX): string[] {
+  return files.filter((f) => f.startsWith(prefix) && f.endsWith(BACKUP_SUFFIX)).sort();
 }
 
 /** Files to delete so that only the newest `keep` of our dumps remain. */
-export function pruneList(files: string[], keep: number): string[] {
-  const ours = ownBackups(files);
+export function pruneList(files: string[], keep: number, prefix: string = BACKUP_PREFIX): string[] {
+  const ours = ownBackups(files, prefix);
   if (keep < 0) return [];
   return ours.slice(0, Math.max(0, ours.length - keep));
 }
@@ -47,6 +47,8 @@ export interface BackupOptions {
   now?: Date;
   pgDump?: string;
   pgRestore?: string;
+  /** File-name prefix; pruning only ever touches files with this prefix. */
+  prefix?: string;
 }
 
 export interface BackupResult {
@@ -76,7 +78,8 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
   const pgDump = opts.pgDump ?? process.env['PG_DUMP'] ?? 'pg_dump';
   const pgRestore = opts.pgRestore ?? process.env['PG_RESTORE'] ?? 'pg_restore';
   await mkdir(opts.outDir, { recursive: true });
-  const fileName = backupFileName(opts.now ?? new Date());
+  const prefix = opts.prefix ?? BACKUP_PREFIX;
+  const fileName = backupFileName(opts.now ?? new Date(), prefix);
   const path = join(opts.outDir, fileName);
 
   try {
@@ -101,11 +104,15 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
     throw new Error('pg_restore --list found no entries in the dump');
   }
   const bytes = (await stat(path)).size;
+  if (bytes === 0) {
+    await unlink(path).catch(() => undefined);
+    throw new Error('pg_dump wrote an empty file');
+  }
 
   const pruned: string[] = [];
   if (opts.keep !== undefined) {
     const others = (await readdir(opts.outDir)).filter((f) => f !== fileName);
-    for (const old of pruneList(others, Math.max(0, opts.keep - 1))) {
+    for (const old of pruneList(others, Math.max(0, opts.keep - 1), prefix)) {
       await unlink(join(opts.outDir, old));
       pruned.push(old);
     }

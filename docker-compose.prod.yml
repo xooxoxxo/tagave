@@ -32,14 +32,28 @@ services:
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
       NODE_ENV: production
+      # Checked pg_dump before every database update; the app refuses to
+      # update when it fails (LINER_SKIP_PREMIGRATE_BACKUP=1 overrides).
+      LINER_BACKUP_DIR: /backups
+      LINER_PREMIGRATE_BACKUP_KEEP: ${LINER_PREMIGRATE_BACKUP_KEEP:-5}
+      LINER_SKIP_PREMIGRATE_BACKUP: ${LINER_SKIP_PREMIGRATE_BACKUP:-}
+      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
     volumes:
       - cache:/cache
+      - ${BACKUP_DIR:-backups}:/backups
     ports:
       - "${LINER_PORT:-3100}:3000"
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      # healthy = migrations done; the workers wait for it
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      start_period: 600s
+      retries: 5
 
   # Workers: both run behind the "workers" profile. Start with
   # `docker compose --profile workers up -d`. The file worker owns
@@ -62,6 +76,7 @@ services:
       LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
     volumes:
       - cache:/cache
       # read-only until M2 tag writing is switched on for this root
@@ -69,6 +84,8 @@ services:
     restart: unless-stopped
     depends_on:
       postgres:
+        condition: service_healthy
+      app:
         condition: service_healthy
 
   worker-identify:
@@ -88,13 +105,17 @@ services:
       LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
       LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
     volumes:
       - cache:/cache
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      app:
+        condition: service_healthy
 
 volumes:
   pgdata:
   cache:
+  backups:

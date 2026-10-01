@@ -7,7 +7,9 @@ import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { makeDb, runMigrations } from '@liner/db';
+import { makeDb } from '@liner/db';
+import { readBuildInfo } from '@liner/core';
+import { migrateOnBoot } from '@liner/doctor';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
@@ -84,7 +86,22 @@ if (!databaseUrl) {
 
 let db: Awaited<ReturnType<typeof makeDb>>;
 try {
-  await runMigrations(databaseUrl);
+  // Advisory lock, newer-schema refusal, verified pg_dump, then migrations.
+  // Any refusal exits here with a plain message before the app listens.
+  try {
+    const result = await migrateOnBoot({
+      databaseUrl,
+      appVersion: readBuildInfo().version,
+      log: (msg) => logger.info(msg),
+    });
+    if (result.applied.length > 0) {
+      logger.info({ applied: result.applied, backup: result.backup?.path ?? null }, 'Migrations applied');
+    }
+  } catch (err) {
+    logger.error((err as Error).message);
+    logger.error('The app did not start. Run `liner-doctor doctor` (or read GET /api/v1/health once it is up) for the full check list.');
+    process.exit(1);
+  }
   const { initDb } = await import('./db.js');
   db = await initDb(databaseUrl);
   initAuth(db.db);

@@ -1,6 +1,6 @@
 import PgBoss from 'pg-boss';
 import pino from 'pino';
-import { makeDb } from '@liner/db';
+import { listMigrationFiles, makeDb } from '@liner/db';
 import { readBuildInfo, WORKER_QUEUES } from '@liner/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -36,6 +36,7 @@ import { tagsRevertJob, type TagsRevertJobData } from './jobs/tagsRevert.js';
 import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefresh.js';
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
 import { libraryIdsFor, pinnedLibraryId } from './lib/libraries.js';
+import { newerMessage, schemaVerdict, schemaWaitMs, waitForCompatibleSchema } from './lib/schemaGuard.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -99,6 +100,21 @@ const IDENTIFY_JOB_TIMEOUT_MS = 5 * 60_000;
 
 async function main() {
   const { db, client } = await makeDb(databaseUrl as string);
+  const build = readBuildInfo();
+
+  // Version skew (split installs update hosts separately): wait for the app
+  // to apply migrations this worker needs; refuse a database a newer app
+  // migrated. Before pg-boss starts, so nothing is claimed meanwhile.
+  const migrationFiles = await listMigrationFiles();
+  const allowSkew = /^(1|true|yes|on)$/i.test(process.env['LINER_ALLOW_SCHEMA_SKEW'] ?? '');
+  await waitForCompatibleSchema(client, {
+    version: build.version,
+    files: migrationFiles,
+    log: logger,
+    maxWaitMs: schemaWaitMs(process.env),
+    allowSkew,
+  });
+
   const boss = new PgBoss(databaseUrl as string);
   boss.on('error', (error: Error) => logger.error({ err: error }, 'pg-boss error'));
   await boss.start();
@@ -106,7 +122,6 @@ async function main() {
   const ctx: WorkerContext = { db, sql: client, boss, logger };
   setCooldownObserver((provider, ms, attempt, reason) => logger.warn({ provider, ms, attempt, reason: reason.slice(0, 200) }, 'provider cooldown opened'));
   const workerId = `worker-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  const build = readBuildInfo();
   logger.info({ workerId, version: build.version, sha: build.sha, buildSource: build.source }, 'worker connected');
   const watchdog = startWatchdog(logger);
 
@@ -452,6 +467,19 @@ async function main() {
     } catch (err) {
       logger.warn({ err: (err as Error).message }, 'heartbeat failed');
     }
+    // The app may have been updated under this worker: stop rather than run
+    // old code on a newer schema. Restarting then refuses with the same message.
+    if (!allowSkew && migrationFiles.length > 0) {
+      try {
+        const verdict = await schemaVerdict(ctx.sql, migrationFiles, build.version);
+        if (verdict.verdict === 'newer') {
+          logger.error(newerMessage(verdict.detail, build.version));
+          void shutdown(1);
+        }
+      } catch {
+        /* a transient read error is the heartbeat's problem, not a skew */
+      }
+    }
   };
   // Beat once now, so the system check sees a worker as soon as it is ready
   // rather than 30 s later.
@@ -459,7 +487,7 @@ async function main() {
   const heartbeat = setInterval(() => void beat(), 30_000);
 
   let shuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = async (exitCode = 0) => {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('shutting down...');
@@ -482,15 +510,19 @@ async function main() {
     } catch {
       /* closing */
     }
-    process.exit(0);
+    process.exit(exitCode);
   };
-  process.on('SIGTERM', () => void shutdown());
-  process.on('SIGINT', () => void shutdown());
+  process.on('SIGTERM', () => void shutdown(0));
+  process.on('SIGINT', () => void shutdown(0));
 
   logger.info({ workerId }, 'worker ready');
 }
 
 main().catch((err) => {
+  if ((err as Error).name === 'WorkerSchemaError') {
+    logger.error((err as Error).message);
+    process.exit(1);
+  }
   logger.error({ err }, 'worker failed to start');
   process.exit(1);
 });

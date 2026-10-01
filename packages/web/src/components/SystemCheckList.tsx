@@ -18,6 +18,7 @@ const TITLES: Record<string, string> = {
   versions: 'Build versions',
   scanRoots: 'Music folders',
   cacheDir: 'Cache folder',
+  backups: 'Backups before updates',
   providers: 'Metadata services',
   appSecret: 'App secret',
 };

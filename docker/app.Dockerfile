@@ -21,7 +21,9 @@ FROM node:24-slim
 
 WORKDIR /app
 
-# pg_dump/pg_restore for `liner-doctor backup`. Debian bookworm ships client 15,
+# pg_dump/pg_restore for the backup the app takes before it migrates, and for
+# `liner-doctor backup`. They must match the server major (postgres:16):
+# Debian bookworm ships client 15,
 # and pg_dump refuses a newer server, so take 16 from the PGDG repository.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && install -d /usr/share/postgresql-common/pgdg \
@@ -49,6 +51,10 @@ ARG LINER_VERSION=
 ENV LINER_GIT_SHA=$GIT_SHA \
     LINER_BUILT_AT=$BUILT_AT \
     LINER_VERSION=$LINER_VERSION
+
+# Pre-migration backups (mount a volume or a host folder here).
+RUN mkdir -p /backups
+ENV LINER_BACKUP_DIR=/backups
 
 EXPOSE 3000
 

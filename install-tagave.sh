@@ -49,6 +49,7 @@ DB_PORT="${TAGAVE_DB_PORT:-}"
 DB_BIND="${TAGAVE_DB_BIND:-}"
 FROM_FILE="${TAGAVE_FROM:-}"
 BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
+BACKUP_DIR="${TAGAVE_BACKUP_DIR:-}"
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
 PLATFORM=""
@@ -106,7 +107,7 @@ Usage: install-tagave.sh [options]
 Each option can also be set as an environment variable: TAGAVE_ROLE,
 TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
 TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
-TAGAVE_FROM, TAGAVE_BEHIND_HTTPS=1, TAGAVE_YES=1. TAGAVE_REF picks the git
+TAGAVE_FROM, TAGAVE_BEHIND_HTTPS=1, TAGAVE_BACKUP_DIR, TAGAVE_YES=1. TAGAVE_REF picks the git
 ref the compose files are downloaded from (default: the release being installed).
 EOF
 }
@@ -331,6 +332,7 @@ collect_answers() {
     [ -n "$DB_HOST" ]   || DB_HOST="$(env_get DB_HOST "$existing")"
     [ -n "$DB_PORT" ]   || DB_PORT="$(env_get DB_PORT "$existing")"
     [ -n "$DB_BIND" ]   || DB_BIND="$(env_get DB_BIND "$existing")"
+    [ -n "$BACKUP_DIR" ] || BACKUP_DIR="$(env_get BACKUP_DIR "$existing")"
     [ -n "$ADVERTISE_ADDRESS" ] || ADVERTISE_ADDRESS="$(env_get TAGAVE_ADVERTISE_ADDRESS "$existing")"
     if [ -z "$BEHIND_HTTPS" ] && [ "$(env_get ALLOW_INSECURE_HTTP "$existing")" = "false" ]; then
       BEHIND_HTTPS=1
@@ -688,6 +690,11 @@ EOF
     fi
     if [ "$ROLE" != "files" ]; then
       printf '\n# web app\nTAGAVE_PORT=%s\nALLOW_INSECURE_HTTP=%s\n' "$PORT" "$insecure"
+      if [ -n "$BACKUP_DIR" ]; then
+        printf "\n# the app backs up the database here before every update that changes it\nBACKUP_DIR='%s'\n" "$BACKUP_DIR"
+      else
+        printf '\n# the app backs up the database before every update that changes it, into\n# the Docker volume "backups"; set a folder here to keep those backups outside Docker\n# BACKUP_DIR=/path/to/backups\n'
+      fi
     fi
     if [ "$ROLE" = "app" ]; then
       printf '\n# database published for the file worker on the music computer\nDB_BIND=%s\nDB_PORT=%s\nTAGAVE_ADVERTISE_ADDRESS=%s\n' \
@@ -766,11 +773,16 @@ wait_for() {
 start_services() {
   step "Starting tagave"
   compose pull || die "downloading the images failed (see above). Fix that, then run this again."
-  compose up -d || die "docker compose could not start tagave (see above)."
+  # The workers wait for the app to be healthy, so this returns once the app
+  # has finished any database update (backup first, then migrations).
+  if ! compose up -d; then
+    [ "$ROLE" = "files" ] || compose logs --tail 40 app >&2 || true
+    die "docker compose could not start tagave. The log above says why; fix it and run this again."
+  fi
 
   if [ "$ROLE" != "files" ]; then
     say "  Waiting for the web app (the first start sets up the database)..."
-    if wait_for app healthy 180; then
+    if wait_for app healthy 600; then
       ok "Web app is up"
     else
       compose logs --tail 40 app >&2 || true
@@ -825,6 +837,8 @@ wait_for_worker() {
     if [ "${restarts:-0}" -gt 0 ]; then
       compose logs --tail 20 "$worker" >&2 || true
       case "$logs" in
+        *'will not run:'*)
+          die "$worker is older than the database: a newer app has already updated it. Install the same TAGAVE_VERSION as the app computer here and run this again." ;;
         *'password authentication failed'*)
           die "the database refused $worker's password. On a split install, $WORKER_ENV_NAME must come from the app install this worker joins." ;;
       esac

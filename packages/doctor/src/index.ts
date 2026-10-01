@@ -10,13 +10,24 @@ import {
   checkAppSecret,
   type Check,
 } from './checks.js';
+import { checkBackups } from './backupCheck.js';
 
 export type { Check, CheckStatus } from './checks.js';
 export { remediationFor } from './remediation.js';
+export {
+  migrateOnBoot,
+  preMigrationBackup,
+  preMigrationKeep,
+  skipPreMigrationBackup,
+  allowSchemaSkew,
+  PREMIGRATE_PREFIX,
+} from './premigrate.js';
 
 export interface DoctorOptions {
   databaseUrl: string;
   cacheDir?: string;
+  /** Pre-migration backup folder; LINER_BACKUP_DIR (then CACHE_DIR/backups) when absent. */
+  backupDir?: string;
   expectWorkers?: number;
   offline?: boolean;
   /** What the skipped provider check says when offline (the CLI names its flag). */
@@ -43,6 +54,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
     timeoutMs = 10000,
     libraryId,
     probeHost,
+    backupDir,
   } = opts;
 
   const checks: Check[] = [];
@@ -58,6 +70,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
     ...(probeHost !== undefined ? { probeHost } : {}),
   }));
   checks.push(await checkCacheDir(cacheDir));
+  checks.push(await checkBackups(databaseUrl, backupDir ? { backupDir } : {}));
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs, offlineDetail));
   checks.push(await checkAppSecret(databaseUrl));
 
