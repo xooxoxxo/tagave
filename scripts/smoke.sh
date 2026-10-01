@@ -206,7 +206,7 @@ fi
 
 if [ "$WORKERS" = "1" ]; then
   echo "Waiting for both worker heartbeats (the first one lands ~30 s after boot)..."
-  if ! wait_for "two live workers in /health" 150 "curl -s '$HEALTH_URL' | grep -q '2 live worker'"; then
+  if ! wait_for "two live workers in /health" 150 "curl -s '$HEALTH_URL' | grep -Eq '\"id\":\"workerHeartbeat\",\"title\":\"[^\"]*\",\"status\":\"pass\",\"detail\":\"2 (live )?worker'"; then
     curl -s "$HEALTH_URL"; echo ""
     compose logs --tail=40 worker-files worker-identify
     exit 1
