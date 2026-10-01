@@ -1,6 +1,110 @@
 # Operations
 
-This page covers the health check, backups, what happens when you update, and the cutover from external workers to containers. Return here when you need to verify the system is running, take a backup before an upgrade, or move workers into the Compose stack.
+This page covers the health check, updates, what happens when you update, backups, roll back and restore, and the cutover from external workers to containers. Return here when you need to verify the system is running, move to a new release, undo one, or move workers into the Compose stack.
+
+The update, roll back and restore sections assume an install made with `install-tagave.sh` (in `~/tagave` unless you passed `--dir`). The other sections show the commands for a source build with `docker-compose.prod.yml`; on an installer install, drop `-f docker-compose.prod.yml` and run them in the install folder.
+
+## Update
+
+The installer pins the release in `.env` (`TAGAVE_VERSION=0.5.0`), so nothing changes until you ask. Check what runs and whether a newer release is out:
+
+```sh
+cd ~/tagave
+./install-tagave.sh status
+```
+
+Move to the newest release, or to a given one:
+
+```sh
+./install-tagave.sh update
+./install-tagave.sh update --version 0.5.0 --yes
+./install-tagave.sh update --dry-run      # show the plan, change nothing
+```
+
+`update` does this, in order, and stops at the first step that fails:
+
+1. Compares the version in `.env`, the version the app reports, and the target, and shows the release notes link. Read the notes before you go on: a release that changes how tagave is set up says so there.
+2. Copies `.env`, the compose files and a verified `pg_dump` of the database to `backups/pre-update-<old version>-<time>/` in the install folder. The dump is taken by the database container and read back with `pg_restore --list` before anything changes.
+3. Writes the new `TAGAVE_VERSION`, fetches the compose files of that release and pulls its images.
+4. Stops the workers, starts the new app and waits until it is healthy. The app applies database changes when it starts, so this can take a few minutes on a large library.
+5. Starts the workers and waits until `/api/v1/health` reports the database and migrations as ok, the app on the new version, and every worker on the same build.
+6. Prints the exact commands to roll back to the version you came from.
+
+An `.env` from an older installer may say `TAGAVE_VERSION=latest`, which moves with every pull. `update` then treats the version that runs now as the one you came from: it names the backup after it, pins it in the saved `.env`, and refuses to go below it. If it cannot tell which version runs (the app is stopped and the local image names none), it stops unless you pass `--yes`. Re-running the installer on such an install pins the running version too; it does not update.
+
+tagave does not go back to an older version through `update`. Database changes only go forward, so going back means restoring the backup taken before the update (next section).
+
+**Split install.** First stop the file worker on the music computer (`docker compose stop worker-files` there), so old code does not write to the database while it changes; `update` on the app computer warns when it still sees that worker checking in. Then run `update` on the app computer. Then run it on the music computer: there it asks the app for its version (`TAGAVE_APP_URL` in `.env`, or `--app-url http://<app address>:3100`), refuses any other version, and only pulls and restarts the file worker. Until the music computer is updated, Settings › Updates and the doctor's Build Versions check warn that the workers run different builds.
+
+**Without the installer script.** The same steps by hand, in the install folder:
+
+```sh
+docker compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > pre-update.pgdump
+sed -i.bak 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=0.5.0/' .env
+docker compose pull
+docker compose stop worker-identify worker-files
+docker compose up -d app          # wait until `docker compose ps` shows it healthy
+docker compose up -d
+```
+
+### Update notifications
+
+tagave does not update itself, and nothing in the compose file needs access to the Docker socket. To hear about new releases:
+
+- Settings › Updates in the app lists new releases once a release feed is set there.
+- [Diun](https://github.com/crazy-max/diun) only notifies (Discord, Gotify, Pushover, Slack, Telegram, email and others). The compose file already carries its labels (`diun.enable`, `diun.watch_repo`, and `diun.include_tags` limited to release numbers), so run Diun with `watchByDefault: false` and it watches only tagave.
+- [What's Up Docker](https://github.com/getwud/wud) shows available updates in a dashboard and can notify. The compose file carries `wud.watch` and `wud.tag.include` for it. Use it to notify, not to replace the containers: an automatic update skips the backup and the app-before-workers order above, and it cannot change the version pinned in `.env`.
+
+Watchtower was archived in December 2025 and does not work with current Docker Engine releases; do not use it for tagave.
+
+## Roll back
+
+When an update goes wrong, `update` prints the commands for your install, with the real folder names filled in. They look like this, run in the install folder (`B` is the `backups/pre-update-…` folder the update wrote):
+
+```sh
+# split install: first stop the file worker on the music computer
+#   docker compose stop worker-files
+docker compose stop app worker-identify worker-files
+cp -p B/.env B/*.yml .                  # the old version and compose files
+docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < B/database.pgdump
+docker compose pull && docker compose up -d
+```
+
+If the update failed before the new app started, the database was not touched: copying the files back and running `docker compose pull && docker compose up -d` is enough, and `update` says so.
+
+On a split install, roll the music computer back too: copy its saved `.env` back from its own `backups/pre-update-…` folder, then `docker compose pull && docker compose up -d`. Or run `./install-tagave.sh update` there once the app computer is back; it follows the app's version.
+
+Anything the app did between the update and the roll back (new scans, edits, accepted matches) is lost with the restore. Scans can be run again.
+
+## Restore
+
+To restore any dump (one from `update`, or one from the `backup` command below) into an installer install:
+
+1. Get the dump onto the host. `update` dumps are already in `backups/`. A `backup` dump lives in the cache volume:
+   ```sh
+   docker compose cp app:/cache/backups/liner-<timestamp>.pgdump ./backups/
+   ```
+2. Check it can be read:
+   ```sh
+   docker compose exec -T postgres pg_restore --list < ./backups/<file>.pgdump | head
+   ```
+3. Stop everything that writes to the database (on a split install, the file worker on the music computer too):
+   ```sh
+   docker compose stop app worker-identify worker-files
+   ```
+4. Replace the database with the dump:
+   ```sh
+   docker compose exec -T postgres sh -c 'dropdb -U "$POSTGRES_USER" --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+   docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error' < ./backups/<file>.pgdump
+   ```
+5. Start tagave. Run the version the dump was taken with, or a newer one: the app applies any missing database changes when it starts. A dump from a newer version than the one you run does not work; set `TAGAVE_VERSION` to at least that version first.
+   ```sh
+   docker compose up -d
+   ./install-tagave.sh status
+   ```
+
+Restore with the `.env` the dump was taken under: the dump holds provider tokens sealed with its `APP_SECRET`, and a different secret cannot open them.
 
 ## Health check
 
@@ -43,7 +147,11 @@ Restore into an empty database:
 pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
 ```
 
-Put `backup` on a nightly timer once you rely on the catalog. The app also takes its own backup before every update that changes the database (below).
+On an installer install, see [Restore](#restore) for the same through the database container.
+
+`install-tagave.sh update` takes its own backup before every update. Run `backup` before any other change you may want to undo, and put it on a nightly timer once you rely on the catalog.
+
+The app also takes its own backup before every update that changes the database (below).
 
 ## What happens when you update
 
