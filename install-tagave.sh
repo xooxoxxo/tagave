@@ -160,7 +160,7 @@ esac
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --role)              need_arg "$@"; ROLE="$2"; shift 2 ;;
-    --dir)               need_arg "$@"; INSTALL_DIR="$2"; shift 2 ;;
+    --dir)               need_arg "$@"; INSTALL_DIR="$2"; DIR_GIVEN=1; shift 2 ;;
     --music)             need_arg "$@"; MUSIC_DIR="$2"; shift 2 ;;
     --port)              need_arg "$@"; PORT="$2"; shift 2 ;;
     --version)           need_arg "$@"; VERSION="$2"; shift 2 ;;
@@ -180,6 +180,18 @@ while [ "$#" -gt 0 ]; do
     *)                   die "unknown option: $1 (see --help)" ;;
   esac
 done
+
+# The copy the installer keeps in the install folder works on that folder
+# when neither --dir nor TAGAVE_DIR names another one, so
+# "./install-tagave.sh status" also works in an install made with --dir.
+if [ -z "${TAGAVE_DIR:-}" ] && [ "${DIR_GIVEN:-0}" != 1 ] \
+   && [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+  self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  if [ -f "$self_dir/.env" ] && [ -f "$self_dir/$COMPOSE_MAIN" ]; then
+    INSTALL_DIR="$self_dir"
+  fi
+  unset self_dir
+fi
 
 # Questions go to the terminal even when the script itself arrives on stdin
 # (curl ... | bash). Without a terminal, or with --yes, nothing is asked.
