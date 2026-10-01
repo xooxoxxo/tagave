@@ -70,6 +70,14 @@ export function albumQueryParts(
   // below it, relative to the scan root as dir_paths are.
   const folder = str(q['folder'])?.replace(/\/+$/, '');
   if (folder) conds.push(sql`exists (select 1 from unnest(${localAlbums.dirPaths}) as d(p) where d.p = ${folder} or starts_with(d.p, ${folder + '/'}))`);
+  // ...and, with `root`, only under that scan root (the same relative path
+  // can exist under two roots). A malformed id matches nothing.
+  const root = str(q['root']);
+  if (root) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(root)) conds.push(sql`false`);
+    else conds.push(sql`exists (select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      where lt.local_album_id = ${localAlbums.id} and af.scan_root_id = ${root}::uuid)`);
+  }
   if (search) {
     // Column references stay qualified: the facet queries join tables that
     // carry the same names (gaps.state, releases.date, …).

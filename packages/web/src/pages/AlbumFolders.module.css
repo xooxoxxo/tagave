@@ -1,4 +1,4 @@
-/* "Local folder": the path in mono, then its actions on one wrapping line. */
+/* "Local folder": the path in mono, then its actions as small buttons on one wrapping line, all on one left edge. */
 .folders {
   display: flex;
   flex-direction: column;
@@ -23,17 +23,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--space-xs);
-  margin-left: -0.5rem; /* quiet buttons: their text lines up with the path */
-}
-
-.open {
-  margin-left: 0.5rem;
-}
-
-.open svg {
-  margin-right: 0.4rem;
-  vertical-align: -3px;
 }
 
 .hint {
@@ -46,16 +37,17 @@
   color: var(--dew);
 }
 
-/* phone: each action a full-width, thumb-sized row */
+/* phone: each action a full-width, 44px button on the path's left edge,
+   label and icon left-aligned like the path and the hint */
 @media (max-width: 640px) {
   .actions {
     flex-direction: column;
     align-items: stretch;
-    margin-left: 0;
   }
-  .actions > * {
-    justify-content: center;
+  .actions > .action {
+    width: 100%;
     min-height: 44px;
-    margin-left: 0;
+    justify-content: flex-start;
+    text-align: left;
   }
 }

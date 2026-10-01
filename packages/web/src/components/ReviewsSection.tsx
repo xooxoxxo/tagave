@@ -5,9 +5,10 @@
  *
  * Built for touch: every section is one row — a label, what is there now (or
  * what tapping does, when nothing is), and ONE obvious control (full width
- * on a phone, at the row's end on wider screens, always ≥44px). Adding a
- * listen with details or a clipping happens in one "Add" sheet with the two
- * kinds side by side, instead of forms scattered through the card.
+ * on a phone, at the row's end on wider screens, always ≥44px). "I listened
+ * today" is the card's one primary action. Everything secondary (a listen
+ * with a date, format or note; a clipping) starts from ONE "Add…" button by
+ * the card title and its sheet, never from links scattered through the copy.
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -17,7 +18,7 @@ import {
   useAddClipping, useAddListen, useDeleteClipping, useDeleteListen, useDeleteReview,
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
-import { StarRating } from './StarRating';
+import { StarRating, useCoarsePointer } from './StarRating';
 import { Button, IconButton, SegmentedControl, confirmDialog, showToast } from './ui';
 import styles from './ReviewsSection.module.css';
 
@@ -76,14 +77,19 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
 
   return (
     <section className={styles.section} aria-labelledby="reviews-title">
-      <h2 id="reviews-title" className={styles.title}>Reviews &amp; listening</h2>
+      <div className={styles.titleRow}>
+        <h2 id="reviews-title" className={styles.title}>Reviews &amp; listening</h2>
+        <Button variant="secondary" className={styles.addButton} onClick={() => setAdding('listen')} aria-haspopup="dialog" title="Log a listen with a date, format or note, or keep a clipping">
+          <span aria-hidden="true">+</span> Add…
+        </Button>
+      </div>
 
       <RatingRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <ReviewRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <ListenRow libraryId={libraryId} releaseGroupId={releaseGroupId} listens={data.listens} onAdd={() => setAdding('listen')} />
       <ExternalRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <LinkChips bundle={data} />
-      <ClippingsRow releaseGroupId={releaseGroupId} bundle={data} onAdd={() => setAdding('clipping')} />
+      <ClippingsRow releaseGroupId={releaseGroupId} bundle={data} />
 
       {adding && (
         <AddSheet
@@ -104,6 +110,7 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
 function RatingRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | undefined; releaseGroupId: string; bundle: ReviewsBundle }) {
   const save = useSaveReview(libraryId, releaseGroupId);
   const rating = bundle.own?.rating ?? null;
+  const coarse = useCoarsePointer();
   return (
     <Row label="Your rating">
       <div className={styles.ratingLine}>
@@ -112,7 +119,7 @@ function RatingRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
           <span className={styles.ratingHint}>{rating.toFixed(1)} of 5</span>
           <Button variant="quiet" size="sm" className={styles.clear} onClick={() => save.mutate({ rating: null })} disabled={save.isPending}>Clear</Button>
         </>) : (
-          <span className={styles.ratingHint}>Tap a star; its left half gives a half star.</span>
+          <span className={styles.ratingHint}>{coarse ? 'Tap a star to rate; tap it again for a half star.' : 'Click a star; its left half gives a half star.'}</span>
         )}
       </div>
       {save.isError && <p className={styles.error}>{(save.error as { detail?: string })?.detail ?? 'The rating was not saved.'}</p>}
@@ -220,7 +227,7 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
       label="Listens"
       control={(
         <Button
-          variant="secondary"
+          variant="primary"
           className={styles.control}
           disabled={add.isPending}
           onClick={() => add.mutate({ format: 'digital' }, { onSuccess: () => showToast({ message: 'Logged a listen for today', durationMs: 4000, action: { label: 'Add details', onClick: onAdd } }) })}
@@ -231,12 +238,11 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
       )}
     >
       {listens.length === 0 ? (
-        <p className={styles.empty}>Not logged yet. “I listened today” logs one tap; <button type="button" className={styles.inlineLink} onClick={onAdd}>add one with a date, format or note</button>.</p>
+        <p className={styles.empty}>Not logged yet. “I listened today” logs today’s listen in one tap; Add… above logs one with a date, format or note.</p>
       ) : (
         <>
           <p className={styles.summary}>
             {listens.length} {listens.length === 1 ? 'listen' : 'listens'} · last on {fmtDate(listens[0]?.listenedAt)}
-            {' · '}<button type="button" className={styles.inlineLink} onClick={onAdd}>Add with details</button>
           </p>
           <ul className={styles.list}>
             {shown.map((l) => (
@@ -272,7 +278,7 @@ function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string 
     <Row
       label="From the web"
       control={(
-        <Button variant="secondary" className={styles.control} onClick={() => refresh.mutate()} disabled={busy} loading={busy}>
+        <Button variant="quiet" className={styles.control} onClick={() => refresh.mutate()} disabled={busy} loading={busy}>
           {busy ? 'Gathering…' : bundle.fetchedAt ? 'Refresh reviews' : 'Gather reviews'}
         </Button>
       )}
@@ -366,12 +372,12 @@ function LinkChips({ bundle }: { bundle: ReviewsBundle }) {
 
 /* ---------- Clippings (REV-2) ---------- */
 
-function ClippingsRow({ releaseGroupId, bundle, onAdd }: { releaseGroupId: string; bundle: ReviewsBundle; onAdd: () => void }) {
+function ClippingsRow({ releaseGroupId, bundle }: { releaseGroupId: string; bundle: ReviewsBundle }) {
   const remove = useDeleteClipping(releaseGroupId);
   return (
-    <Row label="Clippings" control={<Button variant="secondary" className={styles.control} onClick={onAdd}>Add a clipping</Button>}>
+    <Row label="Clippings">
       {bundle.clippings.length === 0 ? (
-        <p className={styles.empty}>Keep a quote, a score or a link from a review you read elsewhere (a magazine, a blog). Nothing saved yet.</p>
+        <p className={styles.empty}>Nothing saved yet. Add… above keeps a quote, a score or a link from a review you read elsewhere (a magazine, a blog).</p>
       ) : (
         <ul className={styles.list}>
           {bundle.clippings.map((c) => (

@@ -68,18 +68,19 @@
   transition: width var(--dur-fast) var(--ease-out);
 }
 
-@media (hover: hover) {
-  .interactive:hover .starFill {
-    color: color-mix(in srgb, var(--dew) 75%, var(--surface));
-  }
-}
-
 .rated .starFill {
   color: var(--dew);
   text-shadow: 0 1px 6px color-mix(in srgb, var(--dew) 35%, transparent);
 }
 
+/* a mouse preview is a lighter tint than the saved value, never mistaken for it */
+.interactive.previewing .starFill {
+  color: color-mix(in srgb, var(--dew) 45%, var(--surface));
+  text-shadow: none;
+}
+
 @media (forced-colors: active) {
   .starFill { color: Highlight; }
+  .interactive.previewing .starFill { color: GrayText; }
   .half:focus-visible { outline-color: Highlight; }
 }

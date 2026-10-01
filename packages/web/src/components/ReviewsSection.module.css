@@ -12,9 +12,23 @@
   box-shadow: var(--shadow-card);
 }
 
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 0.75rem 0;
+}
+
 .title {
   margin: 0;
-  padding: 1rem 0 0.75rem;
+}
+
+/* the one place secondary additions live: a listen with details, a clipping */
+.addButton {
+  min-height: 44px;
+  min-width: 44px;
+  white-space: nowrap;
 }
 
 .row {
@@ -87,28 +101,6 @@
 .summary {
   margin: 0;
   color: var(--ink-2);
-}
-
-/* a text-sized action inside a sentence; the row's button stays the obvious one */
-.inlineLink {
-  display: inline;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  box-shadow: none;
-  color: var(--dew);
-  font: inherit;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.inlineLink:hover:not(:disabled),
-.inlineLink:active:not(:disabled) {
-  background: none;
-  color: var(--dew);
-  transform: none;
 }
 
 .muted {

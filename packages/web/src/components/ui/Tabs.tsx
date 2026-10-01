@@ -20,6 +20,11 @@ interface TabsProps {
   panelId?: string;
 }
 
+/** The id of one tab of a strip that controls `panelId`, for the panel's aria-labelledby. */
+export function tabIdFor(panelId: string, value: string): string {
+  return `${panelId}-tab-${value}`;
+}
+
 export function Tabs({ items, value, onChange, label = 'Sections', panelId }: TabsProps) {
   const refs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const strip = useScrollFade<HTMLDivElement>(value);
@@ -33,6 +38,7 @@ export function Tabs({ items, value, onChange, label = 'Sections', panelId }: Ta
       key={item.value}
       ref={element => { if (element) refs.current.set(item.value, element); else refs.current.delete(item.value); }}
       role="tab"
+      id={panelId ? tabIdFor(panelId, item.value) : undefined}
       tabIndex={item.value === value ? 0 : -1}
       aria-selected={item.value === value}
       data-active={item.value === value}

@@ -18,6 +18,14 @@
   padding: 0 var(--page-pad) var(--page-pad);
 }
 
+/* the panel the tab strip controls: the same rhythm as the column */
+.tabPanel {
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  min-width: 0;
+}
+
 /* ---- identity header ---- */
 
 .heroBand {

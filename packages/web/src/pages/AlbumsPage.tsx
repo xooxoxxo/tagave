@@ -341,7 +341,7 @@ export function AlbumsPage() {
   };
 
   const chips = (Object.entries(query) as Array<[keyof typeof query, unknown]>)
-    .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view')
+    .filter(([k, v]) => v !== undefined && v !== '' && k !== 'sort' && k !== 'view' && k !== 'root')
     .flatMap(([k, v]) => {
       const label = CHIP_LABEL[k] ?? k;
       if (Array.isArray(v)) {
@@ -351,7 +351,8 @@ export function AlbumsPage() {
           clear: () => setSearch({ [k]: toggleMulti(search, k as MultiFilterKey, item as string | number) } as SearchPatch),
         }));
       }
-      return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch({ [k]: undefined } as SearchPatch) }];
+      // the scan root only narrows a folder filter: it goes with it, unseen
+      return [{ key: String(k), text: `${label}: ${v}`, clear: () => setSearch((k === 'folder' ? { folder: undefined, root: undefined } : { [k]: undefined }) as SearchPatch) }];
     });
 
   const showEmpty = !isLoading && !error && items.length === 0;

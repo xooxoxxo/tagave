@@ -30,13 +30,13 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Collapse, CoverArt, LinkButton, Menu, Tabs, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Collapse, CoverArt, LinkButton, Menu, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
-import { STATE_LABEL, dur, totalLength } from './albumFormat';
+import { STATE_LABEL, artPollMs, dur, totalLength } from './albumFormat';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -47,6 +47,9 @@ const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
 ];
 
 const PANEL_MATCH_INPUT = 'manual-match-input';
+/** the one panel the album's tab strip controls */
+const TAB_PANEL_ID = 'album-section-panel';
+
 const ROW_MATCH_INPUT = 'manual-match-input-row';
 
 /** resolved tasks the owner already saw ("Got it"), per browser */
@@ -94,6 +97,11 @@ export function AlbumDetailPage() {
   }, [note]);
   /** the owner asked for cover art on this visit: say how the lookup ends */
   const [artAsked, setArtAsked] = useState(false);
+  // read inside the query's refetchInterval, which is not re-created per render
+  const artAskedRef = useRef(artAsked);
+  artAskedRef.current = artAsked;
+  const maintenanceRef = useRef(maintenance);
+  maintenanceRef.current = maintenance;
   const toggleRow = (id: string) => setOpenRows((cur) => {
     const next = new Set(cur);
     if (next.has(id)) next.delete(id); else next.add(id);
@@ -117,9 +125,12 @@ export function AlbumDetailPage() {
       const r = (q.state.data as AlbumDetail | undefined)?.identifyRequest;
       const live = r ? r.status !== 'done' : !!(q.state.data as AlbumDetail | undefined)?.pendingIdentify;
       if (live) return 2500;
-      // a cover-art lookup on its way: the page shows the art (or says none was found) when it ends
+      // a cover-art lookup on its way: the page shows the art (or says none
+      // was found) when it ends. Quickly when the owner is watching for it
+      // (asked on this visit, or Maintenance shows the note); slowly for a
+      // background sweep's job, which can sit in the queue for a long time.
       const art = (q.state.data as AlbumDetail | undefined)?.artFetch?.state;
-      if (art === 'queued' || art === 'running') return 2500;
+      if (art === 'queued' || art === 'running') return artPollMs(artAskedRef.current, maintenanceRef.current);
       // a physical copy on its way to Discogs: "adding to Discogs…" clears itself
       return (q.state.data as AlbumDetail | undefined)?.discogsCollectionItems?.some((i) => i.pushState === 'pending') ? 5000 : false;
     },
@@ -739,13 +750,9 @@ export function AlbumDetailPage() {
                 : albumArtist ?? 'Unknown artist'}
             </div>
             {meta && <p className={styles.metaRow}>{meta}</p>}
-            {/* One line: "⋯", then what the album is (a physical copy; in
-                Maintenance its state and provider pages). */}
+            {/* One line: what the album is (a physical copy; in Maintenance
+                its state, then its provider pages), and "⋯" trailing it. */}
             <div className={styles.headTools}>
-              {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
-              <div className={styles.actionRow}>
-                <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
-              </div>
               {(ownsPhysical || maintenance) && (
                 <div className={styles.statusLine}>
                   {ownsPhysical && (
@@ -767,6 +774,10 @@ export function AlbumDetailPage() {
                   </>)}
                 </div>
               )}
+              {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
+              <div className={styles.actionRow}>
+                <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
+              </div>
             </div>
             {/* a passing status: quiet, inline, gone when the thing it is about is done */}
             <div className={styles.statusSlot} role="status" aria-live="polite">
@@ -808,6 +819,7 @@ export function AlbumDetailPage() {
 
       <Tabs
         label="Album sections"
+        panelId={TAB_PANEL_ID}
         value={tab}
         onChange={(next) => setTab(next as AlbumTab)}
         items={TABS.map(([key, label]) => ({
@@ -816,6 +828,7 @@ export function AlbumDetailPage() {
         }))}
       />
 
+      <div id={TAB_PANEL_ID} role="tabpanel" aria-labelledby={tabIdFor(TAB_PANEL_ID, tab)} className={styles.tabPanel}>
       {tab === 'tracks' && (
         <AlbumTracks
           tracks={album.tracks}
@@ -962,6 +975,7 @@ export function AlbumDetailPage() {
           </p>
         </section>
       )}
+      </div>
 
 
       {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId)) && (

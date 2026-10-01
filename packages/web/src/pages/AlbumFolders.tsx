@@ -39,39 +39,70 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** Where "Show albums in this folder" goes; null for the top of a music folder (that would be the whole library). */
+export function folderAlbumsSearch(f: Pick<AlbumFolder, 'path' | 'scanRootId'>): { folder: string; root?: string } | null {
+  if (!f.path) return null;
+  return f.scanRootId ? { folder: f.path, root: f.scanRootId } : { folder: f.path };
+}
+
 export function AlbumFolders({ folders }: { folders: AlbumFolder[] }) {
   const anyLink = folders.some((f) => f.link);
   return (
     <div className={styles.folders}>
-      {folders.map((f) => (
-        <div key={f.path} className={styles.folder}>
-          <span className={styles.path}>{f.path || '(top of the music folder)'}</span>
-          <div className={styles.actions}>
-            {f.link && (
-              <a className={buttonClassName({ variant: 'secondary', size: 'sm', className: styles.open })} href={f.link} title={`Open ${f.link}`}>
-                <span className={buttonLabelClassName}><FolderIcon />Open folder</span>
-              </a>
-            )}
-            <LinkButton variant="quiet" size="sm" to="/albums" search={{ folder: f.path } as never}>Show albums in this folder</LinkButton>
-            <Button
-              variant="quiet"
-              size="sm"
-              onClick={async () => {
-                const ok = await copyText(f.path);
-                showToast({ message: ok ? 'Folder path copied' : 'Could not copy: select the path and copy it instead', tone: ok ? 'neutral' : 'danger', durationMs: 3500 });
-              }}
-            >
-              Copy path
-            </Button>
+      {folders.map((f) => {
+        const albums = folderAlbumsSearch(f);
+        return (
+          <div key={`${f.scanRootId ?? ''}:${f.path}`} className={styles.folder}>
+            <span className={styles.path}>{f.path || '(top of the music folder)'}</span>
+            <div className={styles.actions}>
+              {f.link && (
+                <a className={buttonClassName({ variant: 'secondary', size: 'sm', className: styles.action })} href={f.link} title={`Open ${f.link}`}>
+                  <span className={buttonLabelClassName}><FolderIcon />Open folder</span>
+                </a>
+              )}
+              {albums && (
+                <LinkButton variant="secondary" size="sm" className={styles.action ?? ''} to="/albums" search={albums as never}>
+                  <ListIcon />Show albums in this folder
+                </LinkButton>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                className={styles.action}
+                onClick={async () => {
+                  const ok = await copyText(f.path);
+                  showToast({ message: ok ? 'Folder path copied' : 'Could not copy: select the path and copy it instead', tone: ok ? 'neutral' : 'danger', durationMs: 3500 });
+                }}
+              >
+                <CopyIcon />Copy path
+              </Button>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
       {!anyLink && (
         <p className={styles.hint}>
           <Link to="/settings/$section" params={{ section: 'library' }}>Set a folder link in Settings</Link> to open this folder from here.
         </p>
       )}
     </div>
+  );
+}
+
+function ListIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+      <rect x="3.5" y="4" width="7" height="7" rx="1.5" /><rect x="13.5" y="4" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="14" width="7" height="7" rx="1.5" /><rect x="13.5" y="14" width="7" height="7" rx="1.5" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+      <rect x="8.5" y="8.5" width="12" height="12" rx="2" /><path d="M15.5 8.5V5a1.5 1.5 0 0 0-1.5-1.5H5A1.5 1.5 0 0 0 3.5 5v9A1.5 1.5 0 0 0 5 15.5h3.5" />
+    </svg>
   );
 }
 
