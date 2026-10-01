@@ -76,19 +76,22 @@ services:
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
+      # Nightly, manual and pre-update database backups (Settings › Backups).
       # Before it applies a database update, the app writes a checked pg_dump
       # here and refuses to update if that fails. It keeps the newest
       # TAGAVE_PREMIGRATE_BACKUP_KEEP of them. Set TAGAVE_SKIP_PREMIGRATE_BACKUP=1
       # only to update without a backup on purpose.
+      BACKUP_DIR: /backups
       LINER_BACKUP_DIR: /backups
       LINER_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
       LINER_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
       LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
     volumes:
       - cache:/cache
-      # A named volume by default; set BACKUP_DIR in .env to a folder on this
-      # computer (or a NAS mount) to keep the backups outside Docker.
-      - ${BACKUP_DIR:-backups}:/backups
+      # A volume of its own by default; set TAGAVE_BACKUP_DIR in .env to a
+      # folder on this computer (or a NAS mount) to keep the backups outside
+      # Docker, where they are easier to copy somewhere else.
+      - ${TAGAVE_BACKUP_DIR:-backups}:/backups
     ports:
       - "${TAGAVE_PORT:-3100}:3000"
     restart: unless-stopped

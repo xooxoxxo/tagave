@@ -119,39 +119,79 @@ Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm do
 ## Where data lives
 
 - **Database:** `pgdata` volume
-- **Cache:** `cache` volume (thumbnails, converted audio)
-- **Backups:** `backups` volume, mounted at `/backups` in the app container (the automatic backups taken before each update, and `backup` dumps). Set `BACKUP_DIR` in `.env` to a folder on the host instead.
+- **Backups:** `backups` volume, mounted at `/backups` in the app container (nightly, manual and before-update dumps), or a folder on the host when `TAGAVE_BACKUP_DIR` is set in `.env`
+- **Cache:** `cache` volume (thumbnails, converted audio). The cache is not a backup location.
 
-## Taking a backup
+The commands below are for an install made with the installer: run them in its folder (`~/tagave` unless you chose another). For a source install, add `-f docker-compose.prod.yml` after `docker compose`.
 
-Take a verified dump of the database using custom `pg_dump` format, checked with `pg_restore --list` before the command reports success, and older dumps pruned to the newest 14:
+## Backups
+
+The app backs the database up every night and keeps a set of recent dumps, and it takes one on its own before an update changes the database (see [What happens when you update](#what-happens-when-you-update)). Settings › Backups lists them, takes one on demand, downloads or deletes one, and changes the schedule and how many are kept.
+
+Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --list` before it counts as written. A dump that fails that check is removed, and the failure is shown on the Backups page.
+
+| Kind | Taken | Deleted |
+|---|---|---|
+| Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
+| Manual | "Back up now", or `liner-doctor backup` | only when you delete it |
+| Before update | by the app, before it applies database updates | after a successful update, keeping the newest 5 (`LINER_PREMIGRATE_BACKUP_KEEP`) |
+| Before restore | by `liner-doctor restore --in-place` | only when you delete it |
+
+Files are named `liner-<UTC time>[-<kind>].pgdump`. The `liner-` prefix is the project's old name, kept so older dumps sort with new ones. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
+
+Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `LINER_BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
+
+### Take a backup by hand
 
 ```sh
-docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli.js backup --keep 14
+docker compose exec app node packages/doctor/dist/cli.js backup
 ```
 
-Dumps land in `/backups/liner-<timestamp>.pgdump` inside the app container.
-Older versions wrote these dumps to `/cache/backups`. If a copy job or timer reads that folder, point it at `/backups` (the `backups` volume, or `BACKUP_DIR`).
-The `liner-` prefix is the old project name and is still what the code writes;
-it is a filename, not a display string, so it has deliberately not been renamed. Use `--out DIR` or set `LINER_BACKUP_DIR` to change the location.
+Dumps land in `/backups` inside the app container. `--keep N` keeps only the newest N manual dumps (nightly, before-update and before-restore dumps are never touched), `--out DIR` writes somewhere else, `--json` prints the result as JSON.
 
-Copy dumps off the host. A Docker volume on the same disk is not a backup location:
+Older versions wrote these dumps to `/cache/backups`. If a copy job or timer reads that folder, point it at `/backups` (the `backups` volume, or `TAGAVE_BACKUP_DIR`).
+
+### Copy backups somewhere else
+
+A backup on the same disk as the database does not survive that disk. Copy the folder off the computer regularly:
 
 ```sh
-docker compose -f docker-compose.prod.yml cp app:/backups ./backups
+docker compose cp app:/backups ./tagave-backups
 ```
 
-Restore into an empty database:
+Or set `TAGAVE_BACKUP_DIR=/path/on/host` in `.env` and run `docker compose up -d`. The app then writes straight to that folder, and any sync or backup tool on the host (rclone, restic, a NAS sync app) can pick it up from there. Dumps already in the old volume stay there until you copy them over.
+
+Keep `APP_SECRET` from `.env` in a password manager too. A database restored without it loses only the saved Discogs and AcoustID keys, which you then enter again.
+
+### Restore a backup
+
+`liner-doctor restore` replaces the whole database with a dump. It refuses to run while the app or a worker is connected, so stop them first and run it from a one-off container:
 
 ```sh
-pg_restore --no-owner --dbname=postgres://liner:…@localhost:5432/liner ./backups/liner-<timestamp>.pgdump
+docker compose stop app worker-identify worker-files
+docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore liner-<time>.pgdump --yes
+docker compose up -d
 ```
+
+A bare file name is looked up in the backups folder; a path works too. Without `--yes` the command only says what it would do. On a split install, stop the file worker on the other computer as well.
+
+By default the dump is restored into a new database next to the current one. Once that has worked, the current database is renamed to `<name>_pre_restore_<time>` and the restored one takes its name. To go back, stop the app and swap the names back. Once you are happy, drop the old one:
+
+```sh
+docker compose exec postgres dropdb -U liner liner_pre_restore_<time>
+```
+
+Options:
+
+- `--in-place` restores into the existing database instead, for a database user that may not create databases. A pre-restore backup is written first, and if the restore fails that backup is put back.
+- `--force` restores even though the app or workers are connected. Their connections are closed.
+- `--json` prints the result as JSON.
+
+The restore does not run migrations. The app applies any the dump is missing when it starts.
 
 On an installer install, see [Restore](#restore) for the same through the database container.
 
 `install-tagave.sh update` takes its own backup before every update. Run `backup` before any other change you may want to undo, and put it on a nightly timer once you rely on the catalog.
-
-The app also takes its own backup before every update that changes the database (below).
 
 ## What happens when you update
 
@@ -159,7 +199,7 @@ When the app starts, it updates the database to match its version (migrations). 
 
 1. **One at a time.** The app holds a database lock for the whole update. A second app that starts at the same moment waits ("another tagave process is migrating the database"), then finds nothing left to do.
 2. **Never onto a newer database.** If a newer version of tagave has already updated the database, an older app refuses to start. Update the app, or roll back as below.
-3. **Backup first.** If an existing database has updates to apply, the app writes `pre-migrate-<timestamp>.pgdump` into `/backups`, checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
+3. **Backup first.** If an existing database has updates to apply, the app writes `liner-<time>-pre-migration.pgdump` into `/backups` (listed under "Before update" in Settings › Backups), checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
 4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 5 (`LINER_PREMIGRATE_BACKUP_KEEP`).
 
 If a migration fails, the app exits and Docker restarts it. The database now has some of the update's migrations and not others. On the restart the app does not take a new backup, because that backup would hold the half-updated database. It keeps the first backup of this update as the rollback point (the log says "keeping its backup") and deletes nothing.
@@ -195,12 +235,9 @@ Migrations only go forward, so going back means restoring the backup the update 
      "select created_at, path, from_version, to_version from _migration_backups order by id desc limit 5"
    ```
    Use the row whose `to_version` is the version you are leaving and whose `from_version` is the version you are going back to.
-   Restore that file into an empty database:
+   Settings › Backups lists the same file under "Before update". Restore it as in [Restore a backup](#restore-a-backup):
    ```sh
-   docker compose exec -T postgres dropdb -U liner liner
-   docker compose exec -T postgres createdb -U liner liner
-   docker compose run --rm --no-deps -T app pg_restore --no-owner \
-     --dbname=postgres://liner:<password>@postgres:5432/liner /backups/pre-migrate-<timestamp>.pgdump
+   docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore liner-<time>-pre-migration.pgdump --yes
    ```
 5. `docker compose up -d`.
 

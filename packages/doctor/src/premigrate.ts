@@ -24,7 +24,8 @@ import {
   type BackupResult,
 } from './backup.js';
 
-export const PREMIGRATE_PREFIX = 'pre-migrate-';
+/** Kind of the dump the app takes before it migrates: liner-<time>-pre-migration.pgdump in the backups folder. */
+export const PREMIGRATE_KIND = 'pre-migration' as const;
 export const PREMIGRATE_KEEP_DEFAULT = 5;
 
 const truthy = (v: string | undefined) => v !== undefined && /^(1|true|yes|on)$/i.test(v.trim());
@@ -116,7 +117,7 @@ export function preMigrationBackup(
       const result = await backup({
         databaseUrl: opts.databaseUrl,
         outDir,
-        prefix: PREMIGRATE_PREFIX,
+        kind: PREMIGRATE_KIND,
       });
       if (!(result.bytes > 0) || !(result.tocEntries > 0)) {
         throw new Error('the dump is empty');
@@ -155,7 +156,7 @@ export async function migrateOnBoot(opts: MigrateOnBootOptions): Promise<RunMigr
   // so restarts after a failure can never push the real pre-update dump out.
   if (result.backup && result.backup.status !== 'skipped') {
     try {
-      const pruned = await pruneBackups(defaultBackupDir(env), preMigrationKeep(env), PREMIGRATE_PREFIX);
+      const pruned = await pruneBackups(defaultBackupDir(env), preMigrationKeep(env), PREMIGRATE_KIND);
       if (pruned.length > 0) log(`removed ${pruned.length} older pre-migration backup(s): ${pruned.join(', ')}`);
     } catch (err) {
       log(`warning: could not remove older pre-migration backups: ${(err as Error).message}`);

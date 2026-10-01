@@ -19,7 +19,11 @@ import {
 } from '@liner/db';
 import { checkMigrations } from './checks.js';
 import { checkBackups } from './backupCheck.js';
-import { migrateOnBoot, PREMIGRATE_PREFIX } from './premigrate.js';
+import { migrateOnBoot } from './premigrate.js';
+import { backupFileName, ownKind } from './backup.js';
+
+const isPre = (f: string) => ownKind(f) === 'pre-migration';
+const pre = (day: string) => backupFileName(new Date(`${day}T00:00:00Z`), 'pre-migration');
 import { remediationFor } from './remediation.js';
 import type { BackupOptions, BackupResult } from './backup.js';
 
@@ -208,7 +212,7 @@ describe.skipIf(!url)('migration safety (integration)', () => {
       expect(r.backup?.bytes).toBeGreaterThan(0);
       await new Promise((res) => setTimeout(res, 1100)); // file names carry seconds
     }
-    const files = (await readdir(backups)).filter((f) => f.startsWith(PREMIGRATE_PREFIX));
+    const files = (await readdir(backups)).filter(isPre);
     expect(files).toHaveLength(2);
     const check = await checkBackups(db, { backupDir: backups });
     expect(check.status).toBe('pass');
@@ -221,7 +225,7 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     dirs.push(backups);
     // Three dumps from earlier updates; keep 2.
     for (const d of ['2026-01-01', '2026-02-01', '2026-03-01']) {
-      await writeFile(join(backups, `${PREMIGRATE_PREFIX}${d}T00-00-00Z.pgdump`), 'old');
+      await writeFile(join(backups, pre(d)), 'old');
     }
     const env = { LINER_BACKUP_DIR: backups, LINER_PREMIGRATE_BACKUP_KEEP: '2' };
     const migs = await dir({ '0001_a.sql': 'create table a (id int);' });
@@ -232,17 +236,17 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     let dumps = 0;
     const backup = async (o: BackupOptions): Promise<BackupResult> => {
       dumps++;
-      const p = join(o.outDir, `${o.prefix}2026-09-0${dumps}T00-00-00Z.pgdump`);
+      const p = join(o.outDir, pre(`2026-09-0${dumps}`));
       await writeFile(p, 'dump');
-      return { path: p, bytes: 4, tocEntries: 1, pruned: [], durationMs: 1 };
+      return { path: p, kind: 'pre-migration', bytes: 4, tocEntries: 1, pruned: [], durationMs: 1 };
     };
     const boot = () => migrateOnBoot({ databaseUrl: db, appVersion: '1.1.0', env, log: quiet, migrationsDir: migs, backup });
 
     // 0002 applies, 0003 fails: three restarts in a row.
     for (let i = 0; i < 3; i++) await expect(boot()).rejects.toThrow();
     expect(dumps).toBe(1);
-    const first = join(backups, `${PREMIGRATE_PREFIX}2026-09-01T00-00-00Z.pgdump`);
-    expect((await readdir(backups)).filter((f) => f.startsWith(PREMIGRATE_PREFIX))).toHaveLength(4); // nothing pruned
+    const first = join(backups, pre('2026-09-01'));
+    expect((await readdir(backups)).filter(isPre)).toHaveLength(4); // nothing pruned
     const sql = postgres(db, { max: 1 });
     const rows = await sql`select path, pending from _migration_backups order by id`;
     expect(rows).toHaveLength(1);
@@ -254,9 +258,9 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     expect(ok.applied).toEqual(['0003_c.sql']);
     expect(ok.backup).toMatchObject({ status: 'reused', path: first });
     expect(dumps).toBe(1);
-    expect((await readdir(backups)).filter((f) => f.startsWith(PREMIGRATE_PREFIX)).sort()).toEqual([
-      `${PREMIGRATE_PREFIX}2026-03-01T00-00-00Z.pgdump`,
-      `${PREMIGRATE_PREFIX}2026-09-01T00-00-00Z.pgdump`,
+    expect((await readdir(backups)).filter(isPre).sort()).toEqual([
+      pre('2026-03-01'),
+      pre('2026-09-01'),
     ]);
     expect(await sql`select count(*)::int as n from _migration_backups`).toEqual([{ n: 1 }]);
     await sql.end({ timeout: 2 });

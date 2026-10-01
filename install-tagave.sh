@@ -425,6 +425,7 @@ collect_answers() {
     [ -n "$DB_HOST" ]   || DB_HOST="$(env_get DB_HOST "$existing")"
     [ -n "$DB_PORT" ]   || DB_PORT="$(env_get DB_PORT "$existing")"
     [ -n "$DB_BIND" ]   || DB_BIND="$(env_get DB_BIND "$existing")"
+    [ -n "$BACKUP_DIR" ] || BACKUP_DIR="$(env_get TAGAVE_BACKUP_DIR "$existing")"
     [ -n "$BACKUP_DIR" ] || BACKUP_DIR="$(env_get BACKUP_DIR "$existing")"
     [ -n "$ADVERTISE_ADDRESS" ] || ADVERTISE_ADDRESS="$(env_get TAGAVE_ADVERTISE_ADDRESS "$existing")"
     [ -n "$APP_URL" ]   || APP_URL="$(env_get TAGAVE_APP_URL "$existing")"
@@ -831,9 +832,9 @@ EOF
     if [ "$ROLE" != "files" ]; then
       printf '\n# web app\nTAGAVE_PORT=%s\nALLOW_INSECURE_HTTP=%s\n' "$PORT" "$insecure"
       if [ -n "$BACKUP_DIR" ]; then
-        printf "\n# the app backs up the database here before every update that changes it\nBACKUP_DIR='%s'\n" "$BACKUP_DIR"
+        printf "\n# the app backs up the database here before every update that changes it,\n# and the nightly backups (Settings > Backups) go here too\nTAGAVE_BACKUP_DIR='%s'\n" "$BACKUP_DIR"
       else
-        printf '\n# the app backs up the database before every update that changes it, into\n# the Docker volume "backups"; set a folder here to keep those backups outside Docker\n# BACKUP_DIR=/path/to/backups\n'
+        printf '\n# the app backs up the database before every update that changes it, into\n# the Docker volume "backups" with the nightly ones; set a folder here to keep\n# those backups outside Docker\n# TAGAVE_BACKUP_DIR=/path/to/backups\n'
       fi
     fi
     if [ "$ROLE" = "app" ]; then

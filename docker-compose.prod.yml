@@ -32,15 +32,19 @@ services:
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
       NODE_ENV: production
-      # Checked pg_dump before every database update; the app refuses to
-      # update when it fails (LINER_SKIP_PREMIGRATE_BACKUP=1 overrides).
+      # Nightly, manual and pre-update database backups (Settings › Backups).
+      # Before every database update the app writes a checked pg_dump here and
+      # refuses to update when it fails (LINER_SKIP_PREMIGRATE_BACKUP=1 overrides).
+      BACKUP_DIR: /backups
       LINER_BACKUP_DIR: /backups
       LINER_PREMIGRATE_BACKUP_KEEP: ${LINER_PREMIGRATE_BACKUP_KEEP:-5}
       LINER_SKIP_PREMIGRATE_BACKUP: ${LINER_SKIP_PREMIGRATE_BACKUP:-}
       LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
+      TZ: ${TZ:-UTC}
     volumes:
       - cache:/cache
-      - ${BACKUP_DIR:-backups}:/backups
+      # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.
+      - ${TAGAVE_BACKUP_DIR:-backups}:/backups
     ports:
       - "${LINER_PORT:-3100}:3000"
     restart: unless-stopped

@@ -5,7 +5,7 @@ import {
   preMigrationBackup,
   preMigrationKeep,
   skipPreMigrationBackup,
-  PREMIGRATE_PREFIX,
+  PREMIGRATE_KIND,
 } from './premigrate.js';
 import type { BackupOptions, BackupResult } from './backup.js';
 
@@ -29,11 +29,11 @@ describe('preMigrationBackup', () => {
       log: quiet,
       backup: async (opts): Promise<BackupResult> => {
         seen = opts;
-        return { path: '/backups/pre-migrate-1.pgdump', bytes: 2048, tocEntries: 10, pruned: [], durationMs: 5 };
+        return { path: '/backups/pre-migrate-1.pgdump', kind: 'pre-migration', bytes: 2048, tocEntries: 10, pruned: [], durationMs: 5 };
       },
     });
     expect(await hook(state)).toEqual({ status: 'ok', path: '/backups/pre-migrate-1.pgdump', bytes: 2048 });
-    expect(seen).toMatchObject({ outDir: '/backups', prefix: PREMIGRATE_PREFIX });
+    expect(seen).toMatchObject({ outDir: '/backups', kind: PREMIGRATE_KIND });
     expect((seen as BackupOptions | null)?.keep).toBeUndefined();
   });
 
@@ -58,7 +58,7 @@ describe('preMigrationBackup', () => {
       databaseUrl: 'postgres://x/y',
       env: {},
       log: quiet,
-      backup: async () => ({ path: '/b/pre-migrate-1.pgdump', bytes: 0, tocEntries: 0, pruned: [], durationMs: 1 }),
+      backup: async () => ({ path: '/b/pre-migrate-1.pgdump', kind: 'pre-migration', bytes: 0, tocEntries: 0, pruned: [], durationMs: 1 }),
     });
     await expect(hook(state)).rejects.toThrow(/the dump is empty/);
   });
@@ -139,7 +139,7 @@ describe('a restart after a failed update', () => {
     let dumps = 0;
     const backup = async (): Promise<BackupResult> => {
       dumps++;
-      return { path: '/b/pre-migrate-2.pgdump', bytes: 1, tocEntries: 1, pruned: [], durationMs: 1 };
+      return { path: '/b/pre-migrate-2.pgdump', kind: 'pre-migration', bytes: 1, tocEntries: 1, pruned: [], durationMs: 1 };
     };
     const hook = preMigrationBackup({ databaseUrl: 'postgres://x/y', env: {}, log: quiet, appVersion: '0.5.0', backup });
     expect((await hook(half, prev({ toVersion: '0.4.9' }))).status).toBe('ok');

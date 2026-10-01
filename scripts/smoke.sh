@@ -281,11 +281,12 @@ for i in 1 2 3 4; do
   sleep 1  # file names carry a 1 s timestamp
 done
 echo "$BACKUP_OUT"
-if ! echo "$BACKUP_OUT" | grep -q "backup written /cache/backups/liner-"; then
+if ! echo "$BACKUP_OUT" | grep -q "backup written /backups/liner-"; then
   echo "✗ FAIL: unexpected backup output"
   exit 1
 fi
-DUMP_COUNT=$(compose exec -T app sh -c 'ls /cache/backups/*.pgdump | wc -l' | tr -d ' \r')
+# manual dumps only (liner-<time>Z.pgdump): --keep never prunes other kinds
+DUMP_COUNT=$(compose exec -T app sh -c 'ls /backups/liner-*Z.pgdump | wc -l' | tr -d ' \r')
 if [ "$DUMP_COUNT" != "3" ]; then
   echo "✗ FAIL: expected 3 dumps after --keep 3, found $DUMP_COUNT"
   exit 1
@@ -295,7 +296,7 @@ echo "✓ Backup written, verified (pg_restore --list) and pruned to 3"
 # The dump must be readable outside the app container too: copy it to the host
 # and feed it to a stock postgres image over stdin (no host bind mount — Docker
 # Desktop does not always expose a file written to a temp dir moments earlier).
-LATEST=$(compose exec -T app sh -c 'ls /cache/backups/*.pgdump | sort | tail -1' | tr -d '\r')
+LATEST=$(compose exec -T app sh -c 'ls /backups/*.pgdump | sort | tail -1' | tr -d '\r')
 DUMP_TMP=$(mktemp -d "${TMPDIR%/}/liner-smoke-dump.XXXXXX")
 compose cp "app:$LATEST" "$DUMP_TMP/"
 DUMP_FILE="$DUMP_TMP/$(basename "$LATEST")"
@@ -309,6 +310,47 @@ if [ "${TOC:-0}" -le 0 ]; then
   exit 1
 fi
 echo "✓ pg_restore --list reads $(basename "$LATEST") outside the container ($TOC entries, $(wc -c < "$DUMP_FILE" | tr -d ' ') bytes)"
+rm -rf "$DUMP_TMP"
+
+# Restore: refused while the app runs, then swapped in from a one-off
+# container with everything stopped, and the app comes back healthy on it.
+echo "Restoring $(basename "$LATEST") with liner-doctor restore..."
+set +e
+REFUSED_OUT=$(compose exec -T app node packages/doctor/dist/cli.js restore "$(basename "$LATEST")" --yes 2>&1)
+REFUSED_RC=$?
+set -e
+if [ "$REFUSED_RC" != "3" ]; then
+  echo "✗ FAIL: restore with the app running should be refused (exit 3), got $REFUSED_RC:"
+  echo "$REFUSED_OUT"
+  exit 1
+fi
+echo "✓ Restore refused while the app is connected"
+if [ -n "$PROFILE" ]; then
+  compose stop app worker-files worker-identify >/dev/null
+else
+  compose stop app >/dev/null
+fi
+if ! RESTORE_OUT=$(compose run --rm --no-deps -T app node packages/doctor/dist/cli.js restore "$(basename "$LATEST")" --yes 2>&1); then
+  echo "✗ FAIL: restore failed:"
+  echo "$RESTORE_OUT"
+  exit 1
+fi
+echo "$RESTORE_OUT"
+compose up -d >/dev/null
+for _ in $(seq 1 60); do
+  if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then break; fi
+  sleep 2
+done
+if ! curl -fsS "$HEALTH_URL" >/dev/null; then
+  echo "✗ FAIL: the app did not come back healthy after the restore"
+  exit 1
+fi
+if ! curl -fsS -X POST "$API_URL/auth/login" -H 'Content-Type: application/json' \
+  -d "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"$SMOKE_PASSWORD\"}" >/dev/null; then
+  echo "✗ FAIL: the owner account is missing after the restore"
+  exit 1
+fi
+echo "✓ Restored by swap; app healthy and the owner can log in"
 
 echo ""
 echo "=== PASS ==="

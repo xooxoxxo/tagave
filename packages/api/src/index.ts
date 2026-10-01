@@ -30,6 +30,9 @@ import { createIdentifyRoutes } from './routes/identify.js';
 import { createFingerprintRoutes } from './routes/fingerprint.js';
 import { createArtistsRoutes } from './routes/artists.js';
 import { createTagPlansRoutes } from './routes/tagPlans.js';
+import { createBackupRoutes } from './routes/backups.js';
+import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
+import { getBoss } from './boss.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
@@ -159,6 +162,10 @@ try {
   logger.error({ err }, 'Failed to initialize database');
   process.exit(1);
 }
+
+// Database backups: nightly schedule + Settings › Backups (the app image
+// ships pg_dump and mounts the backups folder).
+const backupService = new BackupService({ databaseUrl });
 
 // Register plugins
 await app.register(fastifyCookie);
@@ -307,6 +314,13 @@ app.register(async (instance) => {
 
   // Tag plans (M2)
   instance.register(createTagPlansRoutes, { prefix: '/api/v1/libraries/:libraryId' });
+
+  // Database backups (Settings › Backups)
+  instance.register(createBackupRoutes, {
+    prefix: '/api/v1',
+    service: backupService,
+    onSettingsChanged: async () => applyBackupSchedule(await getBoss(), backupService),
+  });
 });
 
 // Start server
@@ -318,6 +332,15 @@ const start = async () => {
     await app.listen({ port, host });
     logger.info(`Server running at http://${host}:${port}`);
     logger.info(`API docs at http://${host}:${port}/api/v1/docs`);
+
+    // After listen: a slow pg-boss start must not hold up the health check.
+    try {
+      await startBackupScheduler(await getBoss(), backupService, logger);
+      const s = await backupService.settings();
+      logger.info({ dir: backupService.dir, enabled: s.enabled, hour: s.hour, tz: backupService.timeZone }, 'backup schedule applied');
+    } catch (err) {
+      logger.error({ err }, 'could not start the nightly backup schedule');
+    }
   } catch (err) {
     logger.error(err);
     process.exit(1);
