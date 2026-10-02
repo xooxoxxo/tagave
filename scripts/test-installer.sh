@@ -198,10 +198,12 @@ stop_at="$(line_of 'compose stop worker-files worker-identify')"
 [ -n "$stop_at" ] || stop_at="$(line_of 'compose stop worker-identify worker-files')"
 app_at="$(line_of 'compose up -d app')"
 rest_at="$(line_of 'compose up -d')"
-[ -n "$dump_at" ] && [ -n "$stop_at" ] && [ -n "$app_at" ] && [ -n "$rest_at" ] \
-  || { cat "$work/docker.log" >&2; fail "update: missing backup, stop or start calls"; }
-[ "$dump_at" -lt "$stop_at" ] && [ "$stop_at" -lt "$app_at" ] && [ "$app_at" -lt "$rest_at" ] \
-  || { cat "$work/docker.log" >&2; fail "update: expected backup, stop workers, start app, then the rest"; }
+if [ -z "$dump_at" ] || [ -z "$stop_at" ] || [ -z "$app_at" ] || [ -z "$rest_at" ]; then
+  cat "$work/docker.log" >&2; fail "update: missing backup, stop or start calls"
+fi
+if ! { [ "$dump_at" -lt "$stop_at" ] && [ "$stop_at" -lt "$app_at" ] && [ "$app_at" -lt "$rest_at" ]; }; then
+  cat "$work/docker.log" >&2; fail "update: expected backup, stop workers, start app, then the rest"
+fi
 grep -q 'How to roll back to 0.4.1' "$work/update.log" || fail "update: no roll back instructions"
 grep -q 'pg_restore' "$work/update.log" || fail "update: roll back does not restore the database"
 pass "update backs up, pins 0.5.0, restarts the app before the workers, prints the roll back"
