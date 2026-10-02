@@ -672,8 +672,6 @@ async function replaceTracks(
   files: FileRow[],
   discs: Map<string, number | null>,
 ): Promise<void> {
-  await ctx.db.delete(localTracks).where(inArray(localTracks.audioFileId, files.map((f) => f.id)));
-
   // null disc_no keeps meaning "no disc information" for an ordinary
   // single-disc album. Inside a cluster that spans discs the distinction is
   // gone — an unnumbered file is disc 1 of the set (a box set whose disc 1
@@ -732,7 +730,14 @@ async function replaceTracks(
     }
   }
 
-  if (rows.length > 0) {
-    await ctx.db.insert(localTracks).values(rows);
-  }
+  // Sibling folders of one multi-disc album are clustered by concurrent jobs
+  // that each carry every file of the set. Delete and insert as one unit
+  // under a per-album lock, or both jobs delete first and then both insert,
+  // doubling the album's tracks.
+  const lockKey = albumId ?? `loose:${files.map((f) => f.id).sort()[0] ?? ''}`;
+  await ctx.db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+    await tx.delete(localTracks).where(inArray(localTracks.audioFileId, files.map((f) => f.id)));
+    if (rows.length > 0) await tx.insert(localTracks).values(rows);
+  });
 }
