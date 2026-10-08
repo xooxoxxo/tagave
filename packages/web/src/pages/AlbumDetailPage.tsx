@@ -22,6 +22,7 @@ import { AlbumEditionsPanel } from './AlbumEditionsPanel';
 import { useAlbumFolderActions } from '../components/AlbumMaintenanceActions';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useFingerprintAlbum } from '../hooks/useFingerprint';
+import { useEditionSwitch } from '../hooks/useEditionSwitch';
 import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequestPanel';
 import { useMaintenance } from '../maintenance';
 import { useBarTitle } from '../components/appBarTitle';
@@ -30,7 +31,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Collapse, CoverArt, LinkButton, Menu, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, Collapse, CoverArt, LinkButton, Menu, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -185,17 +186,6 @@ export function AlbumDetailPage() {
     mutationFn: () => api.post(`/libraries/${libraryId}/albums/${albumId}/identify-request/cancel`, {}),
     onSuccess: () => refresh(0),
   });
-  // Switching edition is a manual identification request: it queues on the
-  // worker and the detail carries pendingIdentify until the decision lands.
-  const [switchingMbid, setSwitchingMbid] = useState<string | null>(null);
-  const switchEdition = useMutation({
-    mutationFn: (mbid: string) => {
-      setSwitchingMbid(mbid);
-      return api.post(`/libraries/${libraryId}/albums/${albumId}/match-mbid`, { input: mbid });
-    },
-    onSuccess: () => refresh(0),
-    onSettled: () => setSwitchingMbid(null),
-  });
   const addPhysical = useAddAlbumToCollection(libraryId, albumId);
   const invalidatePhysical = useInvalidatePhysical(libraryId);
   // a second click while the first is on its way does nothing (the server
@@ -229,6 +219,14 @@ export function AlbumDetailPage() {
         }
       : null;
   const requestLive = !!request && request.status !== 'done';
+  // Switching edition is a manual identification request (useEditionSwitch):
+  // the clicked row spins from the click until the worker has decided and the
+  // editions have been read again.
+  const switchEdition = useEditionSwitch(libraryId, albumId, {
+    live: requestLive,
+    kind: request?.kind ?? null,
+    pinned: request?.pinned ?? null,
+  });
 
   const allItems = useMemo(() => (album ? attentionItems({
     state: album.state,
@@ -514,9 +512,9 @@ export function AlbumDetailPage() {
             onCancel={() => cancelRequest.mutate()}
             cancelling={cancelRequest.isPending}
             cancelError={cancelRequest.isError ? (errorDetail(cancelRequest) ?? 'Cancel failed') : null}
-            onPick={(mbid) => switchEdition.mutate(mbid)}
-            picking={switchingMbid}
-            pickError={switchEdition.isError ? errorDetail(switchEdition) : null}
+            onPick={(mbid) => switchEdition.switchTo(mbid)}
+            picking={switchEdition.isPending ? switchEdition.busyMbid : null}
+            pickError={switchEdition.error}
             {...(requestLive ? {} : { onDismiss: () => setDismissedRequest(requestKeyOf(request)) })}
           />
         ) : null;
@@ -886,21 +884,27 @@ export function AlbumDetailPage() {
                 Switching edition — identification {pending.state === 'active' ? 'is running on the worker' : 'is queued'}; this page updates when it decides.
               </span>
             )}
-            {switchEdition.isError && <span className={styles.mbidError}>{errorDetail(switchEdition)}</span>}
           </>}
           rowAction={(e) => (e.owned ? (
-            <span className={styles.muted}>This copy</span>
+            <Chip dot="ok" className={styles.yourCopyChip}>Your copy</Chip>
           ) : (
             <Button
-              variant="secondary"
+              variant="quiet"
               size="sm"
-              onClick={() => switchEdition.mutate(e.mbid)}
-              disabled={switchEdition.isPending || !!pending}
-              title={pending ? 'An identification request is already queued for this album — cancel it first' : 'Re-match this album to this edition (queues a manual identification)'}
+              className={styles.editionButton}
+              onClick={() => switchEdition.switchTo(e.mbid)}
+              loading={switchEdition.busyMbid === e.mbid}
+              disabled={switchEdition.busy || !!pending}
+              title={switchEdition.busyMbid === e.mbid
+                ? 'Switching to this edition — the page updates when identification decides'
+                : pending ? 'An identification request is already queued for this album — cancel it first' : 'Re-match this album to this edition (queues a manual identification)'}
             >
-              {switchingMbid === e.mbid ? 'Queuing…' : 'Use this edition'}
+              {switchEdition.busyMbid === e.mbid ? 'Switching…' : 'Use this edition'}
             </Button>
           ))}
+          rowNote={(e) => (switchEdition.errorMbid === e.mbid && switchEdition.error ? (
+            <span className={styles.mbidError} role="alert">Couldn’t switch to this edition: {switchEdition.error}</span>
+          ) : null)}
           footer={album.match && maintenance && (
             <div className={styles.sectionFoot}>
               <Button

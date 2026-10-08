@@ -1075,6 +1075,16 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         singletonKey: IDENTIFY_SINGLETON(albumId),
         priority: IDENTIFY_PRIORITY.manual,
       });
+      // Two requests that both passed the check above (a double click): the
+      // singleton key keeps one job, and the second send returns no id. Say
+      // so, instead of answering 202 for a request that was not queued.
+      if (!jobId) {
+        const winner = await pendingIdentifyJob(albumId);
+        if (winner) {
+          reply.status(409).send({ status: 409, title: 'Conflict', detail: 'An identification request is already queued for this album — cancel it before submitting another.', pending: winner });
+          return;
+        }
+      }
       const t = parsed.target;
       const now = (await identifyRequestStates([albumId])).get(albumId);
       reply.status(202).send({
