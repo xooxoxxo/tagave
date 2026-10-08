@@ -750,8 +750,10 @@ td.cellOff {
 .editionsTable th.editionDate {
   text-align: left;
 }
+/* the table is fixed-layout (.candTable): the action column needs a real
+   width, sized to "Use this edition" and the spinner state */
 .editionsTable .editionAction {
-  width: 1%;
+  width: 11rem;
   white-space: nowrap;
   text-align: right;
 }
