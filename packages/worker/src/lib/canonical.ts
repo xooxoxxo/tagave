@@ -489,11 +489,20 @@ export async function upsertDiscogsSidecars(
 
   // Canonical id columns: first row to claim an id keeps it (UNIQUE); a
   // second MB edition bridging to the same Discogs release keeps only the
-  // external_ids link (many-to-one is real, spec §11.2).
+  // external_ids link (many-to-one is real, spec §11.2). The NOT EXISTS
+  // skips an id another row owns instead of letting the UNIQUE index reject
+  // the statement: those rejections were ~260 "duplicate key" errors a night
+  // in the Postgres log (audit 2026-10-10). The catch stays for the race
+  // where two jobs claim the same id at once.
   if (input.discogsReleaseId) {
     try {
-      await ctx.sql`update releases set discogs_release_id = ${input.discogsReleaseId}
-        where id = ${input.releaseId} and discogs_release_id is null`;
+      const claimed = await ctx.sql`update releases set discogs_release_id = ${input.discogsReleaseId}
+        where id = ${input.releaseId} and discogs_release_id is null
+          and not exists (select 1 from releases o where o.discogs_release_id = ${input.discogsReleaseId})
+        returning 1`;
+      if (claimed.length === 0) {
+        ctx.logger.debug({ discogsReleaseId: input.discogsReleaseId, releaseId: input.releaseId }, 'discogs release id already set or owned by another release');
+      }
     } catch (err) {
       if ((err as { code?: string }).code !== '23505') throw err;
       ctx.logger.info({ discogsReleaseId: input.discogsReleaseId, releaseId: input.releaseId }, 'discogs release id already owned by another release');
@@ -501,8 +510,13 @@ export async function upsertDiscogsSidecars(
   }
   if (input.discogsMasterId) {
     try {
-      await ctx.sql`update release_groups set discogs_master_id = ${input.discogsMasterId}
-        where id = ${input.releaseGroupId} and discogs_master_id is null`;
+      const claimed = await ctx.sql`update release_groups set discogs_master_id = ${input.discogsMasterId}
+        where id = ${input.releaseGroupId} and discogs_master_id is null
+          and not exists (select 1 from release_groups o where o.discogs_master_id = ${input.discogsMasterId})
+        returning 1`;
+      if (claimed.length === 0) {
+        ctx.logger.debug({ discogsMasterId: input.discogsMasterId, releaseGroupId: input.releaseGroupId }, 'discogs master id already set or owned by another release group');
+      }
     } catch (err) {
       if ((err as { code?: string }).code !== '23505') throw err;
       ctx.logger.info({ discogsMasterId: input.discogsMasterId, releaseGroupId: input.releaseGroupId }, 'discogs master id already owned by another release group');

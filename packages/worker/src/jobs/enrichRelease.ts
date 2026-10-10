@@ -13,6 +13,7 @@ import { mbCall, discogsCall, wikidataCall, type Providers } from '../lib/provid
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
 import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
+import { isTransientNetworkError } from '../lib/netErrors.js';
 import {
   mbRelease, mbSearch, discogsRelease, discogsMaster, discogsSearch, persistFetched,
 } from './identifyAlbum.js';
@@ -166,6 +167,12 @@ async function enqueueArtForRelease(ctx: WorkerContext, releaseId: string): Prom
   for (const la of rows) {
     await ctx.boss.send('art.fetch', { localAlbumId: la.id }, { singletonKey: `art:${la.id}` });
   }
+}
+
+/** Errors that must not stamp bridge_attempted_at: rate limits and the network being down. */
+export function enrichErrorIsRetryable(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /\b(503|429)\b|rate limit/i.test(msg) || isTransientNetworkError(err);
 }
 
 export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJobData): Promise<void> {
@@ -508,9 +515,12 @@ export async function enrichReleaseJob(ctx: WorkerContext, data: EnrichReleaseJo
       return;
     }
   } catch (err) {
-    // Let rate limit errors propagate for retries; log others
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/\b(503|429)\b|rate limit/i.test(msg)) {
+    // Rate limits and network failures propagate: pg-boss retries the job
+    // with backoff and, if it still fails, the release stays unstamped so the
+    // next nightly sweep picks it up. Only a real answer ("not found", a bad
+    // payload) counts as an attempt and defers the release 30 days.
+    if (enrichErrorIsRetryable(err)) {
+      ctx.logger.warn({ releaseId: data.releaseId, err: err instanceof Error ? err.message : String(err) }, 'enrich: transient failure, will retry');
       throw err;
     }
     ctx.logger.warn({ releaseId: data.releaseId, err }, 'enrich: provider call failed');
