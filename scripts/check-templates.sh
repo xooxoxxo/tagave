@@ -88,7 +88,7 @@ compose_files=("$T/compose.yml" "$T/dokploy/docker-compose.yml" "$T/coolify/taga
 if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
   for f in "${compose_files[@]}"; do
     if POSTGRES_PASSWORD=x APP_SECRET=x MUSIC_DIR=/tmp PUBLIC_URL=http://localhost:3100 \
-       SERVICE_PASSWORD_64_POSTGRES=x SERVICE_PASSWORD_64_APPSECRET=x SERVICE_URL_APP=https://app.example.com \
+       SERVICE_PASSWORD_64_POSTGRES=x SERVICE_PASSWORD_64_APPSECRET=x SERVICE_URL_APP_3000=https://app.example.com \
        docker compose -p tagave-template-check -f "$f" config -q; then
       ok "$f (docker compose config)"
     else

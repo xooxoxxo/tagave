@@ -49,7 +49,7 @@ services:
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-false}
       # The https address Coolify serves the app at (passkeys are bound to its host name).
-      PUBLIC_URL: ${SERVICE_URL_APP}
+      PUBLIC_URL: ${SERVICE_URL_APP_3000}
       LOG_LEVEL: info
       TZ: ${TZ:-UTC}
       TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-coolify}
