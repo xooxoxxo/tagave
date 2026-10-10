@@ -15,7 +15,7 @@ This page describes credential encryption, session security, backup handling, an
 - A session lasts 30 days and is extended once a day while you use it.
 - Sign-in requests are accepted only from `PUBLIC_URL` and the origins listed in `ALLOWED_ORIGINS` (Better Auth's origin and Fetch-Metadata checks). Open tagave at the address in `PUBLIC_URL`, or list the other addresses you use in `ALLOWED_ORIGINS`.
 - Repeated sign-in attempts are rate limited (Better Auth's limiter, stored in the database). Behind a reverse proxy that sets `X-Forwarded-For`, set `TRUST_PROXY=true` so the limit applies per client.
-- Passwords are hashed with argon2id.
+- Passwords are hashed with argon2id. New passwords need at least 12 characters. Change yours in Settings › Security › Password; ticking **Sign out my other devices** ends every other session.
 - **Upgrading from 0.6:** you stay signed in. The first request with the old `sessionId` cookie swaps it for the new cookie, and your password is unchanged.
 
 ### Generate your secret
@@ -59,6 +59,20 @@ When you need to rotate the secret (for example, after a compromise), you must r
 The reseal command decrypts all stored credentials with the old secret and encrypts them with the new one. Until this completes, the app cannot decrypt credentials.
 
 Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed out** and signs in again with their password.
+
+## Two-factor sign-in and backup codes
+
+Settings › Security › **Authenticator app** turns on a second step after the password: a 6-digit code from an app on your phone (1Password, Aegis, Google Authenticator and so on).
+
+- Setting it up asks for your password, shows a QR code made in your browser (the secret never goes to a third-party service) and the key as text, and turns on only after you enter one correct code.
+- You then get **10 backup codes**, shown once, to download or print. Each signs you in once instead of the code. Settings › Security shows how many are left; making new ones cancels the old ones.
+- The authenticator secret and the backup codes are stored encrypted with the sign-in secret derived from `APP_SECRET`. `liner-doctor reseal` re-encrypts them when you rotate `APP_SECRET` (it changes nothing and stops if one cannot be decrypted with either secret).
+- Ten wrong codes in a row lock the second step for 15 minutes.
+- Passkey sign-in never asks for the code: a passkey with its PIN or fingerprint already counts as two factors.
+
+### Trusted devices
+
+On the code page, **Don't ask for a code on this device for 30 days** remembers that browser. Settings › Security › **Trusted devices** lists every remembered browser (browser, last use, expiry) and forgets any of them. Turning the authenticator off or changing your password forgets them all.
 
 ## Backup security
 
