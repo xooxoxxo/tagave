@@ -23,13 +23,15 @@ export function signInErrorMessage(error: AuthClientError | null | undefined, or
   if (code === 'USER_VERIFICATION_REQUIRED') {
     return 'Your passkey or security key did not check a PIN or fingerprint. Set a PIN on the key (a YubiKey asks you to create one), then try again.';
   }
-  if (code === 'AUTH_CANCELLED' || code === 'ERROR_CEREMONY_ABORTED') {
-    return 'The passkey prompt was closed before it finished. Try again.';
-  }
   if (code === 'PASSKEY_NOT_FOUND') return 'That passkey is not registered with this tagave. Sign in with your password, then add it under Settings › Security.';
   if (code === 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED') return 'That passkey or security key is already registered.';
   if (code === 'ERROR_INVALID_DOMAIN' || code === 'ERROR_INVALID_RP_ID') {
     return `Passkeys work only at the address set as PUBLIC_URL, over https or on localhost. This page is ${origin || 'at another address'}.`;
+  }
+  if (code === 'AUTH_CANCELLED' || code === 'REGISTRATION_CANCELLED' || code.startsWith('ERROR_')) {
+    // The browser ended the ceremony: closed prompt, timeout, or a key that
+    // could not verify its user (no PIN set, wrong PIN, fingerprint not read).
+    return 'The passkey prompt was closed, or your key did not check its PIN or fingerprint. Try again; a security key needs a PIN.';
   }
   if (code === 'INVALID_CODE' || code === 'INVALID_TWO_FACTOR_AUTHENTICATION') return 'That code is not right. Try the current one.';
   if (code === 'INVALID_BACKUP_CODE') return 'That backup code is not right, or it was used already.';

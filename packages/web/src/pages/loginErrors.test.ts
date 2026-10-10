@@ -24,6 +24,14 @@ describe('signInErrorMessage', () => {
     expect(signInErrorMessage({ status: 429, code: 'ACCOUNT_TEMPORARILY_LOCKED' })).toMatch(/Too many/);
   });
 
+  it('explains passkey failures', () => {
+    expect(signInErrorMessage({ status: 400, code: 'USER_VERIFICATION_REQUIRED' })).toMatch(/PIN or fingerprint/);
+    expect(signInErrorMessage({ status: 400, code: 'ERROR_PASSTHROUGH_SEE_CAUSE_PROPERTY', message: 'Auth cancelled' })).toMatch(/PIN or fingerprint/);
+    expect(signInErrorMessage({ status: 400, code: 'AUTH_CANCELLED' })).toMatch(/prompt was closed/);
+    expect(signInErrorMessage({ status: 401, code: 'PASSKEY_NOT_FOUND' })).toMatch(/not registered/);
+    expect(signInErrorMessage({ status: 400, code: 'ERROR_AUTHENTICATOR_PREVIOUSLY_REGISTERED' })).toMatch(/already registered/);
+  });
+
   it('separates a dead server from a failing one', () => {
     expect(signInErrorMessage({ status: 0 })).toMatch(/Cannot reach/);
     expect(signInErrorMessage({ status: 502 })).toMatch(/server failed/);
