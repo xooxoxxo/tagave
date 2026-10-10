@@ -123,10 +123,8 @@ between browsing and upkeep: the hairline cut into the
 /* ---- context-aware bar ---- */
 .tools { display: flex; align-items: center; gap: .5rem; }
 .tools .searchButton { flex: 1; min-width: 0; }
-/* Maintenance: the toggle shows only on album pages, in the phone bar (the
-   album header carries it on wider screens); everywhere else, while it is
-   on, a small pill says so and turns it off. */
-.phoneModeToggle { display: none; }
+/* Maintenance: the album page's own header carries its key; everywhere
+   else, while it is on, a small pill says so and turns it off. */
 .modePill { align-self: flex-start; margin: -.75rem 0 0 .25rem; }
 
 .phoneBar { display: none; align-items: center; gap: .25rem; min-width: 0; }
@@ -213,8 +211,11 @@ between browsing and upkeep: the hairline cut into the
     box-shadow: inset 0 1px 0 var(--highlight), 0 8px 24px -12px rgba(var(--shadow-tint), .45);
   }
 }
+/* The album flow draws its own header (back | album | Maintenance keys):
+   no app bar over it, and on a phone no top bar above it. */
+.main:has([data-album-flow]) > .appBar { display: none; }
 @media (max-width: 720px) {
-  .phoneModeToggle { display: inline-flex; grid-column: 2; grid-row: 1; }
+  .container:has([data-album-flow]) > .nav { display: none; }
   /* detail pages: back button and the title that fades in, instead of the mark */
   .navDetail .brand { display: none; }
   .phoneBar { display: flex; grid-column: 1; grid-row: 1; }

@@ -18,6 +18,9 @@ import styles from './PageShell.module.css';
 /** Renders the detail page's back button; null on top-level pages. */
 export const PageBackContext = createContext<(() => ReactNode) | null>(null);
 
+/** The detail page's way back (label and action), for a page that draws its own back key (the album). */
+export const PageBackActionContext = createContext<{ label: string; go: () => void } | null>(null);
+
 /** The back button for a custom header (the album hero): inline, phone-hidden. */
 export function PageBack() {
   const render = useContext(PageBackContext);
@@ -46,6 +49,8 @@ interface PageShellProps {
   band?: ReactNode;
   /** A page whose list scrolls inside it (virtualised): the shell fills the pane. */
   fill?: boolean;
+  /** A page that lays out its own header and column (the album flow): no header row, no content padding. */
+  bare?: boolean;
   children: ReactNode;
 }
 
@@ -67,10 +72,12 @@ export function PageShell({
   hero,
   band,
   fill = false,
+  bare = false,
   children,
 }: PageShellProps) {
   const panelId = useId();
   const barText = barTitle !== undefined ? barTitle : typeof title === 'string' ? title : null;
+  if (bare) return <div className={styles.pageShell} data-page-shell="">{children}</div>;
   return (
     <div className={fill ? styles.pageShellFill : styles.pageShell} data-page-shell="" data-virtual-page={fill ? '' : undefined}>
       <header className={styles.header}>

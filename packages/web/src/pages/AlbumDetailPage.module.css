@@ -62,17 +62,36 @@
 }
 :root[data-theme="dark"] .backdrop { opacity: 0.32; }
 
+/* ---- the flow (vault spec "Liner - Album Page Flow") ----
+   The album page lays out its own header and column (PageShell bare): the
+   docking header, the album (cover, artist above album, the details), one
+   TRACKLIST label that sticks under the header, the tracks, then the
+   album's other sections. Phone first; wider screens put the cover to the
+   left of the names and details. */
+.flow {
+  --flow-gutter: var(--shell-gutter);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100%;
+}
+
 .hero {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: clamp(200px, 24vw, 280px) minmax(0, 1fr);
   align-items: end;
-  gap: clamp(1.5rem, 3.5vw, 3rem);
-  width: 100%;
+  gap: 1.5rem clamp(1.5rem, 3.5vw, 3rem);
+  /* clear of the keys (44px from the top) like the prototype's 72px */
+  padding: 72px var(--flow-gutter) 1.5rem;
   min-width: 0;
 }
 
 .coverBox {
   width: 100%;
+  will-change: opacity;
 }
 
 .cover {
@@ -80,75 +99,194 @@
   height: auto;
   aspect-ratio: 1;
   border-radius: var(--r-cover);
-  box-shadow: 0 28px 56px -30px rgba(var(--shadow-tint), 0.55);
+  box-shadow: 0 22px 44px -26px rgba(var(--shadow-tint), 0.55);
 }
 
 .headInfo {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  min-width: 0;
-  padding-bottom: 0.25rem;
-}
-
-/* the back button (wider screens), then the title, centred on each other */
-.titleRow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-md);
   min-width: 0;
 }
 
-/* The album title is the one display-sized line on the page. */
-.title {
-  margin: 0;
-  font: 300 clamp(32px, 4.5vw, 56px) / 1.06 var(--font-display);
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
+/* artist (top) and album (below it): they move only with the page and
+   shrink from the top-left corner (useAlbumFlow writes the transforms) */
+.names {
+  position: relative;
+  min-width: 0;
 }
 
-.artist {
-  font-size: 1.125rem;
-  font-weight: 500;
-  color: var(--ink);
+.nameA,
+.nameB {
+  display: block;
+  transform-origin: 0 0;
+  will-change: transform;
 }
 
-.artist a {
+.nameA {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: 100%;
+  font: 500 17px / 1.25 var(--font-body);
+  color: var(--dew);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nameA a {
   color: inherit;
   text-decoration: none;
 }
 
-.artist a:hover {
-  color: var(--dew);
+.nameA a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
-.metaRow {
-  margin: 0;
-  color: var(--ink-3);
-  font-size: 0.875rem;
-  font-variant-numeric: tabular-nums;
+.nameB {
+  margin: 23px 0 0;
+  font: 300 34px / 1.08 var(--font-display);
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
-/* "⋯", then the physical chip and (Maintenance) state and provider links,
-   all on one line under the meta line. */
-.headTools {
+/* the album's details: small letter-spaced labels with values, two columns,
+   genres as soft chips */
+.details {
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  max-width: 34rem;
+}
+
+.detail {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.detail dt {
+  font: 500 10.5px / 1.3 var(--font-body);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.detail dd {
+  margin: 0;
+  font: 400 14px / 1.35 var(--font-body);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.genres {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm) var(--space-md);
-  margin-top: 0.4rem;
+  gap: 6px;
 }
 
-.actionRow {
+.genres span {
+  font: 500 12px / 1 var(--font-body);
+  padding: 6px 10px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--dew) 12%, transparent);
+  color: var(--dew);
+}
+
+/* what needs a decision (and, in Maintenance, the state and tools): under
+   the album, across the whole column; empty, it takes no room */
+.upkeep {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.statusMenu {
+  margin-left: auto;
+}
+
+/* one TRACKLIST label: rests at the bottom of the first screen (phone),
+   sticks under the header; its caret straightens into the separator */
+.tl {
+  position: sticky;
+  top: 64px;
+  z-index: 4;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 12px var(--flow-gutter) 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--canvas);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.tl:hover:not(:disabled),
+.tl:active:not(:disabled) {
+  background: var(--canvas);
+  transform: none;
+}
+
+.tl:focus-visible {
+  outline: 2px solid var(--dew);
+  outline-offset: -2px;
+}
+
+.tlLabel {
+  font: 500 12px / 1 var(--font-body);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.caret {
+  display: block;
+  width: 100%;
+  height: 16px;
+  overflow: visible;
+}
+
+.tracksArea {
+  padding: 0 var(--flow-gutter);
+  min-width: 0;
+}
+
+/* short albums: the generative piece under the tracklist */
+.filler {
+  display: block;
+  width: 100%;
+}
+
+/* the album's other sections, after the tracks */
+.foot {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  padding: 2rem var(--flow-gutter) 1rem;
+  min-width: 0;
+}
+
+.footBar {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
-/* A passing status ("Looking for cover art…"): quiet, inline, under the
-   tools. The slot keeps no height when empty. */
+.footBar > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .statusSlot:empty {
   display: none;
 }
@@ -812,82 +950,29 @@ td.cellOff {
   text-decoration: underline;
 }
 
-/* ---- phone: the album centred like a player's album view ---- */
-
-/* the Maintenance switch moves to the phone bar (Layout) */
+/* ---- phone: the album first, TRACKLIST waiting at the screen's bottom ---- */
 @media (max-width: 720px) {
-  .modeToggle {
-    display: none;
+  .flow {
+    --flow-gutter: 22px;
+  }
+  .hero {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 72px var(--flow-gutter) 0;
+  }
+  .names {
+    margin-top: 20px;
+  }
+  .details {
+    max-width: none;
+  }
+  .upkeep:has(> :not(:empty)) {
+    margin: 1.5rem 0;
   }
 }
 
 @media (max-width: 640px) {
-  .container {
-    gap: 1.5rem;
-  }
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-    justify-items: center;
-    text-align: center;
-    gap: 1.25rem;
-  }
-  .backdropFrame {
-    bottom: -48px;
-  }
-  .coverBox {
-    width: min(78vw, 320px);
-  }
-  /* Under the centred cover the text reads left-aligned, like Spotify and
-     Qobuz: title, artist, then the meta line with "⋯" at its right end (the
-     row that will hold Play once a player exists), no band of its own. */
-  .headInfo {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    justify-items: start;
-    column-gap: var(--space-sm);
-    row-gap: 0.3rem;
-    width: 100%;
-    text-align: left;
-    padding-bottom: 0;
-  }
-  .headInfo > * {
-    grid-column: 1 / -1;
-  }
-  .titleRow {
-    grid-row: 1;
-  }
-  .title {
-    font-size: clamp(28px, 8vw, 36px);
-  }
-  .artist {
-    grid-row: 2;
-    font-size: 1rem;
-  }
-  .headInfo > .metaRow {
-    grid-row: 3;
-    grid-column: 1;
-  }
-  /* the tools line dissolves into the grid: "⋯" at the meta line's end,
-     the chips on their own line under it */
-  .headTools {
-    display: contents;
-  }
-  .headTools > .actionRow {
-    grid-row: 3;
-    grid-column: 2;
-    justify-self: end;
-    margin: 0;
-  }
-  .headTools > .statusLine {
-    grid-row: 4;
-    grid-column: 1 / -1;
-    justify-content: flex-start;
-    margin-top: 0.2rem;
-  }
-  .headInfo > .statusSlot {
-    grid-row: 5;
-  }
   .facts > div {
     grid-template-columns: 1fr;
     gap: 0.1rem;

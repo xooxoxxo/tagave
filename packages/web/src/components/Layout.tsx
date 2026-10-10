@@ -4,8 +4,8 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from 
 import { SearchModal } from './SearchModal';
 import { Button, IconButton } from './ui';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
-import { MaintenancePill, MaintenanceToggle } from './MaintenanceToggle';
-import { PageBackContext } from './ui/PageShell';
+import { MaintenancePill } from './MaintenanceToggle';
+import { PageBackActionContext, PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
 import { useAppBarTitle } from './appBarTitle';
 import { BrandMark } from './BrandMark';
@@ -85,9 +85,10 @@ export function Layout() {
     </IconButton>
   );
   const shownTitle = back && barTitle.title ? barTitle.title : null;
-  // Maintenance changes the album page only, so its toggle lives there (and
-  // in the phone bar on album pages); elsewhere a pill says it is on.
+  // Maintenance changes the album page only, so its key lives in the album's
+  // own header; elsewhere a pill says it is on.
   const onAlbumPage = /^\/albums\/[^/]+/.test(pathname);
+  const backAct = back ? { label: backLabel, go: goBack } : null;
   const renderInlineBack = () => back && (
     <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>
       {backChevron}
@@ -115,7 +116,7 @@ export function Layout() {
           <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
         </button>
         </div>
-        {onAlbumPage ? <MaintenanceToggle className={styles.phoneModeToggle} /> : <MaintenancePill className={styles.modePill} />}
+        {onAlbumPage ? null : <MaintenancePill className={styles.modePill} />}
         <button
           ref={menuButton}
           type="button"
@@ -161,7 +162,9 @@ export function Layout() {
             </div>
           )}
           <PageBackContext.Provider value={renderInlineBack}>
-            <div className={styles.page}><Outlet /></div>
+            <PageBackActionContext.Provider value={backAct}>
+              <div className={styles.page}><Outlet /></div>
+            </PageBackActionContext.Provider>
           </PageBackContext.Provider>
           <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
         </main>
