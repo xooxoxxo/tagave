@@ -1,16 +1,34 @@
 import type { BetterAuthPlugin } from 'better-auth';
-import { APIError, createAuthEndpoint } from 'better-auth/api';
+import { APIError, createAuthEndpoint, createAuthMiddleware } from 'better-auth/api';
 import { setSessionCookie } from 'better-auth/cookies';
+import type postgres from 'postgres';
 import * as z from 'zod';
+import { revokeAllTrustedDevices } from './trusted-devices.js';
 
 /**
  * tagave's server-only Better Auth endpoints. None of them is on the HTTP
  * router (`serverOnly`): the api calls them through `auth.api.*` so that the
  * session cookie is set by Better Auth's own code, exactly like a sign-in.
  */
-export const tagavePlugin = () =>
+export const tagavePlugin = (sql: postgres.Sql) =>
   ({
     id: 'tagave',
+    hooks: {
+      after: [
+        {
+          // Turning the authenticator off or changing the password forgets
+          // every trusted device (Better Auth itself forgets only the current
+          // browser's), so the next sign-in anywhere asks again.
+          matcher: (ctx) => ctx.path === '/two-factor/disable' || ctx.path === '/change-password',
+          handler: createAuthMiddleware(async (ctx) => {
+            const returned = ctx.context.returned;
+            if (returned instanceof Error || (returned instanceof Response && !returned.ok)) return;
+            const userId = ctx.context.session?.user.id;
+            if (userId) await revokeAllTrustedDevices(sql, userId);
+          }),
+        },
+      ],
+    },
     endpoints: {
       /**
        * The one-release session bridge: a valid 0.6.x `sessionId` becomes a

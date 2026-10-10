@@ -4,7 +4,7 @@
  * handler, bridge + session hooks, Better Auth catch-all, tagave auth
  * routes) plus one protected probe route.
  */
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -48,8 +48,8 @@ export async function migrateAll(url: string): Promise<string[]> {
   return (await runMigrations(url, { log: quiet })).applied;
 }
 
-export function testAuth(url: string): AuthHandle {
-  const env = readAuthEnv({ APP_SECRET: TEST_APP_SECRET, PUBLIC_URL: TEST_PUBLIC_URL });
+export function testAuth(url: string, appSecret: string = TEST_APP_SECRET): AuthHandle {
+  const env = readAuthEnv({ APP_SECRET: appSecret, PUBLIC_URL: TEST_PUBLIC_URL });
   return createAuth({ env, databaseUrl: url, rateLimit: false, maxConnections: 4 });
 }
 
@@ -84,6 +84,26 @@ export function cookieJar(setCookie: string | string[] | undefined, jar: Record<
     else jar[name] = value;
   }
   return jar;
+}
+
+/** RFC 6238 code (SHA-1, 6 digits, 30 s) for the secret in an otpauth:// URI. */
+export function totpFromUri(uri: string, at: number = Date.now()): string {
+  const secret = new URL(uri).searchParams.get('secret');
+  if (!secret) throw new Error(`no secret in ${uri}`);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const ch of secret.replace(/=+$/, '').toUpperCase()) {
+    const v = alphabet.indexOf(ch);
+    if (v < 0) throw new Error(`bad base32 in ${uri}`);
+    bits += v.toString(2).padStart(5, '0');
+  }
+  const bytes = Buffer.from((bits.match(/.{8}/g) ?? []).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(at / 1000 / 30)));
+  const mac = createHmac('sha1', bytes).update(counter).digest();
+  const offset = mac[mac.length - 1]! & 0x0f;
+  const code = (mac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
+  return String(code).padStart(6, '0');
 }
 
 export function cookieHeader(jar: Record<string, string>): string {

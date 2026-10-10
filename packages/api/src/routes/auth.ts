@@ -4,6 +4,7 @@ import { APIError, LEGACY_SESSION_COOKIE, fromNodeHeaders } from '@liner/auth';
 import { setupRequestSchema, loginRequestSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { forwardSetCookies, getAuthHandle, toSessionUser } from '../middleware/auth.js';
+import { createAuthSecurityRoutes } from './authSecurity.js';
 
 /** Held (transaction-scoped) while setup checks for and creates the owner. */
 export const SETUP_LOCK_KEY = 7_302_026_101;
@@ -16,6 +17,9 @@ function isSecureConnection(request: FastifyRequest): boolean {
 }
 
 export async function createAuthRoutes(fastify: FastifyInstance) {
+  // Settings > Security (signed-in only)
+  await fastify.register(createAuthSecurityRoutes);
+
   // Is the owner account still to be created? The login page sends a fresh
   // install to /setup on `true`. A database error is a 503, never a guess:
   // treating it as "setup required" would open the wizard on a broken

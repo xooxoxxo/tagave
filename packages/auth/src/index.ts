@@ -1,14 +1,18 @@
 import { betterAuth } from 'better-auth';
+import { twoFactor } from 'better-auth/plugins';
 import { PostgresJSDialect } from 'kysely-postgres-js';
 import postgres from 'postgres';
 import { deriveAuthSecret as deriveSecret, type AuthEnvConfig } from './config.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { tagavePlugin } from './tagave-plugin.js';
+import { recordTrustedDevice } from './trusted-devices.js';
 
 export * from './config.js';
 export { fromNodeHeaders } from 'better-auth/node';
 export { APIError } from 'better-auth/api';
 export { hashPassword, verifyPassword } from './password.js';
+export * from './trusted-devices.js';
+export * from './reseal.js';
 
 /** Cookie names are `tagave.<name>`, `__Secure-tagave.<name>` when PUBLIC_URL is https. */
 export const COOKIE_PREFIX = 'tagave';
@@ -141,6 +145,13 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
       ...(env.trustProxy ? { ipAddress: { ipAddressHeaders: ['x-forwarded-for'] } } : {}),
     },
     databaseHooks: {
+      verification: {
+        // Name trusted-device rows so Settings > Security can list and revoke them.
+        create: {
+          after: async (verification: { identifier?: string; value?: string }, ctx: unknown) =>
+            recordTrustedDevice(sql, verification, ctx as Parameters<typeof recordTrustedDevice>[2], env.trustProxy),
+        },
+      },
       account: {
         // While the bridge release lasts, users.password_hash mirrors the
         // credential hash so rolling back to 0.6.x keeps every password.
@@ -148,7 +159,28 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
         update: { after: async (account: { id: string }) => mirrorPasswordHash(sql, account.id) },
       },
     },
-    plugins: [tagavePlugin()],
+    plugins: [
+      twoFactor({
+        issuer: 'tagave',
+        // "Don't ask again on this device": 30 days, revocable in Settings > Security.
+        trustDeviceMaxAge: 30 * 24 * 60 * 60,
+        schema: {
+          user: { fields: { twoFactorEnabled: 'two_factor_enabled' } },
+          twoFactor: {
+            modelName: 'auth_two_factors',
+            fields: {
+              secret: 'secret',
+              backupCodes: 'backup_codes',
+              userId: 'user_id',
+              verified: 'verified',
+              failedVerificationCount: 'failed_verification_count',
+              lockedUntil: 'locked_until',
+            },
+          },
+        },
+      }),
+      tagavePlugin(sql),
+    ],
   };
 }
 
