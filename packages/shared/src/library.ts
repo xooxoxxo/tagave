@@ -72,7 +72,7 @@ export const librarySchema = z.object({
   id: z.string().uuid().describe('Library ID (UUIDv7)'),
   ownerUserId: z.string().uuid(),
   name: z.string().describe('User-friendly library name'),
-  settings: z.record(z.any()).optional().describe('Settings stored as JSON (see spec Section 12.8)'),
+  settings: z.record(z.string(), z.any()).optional().describe('Settings stored as JSON (see spec Section 12.8)'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();
@@ -89,7 +89,7 @@ export const scanStatsSchema = z.object({
   filesChanged: z.number().int().nonnegative().describe('Files with changed size or mtime'),
   filesMissing: z.number().int().nonnegative().describe('Previously indexed files no longer found'),
   filesErrored: z.number().int().nonnegative().describe('Files that failed to parse'),
-  formats: z.record(z.number()).optional().describe('Breakdown by audio format (container type)'),
+  formats: z.record(z.string(), z.number()).optional().describe('Breakdown by audio format (container type)'),
   elapsedMs: z.number().int().nonnegative().optional().describe('Scan duration in milliseconds'),
   throughputFilesPerSecond: z.number().positive().optional().describe('Average files per second'),
 }).strict();
@@ -102,7 +102,7 @@ export type ScanStats = z.infer<typeof scanStatsSchema>;
  */
 export const genreMapSchema = z.object({
   whitelist: z.array(z.string().min(1)).max(100).describe('List of canonical genre names'),
-  aliases: z.record(z.string().min(1)).default({}).describe('Mapping of tags to canonical genres (lower-case keys)'),
+  aliases: z.record(z.string(), z.string().min(1)).default({}).describe('Mapping of tags to canonical genres (lower-case keys)'),
   maxGenres: z.number().int().min(1).max(10).describe('Maximum number of genres to return'),
 }).strict();
 
@@ -170,7 +170,9 @@ export const patchLibrarySettingsSchema = z.object({
   genreMap: genreMapSchema.optional().describe('Genre canonicalisation configuration'),
   lintRules: lintRulesSchema.optional().describe('Lint rule toggles (TAG-6)'),
   tagPolicy: tagPoliciesSchema.refine((p) => p.preset !== 'manual' && p.preset !== 'revert' && !p.values && !p.revertOf, { message: 'The manual and revert presets are for one-off plans, not a library default' }).optional().describe('Tag write policy (preset + per-field overrides)'),
-  tagWritesEnabled: z.boolean().default(false).optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
+  // No .default() here: Zod 4 applies a default inside .optional(), so a PATCH
+  // without this key would switch tag writes off.
+  tagWritesEnabled: z.boolean().optional().describe('Whether tag writes are enabled (default false per spec §12.8)'),
   discographyRefreshEnabled: z.boolean().optional().describe('Whether weekly discography refreshes are enabled (XO-301)'),
   followRules: followRulesSchema.optional().describe('Rules for following artists and filtering release groups (XO-301)'),
   fingerprintingEnabled: z.boolean().optional().describe('IDN-5: fingerprint unidentified albums and look them up on AcoustID'),

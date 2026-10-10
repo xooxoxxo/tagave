@@ -6,6 +6,7 @@
  * library opens the album, then weekly), while the owner's rating, review,
  * revisions, clippings and listens are per library + user.
  */
+import type { z } from 'zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { PgBoss } from 'pg-boss';
@@ -66,7 +67,7 @@ function requireUser(request: FastifyRequest): { id: string } {
   return request.user;
 }
 
-function parseBody<T>(schema: { safeParse: (v: unknown) => { success: true; data: T } | { success: false; error: { issues: Array<{ message: string; path: (string | number)[] }> } } }, body: unknown): T {
+function parseBody<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body ?? {});
   if (!parsed.success) {
     const issue = parsed.error.issues[0];

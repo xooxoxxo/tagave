@@ -130,7 +130,7 @@ export const localFileSchema = z.object({
   hasEmbeddedArt: z.boolean(),
   status: z.enum(['present', 'missing', 'archived', 'error']).describe('File presence status'),
   parseError: z.string().optional().describe('Error message if status = error'),
-  tagsRaw: z.record(z.union([z.string(), z.array(z.string())])).optional().describe('Raw tags as read'),
+  tagsRaw: z.record(z.string(), z.union([z.string(), z.array(z.string())])).optional().describe('Raw tags as read'),
   trackInfo: localTrackSchema.optional(),
 }).strict();
 
@@ -188,7 +188,7 @@ export const albumDetailSchema = albumSummarySchema.extend({
   // Genres and tags (from canonical cache)
   genres: z.array(z.string()).optional(),
   styles: z.array(z.string()).optional(),
-  tags: z.record(z.number()).optional().describe('MusicBrainz tags with vote counts'),
+  tags: z.record(z.string(), z.number()).optional().describe('MusicBrainz tags with vote counts'),
 
   // Audio files
   files: z.array(localFileSchema).optional(),

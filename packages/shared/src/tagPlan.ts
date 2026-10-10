@@ -20,7 +20,7 @@ export const tagPlanScopeSchema = z.discriminatedUnion('type', [
   }).strict(),
   z.object({
     type: z.literal('filterQuery').describe('Apply to albums matching a filter query'),
-    filterQuery: z.record(z.any()).describe('Filter query object (same shape as GET /albums query)'),
+    filterQuery: z.record(z.string(), z.any()).describe('Filter query object (same shape as GET /albums query)'),
   }).strict(),
   z.object({
     type: z.literal('folder').describe('Apply to every file in a folder and its subfolders, whichever album it belongs to'),
@@ -87,7 +87,8 @@ export const tagPoliciesSchema = z.object({
   preset: tagPolicyPresetSchema.describe('Base preset to build from'),
   id3Version: z.enum(['2.3', '2.4']).default('2.4').describe('ID3 version for MP3 files (default v2.4 UTF-8)'),
   multiValueSeparator: z.string().default('; ').describe('Separator for multi-value fields in ID3v2.3 (default "; ")'),
-  overrides: z.record(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
+  // partialRecord: Zod 4's z.record with enum keys demands every key.
+  overrides: z.partialRecord(canonicalFieldSchema, tagFieldPolicySchema).optional().describe('Per-field policy overrides'),
   values: manualTagValuesSchema.optional().describe('Manual preset only: the values to write'),
   revertOf: z.string().uuid().optional().describe('Revert preset only: the plan whose writes this plan undoes'),
 }).strict().describe('Write policy: preset + per-field overrides');

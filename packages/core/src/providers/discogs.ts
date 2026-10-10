@@ -27,7 +27,7 @@ const ArtistSchema = z.object({
   resource_url: z.string().nullish(),
 });
 
-const TrackSchema: z.ZodType<any, z.ZodTypeDef, any> = z.object({
+const TrackSchema: z.ZodType<any> = z.object({
   position: z.string(),
   type_: z.string().nullish(),
   title: z.string(),
@@ -299,7 +299,7 @@ export function discogsBarcodesFromSearchHit(barcodes?: string[] | null): string
  */
 export function mapDiscogsRelease(raw: z.infer<typeof ReleaseSchema>): CanonicalRelease {
   // Artist names: use anv when present, else name; strip disambiguation suffix like " (2)"
-  const artistNames = (raw.artists || []).map((a: typeof ArtistSchema._type) => {
+  const artistNames = (raw.artists || []).map((a: z.infer<typeof ArtistSchema>) => {
     let name = a.anv || a.name;
     name = name.replace(/\s+\(\d+\)$/, '');
     return name;
@@ -320,7 +320,7 @@ export function mapDiscogsRelease(raw: z.infer<typeof ReleaseSchema>): Canonical
             if (!tracksByMedium[parsed.medium]) {
               tracksByMedium[parsed.medium] = [];
             }
-            const trackArtists = (sub.artists || []).map((a: typeof ArtistSchema._type) => a.anv || a.name);
+            const trackArtists = (sub.artists || []).map((a: z.infer<typeof ArtistSchema>) => a.anv || a.name);
             tracksByMedium[parsed.medium]!.push({
               title: sub.title,
               artists: trackArtists.length > 0 ? trackArtists : [sub.title],
@@ -338,13 +338,13 @@ export function mapDiscogsRelease(raw: z.infer<typeof ReleaseSchema>): Canonical
         tracksByMedium[parsed.medium] = [];
       }
 
-      const trackArtists = (track.artists || []).map((a: typeof ArtistSchema._type) => a.anv || a.name);
+      const trackArtists = (track.artists || []).map((a: z.infer<typeof ArtistSchema>) => a.anv || a.name);
 
       // If has sub_tracks, use parent duration, otherwise sub_tracks contribute
       if (track.sub_tracks && track.sub_tracks.length > 0 && !track.duration) {
         for (const sub of track.sub_tracks) {
           const subParsed = parseDiscogsPosition(sub.position || '1');
-          const subArtists = (sub.artists || []).map((a: typeof ArtistSchema._type) => a.anv || a.name);
+          const subArtists = (sub.artists || []).map((a: z.infer<typeof ArtistSchema>) => a.anv || a.name);
           tracksByMedium[subParsed.medium] = tracksByMedium[subParsed.medium] || [];
           tracksByMedium[subParsed.medium]!.push({
             title: sub.title,
@@ -430,7 +430,7 @@ export function mapDiscogsRelease(raw: z.infer<typeof ReleaseSchema>): Canonical
   const country = discogsCountryToIso(raw.country);
 
   // Images
-  const images = (raw.images || []).map((img: typeof ImageSchema._type) => ({
+  const images = (raw.images || []).map((img: z.infer<typeof ImageSchema>) => ({
     url: img.uri,
     ...(img.width != null ? { width: img.width } : {}),
     ...(img.height != null ? { height: img.height } : {}),
@@ -784,7 +784,7 @@ export class DiscogsProvider implements MetadataProvider {
     const data = await this.request(`/masters/${id}`);
     const master = MasterSchema.parse(data);
 
-    const artists = (master.artists || []).map((a: typeof ArtistSchema._type) => {
+    const artists = (master.artists || []).map((a: z.infer<typeof ArtistSchema>) => {
       let name = a.anv || a.name;
       name = name.replace(/\s+\(\d+\)$/, '');
       return name;

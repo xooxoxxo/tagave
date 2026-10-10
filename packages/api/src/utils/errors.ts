@@ -6,7 +6,7 @@ export const ProblemDetailsSchema = z.object({
   status: z.number(),
   detail: z.string().optional(),
   instance: z.string().optional(),
-  errors: z.record(z.array(z.string())).optional(),
+  errors: z.record(z.string(), z.array(z.string())).optional(),
 });
 
 export type ProblemDetails = z.infer<typeof ProblemDetailsSchema>;

@@ -123,7 +123,7 @@ export const jobCompletedEventSchema = z.object({
   type: z.literal('job.completed'),
   jobId: z.string().uuid(),
   jobType: jobTypeSchema,
-  result: z.record(z.any()).optional().describe('Job result payload'),
+  result: z.record(z.string(), z.any()).optional().describe('Job result payload'),
   timestamp: z.string().datetime(),
 }).strict();
 

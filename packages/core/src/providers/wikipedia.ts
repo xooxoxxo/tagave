@@ -59,7 +59,7 @@ const ExtractsSchema = z.object({
   query: z.object({
     // formatversion=2 returns an array; formatversion=1 an object keyed by
     // page id. The client asks for 2, but both are accepted.
-    pages: z.union([z.array(ExtractPageSchema), z.record(ExtractPageSchema)]).nullish(),
+    pages: z.union([z.array(ExtractPageSchema), z.record(z.string(), ExtractPageSchema)]).nullish(),
   }).nullish(),
   error: z.object({ code: z.string().nullish() }).nullish(),
 });
