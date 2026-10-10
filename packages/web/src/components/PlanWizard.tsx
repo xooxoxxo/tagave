@@ -7,7 +7,7 @@
  * Step 2: Policy preset picker
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { Fragment, useState, useCallback, useEffect, useId, useRef } from 'react';
 import type { TagPlan, TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { Button, Badge, Banner } from '../components/ui';
@@ -16,6 +16,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
 import { IconButton } from './ui';
+import { planDoneNavigation } from './planWizardHistory';
 import styles from './PlanWizard.module.css';
 
 interface WizardStep1State {
@@ -71,6 +72,11 @@ interface PlanWizardProps {
   initialScope?: { albumIds: string[]; albumLabels?: Record<string, string> };
   /** Called once the plan exists, just before the wizard moves on to the plan page. */
   onDone?: () => void;
+  /**
+   * The current history entry exists only to show this wizard (/plans?album=):
+   * moving on to the plan page replaces it, so Back never reopens a finished wizard.
+   */
+  replaceHistoryOnDone?: boolean;
 }
 
 /** Plain words for why adding to a plan failed; the server's text stays in the log. */
@@ -90,7 +96,7 @@ function createPlanErrorMessage(error: unknown): string {
   return 'Could not create the plan. Try again.';
 }
 
-export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWizardProps) {
+export function PlanWizard({ libraryId, onClose, initialScope, onDone, replaceHistoryOnDone = false }: PlanWizardProps) {
   // null until the user picks: add to an open plan, or start a new one. When
   // there is no open plan to add to, the choice is skipped (see effectiveMode).
   const [mode, setMode] = useState<WizardMode | null>(null);
@@ -138,7 +144,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
     }
   })();
   const [step1Error, setStep1Error] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   // What step 1 chose, in a few words, for the step indicator.
   const scopeSummary = (() => {
     switch (step1.scopeType) {
@@ -228,9 +234,10 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
     try {
       const result = await createPlanMutation.mutateAsync(payload);
       // The plan page runs the preview and shows the diff at full width.
+      // No onClose here: the route change unmounts the wizard, and a parent
+      // whose close navigates (dropping ?album=) would race this navigation.
       onDone?.();
-      onClose();
-      void navigate({ to: '/plans/$planId', params: { planId: result.id } });
+      void navigate(planDoneNavigation(result.id, replaceHistoryOnDone));
     } catch (error) {
       setStep1Error(createPlanErrorMessage(error));
     }
@@ -250,8 +257,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
       await addToPlanMutation.mutateAsync({ planId, albumIds });
       // The plan page follows the fresh preview the server queued.
       onDone?.();
-      onClose();
-      void navigate({ to: '/plans/$planId', params: { planId } });
+      void navigate(planDoneNavigation(planId, replaceHistoryOnDone));
     } catch (error) {
       setStep1Error(addToPlanErrorMessage(error));
     }
@@ -260,14 +266,17 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        // Escape closes the shortcuts popover first, the wizard after.
+        if (showShortcuts) setShowShortcuts(false);
+        else onClose();
         return;
       }
-      // Typing into a search box must not toggle help or jump a step.
+      // Typing into a search box must not toggle the shortcuts or jump a step.
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
       if (e.key === '?') {
-        setShowHelp((s) => !s);
+        setShowShortcuts((s) => !s);
+        return;
       }
       if (e.key === 'Enter' && effectiveMode === 'new-plan') {
         // Enter advances; on the last step it creates the plan. The choice
@@ -277,7 +286,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [step, step1, effectiveMode, canProceedStep1, onClose]
+    [step, step1, effectiveMode, canProceedStep1, onClose, showShortcuts]
   );
 
   useEffect(() => {
@@ -298,29 +307,14 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
         <div className={styles.header}>
           <h2 className={styles.title}>{title}</h2>
           <div className={styles.headerActions}>
-            <IconButton
-              variant={showHelp ? 'secondary' : 'quiet'}
-              size="sm"
-              label={showHelp ? 'Back to the wizard' : 'Help'}
-              onClick={() => setShowHelp(!showHelp)}
-              title={showHelp ? 'Back to the wizard (?)' : 'Help (?)'}
-              aria-pressed={showHelp}
-            >
-              <span aria-hidden="true">?</span>
-            </IconButton>
+            <ShortcutsPopover open={showShortcuts} onOpenChange={setShowShortcuts} />
             <IconButton variant="quiet" size="sm" label="Close" onClick={onClose} title="Close (Esc)">
-              <span aria-hidden="true">×</span>
+              <CloseGlyph />
             </IconButton>
           </div>
         </div>
 
-        {showHelp && (
-          <Banner tone="info">
-            <HelpOverlay onClose={() => setShowHelp(false)} />
-          </Banner>
-        )}
-
-        <div className={styles.body} hidden={showHelp}>
+        <div className={styles.body}>
           {(tagWritesDisabled || noWritableRoots) && (
             <Banner tone="warning">
               <strong>Plans preview, but cannot apply yet.</strong>
@@ -339,11 +333,11 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
             </Banner>
           )}
 
-        {!showHelp && effectiveMode === null && !openPlansSettled && (
+        {effectiveMode === null && !openPlansSettled && (
           <p className={styles.stepSubtitle}>Loading your plans…</p>
         )}
 
-        {!showHelp && effectiveMode === null && openPlansSettled && (
+        {effectiveMode === null && openPlansSettled && (
           <StepChoosePlan
             albumLabel={albumLabel}
             albumIds={initialScope?.albumIds ?? []}
@@ -367,7 +361,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
           />
         )}
 
-        {!showHelp && effectiveMode === 'add-to-plan' && (
+        {effectiveMode === 'add-to-plan' && (
           <StepPickAlbumsForPlan
             libraryId={libraryId}
             plan={openPlans.find((p) => p.id === selectedPlanId) ?? null}
@@ -383,7 +377,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
           />
         )}
 
-        {!showHelp && effectiveMode === 'new-plan' && (
+        {effectiveMode === 'new-plan' && (
           <StepIndicator
             step={step}
             scopeSummary={canProceedStep1 ? scopeSummary : null}
@@ -394,7 +388,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
           />
         )}
 
-        {!showHelp && effectiveMode === 'new-plan' && step === 1 && (
+        {effectiveMode === 'new-plan' && step === 1 && (
           <Step1ScopePicker
             libraryId={libraryId}
             state={step1}
@@ -406,7 +400,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
           />
         )}
 
-        {!showHelp && effectiveMode === 'new-plan' && step === 2 && (
+        {effectiveMode === 'new-plan' && step === 2 && (
           <Step2PolicyPicker
             state={step2}
             onChange={setStep2}
@@ -758,13 +752,19 @@ function Step1ScopePicker({
       <fieldset className={styles.fieldset}>
         <label className={styles.radioLabel}>
           <input type="radio" name="scope" value="library" checked={state.scopeType === 'library'} onChange={() => pick('library')} />
-          Entire library
+          <span className={styles.choiceText}>
+              <span>Entire library</span>
+              <span className={styles.choiceMeta}>Every album in the library.</span>
+            </span>
         </label>
 
         <div className={styles.scopeBlock}>
           <label className={styles.radioLabel}>
             <input type="radio" name="scope" value="artist" checked={state.scopeType === 'artist'} onChange={() => pick('artist')} />
-            All albums by an artist
+            <span className={styles.choiceText}>
+              <span>All albums by an artist</span>
+              <span className={styles.choiceMeta}>Albums credited to one identified artist.</span>
+            </span>
           </label>
           {state.scopeType === 'artist' && (
             <div className={styles.scopeDetail}>
@@ -783,7 +783,10 @@ function Step1ScopePicker({
         <div className={styles.scopeBlock}>
           <label className={styles.radioLabel}>
             <input type="radio" name="scope" value="albumIds" checked={state.scopeType === 'albumIds'} onChange={() => pick('albumIds')} />
-            Selected albums
+            <span className={styles.choiceText}>
+              <span>Selected albums</span>
+              <span className={styles.choiceMeta}>Search and tick the albums to include.</span>
+            </span>
           </label>
           {state.scopeType === 'albumIds' && (
             <div className={styles.scopeDetail}>
@@ -800,7 +803,10 @@ function Step1ScopePicker({
         <div className={styles.scopeBlock}>
           <label className={styles.radioLabel}>
             <input type="radio" name="scope" value="filterQuery" checked={state.scopeType === 'filterQuery'} onChange={() => pick('filterQuery')} />
-            Albums matching a filter
+            <span className={styles.choiceText}>
+              <span>Albums matching a filter</span>
+              <span className={styles.choiceMeta}>The same filters as the album grid, e.g. genre=Jazz.</span>
+            </span>
           </label>
           {state.scopeType === 'filterQuery' && (
             <div className={styles.scopeDetail}>
@@ -1017,57 +1023,72 @@ function StepIndicator({
   );
 }
 
-function HelpOverlay({ onClose }: { onClose: () => void }) {
+function CloseGlyph() {
   return (
-    <div className={styles.helpOverlay}>
-      <div className={styles.helpHead}>
-        <h3>Tag plan wizard help</h3>
-        <Button variant="secondary" size="sm" onClick={onClose}>
-          Back to the wizard
-        </Button>
-      </div>
-      <section>
-        <h4>Scope types</h4>
-        <dl>
-          <dt>Entire library</dt>
-          <dd>Apply to all audio files in the library</dd>
-          <dt>All albums by an artist</dt>
-          <dd>Apply only to albums by a specific artist (including albums by featured artists)</dd>
-          <dt>Selected albums</dt>
-          <dd>Pick one or more albums to target (multi-select)</dd>
-          <dt>Filter query</dt>
-          <dd>Use the same filter syntax as the album grid (e.g. genre=Jazz)</dd>
-        </dl>
-      </section>
-      <section>
-        <h4>Policy presets</h4>
-        <dl>
-          <dt>Canonical IDs + fill</dt>
-          <dd>
-            Overwrite: musicbrainz_*, discogs_*, album, artist, date, tracknumber, etc.
-            Fill (blanks only): title, genre, compilation. Never touch: comments, ratings, unknown tags.
-          </dd>
-          <dt>Fill blanks only</dt>
-          <dd>Never overwrite existing values; only set empty fields</dd>
-          <dt>Overwrite all</dt>
-          <dd>Replace all canonical fields with values from the matched release</dd>
-          <dt>Custom</dt>
-          <dd>Configure each field individually (overwrite, fill, or never touch)</dd>
-        </dl>
-      </section>
-      <section>
-        <h4>Keyboard shortcuts</h4>
-        <dl>
-          <dt>Escape</dt>
-          <dd>Close wizard</dd>
-          <dt>Tab</dt>
-          <dd>Move to next field</dd>
-          <dt>Enter</dt>
-          <dd>Submit current step</dd>
-          <dt>?</dt>
-          <dd>Toggle this help</dd>
-        </dl>
-      </section>
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M4 4l8 8M12 4l-8 8" />
+    </svg>
+  );
+}
+
+function HelpGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M6 6.1a2 2 0 1 1 2.8 1.8c-.5.3-.8.7-.8 1.3v.3" />
+      <circle cx="8" cy="12" r=".6" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export const WIZARD_SHORTCUTS: Array<[key: string, what: string]> = [
+  ['Enter', 'Next step; on the last step, create the plan'],
+  ['Esc', 'Close the wizard'],
+  ['?', 'Show or hide these shortcuts'],
+];
+
+/**
+ * The "?" in the header: a small popover with the keyboard shortcuts. It
+ * floats over the wizard and never changes the modal's size; what each choice
+ * means is written under the choice itself. Closes on Escape (handled by the
+ * wizard, so Escape does not also close the wizard), a click outside, or "?".
+ */
+export function ShortcutsPopover({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const id = useId();
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (root.current && !root.current.contains(e.target as Node)) onOpenChange(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open, onOpenChange]);
+  return (
+    <div className={styles.shortcuts} ref={root}>
+      <IconButton
+        variant="quiet"
+        size="sm"
+        label="Keyboard shortcuts"
+        title="Keyboard shortcuts (?)"
+        aria-expanded={open}
+        {...(open ? { 'aria-controls': id } : {})}
+        onClick={() => onOpenChange(!open)}
+      >
+        <HelpGlyph />
+      </IconButton>
+      {open && (
+        <div id={id} role="dialog" aria-label="Keyboard shortcuts" className={styles.shortcutsPop}>
+          <p className={styles.shortcutsTitle}>Keyboard shortcuts</p>
+          <dl className={styles.shortcutsList}>
+            {WIZARD_SHORTCUTS.map(([k, what]) => (
+              <Fragment key={k}>
+                <dt><kbd className={styles.kbd}>{k}</kbd></dt>
+                <dd>{what}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </div>
+      )}
     </div>
   );
 }

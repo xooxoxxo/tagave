@@ -12,6 +12,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan, useRenameTagPlan } from '../hooks/usePlanWizard';
 import { InlineRename } from '../components/InlineRename';
 import { PlanWizard } from '../components/PlanWizard';
+import { wizardCloseNavigation } from '../components/planWizardHistory';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { planStatusView } from '../utils/planStatus';
 import styles from './PlansPage.module.css';
@@ -36,7 +37,8 @@ export function PlansPage() {
   const wizardOpen = showWizard || !!albumParam;
   const closeWizard = () => {
     setShowWizard(false);
-    if (albumParam) void navigate({ to: '/plans', search: {} });
+    const nav = wizardCloseNavigation(albumParam);
+    if (nav) void navigate(nav);
   };
   const initialScope = albumParam
     ? {
@@ -130,7 +132,7 @@ export function PlansPage() {
         />
       ) : (
         <>
-          <Table>
+          <Table className={styles.plansTable}>
             <thead>
               <tr>
                 <Th>Name</Th>
@@ -190,6 +192,7 @@ export function PlansPage() {
           key={albumParam ?? 'blank'}
           libraryId={libraryId}
           onClose={closeWizard}
+          replaceHistoryOnDone={!!albumParam}
           {...(initialScope ? { initialScope } : {})}
         />
       )}
@@ -238,7 +241,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
 
   const cells = (
     <>
-      <Td>
+      <Td className={styles.cellName}>
         <InlineRename
           size="row"
           value={plan.name || 'Untitled plan'}
@@ -249,18 +252,18 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
         {keptNote && wroteFiles && <span className={styles.rowNote} role="status">{KEPT_PLAN_NOTE}</span>}
       </Td>
       <Td className={styles.cellScope}>{scope}</Td>
-      <Td>
+      <Td className={styles.cellStatus}>
         <Badge tone={status.tone}>{status.label}</Badge>
       </Td>
-      <Td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+      <Td className={`${styles.cellFiles} ${plan.stats ? '' : styles.cellEmpty}`} data-label={plan.stats ? 'files' : undefined}>
         {plan.stats?.filesTouched ?? '—'}
       </Td>
-      <Td className={styles.cellDate}>
+      <Td className={styles.cellDate} data-label="Created">
         <span title={formatDateTime(plan.createdAt || '')}>
           {formatRelativeTime(plan.createdAt || '')}
         </span>
       </Td>
-      <Td className={styles.cellDate}>
+      <Td className={`${styles.cellDate} ${plan.appliedAt ? '' : styles.cellEmpty}`} data-label="Applied">
         {plan.appliedAt ? (
           <span title={formatDateTime(plan.appliedAt || '')}>
             {formatRelativeTime(plan.appliedAt || '')}
@@ -269,7 +272,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
           '—'
         )}
       </Td>
-      <Td style={{ textAlign: 'right', paddingRight: 'var(--space-md)' }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <Td className={styles.cellActions} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
         {deletableStatus && wroteFiles && (
           /* Kept: a faint Delete that says why rather than a gap in the row. */
           <Button
