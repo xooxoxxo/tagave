@@ -1,5 +1,6 @@
 import { useId, type ReactNode } from 'react';
 import { useSlidingIndicator } from './useSlidingIndicator';
+import { SlidingPill } from './SlidingPill';
 import { useThemePreference, type ThemePreference } from '../../theme';
 import styles from './SegmentedControl.module.css';
 
@@ -28,7 +29,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
   const groupName = name ?? generated;
   const { trackRef, indicatorRef } = useSlidingIndicator<HTMLDivElement>(value);
   return <div ref={trackRef} role="radiogroup" aria-label={label} className={[styles.track, size === 'sm' ? styles.small : undefined].filter(Boolean).join(' ')}>
-    <span ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
+    <SlidingPill ref={indicatorRef} />
     {options.map(option => <label key={option.value} data-active={option.value === value} className={[styles.option, option.value === value ? styles.selected : undefined].filter(Boolean).join(' ')}>
       <input className={styles.radio} type="radio" name={groupName} value={option.value} checked={option.value === value} onChange={() => onChange(option.value)} />
       <span>{option.label}</span>
