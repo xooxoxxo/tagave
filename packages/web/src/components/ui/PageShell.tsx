@@ -35,6 +35,8 @@ interface PageShellProps {
   subtitle?: ReactNode;
   /** Quiet text on the heading's baseline (a count). */
   aside?: ReactNode;
+  /** A control right after the heading, centred on it (Tag changes' plus button). */
+  titleAction?: ReactNode;
   actions?: ReactNode;
   tabs?: TabItem[];
   activeTab?: string;
@@ -63,6 +65,7 @@ export function PageShell({
   title,
   subtitle,
   aside,
+  titleAction,
   actions,
   tabs,
   activeTab = '',
@@ -87,6 +90,7 @@ export function PageShell({
             <div className={styles.titleRow}>
               {back && <PageBack />}
               {back ? <DetailTitle text={barText}>{title}</DetailTitle> : <h1 className={styles.title}>{title}</h1>}
+              {titleAction && <span className={styles.titleAction}>{titleAction}</span>}
               {aside && <span className={styles.aside}>{aside}</span>}
             </div>
             {subtitle && <div className={styles.subtitle}>{subtitle}</div>}

@@ -141,3 +141,11 @@
     padding-right: 0;
   }
 }
+
+/* Archive and Delete side by side at the row's end */
+.rowActions {
+  display: flex;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+  align-items: center;
+}

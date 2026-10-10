@@ -17,6 +17,8 @@ export interface TagPlansResponse {
   limit: number;
   offset: number;
   total: number;
+  /** How many plans are archived (the Archived tab's count). */
+  archivedCount?: number;
 }
 
 export interface JobResponse {
@@ -32,13 +34,14 @@ export interface ApplyPlanResponse {
 /**
  * Get all tag plans for a library (GET /libraries/:libraryId/tag-plans)
  */
-export function useTagPlans(libraryId: string | undefined, opts?: { limit?: number; offset?: number }) {
+export function useTagPlans(libraryId: string | undefined, opts?: { limit?: number; offset?: number; archived?: boolean }) {
   return useQuery({
-    queryKey: ['tag-plans', libraryId, opts?.limit, opts?.offset],
+    queryKey: ['tag-plans', libraryId, opts?.limit, opts?.offset, opts?.archived ?? false],
     queryFn: () => {
       const params = new URLSearchParams();
       if (opts?.limit) params.append('limit', opts.limit.toString());
       if (opts?.offset) params.append('offset', opts.offset.toString());
+      if (opts?.archived) params.append('archived', 'true');
       const query = params.toString() ? `?${params.toString()}` : '';
       return api.get<TagPlansResponse>(`/libraries/${libraryId}/tag-plans${query}`);
     },
@@ -270,6 +273,21 @@ export function useDeleteTagPlan(libraryId: string | undefined, planId: string |
     mutationFn: () =>
       api.delete(`/libraries/${libraryId}/tag-plans/${planId}`),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
+      queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
+    },
+  });
+}
+
+/**
+ * Archive a finished plan, or bring it back (POST /tag-plans/:id/archive | unarchive)
+ */
+export function useArchiveTagPlan(libraryId: string | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ planId, archived }: { planId: string; archived: boolean }) =>
+      api.post<{ id: string; archivedAt: string | null }>(`/libraries/${libraryId}/tag-plans/${planId}/${archived ? 'archive' : 'unarchive'}`),
+    onSuccess: (_data, { planId }) => {
       queryClient.invalidateQueries({ queryKey: ['tag-plans', libraryId] });
       queryClient.invalidateQueries({ queryKey: ['tag-plan', libraryId, planId] });
     },

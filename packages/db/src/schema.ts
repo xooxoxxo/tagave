@@ -893,9 +893,12 @@ export const tagPlans = pgTable(
       .references(() => users.id),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     appliedAt: timestamp('applied_at', { withTimezone: true }),
+    /** 0037: a finished plan the owner archived (hidden from the default list) */
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
   },
   (table) => ({
     libraryIdx: index('idx_tag_plans_library').on(table.libraryId),
+    libraryArchivedIdx: index('idx_tag_plans_library_archived').on(table.libraryId, table.archivedAt),
   })
 );
 

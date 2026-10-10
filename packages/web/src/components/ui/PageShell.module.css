@@ -72,6 +72,13 @@
   display: inline-flex;
 }
 
+/* a control beside the heading, centred on its line rather than its baseline */
+.titleAction {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+}
+
 .aside {
   color: var(--ink-3);
   font-size: var(--font-size-sm);

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
 import { z } from 'zod';
-import { and, eq, inArray, count, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, count, desc, isNotNull, isNull, sql } from 'drizzle-orm';
 import {
   tagPlans,
   tagPlanItems,
@@ -22,6 +22,7 @@ import {
   type TagPlanResultAlbum,
   type TagPlanResults,
   tagPlanScopeSchema,
+  isFinishedPlanStatus,
   type TagPlan,
   type TagPlanItem,
   type TagPlanPreviewJob,
@@ -299,7 +300,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
    * GET /api/v1/libraries/:libraryId/tag-plans
    * List tag plans with pagination
    */
-  fastify.get<{ Params: { libraryId: string }; Querystring: { limit?: string; offset?: string; acceptsAlbums?: string } }>(
+  fastify.get<{ Params: { libraryId: string }; Querystring: { limit?: string; offset?: string; acceptsAlbums?: string; archived?: string } }>(
     '/tag-plans',
     async (request: FastifyRequest, reply: FastifyReply) => {
       if (!request.user) {
@@ -326,6 +327,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // ?acceptsAlbums=true: only plans albums can still be added to (not yet
       // applied, scoped to a list of albums), for the album page's "Fix tags".
       const acceptsAlbums = (request.query as any).acceptsAlbums === 'true';
+      // ?archived=true: only the archived plans (the Archived tab); otherwise
+      // archived plans are left out of the list.
+      const archived = (request.query as any).archived === 'true';
       const where = acceptsAlbums
         ? and(
             eq(tagPlans.libraryId, libraryId),
@@ -333,7 +337,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             sql`${tagPlans.scope}->>'type' = 'albumIds'`,
             sql`coalesce(${tagPlans.policy}->>'preset', '') <> 'revert'`,
           )
-        : eq(tagPlans.libraryId, libraryId);
+        : and(eq(tagPlans.libraryId, libraryId), archived ? isNotNull(tagPlans.archivedAt) : isNull(tagPlans.archivedAt));
 
       // Get total count
       const countResult = await db
@@ -342,6 +346,12 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .where(where);
 
       const total = countResult[0]?.count ?? 0;
+      // How many plans the Archived tab holds, for its count.
+      const [archivedRow] = await db
+        .select({ count: count() })
+        .from(tagPlans)
+        .where(and(eq(tagPlans.libraryId, libraryId), isNotNull(tagPlans.archivedAt)));
+      const archivedCount = archivedRow?.count ?? 0;
 
       // Get paginated plans, ordered by created_at desc
       const plans = await db
@@ -396,11 +406,12 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
           createdBy: p.createdBy,
           createdAt: p.createdAt.toISOString(),
           appliedAt: p.appliedAt?.toISOString(),
+          ...(p.archivedAt ? { archivedAt: new Date(p.archivedAt).toISOString() } : {}),
           ...(outcomes.has(p.id) ? { progress: outcomes.get(p.id) } : {}),
         };
       });
 
-      reply.send({ items: formatted, limit, offset, total });
+      reply.send({ items: formatted, limit, offset, total, archivedCount });
     }
   );
 
@@ -608,6 +619,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         createdBy: plan.createdBy,
         createdAt: plan.createdAt.toISOString(),
         appliedAt: plan.appliedAt?.toISOString(),
+        ...(plan.archivedAt ? { archivedAt: new Date(plan.archivedAt).toISOString() } : {}),
         progress,
         formats,
         ...(previewJob ? { previewJob } : {}),
@@ -1461,6 +1473,46 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       reply.send(await planResults(db, planId, plan.status as string, plan.stats));
     }
   );
+
+  /**
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/archive
+   * POST /api/v1/libraries/:libraryId/tag-plans/:planId/unarchive
+   * Archive a finished plan (applied, partially failed, cancelled, reverted)
+   * so it leaves the default list, or bring it back. Nothing else changes: an
+   * archived plan that wrote files can still be reverted.
+   */
+  for (const action of ['archive', 'unarchive'] as const) {
+    fastify.post<{ Params: { libraryId: string; planId: string } }>(
+      `/tag-plans/:planId/${action}`,
+      async (request: FastifyRequest, reply: FastifyReply) => {
+        if (!request.user) {
+          throw new ApiError(401, 'Unauthorized', 'Authentication required');
+        }
+        const { libraryId, planId } = request.params as { libraryId: string; planId: string };
+        const db = getDb();
+        const lib = await db
+          .select({ id: libraries.id })
+          .from(libraries)
+          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
+        const [plan] = await db
+          .select({ status: tagPlans.status })
+          .from(tagPlans)
+          .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)));
+        if (!plan) throw new ApiError(404, 'Not Found', 'Tag plan not found');
+        if (action === 'archive' && !isFinishedPlanStatus(plan.status as string)) {
+          throw new ApiError(409, 'Conflict', 'Only finished plans can be archived. This one can still run or change.');
+        }
+        const [row] = await db
+          .update(tagPlans)
+          // keep the first archive time when archived twice
+          .set({ archivedAt: action === 'archive' ? sql`coalesce(${tagPlans.archivedAt}, now())` : null })
+          .where(and(eq(tagPlans.id, planId), eq(tagPlans.libraryId, libraryId)))
+          .returning({ id: tagPlans.id, archivedAt: tagPlans.archivedAt });
+        reply.send({ id: row!.id, archivedAt: row!.archivedAt ? new Date(row!.archivedAt).toISOString() : null });
+      }
+    );
+  }
 
   /**
    * DELETE /api/v1/libraries/:libraryId/tag-plans/:planId

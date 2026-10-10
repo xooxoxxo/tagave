@@ -173,11 +173,21 @@ export const tagPlanSchema = z.object({
   createdBy: z.string().uuid().describe('User ID who created the plan'),
   createdAt: z.string().datetime().describe('ISO 8601 creation timestamp'),
   appliedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when plan was fully or partially applied'),
+  archivedAt: z.string().datetime().optional().describe('ISO 8601 timestamp when the owner archived this finished plan; archived plans leave the default list'),
   formats: z.array(z.string()).optional().describe('Distinct lower-case file extensions of the files in the plan (detail only, once previewed): the ID3 version matters only when one is an ID3 format'),
   progress: z.record(z.string(), z.number()).optional().describe('Item counts by status (applied, failed, …); on the detail, and on list rows whose apply finished with failures'),
 }).strict().describe('A tag correction plan');
 
 export type TagPlan = z.infer<typeof tagPlanSchema>;
+
+/**
+ * Finished plans: nothing more will run on their own. Only these can be
+ * archived, and only these are offered to the storage cleanup.
+ */
+export const FINISHED_PLAN_STATUSES = ['applied', 'partially_failed', 'cancelled', 'reverted'] as const;
+export function isFinishedPlanStatus(status: string): boolean {
+  return (FINISHED_PLAN_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * The latest preview job of a draft plan, as GET /tag-plans/:planId reports

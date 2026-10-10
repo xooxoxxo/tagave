@@ -6,10 +6,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { api } from '../services/api';
-import type { TagPlan } from '@liner/shared';
-import { PageShell, Button, Badge, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
+import { isFinishedPlanStatus, type TagPlan } from '@liner/shared';
+import { PageShell, Button, IconButton, Badge, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
-import { useTagPlans, useDeleteTagPlan, useRenameTagPlan } from '../hooks/usePlanWizard';
+import { useTagPlans, useDeleteTagPlan, useRenameTagPlan, useArchiveTagPlan } from '../hooks/usePlanWizard';
 import { InlineRename } from '../components/InlineRename';
 import { PlanWizard } from '../components/PlanWizard';
 import { wizardCloseNavigation } from '../components/planWizardHistory';
@@ -22,9 +22,13 @@ export function PlansPage() {
   const { libraryId } = useCurrentLibrary();
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'done' | 'archived'>('all');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset });
+  // Archived plans come from their own list; the other tabs leave them out.
+  const showArchived = statusFilter === 'archived';
+  // the other tabs' counts, kept while the Archived tab is open
+  const [lastCounts, setLastCounts] = useState<{ all: number; active: number; done: number } | null>(null);
+  const { data: plansResponse, isLoading } = useTagPlans(libraryId, { limit, offset, archived: showArchived });
   const navigate = useNavigate();
   const { album: albumParam } = useSearch({ strict: false }) as { album?: string };
   const [showWizard, setShowWizard] = useState(false);
@@ -76,7 +80,7 @@ export function PlansPage() {
 
   // Filter plans based on status
   const filteredPlans = plans.filter((plan) => {
-    if (statusFilter === 'all') return true;
+    if (statusFilter === 'all' || statusFilter === 'archived') return true;
     if (statusFilter === 'active') {
       return ['draft', 'previewed', 'applying', 'paused'].includes(plan.status);
     }
@@ -86,33 +90,35 @@ export function PlansPage() {
     return true;
   });
 
+  // Counts of the visible list; the Archived tab keeps its last known count
+  // while it is open (its own list has only archived plans).
+  const liveCounts = showArchived ? null : {
+    all: plans.length,
+    active: plans.filter((p) => ['draft', 'previewed', 'applying', 'paused'].includes(p.status)).length,
+    done: plans.filter((p) => ['applied', 'reverted', 'cancelled', 'partially_failed'].includes(p.status)).length,
+  };
+  if (liveCounts && plansResponse && JSON.stringify(liveCounts) !== JSON.stringify(lastCounts)) setLastCounts(liveCounts);
+  const counts = liveCounts ?? lastCounts;
   const statusTabs: TabItem[] = [
-    { label: 'All', value: 'all', count: plans.length },
-    {
-      label: 'Active',
-      value: 'active',
-      count: plans.filter((p) => ['draft', 'previewed', 'applying', 'paused'].includes(p.status)).length,
-    },
-    {
-      label: 'Finished',
-      value: 'done',
-      count: plans.filter((p) => ['applied', 'reverted', 'cancelled', 'partially_failed'].includes(p.status)).length,
-    },
+    { label: 'All', value: 'all', ...(counts ? { count: counts.all } : {}) },
+    { label: 'Active', value: 'active', ...(counts ? { count: counts.active } : {}) },
+    { label: 'Finished', value: 'done', ...(counts ? { count: counts.done } : {}) },
+    { label: 'Archived', value: 'archived', count: plansResponse?.archivedCount ?? 0 },
   ];
 
   return (
     <PageShell
       title="Tag changes"
       subtitle="Preview and apply tag corrections"
-      actions={
-        <Button variant="primary" onClick={() => setShowWizard(true)}>
-          Create plan
-        </Button>
+      titleAction={
+        <IconButton label="Create plan" variant="primary" onClick={() => setShowWizard(true)}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </IconButton>
       }
       tabs={statusTabs}
       activeTab={statusFilter}
       onTabChange={(value) => {
-        setStatusFilter(value as 'all' | 'active' | 'done');
+        setStatusFilter(value as 'all' | 'active' | 'done' | 'archived');
         setOffset(0);
       }}
     >
@@ -120,8 +126,8 @@ export function PlansPage() {
         <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading plans...</div>
       ) : filteredPlans.length === 0 ? (
         <EmptyState
-          title="No plans"
-          text={statusFilter === 'all' ? 'Create a tag plan to preview and apply corrections to your library' : undefined}
+          title={showArchived ? 'No archived plans' : 'No plans'}
+          text={statusFilter === 'all' ? 'Create a tag plan to preview and apply corrections to your library' : showArchived ? 'Archive a finished plan to keep it out of the list.' : undefined}
           action={
             statusFilter === 'all' ? (
               <Button variant="primary" size="sm" onClick={() => setShowWizard(true)}>
@@ -214,6 +220,19 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
 }) {
   const deleteM = useDeleteTagPlan(libraryId, plan.id);
   const renameM = useRenameTagPlan(libraryId);
+  const archiveM = useArchiveTagPlan(libraryId);
+  const archived = !!plan.archivedAt;
+  // Finished plans can be archived (and brought back); archiving keeps the
+  // plan, so a plan that wrote files can still be reverted from its page.
+  const canArchive = archived || isFinishedPlanStatus(plan.status);
+  const toggleArchive = async () => {
+    setError(null);
+    try {
+      await archiveM.mutateAsync({ planId: plan.id, archived: !archived });
+    } catch (e) {
+      setError((e as { detail?: string; message?: string })?.detail ?? (e as Error).message ?? 'The plan could not be archived.');
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [keptNote, setKeptNote] = useState(false);
   const status = planStatusView(plan.status, plan.progress);
@@ -273,6 +292,18 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
         )}
       </Td>
       <Td className={styles.cellActions} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <div className={styles.rowActions}>
+        {canArchive && !confirming && (
+          <Button
+            variant="quiet"
+            size="sm"
+            loading={archiveM.isPending}
+            onClick={() => void toggleArchive()}
+            title={archived ? 'Bring this plan back to the list' : 'Hide this finished plan from the list'}
+          >
+            {archived ? 'Unarchive' : 'Archive'}
+          </Button>
+        )}
         {deletableStatus && wroteFiles && (
           /* Kept: a faint Delete that says why rather than a gap in the row. */
           <Button
@@ -314,6 +345,7 @@ function PlanRow({ plan, libraryId, scope, confirming, onConfirm }: {
             )}
           </div>
         )}
+        </div>
       </Td>
     </>
   );
