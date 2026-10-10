@@ -145,8 +145,7 @@ between browsing and upkeep: the hairline cut into the
   /* an overlay: it takes no room, so a detail page's title row starts at
      the same height as every other page's heading */
   margin-bottom: -56px;
-  /* the back button lands where it sat in the title row: the column edge */
-  padding: 0 var(--shell-gutter);
+  padding: 0 calc(var(--page-pad));
   background: transparent;
   box-shadow: 0 1px 0 transparent;
   opacity: 0;
@@ -168,6 +167,8 @@ between browsing and upkeep: the hairline cut into the
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 85%, transparent), 0 2px 10px -4px rgba(var(--shadow-tint), 0.35);
   color: var(--ink);
 }
+/* the bar's back button is a 30px key, smaller than a page control */
+.appBar .backButton { --h-control: 30px; }
 .appBarScrolled .backButton {
   background: transparent;
   -webkit-backdrop-filter: none;

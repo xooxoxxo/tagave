@@ -48,10 +48,42 @@
   flex-shrink: 0;
 }
 
+/* Enriching: where the biography will land, a calm card of soft lines with
+   a slow sheen; the biography fades in over the same place when it arrives. */
 .enriching {
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  animation: arrive 420ms var(--ease-out) both;
+}
+.enrichingLabel {
   font-size: var(--font-size-sm);
   color: var(--text-tertiary);
-  animation: pulse 1.5s ease-in-out infinite;
+  margin-bottom: .2rem;
+}
+.enrichingLine {
+  display: block;
+  height: .7rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(90deg, var(--line) 0%, color-mix(in srgb, var(--line) 35%, transparent) 50%, var(--line) 100%);
+  background-size: 200% 100%;
+  animation: sheen 2.4s ease-in-out infinite;
+}
+.enrichingLine:nth-child(3) { width: 92%; animation-delay: .15s; }
+.enrichingLine:nth-child(4) { width: 64%; animation-delay: .3s; }
+.arrive { animation: arrive 420ms var(--ease-out) both; }
+
+@keyframes sheen {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@keyframes arrive {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
 .refreshing {
@@ -353,6 +385,8 @@
 .albumCard,
 .checkbox,
 .enriching,
+.enrichingLine,
+.arrive,
 .refreshing,
 .toast,
 .followRulesEditor {

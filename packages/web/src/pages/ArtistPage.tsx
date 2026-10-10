@@ -74,7 +74,6 @@ export function ArtistPage() {
 
   const actions = (
     <div className={styles.actions}>
-      {maintenance && isEnriching && <div className={styles.enriching}>Enriching…</div>}
       {isRefreshing && <div className={styles.refreshing}>Refreshing…</div>}
       {maintenance && artist.followed && (
         <Button
@@ -149,8 +148,19 @@ export function ArtistPage() {
           </div>
         )}
 
+        {/* Enriching: a quiet stand-in where the biography will land */}
+        {maintenance && isEnriching && !artist.bio && (
+          <div className={styles.enriching} role="status">
+            <span className={styles.enrichingLabel}>Enriching…</span>
+            <span className={styles.enrichingLine} aria-hidden="true" />
+            <span className={styles.enrichingLine} aria-hidden="true" />
+            <span className={styles.enrichingLine} aria-hidden="true" />
+          </div>
+        )}
+
         {/* Bio section */}
         {artist.bio && (
+          <div className={styles.arrive}>
           <Card title="Biography">
             <div className={styles.bioContent}>
               <p className={styles.bioText}>
@@ -166,6 +176,7 @@ export function ArtistPage() {
               </div>
             </div>
           </Card>
+          </div>
         )}
 
         {/* Link chips: provider pages are curation detail, shown in Maintenance */}
