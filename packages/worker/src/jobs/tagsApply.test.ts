@@ -19,6 +19,7 @@ import {
 import { makeDb } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
 import { tagsApplyJob } from './tagsApply.js';
+import { errorMessage } from '../lib/dbErrors.js';
 import pino from 'pino';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -147,7 +148,7 @@ describe('tagsApply job', () => {
     // Reproduce the 2026-09-08 incident: the DB rejects the status update itself.
     await ctx.sql.unsafe(`alter table tag_plan_items add constraint test_block_applying check (status <> 'applying') not valid`);
     try {
-      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+      await expect(tagsApplyJob(ctx, { planId }).catch((e) => { throw new Error(errorMessage(e)); })).rejects.toThrow(/test_block_applying/);
     } finally {
       await ctx.sql.unsafe(`alter table tag_plan_items drop constraint test_block_applying`);
     }
@@ -168,7 +169,7 @@ describe('tagsApply job', () => {
     // Stop the run right after it marks the plan applying (nothing is written).
     await ctx.sql.unsafe(`alter table tag_plan_items add constraint test_block_applying check (status <> 'applying') not valid`);
     try {
-      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+      await expect(tagsApplyJob(ctx, { planId }).catch((e) => { throw new Error(errorMessage(e)); })).rejects.toThrow(/test_block_applying/);
       let [plan] = await dbClient.select().from(tagPlans).where(eq(tagPlans.id, planId));
       expect((plan.stats as any).albumsBefore).toBe(1);
       expect((plan.stats as any).filesTouched).toBe(1);
@@ -176,7 +177,7 @@ describe('tagsApply job', () => {
       // A later run (Resume) must not recount: by then the folders may have
       // been re-clustered into fewer albums.
       await dbClient.update(tagPlans).set({ stats: { ...(plan.stats as object), albumsBefore: 3 } }).where(eq(tagPlans.id, planId));
-      await expect(tagsApplyJob(ctx, { planId })).rejects.toThrow(/test_block_applying/);
+      await expect(tagsApplyJob(ctx, { planId }).catch((e) => { throw new Error(errorMessage(e)); })).rejects.toThrow(/test_block_applying/);
       [plan] = await dbClient.select().from(tagPlans).where(eq(tagPlans.id, planId));
       expect((plan.stats as any).albumsBefore).toBe(3);
     } finally {

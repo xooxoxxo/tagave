@@ -8,6 +8,7 @@ import {
 import { conditionsFromNotes } from '@liner/core';
 import { openSecret } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
+import { errorMessage } from '../lib/dbErrors.js';
 import { reportProgress } from './progress.js';
 import {
   getProviders, discogsCall, type Providers,
@@ -194,7 +195,7 @@ export async function collectionSyncJob(ctx: WorkerContext, data: CollectionSync
     const sourceRows = await ctx.db.select().from(collectionSources)
       .where(and(eq(collectionSources.libraryId, libraryId), eq(collectionSources.provider, 'discogs')));
     if (sourceRows.length > 0) {
-      const errMsg = err instanceof Error ? err.message : String(err);
+      const errMsg = errorMessage(err);
       await ctx.db.update(collectionSources)
         .set({ status: 'error', lastError: errMsg })
         .where(eq(collectionSources.id, sourceRows[0]!.id));

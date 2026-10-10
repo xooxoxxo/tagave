@@ -35,6 +35,7 @@ import {
   type ManualTagValues, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats,
 } from '@liner/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { errorMessage } from '../lib/dbErrors.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
 import { linkAlbumTracks, ensureTrackMbids } from '../lib/trackLinks.js';
@@ -237,7 +238,7 @@ function previewProgress(ctx: WorkerContext, libraryId: string, planId: string, 
     done: (total: number) => write({ state: 'completed', done: total, total, message: `Compared ${n(total)} files` }),
     /** The plan changed mid-run; the preview queued by that change replaces this one. */
     superseded: () => write({ state: 'completed', message: 'Stopped early: the plan changed, so a newer check replaces this one' }),
-    fail: (err: unknown) => write({ state: 'failed', error: err instanceof Error ? err.message : String(err) }),
+    fail: (err: unknown) => write({ state: 'failed', error: errorMessage(err) }),
   };
 }
 type PreviewProgress = ReturnType<typeof previewProgress>;

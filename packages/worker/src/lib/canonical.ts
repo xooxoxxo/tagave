@@ -8,6 +8,7 @@ import {
 } from '@liner/db';
 import type { CanonicalRelease, CanonicalTrack, ArtistCredit } from '@liner/core';
 import type { WorkerContext } from './context.js';
+import { pgErrorCode } from './dbErrors.js';
 
 /**
  * Extract artist links from credits, keeping only those with mbid.
@@ -439,7 +440,7 @@ export async function upsertDiscogsSidecars(
         });
     } catch (err) {
       // UNIQUE violation (another release already has this discogs id): log and continue
-      if ((err as any).code === '23505') {
+      if (pgErrorCode(err) === '23505') {
         ctx.logger.warn(
           { discogsReleaseId: input.discogsReleaseId, releaseId: input.releaseId },
           'discogs release id conflict with another release',
@@ -476,7 +477,7 @@ export async function upsertDiscogsSidecars(
           },
         });
     } catch (err) {
-      if ((err as any).code === '23505') {
+      if (pgErrorCode(err) === '23505') {
         ctx.logger.warn(
           { discogsMasterId: input.discogsMasterId, releaseGroupId: input.releaseGroupId },
           'discogs master id conflict with another release group',

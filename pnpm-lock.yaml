@@ -41,8 +41,8 @@ importers:
         specifier: ^0.44.0
         version: 0.44.0
       drizzle-orm:
-        specifier: ^0.36.4
-        version: 0.36.4(@types/react@19.3.0)(pg@8.23.0)(postgres@3.4.9)(react@19.3.0)
+        specifier: ^0.45.2
+        version: 0.45.2(pg@8.23.0)(postgres@3.4.9)
       fastify:
         specifier: ^5.12.5
         version: 5.12.5
@@ -103,8 +103,8 @@ importers:
   packages/db:
     dependencies:
       drizzle-orm:
-        specifier: ^0.36.4
-        version: 0.36.4(@types/react@19.3.0)(pg@8.23.0)(postgres@3.4.9)(react@19.3.0)
+        specifier: ^0.45.2
+        version: 0.45.2(pg@8.23.0)(postgres@3.4.9)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -236,8 +236,8 @@ importers:
         specifier: workspace:*
         version: link:../shared
       drizzle-orm:
-        specifier: ^0.36.4
-        version: 0.36.4(@types/react@19.3.0)(pg@8.23.0)(postgres@3.4.9)(react@19.3.0)
+        specifier: ^0.45.2
+        version: 0.45.2(pg@8.23.0)(postgres@3.4.9)
       music-metadata:
         specifier: ^11.16.0
         version: 11.16.0
@@ -1344,36 +1344,36 @@ packages:
   devlop@1.1.0:
     resolution: {integrity: sha512-RWmIqhcFf1lRYBvNmr7qTNuyCt/7/ns2jbpp1+PalgE/rDQcBT0fioSMUpJ93irlUhC5hrg4cYqe6U+0ImW0rA==}
 
-  drizzle-orm@0.36.4:
-    resolution: {integrity: sha512-1OZY3PXD7BR00Gl61UUOFihslDldfH4NFRH2MbP54Yxi0G/PKn4HfO65JYZ7c16DeP3SpM3Aw+VXVG9j6CRSXA==}
+  drizzle-orm@0.45.2:
+    resolution: {integrity: sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==}
     peerDependencies:
       '@aws-sdk/client-rds-data': '>=3'
-      '@cloudflare/workers-types': '>=3'
+      '@cloudflare/workers-types': '>=4'
       '@electric-sql/pglite': '>=0.2.0'
       '@libsql/client': '>=0.10.0'
       '@libsql/client-wasm': '>=0.10.0'
       '@neondatabase/serverless': '>=0.10.0'
       '@op-engineering/op-sqlite': '>=2'
       '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1'
+      '@planetscale/database': '>=1.13'
       '@prisma/client': '*'
       '@tidbcloud/serverless': '*'
       '@types/better-sqlite3': '*'
       '@types/pg': '*'
-      '@types/react': '>=18'
       '@types/sql.js': '*'
+      '@upstash/redis': '>=1.34.7'
       '@vercel/postgres': '>=0.8.0'
       '@xata.io/client': '*'
       better-sqlite3: '>=7'
       bun-types: '*'
       expo-sqlite: '>=14.0.0'
+      gel: '>=2'
       knex: '*'
       kysely: '*'
       mysql2: '>=2'
       pg: '>=8'
       postgres: '>=3'
       prisma: '*'
-      react: '>=18'
       sql.js: '>=1'
       sqlite3: '>=5'
     peerDependenciesMeta:
@@ -1403,9 +1403,9 @@ packages:
         optional: true
       '@types/pg':
         optional: true
-      '@types/react':
-        optional: true
       '@types/sql.js':
+        optional: true
+      '@upstash/redis':
         optional: true
       '@vercel/postgres':
         optional: true
@@ -1416,6 +1416,8 @@ packages:
       bun-types:
         optional: true
       expo-sqlite:
+        optional: true
+      gel:
         optional: true
       knex:
         optional: true
@@ -1428,8 +1430,6 @@ packages:
       postgres:
         optional: true
       prisma:
-        optional: true
-      react:
         optional: true
       sql.js:
         optional: true
@@ -3201,12 +3201,10 @@ snapshots:
     dependencies:
       dequal: 2.0.3
 
-  drizzle-orm@0.36.4(@types/react@19.3.0)(pg@8.23.0)(postgres@3.4.9)(react@19.3.0):
+  drizzle-orm@0.45.2(pg@8.23.0)(postgres@3.4.9):
     optionalDependencies:
-      '@types/react': 19.3.0
       pg: 8.23.0
       postgres: 3.4.9
-      react: 19.3.0
 
   electron-to-chromium@1.5.426: {}
 

@@ -20,7 +20,7 @@
     "@liner/doctor": "workspace:*",
     "@liner/shared": "workspace:*",
     "argon2": "^0.44.0",
-    "drizzle-orm": "^0.36.4",
+    "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.5",
     "pg-boss": "^11.1.2",
     "pino": "^9.14.0",

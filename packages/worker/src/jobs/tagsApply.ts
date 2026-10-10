@@ -16,6 +16,7 @@ import {
 } from '@liner/db';
 import { hashAudioStream } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
+import { errorMessage } from '../lib/dbErrors.js';
 import { SafeFileWriter } from '../lib/safeFileWriter.js';
 import { MutagenTagWriter } from '../lib/tagWriter.js';
 import { parseFile } from 'music-metadata';
@@ -80,7 +81,7 @@ export async function tagsApplyJob(ctx: WorkerContext, data: TagsApplyJobData) {
     // sidecar, a lost connection) used to leave the plan in 'applying' with
     // nothing written and no way forward (seen live 2026-09-08). Park it as
     // 'paused' with the message so the page shows it and Resume retries.
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     ctx.logger.error({ planId: data.planId, error: message }, 'tags.apply failed; plan paused');
     await parkPlan(ctx, data.planId, message);
     throw error;
