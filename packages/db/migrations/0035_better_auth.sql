@@ -91,8 +91,12 @@ create table if not exists auth_passkeys (
   backed_up boolean not null default false,
   transports text,
   aaguid text,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  -- tagave's own: the PUBLIC_URL host the credential was made for (WebAuthn
+  -- RP ID), so liner-doctor can say when PUBLIC_URL no longer matches.
+  rp_id text
 );
+alter table auth_passkeys add column if not exists rp_id text;
 create index if not exists idx_auth_passkeys_user on auth_passkeys (user_id);
 
 -- Authenticator app: secret and backup codes, encrypted with the auth secret

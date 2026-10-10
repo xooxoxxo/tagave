@@ -10,7 +10,7 @@ import { revokeAllTrustedDevices } from './trusted-devices.js';
  * router (`serverOnly`): the api calls them through `auth.api.*` so that the
  * session cookie is set by Better Auth's own code, exactly like a sign-in.
  */
-export const tagavePlugin = (sql: postgres.Sql) =>
+export const tagavePlugin = (sql: postgres.Sql, rpId: string) =>
   ({
     id: 'tagave',
     hooks: {
@@ -25,6 +25,15 @@ export const tagavePlugin = (sql: postgres.Sql) =>
             if (returned instanceof Error || (returned instanceof Response && !returned.ok)) return;
             const userId = ctx.context.session?.user.id;
             if (userId) await revokeAllTrustedDevices(sql, userId);
+          }),
+        },
+        {
+          // Remember which host a new passkey is bound to (liner-doctor
+          // compares it with PUBLIC_URL).
+          matcher: (ctx) => ctx.path === '/passkey/verify-registration',
+          handler: createAuthMiddleware(async (ctx) => {
+            const userId = ctx.context.session?.user.id;
+            if (userId) await sql`update auth_passkeys set rp_id = ${rpId} where user_id = ${userId} and rp_id is null`;
           }),
         },
       ],

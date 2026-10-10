@@ -1,5 +1,9 @@
 import { betterAuth } from 'better-auth';
 import { twoFactor } from 'better-auth/plugins';
+import { passkey } from '@better-auth/passkey';
+// Lets declaration emit name the WebAuthn types inside the passkey plugin's options.
+import type {} from '@simplewebauthn/server';
+import { APIError as BetterAuthAPIError } from 'better-auth/api';
 import { PostgresJSDialect } from 'kysely-postgres-js';
 import postgres from 'postgres';
 import { deriveAuthSecret as deriveSecret, type AuthEnvConfig } from './config.js';
@@ -179,9 +183,56 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
           },
         },
       }),
-      tagavePlugin(sql),
+      passkey({
+        // Credentials are bound to PUBLIC_URL's host name for good.
+        rpID: env.publicUrl.hostname,
+        rpName: 'tagave',
+        origin: env.publicUrl.origin,
+        authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
+        schema: {
+          passkey: {
+            modelName: 'auth_passkeys',
+            fields: {
+              name: 'name',
+              publicKey: 'public_key',
+              userId: 'user_id',
+              credentialID: 'credential_id',
+              counter: 'counter',
+              deviceType: 'device_type',
+              backedUp: 'backed_up',
+              transports: 'transports',
+              createdAt: 'created_at',
+              aaguid: 'aaguid',
+            },
+          },
+        },
+        // A passkey sign-in skips the authenticator code, so the key must have
+        // checked a PIN or fingerprint (user verification), both times.
+        registration: {
+          afterVerification: ({ verification }) => {
+            if (!verification.registrationInfo?.userVerified) throw userVerificationRequired();
+          },
+        },
+        authentication: {
+          afterVerification: ({ verification }) => {
+            if (!verification.authenticationInfo.userVerified) throw userVerificationRequired();
+          },
+        },
+      }),
+      tagavePlugin(sql, env.publicUrl.hostname),
     ],
   };
+}
+
+/** The passkey or security key did not check its PIN or fingerprint. */
+export const USER_VERIFICATION_REQUIRED = 'USER_VERIFICATION_REQUIRED';
+
+function userVerificationRequired() {
+  return new BetterAuthAPIError('BAD_REQUEST', {
+    code: USER_VERIFICATION_REQUIRED,
+    message:
+      'Your passkey or security key did not check a PIN or fingerprint. Set a PIN on the key (a YubiKey asks you to create one) and try again.',
+  });
 }
 
 async function mirrorPasswordHash(sql: postgres.Sql, accountId: string | undefined): Promise<void> {

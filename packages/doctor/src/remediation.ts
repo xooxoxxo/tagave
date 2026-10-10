@@ -48,6 +48,15 @@ export function remediationFor(check: Pick<Check, 'id' | 'status' | 'detail'>): 
       return failed
         ? 'APP_SECRET is too short. Generate one with `openssl rand -hex 32`, set it in the app environment and restart.'
         : 'APP_SECRET is weaker than recommended, or a worker host that needs it does not have it. Set the same APP_SECRET on every host; to rotate it, see `liner-doctor reseal`.';
+    case 'publicUrl':
+      if (failed) return 'Fix PUBLIC_URL in .env: scheme, host and port only, for example https://music.example.com or http://localhost:3100. Then restart the app.';
+      if (/not set here/.test(check.detail)) {
+        return 'On the computer that runs the web app, set PUBLIC_URL in .env to the address you open tagave at and restart the app; it does not start without it. A worker computer can ignore this.';
+      }
+      if (/do not work at/.test(check.detail)) {
+        return 'Passkeys are bound to the host name they were made on. Set PUBLIC_URL back to that host and restart, or keep the new host, sign in with your password (and authenticator code) and add your passkeys again under Settings › Security.';
+      }
+      return 'Serve tagave over https (a reverse proxy with a certificate) and set PUBLIC_URL to the https address to use passkeys and security keys.';
     default:
       return null;
   }

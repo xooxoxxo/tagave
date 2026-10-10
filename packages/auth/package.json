@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@better-auth/passkey": "~1.7.4",
+    "@simplewebauthn/server": "13.3.3",
     "argon2": "^0.44.0",
     "better-auth": "~1.7.4",
     "kysely": "~0.29.5",

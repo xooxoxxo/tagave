@@ -110,6 +110,8 @@ export const authPasskeys = pgTable(
     transports: text(),
     aaguid: text(),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+    // tagave's own: the PUBLIC_URL host (WebAuthn RP ID) it was registered for
+    rpId: text('rp_id'),
   },
   (t) => [index('idx_auth_passkeys_user').on(t.userId)],
 );

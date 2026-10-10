@@ -11,9 +11,11 @@ import {
   type Check,
 } from './checks.js';
 import { checkBackups } from './backupCheck.js';
+import { checkPublicUrl } from './authCheck.js';
 
 export type { Check, CheckStatus } from './checks.js';
 export { remediationFor } from './remediation.js';
+export { checkPublicUrl } from './authCheck.js';
 export {
   migrateOnBoot,
   preMigrationBackup,
@@ -96,6 +98,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   checks.push(await checkBackups(databaseUrl, backupDir ? { backupDir } : {}));
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs, offlineDetail));
   checks.push(await checkAppSecret(databaseUrl));
+  checks.push(await checkPublicUrl(databaseUrl));
 
   // Determine if all checks passed (warnings are not failures)
   const ok = checks.every((c) => c.status !== 'fail');
