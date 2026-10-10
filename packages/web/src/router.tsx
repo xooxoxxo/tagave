@@ -1,21 +1,23 @@
-import { RootRoute, Router, Route, redirect } from '@tanstack/react-router';
+import { RootRoute, Router, Route, redirect, lazyRouteComponent } from '@tanstack/react-router';
 import { App } from './components/App';
 import { Layout } from './components/Layout';
-import {
-  SetupPage,
-  LoginPage,
-  DashboardPage,
-  OnboardingPage,
-  AlbumsPage,
-  ArtistsPage,
-  ArtistPage,
-  AlbumDetailPage,
-  PlansPage,
-  PlanPage,
-  WorkPage,
-  SettingsPage,
-  CollectionPage,
-} from './pages';
+import { DashboardPage } from './pages/DashboardPage';
+
+// Every page but Home is its own chunk, fetched on first visit (and on hover
+// or focus of a link to it: defaultPreload 'intent'). Before, all 27 routes
+// shipped in one 1 MB bundle to every page (audit 2026-10-10).
+const SetupPage = lazyRouteComponent(() => import('./pages/SetupPage'), 'SetupPage');
+const LoginPage = lazyRouteComponent(() => import('./pages/LoginPage'), 'LoginPage');
+const OnboardingPage = lazyRouteComponent(() => import('./pages/OnboardingPage'), 'OnboardingPage');
+const AlbumsPage = lazyRouteComponent(() => import('./pages/AlbumsPage'), 'AlbumsPage');
+const ArtistsPage = lazyRouteComponent(() => import('./pages/ArtistsPage'), 'ArtistsPage');
+const ArtistPage = lazyRouteComponent(() => import('./pages/ArtistPage'), 'ArtistPage');
+const AlbumDetailPage = lazyRouteComponent(() => import('./pages/AlbumDetailPage'), 'AlbumDetailPage');
+const PlansPage = lazyRouteComponent(() => import('./pages/PlansPage'), 'PlansPage');
+const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage');
+const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
+const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
+const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 import { api } from './services/api';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
@@ -271,6 +273,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = new Router({
   routeTree,
+  defaultPreload: 'intent',
 });
 
 declare module '@tanstack/react-router' {

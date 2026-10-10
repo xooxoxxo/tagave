@@ -111,13 +111,12 @@ export {
 } from './backups.js';
 
 // Album grid query, facets, saved views (BRW-1)
+export { MULTI_FILTER_KEYS, type MultiFilterKey } from './viewKeys.js';
 export {
   albumsQuerySchema,
   type AlbumsQuery,
   albumStateFilterSchema,
   albumGapFilterSchema,
-  MULTI_FILTER_KEYS,
-  type MultiFilterKey,
   bulkAlbumActionSchema,
   type BulkAlbumAction,
   bulkAlbumsRequestSchema,

@@ -41,9 +41,7 @@ export const albumsQuerySchema = z.object({
 
 export type AlbumsQuery = z.infer<typeof albumsQuerySchema>;
 
-/** Filters that accept several values at once (the rail renders them as checkboxes). */
-export const MULTI_FILTER_KEYS = ['state', 'genre', 'decade', 'format', 'label', 'gap'] as const;
-export type MultiFilterKey = typeof MULTI_FILTER_KEYS[number];
+export { MULTI_FILTER_KEYS, type MultiFilterKey } from './viewKeys.js';
 
 export const facetCountSchema = z.object({ value: z.string(), label: z.string().optional(), count: z.number().int() }).strict();
 
