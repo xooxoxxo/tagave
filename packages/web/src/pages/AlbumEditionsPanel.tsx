@@ -4,7 +4,7 @@
  * MusicBrainz only completes the list. The heading count is the number of rows
  * shown, so the two always agree.
  */
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import type { Edition, EditionsData } from '../hooks';
 import { Button } from '../components/ui';
 import styles from './AlbumDetailPage.module.css';
@@ -18,12 +18,14 @@ export interface AlbumEditionsPanelProps {
   fetchPending: boolean;
   /** page-specific items for the header (any-edition pill, pending switch, errors) */
   tools?: ReactNode;
-  /** the last cell of each row: "This copy" or the switch button */
+  /** the last cell of each row: the "Your copy" chip or the switch button */
   rowAction: (edition: Edition) => ReactNode;
+  /** a line under a row, across the whole table (a failed switch says why) */
+  rowNote?: (edition: Edition) => ReactNode;
   footer?: ReactNode;
 }
 
-export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPending, tools, rowAction, footer }: AlbumEditionsPanelProps) {
+export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPending, tools, rowAction, rowNote, footer }: AlbumEditionsPanelProps) {
   const rows = editions?.editions ?? [];
   const fetched = !!editions?.fetchedAt;
   const fetching = !!editions?.fetching;
@@ -79,18 +81,20 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
         <table className={`${styles.candTable} ${styles.editionsTable}`}>
           <thead>
             <tr>
-              <th>Date</th>
+              <th className={styles.editionDate}>Date</th>
               <th>Country</th>
               <th>Label / Catno</th>
               <th>Format</th>
               <th className={styles.num}>Tracks</th>
-              <th></th>
+              <th className={styles.editionAction}><span className={styles.srOnly}>Action</span></th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((e) => (
-              <tr key={e.releaseId} className={e.owned ? styles.ownedRow : ''}>
-                <td className={styles.num} data-label="Date">{e.date ?? '–'}</td>
+            {rows.map((e) => {
+              const note = rowNote?.(e);
+              return (<Fragment key={e.releaseId}>
+              <tr className={[e.owned ? styles.ownedRow : '', note ? styles.editionHasNote : ''].filter(Boolean).join(' ') || undefined} aria-current={e.owned ? 'true' : undefined}>
+                <td className={`${styles.num} ${styles.editionDate}`} data-label="Date">{e.date ?? '–'}</td>
                 <td data-label="Country">{e.country ?? '–'}</td>
                 <td data-label="Label">
                   {/* one wrapper, so the phone layout's label sits beside all the lines */}
@@ -116,9 +120,17 @@ export function AlbumEditionsPanel({ hasReleaseGroup, editions, onFetch, fetchPe
                   </span>
                 </td>
                 <td className={styles.num} data-label="Tracks">{e.trackCount}</td>
-                <td className={`${styles.gapActions} ${styles.editionAction}`}>{rowAction(e)}</td>
+                {/* a block inside the cell: a flex <td> stops being a table cell,
+                    and the row's tint and baseline broke at that column */}
+                <td className={styles.editionAction}><div className={styles.editionActionInner}>{rowAction(e)}</div></td>
               </tr>
-            ))}
+              {note && (
+                <tr className={`${styles.editionNoteRow}${e.owned ? ` ${styles.ownedRow}` : ''}`}>
+                  <td colSpan={6}>{note}</td>
+                </tr>
+              )}
+              </Fragment>);
+            })}
           </tbody>
         </table>
         {footer}

@@ -97,4 +97,42 @@ describe('AlbumEditionsPanel', () => {
     const html = render(undefined, false);
     expect(html).toContain('match this album first');
   });
+
+  it('marks the copy across the whole row and keeps every action cell a real table cell', () => {
+    const html = renderToStaticMarkup(
+      <AlbumEditionsPanel
+        hasReleaseGroup
+        editions={data({ editions: [edition(1, true), edition(2)] })}
+        onFetch={() => {}}
+        fetchPending={false}
+        rowAction={(e) => (e.owned ? 'Your copy' : 'Use this edition')}
+      />,
+    );
+    const rows = html.match(/<tbody>(.*)<\/tbody>/)![1]!.match(/<tr[^>]*>/g)!;
+    expect(rows[0]).toContain('aria-current="true"');
+    expect(rows[1]).not.toContain('aria-current');
+    // the action sits in a block inside the cell; a flex <td> broke the row's tint
+    const actionCells = html.match(/<td class="[^"]*editionAction[^"]*">/g)!;
+    expect(actionCells).toHaveLength(2);
+    actionCells.forEach((td) => expect(td).not.toMatch(/gapActions/));
+    expect(html).toMatch(/<td class="[^"]*editionAction[^"]*"><div class="[^"]*editionActionInner/);
+  });
+
+  it('shows a failed switch on its own row, under the edition it was for', () => {
+    const html = renderToStaticMarkup(
+      <AlbumEditionsPanel
+        hasReleaseGroup
+        editions={data({ editions: [edition(1, true), edition(2), edition(3)] })}
+        onFetch={() => {}}
+        fetchPending={false}
+        rowAction={() => 'Use this edition'}
+        rowNote={(e) => (e.releaseId === 'r2' ? <span role="alert">Couldn’t switch</span> : null)}
+      />,
+    );
+    expect(rowCount(html)).toBe(4);
+    const body = html.match(/<tbody>(.*)<\/tbody>/)![1]!;
+    const order = [...body.matchAll(/CAT(\d)|Couldn’t switch/g)].map((m) => m[1] ?? 'note');
+    expect(order).toEqual(['1', '2', 'note', '3']);
+    expect(body).toMatch(/<td colSpan="6"|<td colspan="6"/);
+  });
 });

@@ -8,12 +8,17 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { libraries, localAlbums, users } from '@liner/db';
+import { libraries, localAlbums, releaseGroups, releases, users } from '@liner/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
+// lets a test stand in for pg-boss: write the job row and return its id
+const boss = vi.hoisted(() => ({ onSend: null as null | ((name: string, data: any) => Promise<string | null>) }));
 vi.mock('../boss.js', () => ({
   getBoss: async () => ({
-    send: async (name: string, data: unknown, opts: unknown) => { sent.push({ name, data, opts }); return null; },
+    send: async (name: string, data: unknown, opts: unknown) => {
+      sent.push({ name, data, opts });
+      return boss.onSend ? boss.onSend(name, data) : null;
+    },
     cancel: async () => {},
   }),
 }));
@@ -142,5 +147,86 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('manual match routes', () => {
     await client`update pgboss.job set state = 'cancelled', completed_on = now() where id = ${jobId}`;
     const after = await get(`/libraries/${libraryId}/albums/${queuedAlbum}`);
     expect(after.json().identifyRequest).toMatchObject({ status: 'done', outcome: { kind: 'cancelled', message: 'You cancelled this request before it ran.' } });
+  });
+
+  describe('Use this edition', () => {
+    const editionAlbum = randomUUID();
+    const rgId = randomUUID();
+    const relA = randomUUID();
+    const relB = randomUUID();
+    const MB_RG = randomUUID();
+    const MB_A = randomUUID();
+    const MB_B = randomUUID();
+    const insertJob = (pinnedMbid: string) => async (_name: string, data: any) => {
+      const id = randomUUID();
+      await client`insert into pgboss.job (id, name, state, priority, singleton_key, data, created_on)
+        values (${id}, 'identify.album', 'created', 100, ${`identify:${editionAlbum}`}, ${JSON.stringify({ ...data, pinnedMbid })}::jsonb, now())`;
+      return id;
+    };
+
+    beforeAll(async () => {
+      await db.insert(releaseGroups).values({ id: rgId, mbid: MB_RG, title: 'Mummer' });
+      await db.insert(releases).values([
+        { id: relA, releaseGroupId: rgId, mbid: MB_A, title: 'Mummer', date: '1983-09-21', country: 'JP', trackCount: 10 },
+        { id: relB, releaseGroupId: rgId, mbid: MB_B, title: 'Mummer', date: '1987-03-16', country: 'GB', trackCount: 16 },
+      ] as any);
+      await db.insert(localAlbums).values({ id: editionAlbum, libraryId, clusterKey: `mm-${editionAlbum}`, dirPaths: ['E'], titleGuess: 'Mummer', state: 'matched', trackCount: 10, releaseGroupId: rgId, releaseId: relA } as any);
+    });
+
+    afterAll(async () => {
+      boss.onSend = null;
+      await client`delete from pgboss.job where data->>'localAlbumId' = ${editionAlbum}`;
+      await client`delete from identify_runs where local_album_id = ${editionAlbum}`;
+      await db.delete(localAlbums).where(eq(localAlbums.id, editionAlbum));
+      await db.delete(releases).where(inArray(releases.id, [relA, relB]));
+      await db.delete(releaseGroups).where(eq(releaseGroups.id, rgId));
+    });
+
+    it('the editions list marks the album\'s own release as owned, and follows the album when it moves', async () => {
+      const before = await get(`/libraries/${libraryId}/albums/${editionAlbum}/editions`);
+      expect(before.statusCode).toBe(200);
+      const owned = (b: any) => (b.editions as any[]).filter((e) => e.owned).map((e) => e.mbid);
+      expect(owned(before.json())).toEqual([MB_A]);
+      // what the worker does when it decides: the album now points at B
+      await db.update(localAlbums).set({ releaseId: relB } as any).where(eq(localAlbums.id, editionAlbum));
+      const after = await get(`/libraries/${libraryId}/albums/${editionAlbum}/editions`);
+      expect(owned(after.json())).toEqual([MB_B]);
+      await db.update(localAlbums).set({ releaseId: relA } as any).where(eq(localAlbums.id, editionAlbum));
+    });
+
+    it('queues a pinned job and answers with the request as it now stands', async () => {
+      sent.length = 0;
+      boss.onSend = insertJob(MB_B);
+      const res = await post(`/libraries/${libraryId}/albums/${editionAlbum}/match-mbid`, { input: MB_B });
+      expect(res.statusCode).toBe(202);
+      const body = res.json();
+      expect(body).toMatchObject({ ok: true, mbid: MB_B });
+      expect(body.jobId).toEqual(expect.any(String));
+      // the page shows "switching" from these, not from a guess made on click
+      expect(body.pending).toMatchObject({ id: body.jobId, kind: 'mbid', pinned: MB_B, state: 'created' });
+      expect(body.identifyRequest).toMatchObject({ status: 'queued', kind: 'mbid', pinned: MB_B });
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({ name: 'identify.album', data: { localAlbumId: editionAlbum, force: true, requestedBy: 'owner', pinnedMbid: MB_B }, opts: { priority: 100 } });
+    });
+
+    it('a second click while that job is queued is refused and queues nothing', async () => {
+      sent.length = 0;
+      const res = await post(`/libraries/${libraryId}/albums/${editionAlbum}/match-mbid`, { input: MB_A });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ pending: { kind: 'mbid', pinned: MB_B } });
+      expect(sent).toHaveLength(0);
+      await client`delete from pgboss.job where data->>'localAlbumId' = ${editionAlbum}`;
+    });
+
+    it('two clicks racing past the check: the one pg-boss did not queue gets a 409, not a 202', async () => {
+      sent.length = 0;
+      // the other request's job landed first; this send is dropped by the singleton key
+      boss.onSend = async (name, data) => { await insertJob(MB_A)(name, data); return null; };
+      const res = await post(`/libraries/${libraryId}/albums/${editionAlbum}/match-mbid`, { input: MB_B });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ pending: { kind: 'mbid', pinned: MB_A } });
+      boss.onSend = null;
+      await client`delete from pgboss.job where data->>'localAlbumId' = ${editionAlbum}`;
+    });
   });
 });
