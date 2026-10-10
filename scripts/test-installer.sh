@@ -53,6 +53,9 @@ secret="$(env_value APP_SECRET "$work/all/.env")"
 config="$(render "$work/all")"
 [ "$(services "$work/all")" = "app postgres worker-files worker-identify " ] || fail "role all: services are $(services "$work/all")"
 printf '%s' "$config" | grep -q '"NODE_ENV": "production"' || fail "role all: app lacks NODE_ENV=production"
+public_url="$(env_value PUBLIC_URL "$work/all/.env")"
+case "$public_url" in http://*:3100) ;; *) fail "role all: PUBLIC_URL should default to this computer's address, got '$public_url'" ;; esac
+printf '%s' "$config" | grep -q "\"PUBLIC_URL\": \"$public_url\"" || fail "role all: app does not get PUBLIC_URL"
 printf '%s' "$config" | grep -q '"published": "5432"' && fail "role all: postgres must not be published"
 pass "role all"
 
@@ -60,6 +63,11 @@ pass "role all"
 run --role all --dir "$work/all" --music "$work/music" >"$work/all2.log" 2>&1 \
   || { cat "$work/all2.log" >&2; fail "role all, second run"; }
 [ "$(env_value APP_SECRET "$work/all/.env")" = "$secret" ] || fail "role all: re-run replaced APP_SECRET"
+run --role all --dir "$work/all" --music "$work/music" --public-url https://music.example.com >"$work/all3.log" 2>&1 \
+  || { cat "$work/all3.log" >&2; fail "role all, --public-url"; }
+run --role all --dir "$work/all" --music "$work/music" >"$work/all4.log" 2>&1 \
+  || { cat "$work/all4.log" >&2; fail "role all, run after --public-url"; }
+[ "$(env_value PUBLIC_URL "$work/all/.env")" = "https://music.example.com" ] || fail "role all: re-run replaced PUBLIC_URL"
 pass "role all, re-run keeps secrets"
 
 # --- role app -----------------------------------------------------------------

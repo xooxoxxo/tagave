@@ -1,97 +1,156 @@
-import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SessionUser } from '@liner/shared/auth';
-import { makeDb, sessions, users } from '@liner/db';
-import { eq } from 'drizzle-orm';
+import {
+  LEGACY_SESSION_COOKIE,
+  fromNodeHeaders,
+  sessionCookieNames,
+  type AuthHandle,
+} from '@liner/auth';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user?: SessionUser | undefined;
+    /** The Better Auth session id (auth_sessions.id). */
     sessionId?: string | undefined;
   }
 }
 
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-// last_seen_at is bumped at most once per minute to keep reads cheap
-const TOUCH_INTERVAL_MS = 60 * 1000;
+let handle: AuthHandle | undefined;
 
-type Db = Awaited<ReturnType<typeof makeDb>>['db'];
-
-let db: Db | undefined;
-function getDb(): Db {
-  if (!db) {
-    throw new Error('auth middleware used before init(db)');
-  }
-  return db;
+export function initAuth(h: AuthHandle): void {
+  handle = h;
 }
 
-export function initAuth(database: Db): void {
-  db = database;
+export function tryGetAuthHandle(): AuthHandle | undefined {
+  return handle;
+}
+
+export function getAuthHandle(): AuthHandle {
+  if (!handle) throw new Error('auth used before initAuth()');
+  return handle;
+}
+
+/** Better Auth's user, as every route has always seen it (`request.user`). */
+export function toSessionUser(user: {
+  id: string;
+  email: string;
+  name?: string | null;
+  role?: unknown;
+  createdAt: Date | string;
+}): SessionUser {
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: user.name || user.email,
+    role: user.role === 'viewer' ? 'viewer' : 'owner',
+    createdAt: new Date(user.createdAt).toISOString(),
+  };
+}
+
+/** Copy Better Auth's Set-Cookie headers onto a Fastify reply. */
+export function forwardSetCookies(reply: FastifyReply, headers: Headers | null | undefined): void {
+  if (!headers) return;
+  const cookies = headers.getSetCookie();
+  if (cookies.length === 0) return;
+  const existing = reply.getHeader('set-cookie');
+  const prior = existing === undefined ? [] : Array.isArray(existing) ? existing.map(String) : [String(existing)];
+  reply.header('set-cookie', [...prior, ...cookies]);
+}
+
+function hasSessionCookie(request: FastifyRequest): boolean {
+  return sessionCookieNames().some((n) => Boolean(request.cookies[n]));
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface Bridged {
+  setCookies: string[];
+  /** name=value of the new session cookie, as a Cookie request header carries it */
+  cookiePair: string;
+  userId: string;
+}
+
+// Parallel first requests after the upgrade carry the same legacy cookie: they
+// share one bridge (one new session) instead of racing to delete the row.
+const inflight = new Map<string, Promise<Bridged | null>>();
+const INFLIGHT_KEEP_MS = 60_000;
+
+async function bridgeOnce(h: AuthHandle, legacyId: string, request: FastifyRequest): Promise<Bridged | null> {
+  const rows = await h.sql<{ user_id: string; created_at: Date; expires_at: Date }[]>`
+    select s.user_id, s.created_at, s.expires_at
+      from sessions s join users u on u.id = s.user_id
+     where s.id = ${legacyId}`;
+  const row = rows[0];
+  if (!row) return null;
+  if (row.expires_at.getTime() < Date.now()) {
+    await h.sql`delete from sessions where id = ${legacyId}`;
+    return null;
+  }
+  const res = await h.auth.api.bridgeLegacySession({
+    body: { userId: row.user_id, createdAt: row.created_at },
+    returnHeaders: true,
+  });
+  const setCookies = res.headers.getSetCookie();
+  const names = sessionCookieNames();
+  const sessionCookie = setCookies.find((c) => names.some((n) => c.startsWith(`${n}=`)));
+  if (!sessionCookie) throw new Error('session bridge: Better Auth set no session cookie');
+  await h.sql`delete from sessions where id = ${legacyId}`;
+  // Keyward's audit table arrives with L5; until then the bridge is logged.
+  request.log.info({ event: 'auth.session.bridged', userId: row.user_id, sessionId: res.response.sessionId }, 'legacy session bridged to Better Auth');
+  return { setCookies, cookiePair: sessionCookie.split(';')[0]!, userId: row.user_id };
+}
+
+/**
+ * One-release bridge from the 0.6.x cookie (`sessionId`, a raw uuid) to a
+ * Better Auth session, so nobody is signed out by the upgrade. Runs before
+ * routing; the request that carries the legacy cookie is already served with
+ * the new session. Removed in the release that drops the `sessions` table.
+ */
+export async function bridgeLegacySession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const legacyId = request.cookies[LEGACY_SESSION_COOKIE];
+  if (!legacyId) return;
+  reply.clearCookie(LEGACY_SESSION_COOKIE, { path: '/' });
+  if (hasSessionCookie(request) || !UUID_RE.test(legacyId)) return;
+
+  const h = getAuthHandle();
+  let pending = inflight.get(legacyId);
+  if (!pending) {
+    pending = bridgeOnce(h, legacyId, request);
+    inflight.set(legacyId, pending);
+    const forget = () => setTimeout(() => inflight.delete(legacyId), INFLIGHT_KEEP_MS).unref();
+    pending.then(forget, () => inflight.delete(legacyId));
+  }
+  const bridged = await pending;
+  if (!bridged) return;
+
+  forwardSetCookies(reply, new Headers(bridged.setCookies.map((c) => ['set-cookie', c] as [string, string])));
+  // This very request continues signed in.
+  request.headers.cookie = request.headers.cookie ? `${request.headers.cookie}; ${bridged.cookiePair}` : bridged.cookiePair;
+  const eq = bridged.cookiePair.indexOf('=');
+  request.cookies[bridged.cookiePair.slice(0, eq)] = decodeURIComponent(bridged.cookiePair.slice(eq + 1));
+}
+
+/** Resolve `request.user` from the Better Auth session (refreshing its cookie when due). */
+export async function resolveSession(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  request.user = undefined;
+  request.sessionId = undefined;
+  if (!hasSessionCookie(request)) return;
+  const { auth } = getAuthHandle();
+  const { headers, response } = await auth.api.getSession({
+    headers: fromNodeHeaders(request.headers),
+    returnHeaders: true,
+  });
+  forwardSetCookies(reply, headers);
+  if (!response) return;
+  request.sessionId = response.session.id;
+  request.user = toSessionUser(response.user);
 }
 
 export async function authMiddleware(fastify: FastifyInstance) {
-  fastify.addHook('preHandler', async (request: FastifyRequest, reply: FastifyReply) => {
-    const sessionCookie = request.cookies['sessionId'];
-    if (!sessionCookie) {
-      request.user = undefined;
-      return;
-    }
-
-    const rows = await getDb()
-      .select({
-        sessionId: sessions.id,
-        expiresAt: sessions.expiresAt,
-        lastSeenAt: sessions.lastSeenAt,
-        userId: users.id,
-        email: users.email,
-        displayName: users.displayName,
-        role: users.role,
-        createdAt: users.createdAt,
-      })
-      .from(sessions)
-      .innerJoin(users, eq(users.id, sessions.userId))
-      .where(eq(sessions.id, sessionCookie))
-      .limit(1);
-
-    const row = rows[0];
-    if (!row || row.expiresAt.getTime() < Date.now()) {
-      if (row) {
-        await getDb().delete(sessions).where(eq(sessions.id, row.sessionId));
-      }
-      reply.clearCookie('sessionId');
-      request.user = undefined;
-      return;
-    }
-
-    if (Date.now() - row.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) {
-      await getDb()
-        .update(sessions)
-        .set({ lastSeenAt: new Date() })
-        .where(eq(sessions.id, row.sessionId));
-    }
-
-    request.sessionId = row.sessionId;
-    request.user = {
-      id: row.userId,
-      email: row.email,
-      displayName: row.displayName ?? row.email,
-      role: row.role as SessionUser['role'],
-      createdAt: row.createdAt.toISOString(),
-    };
+  fastify.addHook('onRequest', bridgeLegacySession);
+  fastify.addHook('preHandler', async (request, reply) => {
+    // Better Auth's own routes resolve the session themselves.
+    if (request.url.startsWith('/api/auth/')) return;
+    await resolveSession(request, reply);
   });
-}
-
-export async function createSession(userId: string): Promise<string> {
-  const inserted = await getDb()
-    .insert(sessions)
-    .values({ userId, expiresAt: new Date(Date.now() + SESSION_TTL_MS) })
-    .returning({ id: sessions.id });
-  const row = inserted[0];
-  if (!row) {
-    throw new Error('session insert returned no row');
-  }
-  return row.id;
-}
-
-export async function invalidateSession(sessionId: string): Promise<void> {
-  await getDb().delete(sessions).where(eq(sessions.id, sessionId));
 }

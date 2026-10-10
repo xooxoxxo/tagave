@@ -5,11 +5,14 @@
  *   LINER_OLD_APP_SECRET=old_secret APP_SECRET=new_secret node dist/cli.js reseal
  *
  * The command reads the old APP_SECRET from LINER_OLD_APP_SECRET and the new one from APP_SECRET,
- * then re-encrypts all sealed credentials in the database.
+ * then re-encrypts all sealed credentials in the database: provider tokens
+ * (libraries.settings) and the authenticator-app secrets and backup codes
+ * (auth_two_factors, encrypted with the sign-in secret derived from APP_SECRET).
  */
 
 import postgres from 'postgres';
 import { openSecret, sealSecret, isSealed } from '@liner/core';
+import { resealTwoFactorSecrets } from '@liner/auth';
 
 export async function resealCredentials(databaseUrl: string): Promise<void> {
   const oldSecret = process.env.LINER_OLD_APP_SECRET;
@@ -35,8 +38,17 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
          or settings->>'acoustidKey' like 'enc:%'
     ` as unknown as Array<{ id: string; settings: Record<string, any> }>;
 
+    // Authenticator apps first: one transaction, and it refuses (changing
+    // nothing) if a secret opens with neither APP_SECRET.
+    const twoFactor = await resealTwoFactorSecrets(sql, oldSecret, newSecret);
+    if (twoFactor.rows > 0) {
+      console.log(
+        `Authenticator apps: ${twoFactor.resealed} re-encrypted, ${twoFactor.alreadyCurrent} already on the new secret.`,
+      );
+    }
+
     if (rows.length === 0) {
-      console.log('No sealed credentials found.');
+      console.log('No sealed provider credentials found.');
       return;
     }
 

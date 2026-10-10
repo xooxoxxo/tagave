@@ -7,7 +7,10 @@
       "name": "tagave",
       "description": "A home for your music: catalogues the albums you own, finds what is missing and fixes tags. Postgres, the web app and both workers on one host.",
       "note": "Fill in a database password, an app secret (at least 32 characters, e.g. the output of <code>openssl rand -hex 32</code>) and the host folder with your music. Open the app on port 3100 (or the port you chose) and register <code>/mnt/music</code> as the music folder. To update, set TAGAVE_VERSION to the new release and redeploy with Re-pull image on.",
-      "categories": ["media", "music"],
+      "categories": [
+        "media",
+        "music"
+      ],
       "platform": "linux",
       "logo": "https://raw.githubusercontent.com/xooxoxxo/tagave/main/docs/images/mark.png",
       "repository": {
@@ -29,6 +32,11 @@
           "name": "MUSIC_DIR",
           "label": "Music folder on the host",
           "description": "Absolute path, e.g. /srv/music. Mounted read-only at /mnt/music."
+        },
+        {
+          "name": "PUBLIC_URL",
+          "label": "Public URL",
+          "description": "The address you open tagave at, e.g. http://192.168.1.10:3100 or https://music.example.com. Sign-in trusts it and passkeys are bound to its host name for good."
         },
         {
           "name": "TAGAVE_PORT",

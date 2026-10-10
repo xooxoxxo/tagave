@@ -4,15 +4,53 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { useLogin } from '../hooks/useAuth';
+import { useQueryClient } from '@tanstack/react-query';
+import { AUTH_QUERY_KEY, useLogin } from '../hooks/useAuth';
+import { conditionalUiAvailable, signInWithPasskey } from '../services/passkeys';
+import type { AuthClientError } from '../services/authClient';
 import { useSetupRequired } from '../hooks/useSystem';
-import { LoginRequest } from '@liner/shared';
+import { signInErrorMessage } from './loginErrors';
 import { Button } from '../components/ui';
 import styles from './LoginPage.module.css';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const loginMutation = useLogin();
+  const [passkeyPending, setPasskeyPending] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<AuthClientError | null>(null);
+
+  const passkeyDone = async () => {
+    await queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
+    navigate({ to: '/' });
+  };
+
+  // Conditional UI: the browser offers saved passkeys in the email field's
+  // autofill list; picking one signs in without the password.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      if (!(await conditionalUiAvailable()) || !live) return;
+      const res = await signInWithPasskey(true);
+      if (live && res.ok) await passkeyDone();
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const passkeySignIn = async () => {
+    setPasskeyPending(true);
+    setPasskeyError(null);
+    const res = await signInWithPasskey(false);
+    setPasskeyPending(false);
+    if (!res.ok) {
+      setPasskeyError(res.error ?? null);
+      return;
+    }
+    await passkeyDone();
+  };
 
   const [formData, setFormData] = useState({
     email: '',
@@ -34,11 +72,14 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    loginMutation.mutate(formData as LoginRequest, {
-      onSuccess: () => {
-        navigate({ to: '/' });
+    loginMutation.mutate(
+      { email: formData.email.trim(), password: formData.password },
+      {
+        onSuccess: (outcome) => {
+          navigate({ to: outcome.status === 'two-factor' ? '/login/2fa' : '/' });
+        },
       },
-    });
+    );
   };
 
   return (
@@ -60,7 +101,7 @@ export function LoginPage() {
               onChange={handleChange}
               placeholder="your@example.com"
               disabled={loginMutation.isPending}
-              autoComplete="email"
+              autoComplete="username webauthn"
             />
           </div>
 
@@ -90,8 +131,8 @@ export function LoginPage() {
           </div>
 
           {loginMutation.error && (
-            <div className={styles.serverError}>
-              {(loginMutation.error as any)?.detail || 'Login failed. Please check your credentials.'}
+            <div className={styles.serverError} role="alert">
+              {signInErrorMessage(loginMutation.error)}
             </div>
           )}
 
@@ -102,6 +143,22 @@ export function LoginPage() {
           >
             {loginMutation.isPending ? 'Signing in...' : 'Sign In'}
           </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
+            className={styles.submitBtn}
+            onClick={() => void passkeySignIn()}
+            loading={passkeyPending}
+            disabled={loginMutation.isPending}
+          >
+            Sign in with a passkey
+          </Button>
+          {passkeyError && (
+            <div className={styles.serverError} role="alert">
+              {signInErrorMessage(passkeyError)}
+            </div>
+          )}
         </form>
 
         <div className={styles.footer}>

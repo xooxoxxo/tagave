@@ -6,9 +6,18 @@
     "rootDir": "src",
     "incremental": true
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../db" },
-    { "path": "../core" }
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../auth"
+    }
   ]
 }

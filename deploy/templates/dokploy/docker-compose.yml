@@ -40,6 +40,9 @@ services:
       APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
+      # Required: the address you open tagave at, e.g. https://music.example.com.
+      # Sign-in trusts this origin; passkeys are bound to its host name for good.
+      PUBLIC_URL: ${PUBLIC_URL:?set PUBLIC_URL to the address you open tagave at (docs/install.md)}
       LOG_LEVEL: info
       TZ: ${TZ:-UTC}
       TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-dokploy}

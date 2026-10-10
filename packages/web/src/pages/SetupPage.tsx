@@ -156,7 +156,7 @@ function AccountScreen({ onBack, onDone }: { onBack: () => void; onDone: () => v
             value={form.password}
             onChange={change('password')}
             error={errors.password}
-            hint="At least 8 characters."
+            hint="At least 12 characters."
             disabled={setupMutation.isPending}
           />
           <Button variant="quiet" size="sm" type="button" className={styles.togglePassword} onClick={() => setShowPassword((v) => !v)}>

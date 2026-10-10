@@ -60,6 +60,7 @@ jobs:
       - run: pnpm --filter @liner/core test
       - run: pnpm --filter @liner/worker test
       - run: pnpm --filter @liner/api test
+      - run: pnpm --filter @liner/auth test
 
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')

@@ -7,10 +7,21 @@
     "skipLibCheck": true,
     "noEmit": false
   },
-  "include": ["src"],
+  "include": [
+    "src"
+  ],
   "references": [
-    { "path": "../db" },
-    { "path": "../core" },
-    { "path": "../shared" }
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../auth"
+    }
   ]
 }

@@ -8,6 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { makeDb } from '@liner/db';
+import { AuthConfigError, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@liner/auth';
 import { readBuildInfo } from '@liner/core';
 import { migrateOnBoot } from '@liner/doctor';
 import { createReviewRoutes } from './routes/reviews.js';
@@ -15,6 +16,7 @@ import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes, startUpdateChecks } from './routes/updates.js';
 import { createAuthRoutes } from './routes/auth.js';
+import { createBetterAuthRoutes } from './routes/betterAuth.js';
 import { createLibraryRoutes } from './routes/library.js';
 import { createHealthRoutes } from './routes/health.js';
 import { createSystemRoutes } from './routes/system.js';
@@ -95,6 +97,22 @@ if (isHex && appSecret.length < 64) {
   logger.warn(`APP_SECRET is ${appSecret.length} hex characters (< 32 bytes); rotate with \`openssl rand -hex 32\` + \`liner-doctor reseal\` (README › Security)`);
 }
 
+// Sign-in settings: PUBLIC_URL is required (Better Auth base URL, trusted
+// origin, passkey relying-party ID).
+let authEnv: ReturnType<typeof readAuthEnv>;
+try {
+  authEnv = readAuthEnv(process.env);
+} catch (err) {
+  if (err instanceof AuthConfigError) {
+    logger.error(err.message);
+    process.exit(1);
+  }
+  throw err;
+}
+if (!passkeysCanWork(authEnv.publicUrl)) {
+  logger.warn(`PUBLIC_URL is ${authEnv.publicUrl.origin}: browsers allow passkeys and security keys only on https or localhost. Password and authenticator-app sign-in still work.`);
+}
+
 // Initialize database
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -122,7 +140,11 @@ try {
   }
   const { initDb } = await import('./db.js');
   db = await initDb(databaseUrl);
-  initAuth(db.db);
+  const authHandle = createAuth({ env: authEnv, databaseUrl });
+  initAuth(authHandle);
+  // Rollback-and-return: users written by 0.6.x get their credential account.
+  const healed = await ensureCredentialAccounts(authHandle.sql);
+  if (healed > 0) logger.info(`Created the sign-in account for ${healed} user(s) written by an older version`);
   logger.info('Database initialized successfully');
 
   // One-time boot migration: seal plaintext credentials (PLT-5)
@@ -261,6 +283,9 @@ await authMiddleware(app);
 
 // Health check endpoint (no auth required)
 app.register(createHealthRoutes, { prefix: '/api/v1' });
+
+// Better Auth: /api/auth/* (sign-in, sign-out, session, 2FA, passkeys)
+app.register(createBetterAuthRoutes);
 
 // Auth routes (no auth required for setup/login)
 app.register(createAuthRoutes, { prefix: '/api/v1/auth' });

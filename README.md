@@ -41,6 +41,10 @@ artwork, and gaps in the discography of artists you follow.
 record which releases you own on vinyl or CD, so the files and the shelf are one
 catalogue.
 
+**Keeps your account yours.** Sign in with a passkey or a security key such as a
+YubiKey, add an authenticator app with backup codes, and see and revoke the
+devices you trusted. [Security](docs/security.md) has the details.
+
 ## Quick start
 
 You need Docker and Compose v2. One command installs it from the published images:
@@ -58,7 +62,7 @@ To build from source instead:
 ```sh
 cp .env.example .env
 openssl rand -hex 32                 # paste this as APP_SECRET
-$EDITOR .env                         # also uncomment MUSIC_DIR and point it at your library
+$EDITOR .env                         # set PUBLIC_URL, and uncomment MUSIC_DIR and point it at your library
 docker compose -f docker-compose.prod.yml --profile workers up -d
 ```
 

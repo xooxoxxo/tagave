@@ -6,7 +6,7 @@
 import { SCAN_ROOT_EMPTY_MESSAGE, setupRequestSchema, type SetupRequest, type ScanRoot } from '@liner/shared';
 
 /** The whole journey, across /setup and /onboarding. */
-export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album'] as const;
+export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album', 'Protect your account'] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
 export function stepNumber(step: SetupStep): number {
@@ -18,7 +18,7 @@ export type AccountErrors = Partial<Record<keyof AccountForm, string>>;
 
 const MESSAGES: Record<keyof AccountForm, string> = {
   email: 'Enter a valid email address.',
-  password: 'Use at least 8 characters.',
+  password: 'Use at least 12 characters.',
   displayName: 'Enter the name to show in the app.',
   contactString: 'Enter an email address, or a web address such as https://example.com.',
 };

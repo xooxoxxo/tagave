@@ -12,6 +12,7 @@ import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
+import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
@@ -29,6 +30,7 @@ const sections = [
   { value: 'updates', label: 'Updates' },
   { value: 'activity', label: 'Background activity' },
   { value: 'setup-checklist', label: 'Setup checklist' },
+  { value: 'security', label: 'Security', group: 'Your account' },
 ];
 export function SettingsPage() {
   const raw = useLocation().pathname.split('/')[2] || 'library';
@@ -52,6 +54,7 @@ export function SettingsPage() {
         {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New versions, what they change, and how to update this server.</p><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
+        {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
       </div>
     </div>
   </PageShell>;

@@ -8,7 +8,9 @@ import { DashboardPage } from './pages/DashboardPage';
 // shipped in one 1 MB bundle to every page (audit 2026-10-10).
 const SetupPage = lazyRouteComponent(() => import('./pages/SetupPage'), 'SetupPage');
 const LoginPage = lazyRouteComponent(() => import('./pages/LoginPage'), 'LoginPage');
+const TwoFactorPage = lazyRouteComponent(() => import('./pages/TwoFactorPage'), 'TwoFactorPage');
 const OnboardingPage = lazyRouteComponent(() => import('./pages/OnboardingPage'), 'OnboardingPage');
+const ProtectAccountPage = lazyRouteComponent(() => import('./pages/ProtectAccountPage'), 'ProtectAccountPage');
 const AlbumsPage = lazyRouteComponent(() => import('./pages/AlbumsPage'), 'AlbumsPage');
 const ArtistsPage = lazyRouteComponent(() => import('./pages/ArtistsPage'), 'ArtistsPage');
 const ArtistPage = lazyRouteComponent(() => import('./pages/ArtistPage'), 'ArtistPage');
@@ -18,7 +20,7 @@ const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage'
 const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
-import { api } from './services/api';
+import { signOut } from './hooks/useAuth';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 
@@ -52,6 +54,13 @@ const loginRoute = new Route({
   component: LoginPage,
 });
 
+// Second sign-in step: authenticator or backup code
+const loginTwoFactorRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/login/2fa',
+  component: TwoFactorPage,
+});
+
 // Protected routes (require auth)
 const layoutRoute = new Route({
   getParentRoute: () => rootRoute,
@@ -69,6 +78,13 @@ const onboardingRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/onboarding',
   component: OnboardingPage,
+});
+
+// Setup wizard, last step: passkey / authenticator (skippable)
+const protectAccountRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/onboarding/protect',
+  component: ProtectAccountPage,
 });
 
 const albumsRoute = new Route({
@@ -230,8 +246,7 @@ const logoutRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/logout',
   beforeLoad: async () => {
-    // Trigger logout mutation
-    await api.post('/auth/logout');
+    await signOut();
     window.location.replace('/login');
   },
 });
@@ -240,9 +255,11 @@ const logoutRoute = new Route({
 const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
+  loginTwoFactorRoute,
   layoutRoute.addChildren([
     dashboardRoute,
     onboardingRoute,
+    protectAccountRoute,
     albumsRoute,
     artistsRoute,
     artistDetailRoute,

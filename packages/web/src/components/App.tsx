@@ -11,7 +11,7 @@ export function App() {
   useEffect(() => {
     // Handle authentication routing
     if (!isLoading) {
-      const isAuthPage = location.pathname === '/login' || location.pathname === '/setup';
+      const isAuthPage = location.pathname === '/login' || location.pathname === '/login/2fa' || location.pathname === '/setup';
 
       if (isError && !isAuthPage) {
         // Not authenticated and not on auth page - redirect to login
