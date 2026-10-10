@@ -141,6 +141,13 @@
 
   --page-pad: clamp(1rem, 3vw, 2rem);
   --content-max: 1280px;
+  /* The page shell (components/ui/PageShell): every page's heading starts
+     this far under the top of the pane, at the same left edge. */
+  --page-top: var(--page-pad);
+  /* The column's inline padding: --page-pad, growing so the column never
+     passes --content-max. The percentage resolves against the box it pads
+     (the full pane), so every page shares one edge at every width. */
+  --shell-gutter: max(var(--page-pad), calc((100% - var(--content-max)) / 2 + var(--page-pad)));
 
   /* ---- 3. Legacy names, resolved to the theme above ---- */
   --bg-primary: var(--canvas);

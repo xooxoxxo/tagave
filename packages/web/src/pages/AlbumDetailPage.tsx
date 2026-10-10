@@ -25,12 +25,14 @@ import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequestPanel';
 import { useMaintenance } from '../maintenance';
 import { useBarTitle } from '../components/appBarTitle';
+import { PageBack } from '../components/ui/PageShell';
+import { MaintenanceToggle } from '../components/MaintenanceToggle';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Collapse, CoverArt, LinkButton, Menu, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Collapse, CoverArt, LinkButton, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -256,8 +258,8 @@ export function AlbumDetailPage() {
   const errorDetail = (m: { error: unknown }): string | null =>
     (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
 
-  if (isError) return <div className={styles.container} role="alert"><h1>Couldn’t load this album</h1><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div>;
-  if (isLoading || !album) return <div className={styles.container}><p className={styles.muted}>Loading album…</p></div>;
+  if (isError) return <PageShell back title="Couldn’t load this album" barTitle={null}><div className={styles.container} role="alert"><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div></PageShell>;
+  if (isLoading || !album) return <PageShell back title={<span className={styles.muted}>Loading album…</span>} barTitle={null}>{null}</PageShell>;
 
   const openGaps = album.gaps.filter((g) => g.state === 'open');
   const excludedCount = album.candidates.filter((c) => c.excluded).length;
@@ -726,19 +728,25 @@ export function AlbumDetailPage() {
   ];
 
   return (
-    <div className={styles.page}>
-      <header className={styles.heroBand}>
-        {/* The cover's own colours behind the whole header, edge to edge of
-            the pane and up behind the back button, fading into the page. */}
-        <div className={styles.backdropFrame} aria-hidden="true">
+    <PageShell
+      band={
+        /* The cover's own colours behind the whole header, edge to edge of
+           the pane, fading into the page. */
+        <div className={styles.backdropFrame}>
           <div className={album.coverUrl ? styles.backdrop : styles.backdropPlain} style={album.coverUrl ? { backgroundImage: `url("${album.coverUrl}")` } : undefined} />
         </div>
+      }
+      hero={
         <div className={styles.hero}>
           <div className={styles.coverBox}>
             <CoverArt src={album.coverUrl} title={title ?? 'Untitled'} loading="eager" className={styles.cover} />
           </div>
           <div className={styles.headInfo}>
-            <h1 ref={titleRef} className={styles.title}>{title}</h1>
+            {/* the back button leads the title row, as on every detail page */}
+            <div className={styles.titleRow}>
+              <PageBack />
+              <h1 ref={titleRef} className={styles.title}>{title}</h1>
+            </div>
             <div className={styles.artist}>
               {album.artists && album.artists.length > 0
                 ? album.artists.map((artist, idx) => (
@@ -776,6 +784,8 @@ export function AlbumDetailPage() {
               )}
               {/* the primary slot is for Play once a player exists; nothing pretends to play until then */}
               <div className={styles.actionRow}>
+                {/* Maintenance changes this page only, so its switch lives here */}
+                <MaintenanceToggle className={styles.modeToggle} />
                 <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />
               </div>
             </div>
@@ -793,8 +803,8 @@ export function AlbumDetailPage() {
             </div>
           </div>
         </div>
-      </header>
-
+      }
+    >
       <div className={styles.container}>
 
       <Collapse open={manualOpen && !matchRowOpen}>
@@ -995,6 +1005,6 @@ export function AlbumDetailPage() {
         />
       )}
       </div>
-    </div>
+    </PageShell>
   );
 }

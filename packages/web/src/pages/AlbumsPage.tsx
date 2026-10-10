@@ -1,5 +1,5 @@
 import { Input, Select } from '../components/ui/FormControl';
-import { Button, Chip, confirmDialog, CoverArt, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { Button, Chip, confirmDialog, CoverArt, PageShell, SegmentedControl, type SegmentedOption } from '../components/ui';
 /**
  * Album grid (spec BRW-1): virtualized infinite grid/list over the whole
  * library, filter rail with facet counts, multi-select filters, bulk actions
@@ -308,7 +308,7 @@ export function AlbumsPage() {
     return Object.fromEntries(items.filter((it) => want.has(it.id)).map((it) => [it.id, `${it.artistCredit} – ${it.title}`]));
   };
 
-  if (!libraryId) return <div className={styles.container} data-virtual-page>Loading library...</div>;
+  if (!libraryId) return <PageShell fill title="Albums">Loading library…</PageShell>;
 
   const open = (albumId: string) => navigate({ to: `/albums/${albumId}` });
   const clearAll = () => void goToList({ ...(search.sort && { sort: search.sort }), ...(search.view && { view: search.view }) });
@@ -358,10 +358,8 @@ export function AlbumsPage() {
   const showEmpty = !isLoading && !error && items.length === 0;
 
   return (
-    <div className={styles.container} data-virtual-page>
-      <header className={styles.header}>
-        <h1 className={styles.title}>Albums</h1>
-        <p className={styles.intro}>Every record, a world to explore.</p>
+    <PageShell fill title="Albums" subtitle="Every record, a world to explore.">
+      <div className={styles.header}>
         <div className={styles.toolbar}>
 
           <Button variant="secondary" onClick={() => setRailOpen((o) => !o)} aria-expanded={railOpen}>
@@ -474,7 +472,7 @@ export function AlbumsPage() {
             <Button variant="quiet" size="sm" onClick={() => setBulkResult(null)}>Dismiss</Button>
           </div>
         )}
-      </header>
+      </div>
 
       <div className={styles.body}>
         {railOpen && (
@@ -620,6 +618,6 @@ export function AlbumsPage() {
           </div>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -65,12 +65,13 @@ describe('tab strips and segmented controls: the selected pill slides', () => {
 describe('album header backdrop: full bleed, no hard edges', () => {
   const css = read('./AlbumDetailPage.module.css');
 
-  it('the frame spans the whole pane, from behind the app bar to below the header, and clips the blur', () => {
+  it('the frame spans the whole pane, from the very top to below the header, and clips the blur', () => {
     const frame = rule(css, '.backdropFrame');
     expect(frame).toMatch(/position: absolute/);
     expect(frame).toMatch(/left: 0/);
     expect(frame).toMatch(/right: 0/);
-    expect(frame).toMatch(/top: calc\(-1 \* var\(--album-bar-h, 56px\)\)/);
+    // the app bar is an overlay now, so the band starts at the pane's top
+    expect(frame).toMatch(/top: 0/);
     expect(frame).toMatch(/overflow: hidden/);
     expect(frame).toMatch(/mask-image: linear-gradient\(to bottom, var\(--canvas\) 0%, var\(--canvas\) 40%, transparent 100%\)/);
   });
@@ -83,8 +84,13 @@ describe('album header backdrop: full bleed, no hard edges', () => {
   });
 
   it('the band is not held to the content column; the hero inside it is', () => {
-    expect(rule(css, '.heroBand')).not.toMatch(/max-width/);
-    expect(rule(css, '.hero')).toMatch(/max-width: calc\(var\(--content-max\) - 2 \* var\(--page-pad\)\)/);
+    // the band is the page shell's (edge to edge of the pane); the hero sits
+    // in the shell's header, which keeps to the shared column
+    expect(rule(css, '.backdropFrame')).not.toMatch(/max-width/);
+    expect(readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8')).toMatch(/<PageShell\s+band=\{/);
+    const shell = read('../components/ui/PageShell.module.css');
+    expect(rule(shell, '.band')).toMatch(/inset: 0/);
+    expect(rule(shell, '.header')).toMatch(/var\(--shell-gutter\)/);
     expect(rule(css, '.container')).toMatch(/position: relative/);
   });
 });
@@ -190,7 +196,7 @@ describe('album page wiring', () => {
 
   it('the back button keeps a clear pill over artwork until the bar has its own glass', () => {
     const css = read('../components/Layout.module.css');
-    expect(css).toMatch(/\.appBar \.backButton,[^{]*\{[^}]*backdrop-filter: blur/);
+    expect(css).toMatch(/\.inlineBack,[^{]*\.appBar \.backButton,[^{]*\{[^}]*backdrop-filter: blur/);
     expect(rule(css, '.appBarScrolled .backButton')).toMatch(/background: transparent/);
   });
 });

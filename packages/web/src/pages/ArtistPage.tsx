@@ -62,11 +62,11 @@ export function ArtistPage() {
   }, [refreshMutation.isSuccess, refetch]);
 
   if (isLoading) {
-    return <PageShell title="Loading artist..." children={null} />;
+    return <PageShell back title="Loading artist…" barTitle={null} children={null} />;
   }
 
   if (error || !artist) {
-    return <PageShell title="Error" children={<div className={styles.error}>Failed to load artist</div>} />;
+    return <PageShell back title="Couldn’t load this artist" barTitle={null} children={<div className={styles.error}>Failed to load artist</div>} />;
   }
 
   const isEnriching = artist.enrichedAt === null;
@@ -132,6 +132,7 @@ export function ArtistPage() {
 
   return (
     <PageShell
+      back
       title={artistLabel(artist.name)}
       subtitle={subtitle}
       actions={actions}

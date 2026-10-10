@@ -12,7 +12,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
-import { Button, EmptyState, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';
+import { Button, EmptyState, PageShell, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';
 import { ArtistArtwork, IdentityMark } from '../components/ArtistArtwork';
 import {
   ARTIST_SORT_OPTIONS, artistMeta, readArtistsView, writeArtistsView, yearsLabel, type ArtistsView,
@@ -123,12 +123,12 @@ export function ArtistsPage() {
   const showEmpty = !!first && items.length === 0;
 
   return (
-    <div className={styles.container} data-virtual-page>
-      <header className={styles.header}>
-        <div className={styles.titleRow}>
-          <h1 className={styles.title}>Artists</h1>
-          <span className={styles.count} aria-live="polite">{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</span>
-        </div>
+    <PageShell
+      fill
+      title="Artists"
+      aside={<span aria-live="polite">{countText}{isFetching && !isFetchingNextPage && first ? <span className={styles.updating}> · updating</span> : null}</span>}
+    >
+      <div className={styles.header}>
         <div className={styles.toolbar}>
           <SearchField
             dense
@@ -165,7 +165,7 @@ export function ArtistsPage() {
             >{jumpLabel(key)}</button>;
           })}
         </nav>
-      </header>
+      </div>
 
       {isLoading && <div className={styles.status} role="status">Loading artists…</div>}
       {error && <div className={styles.error} role="alert">Couldn’t load artists. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
@@ -231,6 +231,6 @@ export function ArtistsPage() {
         )}
         {isFetchingNextPage && <div className={styles.more} role="status">Loading more artists…</div>}
       </div>
-    </div>
+    </PageShell>
   );
 }
