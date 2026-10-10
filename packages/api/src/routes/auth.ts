@@ -1,9 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
+import { sql } from 'drizzle-orm';
+import { users } from '@liner/db';
+import { getDb } from '../db.js';
 import { APIError, LEGACY_SESSION_COOKIE, fromNodeHeaders } from '@liner/auth';
 import { setupRequestSchema, loginRequestSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
-import { forwardSetCookies, getAuthHandle, toSessionUser } from '../middleware/auth.js';
+import { forwardSetCookies, getAuthHandle, toSessionUser, tryGetAuthHandle } from '../middleware/auth.js';
 import { createAuthSecurityRoutes } from './authSecurity.js';
 
 /** Held (transaction-scoped) while setup checks for and creates the owner. */
@@ -26,7 +29,8 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
   // install instead of showing what is wrong.
   fastify.get('/setup-required', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const rows = await getAuthHandle().sql`select 1 from users limit 1`;
+      const h = tryGetAuthHandle();
+      const rows = h ? await h.sql`select 1 from users limit 1` : await getDb().select({ one: sql<number>`1` }).from(users).limit(1);
       return reply.status(200).send({ setupRequired: rows.length === 0 });
     } catch (err) {
       request.log.error({ err }, 'setup-required: user lookup failed');

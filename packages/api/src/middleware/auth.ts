@@ -21,6 +21,10 @@ export function initAuth(h: AuthHandle): void {
   handle = h;
 }
 
+export function tryGetAuthHandle(): AuthHandle | undefined {
+  return handle;
+}
+
 export function getAuthHandle(): AuthHandle {
   if (!handle) throw new Error('auth used before initAuth()');
   return handle;
