@@ -836,7 +836,7 @@ export function AlbumDetailPage() {
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
-          <div className={styles.upkeep}>
+          <div className={styles.upkeep} hidden={!(maintenance || statusNote || (manualOpen && !matchRowOpen) || items.length > 0)}>
             {maintenance && (
               <div className={styles.statusLine}>
                 <span className={`${styles.pill} ${styles[`state_${album.state}`] ?? ''}`}>{STATE_LABEL[album.state] ?? album.state}</span>

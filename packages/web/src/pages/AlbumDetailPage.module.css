@@ -207,6 +207,10 @@
   min-width: 0;
 }
 
+.upkeep[hidden] {
+  display: none;
+}
+
 .statusMenu {
   margin-left: auto;
 }
@@ -967,7 +971,7 @@ td.cellOff {
   .details {
     max-width: none;
   }
-  .upkeep:has(> :not(:empty)) {
+  .upkeep {
     margin: 1.5rem 0;
   }
 }
