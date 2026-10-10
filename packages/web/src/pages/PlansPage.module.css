@@ -1,5 +1,26 @@
 /* Tag plans page (XO-358) */
 
+/* The name takes the flexible column and never shrinks to a sliver. */
+.cellName {
+  min-width: 14rem;
+}
+
+.cellFiles {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.cellActions {
+  text-align: right;
+  padding-right: var(--space-md);
+}
+
+/* The labels only show in the stacked phone layout. */
+.cellFiles[data-label]::after,
+.cellDate[data-label]::before {
+  display: none;
+}
+
 .cellScope {
   max-width: 200px;
   white-space: nowrap;
@@ -48,3 +69,75 @@
   max-width: 36rem;
 }
 .keptDelete.keptDelete { --b-ink: var(--ink-3); cursor: help; }
+
+/* Phone: seven columns do not fit 390px (the name wrapped one letter per
+   line). Each plan becomes a small stacked block: the name on its own line,
+   then status, scope and file count, then the dates, with Delete at the end. */
+@media (max-width: 640px) {
+  .plansTable,
+  .plansTable tbody {
+    display: block;
+  }
+
+  .plansTable thead {
+    display: none;
+  }
+
+  .plansTable tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: var(--space-md);
+    row-gap: var(--space-xs);
+    padding: var(--space-md) 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .plansTable td {
+    display: block;
+    height: auto;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .plansTable .cellName {
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .plansTable .cellScope {
+    max-width: none;
+    min-width: 0;
+    flex: 0 1 auto;
+    color: var(--ink-2);
+  }
+
+  .plansTable .cellFiles {
+    text-align: left;
+    color: var(--ink-2);
+  }
+
+  .cellFiles[data-label]::after {
+    display: inline;
+    content: ' ' attr(data-label);
+  }
+
+  .plansTable .cellDate {
+    text-align: left;
+  }
+
+  .cellDate[data-label]::before {
+    display: inline;
+    content: attr(data-label) ' ';
+  }
+
+  .plansTable .cellEmpty {
+    display: none;
+  }
+
+  .plansTable .cellActions {
+    margin-left: auto;
+    padding-right: 0;
+  }
+}
