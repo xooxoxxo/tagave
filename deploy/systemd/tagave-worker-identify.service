@@ -1,0 +1,33 @@
+# tagave identify worker: everything that spends provider budget
+# (MusicBrainz, Discogs, AcoustID, Wikidata). Install steps, rollback and the
+# environment file are described in tagave-worker-files.service.
+[Unit]
+Description=tagave identify worker (identify, enrich, artists, reviews)
+Documentation=https://github.com/xooxoxxo/tagave
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tagave
+Group=tagave
+WorkingDirectory=/opt/tagave
+EnvironmentFile=/etc/tagave/worker.env
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+Environment=LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+ExecStart=/usr/local/bin/node packages/worker/dist/index.js
+KillSignal=SIGTERM
+TimeoutStopSec=45
+Restart=always
+RestartSec=10
+# HWM 233 MB over 8 days (audit 2026-10-10)
+MemoryHigh=512M
+MemoryMax=768M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tagave-worker-identify
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

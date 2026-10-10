@@ -43,6 +43,13 @@ x-watch-labels: &watch-labels
   wud.watch: "true"
   wud.tag.include: "^\\d+\\.\\d+\\.\\d+$$"
 
+# Container logs: capped at 3 × 10 MB per container (json-file has no cap by default).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     profiles: ["app"]
@@ -56,6 +63,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    logging: *logging
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -102,6 +110,7 @@ services:
     ports:
       - "${TAGAVE_PORT:-3100}:3000"
     restart: unless-stopped
+    logging: *logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -130,6 +139,7 @@ services:
     volumes:
       - cache:/cache
     restart: unless-stopped
+    logging: *logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -159,6 +169,7 @@ services:
       # the database computer of a split install does not need one.
       - ${MUSIC_DIR:-./music}:/mnt/music:ro
     restart: unless-stopped
+    logging: *logging
     depends_on:
       # On a split install Postgres lives on another computer, so this
       # dependency only applies when the "app" profile runs here too.
