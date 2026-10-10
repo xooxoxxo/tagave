@@ -23,12 +23,12 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.36.4",
-    "postgres": "^3.4.4",
-    "uuidv7": "^1.0.2"
+    "postgres": "^3.4.9",
+    "uuidv7": "^1.2.1"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
-    "typescript": "^5.6.3",
-    "tsx": "^4.16.0"
+    "@types/node": "^22.20.2",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
   }
 }

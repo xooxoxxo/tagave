@@ -4,3 +4,12 @@ packages:
 # Never install a version published less than 30 days ago (minutes). Lives here
 # so CI and Docker builds honour it, not only a developer's global config.
 minimumReleaseAge: 43200
+
+# Security exceptions to the age gate: only the exact patched version, only
+# while it is younger than 30 days. Drop each entry once it ages past the gate.
+minimumReleaseAgeExclude:
+  # GHSA-4mh8-r7rc-xpvc (HTTP/2 trailer DoS), patched in 5.12.5
+  - fastify@5.12.5
+  # GHSA-f94x-6692-553q (MP4 stsd infinite loop) and GHSA-5gfj-9q3v-qfp3
+  # (EBML memory exhaustion), patched in 11.16.0
+  - music-metadata@11.16.0
