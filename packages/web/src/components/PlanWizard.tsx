@@ -16,6 +16,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useArtistsList } from '../hooks/useArtists';
 import { useAlbums, useScanRoots } from '../hooks/useLibrary';
 import { IconButton } from './ui';
+import { planDoneNavigation } from './planWizardHistory';
 import styles from './PlanWizard.module.css';
 
 interface WizardStep1State {
@@ -71,6 +72,11 @@ interface PlanWizardProps {
   initialScope?: { albumIds: string[]; albumLabels?: Record<string, string> };
   /** Called once the plan exists, just before the wizard moves on to the plan page. */
   onDone?: () => void;
+  /**
+   * The current history entry exists only to show this wizard (/plans?album=):
+   * moving on to the plan page replaces it, so Back never reopens a finished wizard.
+   */
+  replaceHistoryOnDone?: boolean;
 }
 
 /** Plain words for why adding to a plan failed; the server's text stays in the log. */
@@ -90,7 +96,7 @@ function createPlanErrorMessage(error: unknown): string {
   return 'Could not create the plan. Try again.';
 }
 
-export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWizardProps) {
+export function PlanWizard({ libraryId, onClose, initialScope, onDone, replaceHistoryOnDone = false }: PlanWizardProps) {
   // null until the user picks: add to an open plan, or start a new one. When
   // there is no open plan to add to, the choice is skipped (see effectiveMode).
   const [mode, setMode] = useState<WizardMode | null>(null);
@@ -228,9 +234,10 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
     try {
       const result = await createPlanMutation.mutateAsync(payload);
       // The plan page runs the preview and shows the diff at full width.
+      // No onClose here: the route change unmounts the wizard, and a parent
+      // whose close navigates (dropping ?album=) would race this navigation.
       onDone?.();
-      onClose();
-      void navigate({ to: '/plans/$planId', params: { planId: result.id } });
+      void navigate(planDoneNavigation(result.id, replaceHistoryOnDone));
     } catch (error) {
       setStep1Error(createPlanErrorMessage(error));
     }
@@ -250,8 +257,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone }: PlanWiz
       await addToPlanMutation.mutateAsync({ planId, albumIds });
       // The plan page follows the fresh preview the server queued.
       onDone?.();
-      onClose();
-      void navigate({ to: '/plans/$planId', params: { planId } });
+      void navigate(planDoneNavigation(planId, replaceHistoryOnDone));
     } catch (error) {
       setStep1Error(addToPlanErrorMessage(error));
     }

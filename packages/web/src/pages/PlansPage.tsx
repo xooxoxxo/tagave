@@ -12,6 +12,7 @@ import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan, useRenameTagPlan } from '../hooks/usePlanWizard';
 import { InlineRename } from '../components/InlineRename';
 import { PlanWizard } from '../components/PlanWizard';
+import { wizardCloseNavigation } from '../components/planWizardHistory';
 import { formatDateTime, formatRelativeTime } from '../utils';
 import { planStatusView } from '../utils/planStatus';
 import styles from './PlansPage.module.css';
@@ -36,7 +37,8 @@ export function PlansPage() {
   const wizardOpen = showWizard || !!albumParam;
   const closeWizard = () => {
     setShowWizard(false);
-    if (albumParam) void navigate({ to: '/plans', search: {} });
+    const nav = wizardCloseNavigation(albumParam);
+    if (nav) void navigate(nav);
   };
   const initialScope = albumParam
     ? {
@@ -190,6 +192,7 @@ export function PlansPage() {
           key={albumParam ?? 'blank'}
           libraryId={libraryId}
           onClose={closeWizard}
+          replaceHistoryOnDone={!!albumParam}
           {...(initialScope ? { initialScope } : {})}
         />
       )}
