@@ -1,0 +1,94 @@
+/**
+ * The artists list rows of a library: canonical artists linked to the
+ * library's albums plus unresolved album-artist guesses, aggregated but not
+ * ordered (ordering lives in @liner/core orderArtists). Shared by the API
+ * (live list, searches) and the worker (facets.refresh rebuilds artist_list).
+ */
+import { sql } from 'drizzle-orm';
+
+export interface ArtistRow {
+  id: string | null;
+  name: string;
+  sortName: string | null;
+  resolved: boolean;
+  albumCount: number;
+  trackCount: number;
+  yearFrom: number | null;
+  yearTo: number | null;
+  /** when the newest of the artist's albums was first scanned (ISO) */
+  addedAt: string | null;
+}
+
+type Db = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
+
+/** Every artist row of a library, optionally narrowed by a name search. */
+export async function fetchArtistRows(db: Db, libraryId: string, search: string): Promise<ArtistRow[]> {
+  const like = `%${search}%`;
+  const rows = await db.execute(sql`
+    with canon as (
+      -- Canonical artists linked to release groups of the library's albums
+      select a.id,
+             a.name,
+             a.sort_name,
+             true as resolved,
+             count(distinct la.id)::int as album_count,
+             coalesce(sum(la.track_count), 0)::int as track_count,
+             min(la.year_guess)::int as year_from,
+             max(la.year_guess)::int as year_to,
+             max(la.created_at) as added_at
+        from artists a
+        join release_group_artists rga on a.id = rga.artist_id
+        join release_groups rg on rga.release_group_id = rg.id
+        join local_albums la on rg.id = la.release_group_id
+       where la.library_id = ${libraryId}
+         ${search ? sql`and (a.name ilike ${like} or a.sort_name ilike ${like})` : sql``}
+       group by a.id, a.name, a.sort_name
+    ),
+    canon_names as (select distinct lower(name) as lname from canon),
+    guess as (
+      -- Unresolved artist guesses (no release group, or one with no credits).
+      -- A name that already has a canonical row is dropped: the artist's
+      -- undecided albums must not add a second, unclickable row for them.
+      -- casts are required: a bare null in a CTE arm is text, and the
+      -- union against canon.id (uuid) / canon.sort_name (varchar) fails.
+      -- Names group as shown (migration 0028): "02. Stephane Pompougnac"
+      -- … "17. Stephane Pompougnac" are one artist, and "Various", "VA"
+      -- and "Various Artists" one compilations row.
+      select null::uuid as id,
+             liner_display_artist(la.artist_guess) as name,
+             null::varchar as sort_name,
+             false as resolved,
+             count(distinct la.id)::int as album_count,
+             coalesce(sum(la.track_count), 0)::int as track_count,
+             min(la.year_guess)::int as year_from,
+             max(la.year_guess)::int as year_to,
+             max(la.created_at) as added_at
+        from local_albums la
+       where la.library_id = ${libraryId}
+         and liner_display_artist(la.artist_guess) is not null
+         and (la.release_group_id is null or not exists (
+           select 1 from release_group_artists rga
+            where rga.release_group_id = la.release_group_id))
+         and not exists (
+           select 1 from canon_names cn where cn.lname = lower(liner_display_artist(la.artist_guess)))
+         ${search ? sql`and la.artist_guess ilike ${like}` : sql``}
+       group by liner_display_artist(la.artist_guess)
+    )
+    select * from canon union all select * from guess
+  `) as Array<{
+    id: string | null; name: string; sort_name: string | null; resolved: boolean;
+    album_count: number; track_count: number; year_from: number | null; year_to: number | null;
+    added_at: string | Date | null;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    sortName: r.sort_name,
+    resolved: r.resolved,
+    albumCount: r.album_count,
+    trackCount: r.track_count,
+    yearFrom: r.year_from,
+    yearTo: r.year_to,
+    addedAt: r.added_at ? new Date(r.added_at).toISOString() : null,
+  }));
+}

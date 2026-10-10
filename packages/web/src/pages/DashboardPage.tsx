@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useAlbums, useCurrentLibrary, useIdentifyStats, useTagPlans } from '../hooks';
+import { useAlbums, useCurrentLibrary, useGapCounts, useIdentifyStats, useTagPlans } from '../hooks';
 import { api } from '../services/api';
 import { PageShell, Card, Button, LinkButton, CoverArt } from '../components/ui';
 import styles from './DashboardPage.module.css';
@@ -15,11 +15,8 @@ export function DashboardPage() {
     queryFn: () => api.get<{ total?: number; items: unknown[] }>(`/libraries/${libraryId}/queue?limit=1`),
     enabled: !!libraryId,
   });
-  const gaps = useQuery({
-    queryKey: ['gaps-counts', libraryId],
-    queryFn: () => api.get<{ counts: Record<string, number> }>(`/libraries/${libraryId}/gaps?limit=1`),
-    enabled: !!libraryId,
-  });
+  // the same cached query the nav badge uses: one request, not two
+  const gaps = useGapCounts(libraryId);
   const attentionCount = gaps.data ? ['duplicate', 'incomplete_album', 'missing_album'].reduce((n, key) => n + (gaps.data.counts[key] ?? 0), 0) : undefined;
   const careItems = [
     { label: 'Review matches', detail: 'Check suggested album matches', tab: 'review' as const, count: queue.data?.total },

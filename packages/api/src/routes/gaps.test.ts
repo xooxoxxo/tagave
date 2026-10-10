@@ -141,6 +141,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('gap choices and tasks (db)', ()
     expect(body.counts['incomplete_album']).toBeUndefined(); // the task is not "open" any more
   });
 
+  it('serves the counts alone from /gaps/counts, refreshed by a decision', async () => {
+    const counts = async () => (await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/gaps/counts` })).json() as {
+      counts: Record<string, number>; tasks: { todo: number; done: number };
+    };
+    const before = await counts();
+    const list = (await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/gaps?limit=1` })).json() as typeof before;
+    expect(before).toEqual({ counts: list.counts, tasks: list.tasks });
+    // a decision through the API drops the cached counts at once
+    expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${ids.incomplete}/reopen` })).statusCode).toBe(200);
+    const after = await counts();
+    expect(after.tasks.todo).toBe(before.tasks.todo - 1);
+    expect(after.counts['incomplete_album']).toBe((before.counts['incomplete_album'] ?? 0) + 1);
+    // put it back as it was for the tests below
+    expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${ids.incomplete}/accept`, payload: { note: 'ask Deniz for the CD' } })).statusCode).toBe(200);
+    expect((await counts()).tasks.todo).toBe(before.tasks.todo);
+    expect((await app.inject({ method: 'GET', url: `/api/v1/libraries/${strangerLibraryId}/gaps/counts` })).statusCode).toBe(404);
+  });
+
   it('edits a note, and reopening clears the decision', async () => {
     expect((await app.inject({ method: 'PATCH', url: `/api/v1/gaps/${ids.incomplete}`, payload: { note: 'found it on Bandcamp' } })).statusCode).toBe(200);
     expect((await gap(ids.incomplete)).note).toBe('found it on Bandcamp');

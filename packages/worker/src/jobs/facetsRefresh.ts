@@ -1,3 +1,5 @@
+import { fetchArtistRows } from '@liner/db';
+import { artistListPositions } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface FacetsRefreshJobData {
@@ -23,7 +25,7 @@ export async function facetsRefreshJob(ctx: WorkerContext, data: FacetsRefreshJo
   for (const libraryId of libraries) {
     const result = await refreshLibraryFacets(ctx, libraryId, data.force ?? false);
     if (result.skipped) ctx.logger.debug({ libraryId }, 'facets.refresh: up to date');
-    else ctx.logger.info({ libraryId, albums: result.albums, ms: result.ms }, 'facets.refresh: rebuilt');
+    else ctx.logger.info({ libraryId, albums: result.albums, artists: result.artists, ms: result.ms }, 'facets.refresh: rebuilt');
   }
 }
 
@@ -31,15 +33,15 @@ export async function refreshLibraryFacets(
   ctx: WorkerContext,
   libraryId: string,
   force: boolean,
-): Promise<{ skipped: boolean; albums?: number; ms?: number }> {
+): Promise<{ skipped: boolean; albums?: number; artists?: number; ms?: number }> {
   const [st] = (await ctx.sql`
-    select fs.computed_at, fs.dirty_at,
+    select fs.computed_at, fs.dirty_at, fs.artists_at,
            (select max(updated_at) from local_albums where library_id = ${libraryId}) as albums_changed,
            (select greatest(max(first_seen_at), max(resolved_at)) from gaps where library_id = ${libraryId}) as gaps_changed,
            (select greatest(max(created_at), max(removed_at), max(mapped_at)) from collection_items where library_id = ${libraryId}) as collection_changed
     from (select 1) x
     left join facet_state fs on fs.library_id = ${libraryId}`) as unknown as Array<{
-    computed_at: Date | string | null; dirty_at: Date | string | null;
+    computed_at: Date | string | null; dirty_at: Date | string | null; artists_at: Date | string | null;
     albums_changed: Date | string | null; gaps_changed: Date | string | null; collection_changed: Date | string | null;
   }>;
   // drizzle's driver swaps the timestamp parsers on the shared client, so raw
@@ -49,7 +51,7 @@ export async function refreshLibraryFacets(
   const changed = [st?.dirty_at, st?.albums_changed, st?.gaps_changed, st?.collection_changed]
     .map(toDate)
     .filter((d): d is Date => d !== null);
-  const stale = force || !computedAt
+  const stale = force || !computedAt || !st?.artists_at
     || changed.some((d) => d.getTime() > computedAt.getTime())
     || Date.now() - computedAt.getTime() > MAX_AGE_MS;
   if (!stale) return { skipped: true };
@@ -109,5 +111,42 @@ export async function refreshLibraryFacets(
       on conflict (library_id) do update
         set computed_at = excluded.computed_at, album_count = excluded.album_count, duration_ms = excluded.duration_ms`;
   });
-  return { skipped: false, albums, ms: Date.now() - started };
+  const artists = await refreshArtistList(ctx, libraryId);
+  return { skipped: false, albums, artists, ms: Date.now() - started };
+}
+
+/**
+ * Rebuilds artist_list (migration 0035) for a library: the artists page rows,
+ * aggregated once here and stored with their position under each sort, so
+ * the API pages them with an index range instead of re-aggregating ~14.5k
+ * artists per request. Readers see the old list or the new one, never a mix.
+ */
+export async function refreshArtistList(ctx: WorkerContext, libraryId: string): Promise<number> {
+  const positioned = artistListPositions(await fetchArtistRows(ctx.db, libraryId, ''));
+  const rows = positioned.map((p) => ({
+    library_id: libraryId,
+    pos_name: p.posName,
+    pos_albums: p.posAlbums,
+    pos_recent: p.posRecent,
+    artist_id: p.row.id,
+    name: p.row.name,
+    sort_name: p.row.sortName,
+    resolved: p.row.resolved,
+    album_count: p.row.albumCount,
+    track_count: p.row.trackCount,
+    year_from: p.row.yearFrom,
+    year_to: p.row.yearTo,
+    added_at: p.row.addedAt,
+    group_key: p.group,
+  }));
+  await ctx.sql.begin(async (tx) => {
+    await tx`delete from artist_list where library_id = ${libraryId}`;
+    for (let i = 0; i < rows.length; i += 1000) {
+      await tx`insert into artist_list ${tx(rows.slice(i, i + 1000))}`;
+    }
+    await tx`
+      insert into facet_state (library_id, artists_at) values (${libraryId}, now())
+      on conflict (library_id) do update set artists_at = excluded.artists_at`;
+  });
+  return rows.length;
 }

@@ -14,7 +14,10 @@ import { normalizeFollowRules } from '@liner/core';
 import { followRulesSchema } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { followDefaultsFor } from '../lib/followRules.js';
-import { coverKey, coversFor, fetchArtistRows, orderArtists, parseArtistGroup, parseArtistSort } from '../lib/artistList.js';
+import {
+  coverKey, coversFor, fetchArtistRows, orderArtists, parseArtistGroup, parseArtistSort, readArtistListPage,
+  type ArtistGroupCount, type ArtistRow,
+} from '../lib/artistList.js';
 
 const ENRICH_TTL_DAYS = 7;
 
@@ -53,9 +56,21 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     const limitN = Math.max(1, Math.min(parseInt(query['limit'] ?? '', 10) || 100, 500));
     const offsetN = Math.max(0, parseInt(query['offset'] ?? '', 10) || 0);
 
-    const rows = await fetchArtistRows(db, libraryId, search);
-    const ordered = orderArtists(rows, { sort, group });
-    const page = ordered.items.slice(offsetN, offsetN + limitN);
+    // The worker-built artist_list answers unsearched pages with an index
+    // range; a search (or a list never built) computes the rows live.
+    const summary = search ? null : await readArtistListPage(db, libraryId, { sort, group, offset: offsetN, limit: limitN });
+    let page: ArtistRow[];
+    let ordered: { total: number; groups: ArtistGroupCount[] };
+    if (summary) {
+      page = summary.items;
+      ordered = summary;
+      reply.header('x-liner-artists', 'summary');
+    } else {
+      const all = orderArtists(await fetchArtistRows(db, libraryId, search), { sort, group });
+      page = all.items.slice(offsetN, offsetN + limitN);
+      ordered = { total: all.items.length, groups: all.groups };
+      reply.header('x-liner-artists', 'live');
+    }
     const covers = await coversFor(db, libraryId, page);
 
     reply.send({
@@ -71,9 +86,9 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
         addedAt: r.addedAt,
         coverAlbumIds: covers.get(coverKey(r)) ?? [],
       })),
-      total: ordered.items.length,
+      total: ordered.total,
       groups: ordered.groups,
-      nextCursor: offsetN + limitN < ordered.items.length ? String(offsetN + limitN) : null,
+      nextCursor: offsetN + limitN < ordered.total ? String(offsetN + limitN) : null,
     });
   });
 

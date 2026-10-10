@@ -16,7 +16,7 @@ export interface GapCountsResponse {
 export function useGapCounts(libraryId: string | null | undefined) {
   return useQuery({
     queryKey: ['gaps', libraryId],
-    queryFn: () => api.get<GapCountsResponse>(`/libraries/${libraryId}/gaps?limit=1`),
+    queryFn: () => api.get<GapCountsResponse>(`/libraries/${libraryId}/gaps/counts`),
     enabled: !!libraryId,
     staleTime: 30_000,
   });
