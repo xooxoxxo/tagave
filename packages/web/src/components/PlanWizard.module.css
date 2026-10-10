@@ -117,7 +117,7 @@
   display: inline-block;
   min-width: 1.75rem;
   padding: 1px 6px;
-  border-radius: 6px;
+  border-radius: var(--r-kbd);
   border: 1px solid var(--line);
   background: var(--canvas);
   font-family: var(--font-mono);
