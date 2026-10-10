@@ -18,13 +18,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@better-auth/passkey": "1.7.7",
+    "@better-auth/passkey": "~1.7.4",
     "argon2": "^0.44.0",
-    "better-auth": "1.7.7",
-    "kysely": "^0.29.6",
-    "kysely-postgres-js": "^5.0.1",
+    "better-auth": "~1.7.4",
+    "kysely": "~0.29.5",
+    "kysely-postgres-js": "^4.0.0",
     "postgres": "^3.4.4",
-    "zod": "^4.6.5"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@liner/db": "workspace:*",
