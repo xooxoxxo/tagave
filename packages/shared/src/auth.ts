@@ -13,7 +13,7 @@ export type UserRole = z.infer<typeof userRoleSchema>;
  */
 export const setupRequestSchema = z.object({
   email: z.string().email().describe('Owner email address'),
-  password: z.string().min(8).describe('Account password'),
+  password: z.string().min(12).max(128).describe('Account password (12 to 128 characters, the Better Auth rule)'),
   displayName: z.string().min(1).describe('Display name for the owner'),
   contactString: z.string().url().or(z.string().email()).describe('Contact URL or email for provider User-Agent headers (required by spec Section 10.2.3)'),
 }).strict();

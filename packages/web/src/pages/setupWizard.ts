@@ -18,7 +18,7 @@ export type AccountErrors = Partial<Record<keyof AccountForm, string>>;
 
 const MESSAGES: Record<keyof AccountForm, string> = {
   email: 'Enter a valid email address.',
-  password: 'Use at least 8 characters.',
+  password: 'Use at least 12 characters.',
   displayName: 'Enter the name to show in the app.',
   contactString: 'Enter an email address, or a web address such as https://example.com.',
 };

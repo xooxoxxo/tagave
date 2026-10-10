@@ -32,7 +32,7 @@ POSTGRES_PORT="${POSTGRES_PORT:-5499}"
 HEALTH_URL="http://localhost:$LINER_PORT/api/v1/health"
 API_URL="http://localhost:$LINER_PORT/api/v1"
 SMOKE_EMAIL="smoke@example.com"
-SMOKE_PASSWORD="Smoke123!@#"
+SMOKE_PASSWORD="Smoke123!@#long"
 SMOKE_DISPLAY_NAME="Smoke Test"
 CONTACT_STRING="smoke@example.com"
 WORKERS="${WORKERS:-1}"
@@ -57,7 +57,7 @@ DUMP_TMP_FACETS_S=$(mktemp)
 DUMP_TMP_FACETS_L=$(mktemp)
 
 compose() {
-  LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
+  PUBLIC_URL="http://localhost:$LINER_PORT" LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
     docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" ${PROFILE:+--profile $PROFILE} "$@"
 }
 

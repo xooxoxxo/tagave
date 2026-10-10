@@ -68,7 +68,7 @@ def unraid():
     for field in ("Name", "Repository", "WebUI", "Icon", "Overview"):
         assert root.find(field) is not None and (root.find(field).text or "").strip(), f"<{field}> is empty"
     targets = {c.get("Target") for c in root.findall("Config")}
-    for need in ("DATABASE_URL", "APP_SECRET", "3000", "/cache"):
+    for need in ("DATABASE_URL", "APP_SECRET", "PUBLIC_URL", "3000", "/cache"):
         assert need in targets, f"no <Config> for {need}"
 
 def coolify():
@@ -87,8 +87,8 @@ PY
 compose_files=("$T/compose.yml" "$T/dokploy/docker-compose.yml" "$T/coolify/tagave.yml")
 if command -v docker >/dev/null && docker compose version >/dev/null 2>&1; then
   for f in "${compose_files[@]}"; do
-    if POSTGRES_PASSWORD=x APP_SECRET=x MUSIC_DIR=/tmp \
-       SERVICE_PASSWORD_64_POSTGRES=x SERVICE_PASSWORD_64_APPSECRET=x \
+    if POSTGRES_PASSWORD=x APP_SECRET=x MUSIC_DIR=/tmp PUBLIC_URL=http://localhost:3100 \
+       SERVICE_PASSWORD_64_POSTGRES=x SERVICE_PASSWORD_64_APPSECRET=x SERVICE_URL_APP=https://app.example.com \
        docker compose -p tagave-template-check -f "$f" config -q; then
       ok "$f (docker compose config)"
     else

@@ -174,7 +174,22 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Then edit `.env` and paste the generated secret as `APP_SECRET`.
+Then edit `.env` and paste the generated secret as `APP_SECRET`, and set `PUBLIC_URL` (next section).
+
+## Public URL
+
+`PUBLIC_URL` is **required**: the app does not start without it. Set it to the address you type in the browser to open tagave, scheme, host and port only:
+
+```sh
+PUBLIC_URL=http://localhost:3100          # only on this computer
+PUBLIC_URL=http://192.168.1.10:3100       # from other computers at home
+PUBLIC_URL=https://music.example.com      # behind an https reverse proxy
+```
+
+- Sign-in is accepted only from this address. If you open tagave at more than one address, list the others in `ALLOWED_ORIGINS`, comma separated (`ALLOWED_ORIGINS=http://localhost:3100`).
+- Passkeys and security keys are tied to its **host name** for good: a passkey made at `music.example.com` does not work at `192.168.1.10`, and changing the host name later means adding your passkeys again. Pick the name you will keep.
+- Browsers allow passkeys only on https addresses and on `localhost`. Over plain http on another host name, password and authenticator-app sign-in still work.
+- The one-command installer writes `PUBLIC_URL` for you (this computer's address, or `--public-url`).
 
 ## Start the stack
 
@@ -189,7 +204,7 @@ The app listens on `http://localhost:3100` by default. Port is configurable via 
 Open http://localhost:3100. A fresh install opens the setup wizard, which walks through four steps:
 
 1. **System check**: the database, its schema and the workers. Anything that fails says how to fix it. The account cannot be created while the database or its schema fails; a missing worker only holds up scanning.
-2. **Owner account**: email, name, password (at least 8 characters) and a **contact** for MusicBrainz and Discogs (an email address or a website; required for external lookups).
+2. **Owner account**: email, name, password (at least 12 characters) and a **contact** for MusicBrainz and Discogs (an email address or a website; required for external lookups).
 3. **Music folder**: the path to your library **as the worker sees it** (with the bundled Compose workers, `/mnt/music`). The worker checks the folder and the wizard shows what it found, with a fix for a missing path, a permission problem or a read-only mount.
 4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
 
@@ -258,6 +273,6 @@ Until a worker is listening to the database, a new scan root stays `pending` and
 ## Behind a reverse proxy
 
 If you proxy the app (nginx, Caddy, etc.):
-- Set `PUBLIC_URL=https://your-domain.com` in `.env`
-- Keep `ALLOW_INSECURE_HTTP=false` (default) so cookies use the `secure` flag
-- The app will serve the correct CORS origins and redirect URIs
+- Set `PUBLIC_URL=https://your-domain.com` in `.env`; with https the session cookie gets the `secure` flag
+- Keep `ALLOW_INSECURE_HTTP=false` (default) so the owner account cannot be created over plain http
+- Set `TRUST_PROXY=true` when the proxy sets `X-Forwarded-For`, so sign-in rate limits apply per client

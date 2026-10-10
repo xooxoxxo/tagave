@@ -74,6 +74,11 @@ services:
       # true while the app is reached over plain http; set false once it sits
       # behind an https reverse proxy so session cookies get the secure flag.
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
+      # Required: the address you open tagave at, e.g. https://music.example.com.
+      # Sign-in trusts this origin; passkeys are bound to its host name for good.
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}
       # Nightly, manual and pre-update database backups (Settings › Backups).

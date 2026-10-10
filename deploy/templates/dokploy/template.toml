@@ -16,6 +16,7 @@ host = "${main_domain}"
 [config.env]
 POSTGRES_PASSWORD = "${postgres_password}"
 APP_SECRET = "${app_secret}"
+PUBLIC_URL = "https://${main_domain}"
 MUSIC_DIR = "/srv/music"
 TAGAVE_VERSION = "latest"
 TZ = "UTC"

@@ -15,7 +15,7 @@ import {
   type SystemCheck,
 } from './setupWizard';
 
-const good: AccountForm = { email: 'me@example.com', password: 'eight888', displayName: 'Me', contactString: 'me@example.com' };
+const good: AccountForm = { email: 'me@example.com', password: 'twelve-chars', displayName: 'Me', contactString: 'me@example.com' };
 
 describe('validateAccount', () => {
   it('accepts what the server accepts', () => {
@@ -23,9 +23,9 @@ describe('validateAccount', () => {
     expect(validateAccount({ ...good, contactString: 'https://example.com' })).toEqual({});
   });
 
-  it('uses the server password rule: 8 characters, not 12', () => {
-    expect(validateAccount({ ...good, password: 'seven77' }).password).toBeTruthy();
-    expect(validateAccount({ ...good, password: '12345678' }).password).toBeUndefined();
+  it('uses the server password rule: at least 12 characters', () => {
+    expect(validateAccount({ ...good, password: 'eleven11111' }).password).toBeTruthy();
+    expect(validateAccount({ ...good, password: '123456789012' }).password).toBeUndefined();
   });
 
   it('requires a contact the server takes: an email or a URL', () => {

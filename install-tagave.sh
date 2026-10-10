@@ -59,6 +59,7 @@ DB_PORT="${TAGAVE_DB_PORT:-}"
 DB_BIND="${TAGAVE_DB_BIND:-}"
 FROM_FILE="${TAGAVE_FROM:-}"
 BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
+PUBLIC_URL="${TAGAVE_PUBLIC_URL:-}"
 BACKUP_DIR="${TAGAVE_BACKUP_DIR:-}"
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
@@ -117,6 +118,10 @@ Usage: install-tagave.sh [install|update|status] [options]
                            release, written to .env as its number)
   --timezone ZONE          e.g. Europe/Berlin (default: this computer's, or UTC)
   --behind-https           the app will sit behind an https reverse proxy
+  --public-url URL         the address you open tagave at, e.g.
+                           https://music.example.com (default: http://THIS
+                           COMPUTER'S ADDRESS:PORT). Passkeys are bound to its
+                           host name, so use the name you will keep.
 
   Split install, database computer (--role app):
   --advertise-address A    address the file worker uses to reach this computer
@@ -142,7 +147,7 @@ Usage: install-tagave.sh [install|update|status] [options]
 Each option can also be set as an environment variable: TAGAVE_ROLE,
 TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
 TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
-TAGAVE_FROM, TAGAVE_APP_URL, TAGAVE_BEHIND_HTTPS=1, TAGAVE_BACKUP_DIR, TAGAVE_YES=1. TAGAVE_REF picks the git
+TAGAVE_FROM, TAGAVE_APP_URL, TAGAVE_BEHIND_HTTPS=1, TAGAVE_PUBLIC_URL, TAGAVE_BACKUP_DIR, TAGAVE_YES=1. TAGAVE_REF picks the git
 ref the compose files are downloaded from (default: the release being installed).
 EOF
 }
@@ -173,6 +178,7 @@ while [ "$#" -gt 0 ]; do
     --app-url)           need_arg "$@"; APP_URL="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
+    --public-url)        need_arg "$@"; PUBLIC_URL="$2"; shift 2 ;;
     --replace-secrets)   REPLACE_SECRETS=1; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
     --no-start)          NO_START=1; shift ;;
@@ -441,6 +447,7 @@ collect_answers() {
     [ -n "$BACKUP_DIR" ] || BACKUP_DIR="$(env_get BACKUP_DIR "$existing")"
     [ -n "$ADVERTISE_ADDRESS" ] || ADVERTISE_ADDRESS="$(env_get TAGAVE_ADVERTISE_ADDRESS "$existing")"
     [ -n "$APP_URL" ]   || APP_URL="$(env_get TAGAVE_APP_URL "$existing")"
+    [ -n "$PUBLIC_URL" ] || PUBLIC_URL="$(env_get PUBLIC_URL "$existing")"
     if [ -z "$BEHIND_HTTPS" ] && [ "$(env_get ALLOW_INSECURE_HTTP "$existing")" = "false" ]; then
       BEHIND_HTTPS=1
     fi
@@ -811,6 +818,11 @@ write_env() {
   fi
   insecure="true"
   if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
+  local public_url="$PUBLIC_URL" local_origin=""
+  if [ "$ROLE" != "files" ]; then
+    if [ -z "$public_url" ]; then public_url="http://$(detect_address):$PORT"; fi
+    if [ "$public_url" != "http://localhost:$PORT" ]; then local_origin="http://localhost:$PORT"; fi
+  fi
 
   {
     cat <<EOF
@@ -843,6 +855,10 @@ EOF
     fi
     if [ "$ROLE" != "files" ]; then
       printf '\n# web app\nTAGAVE_PORT=%s\nALLOW_INSECURE_HTTP=%s\n' "$PORT" "$insecure"
+      printf '\n# the address you open tagave at: sign-in trusts it and passkeys are bound\n# to its host name (use your https name once tagave sits behind a proxy)\nPUBLIC_URL=%s\n' "$public_url"
+      if [ -n "$local_origin" ]; then
+        printf '# other addresses you open it at (comma separated)\nALLOWED_ORIGINS=%s\n' "$local_origin"
+      fi
       if [ -n "$BACKUP_DIR" ]; then
         printf "\n# the app backs up the database here before every update that changes it,\n# and the nightly backups (Settings > Backups) go here too\nTAGAVE_BACKUP_DIR='%s'\n" "$BACKUP_DIR"
       else

@@ -25,6 +25,8 @@ services:
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       LINER_BACKUP_DIR: /backups
     volumes:
       - cache:/cache

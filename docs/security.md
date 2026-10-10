@@ -7,7 +7,16 @@ This page describes credential encryption, session security, backup handling, an
 `APP_SECRET` is a required 32+ byte random value used for:
 
 - **Credential encryption:** Discogs tokens and AcoustID keys stored in the database are encrypted with AES-256-GCM using a key derived from `APP_SECRET`
-- **Session signing:** session tokens are signed with `APP_SECRET`
+- **Sign-in:** the sign-in layer ([Better Auth](https://better-auth.com)) uses a secret derived from `APP_SECRET` (HKDF, `tagave/better-auth`). It signs the session cookie and encrypts authenticator-app secrets and backup codes. There is no second secret to manage.
+
+## Sessions
+
+- Signing in sets one cookie, `tagave.session_token` (`__Secure-tagave.session_token` when `PUBLIC_URL` is https). It is httpOnly, `SameSite=Lax`, and holds a random session token plus an HMAC signature made with the secret above. The server looks the token up in `auth_sessions` on every request, so signing out or revoking a session takes effect at once.
+- A session lasts 30 days and is extended once a day while you use it.
+- Sign-in requests are accepted only from `PUBLIC_URL` and the origins listed in `ALLOWED_ORIGINS` (Better Auth's origin and Fetch-Metadata checks). Open tagave at the address in `PUBLIC_URL`, or list the other addresses you use in `ALLOWED_ORIGINS`.
+- Repeated sign-in attempts are rate limited (Better Auth's limiter, stored in the database). Behind a reverse proxy that sets `X-Forwarded-For`, set `TRUST_PROXY=true` so the limit applies per client.
+- Passwords are hashed with argon2id.
+- **Upgrading from 0.6:** you stay signed in. The first request with the old `sessionId` cookie swaps it for the new cookie, and your password is unchanged.
 
 ### Generate your secret
 
@@ -49,6 +58,8 @@ When you need to rotate the secret (for example, after a compromise), you must r
 
 The reseal command decrypts all stored credentials with the old secret and encrypts them with the new one. Until this completes, the app cannot decrypt credentials.
 
+Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed out** and signs in again with their password.
+
 ## Backup security
 
 **Database backups** include encrypted credential material (safe without `APP_SECRET`) and everything else in the catalog, including account email addresses and password hashes. The app writes one every night to the backups folder (`/backups` in the app container); only the owner can list, download or delete them in Settings › Backups. Treat copies you make like the database itself. Copy them off the host with:
@@ -77,9 +88,10 @@ tagave has no telemetry. The server makes outbound requests only to:
 ```sh
 PUBLIC_URL=https://your-domain.com
 ALLOW_INSECURE_HTTP=false
+TRUST_PROXY=true
 ```
 
-The `secure` flag on session cookies requires HTTPS; `ALLOW_INSECURE_HTTP=false` (the default) enforces it.
+With an https `PUBLIC_URL` the session cookie gets the `secure` flag and the `__Secure-` prefix. `ALLOW_INSECURE_HTTP=false` (the default) refuses to create the owner account over plain http.
 
 **In development,** to test over HTTP without a TLS certificate, set:
 
