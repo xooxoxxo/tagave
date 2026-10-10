@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useLogin } from '../hooks/useAuth';
 import { useSetupRequired } from '../hooks/useSystem';
-import { LoginRequest } from '@liner/shared';
+import { signInErrorMessage } from './loginErrors';
 import { Button } from '../components/ui';
 import styles from './LoginPage.module.css';
 
@@ -34,11 +34,14 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    loginMutation.mutate(formData as LoginRequest, {
-      onSuccess: () => {
-        navigate({ to: '/' });
+    loginMutation.mutate(
+      { email: formData.email.trim(), password: formData.password },
+      {
+        onSuccess: (outcome) => {
+          navigate({ to: outcome.status === 'two-factor' ? '/login/2fa' : '/' });
+        },
       },
-    });
+    );
   };
 
   return (
@@ -90,8 +93,8 @@ export function LoginPage() {
           </div>
 
           {loginMutation.error && (
-            <div className={styles.serverError}>
-              {(loginMutation.error as any)?.detail || 'Login failed. Please check your credentials.'}
+            <div className={styles.serverError} role="alert">
+              {signInErrorMessage(loginMutation.error)}
             </div>
           )}
 

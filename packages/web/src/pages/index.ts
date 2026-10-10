@@ -1,5 +1,6 @@
 export { SetupPage } from './SetupPage';
 export { LoginPage } from './LoginPage';
+export { TwoFactorPage } from './TwoFactorPage';
 export { DashboardPage } from './DashboardPage';
 export { OnboardingPage } from './OnboardingPage';
 export { AlbumsPage } from './AlbumsPage';

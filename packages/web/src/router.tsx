@@ -4,6 +4,7 @@ import { Layout } from './components/Layout';
 import {
   SetupPage,
   LoginPage,
+  TwoFactorPage,
   DashboardPage,
   OnboardingPage,
   AlbumsPage,
@@ -16,7 +17,7 @@ import {
   SettingsPage,
   CollectionPage,
 } from './pages';
-import { api } from './services/api';
+import { signOut } from './hooks/useAuth';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 
@@ -48,6 +49,13 @@ const loginRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginPage,
+});
+
+// Second sign-in step: authenticator or backup code
+const loginTwoFactorRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/login/2fa',
+  component: TwoFactorPage,
 });
 
 // Protected routes (require auth)
@@ -228,8 +236,7 @@ const logoutRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/logout',
   beforeLoad: async () => {
-    // Trigger logout mutation
-    await api.post('/auth/logout');
+    await signOut();
     window.location.replace('/login');
   },
 });
@@ -238,6 +245,7 @@ const logoutRoute = new Route({
 const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
+  loginTwoFactorRoute,
   layoutRoute.addChildren([
     dashboardRoute,
     onboardingRoute,
