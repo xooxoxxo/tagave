@@ -6,7 +6,7 @@
  * 2026-09-08).
  */
 import { sql } from 'drizzle-orm';
-import type PgBoss from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyOutcomeView, type IdentifyRequestView, type ReleaseChoice } from '@liner/shared';
 import { getDb } from '../db.js';
 

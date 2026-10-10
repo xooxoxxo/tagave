@@ -1,4 +1,4 @@
-import type PgBoss from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import type { Logger } from 'pino';
 import { makeDb } from '@liner/db';
 

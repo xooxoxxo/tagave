@@ -6,7 +6,7 @@
  * One backup at a time per app process: a request that arrives while one is
  * running waits for it and then runs its own.
  */
-import type PgBoss from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import {
   defaultBackupDir,
   readBackupSettings,

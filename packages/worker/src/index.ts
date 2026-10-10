@@ -1,4 +1,4 @@
-import PgBoss from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import pino from 'pino';
 import { listMigrationFiles, makeDb } from '@liner/db';
 import { readBuildInfo, WORKER_QUEUES } from '@liner/core';

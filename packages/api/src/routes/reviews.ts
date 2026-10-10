@@ -8,7 +8,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import PgBoss from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import {
   clippings, externalReviews, libraries, listens, releaseGroups, releases, reviewLinks,
   userReviewRevisions, userReviews,

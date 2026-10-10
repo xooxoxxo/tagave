@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type PgBoss from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import type { SessionUser } from '@liner/shared/auth';
 import type { BackupsStatus } from '@liner/shared';
 import { errorHandler } from '../middleware/errorHandler.js';

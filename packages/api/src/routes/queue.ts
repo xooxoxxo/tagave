@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import PgBoss from 'pg-boss';
+import { PgBoss } from 'pg-boss';
 import {
   albumMatches, canonicalTracks, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
