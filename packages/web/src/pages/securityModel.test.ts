@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { accountHealth, backupCodesFile, deviceLabel, passkeyKind, passkeyLabel, type PasskeyView, type SecurityStatus } from './securityModel';
+import { passkeyProblem, accountHealth, backupCodesFile, deviceLabel, passkeyKind, passkeyLabel, type PasskeyView, type SecurityStatus } from './securityModel';
 
 const base: SecurityStatus = {
+  config: { publicUrl: 'https://music.example.com', passkeysAvailable: true },
   password: { set: true, changedAt: null },
   twoFactor: { enabled: false, backupCodesLeft: null },
   passkeys: [],
@@ -58,5 +59,17 @@ describe('backupCodesFile', () => {
     expect(text).toContain('me@example.com');
     expect(text).toContain('https://music.example.com - made 2026-10-10');
     expect(text).toContain('aaaaa-11111\nbbbbb-22222');
+  });
+});
+
+describe('passkeyProblem', () => {
+  it('is quiet on the PUBLIC_URL origin', () => {
+    expect(passkeyProblem(base.config, 'https://music.example.com')).toBeNull();
+  });
+  it('names PUBLIC_URL when the page is elsewhere', () => {
+    expect(passkeyProblem(base.config, 'http://192.168.1.5:3100')).toMatch(/tied to https:\/\/music\.example\.com/);
+  });
+  it('explains https', () => {
+    expect(passkeyProblem({ publicUrl: 'http://10.0.0.2:3100', passkeysAvailable: false }, 'http://10.0.0.2:3100')).toMatch(/need https/);
   });
 });

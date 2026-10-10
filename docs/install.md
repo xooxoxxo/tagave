@@ -201,12 +201,13 @@ The app listens on `http://localhost:3100` by default. Port is configurable via 
 
 ## First-run setup
 
-Open http://localhost:3100. A fresh install opens the setup wizard, which walks through four steps:
+Open http://localhost:3100. A fresh install opens the setup wizard, which walks through five steps:
 
 1. **System check**: the database, its schema and the workers. Anything that fails says how to fix it. The account cannot be created while the database or its schema fails; a missing worker only holds up scanning.
 2. **Owner account**: email, name, password (at least 12 characters) and a **contact** for MusicBrainz and Discogs (an email address or a website; required for external lookups).
 3. **Music folder**: the path to your library **as the worker sees it** (with the bundled Compose workers, `/mnt/music`). The worker checks the folder and the wizard shows what it found, with a fix for a missing path, a permission problem or a read-only mount.
 4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
+5. **Protect your account** (skippable): add a passkey or a security key such as a YubiKey, or set up an authenticator app and save its backup codes. Passkeys need `PUBLIC_URL` to be the address you are on, over https or `localhost`; the step says so when it is not. Skipped, Settings › Security keeps reminding you.
 
 Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `liner-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
 

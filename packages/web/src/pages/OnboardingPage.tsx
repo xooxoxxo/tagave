@@ -149,7 +149,8 @@ export function OnboardingPage() {
     if (!settings?.onboardingCompletedAt) {
       await updateSettings.mutateAsync({ onboardingCompletedAt: new Date().toISOString() });
     }
-    navigate({ to: '/' });
+    // Last, skippable step; it moves straight on when a factor exists.
+    navigate({ to: '/onboarding/protect' });
   };
 
   const showRootForm = scanRoots.length === 0 || addingAnother;

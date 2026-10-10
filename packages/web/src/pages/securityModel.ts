@@ -25,6 +25,8 @@ export interface TrustedDeviceView {
 }
 
 export interface SecurityStatus {
+  /** PUBLIC_URL: passkeys work only at this origin (and only over https or on localhost). */
+  config: { publicUrl: string; passkeysAvailable: boolean };
   password: { set: boolean; changedAt: string | null };
   twoFactor: { enabled: boolean; backupCodesLeft: number | null };
   passkeys: PasskeyView[];
@@ -135,4 +137,15 @@ export function backupCodesFile(codes: string[], email: string, origin: string, 
     ...codes,
     '',
   ].join('\n');
+}
+
+/** Why passkeys will not work on this page, or null when they can. */
+export function passkeyProblem(config: SecurityStatus['config'], pageOrigin: string): string | null {
+  if (!config.passkeysAvailable) {
+    return `Passkeys and security keys need https (or localhost). PUBLIC_URL is ${config.publicUrl}; serve tagave over https and set PUBLIC_URL to that address to use them.`;
+  }
+  if (pageOrigin && pageOrigin !== config.publicUrl) {
+    return `Passkeys are tied to ${config.publicUrl} (PUBLIC_URL), but this page is ${pageOrigin}. Open tagave at ${config.publicUrl} to add or use a passkey, or change PUBLIC_URL.`;
+  }
+  return null;
 }

@@ -253,6 +253,8 @@ export type Auth = ReturnType<typeof makeAuth>;
 
 export interface AuthHandle {
   auth: Auth;
+  /** The settings it was built from (PUBLIC_URL, trusted origins). */
+  env: AuthEnvConfig;
   /** The auth layer's pool (also used for tagave's own auth tables). */
   sql: postgres.Sql;
   close: () => Promise<void>;
@@ -262,7 +264,7 @@ export interface AuthHandle {
 export function createAuth(opts: CreateAuthOptions): AuthHandle {
   const sql = openAuthSql(opts.databaseUrl, opts.maxConnections ?? 5);
   const auth = makeAuth(opts, sql);
-  return { auth, sql, close: () => sql.end({ timeout: 5 }) };
+  return { auth, sql, env: opts.env, close: () => sql.end({ timeout: 5 }) };
 }
 
 /**

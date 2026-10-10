@@ -5,11 +5,12 @@
  */
 import { createAuthClient } from 'better-auth/client';
 import { twoFactorClient } from 'better-auth/client/plugins';
+import { passkeyClient } from '@better-auth/passkey/client';
 
 type ClientOptions = {
   basePath: string;
   fetchOptions: { credentials: 'include' };
-  plugins: [ReturnType<typeof twoFactorClient>];
+  plugins: [ReturnType<typeof twoFactorClient>, ReturnType<typeof passkeyClient>];
 };
 
 export type AuthClient = ReturnType<typeof createAuthClient<ClientOptions>>;
@@ -18,7 +19,7 @@ function makeClient(): AuthClient {
   return createAuthClient<ClientOptions>({
     basePath: '/api/auth',
     fetchOptions: { credentials: 'include' },
-    plugins: [twoFactorClient()],
+    plugins: [twoFactorClient(), passkeyClient()],
   });
 }
 

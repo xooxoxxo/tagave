@@ -60,6 +60,15 @@ The reseal command decrypts all stored credentials with the old secret and encry
 
 Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed out** and signs in again with their password.
 
+## Passkeys and security keys
+
+Settings › Security › **Passkeys and security keys** adds a passkey (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, a phone) or a hardware security key such as a **YubiKey**. The sign-in page then offers **Sign in with a passkey**, and browsers that support it list your passkeys in the email field's autofill.
+
+- **A PIN or fingerprint is required.** tagave asks the authenticator to verify you (WebAuthn user verification) and refuses a key that only registers a touch. A YubiKey without a PIN: your browser asks you to create one when you add it. Because of this, a passkey sign-in counts as two factors and never asks for the authenticator code.
+- **Passkeys are bound to `PUBLIC_URL`'s host name.** They work only when you open tagave at that address, over https or on `localhost`. Changing the host name later means signing in with your password and adding them again; `liner-doctor doctor` warns when `PUBLIC_URL` no longer matches the host your passkeys were made for.
+- Add at least two (for example a YubiKey and your phone) so losing one does not lock you out. Settings › Security shows how many factors you have.
+- The setup wizard ends with a skippable **Protect your account** step that offers the same choices.
+
 ## Two-factor sign-in and backup codes
 
 Settings › Security › **Authenticator app** turns on a second step after the password: a 6-digit code from an app on your phone (1Password, Aegis, Google Authenticator and so on).

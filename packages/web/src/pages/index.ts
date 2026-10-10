@@ -3,6 +3,7 @@ export { LoginPage } from './LoginPage';
 export { TwoFactorPage } from './TwoFactorPage';
 export { DashboardPage } from './DashboardPage';
 export { OnboardingPage } from './OnboardingPage';
+export { ProtectAccountPage } from './ProtectAccountPage';
 export { AlbumsPage } from './AlbumsPage';
 export { ArtistsPage } from './ArtistsPage';
 export { ArtistPage } from './ArtistPage';

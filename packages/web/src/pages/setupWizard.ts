@@ -6,7 +6,7 @@
 import { SCAN_ROOT_EMPTY_MESSAGE, setupRequestSchema, type SetupRequest, type ScanRoot } from '@liner/shared';
 
 /** The whole journey, across /setup and /onboarding. */
-export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album'] as const;
+export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album', 'Protect your account'] as const;
 export type SetupStep = (typeof SETUP_STEPS)[number];
 
 export function stepNumber(step: SetupStep): number {

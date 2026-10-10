@@ -7,6 +7,7 @@ import {
   TwoFactorPage,
   DashboardPage,
   OnboardingPage,
+  ProtectAccountPage,
   AlbumsPage,
   ArtistsPage,
   ArtistPage,
@@ -75,6 +76,13 @@ const onboardingRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/onboarding',
   component: OnboardingPage,
+});
+
+// Setup wizard, last step: passkey / authenticator (skippable)
+const protectAccountRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/onboarding/protect',
+  component: ProtectAccountPage,
 });
 
 const albumsRoute = new Route({
@@ -249,6 +257,7 @@ const routeTree = rootRoute.addChildren([
   layoutRoute.addChildren([
     dashboardRoute,
     onboardingRoute,
+    protectAccountRoute,
     albumsRoute,
     artistsRoute,
     artistDetailRoute,

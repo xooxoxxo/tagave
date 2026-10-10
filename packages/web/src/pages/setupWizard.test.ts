@@ -54,7 +54,8 @@ describe('validateAccount', () => {
 
 describe('steps', () => {
   it('numbers steps by their position', () => {
-    expect(SETUP_STEPS.map(stepNumber)).toEqual([1, 2, 3, 4]);
+    expect(SETUP_STEPS.map(stepNumber)).toEqual([1, 2, 3, 4, 5]);
+    expect(stepNumber('Protect your account')).toBe(5);
     expect(stepNumber('Music folder')).toBe(3);
   });
 });

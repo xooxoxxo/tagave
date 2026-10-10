@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   COOKIE_PREFIX,
   listTrustedDevices,
+  passkeysCanWork,
   revokeTrustedDevice,
   trustIdentifierFromCookie,
 } from '@liner/auth';
@@ -32,7 +33,7 @@ function requireUser(request: FastifyRequest) {
 export async function createAuthSecurityRoutes(fastify: FastifyInstance) {
   fastify.get('/security', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = requireUser(request);
-    const { auth, sql } = getAuthHandle();
+    const { auth, sql, env } = getAuthHandle();
 
     const [account] = await sql<Array<{ updated_at: Date }>>`
       select updated_at from auth_accounts
@@ -64,6 +65,7 @@ export async function createAuthSecurityRoutes(fastify: FastifyInstance) {
     const devices = await listTrustedDevices(sql, user.id);
 
     return reply.send({
+      config: { publicUrl: env.publicUrl.origin, passkeysAvailable: passkeysCanWork(env.publicUrl) },
       password: { set: Boolean(account), changedAt: account?.updated_at.toISOString() ?? null },
       twoFactor: { enabled: twoFactorEnabled, backupCodesLeft },
       passkeys: passkeys.map((p) => ({
