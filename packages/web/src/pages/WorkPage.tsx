@@ -94,7 +94,6 @@ export function WorkPage() {
   return (
     <PageShell
       title="Library care"
-      subtitle="Find the right matches. Fill the gaps. Keep your collection in good shape."
       tabs={tabs}
       activeTab={activeTab}
       onTabChange={handleTabChange}

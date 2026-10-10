@@ -358,7 +358,7 @@ export function AlbumsPage() {
   const showEmpty = !isLoading && !error && items.length === 0;
 
   return (
-    <PageShell fill title="Albums" subtitle="Every record, a world to explore.">
+    <PageShell fill title="Albums">
       <div className={styles.header}>
         <div className={styles.toolbar}>
 

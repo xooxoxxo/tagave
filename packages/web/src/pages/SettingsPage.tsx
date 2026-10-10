@@ -42,7 +42,7 @@ export function SettingsPage() {
   // current section into it and fades the edge that hides more sections.
   const navRef = useScrollFade<HTMLElement>(section);
   const updateAvailable = useUpdateAvailable(useCurrentLibrary().libraryId);
-  return <PageShell title="Settings" subtitle="Make tagave at home in your library.">
+  return <PageShell title="Settings">
     <div className={styles.layout}>
       <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
