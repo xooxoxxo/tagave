@@ -28,7 +28,7 @@ vi.mock('../hooks/usePlanWizard', () => ({
   useOpenTagPlans: () => openPlans.current,
 }));
 
-import { PlanWizard, planIncludesAll } from './PlanWizard';
+import { PlanWizard, planIncludesAll, ShortcutsPopover, WIZARD_SHORTCUTS } from './PlanWizard';
 
 const plan = (over: Partial<TagPlan>): TagPlan => ({
   id: 'p1',
@@ -143,5 +143,43 @@ describe('planIncludesAll', () => {
     expect(planIncludesAll(p, ['a', 'c'])).toBe(false);
     expect(planIncludesAll(p, [])).toBe(false);
     expect(planIncludesAll(plan({ scope: { type: 'library' } }), ['a'])).toBe(false);
+  });
+});
+
+describe('PlanWizard help', () => {
+  beforeEach(() => {
+    openPlans.current = { isSuccess: true, isError: false, data: { items: [], total: 0, limit: 200, offset: 0 } };
+  });
+
+  it('has no help panel that grows the modal: the "?" is a quiet icon button matching Close', () => {
+    const html = render();
+    expect(html).not.toContain('Back to the wizard');
+    expect(html).not.toContain('Tag plan wizard help');
+    const help = html.match(/<button[^>]*aria-label="Keyboard shortcuts"[^>]*>/)?.[0] ?? '';
+    const close = html.match(/<button[^>]*aria-label="Close"[^>]*>/)?.[0] ?? '';
+    expect(help).toContain('aria-expanded="false"');
+    const cls = (tag: string) => tag.match(/class="([^"]*)"/)?.[1];
+    expect(cls(help)).toBeTruthy();
+    expect(cls(help)).toBe(cls(close));
+    // closed: the popover is not in the page at all
+    expect(html).not.toContain('role="dialog" aria-label="Keyboard shortcuts"');
+  });
+
+  it('explains each scope choice in a short line under it', () => {
+    const html = render();
+    expect(html).toContain('Every album in the library.');
+    expect(html).toContain('Albums credited to one identified artist.');
+    expect(html).toContain('Search and tick the albums to include.');
+    expect(html).toContain('The same filters as the album grid, e.g. genre=Jazz.');
+  });
+
+  it('the shortcuts popover, open, lists every key', () => {
+    const html = renderToStaticMarkup(<ShortcutsPopover open onOpenChange={() => undefined} />);
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('role="dialog" aria-label="Keyboard shortcuts"');
+    for (const [key, what] of WIZARD_SHORTCUTS) {
+      expect(html).toContain(`>${key}</kbd>`);
+      expect(html).toContain(what);
+    }
   });
 });
