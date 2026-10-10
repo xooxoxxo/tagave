@@ -74,7 +74,9 @@
   right: 0;
   z-index: 2;
   width: max-content;
-  max-width: min(20rem, calc(100vw - 2rem));
+  /* the modal clips (overflow: hidden) and is 92vw wide; the ? sits about
+     4rem from its right edge, so stay inside what is left */
+  max-width: min(20rem, calc(92vw - 5rem));
   padding: var(--space-sm) var(--space-md) var(--space-md);
   border-radius: var(--r-inner);
   border: 1px solid var(--glass-edge);
