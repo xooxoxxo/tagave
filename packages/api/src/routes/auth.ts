@@ -1,13 +1,12 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { hash, verify } from 'argon2';
 import { uuidv7 } from 'uuidv7';
-import type { SQL } from 'drizzle-orm';
-import { eq, sql } from 'drizzle-orm';
-import { users, libraries } from '@liner/db';
-import { getDb } from '../db.js';
-import { setupRequestSchema, loginRequestSchema, sessionUserSchema } from '@liner/shared/auth';
+import { APIError, LEGACY_SESSION_COOKIE, fromNodeHeaders } from '@liner/auth';
+import { setupRequestSchema, loginRequestSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
-import { createSession, invalidateSession } from '../middleware/auth.js';
+import { forwardSetCookies, getAuthHandle, toSessionUser } from '../middleware/auth.js';
+
+/** Held (transaction-scoped) while setup checks for and creates the owner. */
+export const SETUP_LOCK_KEY = 7_302_026_101;
 
 function isSecureConnection(request: FastifyRequest): boolean {
   return (
@@ -23,7 +22,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
   // install instead of showing what is wrong.
   fastify.get('/setup-required', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
-      const rows = await getDb().select({ one: sql<number>`1` }).from(users).limit(1);
+      const rows = await getAuthHandle().sql`select 1 from users limit 1`;
       return reply.status(200).send({ setupRequired: rows.length === 0 });
     } catch (err) {
       request.log.error({ err }, 'setup-required: user lookup failed');
@@ -35,9 +34,10 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // Setup endpoint (first-run account creation)
+  // First-run owner account. Better Auth's HTTP sign-up stays disabled; the
+  // owner is created server-side under an advisory lock, so two tabs cannot
+  // both create one.
   fastify.post('/setup', async (request: FastifyRequest, reply: FastifyReply) => {
-    // Check if HTTPS or ALLOW_INSECURE_HTTP
     if (!isSecureConnection(request) && process.env.ALLOW_INSECURE_HTTP !== 'true') {
       throw new ApiError(
         400,
@@ -47,125 +47,73 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
       );
     }
 
-    // Validate request
     const body = setupRequestSchema.parse(request.body);
+    const { auth, sql } = getAuthHandle();
 
-    const db = getDb();
-
-    // Check if user already exists
-    const existingUsers = await db.select().from(users);
-    if (existingUsers.length > 0) {
-      throw new ApiError(409, 'Conflict', 'An owner account already exists', '/api/v1/auth/setup');
-    }
-
-    // Hash password
-    const passwordHash = await hash(body.password);
-
-    // Create user
-    const userId = uuidv7();
-    const user = {
-      id: userId,
-      email: body.email,
-      displayName: body.displayName,
-      passwordHash,
-      role: 'owner' as const,
-      createdAt: new Date(),
-    };
-
-    await db.insert(users).values(user);
-
-    // Create default library
-    const libraryId = uuidv7();
-    const library = {
-      id: libraryId,
-      ownerUserId: userId,
-      name: 'My Music Library',
-      settings: { contactString: body.contactString },
-      createdAt: new Date(),
-    };
-
-    await db.insert(libraries).values(library);
-
-    // Create session
-    const sessionUser = sessionUserSchema.parse({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      role: user.role,
-      createdAt: new Date().toISOString(),
+    const created = await sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(${SETUP_LOCK_KEY}::bigint)`;
+      const existing = await tx`select 1 from users limit 1`;
+      if (existing.length > 0) {
+        throw new ApiError(409, 'Conflict', 'An owner account already exists', '/api/v1/auth/setup');
+      }
+      const res = await auth.api.createOwner({
+        body: { email: body.email, password: body.password, name: body.displayName },
+        headers: fromNodeHeaders(request.headers),
+        returnHeaders: true,
+      });
+      const user = res.response.user;
+      await tx`
+        insert into libraries (id, owner_user_id, name, settings, created_at)
+        values (${uuidv7()}, ${user.id}, 'My Music Library',
+                ${tx.json({ contactString: body.contactString })}, now())`;
+      return res;
     });
 
-    const sessionId = await createSession(userId);
-
-    reply
-      .setCookie('sessionId', sessionId, {
-        httpOnly: true,
-        secure: isSecureConnection(request),
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60, // 30 days
-      })
-      .status(201)
-      .send({ user: sessionUser });
+    forwardSetCookies(reply, created.headers);
+    return reply.status(201).send({ user: toSessionUser(created.response.user) });
   });
 
-  // Login endpoint
+  // Kept for one release so a 0.6.x SPA still signs in: a thin wrapper over
+  // Better Auth's email sign-in (the SPA itself uses /api/auth/sign-in/email).
   fastify.post('/login', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = loginRequestSchema.parse(request.body);
-
-    const db = getDb();
-
-    // Find user
-    const userRecords = await db.select().from(users).where(eq(users.email, body.email));
-
-    if (userRecords.length === 0) {
-      throw new ApiError(401, 'Unauthorized', 'Invalid email or password', '/api/v1/auth/login');
+    const { auth } = getAuthHandle();
+    let result;
+    try {
+      result = await auth.api.signInEmail({
+        body: { email: body.email, password: body.password },
+        headers: fromNodeHeaders(request.headers),
+        returnHeaders: true,
+      });
+    } catch (err) {
+      if (err instanceof APIError && (err.statusCode === 401 || err.statusCode === 400)) {
+        throw new ApiError(401, 'Unauthorized', 'Invalid email or password', '/api/v1/auth/login');
+      }
+      throw err;
     }
-
-    const user = userRecords[0];
-    if (!user) {
-      // Invariant: this should never happen since we checked userRecords.length > 0 above
-      throw new ApiError(401, 'Unauthorized', 'Invalid email or password', '/api/v1/auth/login');
+    forwardSetCookies(reply, result.headers);
+    reply.clearCookie(LEGACY_SESSION_COOKIE, { path: '/' });
+    const response = result.response as { user?: Parameters<typeof toSessionUser>[0]; twoFactorRedirect?: boolean };
+    if (response.twoFactorRedirect || !response.user) {
+      throw new ApiError(403, 'Two-factor required', 'Sign in from the updated sign-in page to enter your code.', '/api/v1/auth/login');
     }
-
-    // Verify password
-    const passwordMatch = await verify(user.passwordHash, body.password);
-    if (!passwordMatch) {
-      throw new ApiError(401, 'Unauthorized', 'Invalid email or password', '/api/v1/auth/login');
-    }
-
-    // Create session
-    const sessionUser = sessionUserSchema.parse({
-      id: user.id,
-      email: user.email,
-      displayName: user.displayName,
-      role: user.role,
-      createdAt: new Date().toISOString(),
-    });
-
-    const sessionId = await createSession(user.id);
-
-    reply
-      .setCookie('sessionId', sessionId, {
-        httpOnly: true,
-        secure: isSecureConnection(request),
-        sameSite: 'strict',
-        path: '/',
-        maxAge: 30 * 24 * 60 * 60,
-      })
-      .status(200)
-      .send({ user: sessionUser });
+    return reply.status(200).send({ user: toSessionUser(response.user) });
   });
 
-  // Logout endpoint
+  // Kept for one release: signs out of Better Auth and drops any legacy session.
   fastify.post('/logout', async (request: FastifyRequest, reply: FastifyReply) => {
-    const sessionCookie = request.cookies.sessionId;
-
-    if (sessionCookie) {
-      await invalidateSession(sessionCookie);
+    const { auth, sql } = getAuthHandle();
+    const legacy = request.cookies[LEGACY_SESSION_COOKIE];
+    if (legacy && /^[0-9a-f-]{36}$/i.test(legacy)) {
+      await sql`delete from sessions where id = ${legacy}`;
     }
-
-    reply.clearCookie('sessionId', { path: '/' }).status(200).send({ success: true });
+    try {
+      const res = await auth.api.signOut({ headers: fromNodeHeaders(request.headers), returnHeaders: true });
+      forwardSetCookies(reply, res.headers);
+    } catch (err) {
+      request.log.debug({ err }, 'logout: no Better Auth session to end');
+    }
+    reply.clearCookie(LEGACY_SESSION_COOKIE, { path: '/' }).status(200).send({ success: true });
   });
 
   // Get current user endpoint

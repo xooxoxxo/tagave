@@ -14,5 +14,10 @@
     "dev": "pnpm --parallel --filter @liner/api --filter @liner/web --filter @liner/worker dev",
     "db:migrate": "pnpm --filter @liner/db migrate",
     "doctor": "node packages/doctor/dist/cli.js doctor"
+  },
+  "pnpm": {
+    "overrides": {
+      "@better-auth/utils": "0.4.2"
+    }
   }
 }

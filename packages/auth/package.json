@@ -1,0 +1,38 @@
+{
+  "name": "@liner/auth",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "tagave's one Better Auth configuration (createAuth), shared by the api and liner-doctor",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/passkey": "1.7.7",
+    "argon2": "^0.44.0",
+    "better-auth": "1.7.7",
+    "kysely": "^0.29.6",
+    "kysely-postgres-js": "^5.0.1",
+    "postgres": "^3.4.4",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@liner/db": "workspace:*",
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.2"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

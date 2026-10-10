@@ -15,6 +15,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@liner/auth": "workspace:*",
     "@liner/core": "workspace:*",
     "@liner/db": "workspace:*",
     "postgres": "^3.4.4",

@@ -20,15 +20,138 @@ import { relations, sql } from 'drizzle-orm';
 
 // Platform tables (not library-scoped)
 
+// Also Better Auth's user model (user.modelName "users", name -> display_name;
+// see @liner/auth). 0035 added email_verified .. two_factor_enabled.
 export const users = pgTable('users', {
   id: uuid().primaryKey().defaultRandom(),
   email: varchar({ length: 255 }).notNull().unique(),
   displayName: varchar({ length: 255 }),
-  passwordHash: varchar({ length: 255 }).notNull(),
+  // Legacy argon2id hash. Better Auth reads auth_accounts.password; this copy
+  // is mirrored for rollback during the bridge release and dropped later.
+  passwordHash: varchar({ length: 255 }),
   role: varchar({ length: 20 }).notNull().default('owner'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  emailVerified: boolean('email_verified').notNull().default(true),
+  image: text(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
 });
 
+// Better Auth tables (0035). Written by Better Auth through @liner/auth; the
+// app reads them only for Settings > Security and liner-doctor.
+export const authAccounts = pgTable(
+  'auth_accounts',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    accountId: text('account_id').notNull(),
+    providerId: text('provider_id').notNull(),
+    accessToken: text('access_token'),
+    refreshToken: text('refresh_token'),
+    idToken: text('id_token'),
+    accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }),
+    refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+    scope: text(),
+    password: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('auth_accounts_provider_id_account_id_key').on(t.providerId, t.accountId),
+    index('idx_auth_accounts_user').on(t.userId),
+  ],
+);
+
+export const authSessions = pgTable(
+  'auth_sessions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    token: text().notNull().unique(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    ipAddress: text('ip_address'),
+    userAgent: text('user_agent'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_auth_sessions_user').on(t.userId)],
+);
+
+export const authVerifications = pgTable(
+  'auth_verifications',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    identifier: text().notNull(),
+    value: text().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_auth_verifications_identifier').on(t.identifier)],
+);
+
+export const authPasskeys = pgTable(
+  'auth_passkeys',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    name: text(),
+    publicKey: text('public_key').notNull(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    credentialId: text('credential_id').notNull().unique(),
+    counter: bigint({ mode: 'number' }).notNull().default(0),
+    deviceType: text('device_type').notNull(),
+    backedUp: boolean('backed_up').notNull().default(false),
+    transports: text(),
+    aaguid: text(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  },
+  (t) => [index('idx_auth_passkeys_user').on(t.userId)],
+);
+
+export const authTwoFactors = pgTable('auth_two_factors', {
+  id: uuid().primaryKey().defaultRandom(),
+  userId: uuid('user_id')
+    .notNull()
+    .unique()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  secret: text().notNull(),
+  backupCodes: text('backup_codes').notNull(),
+  verified: boolean().notNull().default(true),
+  failedVerificationCount: integer('failed_verification_count').notNull().default(0),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+});
+
+export const authRateLimits = pgTable('auth_rate_limits', {
+  id: uuid().primaryKey().defaultRandom(),
+  key: text().notNull().unique(),
+  count: integer().notNull(),
+  lastRequest: bigint('last_request', { mode: 'number' }).notNull(),
+});
+
+// tagave's own: names the trusted-device verification rows (Settings > Security).
+export const authTrustedDevices = pgTable(
+  'auth_trusted_devices',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    identifier: text().notNull().unique(),
+    userAgent: text('user_agent'),
+    ipAddress: text('ip_address'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_auth_trusted_devices_user').on(t.userId)],
+);
+
+// Legacy (0.6.x) sessions: read only by the session bridge, dropped later.
 export const sessions = pgTable('sessions', {
   id: uuid().primaryKey().defaultRandom(),
   userId: uuid('user_id')
