@@ -33,6 +33,7 @@ import { createFingerprintRoutes } from './routes/fingerprint.js';
 import { createArtistsRoutes } from './routes/artists.js';
 import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { createBackupRoutes } from './routes/backups.js';
+import { createStorageRoutes } from './routes/storage.js';
 import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
@@ -366,6 +367,9 @@ app.register(async (instance) => {
     service: backupService,
     onSettingsChanged: async () => applyBackupSchedule(await getBoss(), backupService),
   });
+
+  // Settings › Storage: disk use and the tag-change cleanup (owner only)
+  instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: backupService.dir, cacheDir: process.env.CACHE_DIR || undefined });
 });
 
 // Start server

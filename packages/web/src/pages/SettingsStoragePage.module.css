@@ -1,0 +1,24 @@
+/* Settings › Storage: the same section rhythm as Backups */
+.page { display: flex; flex-direction: column; gap: var(--space-xl); min-width: 0; }
+.section { display: flex; flex-direction: column; gap: var(--space-sm); min-width: 0; }
+.summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); flex-wrap: wrap; }
+.total { margin: 0; color: var(--ink-2); font-size: var(--font-size-base); }
+.totalValue { font: var(--type-title); color: var(--ink); font-variant-numeric: tabular-nums; margin-right: .35rem; }
+.refresh { display: flex; align-items: center; gap: var(--space-sm); flex-wrap: wrap; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); }
+.title { margin: 0; font-size: var(--font-size-lg); color: var(--ink); }
+.rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-md); }
+.row { display: flex; flex-direction: column; gap: .35rem; min-width: 0; }
+.rowHead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-md); }
+.label { font-size: var(--font-size-sm); font-weight: 500; color: var(--ink); }
+.size { font-size: var(--font-size-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.track { display: block; height: 6px; border-radius: var(--r-pill); background: var(--mist-2); overflow: hidden; }
+.fill { display: block; height: 100%; border-radius: inherit; background: var(--dew); }
+.description { margin: 0; font-size: var(--font-size-xs); color: var(--ink-3); line-height: 1.5; overflow-wrap: anywhere; }
+.path { font-size: inherit; }
+.muted { margin: 0; color: var(--ink-3); font-size: var(--font-size-sm); }
+.hint { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); }
+.error { margin: 0; color: var(--danger-ink); font-size: var(--font-size-xs); }
+.choice { margin: var(--space-xs) 0 var(--space-sm); }
+.confirmTotal { color: var(--ink); }
+@media (forced-colors: active) { .fill { background: Highlight; } .track { border: 1px solid CanvasText; } }

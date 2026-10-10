@@ -259,7 +259,24 @@ export {
   type ManualTagField,
   manualTagValuesSchema,
   type ManualTagValues,
+  FINISHED_PLAN_STATUSES,
+  isFinishedPlanStatus,
 } from './tagPlan.js';
+
+// Settings › Storage: disk use and tag-change cleanup
+export {
+  STORAGE_CATEGORIES,
+  storageCategoryOf,
+  tagChangeCleanupRequestSchema,
+  type StorageCategoryKey,
+  type StorageOverview,
+  type StorageCategoryView,
+  type StorageFolderView,
+  type TagChangeCleanupScope,
+  type TagChangeCleanupRequest,
+  type TagChangeCleanupPreview,
+  type TagChangeCleanupResult,
+} from './storage.js';
 
 // Artist names as the library shows them (numbered album artists, VA spellings)
 export {

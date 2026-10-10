@@ -29,7 +29,7 @@ export async function createBetterAuthRoutes(fastify: FastifyInstance) {
         new Request(url, { method: request.method, headers, ...(body !== undefined ? { body } : {}) }),
       );
       reply.status(response.status);
-      response.headers.forEach((value, key) => {
+      response.headers.forEach((value: string, key: string) => {
         if (key !== 'set-cookie' && key !== 'content-length') reply.header(key, value);
       });
       forwardSetCookies(reply, response.headers);
