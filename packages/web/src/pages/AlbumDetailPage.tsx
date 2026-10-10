@@ -743,7 +743,7 @@ export function AlbumDetailPage() {
             {/* the back button leads the title row, as on every detail page */}
             <div className={styles.titleRow}>
               <PageBack />
-              <h1 ref={titleRef} className={styles.title}>{title}</h1>
+              <h1 ref={titleRef} className={styles.title} dir="auto">{title}</h1>
             </div>
             <div className={styles.artist}>
               {album.artists && album.artists.length > 0

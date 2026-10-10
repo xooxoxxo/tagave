@@ -55,7 +55,14 @@ between browsing and upkeep: the hairline cut into the
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }
 /* Home's kiosk view: exactly the pane's height on a desktop (DashboardPage) */
-@media (min-width: 901px) and (min-height: 640px) { .page:has([data-kiosk-page]), .page:has([data-kiosk-page]) > div { height: 100%; } }
+/* The footer shares the pane with Home instead of sitting below a full-height
+   page, so the whole view (Discogs notice included) fits without scrolling. */
+@media (min-width: 901px) and (min-height: 640px) {
+  .main:has([data-kiosk-page]) { display: flex; flex-direction: column; }
+  .page:has([data-kiosk-page]) { flex: 1 1 auto; min-height: 0; }
+  .page:has([data-kiosk-page]) > div { height: 100%; }
+  .main:has([data-kiosk-page]) > .footer { margin-top: 0; }
+}
 .footer { flex-shrink: 0; margin-top: var(--space-xl); padding: 1rem 1.5rem 1.25rem; background: transparent; border-top: 1px solid var(--line); text-align: center; font-size: .6875rem; line-height: 1.5; color: var(--ink-3); }
 .skipLink { position: fixed; top: .5rem; left: .5rem; z-index: var(--z-modal); padding: .75rem 1.25rem; background: var(--surface); color: var(--dew); border: 1px solid var(--line-strong); border-radius: var(--r-pill); transform: translateY(-200%); }
 .skipLink:focus { transform: none; }
