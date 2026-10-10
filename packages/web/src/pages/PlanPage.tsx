@@ -10,7 +10,7 @@ import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
-import { PageShell, Button, Badge, Banner, StatCard, Card, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -41,6 +41,7 @@ import { identifyLines, planAlbumScope } from './planIdentifyStatus';
 import { InlineRename } from '../components/InlineRename';
 import { PlanResults, PlanReverted } from './PlanResults';
 import { KEPT_PLAN_NOTE, RESULT_STATUSES } from './planResultsText';
+import { PlanFieldFilter } from './PlanFieldFilter';
 
 const PAGE_SIZE = 100;
 const BUSY = new Set(['applying', 'paused']);
@@ -776,15 +777,15 @@ export function PlanPage() {
           <BulkTagEditor libraryId={libraryId} scopes={valueScopes} title="Set the values yourself" onClose={() => setEditingValues(false)} />
         )}
 
-        {/* Before apply the counts say what will happen; after it the
-            result section says what did, so the cards step aside. */}
-        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (
-          <div className={styles.stats}>
-            <StatCard label="Files affected" value={stats.filesTouched.toLocaleString()} />
-            <StatCard label="Field changes" value={stats.fieldsModified.toLocaleString()} />
-            {stats.lockedFieldsRespected > 0 && <StatCard label="Locked fields kept" value={stats.lockedFieldsRespected.toLocaleString()} />}
-            {stats.filesSkipped.length > 0 && <StatCard label="Files skipped" value={stats.filesSkipped.length.toLocaleString()} tone="warning" />}
-          </div>
+        {/* The file list below already counts files and changes; only what
+            it cannot show (locks kept, files skipped) gets a quiet line. */}
+        {previewed && stats && !hasResults && p.status !== 'reverted' && !nothingToDo && (stats.lockedFieldsRespected > 0 || stats.filesSkipped.length > 0) && (
+          <p className={styles.previewNotes}>
+            {[
+              stats.lockedFieldsRespected > 0 ? `${stats.lockedFieldsRespected.toLocaleString()} locked ${stats.lockedFieldsRespected === 1 ? 'field' : 'fields'} kept` : null,
+              stats.filesSkipped.length > 0 ? `${plural(stats.filesSkipped.length, 'file')} skipped` : null,
+            ].filter(Boolean).join(' · ')}
+          </p>
         )}
 
         <details className={styles.details}>
@@ -809,25 +810,17 @@ export function PlanPage() {
         )}
 
         {previewed && !nothingToDo && byField.length > 0 && (
-          <Card title="Changes by field" actions={field ? <Button variant="ghost" size="sm" onClick={() => { setField(''); setOffset(0); }}>Show all fields</Button> : undefined}>
-            <div className={styles.chips}>
-              {byField.map(([f, v]) => (
-                <button
-                  key={f}
-                  type="button"
-                  className={`${styles.chip} ${field === f ? styles.chipActive : ''}`}
-                  onClick={() => { setField(field === f ? '' : f); setOffset(0); }}
-                  title={Object.entries(v.reasons).map(([r, n]) => `${n.toLocaleString()} ${reasonLabel(r)}`).join(' · ')}
-                  aria-label={`Filter files by ${FIELD_LABELS[f] ?? f}`}
-                  aria-pressed={field === f}
-                >
-                  <span className={styles.chipField}>{FIELD_LABELS[f] ?? f}</span>
-                  <span className={styles.chipCount}>{v.files.toLocaleString()}</span>
-                  <span className={styles.chipReason}>{Object.keys(v.reasons).map(reasonLabel).join('/')}</span>
-                </button>
-              ))}
-            </div>
-          </Card>
+          <PlanFieldFilter
+            entries={byField.map(([f, v]) => ({
+              field: f,
+              label: FIELD_LABELS[f] ?? f,
+              files: v.files,
+              reasonShort: Object.keys(v.reasons).map(reasonLabel).join('/'),
+              reasonTitle: Object.entries(v.reasons).map(([r, n]) => `${n.toLocaleString()} ${reasonLabel(r)}`).join(' · '),
+            }))}
+            field={field}
+            onPick={(f) => { setField(f); setOffset(0); }}
+          />
         )}
 
         {previewed && !nothingToDo && (
