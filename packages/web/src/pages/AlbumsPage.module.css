@@ -1,20 +1,8 @@
-.container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: var(--space-md);
-  padding: var(--page-pad);
-  min-height: 0;
-}
-
+/* The page column and heading come from PageShell (fill). */
 .header {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-}
-
-.title {
-  margin: 0 var(--space-sm) 0 0;
 }
 
 .toolbar {
@@ -506,9 +494,7 @@
   font-size: var(--font-size-sm);
 }
 
-.container { max-width: var(--content-max); margin: 0 auto; }
-.header { gap: .85rem; padding-bottom: .5rem; }
-.intro { color: var(--text-secondary); font-size: .875rem; margin-bottom: .75rem; }
+.header { gap: .85rem; }
 .albumCard, .albumCardSelected { background: transparent; border-color: transparent; border-radius: var(--r-card); }
 .albumCard:hover { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
 .albumCardSelected { background: var(--dew-tint); border-color: var(--dew); }

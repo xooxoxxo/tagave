@@ -112,19 +112,18 @@ between browsing and upkeep: the hairline cut into the
 }
 
 /* ---- context-aware bar ---- */
-/* Desktop: the search pill and the Maintenance toggle share a row. */
 .tools { display: flex; align-items: center; gap: .5rem; }
 .tools .searchButton { flex: 1; min-width: 0; }
-/* off: the same flat outlined circle as search and the menu button, so the
-   curation toggle is never the loudest control; on: dew-tinted, pressed */
-.modeToggle { flex: none; }
-.tools .modeToggle { --b-ink: var(--ink-2); width: 2.75rem; height: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid var(--line); background: var(--surface); box-shadow: inset 0 1px 0 var(--highlight); }
-.tools .modeToggle:hover:not(:disabled) { --b-ink: var(--ink); background: var(--mist); border-color: var(--line-strong); box-shadow: inset 0 1px 0 var(--highlight); }
-.tools .modeToggle:active:not(:disabled) { transform: none; background: var(--mist); }
-.tools .modeOn,
-.tools .modeOn:hover:not(:disabled) { --b-ink: var(--chip-on-ink); background: var(--dew-tint); border-color: color-mix(in srgb, var(--dew) 40%, transparent); box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .14); }
+/* Maintenance: the toggle shows only on album pages, in the phone bar (the
+   album header carries it on wider screens); everywhere else, while it is
+   on, a small pill says so and turns it off. */
+.phoneModeToggle { display: none; }
+.modePill { align-self: flex-start; margin: -.75rem 0 0 .25rem; }
 
 .phoneBar { display: none; align-items: center; gap: .25rem; min-width: 0; }
+/* the same 44px circle as search and the menu button, so a detail page's
+   bar is exactly as tall as every other page's (the title below stays put) */
+.phoneBar .backButton { width: 2.75rem; height: 2.75rem; min-height: 2.75rem; }
 .backButton { flex: none; }
 /* Detail pages on wider screens: a slim bar over the page, clear at rest,
    frosted once the page's own title has scrolled under it. */
@@ -136,15 +135,24 @@ between browsing and upkeep: the hairline cut into the
   align-items: center;
   gap: .5rem;
   height: 56px;
-  padding: 0 calc(var(--page-pad) - .5rem);
+  /* an overlay: it takes no room, so a detail page's title row starts at
+     the same height as every other page's heading */
+  margin-bottom: -56px;
+  /* the back button lands where it sat in the title row: the column edge */
+  padding: 0 var(--shell-gutter);
   background: transparent;
   box-shadow: 0 1px 0 transparent;
-  transition: background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 200ms var(--ease-out), transform 240ms var(--ease-out), visibility 0s linear 240ms, background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
-/* The back button on a detail page sits over the page (on the album page,
-   over the cover's colours and, once scrolled, over the cover itself): a
-   small clear pill keeps it readable on any artwork. Once the bar has its
-   own glass (scrolled past the title) the pill steps back. */
+/* The back button in a detail page's title row sits over the page (on the
+   album page, over the cover's colours): a small clear pill keeps it
+   readable on any artwork. In the bar, which has its own glass, the pill
+   steps back. */
+.inlineBack,
+.inlineBack:hover:not(:disabled),
 .appBar .backButton,
 .appBar .backButton:hover:not(:disabled) {
   background: color-mix(in srgb, var(--surface) 72%, transparent);
@@ -160,6 +168,10 @@ between browsing and upkeep: the hairline cut into the
   box-shadow: none;
 }
 .appBarScrolled {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition: opacity 200ms var(--ease-out), transform 240ms var(--ease-out), visibility 0s, background-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
   background: color-mix(in srgb, var(--canvas) 84%, transparent);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
   backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
@@ -178,14 +190,22 @@ between browsing and upkeep: the hairline cut into the
 }
 .barTitleShown { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
-  .barTitle, .appBar { transition: none; }
+  .barTitle, .appBar, .appBarScrolled { transition: none; transform: none; }
 }
 @media (max-width: 900px) {
   .tools { display: contents; }
-  .modeToggle { grid-column: 2; grid-row: 3; justify-self: end; }
+  /* no sidebar to sit in: the pill floats in the corner, clear of toasts */
+  .modePill {
+    position: fixed;
+    right: max(1rem, env(safe-area-inset-right));
+    bottom: max(1rem, env(safe-area-inset-bottom));
+    z-index: var(--z-sticky);
+    margin: 0;
+    box-shadow: inset 0 1px 0 var(--highlight), 0 8px 24px -12px rgba(var(--shadow-tint), .45);
+  }
 }
 @media (max-width: 720px) {
-  .modeToggle { grid-column: 2; grid-row: 1; }
+  .phoneModeToggle { display: inline-flex; grid-column: 2; grid-row: 1; }
   /* detail pages: back button and the title that fades in, instead of the mark */
   .navDetail .brand { display: none; }
   .phoneBar { display: flex; grid-column: 1; grid-row: 1; }

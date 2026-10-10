@@ -4,6 +4,8 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from 
 import { SearchModal } from './SearchModal';
 import { Button, IconButton } from './ui';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
+import { MaintenancePill, MaintenanceToggle } from './MaintenanceToggle';
+import { PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
 import { useAppBarTitle } from './appBarTitle';
 import { BrandMark } from './BrandMark';
@@ -28,8 +30,9 @@ export function Layout() {
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
   const barTitle = useAppBarTitle();
-  // Detail pages trade the mark for a back button (phone) or a slim bar
-  // above the page (wider screens); the page's title fades into it on scroll.
+  // Detail pages trade the mark for a back button (phone); on wider screens
+  // the back button leads the page's title row and, once the title scrolls
+  // away, a slim bar fades in over the page with both.
   const parent = parentPath(pathname);
   useJobEvents(user && libraryId ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
@@ -75,22 +78,19 @@ export function Layout() {
     if (back.kind === 'history') router.history.back();
     else void navigate({ to: back.to, ...(back.to === '/albums' && albumsReturnSearch ? { search: albumsReturnSearch as never } : {}) });
   };
+  const backChevron = <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>;
   const backButton = back && (
     <IconButton label={backLabel} variant="quiet" className={styles.backButton} onClick={goBack}>
-      <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>
+      {backChevron}
     </IconButton>
   );
   const shownTitle = back && barTitle.title ? barTitle.title : null;
-  const maintenanceToggle = (
-    <IconButton
-      label={maintenance ? 'Turn off Maintenance' : 'Turn on Maintenance'}
-      title={maintenance ? 'Maintenance is on: curation tools are showing (Shift+M)' : 'Maintenance: show curation tools (Shift+M)'}
-      aria-pressed={maintenance}
-      variant="quiet"
-      className={`${styles.modeToggle} ${maintenance ? styles.modeOn : ''}`}
-      onClick={() => setMaintenance(!maintenance)}
-    >
-      <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L4 16.7V20h3.3l5.3-5.3a4 4 0 0 0 5.1-5.4l-2.5 2.5-2.4-.6-.6-2.4Z" /></svg>
+  // Maintenance changes the album page only, so its toggle lives there (and
+  // in the phone bar on album pages); elsewhere a pill says it is on.
+  const onAlbumPage = /^\/albums\/[^/]+/.test(pathname);
+  const renderInlineBack = () => back && (
+    <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>
+      {backChevron}
     </IconButton>
   );
 
@@ -114,8 +114,8 @@ export function Layout() {
           <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
         </button>
-        {maintenanceToggle}
         </div>
+        {onAlbumPage ? <MaintenanceToggle className={styles.phoneModeToggle} /> : <MaintenancePill className={styles.modePill} />}
         <button
           ref={menuButton}
           type="button"
@@ -151,13 +151,18 @@ export function Layout() {
         {/* The footer scrolls with the page instead of holding a strip of
             every screen; on a phone that strip cost a fifth of the height. */}
         <main id="main-content" ref={main} tabIndex={-1} className={styles.main}>
+          {/* Detail pages: the back button leads the page's title row (the
+              page shell renders it); once the title scrolls away this bar
+              fades in over the page with the back button and the title. */}
           {back && (
-            <div className={`${styles.appBar} ${barTitle.shown ? styles.appBarScrolled : ''}`}>
+            <div className={`${styles.appBar} ${barTitle.shown ? styles.appBarScrolled : ''}`} inert={!barTitle.shown}>
               {backButton}
               <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
             </div>
           )}
-          <div className={styles.page}><Outlet /></div>
+          <PageBackContext.Provider value={renderInlineBack}>
+            <div className={styles.page}><Outlet /></div>
+          </PageBackContext.Provider>
           <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
         </main>
       </div>

@@ -540,10 +540,10 @@ export function PlanPage() {
   const toggle = (id: string) => setExpanded((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
 
-  if (!libraryId || planQ.isLoading) return <PageShell title="Loading">Loading plan…</PageShell>;
+  if (!libraryId || planQ.isLoading) return <PageShell back title="Loading" barTitle={null}>Loading plan…</PageShell>;
   if (planQ.isError || !p) {
     return (
-      <PageShell title="Plan not found">
+      <PageShell back title="Plan not found" barTitle={null}>
         <div className={styles.body}>
           <Link to="/plans" className={styles.back}>← Tag changes</Link>
           <p className={styles.error}>This plan could not be loaded.</p>
@@ -567,6 +567,8 @@ export function PlanPage() {
 
   return (
     <PageShell
+      back
+      barTitle={p.name || 'Untitled plan'}
       title={<span className={`${styles.title} ${(p.name || '').length > 32 ? styles.titleLong : ''}`}>
         {/* The name is clamped to two lines (full name on hover) with the
             pencil and the status chip on its row, so the chip never drops to

@@ -1,20 +1,39 @@
+/* The page shell. The shell spans the whole pane (so a header band can run
+   edge to edge); every row inside it keeps to one content column through
+   its inline padding, --shell-gutter (tokens.css), so the column edge is
+   identical on every page and every width. */
 .pageShell {
   display: flex;
   flex-direction: column;
   min-height: 100%;
   width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
+}
+
+/* A page whose list scrolls inside it fills the pane instead of growing. */
+.pageShellFill {
+  composes: pageShell;
+  height: 100%;
+  min-height: 0;
 }
 
 .header {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-xl);
-  padding: 2rem var(--page-pad) 1.5rem;
-
+  padding: var(--page-top) var(--shell-gutter) 1.5rem;
   flex-wrap: wrap;
+}
+.pageShellFill .header { padding-bottom: var(--space-md); }
+
+/* Behind the header, edge to edge of the pane (the album's cover wash). */
+.band {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
 }
 
 .titleBlock {
@@ -25,11 +44,38 @@
   min-width: 0;
 }
 
+/* back button (detail pages), the heading, a quiet count on its baseline */
+.titleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm) var(--space-md);
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0 0 var(--space-sm) 0;
+}
+
 .title {
+  flex: 0 1 auto;
+  min-width: 0;
   font: var(--type-headline);
   letter-spacing: -0.01em;
   color: var(--ink);
-  margin: 0 0 var(--space-sm) 0;
+  margin: 0;
+}
+
+/* Inline to the left of the title, centred on it; its circle starts on the
+   shared column edge, so the page's content below keeps the same edge as
+   every list page. */
+.back {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+}
+
+.aside {
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
 }
 
 .subtitle {
@@ -52,11 +98,20 @@
 .content {
   flex: 1;
   min-width: 0;
-  padding: 1.5rem var(--page-pad) 2rem;
+  padding: 1.5rem var(--shell-gutter) 2rem;
   display: flex;
   flex-direction: column;
   gap: var(--space-lg);
 }
+.pageShellFill .content {
+  min-height: 0;
+  padding: 0 var(--shell-gutter) var(--page-pad);
+  gap: var(--space-md);
+}
 
-.tabs { padding-inline: var(--page-pad); }
+.tabs { padding-inline: var(--shell-gutter); }
+
 @media (max-width: 640px) { .header { flex-direction: column; gap: 1rem; } .titleBlock { flex: 0 0 auto; width: 100%; } .actions { flex-wrap: wrap; } }
+
+/* Phone: the back button lives in the top bar (Layout), not in the page. */
+@media (max-width: 720px) { .back { display: none; } }

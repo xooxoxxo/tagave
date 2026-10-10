@@ -1,0 +1,61 @@
+/* off: the same flat outlined circle as search and the menu button, so the
+   curation toggle is never the loudest control; on: dew-tinted, pressed */
+.toggle {
+  --b-ink: var(--ink-2);
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: inset 0 1px 0 var(--highlight);
+}
+.toggle:hover:not(:disabled) { --b-ink: var(--ink); background: var(--mist); border-color: var(--line-strong); box-shadow: inset 0 1px 0 var(--highlight); }
+.toggle:active:not(:disabled) { transform: none; background: var(--mist); }
+.on,
+.on:hover:not(:disabled) {
+  --b-ink: var(--chip-on-ink);
+  background: var(--dew-tint);
+  border-color: color-mix(in srgb, var(--dew) 40%, transparent);
+  box-shadow: inset 0 1px 3px rgba(var(--shadow-tint), .14);
+}
+
+/* "Maintenance on · Turn off": small, dew-tinted, never in the way */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2rem;
+  padding: 0 .35rem 0 .75rem;
+  border: 1px solid color-mix(in srgb, var(--dew) 35%, transparent);
+  border-radius: var(--r-pill);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
+  font-size: .8125rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: inset 0 1px 0 var(--highlight);
+}
+.pillDot { width: .45rem; height: .45rem; border-radius: var(--r-pill); background: var(--dew); flex: none; }
+.pillSep { color: var(--ink-3); }
+.pillOff {
+  min-height: 1.6rem;
+  padding: 0 .55rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--chip-on-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.pillOff:hover { background: color-mix(in srgb, var(--dew) 14%, transparent); }
+.pillOff:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+@media (forced-colors: active) {
+  .pill { border-color: CanvasText; }
+  .pillDot { background: Highlight; }
+}

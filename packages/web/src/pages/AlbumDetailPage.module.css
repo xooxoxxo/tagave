@@ -1,21 +1,12 @@
-/* Album page: the album first, a calm vertical rhythm, one content width.
-   The header is a full-bleed band (its backdrop runs edge to edge of the
-   pane); everything under it sits in the content column. */
-.page {
-  display: flex;
-  flex-direction: column;
-  min-height: 100%;
-}
-
+/* Album page: the album first, a calm vertical rhythm. The page shell
+   gives the column (edge, width, top) like every page; the header's band
+   (the backdrop) runs edge to edge of the pane behind it. */
 .container {
   position: relative; /* paints over the band's backdrop where it fades out */
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 1.75rem auto 0;
-  padding: 0 var(--page-pad) var(--page-pad);
+  min-width: 0;
 }
 
 /* the panel the tab strip controls: the same rhythm as the column */
@@ -28,22 +19,16 @@
 
 /* ---- identity header ---- */
 
-.heroBand {
-  position: relative;
-  isolation: isolate;
-  padding: 0 var(--page-pad);
-}
-
 /* A soft wash of the cover's own colours behind the header (Roon, Qobuz).
-   The frame spans the whole main pane, from the very top (behind the back
-   button's bar) to below the header, and clips the blurred image: the image
+   The frame spans the whole main pane, from the very top to below the
+   header, and clips the blurred image: the image
    is larger than the frame, so its blurred-out edges never show and the
    sides stay coloured at any width. The frame's mask fades it into the
    canvas at the bottom; there is no hard edge anywhere. */
 .backdropFrame {
   position: absolute;
   z-index: -1;
-  top: calc(-1 * var(--album-bar-h, 56px));
+  top: 0;
   right: 0;
   bottom: -96px;
   left: 0;
@@ -82,9 +67,8 @@
   grid-template-columns: clamp(200px, 24vw, 280px) minmax(0, 1fr);
   align-items: end;
   gap: clamp(1.5rem, 3.5vw, 3rem);
-  max-width: calc(var(--content-max) - 2 * var(--page-pad));
-  margin: 0 auto;
-  padding-top: 0.5rem;
+  width: 100%;
+  min-width: 0;
 }
 
 .coverBox {
@@ -105,6 +89,14 @@
   gap: 0.6rem;
   min-width: 0;
   padding-bottom: 0.25rem;
+}
+
+/* the back button (wider screens), then the title, centred on each other */
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
 }
 
 /* The album title is the one display-sized line on the page. */
@@ -782,11 +774,10 @@ td.cellOff {
 
 /* ---- phone: the album centred like a player's album view ---- */
 
-/* the app bar of detail pages is hidden here (the back button lives in the
-   phone bar above the scroll area), so the backdrop starts at the top */
+/* the Maintenance switch moves to the phone bar (Layout) */
 @media (max-width: 720px) {
-  .heroBand {
-    --album-bar-h: 0px;
+  .modeToggle {
+    display: none;
   }
 }
 
@@ -794,15 +785,11 @@ td.cellOff {
   .container {
     gap: 1.5rem;
   }
-  .container {
-    margin-top: 1.5rem;
-  }
   .hero {
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
     text-align: center;
     gap: 1.25rem;
-    padding-top: 1.25rem;
   }
   .backdropFrame {
     bottom: -48px;
@@ -827,8 +814,10 @@ td.cellOff {
   .headInfo > * {
     grid-column: 1 / -1;
   }
-  .title {
+  .titleRow {
     grid-row: 1;
+  }
+  .title {
     font-size: clamp(28px, 8vw, 36px);
   }
   .artist {
