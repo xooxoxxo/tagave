@@ -14,7 +14,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
  * round ends never squash; the middle is a plain band whose horizontal
  * stretch cannot be seen. A change of selection is a FLIP: the parts are set
  * at the new item, then animated (Web Animations, composited) from where they
- * were, on a soft spring-like curve that settles with a slight overshoot.
+ * were, like a small spring: a quick start and a long soft deceleration that
+ * runs a hair past the target (at most 3px, so an end item never leaves the
+ * track) and settles back.
  *
  * - The first placement, and any re-placement after a resize or a font load,
  *   is instant: only a change of selection animates. A resize that lands
@@ -24,8 +26,15 @@ import { useLayoutEffect, useRef, useState } from 'react';
  *   data-indicator attribute and the active item paints its own bubble.
  */
 export const INDICATOR_MS = 300;
-/** Soft spring: a quick start, a long settle and a ~4% overshoot. */
-export const INDICATOR_EASE = 'cubic-bezier(0.2, 0.9, 0.25, 1.15)';
+/** The run to the peak: a quick start and a long soft deceleration. */
+export const INDICATOR_EASE = 'cubic-bezier(0.2, 0.9, 0.3, 1)';
+/** The settle back from the peak. */
+export const INDICATOR_SETTLE_EASE = 'cubic-bezier(0.45, 0, 0.4, 1)';
+/** Where in the slide the pill reaches its peak (fraction of the duration). */
+export const INDICATOR_PEAK = 0.7;
+/** The overshoot: 4% of the distance, never more than 3px. */
+export const OVERSHOOT_RATIO = 0.04;
+export const OVERSHOOT_MAX_PX = 3;
 
 export interface IndicatorBox {
   x: number;
@@ -63,12 +72,41 @@ export function indicatorParts(box: IndicatorBox, midBase: number): IndicatorPar
   };
 }
 
-/** The keyframes of one slide: from the pill at `from` to the pill at `to`, transforms only. */
-export function indicatorFrames(from: IndicatorBox, to: IndicatorBox): { left: [string, string]; mid: [string, string]; right: [string, string]; midBase: number } {
+const lerpBox = (a: IndicatorBox, b: IndicatorBox, p: number): IndicatorBox => ({
+  x: a.x + (b.x - a.x) * p,
+  y: a.y + (b.y - a.y) * p,
+  width: a.width + (b.width - a.width) * p,
+  height: b.height,
+});
+
+/** How far past the target the slide runs, as a fraction of the way (bounded in px). */
+export function overshootFraction(from: IndicatorBox, to: IndicatorBox): number {
+  const distance = Math.max(Math.abs(to.x - from.x), Math.abs(to.x + to.width - (from.x + from.width)));
+  if (distance === 0) return 0;
+  return Math.min(OVERSHOOT_RATIO, OVERSHOOT_MAX_PX / distance);
+}
+
+/**
+ * The keyframes of one slide, transforms only: from the pill at `from`, a
+ * little past the pill at `to` (the peak), and back to rest at `to`. Every
+ * part follows the same fraction of the way at every moment, so the band
+ * always runs exactly from one cap's centre to the other's.
+ */
+export function indicatorFrames(from: IndicatorBox, to: IndicatorBox): { left: [string, string, string]; mid: [string, string, string]; right: [string, string, string]; midBase: number } {
   const midBase = midWidth(to);
   const a = indicatorParts(from, midBase);
+  const peak = indicatorParts(lerpBox(from, to, 1 + overshootFraction(from, to)), midBase);
   const b = indicatorParts(to, midBase);
-  return { left: [a.left, b.left], mid: [a.mid, b.mid], right: [a.right, b.right], midBase };
+  return { left: [a.left, peak.left, b.left], mid: [a.mid, peak.mid, b.mid], right: [a.right, peak.right, b.right], midBase };
+}
+
+/** Web Animations keyframes for one part: run to the peak, settle back. */
+export function partKeyframes([start, peak, end]: [string, string, string]): Keyframe[] {
+  return [
+    { transform: start, offset: 0, easing: INDICATOR_EASE },
+    { transform: peak, offset: INDICATOR_PEAK, easing: INDICATOR_SETTLE_EASE },
+    { transform: end, offset: 1 },
+  ];
 }
 
 /** Whether a placement animates: only a change of selection, never the first placement, never with reduced motion. */
@@ -164,12 +202,12 @@ export function useSlidingIndicator<T extends HTMLElement>(activeKey: unknown) {
     }
     // ...then it plays from where it was (the "invert, play")
     const frames = indicatorFrames(from, box);
-    const timing: KeyframeAnimationOptions = { duration: INDICATOR_MS, easing: INDICATOR_EASE };
+    const timing: KeyframeAnimationOptions = { duration: INDICATOR_MS };
     el.dataset.moving = 'true';
     const animations = [
-      left.animate([{ transform: frames.left[0] }, { transform: frames.left[1] }], timing),
-      mid.animate([{ transform: frames.mid[0] }, { transform: frames.mid[1] }], timing),
-      right.animate([{ transform: frames.right[0] }, { transform: frames.right[1] }], timing),
+      left.animate(partKeyframes(frames.left), timing),
+      mid.animate(partKeyframes(frames.mid), timing),
+      right.animate(partKeyframes(frames.right), timing),
     ];
     last.current.animations = animations;
     void animations[0]!.finished.then(() => {

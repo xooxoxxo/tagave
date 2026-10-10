@@ -129,11 +129,9 @@
   --dur-pop: 360ms;
   --ease-pop: cubic-bezier(0.34, 1.9, 0.55, 1);
   /* The selected pill of a tab strip or segmented control flowing to a new
-     choice, like a raindrop: quick to leave, a long soft settle, a hint of
-     overshoot (useSlidingIndicator keeps the same numbers). The labels
-     crossfade over the same time on --ease-out. */
+     choice, like a raindrop (useSlidingIndicator: INDICATOR_MS). The labels
+     crossfade over the same time. */
   --dur-indicator: 300ms;
-  --ease-drop: cubic-bezier(0.2, 0.9, 0.25, 1.15);
 
   --shadow-card: inset 0 1px 0 var(--highlight), 0 24px 48px -32px rgba(var(--shadow-tint), 0.4);
   --shadow-float: inset 0 1px 0 color-mix(in srgb, var(--highlight) 60%, transparent), 0 18px 40px -18px rgba(var(--shadow-tint), 0.45);

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Tabs } from './Tabs';
 import { SegmentedControl } from './SegmentedControl';
-import { INDICATOR_EASE, INDICATOR_MS, indicatorFrames, indicatorParts, midWidth, shouldAnimate, translationOf } from './useSlidingIndicator';
+import { INDICATOR_EASE, INDICATOR_MS, INDICATOR_PEAK, INDICATOR_SETTLE_EASE, indicatorFrames, indicatorParts, midWidth, overshootFraction, partKeyframes, shouldAnimate, translationOf } from './useSlidingIndicator';
 
 const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '');
 const read = (rel: string) => stripComments(readFileSync(new URL(rel, import.meta.url), 'utf8'));
@@ -19,13 +19,26 @@ function parse(t: string) {
 }
 
 describe('sliding pill: flows like a raindrop, transforms only', () => {
-  it('~300ms on a soft spring curve that settles with a slight overshoot', () => {
+  it('~300ms like a small spring: a soft run to a peak just past the target, then a settle back', () => {
     expect(INDICATOR_MS).toBe(300);
-    expect(INDICATOR_EASE).toBe('cubic-bezier(0.2, 0.9, 0.25, 1.15)');
-    // the CSS tokens (label crossfade) keep the same numbers
-    const tokens = read('../../styles/tokens.css');
-    expect(tokens).toMatch(/--dur-indicator: 300ms;/);
-    expect(tokens).toMatch(/--ease-drop: cubic-bezier\(0\.2, 0\.9, 0\.25, 1\.15\);/);
+    expect(INDICATOR_EASE).toBe('cubic-bezier(0.2, 0.9, 0.3, 1)');
+    const k = partKeyframes(['a', 'peak', 'b']);
+    expect(k).toEqual([
+      { transform: 'a', offset: 0, easing: INDICATOR_EASE },
+      { transform: 'peak', offset: INDICATOR_PEAK, easing: INDICATOR_SETTLE_EASE },
+      { transform: 'b', offset: 1 },
+    ]);
+    // the label crossfade (CSS) runs over the same time
+    expect(read('../../styles/tokens.css')).toMatch(/--dur-indicator: 300ms;/);
+  });
+
+  it('the overshoot is 4% of the way and never more than 3px, so an end item never leaves the track', () => {
+    const at = (x: number, width = 80) => ({ x, y: 4, width, height: 40 });
+    expect(overshootFraction(at(4), at(54))).toBeCloseTo(0.04); // 50px: 2px past
+    expect(overshootFraction(at(204), at(4)) * 200).toBeCloseTo(3); // 200px: capped at 3px
+    expect(overshootFraction(at(4), at(4))).toBe(0);
+    const f = indicatorFrames(at(204), at(4));
+    expect(parse(f.left[1]).x).toBeCloseTo(1, 1); // 3px past x=4: still inside the 4px track padding
   });
 
   it('at rest the parts tile the pill exactly: caps at both ends, the band between their centres', () => {
@@ -46,11 +59,14 @@ describe('sliding pill: flows like a raindrop, transforms only', () => {
     const f = indicatorFrames(from, to);
     expect(f.midBase).toBe(80);
     expect(parse(f.left[0]).x).toBe(4);
-    expect(parse(f.left[1]).x).toBe(90);
+    expect(parse(f.left[2]).x).toBe(90);
     expect(parse(f.right[0]).x).toBe(4 + 80 - 40);
-    expect(parse(f.right[1]).x).toBe(90 + 120 - 40);
+    expect(parse(f.right[2]).x).toBe(90 + 120 - 40);
     expect(parse(f.mid[0]).s).toBe(0.5); // old band 40px over a laid-out 80px
-    expect(parse(f.mid[1]).s).toBe(1);
+    expect(parse(f.mid[2]).s).toBe(1);
+    // the peak is a little further along the same way
+    expect(parse(f.left[1]).x).toBeGreaterThan(90);
+    expect(parse(f.left[1]).x).toBeLessThanOrEqual(93);
     // every keyframe is a transform: nothing that needs layout or paint per frame
     for (const t of [...f.left, ...f.mid, ...f.right]) expect(t).not.toMatch(/width|left|top|height/);
   });
@@ -59,12 +75,12 @@ describe('sliding pill: flows like a raindrop, transforms only', () => {
     const from = { x: 4, y: 4, width: 70, height: 40 };
     const to = { x: 200, y: 4, width: 130, height: 40 };
     const f = indicatorFrames(from, to);
-    for (const p of [0, 0.25, 0.5, 1, 1.04]) { // 1.04: the overshoot
+    for (const [i, j] of [[0, 1], [1, 2]] as const) for (const p of [0, 0.25, 0.5, 0.75, 1]) {
       const lerp = (a: number, b: number) => a + (b - a) * p;
-      const l = lerp(parse(f.left[0]).x, parse(f.left[1]).x);
-      const r = lerp(parse(f.right[0]).x, parse(f.right[1]).x);
-      const mx = lerp(parse(f.mid[0]).x, parse(f.mid[1]).x);
-      const ms = lerp(parse(f.mid[0]).s, parse(f.mid[1]).s);
+      const l = lerp(parse(f.left[i]).x, parse(f.left[j]).x);
+      const r = lerp(parse(f.right[i]).x, parse(f.right[j]).x);
+      const mx = lerp(parse(f.mid[i]).x, parse(f.mid[j]).x);
+      const ms = lerp(parse(f.mid[i]).s, parse(f.mid[j]).s);
       expect(mx).toBeCloseTo(l + 20, 2); // band starts at the left cap's centre
       expect(mx + ms * f.midBase).toBeCloseTo(r + 20, 2); // and ends at the right cap's centre
     }
