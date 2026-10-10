@@ -539,8 +539,8 @@ export function AlbumsPage() {
                           />
                         </label>
                         <span className={styles.thumb}><CoverArt src={album.coverUrl} title={album.title} compact /></span>
-                        <span className={styles.listTitle}>{album.title}</span>
-                        <span className={styles.listArtist}>{album.artistCredit}</span>
+                        <span className={styles.listTitle} dir="auto">{album.title}</span>
+                        <span className={styles.listArtist} dir="auto">{album.artistCredit}</span>
                         <span className={styles.listYear}>{album.year ?? '–'}</span>
                         <span className={styles.listTracks}>
                           {maintenance && album.canonicalTrackCount != null && album.trackCount < album.canonicalTrackCount
@@ -597,8 +597,8 @@ export function AlbumsPage() {
                               <CoverArt src={album.coverUrl} title={album.title} fill />
                             </div>
                             <div className={styles.albumInfo}>
-                              <h3 className={styles.albumTitle}>{album.title}</h3>
-                              <p className={styles.albumArtist}>{album.artistCredit}</p>
+                              <h3 className={styles.albumTitle} dir="auto">{album.title}</h3>
+                              <p className={styles.albumArtist} dir="auto">{album.artistCredit}</p>
                               <p className={styles.albumStats}>
                                 <span className={album.isLossless ? styles.formatLossless : album.isMixed ? styles.formatMixed : styles.formatTag}>{formatLabel(album)}</span>
                                 {' · '}{album.trackCount} {album.trackCount === 1 ? 'track' : 'tracks'}
