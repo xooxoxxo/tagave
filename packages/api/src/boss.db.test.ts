@@ -66,7 +66,7 @@ describe.skipIf(!url)('pg-boss connection drop (db)', () => {
       await admin.end();
       await new Promise((r) => setTimeout(r, 1500));
       console.log('SURVIVED');
-      await boss.stop({ graceful: false, wait: false }).catch(() => {});
+      await boss.stop({ graceful: false }).catch(() => {});
       process.exit(0);
     `;
     const res = spawnSync(process.execPath, ['--input-type=module', '-e', script], {
@@ -98,6 +98,6 @@ describe.skipIf(!url)('pg-boss connection drop (db)', () => {
     const id = await boss.send(queue, { ok: true });
     expect(id).toBeTruthy();
     await boss.deleteQueue(queue);
-    await boss.stop({ graceful: false, wait: true, timeout: 5_000 });
+    await boss.stop({ graceful: false, timeout: 5_000 });
   }, 40_000);
 });
