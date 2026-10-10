@@ -1,2 +1,6 @@
 packages:
   - packages/*
+
+# Never install a version published less than 30 days ago (minutes). Lives here
+# so CI and Docker builds honour it, not only a developer's global config.
+minimumReleaseAge: 43200
