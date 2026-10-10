@@ -49,15 +49,16 @@ describe('album header backdrop: full bleed, no hard edges', () => {
     expect(overhang).toBeGreaterThanOrEqual(3 * blur);
   });
 
-  it('the band is not held to the content column; the hero inside it is', () => {
-    // the band is the page shell's (edge to edge of the pane); the hero sits
-    // in the shell's header, which keeps to the shared column
+  it('the band is not held to the content column; the album inside it is', () => {
+    // the album flow lays out its own header (PageShell bare): the wash
+    // spans the hero edge to edge of the pane, the hero keeps the column
     expect(rule(css, '.backdropFrame')).not.toMatch(/max-width/);
-    expect(readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8')).toMatch(/<PageShell\s+band=\{/);
-    const shell = read('../components/ui/PageShell.module.css');
-    expect(rule(shell, '.band')).toMatch(/inset: 0/);
-    expect(rule(shell, '.header')).toMatch(/var\(--shell-gutter\)/);
-    expect(rule(css, '.container')).toMatch(/position: relative/);
+    const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
+    expect(tsx).toMatch(/<PageShell bare>/);
+    expect(tsx.indexOf('styles.backdropFrame')).toBeGreaterThan(tsx.indexOf('className={styles.hero}'));
+    expect(rule(css, '.hero')).toMatch(/position: relative/);
+    expect(rule(css, '.hero')).toMatch(/isolation: isolate/);
+    expect(rule(css, '.flow')).toMatch(/--flow-gutter: var\(--shell-gutter\)/);
   });
 });
 
@@ -153,11 +154,11 @@ describe('album page wiring', () => {
     expect(tsx).toMatch(/id=\{TAB_PANEL_ID\} role="tabpanel" aria-labelledby=\{tabIdFor\(TAB_PANEL_ID, tab\)\}/);
   });
 
-  it('the header line: chips and provider links first, "⋯" trailing', () => {
+  it('the Maintenance line: state and provider links first, "⋯" trailing', () => {
     const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
-    const tools = tsx.slice(tsx.indexOf('className={styles.headTools}'));
-    expect(tools.indexOf('styles.statusLine')).toBeLessThan(tools.indexOf('<Menu '));
-    expect(tools.indexOf('Master ↗')).toBeLessThan(tools.indexOf('<Menu '));
+    const tools = tsx.slice(tsx.indexOf('<div className={styles.statusLine}>'));
+    expect(tools.indexOf('Master ↗')).toBeGreaterThan(-1);
+    expect(tools.indexOf('Master ↗')).toBeLessThan(tools.indexOf('{manageMenu}'));
   });
 
   it('the back button keeps a clear pill over artwork until the bar has its own glass', () => {

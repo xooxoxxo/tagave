@@ -1,0 +1,158 @@
+import { describe, expect, it } from 'vitest';
+import {
+  A_HDR, A_REST, B_HDR, B_REST, B_TOP, HEADER,
+  albumFacts, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, flowState, formatLine, formatReleased, seededRandom, wantsFiller,
+} from './albumFlow';
+import type { DetailTrack } from './albumDetailTypes';
+
+/* The phone geometry of the approved prototype: cover 72..418, names at 438, TRACKLIST at 798. */
+const geo = { coverBottom: 418, namesTop: 438, tlTop: 798 };
+const dockAt = geo.namesTop - HEADER;
+
+describe('album flow: scroll progress', () => {
+  it('at rest nothing has moved', () => {
+    const s = flowState(0, geo);
+    expect(s.coverOpacity).toBe(1);
+    expect(s.nameProgress).toBe(0);
+    expect(s.artistScale).toBe(1);
+    expect(s.albumScale).toBe(1);
+    expect(s.albumShift).toBe(0);
+    expect(s.docked).toBe(false);
+    expect(s.caretProgress).toBe(0);
+  });
+
+  it('the cover fades in place and is fully gone as its bottom passes the header', () => {
+    const fadeEnd = geo.coverBottom - HEADER;
+    expect(flowState(fadeEnd / 2, geo).coverOpacity).toBeCloseTo(0.5, 5);
+    expect(flowState(fadeEnd, geo).coverOpacity).toBe(0);
+    expect(flowState(fadeEnd + 200, geo).coverOpacity).toBe(0);
+  });
+
+  it('the lines shrink gradually and reach header size exactly as the artist line meets the header', () => {
+    const half = flowState(dockAt / 2, geo);
+    expect(half.artistScale).toBeCloseTo((1 + A_HDR / A_REST) / 2, 5);
+    expect(half.docked).toBe(false);
+    const just = flowState(dockAt - 1, geo);
+    expect(just.docked).toBe(false);
+    expect(just.artistScale).toBeGreaterThan(A_HDR / A_REST);
+    const at = flowState(dockAt, geo);
+    expect(at.docked).toBe(true);
+    expect(at.artistScale * A_REST).toBeCloseTo(13, 5);
+    expect(at.albumScale * B_REST).toBeCloseTo(17, 5);
+    // the album line sits right under the shrunken artist line: 13px × 1.2 + 1
+    expect(B_TOP + at.albumShift).toBeCloseTo(A_HDR * 1.2 + 1, 5);
+    expect(B_HDR).toBe(17);
+  });
+
+  it('shrinking is monotonic and never overshoots', () => {
+    let prev = flowState(0, geo);
+    for (let y = 10; y <= dockAt + 100; y += 10) {
+      const s = flowState(y, geo);
+      expect(s.artistScale).toBeLessThanOrEqual(prev.artistScale);
+      expect(s.artistScale).toBeGreaterThanOrEqual(A_HDR / A_REST - 1e-9);
+      prev = s;
+    }
+  });
+
+  it('the caret starts straightening on the first scroll and is flat when TRACKLIST sticks', () => {
+    expect(flowState(1, geo).caretProgress).toBeGreaterThan(0);
+    expect(caretPath(flowState(1, geo).caretProgress)).not.toBe(caretPath(0));
+    const stuck = flowState(geo.tlTop - HEADER, geo).caretProgress;
+    expect(stuck).toBe(1);
+    // flat: both ends at the dip's height, spanning the whole width
+    expect(caretPath(1)).toBe('M0 8 L173 8 L346 8');
+    expect(caretPath(0)).toBe('M103 4 L173 12 L243 4');
+  });
+
+  it('a degenerate geometry never divides by zero', () => {
+    const s = flowState(10, { coverBottom: 0, namesTop: 0, tlTop: 0 });
+    expect(Number.isFinite(s.coverOpacity)).toBe(true);
+    expect(s.docked).toBe(true);
+  });
+});
+
+describe('album flow: generative filler', () => {
+  it('only albums with three tracks or fewer get it', () => {
+    expect(wantsFiller(1)).toBe(true);
+    expect(wantsFiller(3)).toBe(true);
+    expect(wantsFiller(4)).toBe(false);
+  });
+
+  it('fills the screen under the stuck header and label, never under 320px', () => {
+    expect(fillerHeight(844, 46, 58)).toBe(844 - 64 - 46 - 58);
+    expect(fillerHeight(600, 46, 400)).toBe(320);
+  });
+
+  it('the same title gives the same piece; another title another', () => {
+    const a = seededRandom('Shock Me');
+    const b = seededRandom('Shock Me');
+    const seqA = Array.from({ length: 8 }, a);
+    expect(Array.from({ length: 8 }, b)).toEqual(seqA);
+    expect(seqA.every((v) => v >= 0 && v < 1)).toBe(true);
+    expect(Array.from({ length: 8 }, seededRandom('Shock Me!'))).not.toEqual(seqA);
+    expect(fillerCentres('Shock Me', 346, 400)).toEqual(fillerCentres('Shock Me', 346, 400));
+    expect(fillerDots('Shock Me', 120, 90)).toEqual(fillerDots('Shock Me', 120, 90));
+    expect(fillerDots('Shock Me', 120, 90)).not.toEqual(fillerDots('In Absentia', 120, 90));
+  });
+
+  it('3 to 5 ripple sources, inside the piece', () => {
+    for (const title of ['XX', 'Shock Me', 'In Absentia', 'ÁÉÍ', '']) {
+      const c = fillerCentres(title, 346, 400);
+      expect(c.length).toBeGreaterThanOrEqual(3);
+      expect(c.length).toBeLessThanOrEqual(5);
+      for (const p of c) {
+        expect(p.x).toBeGreaterThanOrEqual(346 * 0.15);
+        expect(p.x).toBeLessThanOrEqual(346 * 0.85);
+        expect(p.y).toBeGreaterThanOrEqual(400 * 0.25);
+        expect(p.y).toBeLessThanOrEqual(400 * 0.85);
+      }
+    }
+  });
+});
+
+const track = (over: Partial<DetailTrack['file']> = {}): DetailTrack => ({
+  id: 't', discNo: 1, trackNo: 1, title: 'x', durationMs: 1000, origin: 'scan', cueStartMs: null, canonicalTitle: null, canonicalDurationMs: null,
+  file: { relPath: 'a', codec: 'FLAC', lossless: true, bitrateKbps: null, sampleRate: 44100, bitDepth: 16, sizeBytes: 1, status: 'ok', ...over },
+});
+
+describe('album flow: the details', () => {
+  it('dates read like the prototype', () => {
+    expect(formatReleased('2002-09-24')).toBe('24 Sep 2002');
+    expect(formatReleased('2002-09')).toBe('Sep 2002');
+    expect(formatReleased('2002')).toBe('2002');
+    expect(formatReleased(null, 1999)).toBe('1999');
+    expect(formatReleased(null, null)).toBeNull();
+  });
+
+  it('countries by name', () => {
+    expect(countryName('US')).toBe('United States');
+    expect(countryName('XE')).toBe('Europe');
+    expect(countryName('XW')).toBe('Worldwide');
+    expect(countryName(null)).toBeNull();
+  });
+
+  it('the format line', () => {
+    expect(formatLine([track(), track()], ['FLAC'])).toBe('FLAC · 16-bit / 44.1 kHz');
+    expect(formatLine([track({ codec: 'MP3', lossless: false, bitrateKbps: 320 })], ['MP3'])).toBe('MP3 · 320 kbps');
+    expect(formatLine([track(), track({ codec: 'MP3', lossless: false })], [])).toBe('FLAC · MP3');
+    expect(formatLine([], ['FLAC'])).toBe('FLAC');
+    expect(formatLine([], [])).toBeNull();
+  });
+
+  it('whatever exists, in the prototype order', () => {
+    const facts = albumFacts({
+      date: '2002-09-24', year: 2002, labels: [{ name: 'Lava Records', catno: '83604-2' }], country: 'US',
+      totalDurationMs: 68 * 60000, trackCount: 12, discCount: 1, isCueImage: false, formats: ['FLAC'], tracks: [track()],
+    });
+    expect(facts).toEqual([
+      ['Released', '24 Sep 2002'],
+      ['Label', 'Lava Records'],
+      ['Length', '1 hr 8 min · 12 tracks'],
+      ['Format', 'FLAC · 16-bit / 44.1 kHz'],
+      ['Country', 'United States'],
+      ['Catalogue', '83604-2'],
+    ]);
+    const bare = albumFacts({ date: null, year: null, labels: null, country: null, totalDurationMs: null, trackCount: 1, discCount: null, isCueImage: false, formats: [], tracks: [] });
+    expect(bare).toEqual([['Length', '1 track']]);
+  });
+});

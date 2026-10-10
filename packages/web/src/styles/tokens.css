@@ -74,6 +74,14 @@
   --info-rgb: 39, 106, 130;
   --accent-hover: #1c556b;
   --accent-active: #164556;
+  /* transport keys (the album header): faces, pressed face, shade, the cavity behind them */
+  --key-hi: #ffffff;
+  --key-lo: #e4eaef;
+  --key-press: #cfd8df;
+  --key-shade: 18, 38, 58;
+  --key-sheen: rgba(255, 255, 255, 0.75);
+  --key-sheen-docked: rgba(255, 255, 255, 0.6);
+  --key-cavity: rgba(8, 14, 20, 0.8);
 
   /* ---- 2. Scale ---- */
   --font-display: 'Urbanist', 'Avenir Next', 'Segoe UI Variable Display', 'Helvetica Neue', sans-serif;
@@ -255,6 +263,13 @@
     --info-rgb: 95, 176, 204;
     --accent-hover: #9ad3e6;
     --accent-active: #7fc3da;
+    --key-hi: #29343e;
+    --key-lo: #151b21;
+    --key-press: #10151a;
+    --key-shade: 0, 0, 0;
+    --key-sheen: rgba(255, 255, 255, 0.75);
+    --key-sheen-docked: rgba(255, 255, 255, 0.6);
+    --key-cavity: rgba(8, 14, 20, 0.8);
   }
 }
 
@@ -308,4 +323,11 @@
   --info-rgb: 95, 176, 204;
   --accent-hover: #9ad3e6;
   --accent-active: #7fc3da;
+  --key-hi: #29343e;
+  --key-lo: #151b21;
+  --key-press: #10151a;
+  --key-shade: 0, 0, 0;
+  --key-sheen: rgba(255, 255, 255, 0.75);
+  --key-sheen-docked: rgba(255, 255, 255, 0.6);
+  --key-cavity: rgba(8, 14, 20, 0.8);
 }

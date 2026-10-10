@@ -47,9 +47,9 @@ describe('page shell contract', () => {
     for (const page of ['ArtistPage', 'PlanPage']) {
       expect(source(fileFor(page))).toMatch(/<PageShell\s+back\b/);
     }
-    // the album's own header carries it inline before the title
+    // the album draws its own back key (the album page flow's header)
     const album = source('./AlbumDetailPage.tsx');
-    expect(album).toMatch(/<PageBack \/>\s*<h1 ref=\{titleRef\}/);
+    expect(album).toMatch(/<AlbumFlowHeader[\s\S]*backLabel=\{backAct\?\.label \?\? null\}[\s\S]*onBack=\{\(\) => backAct\?\.go\(\)\}/);
   });
 
   it('the shell owns the edge, width and top padding', () => {
@@ -87,20 +87,22 @@ describe('PageShell markup', () => {
 describe('Maintenance lives where it changes something', () => {
   const layout = source('../components/Layout.tsx');
 
-  it('the sidebar has no Maintenance toggle; the phone bar has it on album pages only', () => {
-    expect(layout).not.toMatch(/maintenanceToggle/);
-    expect(layout).toMatch(/onAlbumPage \? <MaintenanceToggle className=\{styles\.phoneModeToggle\} \/> : <MaintenancePill/);
-    expect(rule(css('../components/Layout.module.css'), '.phoneModeToggle')).toMatch(/display:\s*none/);
+  it('the app frame has no Maintenance toggle; the album header carries the key', () => {
+    expect(layout).not.toMatch(/<MaintenanceToggle/);
+    expect(layout).toMatch(/onAlbumPage \? null : <MaintenancePill/);
+    // the album flow draws its own header: no app bar over it, no phone bar above it
+    const frame = css('../components/Layout.module.css');
+    expect(rule(frame, '.main:has([data-album-flow]) > .appBar')).toMatch(/display:\s*none/);
+    expect(frame).toMatch(/@media \(max-width: 720px\) \{\s*\.container:has\(\[data-album-flow\]\) > \.nav \{ display: none; \}/);
   });
 
   it('Shift+M still switches it anywhere', () => {
     expect(layout).toMatch(/isMaintenanceShortcut\(e, e\.target\)/);
   });
 
-  it('the album header carries the switch next to "⋯"', () => {
+  it('the album header carries the Maintenance key', () => {
     const album = source('./AlbumDetailPage.tsx');
-    const row = album.slice(album.indexOf('className={styles.actionRow}'));
-    expect(row.indexOf('<MaintenanceToggle')).toBeGreaterThan(-1);
-    expect(row.indexOf('<MaintenanceToggle')).toBeLessThan(row.indexOf('<Menu '));
+    expect(album).toMatch(/onToggleMaintenance=\{\(\) => setMaintenance\(!maintenance\)\}/);
+    expect(album).toMatch(/data-album-flow=""/);
   });
 });

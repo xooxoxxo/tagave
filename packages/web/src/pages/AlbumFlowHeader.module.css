@@ -2,30 +2,11 @@
    A zero-height sticky layer at the top of the scroll pane: the keys float
    over the page and never move; the header lifts around them when it docks. */
 .header {
-  /* the keys' faces: one gradient for the end keys and the middle key */
-  --key-hi: #ffffff;
-  --key-lo: #e4eaef;
-  --key-press: #cfd8df;
-  --shade: 18, 38, 58;
   --rise: cubic-bezier(.22, .9, .24, 1.04);
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
   height: 0;
-}
-@media (prefers-color-scheme: dark) {
-  :global(:root:not([data-theme="light"])) .header {
-    --key-hi: #29343e;
-    --key-lo: #151b21;
-    --key-press: #10151a;
-    --shade: 0, 0, 0;
-  }
-}
-:global(:root[data-theme="dark"]) .header {
-  --key-hi: #29343e;
-  --key-lo: #151b21;
-  --key-press: #10151a;
-  --shade: 0, 0, 0;
 }
 
 .box {
@@ -43,16 +24,16 @@
   position: absolute;
   z-index: 5;
   inset: 0;
-  background: rgba(8, 14, 20, .8);
+  background: var(--key-cavity);
   opacity: 0;
   transform: translateY(6px) scale(.985);
-  box-shadow: 0 0 0 rgba(var(--shade), 0);
+  box-shadow: 0 0 0 rgba(var(--key-shade), 0);
   transition: opacity .2s ease, transform .34s var(--rise), box-shadow .34s var(--rise);
 }
 .docked .cavity {
   opacity: 1;
   transform: none;
-  box-shadow: 0 14px 26px -16px rgba(var(--shade), .5);
+  box-shadow: 0 14px 26px -16px rgba(var(--key-shade), .5);
 }
 
 /* The icon never moves: its centre is 36px from the edge, 32px down in both
@@ -74,7 +55,7 @@
   pointer-events: auto;
   border-radius: 22px;
   background: radial-gradient(120% 120% at 30% 22%, var(--key-hi), var(--key-lo));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, .75) inset, 0 -1px 0 rgba(var(--shade), .08) inset, 0 8px 18px -8px rgba(var(--shade), .45), 0 2px 4px -1px rgba(var(--shade), .22);
+  box-shadow: 0 1px 0 var(--key-sheen) inset, 0 -1px 0 rgba(var(--key-shade), .08) inset, 0 8px 18px -8px rgba(var(--key-shade), .45), 0 2px 4px -1px rgba(var(--key-shade), .22);
   transform-origin: 50% 0%;
   transition: top .34s var(--rise), left .34s var(--rise), right .34s var(--rise), width .34s var(--rise), height .34s var(--rise), border-radius .34s var(--rise), box-shadow .3s ease, background .3s ease, transform .09s ease-out;
   -webkit-tap-highlight-color: transparent;
@@ -100,10 +81,10 @@
 .docked .key:hover:not(:disabled) { background: linear-gradient(180deg, var(--key-hi), var(--key-lo)); }
 .docked .backKey { left: 0; }
 .docked .maintKey { right: 0; }
-.docked .key, .docked .midKey { box-shadow: inset 0 -1px 0 rgba(var(--shade), .22), inset 0 1px 0 rgba(255, 255, 255, .6); }
+.docked .key, .docked .midKey { box-shadow: inset 0 -1px 0 rgba(var(--key-shade), .22), inset 0 1px 0 var(--key-sheen-docked); }
 /* the keys touch; a hairline on the end keys' inner edges divides the sections */
-.docked .backKey { box-shadow: inset -1px 0 0 rgba(var(--shade), .18), inset 0 -1px 0 rgba(var(--shade), .22), inset 0 1px 0 rgba(255, 255, 255, .6); }
-.docked .maintKey { box-shadow: inset 1px 0 0 rgba(var(--shade), .18), inset 0 -1px 0 rgba(var(--shade), .22), inset 0 1px 0 rgba(255, 255, 255, .6); }
+.docked .backKey { box-shadow: inset -1px 0 0 rgba(var(--key-shade), .18), inset 0 -1px 0 rgba(var(--key-shade), .22), inset 0 1px 0 var(--key-sheen-docked); }
+.docked .maintKey { box-shadow: inset 1px 0 0 rgba(var(--key-shade), .18), inset 0 -1px 0 rgba(var(--key-shade), .22), inset 0 1px 0 var(--key-sheen-docked); }
 /* in the strip the ring sits inside the key, clear of the screen edge and its neighbours */
 .docked .key:focus-visible, .docked .midKey:focus-visible { outline-offset: -4px; }
 /* pressed in the header: hinged at its top edge, the bottom tips into the
