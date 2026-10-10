@@ -188,3 +188,9 @@ export type { PhysicalRecordInfo, LibraryAlbumCandidate, RankedSuggestion } from
 
 // Worker queues and the work each serves
 export { WORKER_QUEUES, GATED_QUEUES, QUEUES_RIDING_WITH, unservedWork } from './queues.js';
+
+// Artists list ordering (api live list, worker artist_list rebuild)
+export {
+  orderArtists, artistListPositions, parseArtistSort, parseArtistGroup, ARTIST_SORTS,
+  type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists, type ArtistPositions,
+} from './artistList.js';

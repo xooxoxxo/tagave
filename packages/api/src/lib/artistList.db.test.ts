@@ -7,7 +7,8 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { images, libraries, localAlbums, users, makeDb } from '@liner/db';
-import { coverKey, coversFor, fetchArtistRows, orderArtists } from './artistList.js';
+import { artistListPositions } from '@liner/core';
+import { coverKey, coversFor, fetchArtistRows, orderArtists, readArtistListPage } from './artistList.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
   let db: any;
@@ -49,6 +50,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
   });
 
   afterAll(async () => {
+    await client`delete from artist_list where library_id = ${libraryId}`;
+    await client`delete from facet_state where library_id = ${libraryId}`;
     await db.delete(images).where(eq(images.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
@@ -82,5 +85,51 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
     expect(covers.get(coverKey(air))).toEqual(albumIds['Air']!.slice(0, 2));
     const beirut = rows.find((r) => r.name === 'Beirut')!;
     expect(covers.get(coverKey(beirut))).toBeUndefined();
+  });
+
+  describe('precomputed list (artist_list, migration 0035)', () => {
+    /** What facets.refresh writes (worker refreshArtistList), built here from the same helpers. */
+    async function buildList() {
+      const positioned = artistListPositions(await fetchArtistRows(db, libraryId, ''));
+      await client`delete from artist_list where library_id = ${libraryId}`;
+      await client`insert into artist_list ${client(positioned.map((p) => ({
+        library_id: libraryId, pos_name: p.posName, pos_albums: p.posAlbums, pos_recent: p.posRecent,
+        artist_id: p.row.id, name: p.row.name, sort_name: p.row.sortName, resolved: p.row.resolved,
+        album_count: p.row.albumCount, track_count: p.row.trackCount, year_from: p.row.yearFrom,
+        year_to: p.row.yearTo, added_at: p.row.addedAt, group_key: p.group,
+      })))}`;
+      await client`insert into facet_state (library_id, artists_at) values (${libraryId}, now())
+                   on conflict (library_id) do update set artists_at = now(), dirty_at = null`;
+    }
+
+    it('is not used before the worker built it', async () => {
+      expect(await readArtistListPage(db, libraryId, { sort: 'name', group: null, offset: 0, limit: 10 })).toBeNull();
+    });
+
+    it('pages every sort and group exactly like the live list', async () => {
+      await buildList();
+      const live = await fetchArtistRows(db, libraryId, '');
+      for (const sort of ['name', 'albums', 'recent'] as const) {
+        for (const group of [null, 'A', '#'] as const) {
+          const all = orderArtists(live, { sort, group });
+          for (const [offset, limit] of [[0, 2], [2, 2], [4, 10], [0, 100]] as const) {
+            const page = await readArtistListPage(db, libraryId, { sort, group, offset, limit });
+            expect(page, `${sort}/${group}/${offset}`).not.toBeNull();
+            expect(page!.items.map((r) => r.name)).toEqual(all.items.slice(offset, offset + limit).map((r) => r.name));
+            expect(page!.total).toBe(all.items.length);
+            expect(page!.groups).toEqual(all.groups);
+          }
+        }
+      }
+      const page = await readArtistListPage(db, libraryId, { sort: 'name', group: null, offset: 0, limit: 1 });
+      expect(page!.items[0]).toMatchObject({ name: 'Air', albumCount: 3, trackCount: 30, yearFrom: 1998, yearTo: 2007, resolved: false });
+      expect(typeof page!.items[0]!.addedAt).toBe('string');
+    });
+
+    it('steps aside while a bulk action has marked the facets stale', async () => {
+      await buildList();
+      await client`update facet_state set dirty_at = now() + interval '1 second' where library_id = ${libraryId}`;
+      expect(await readArtistListPage(db, libraryId, { sort: 'name', group: null, offset: 0, limit: 10 })).toBeNull();
+    });
   });
 });

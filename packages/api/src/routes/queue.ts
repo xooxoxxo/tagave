@@ -1,21 +1,26 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { PgBoss } from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import {
   albumMatches, canonicalTracks, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
 } from '@liner/db';
 import { getDb } from '../db.js';
+import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
-let bossSingleton: PgBoss | null = null;
-async function getBoss(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-    await bossSingleton.createQueue('enrich.release');
-  }
-  return bossSingleton;
+// The process-wide pg-boss (one pool, one error handler) plus this route's queue.
+let bossReady: Promise<PgBoss> | null = null;
+function getBoss(): Promise<PgBoss> {
+  bossReady ??= (async () => {
+    const boss = await getSharedBoss();
+    await boss.createQueue('enrich.release');
+    return boss;
+  })().catch((err) => {
+    bossReady = null;
+    throw err;
+  });
+  return bossReady;
 }
 
 async function assertLibrary(userId: string, libraryId: string) {

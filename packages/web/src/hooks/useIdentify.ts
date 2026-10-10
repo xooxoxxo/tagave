@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { JobsListResponse } from '@liner/shared';
 import { api } from '../services/api';
+import { subscribeJobEvents } from '../services/jobStream';
 
 export interface IdentifyStatsResponse {
   total: number;
@@ -200,18 +201,15 @@ interface JobProgressEvent {
 
 /**
  * Mount SSE listener for job events and queue changes.
- * Opens ONE EventSource per libraryId, debounces invalidations by 1.5 s.
- * Mount once in Layout via useCurrentLibrary guard.
+ * One stream per library for the whole browser (services/jobStream: the
+ * tabs elect one to hold the EventSource and share its events), debounced
+ * invalidations of 1.5 s. Mount once in Layout via useCurrentLibrary guard.
  */
 export function useJobEvents(libraryId: string | undefined) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
     if (!libraryId) return;
-
-    const eventSource = new EventSource(`/api/v1/libraries/${libraryId}/jobs/stream`, {
-      withCredentials: true,
-    });
 
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -227,54 +225,23 @@ export function useJobEvents(libraryId: string | undefined) {
       }, 1500);
     };
 
-    eventSource.addEventListener('queue.changed', (e) => {
+    const unsubscribe = subscribeJobEvents(libraryId, (type, data) => {
       try {
-        const event: QueueChangedEvent = JSON.parse(e.data);
-        if (event.libraryId === libraryId) {
-          // the album page shows its pending request; refresh just that album
-          if (event.localAlbumId) queryClient.invalidateQueries({ queryKey: ['album', event.localAlbumId] });
-          invalidate();
+        const event = JSON.parse(data) as QueueChangedEvent | JobProgressEvent;
+        if (event.libraryId !== libraryId) return;
+        // the album page shows its pending request; refresh just that album
+        if (type === 'queue.changed') {
+          const albumId = (event as QueueChangedEvent).localAlbumId;
+          if (albumId) queryClient.invalidateQueries({ queryKey: ['album', albumId] });
         }
-      } catch {
-        // ignore parse errors
-      }
-    });
-
-    eventSource.addEventListener('job.progress', (e) => {
-      try {
-        const event: JobProgressEvent = JSON.parse(e.data);
-        if (event.libraryId === libraryId) {
-          invalidate();
-        }
-      } catch {
-        // ignore parse errors
-      }
-    });
-
-    eventSource.addEventListener('job.completed', (e) => {
-      try {
-        const event: JobProgressEvent = JSON.parse(e.data);
-        if (event.libraryId === libraryId) {
-          invalidate();
-        }
-      } catch {
-        // ignore parse errors
-      }
-    });
-
-    eventSource.addEventListener('job.failed', (e) => {
-      try {
-        const event: JobProgressEvent = JSON.parse(e.data);
-        if (event.libraryId === libraryId) {
-          invalidate();
-        }
+        invalidate();
       } catch {
         // ignore parse errors
       }
     });
 
     return () => {
-      eventSource.close();
+      unsubscribe();
       if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [libraryId, queryClient]);

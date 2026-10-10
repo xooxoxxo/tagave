@@ -12,6 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
+  'cache.purge',
 ] as const;
 
 /**
@@ -25,6 +26,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'collection.sync': 'enrich.release',
   'collection.push': 'enrich.release',
   'collection.remove': 'enrich.release',
+  // nightly provider_cache cleanup: database-only upkeep, on the facets worker
+  'cache.purge': 'facets.refresh',
 };
 
 /** The names LINER_QUEUES chooses from: each needs some live worker. */

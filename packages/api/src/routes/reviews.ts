@@ -9,7 +9,7 @@
 import type { z } from 'zod';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, desc, eq, sql } from 'drizzle-orm';
-import { PgBoss } from 'pg-boss';
+import type { PgBoss } from 'pg-boss';
 import {
   clippings, externalReviews, libraries, listens, releaseGroups, releases, reviewLinks,
   userReviewRevisions, userReviews,
@@ -20,6 +20,7 @@ import {
   type ReviewRevision, type ReviewsBundle,
 } from '@liner/shared';
 import { getDb } from '../db.js';
+import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** External reviews are refreshed weekly (REV-1) … */
@@ -27,15 +28,19 @@ const REVIEWS_TTL_MS = 7 * 24 * 3600 * 1000;
 /** … except the Discogs community rating, which the terms cap at 6 h (§10.2.5). */
 const DISCOGS_FRESH_MS = 6 * 3600 * 1000;
 
-let bossSingleton: PgBoss | null = null;
-async function getBoss(): Promise<PgBoss> {
-  if (!bossSingleton) {
-    bossSingleton = new PgBoss(process.env.DATABASE_URL!);
-    await bossSingleton.start();
-    await bossSingleton.createQueue('reviews.fetch');
+// The process-wide pg-boss (one pool, one error handler) plus this route's queue.
+let bossReady: Promise<PgBoss> | null = null;
+function getBoss(): Promise<PgBoss> {
+  bossReady ??= (async () => {
+    const boss = await getSharedBoss();
+    await boss.createQueue('reviews.fetch');
     await ensureExclusiveReviewsQueue();
-  }
-  return bossSingleton;
+    return boss;
+  })().catch((err) => {
+    bossReady = null;
+    throw err;
+  });
+  return bossReady;
 }
 
 /**

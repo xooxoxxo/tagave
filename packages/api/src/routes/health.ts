@@ -6,7 +6,9 @@ import { expectedWorkers } from './system.js';
 
 export async function createHealthRoutes(fastify: FastifyInstance) {
   // Health check endpoint
-  fastify.get('/health', async (request: FastifyRequest, reply: FastifyReply) => {
+  // Docker and uptime probes call this every few seconds (39,959 of 103k
+  // prod log lines in 8 days); its request/response lines go out at debug.
+  fastify.get('/health', { logLevel: 'warn' }, async (request: FastifyRequest, reply: FastifyReply) => {
     const databaseUrl = process.env.DATABASE_URL;
     if (!databaseUrl) {
       return reply.status(503).send({

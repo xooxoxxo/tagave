@@ -479,7 +479,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         throw new ApiError(404, 'Not Found', 'Album not found');
       }
 
-      const trackRows = await db
+      // Everything below depends only on the album row: run the independent
+      // lookups together instead of ~24 awaits in a row (audit 2026-10-10:
+      // p50 83 ms / p99 325 ms). Each group keeps its own internal order.
+      const tracksP = db
         .select({
           id: localTracks.id,
           discNo: localTracks.discNo,
@@ -506,95 +509,99 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
         .where(eq(localTracks.localAlbumId, albumId));
 
-      let release: Record<string, unknown> | null = null;
-      let canonicalTrackRows: Record<string, unknown>[] = [];
-      if (album.releaseId) {
-        const relRows = await db
-          .select()
-          .from(releases)
-          .where(eq(releases.id, album.releaseId))
-          .limit(1);
-        const rel = relRows[0];
-        if (rel) {
-          const rgRows = await db
+      const releaseP = (async () => {
+        let release: Record<string, unknown> | null = null;
+        let canonicalTrackRows: Record<string, unknown>[] = [];
+        if (album.releaseId) {
+          const relRows = await db
             .select()
-            .from(releaseGroups)
-            .where(eq(releaseGroups.id, rel.releaseGroupId))
+            .from(releases)
+            .where(eq(releases.id, album.releaseId))
             .limit(1);
+          const rel = relRows[0];
+          if (rel) {
+            const rgRows = await db
+              .select()
+              .from(releaseGroups)
+              .where(eq(releaseGroups.id, rel.releaseGroupId))
+              .limit(1);
 
-          // Collect external links from release.mbid, rg.mbid, discogs ids, and external_ids
-          const externalLinks: Array<{ title: string; url: string; source: string }> = [];
+            // Collect external links from release.mbid, rg.mbid, discogs ids, and external_ids
+            const externalLinks: Array<{ title: string; url: string; source: string }> = [];
 
-          // Add MusicBrainz release link
-          if (rel.mbid) {
-            externalLinks.push({
-              title: 'MusicBrainz Release',
-              url: `https://musicbrainz.org/release/${rel.mbid}`,
-              source: 'musicbrainz',
-            });
-          }
-
-          // Add MusicBrainz release group link
-          if (rgRows[0]?.mbid) {
-            externalLinks.push({
-              title: 'MusicBrainz Release Group',
-              url: `https://musicbrainz.org/release-group/${rgRows[0].mbid}`,
-              source: 'musicbrainz',
-            });
-          }
-
-          // Add Discogs release link
-          if (rel.discogsReleaseId) {
-            externalLinks.push({
-              title: 'Discogs Release',
-              url: `https://www.discogs.com/release/${rel.discogsReleaseId}`,
-              source: 'discogs',
-            });
-          }
-
-          // Add Discogs master link
-          if (rgRows[0]?.discogsmasterId) {
-            externalLinks.push({
-              title: 'Discogs Master',
-              url: `https://www.discogs.com/master/${rgRows[0].discogsmasterId}`,
-              source: 'discogs',
-            });
-          }
-
-          // Add external_ids rows with provider in ('wikidata', 'wikipedia')
-          const extIdRows = await db
-            .select()
-            .from(externalIds)
-            .where(
-              and(
-                inArray(externalIds.provider, ['wikidata', 'wikipedia']),
-                eq(externalIds.entityType, 'release'),
-                eq(externalIds.entityId, rel.id)
-              )
-            );
-          extIdRows.forEach((row) => {
-            if (row.url) {
+            // Add MusicBrainz release link
+            if (rel.mbid) {
               externalLinks.push({
-                title: row.provider === 'wikidata' ? 'Wikidata' : 'Wikipedia',
-                url: row.url,
-                source: row.provider,
+                title: 'MusicBrainz Release',
+                url: `https://musicbrainz.org/release/${rel.mbid}`,
+                source: 'musicbrainz',
               });
             }
-          });
 
-          // Also check for release_group external_ids
-          if (rgRows[0]) {
-            const rgExtIdRows = await db
+            // Add MusicBrainz release group link
+            if (rgRows[0]?.mbid) {
+              externalLinks.push({
+                title: 'MusicBrainz Release Group',
+                url: `https://musicbrainz.org/release-group/${rgRows[0].mbid}`,
+                source: 'musicbrainz',
+              });
+            }
+
+            // Add Discogs release link
+            if (rel.discogsReleaseId) {
+              externalLinks.push({
+                title: 'Discogs Release',
+                url: `https://www.discogs.com/release/${rel.discogsReleaseId}`,
+                source: 'discogs',
+              });
+            }
+
+            // Add Discogs master link
+            if (rgRows[0]?.discogsmasterId) {
+              externalLinks.push({
+                title: 'Discogs Master',
+                url: `https://www.discogs.com/master/${rgRows[0].discogsmasterId}`,
+                source: 'discogs',
+              });
+            }
+
+            // external ids (release and release group), tags and canonical
+            // tracks only need rel and rg: fetch them together
+            const extIdRowsP = db
               .select()
               .from(externalIds)
               .where(
                 and(
                   inArray(externalIds.provider, ['wikidata', 'wikipedia']),
-                  eq(externalIds.entityType, 'release_group'),
-                  eq(externalIds.entityId, rgRows[0].id)
+                  eq(externalIds.entityType, 'release'),
+                  eq(externalIds.entityId, rel.id)
                 )
               );
-            rgExtIdRows.forEach((row) => {
+            const rgExtIdRowsP = rgRows[0]
+              ? db
+                  .select()
+                  .from(externalIds)
+                  .where(
+                    and(
+                      inArray(externalIds.provider, ['wikidata', 'wikipedia']),
+                      eq(externalIds.entityType, 'release_group'),
+                      eq(externalIds.entityId, rgRows[0].id)
+                    )
+                  )
+              : Promise.resolve([]);
+            const tagRowsP = db
+              .select({ tag: entityTags.tag, kind: entityTags.kind, entityId: entityTags.entityId })
+              .from(entityTags)
+              .where(and(
+                inArray(entityTags.entityId, rgRows[0] ? [rel.id, rgRows[0].id] : [rel.id]),
+                inArray(entityTags.kind, ['genre', 'style']),
+              ));
+            const canonicalP = db
+              .select()
+              .from(canonicalTracks)
+              .where(eq(canonicalTracks.releaseId, rel.id));
+            const [extIdRows, rgExtIdRows, tagRows, canonicalRows] = await Promise.all([extIdRowsP, rgExtIdRowsP, tagRowsP, canonicalP]);
+            extIdRows.forEach((row) => {
               if (row.url) {
                 externalLinks.push({
                   title: row.provider === 'wikidata' ? 'Wikidata' : 'Wikipedia',
@@ -603,114 +610,121 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
                 });
               }
             });
+
+            // Also the release_group external_ids
+            {
+              rgExtIdRows.forEach((row) => {
+                if (row.url) {
+                  externalLinks.push({
+                    title: row.provider === 'wikidata' ? 'Wikidata' : 'Wikipedia',
+                    url: row.url,
+                    source: row.provider,
+                  });
+                }
+              });
+            }
+
+            const uniq = (kind: string) => [...new Set(tagRows.filter((t) => t.kind === kind).map((t) => t.tag))];
+            release = {
+              id: rel.id,
+              mbid: rel.mbid ?? null,
+              genres: uniq('genre'),
+              styles: uniq('style'),
+              title: rel.title,
+              date: rel.date,
+              country: rel.country,
+              status: rel.status,
+              barcode: rel.barcode,
+              labels: rel.labels,
+              trackCount: rel.trackCount,
+              artistCredit: rgRows[0]?.artistCredit ?? null,
+              releaseGroupMbid: rgRows[0]?.mbid ?? null,
+              discogsReleaseId: rel.discogsReleaseId ?? null,
+              discogsMasterId: rgRows[0]?.discogsmasterId ?? null,
+              sourceOfTruth: rel.sourceOfTruth,
+              externalLinks,
+              fetchedAt: rel.fetchedAt?.toISOString() ?? null,
+            };
+            canonicalTrackRows = canonicalRows as unknown as Record<string, unknown>[];
           }
-
-          const tagRows = await db
-            .select({ tag: entityTags.tag, kind: entityTags.kind, entityId: entityTags.entityId })
-            .from(entityTags)
-            .where(and(
-              inArray(entityTags.entityId, rgRows[0] ? [rel.id, rgRows[0].id] : [rel.id]),
-              inArray(entityTags.kind, ['genre', 'style']),
-            ));
-          const uniq = (kind: string) => [...new Set(tagRows.filter((t) => t.kind === kind).map((t) => t.tag))];
-          release = {
-            id: rel.id,
-            mbid: rel.mbid ?? null,
-            genres: uniq('genre'),
-            styles: uniq('style'),
-            title: rel.title,
-            date: rel.date,
-            country: rel.country,
-            status: rel.status,
-            barcode: rel.barcode,
-            labels: rel.labels,
-            trackCount: rel.trackCount,
-            artistCredit: rgRows[0]?.artistCredit ?? null,
-            releaseGroupMbid: rgRows[0]?.mbid ?? null,
-            discogsReleaseId: rel.discogsReleaseId ?? null,
-            discogsMasterId: rgRows[0]?.discogsmasterId ?? null,
-            sourceOfTruth: rel.sourceOfTruth,
-            externalLinks,
-            fetchedAt: rel.fetchedAt?.toISOString() ?? null,
-          };
-          canonicalTrackRows = (await db
-            .select()
-            .from(canonicalTracks)
-            .where(eq(canonicalTracks.releaseId, rel.id))) as unknown as Record<string, unknown>[];
         }
-      }
+        return { release, canonicalTrackRows };
+      })();
 
-      const matchRows = await db
-        .select()
-        .from(albumMatches)
-        .where(eq(albumMatches.localAlbumId, albumId));
-      const liveMatch = matchRows.find((m) => m.status === 'auto' || m.status === 'confirmed');
-
-      // Get editions if matched and release group has an mbid
-      let editions = null;
-      if (album.releaseGroupId && liveMatch) {
-        const rgRow = await db
+      const matchP = (async () => {
+        const matchRows = await db
           .select()
-          .from(releaseGroups)
-          .where(eq(releaseGroups.id, album.releaseGroupId))
-          .limit(1);
-        if (rgRow[0]?.mbid) {
-          const editionRows = await db
-            .select({
-              id: releases.id,
-              mbid: releases.mbid,
-              title: releases.title,
-              status: releases.status,
-              date: releases.date,
-              country: releases.country,
-              barcode: releases.barcode,
-              packaging: releases.packaging,
-              labels: releases.labels,
-              media: releases.media,
-              trackCount: releases.trackCount,
-              discogsReleaseId: releases.discogsReleaseId,
-            })
-            .from(releases)
-            .where(eq(releases.releaseGroupId, album.releaseGroupId))
-            .orderBy(releases.date);
+          .from(albumMatches)
+          .where(eq(albumMatches.localAlbumId, albumId));
+        const liveMatch = matchRows.find((m) => m.status === 'auto' || m.status === 'confirmed');
 
-          // Count other local_albums with each release (spec ENR-1)
-          const otherAlbumCounts = new Map<string, number>();
-          if (editionRows.length > 0) {
-            const countRows = await db.execute(sql`
-              select release_id, count(*)::int as cnt from local_albums
-              where release_id in ${sql`(${sql.join(editionRows.map((e) => sql`${e.id}`), sql`, `)})`}
-                and library_id = ${libraryId}
-                and id != ${albumId}
-              group by release_id
-            `) as unknown as Array<{ release_id: string; cnt: number }>;
-            countRows.forEach((row) => otherAlbumCounts.set(row.release_id, row.cnt));
+        // Get editions if matched and release group has an mbid
+        let editions = null;
+        if (album.releaseGroupId && liveMatch) {
+          const rgRow = await db
+            .select()
+            .from(releaseGroups)
+            .where(eq(releaseGroups.id, album.releaseGroupId))
+            .limit(1);
+          if (rgRow[0]?.mbid) {
+            const editionRows = await db
+              .select({
+                id: releases.id,
+                mbid: releases.mbid,
+                title: releases.title,
+                status: releases.status,
+                date: releases.date,
+                country: releases.country,
+                barcode: releases.barcode,
+                packaging: releases.packaging,
+                labels: releases.labels,
+                media: releases.media,
+                trackCount: releases.trackCount,
+                discogsReleaseId: releases.discogsReleaseId,
+              })
+              .from(releases)
+              .where(eq(releases.releaseGroupId, album.releaseGroupId))
+              .orderBy(releases.date);
+
+            // Count other local_albums with each release (spec ENR-1)
+            const otherAlbumCounts = new Map<string, number>();
+            if (editionRows.length > 0) {
+              const countRows = await db.execute(sql`
+                select release_id, count(*)::int as cnt from local_albums
+                where release_id in ${sql`(${sql.join(editionRows.map((e) => sql`${e.id}`), sql`, `)})`}
+                  and library_id = ${libraryId}
+                  and id != ${albumId}
+                group by release_id
+              `) as unknown as Array<{ release_id: string; cnt: number }>;
+              countRows.forEach((row) => otherAlbumCounts.set(row.release_id, row.cnt));
+            }
+
+            editions = {
+              fetchedAt: rgRow[0].editionsFetchedAt?.toISOString() ?? null,
+              releaseGroupMbid: rgRow[0].mbid,
+              editions: editionRows.map((e) => ({
+                releaseId: e.id,
+                mbid: e.mbid,
+                title: e.title,
+                ...(e.status ? { status: e.status } : {}),
+                ...(e.date ? { date: e.date } : {}),
+                ...(e.country ? { country: e.country } : {}),
+                ...(e.barcode ? { barcode: e.barcode } : {}),
+                ...(e.packaging ? { packaging: e.packaging } : {}),
+                labels: e.labels || [],
+                media: e.media || [],
+                trackCount: e.trackCount ?? 0,
+                owned: e.id === album.releaseId,
+                ownedByOtherAlbums: otherAlbumCounts.get(e.id) ?? 0,
+                discogsReleaseId: e.discogsReleaseId ?? undefined,
+              })),
+            };
           }
-
-          editions = {
-            fetchedAt: rgRow[0].editionsFetchedAt?.toISOString() ?? null,
-            releaseGroupMbid: rgRow[0].mbid,
-            editions: editionRows.map((e) => ({
-              releaseId: e.id,
-              mbid: e.mbid,
-              title: e.title,
-              ...(e.status ? { status: e.status } : {}),
-              ...(e.date ? { date: e.date } : {}),
-              ...(e.country ? { country: e.country } : {}),
-              ...(e.barcode ? { barcode: e.barcode } : {}),
-              ...(e.packaging ? { packaging: e.packaging } : {}),
-              labels: e.labels || [],
-              media: e.media || [],
-              trackCount: e.trackCount ?? 0,
-              owned: e.id === album.releaseId,
-              ownedByOtherAlbums: otherAlbumCounts.get(e.id) ?? 0,
-              discogsReleaseId: e.discogsReleaseId ?? undefined,
-            })),
-          };
         }
-      }
+        return { liveMatch, editions };
+      })();
 
-      const art = await db
+      const artP = db
         .select({ id: images.id, origin: images.origin, license: images.licenseNote })
         .from(images)
         .where(and(eq(images.localAlbumId, albumId), eq(images.kind, 'front')))
@@ -720,7 +734,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       // open/dismissed gaps, tasks (open, and done in the last 30 days),
       // scored candidates, sibling copies of the same RG.
       const gapSubjects = album.releaseGroupId ? [albumId, album.releaseGroupId] : [albumId];
-      const gapRows = await db
+      const gapsP = db
         .select()
         .from(gaps)
         .where(and(
@@ -732,57 +746,60 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         ))
         .orderBy(gaps.kind, gaps.flag);
 
-      const candRows = await db
-        .select({
-          id: matchCandidates.id,
-          distance: matchCandidates.distance,
-          breakdown: matchCandidates.breakdown,
-          source: matchCandidates.source,
-          excluded: matchCandidates.excluded,
-          releaseId: releases.id,
-          releaseMbid: releases.mbid,
-          discogsReleaseId: releases.discogsReleaseId,
-          releaseTitle: releases.title,
-          releaseDate: releases.date,
-          releaseCountry: releases.country,
-          releaseStatus: releases.status,
-          releaseTrackCount: releases.trackCount,
-          releaseLabels: releases.labels,
-          releaseMedia: releases.media,
-          sourceOfTruth: releases.sourceOfTruth,
-          rgArtistCredit: releaseGroups.artistCredit,
-          rgMbid: releaseGroups.mbid,
-        })
-        .from(matchCandidates)
-        .innerJoin(releases, eq(releases.id, matchCandidates.releaseId))
-        .innerJoin(releaseGroups, eq(releaseGroups.id, releases.releaseGroupId))
-        .where(eq(matchCandidates.localAlbumId, albumId))
-        .orderBy(sql`distance asc`);
+      const candidatesP = (async () => {
+        const candRows = await db
+          .select({
+            id: matchCandidates.id,
+            distance: matchCandidates.distance,
+            breakdown: matchCandidates.breakdown,
+            source: matchCandidates.source,
+            excluded: matchCandidates.excluded,
+            releaseId: releases.id,
+            releaseMbid: releases.mbid,
+            discogsReleaseId: releases.discogsReleaseId,
+            releaseTitle: releases.title,
+            releaseDate: releases.date,
+            releaseCountry: releases.country,
+            releaseStatus: releases.status,
+            releaseTrackCount: releases.trackCount,
+            releaseLabels: releases.labels,
+            releaseMedia: releases.media,
+            sourceOfTruth: releases.sourceOfTruth,
+            rgArtistCredit: releaseGroups.artistCredit,
+            rgMbid: releaseGroups.mbid,
+          })
+          .from(matchCandidates)
+          .innerJoin(releases, eq(releases.id, matchCandidates.releaseId))
+          .innerJoin(releaseGroups, eq(releaseGroups.id, releases.releaseGroupId))
+          .where(eq(matchCandidates.localAlbumId, albumId))
+          .orderBy(sql`distance asc`);
 
-      // Each candidate's track lengths, so the "Choose a match" comparison can
-      // mark lengths that differ from your files (one query for all of them).
-      const candReleaseIds = [...new Set(candRows.map((c) => c.releaseId))];
-      const candTrackRows = candReleaseIds.length
-        ? await db
-            .select({
-              releaseId: canonicalTracks.releaseId,
-              mediumNo: canonicalTracks.mediumNo,
-              position: canonicalTracks.position,
-              title: canonicalTracks.title,
-              lengthMs: canonicalTracks.lengthMs,
-            })
-            .from(canonicalTracks)
-            .where(inArray(canonicalTracks.releaseId, candReleaseIds))
-        : [];
-      const candTracksByRelease = new Map<string, Array<{ disc: number; position: number | null; title: string; lengthMs: number | null }>>();
-      for (const t of candTrackRows) {
-        const list = candTracksByRelease.get(t.releaseId) ?? [];
-        list.push({ disc: t.mediumNo ?? 1, position: t.position, title: t.title, lengthMs: t.lengthMs });
-        candTracksByRelease.set(t.releaseId, list);
-      }
+        // Each candidate's track lengths, so the "Choose a match" comparison can
+        // mark lengths that differ from your files (one query for all of them).
+        const candReleaseIds = [...new Set(candRows.map((c) => c.releaseId))];
+        const candTrackRows = candReleaseIds.length
+          ? await db
+              .select({
+                releaseId: canonicalTracks.releaseId,
+                mediumNo: canonicalTracks.mediumNo,
+                position: canonicalTracks.position,
+                title: canonicalTracks.title,
+                lengthMs: canonicalTracks.lengthMs,
+              })
+              .from(canonicalTracks)
+              .where(inArray(canonicalTracks.releaseId, candReleaseIds))
+          : [];
+        const candTracksByRelease = new Map<string, Array<{ disc: number; position: number | null; title: string; lengthMs: number | null }>>();
+        for (const t of candTrackRows) {
+          const list = candTracksByRelease.get(t.releaseId) ?? [];
+          list.push({ disc: t.mediumNo ?? 1, position: t.position, title: t.title, lengthMs: t.lengthMs });
+          candTracksByRelease.set(t.releaseId, list);
+        }
+        return { candRows, candTracksByRelease };
+      })();
 
-      const duplicateRows = album.releaseGroupId
-        ? await db
+      const duplicatesP = album.releaseGroupId
+        ? db
             .select({
               id: localAlbums.id,
               title: localAlbums.titleGuess,
@@ -797,19 +814,99 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
               eq(localAlbums.releaseGroupId, album.releaseGroupId),
               sql`${localAlbums.id} != ${albumId}`,
             ))
-        : [];
+        : Promise.resolve([]);
 
       // GAP-3: physical copies of this release group from the synced Discogs
       // collection (user data — stays inside this library).
       // An item the owner added from this album carries local_album_id even
       // before the album has a release group.
-      const physicalRows = await db.execute(sql`
+      const physicalP = db.execute(sql`
             select id, folder_name, media_condition, sleeve_condition, rating, push_state, push_error,
                    formats, basic_info, discogs_release_id, created_at
             from collection_items
             where library_id = ${libraryId} and removed_at is null and push_state is distinct from 'removing'
               and (local_album_id = ${albumId}${album.releaseGroupId ? sql` or release_group_id = ${album.releaseGroupId}` : sql``})
-            order by date_added desc nulls last, created_at desc`) as unknown as Array<Record<string, unknown>>;
+            order by date_added desc nulls last, created_at desc`) as unknown as Promise<Array<Record<string, unknown>>>;
+
+      const artistsGenresP = (async () => {
+        let artists: Array<{ id: string | null; name: string; position: number }> = [];
+        let genres: { effective: string[]; styles: string[]; raw: Array<{ tag: string; kind: string; source: string; weight: number | null }> } = {
+          effective: [],
+          styles: [],
+          raw: [],
+        };
+
+        if (album.releaseGroupId) {
+          // artists from release_group_artists and the release group's tags, together
+          const [artistRows, rgTagRows] = await Promise.all([
+            db
+              .select()
+              .from(releaseGroupArtists)
+              .where(eq(releaseGroupArtists.releaseGroupId, album.releaseGroupId))
+              .orderBy(releaseGroupArtists.position),
+            db
+              .select()
+              .from(entityTags)
+              .where(
+                and(
+                  eq(entityTags.entityType, 'release_group'),
+                  eq(entityTags.entityId, album.releaseGroupId)
+                )
+              ),
+          ]);
+
+          artists = artistRows.map((row) => ({
+            id: row.artistId,
+            name: row.creditedName ?? '',
+            position: row.position,
+          }));
+
+          let rawTags = rgTagRows.map((row) => ({
+            tag: row.tag,
+            kind: row.kind as 'genre' | 'style' | 'tag',
+            source: row.source,
+            weight: row.weight ? Number(row.weight) : null,
+          }));
+
+          const libSettings2 = lib[0];
+          const settings2 = typeof libSettings2?.settings === 'string'
+            ? JSON.parse(libSettings2.settings)
+            : (libSettings2?.settings ?? {});
+          const genreMapRaw2 = (settings2 as Record<string, any>)['genreMap'] ?? null;
+          const map2 = normalizeGenreMap(genreMapRaw2);
+
+          const effective = effectiveGenres(rawTags, map2);
+          genres = {
+            effective: effective.genres,
+            styles: effective.styles,
+            raw: rawTags,
+          };
+        }
+        return { artists, genres };
+      })();
+
+      // Folder maintenance (XO-364): a lossless+lossy mix can be split; a
+      // split-off album can be merged back.
+      const mixP = db.execute(sql`
+        select bool_or(af.lossless is true) as any_lossless, bool_or(af.lossless is false) as any_lossy
+          from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+         where lt.local_album_id = ${album.id}`) as unknown as Promise<Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>>;
+
+      const [
+        trackRows, { release, canonicalTrackRows }, { liveMatch, editions }, art, gapRows,
+        { candRows, candTracksByRelease }, duplicateRows, physicalRows, { artists, genres },
+        idStates, [mix], mergeCandidates, artFetch, folders,
+      ] = await Promise.all([
+        tracksP, releaseP, matchP, artP, gapsP,
+        candidatesP, duplicatesP, physicalP, artistsGenresP,
+        identifyRequestStates([album.id]), mixP,
+        // Compilations: an album built by "Treat as one album" can be split
+        // back; albums that look like more pieces of this one are offered.
+        findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 }),
+        artFetchState(album.id),
+        albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
+      ]);
+
       const discogsCollectionItems = physicalRows.map((r) => ({
         id: String(r['id']),
         folder: String(r['folder_name'] ?? 'All'),
@@ -837,76 +934,12 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const isCueImage = trackRows.some((t) => t.origin === 'cue');
       const cueRelPath = trackRows.find((t) => t.origin === 'cue')?.cueRelPath ?? null;
 
-      // Fetch artists and genres for the album (XO-310)
-      let artists: Array<{ id: string | null; name: string; position: number }> = [];
-      let genres: { effective: string[]; styles: string[]; raw: Array<{ tag: string; kind: string; source: string; weight: number | null }> } = {
-        effective: [],
-        styles: [],
-        raw: [],
-      };
-
-      if (album.releaseGroupId) {
-        // Fetch artists from release_group_artists
-        const artistRows = await db
-          .select()
-          .from(releaseGroupArtists)
-          .where(eq(releaseGroupArtists.releaseGroupId, album.releaseGroupId))
-          .orderBy(releaseGroupArtists.position);
-
-        artists = artistRows.map((row) => ({
-          id: row.artistId,
-          name: row.creditedName ?? '',
-          position: row.position,
-        }));
-
-        // Fetch genre map from library settings
-        const rgTagRows = await db
-          .select()
-          .from(entityTags)
-          .where(
-            and(
-              eq(entityTags.entityType, 'release_group'),
-              eq(entityTags.entityId, album.releaseGroupId)
-            )
-          );
-
-        let rawTags = rgTagRows.map((row) => ({
-          tag: row.tag,
-          kind: row.kind as 'genre' | 'style' | 'tag',
-          source: row.source,
-          weight: row.weight ? Number(row.weight) : null,
-        }));
-
-        const libSettings2 = lib[0];
-        const settings2 = typeof libSettings2?.settings === 'string'
-          ? JSON.parse(libSettings2.settings)
-          : (libSettings2?.settings ?? {});
-        const genreMapRaw2 = (settings2 as Record<string, any>)['genreMap'] ?? null;
-        const map2 = normalizeGenreMap(genreMapRaw2);
-
-        const effective = effectiveGenres(rawTags, map2);
-        genres = {
-          effective: effective.genres,
-          styles: effective.styles,
-          raw: rawTags,
-        };
-      }
-
-      const idState = (await identifyRequestStates([album.id])).get(album.id);
+      const idState = idStates.get(album.id);
       const pendingIdentify = idState?.pending ?? null;
       const identifyRequest = idState?.request ?? null;
-      // Folder maintenance (XO-364): a lossless+lossy mix can be split; a
-      // split-off album can be merged back.
-      const [mix] = (await db.execute(sql`
-        select bool_or(af.lossless is true) as any_lossless, bool_or(af.lossless is false) as any_lossy
-          from local_tracks lt join audio_files af on af.id = lt.audio_file_id
-         where lt.local_album_id = ${album.id}`)) as unknown as Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>;
       const mixed = mix?.any_lossless === true && mix?.any_lossy === true;
       const splitFrom = splitOriginOf(album.clusterKey);
-      // Compilations: an album built by "Treat as one album" can be split
-      // back; albums that look like more pieces of this one are offered.
       const merged = isMergedKey(album.clusterKey);
-      const mergeCandidates = await findMergeCandidates(db, { libraryId: album.libraryId, albumId: album.id, limit: 200 });
 
       reply.status(200).send({
         id: album.id,
@@ -929,8 +962,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         totalDurationMs: album.totalDurationMs,
         coverUrl: art[0] ? `/api/v1/images/album/${album.id}` : null,
         coverOrigin: art[0]?.origin ?? null,
-        artFetch: await artFetchState(album.id),
-        folders: await albumFolders(db, album.id, album.dirPaths ?? [], lib[0]?.settings),
+        artFetch,
+        folders,
         isCueImage,
         cueRelPath,
         release,

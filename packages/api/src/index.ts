@@ -32,9 +32,10 @@ import { createArtistsRoutes } from './routes/artists.js';
 import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { createBackupRoutes } from './routes/backups.js';
 import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
-import { getBoss } from './boss.js';
+import { getBoss, setBossLogger } from './boss.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
+import { staticCacheControl } from './lib/staticCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,10 +54,24 @@ const loggerConfig = {
 };
 
 const logger = pino(loggerConfig);
+setBossLogger(logger);
+
+// Last-resort loggers: a stray rejected promise (a pool error surfacing
+// through an un-awaited call) is logged instead of taking the process down
+// unnoticed; an uncaught exception is logged, then the process exits as
+// Node would (Docker restarts it).
+process.on('unhandledRejection', (reason) => {
+  logger.error({ err: reason }, 'unhandled promise rejection');
+});
+process.on('uncaughtException', (err) => {
+  logger.fatal({ err }, 'uncaught exception; exiting');
+  process.exit(1);
+});
 
 // Create Fastify app
 const app = Fastify({
-  logger: true,
+  // LOG_LEVEL applies to request logs too (was always info).
+  logger: { level: process.env.LOG_LEVEL || 'info' },
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
 });
@@ -220,6 +235,11 @@ try {
   await app.register(fastifyStatic, {
     root: webDistPath,
     prefix: '/',
+    // dist/ carries .br/.gz written at build (web/scripts/precompress.mjs);
+    // served by Accept-Encoding, with Vary set by the plugin.
+    preCompressed: true,
+    cacheControl: false,
+    setHeaders: (reply, filePath) => { reply.header('cache-control', staticCacheControl(filePath)); },
   });
 } catch (err) {
   logger.warn({ err }, 'Web frontend not found; running API-only mode');

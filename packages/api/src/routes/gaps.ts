@@ -56,7 +56,48 @@ export async function taskCounts(libraryId: string): Promise<{ todo: number; don
   return { todo: Number(row?.todo ?? 0), done: Number(row?.done ?? 0) };
 }
 
+/**
+ * Open gaps per kind plus the task counts: the nav badge, Home and the Work
+ * tabs ask on every page. Cached per library for 30 s and dropped when a
+ * decision here changes a gap's state; a worker recompute shows up within
+ * the 30 s. Before this, every page load ran the full list query plus a
+ * group-by over all open gaps (audit 2026-10-10, offender 7).
+ */
+const GAP_COUNTS_TTL_MS = 30_000;
+const gapCountsCache = new Map<string, { at: number; body: Promise<GapCountsBody> }>();
+export interface GapCountsBody { counts: Record<string, number>; tasks: { todo: number; done: number } }
+
+export function invalidateGapCounts(libraryId: string): void {
+  gapCountsCache.delete(libraryId);
+}
+
+export function gapCounts(libraryId: string): Promise<GapCountsBody> {
+  const hit = gapCountsCache.get(libraryId);
+  if (hit && Date.now() - hit.at < GAP_COUNTS_TTL_MS) return hit.body;
+  const body = (async () => {
+    const [counts, tasks] = await Promise.all([
+      getDb().execute(sql`
+        select kind, count(*)::int as n from gaps
+         where library_id = ${libraryId} and state = 'open' group by kind`) as unknown as Promise<{ kind: string; n: number }[]>,
+      taskCounts(libraryId),
+    ]);
+    return { counts: Object.fromEntries(counts.map((c) => [c.kind, Number(c.n)])), tasks };
+  })();
+  gapCountsCache.set(libraryId, { at: Date.now(), body });
+  // a failed count must not stay cached for 30 s
+  body.catch(() => { if (gapCountsCache.get(libraryId)?.body === body) gapCountsCache.delete(libraryId); });
+  return body;
+}
+
 export async function createGapRoutes(fastify: FastifyInstance) {
+  /** The counts alone (nav badge, Home, Work tabs): no list rows. */
+  fastify.get('/libraries/:libraryId/gaps/counts', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(request.user.id, libraryId);
+    reply.send(await gapCounts(libraryId));
+  });
+
   /** Needs Attention: gaps of one state (default open), newest first, with open counts per kind. */
   fastify.get('/libraries/:libraryId/gaps', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
@@ -68,25 +109,28 @@ export async function createGapRoutes(fastify: FastifyInstance) {
     const limitN = Math.min(parseInt(limit, 10) || 100, 500);
     const offsetN = parseInt(offset, 10) || 0;
 
-    const rows = await db.execute(sql`
-      select g.*, la.title_guess as album_title, la.artist_guess as album_artist,
-             la.dir_paths as album_dirs, rg.title as rg_title
-      from gaps g
-      left join local_albums la on g.subject_type = 'local_album' and la.id = g.subject_id
-      left join release_groups rg on g.subject_type = 'release_group' and rg.id = g.subject_id
-      where g.library_id = ${libraryId}
-        and g.state = ${state}
-        ${kind ? sql`and g.kind = ${kind}` : sql``}
-      order by g.first_seen_at desc, g.subject_id, g.flag
-      limit ${limitN + 1} offset ${offsetN}`) as unknown as Record<string, unknown>[];
-
-    const counts = await db.execute(sql`
-      select kind, count(*)::int as n from gaps
-      where library_id = ${libraryId} and state = 'open' group by kind`) as unknown as { kind: string; n: number }[];
+    // Page the gaps first (idx_gaps_library_state_seen), then join the page:
+    // joining all open gaps before the LIMIT read every one of them.
+    const [rows, { counts, tasks }] = await Promise.all([
+      db.execute(sql`
+        select g.*, la.title_guess as album_title, la.artist_guess as album_artist,
+               la.dir_paths as album_dirs, rg.title as rg_title
+        from (
+          select * from gaps
+           where library_id = ${libraryId}
+             and state = ${state}
+             ${kind ? sql`and kind = ${kind}` : sql``}
+           order by first_seen_at desc, subject_id, flag
+           limit ${limitN + 1} offset ${offsetN}) g
+        left join local_albums la on g.subject_type = 'local_album' and la.id = g.subject_id
+        left join release_groups rg on g.subject_type = 'release_group' and rg.id = g.subject_id
+        order by g.first_seen_at desc, g.subject_id, g.flag`) as unknown as Promise<Record<string, unknown>[]>,
+      gapCounts(libraryId),
+    ]);
 
     reply.send({
-      counts: Object.fromEntries(counts.map((c) => [c.kind, c.n])),
-      tasks: await taskCounts(libraryId),
+      counts,
+      tasks,
       items: rows.slice(0, limitN).map((g) => ({
         id: g['id'],
         kind: g['kind'],
@@ -173,6 +217,7 @@ export async function createGapRoutes(fastify: FastifyInstance) {
     await getDb().update(gaps)
       .set({ state: 'todo', dismissReason: null, acceptedAt: sql`coalesce(${gaps.acceptedAt}, now())`, note, decidedAt: sql`now()` })
       .where(eq(gaps.id, gapId));
+    invalidateGapCounts(gap.libraryId);
     reply.send({ ok: true });
   });
 
@@ -192,10 +237,11 @@ export async function createGapRoutes(fastify: FastifyInstance) {
     const { gapId } = request.params as { gapId: string };
     const { reason = 'not_interested' } = (request.body ?? {}) as { reason?: string };
     if (!DISMISS_REASONS.has(reason)) throw new ApiError(400, 'Bad Request', `Unknown reason: ${reason}`);
-    await loadGapForUser(request.user.id, gapId);
+    const gap = await loadGapForUser(request.user.id, gapId);
     await getDb().update(gaps)
       .set({ state: 'dismissed', dismissReason: reason, acceptedAt: null, decidedAt: sql`now()` })
       .where(eq(gaps.id, gapId));
+    invalidateGapCounts(gap.libraryId);
     reply.send({ ok: true });
   });
 
@@ -208,6 +254,7 @@ export async function createGapRoutes(fastify: FastifyInstance) {
     await getDb().update(gaps)
       .set({ state: 'open', dismissReason: null, acceptedAt: null, note: null, decidedAt: sql`now()` })
       .where(eq(gaps.id, gapId));
+    invalidateGapCounts(gap.libraryId);
     reply.send({ ok: true });
   });
 

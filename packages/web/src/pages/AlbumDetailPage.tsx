@@ -13,14 +13,16 @@
  * follows the tracks. The old "Library health" face lives in the attention
  * strip; its old links (?tab=care) open the strip with Maintenance on.
  */
-import { useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@liner/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { api } from '../services/api';
-import { ReviewsSection } from '../components/ReviewsSection';
+// Reviews render markdown (react-markdown + micromark, ~100 KB) and show on
+// the About tab only: their own chunk, fetched when that tab opens.
+const ReviewsSection = lazy(() => import('../components/ReviewsSection').then((m) => ({ default: m.ReviewsSection })));
 import { AlbumEditionsPanel } from './AlbumEditionsPanel';
 import { useAlbumFolderActions } from '../components/AlbumMaintenanceActions';
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
@@ -1024,7 +1026,9 @@ export function AlbumDetailPage() {
               </dl>
             </section>
             {album.releaseGroupId ? (
-              <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
+              <Suspense fallback={null}>
+                <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
+              </Suspense>
             ) : (
               <section className={styles.plainSection}>
                 <h2 className={styles.sectionTitle}>Reviews &amp; listening</h2>

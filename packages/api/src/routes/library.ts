@@ -15,11 +15,19 @@ import {
 } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
-import { scanRootCounts } from '../lib/scanRootCounts.js';
+import { cachedScanRootCounts, invalidateScanRootCounts } from '../lib/scanRootCounts.js';
 import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
 import { normalizeFolderLinkBase } from '@liner/shared';
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
+  // Adding, editing, removing or rescanning a music folder drops the cached
+  // per-folder counts, so the owner sees the change on the next read.
+  fastify.addHook('onResponse', async (request) => {
+    if (request.method === 'GET' || !request.url.includes('/scan-roots')) return;
+    const { libraryId } = (request.params ?? {}) as { libraryId?: string };
+    if (libraryId) invalidateScanRootCounts(libraryId);
+  });
+
   // Get library settings (spec PLT-4)
   fastify.get('/:libraryId/settings', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
@@ -500,11 +508,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw new ApiError(404, 'Not Found', 'Library not found');
     }
 
-    const roots = await db
-      .select()
-      .from(scanRoots)
-      .where(eq(scanRoots.libraryId, libraryId));
-    const counts = await scanRootCounts(db, libraryId);
+    const [roots, counts] = await Promise.all([
+      db.select().from(scanRoots).where(eq(scanRoots.libraryId, libraryId)),
+      cachedScanRootCounts(db, libraryId),
+    ]);
     const links = folderLinksOf(lib[0]?.settings);
 
     reply.status(200).send({

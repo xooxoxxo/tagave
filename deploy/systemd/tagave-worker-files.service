@@ -1,0 +1,57 @@
+# tagave file worker: everything that touches the music mount (scans,
+# clustering, artwork, tags, facets, fingerprints) for a split install where
+# the workers run from a source checkout on a host of their own.
+#
+# Install (as root on the worker host; nothing here is installed by deploy.sh):
+#   1. cp deploy/systemd/tagave-worker-*.service /etc/systemd/system/
+#   2. Edit User=, WorkingDirectory= and the node path in ExecStart= below to
+#      match the host (WORKER_DIR / WORKER_NODE_BIN in .deploy.env).
+#   3. Create /etc/tagave/worker.env (mode 600, owned by root) from
+#      deploy/systemd/worker.env.example: DATABASE_URL and APP_SECRET, the same
+#      values the old ~/liner-worker.sh launcher exported.
+#   4. Stop the nohup workers (kill -TERM "$(cat ~/liner-worker.pid)" and
+#      ~/liner-identify.pid), then:
+#        systemctl daemon-reload
+#        systemctl enable --now tagave-worker-files tagave-worker-identify
+#   5. Check: systemctl status tagave-worker-files; journalctl -u tagave-worker-files -f
+#      shows "worker ready". Set WORKER_SUPERVISOR=systemd in .deploy.env so
+#      scripts/deploy.sh restarts the units instead of the pidfile launchers.
+# Rollback: systemctl disable --now tagave-worker-files tagave-worker-identify,
+# unset WORKER_SUPERVISOR, run the old launchers again.
+[Unit]
+Description=tagave file worker (scan, cluster, art, tags, facets)
+Documentation=https://github.com/xooxoxxo/tagave
+After=network-online.target remote-fs.target
+Wants=network-online.target
+# the music folders are NFS/SMB mounts: start only once they are up
+RequiresMountsFor=/mnt/music
+
+[Service]
+Type=simple
+User=tagave
+Group=tagave
+WorkingDirectory=/opt/tagave
+EnvironmentFile=/etc/tagave/worker.env
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+Environment=LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+ExecStart=/usr/local/bin/node packages/worker/dist/index.js
+# The worker stops gracefully on SIGTERM (pg-boss drains for up to 30 s);
+# give it 45 s before systemd sends SIGKILL.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+Restart=always
+RestartSec=10
+# A scan walks the whole library; its high-water mark was 1.21 GB (audit
+# 2026-10-10). Throttle at 1.5 GB, kill and restart past 2 GB rather than
+# let a runaway scan push the host into swap.
+MemoryHigh=1536M
+MemoryMax=2G
+# Logs go to journald (rotated by journald's own size caps), not ~/liner-worker.log.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tagave-worker-files
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

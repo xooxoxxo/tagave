@@ -53,6 +53,34 @@ done
 echo -n "worker processes: "; ps -eo args | grep -c "[n]ode packages/worker/dist/index.js"
 [ "$failed" = 0 ] || { echo "WORKER DEPLOY FAILED: a worker did not boot"; exit 7; }
 '
+# WORKER_SUPERVISOR=systemd (in .deploy.env) restarts the systemd units from
+# deploy/systemd/ instead, once the owner has installed them on the worker
+# host (the units' header lists the steps; this script never installs them).
+# Same readiness rule: each unit must log "worker ready" within 90 s.
+WORKER_RESTART_SYSTEMD='
+units="tagave-worker-files tagave-worker-identify"
+for u in $units; do systemctl cat "$u" >/dev/null 2>&1 || { echo "WORKER DEPLOY FAILED: unit $u is not installed (deploy/systemd/)"; exit 7; }; done
+since=$(date "+%Y-%m-%d %H:%M:%S")
+sudo -n systemctl restart $units || { echo "WORKER DEPLOY FAILED: systemctl restart needs passwordless sudo for $units"; exit 7; }
+failed=0
+for u in $units; do
+  state=""
+  for i in $(seq 1 90); do
+    if ! systemctl is-active --quiet "$u"; then state="NOT ACTIVE ($(systemctl is-active "$u"))"; fi
+    if journalctl -u "$u" --since "$since" -o cat 2>/dev/null | grep -q "\"msg\":\"worker ready\""; then state="ready in $i s"; break; fi
+    sleep 1
+  done
+  [ -n "$state" ] || state="NOT READY after 90 s"
+  echo "$u: $state"
+  case "$state" in ready*) ;; *) failed=1; echo "--- last lines of journalctl -u $u"; journalctl -u "$u" --since "$since" -n 5 -o cat | cut -c1-300 ;; esac
+done
+[ "$failed" = 0 ] || { echo "WORKER DEPLOY FAILED: a worker did not boot"; exit 7; }
+'
+case "${WORKER_SUPERVISOR:-pidfile}" in
+  systemd) WORKER_RESTART_DEFAULT="$WORKER_RESTART_SYSTEMD" ;;
+  pidfile) ;;
+  *) echo "WORKER_SUPERVISOR must be pidfile or systemd (got '${WORKER_SUPERVISOR}')"; exit 2 ;;
+esac
 WORKER_RESTART_CMD="${WORKER_RESTART_CMD:-$WORKER_RESTART_DEFAULT}"
 
 COMMIT=$(git rev-parse --short HEAD)

@@ -21,6 +21,7 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
+import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -95,6 +96,16 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'scan.dir': { expireInSeconds: 6 * 3600, retryLimit: 0 },
 };
 
+/**
+ * Every queue retries with a delay that grows: pg-boss's default is an
+ * immediate retry, so during the 2026-10-08 outage collection.sync spent its
+ * three tries in four seconds. 1 min, 2 min, 4 min … capped at an hour gives
+ * a network blip or a provider restart time to pass. Applied to existing
+ * queues on every boot (createQueue does not touch a queue that exists).
+ * A job sent with its own retry options (enrich.sweep, identify) keeps them.
+ */
+const QUEUE_RETRY_DEFAULTS = { retryDelay: 60, retryBackoff: true, retryDelayMax: 3600 } as const;
+
 /** Provider waits are paced at ~1 req/s and capped at 3 lookups; 5 min is far past any honest run. */
 const IDENTIFY_JOB_TIMEOUT_MS = 5 * 60_000;
 
@@ -129,8 +140,9 @@ async function main() {
   // One list for the worker and the worker check (@liner/core).
   const queues = [...WORKER_QUEUES, ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
-    const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...(LONG_JOB_QUEUES[q] ?? {}) };
-    await boss.createQueue(q, Object.keys(opts).length ? opts : undefined);
+    const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) };
+    await boss.createQueue(q, opts);
+    await boss.updateQueue(q, { ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) });
   }
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
@@ -391,6 +403,13 @@ async function main() {
     // the last build (XO-363). The boot send fills an empty table right away.
     await boss.schedule('facets.refresh', '* * * * *', {}, { singletonKey: 'facets.refresh' });
     await boss.send('facets.refresh', { force: true }, { singletonKey: 'facets.refresh:boot' });
+
+    // Nightly provider_cache cleanup (rides with facets.refresh: database
+    // upkeep, no provider calls). 04:45, after the enrich and gaps runs.
+    await boss.work<CachePurgeJobData>('cache.purge', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await cachePurgeJob(ctx, job.data);
+    });
+    await boss.schedule('cache.purge', '45 4 * * *', {}, { singletonKey: 'cache.purge' });
   }
 
   if (wants('gaps.recompute')) {

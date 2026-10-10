@@ -2,142 +2,85 @@
  * The artists list: canonical artists linked to the library's albums plus
  * unresolved album-artist guesses, ordered, grouped and paged.
  *
- * Ordering happens here rather than in SQL because "A–Z" has rules SQL
- * collation cannot express portably: control and zero-width characters are
- * ignored, symbol-only and blank names file last under "#", other scripts
- * keep their own group, and a leading "The" does not count (see
- * @liner/shared artistLabels). A library has at most tens of thousands of
- * artist rows, so sorting the aggregated rows in memory costs a few
- * milliseconds next to the aggregate query itself.
+ * Rows come from @liner/db fetchArtistRows and are ordered by @liner/core
+ * orderArtists (A–Z rules SQL collation cannot express). Computing that for
+ * ~14.5k artists cost 200–400 ms per 120-row page (audit 2026-10-10), so the
+ * worker keeps the ordered list in artist_list (facets.refresh) and
+ * readArtistListPage pages it with an index range; the live path remains
+ * for searches and for a library whose list was never built.
  */
 import { sql } from 'drizzle-orm';
-import {
-  ARTIST_GROUP_ORDER, artistGroup, artistNameKey, compareArtistNameKeys, type ArtistGroupKey,
-} from '@liner/shared';
+import { ARTIST_GROUP_ORDER, type ArtistGroupKey } from '@liner/shared';
+import { type ArtistGroupCount, type ArtistRow, type ArtistSort } from '@liner/core';
 
-export type ArtistSort = 'name' | 'albums' | 'recent';
-export const ARTIST_SORTS: readonly ArtistSort[] = ['name', 'albums', 'recent'];
-
-export interface ArtistRow {
-  id: string | null;
-  name: string;
-  sortName: string | null;
-  resolved: boolean;
-  albumCount: number;
-  trackCount: number;
-  yearFrom: number | null;
-  yearTo: number | null;
-  /** when the newest of the artist's albums was first scanned (ISO) */
-  addedAt: string | null;
-}
-
-export interface ArtistGroupCount { key: ArtistGroupKey; count: number }
-
-export interface OrderedArtists {
-  items: ArtistRow[];
-  /** every group with at least one artist, in list order, before the group filter */
-  groups: ArtistGroupCount[];
-}
-
-export function parseArtistSort(value: unknown): ArtistSort {
-  return ARTIST_SORTS.includes(value as ArtistSort) ? value as ArtistSort : 'name';
-}
-
-export function parseArtistGroup(value: unknown): ArtistGroupKey | null {
-  return typeof value === 'string' && ARTIST_GROUP_ORDER.includes(value) ? value : null;
-}
-
-/** Sort rows, count groups, then keep one group when asked. Pure. */
-export function orderArtists(rows: ArtistRow[], opts: { sort: ArtistSort; group?: ArtistGroupKey | null }): OrderedArtists {
-  const keyed = rows.map((row) => ({ row, key: artistNameKey(row), group: artistGroup(row.name, row.sortName) }));
-  const byName = (a: typeof keyed[number], b: typeof keyed[number]) => compareArtistNameKeys(a.key, b.key);
-  const time = (row: ArtistRow) => (row.addedAt ? Date.parse(row.addedAt) : 0);
-  keyed.sort(
-    opts.sort === 'albums' ? (a, b) => b.row.albumCount - a.row.albumCount || byName(a, b)
-      : opts.sort === 'recent' ? (a, b) => time(b.row) - time(a.row) || byName(a, b)
-        : byName,
-  );
-
-  const counts = new Map<ArtistGroupKey, number>();
-  for (const k of keyed) counts.set(k.group, (counts.get(k.group) ?? 0) + 1);
-  const groups = ARTIST_GROUP_ORDER.filter((key) => counts.has(key)).map((key) => ({ key, count: counts.get(key)! }));
-
-  const kept = opts.group ? keyed.filter((k) => k.group === opts.group) : keyed;
-  return { items: kept.map((k) => k.row), groups };
-}
+export { fetchArtistRows } from '@liner/db';
+export {
+  orderArtists, parseArtistGroup, parseArtistSort, ARTIST_SORTS,
+  type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists,
+} from '@liner/core';
 
 type Db = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
 
-/** Every artist row of a library, optionally narrowed by a name search. */
-export async function fetchArtistRows(db: Db, libraryId: string, search: string): Promise<ArtistRow[]> {
-  const like = `%${search}%`;
-  const rows = await db.execute(sql`
-    with canon as (
-      -- Canonical artists linked to release groups of the library's albums
-      select a.id,
-             a.name,
-             a.sort_name,
-             true as resolved,
-             count(distinct la.id)::int as album_count,
-             coalesce(sum(la.track_count), 0)::int as track_count,
-             min(la.year_guess)::int as year_from,
-             max(la.year_guess)::int as year_to,
-             max(la.created_at) as added_at
-        from artists a
-        join release_group_artists rga on a.id = rga.artist_id
-        join release_groups rg on rga.release_group_id = rg.id
-        join local_albums la on rg.id = la.release_group_id
-       where la.library_id = ${libraryId}
-         ${search ? sql`and (a.name ilike ${like} or a.sort_name ilike ${like})` : sql``}
-       group by a.id, a.name, a.sort_name
-    ),
-    canon_names as (select distinct lower(name) as lname from canon),
-    guess as (
-      -- Unresolved artist guesses (no release group, or one with no credits).
-      -- A name that already has a canonical row is dropped: the artist's
-      -- undecided albums must not add a second, unclickable row for them.
-      -- casts are required: a bare null in a CTE arm is text, and the
-      -- union against canon.id (uuid) / canon.sort_name (varchar) fails.
-      -- Names group as shown (migration 0028): "02. Stephane Pompougnac"
-      -- … "17. Stephane Pompougnac" are one artist, and "Various", "VA"
-      -- and "Various Artists" one compilations row.
-      select null::uuid as id,
-             liner_display_artist(la.artist_guess) as name,
-             null::varchar as sort_name,
-             false as resolved,
-             count(distinct la.id)::int as album_count,
-             coalesce(sum(la.track_count), 0)::int as track_count,
-             min(la.year_guess)::int as year_from,
-             max(la.year_guess)::int as year_to,
-             max(la.created_at) as added_at
-        from local_albums la
-       where la.library_id = ${libraryId}
-         and liner_display_artist(la.artist_guess) is not null
-         and (la.release_group_id is null or not exists (
-           select 1 from release_group_artists rga
-            where rga.release_group_id = la.release_group_id))
-         and not exists (
-           select 1 from canon_names cn where cn.lname = lower(liner_display_artist(la.artist_guess)))
-         ${search ? sql`and la.artist_guess ilike ${like}` : sql``}
-       group by liner_display_artist(la.artist_guess)
-    )
-    select * from canon union all select * from guess
-  `) as Array<{
-    id: string | null; name: string; sort_name: string | null; resolved: boolean;
-    album_count: number; track_count: number; year_from: number | null; year_to: number | null;
-    added_at: string | Date | null;
+export interface ArtistListPage {
+  items: ArtistRow[];
+  total: number;
+  groups: ArtistGroupCount[];
+}
+
+/**
+ * One page of the precomputed list, or null when artist_list was never
+ * built for the library or a bulk action marked the facets stale since the
+ * last build (then the caller computes the list live).
+ *
+ * Without a group filter the positions are dense (0..n-1), so "offset N" is
+ * the key range pos >= N: an index range scan however deep the page. With a
+ * group filter the page is an offset within that group's index range.
+ */
+export async function readArtistListPage(
+  db: Db,
+  libraryId: string,
+  opts: { sort: ArtistSort; group: ArtistGroupKey | null; offset: number; limit: number },
+): Promise<ArtistListPage | null> {
+  const [state] = (await db.execute(sql`
+    select artists_at, dirty_at from facet_state where library_id = ${libraryId}`)) as Array<{
+    artists_at: Date | string | null; dirty_at: Date | string | null;
   }>;
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    sortName: r.sort_name,
-    resolved: r.resolved,
-    albumCount: r.album_count,
-    trackCount: r.track_count,
-    yearFrom: r.year_from,
-    yearTo: r.year_to,
-    addedAt: r.added_at ? new Date(r.added_at).toISOString() : null,
-  }));
+  // raw timestamps come back as strings on the shared client: compare as Dates
+  if (!state?.artists_at) return null;
+  if (state.dirty_at && new Date(state.dirty_at).getTime() > new Date(state.artists_at).getTime()) return null;
+
+  const pos = opts.sort === 'albums' ? sql.raw('pos_albums') : opts.sort === 'recent' ? sql.raw('pos_recent') : sql.raw('pos_name');
+  const [rowsResult, groupRows] = await Promise.all([
+    db.execute(opts.group
+      ? sql`select * from artist_list where library_id = ${libraryId} and group_key = ${opts.group}
+             order by ${pos} offset ${opts.offset} limit ${opts.limit}`
+      : sql`select * from artist_list where library_id = ${libraryId} and ${pos} >= ${opts.offset}
+             order by ${pos} limit ${opts.limit}`),
+    db.execute(sql`select group_key, count(*)::int as n from artist_list where library_id = ${libraryId} group by group_key`),
+  ]);
+  const rows = rowsResult as Array<{
+    artist_id: string | null; name: string; sort_name: string | null; resolved: boolean;
+    album_count: number; track_count: number; year_from: number | null; year_to: number | null;
+    added_at: Date | string | null;
+  }>;
+  const counts = new Map((groupRows as Array<{ group_key: ArtistGroupKey; n: number }>).map((g) => [g.group_key, Number(g.n)]));
+  const groups = ARTIST_GROUP_ORDER.filter((key) => counts.has(key)).map((key) => ({ key, count: counts.get(key)! }));
+  const total = opts.group ? (counts.get(opts.group) ?? 0) : [...counts.values()].reduce((a, b) => a + b, 0);
+  return {
+    items: rows.map((r) => ({
+      id: r.artist_id,
+      name: r.name,
+      sortName: r.sort_name,
+      resolved: r.resolved,
+      albumCount: Number(r.album_count),
+      trackCount: Number(r.track_count),
+      yearFrom: r.year_from,
+      yearTo: r.year_to,
+      addedAt: r.added_at ? new Date(r.added_at).toISOString() : null,
+    })),
+    total,
+    groups,
+  };
 }
 
 /** Map key for coversFor: the artist id, or "name:<name>" for a guess. */
