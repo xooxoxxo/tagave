@@ -14,9 +14,7 @@
 .albumGrid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: clamp(.8rem, 1.6vw, 1.5rem); }
 .album { min-width: 0; color: var(--ink); }
 .album:hover { color: var(--ink); }
-.artwork { box-shadow: 0 18px 36px -24px rgba(var(--shadow-tint), 0.45); margin-bottom: 1rem; }
-.artwork img { transition: transform 200ms ease; }
-.album:hover img { transform: scale(1.035); }
+.artwork { margin-bottom: 1rem; }
 .album h3 { font-size: .9375rem; font-weight: 500; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .album p { font-size: .8125rem; margin-top: .3rem; color: var(--ink-2); }
 .year { display: block; margin-top: .3rem; font-size: .75rem; color: var(--ink-3); font-variant-numeric: tabular-nums; }
@@ -37,3 +35,38 @@
 .skeleton { aspect-ratio: .75; border-radius: var(--r-cover); background: var(--mist); }
 @media (max-width: 1200px) { .albumGrid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .albumGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .lowerGrid { grid-template-columns: 1fr; gap: 2rem; } .sectionHeading { align-items: center; } .empty { padding: 2rem; } }
+
+/* ---- Kiosk: on a desktop window Home is exactly the window's height ----
+   The page (Layout: .page:has([data-kiosk-page])) is as tall as the pane;
+   the recently added row takes the room the other sections leave, and its
+   covers are as large as fits both the row's width and that height, so
+   nothing scrolls at 1440x900. A narrow row shows fewer covers rather than
+   tiny ones. Short or narrow windows (and phones) fall back to the natural
+   flow above. */
+@media (min-width: 901px) and (min-height: 640px) {
+  .content { flex: 1; min-height: 0; gap: clamp(1.5rem, 4.5vh, 3rem); }
+  .recent { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .sectionHeading { margin-bottom: clamp(.75rem, 2vh, 1.25rem); }
+  .stage { flex: 1; min-height: 12rem; container: stage / size; }
+  .albumGrid {
+    --cols: 6;
+    --gap: clamp(.8rem, 1.6vw, 1.5rem);
+    /* the title, artist and year under a cover, plus the cover's margin */
+    --meta: 5.4rem;
+    --tile: max(6rem, min((100cqi - (var(--cols) - 1) * var(--gap)) / var(--cols), 100cqb - var(--meta)));
+    grid-template-columns: repeat(var(--cols), var(--tile));
+    gap: var(--gap);
+  }
+  .album h3 { -webkit-line-clamp: 1; line-clamp: 1; }
+  .lowerGrid { flex: none; }
+  .needsItem, .planItem { padding-block: .9rem; }
+  .quietEmpty { min-height: 0; }
+  @container stage (max-width: 760px) {
+    .albumGrid { --cols: 4; }
+    .album:nth-child(n + 5) { display: none; }
+  }
+  @container stage (max-width: 480px) {
+    .albumGrid { --cols: 3; }
+    .album:nth-child(n + 4) { display: none; }
+  }
+}

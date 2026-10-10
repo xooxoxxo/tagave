@@ -32,16 +32,19 @@
   transition: opacity var(--dur) var(--ease-out), filter var(--dur) var(--ease-out);
 }
 
-/* No art: a dew-tinted field lit from a corner, a thin groove mark, and the
-   initials in the thin display face. Every colour is a token, so it follows
-   the theme. The tilt comes from the title, so neighbours differ a little. */
+/* No art: a field lit from a corner and tinted with the album's own hue
+   (--cover-hue, from the title, so the same album always looks the same and
+   neighbours differ), a thin groove mark drawn in close around the centre,
+   and large initials in the thin display face. The hue is only ever mixed
+   into theme tokens at a low share, so it reads as a tint in both themes. */
 .placeholder {
+  --cover-tint: oklch(0.72 0.09 var(--cover-hue, 210));
   display: grid;
   place-items: center;
   background:
-    radial-gradient(90% 75% at var(--cover-x, 30%) 8%, color-mix(in srgb, var(--surface) 85%, transparent) 0, transparent 62%),
-    linear-gradient(var(--cover-tilt, 145deg), var(--dew-tint), var(--mist) 70%);
-  color: color-mix(in srgb, var(--dew) 75%, var(--ink));
+    radial-gradient(90% 75% at var(--cover-x, 30%) 8%, color-mix(in srgb, var(--surface) 80%, transparent) 0, transparent 62%),
+    linear-gradient(var(--cover-tilt, 145deg), color-mix(in oklch, var(--cover-tint) 26%, var(--dew-tint)), color-mix(in oklch, var(--cover-tint) 12%, var(--mist)) 72%);
+  color: color-mix(in oklch, var(--cover-tint) 38%, color-mix(in srgb, var(--dew) 60%, var(--ink)));
 }
 
 .groove {
@@ -49,7 +52,7 @@
   width: 78%;
   height: 78%;
   fill: none;
-  stroke: color-mix(in srgb, var(--dew) 18%, transparent);
+  stroke: color-mix(in oklch, var(--cover-tint, var(--dew)) 30%, transparent);
   stroke-width: 0.6;
 }
 
@@ -57,15 +60,61 @@
   position: relative;
   font-family: var(--font-display);
   font-weight: 300;
-  font-size: 18cqi;
+  font-size: 26cqi;
   line-height: 1;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .compact .groove {
   width: 86%;
   height: 86%;
   stroke-width: 1.2;
+}
+
+/* In a card that reacts to hover (Home's recently added): the art eases in
+   a touch inside the clipped, rounded square (transform only, on its own
+   layer from the start, so nothing re-rasterises or shifts by a pixel when
+   the hover begins or ends) and the drop shadow deepens. The square, its
+   hairline and the text below never move. */
+.interactive {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent), 0 18px 36px -24px rgba(var(--shadow-tint), 0.45);
+  transition: box-shadow 250ms var(--ease-out);
+  /* keep the rounded clip on the art while it scales (WebKit) */
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+}
+
+.interactive .art {
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
+  transition: transform 250ms var(--ease-out), opacity var(--dur) var(--ease-out), filter var(--dur) var(--ease-out);
+}
+
+/* the hairline sits above the art, so a scaled image never covers it */
+.interactive::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent);
+  pointer-events: none;
+}
+
+@media (hover: hover) {
+  :hover > .interactive,
+  .interactive:hover {
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent), 0 26px 44px -22px rgba(var(--shadow-tint), 0.55);
+  }
+
+  :hover > .interactive .art,
+  .interactive:hover .art {
+    transform: translateZ(0) scale(1.04);
+  }
+}
+
+:focus-visible > .interactive {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 70%, transparent), 0 26px 44px -22px rgba(var(--shadow-tint), 0.55);
 }
 
 /* An album you do not own: the art fades and loses its colour, and a dashed
@@ -146,8 +195,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .art {
+  .art,
+  .interactive .art {
     transition: none;
+  }
+
+  :hover > .interactive .art,
+  .interactive:hover .art {
+    transform: translateZ(0);
   }
 }
 
