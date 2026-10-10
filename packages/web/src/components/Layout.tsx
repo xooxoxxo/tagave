@@ -4,6 +4,7 @@ import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from 
 import { SearchModal } from './SearchModal';
 import { Button, IconButton } from './ui';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
+import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
 import { PageBackActionContext, PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
@@ -29,6 +30,8 @@ export function Layout() {
   const router = useRouter();
   const navigate = useNavigate();
   const [maintenance, setMaintenance] = useMaintenance();
+  // Settings › Appearance: search beside the logo or below it, wordmark on or off
+  const [{ searchPlacement, showWordmark }] = useDisplayPrefs();
   const barTitle = useAppBarTitle();
   // Detail pages trade the mark for a back button (phone); on wider screens
   // the back button leads the page's title row and, once the title scrolls
@@ -105,16 +108,17 @@ export function Layout() {
             <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
           </div>
         )}
-        <Link to="/" className={styles.brand}>
+        <div className={searchPlacement === 'beside' ? styles.brandRowBeside : styles.brandRow}>
+        <Link to="/" className={styles.brand} aria-label={showWordmark ? undefined : 'tagave'}>
           <BrandMark className={styles.brandMark} />
-          tagave
-          <span className={styles.brandCaption}>A home for your music</span>
+          {showWordmark && 'tagave'}
         </Link>
         <div className={styles.tools}>
         <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
           <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
           <span className={styles.searchLabel}>Search</span> <kbd>⌘ K</kbd>
         </button>
+        </div>
         </div>
         {onAlbumPage ? null : <MaintenancePill className={styles.modePill} />}
         <button

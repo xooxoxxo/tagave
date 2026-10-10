@@ -30,6 +30,7 @@ import { useFingerprintAlbum } from '../hooks/useFingerprint';
 import { useEditionSwitch } from '../hooks/useEditionSwitch';
 import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequestPanel';
 import { useMaintenance } from '../maintenance';
+import { useDisplayPrefs } from '../displayPrefs';
 import { PageBackActionContext } from '../components/ui/PageShell';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
@@ -88,6 +89,7 @@ export function AlbumDetailPage() {
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
   const [maintenance, setMaintenance] = useMaintenance();
+  const [{ shortAlbumArt }] = useDisplayPrefs();
   const tab: AlbumTab = search.tab ?? 'tracks';
   const setTab = (next: AlbumTab) =>
     void navigate({ to: '/albums/$albumId', params: { albumId }, search: next === 'tracks' ? {} : { tab: next }, replace: true, resetScroll: false });
@@ -771,7 +773,8 @@ export function AlbumDetailPage() {
   });
   const artistLine = albumArtist ?? 'Unknown artist';
   const manageMenu = <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />;
-  const showFiller = wantsFiller(album.tracks.length);
+  // Settings › Appearance can turn the short-album artwork off
+  const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
 
   return (

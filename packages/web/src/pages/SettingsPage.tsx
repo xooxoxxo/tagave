@@ -4,6 +4,7 @@ import { useUpdateAvailable } from '../hooks/useUpdates';
 import { UpdateDot } from '../components/UpdateDot';
 import { PageShell, SegmentedControl, ThemeSwitch } from '../components/ui';
 import { useMaintenance } from '../maintenance';
+import { useDisplayPrefs } from '../displayPrefs';
 import { useScrollFade } from '../components/ui/useScrollFade';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
@@ -12,6 +13,7 @@ import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
+import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
@@ -26,6 +28,7 @@ const sections = [
   { value: 'appearance', label: 'Appearance' },
   { value: 'providers', label: 'Integrations', group: 'Connections & system' },
   { value: 'system', label: 'System status' },
+  { value: 'storage', label: 'Storage' },
   { value: 'backups', label: 'Backups' },
   { value: 'updates', label: 'Updates' },
   { value: 'activity', label: 'Background activity' },
@@ -47,9 +50,10 @@ export function SettingsPage() {
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /><MaintenanceSetting /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /><MaintenanceSetting /><DisplaySettings /></>}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
         {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails. Versions and connected workers are under <Link to="/settings/$section" params={{ section: 'updates' }}>Updates</Link>.</p><SystemStatus /></>}
+        {section === 'storage' && <><h2>Storage</h2><p className={styles.sectionDescription}>How much room tagave takes: the database by kind of data, and the folders it keeps on this server. Your music files are not counted.</p><SettingsStorageContent /></>}
         {section === 'backups' && <><h2>Backups</h2><p className={styles.sectionDescription}>Copies of the database: your catalog, matches, reviews and settings. Your music files are not in them.</p><SettingsBackupsPage /></>}
         {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New versions, what they change, and how to update this server.</p><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
@@ -76,3 +80,23 @@ function MaintenanceSetting() {
   </>;
 }
 
+
+/**
+ * Sidebar and album display: where the search sits, the wordmark, and the
+ * artwork under short albums. Each is its own setting with the same rhythm
+ * as Maintenance above.
+ */
+function DisplaySettings() {
+  const [prefs, setPrefs] = useDisplayPrefs();
+  return <>
+    <h2 className={styles.modeSetting}>Search box</h2>
+    <p className={styles.sectionDescription}>Where the search box sits in the sidebar: on its own line below the logo, or on the logo's row. On a phone or tablet the top bar keeps its own layout. Remembered in this browser only.</p>
+    <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below the logo' }, { value: 'beside', label: 'Next to the logo' }]} />
+    <h2 className={styles.modeSetting}>Wordmark</h2>
+    <p className={styles.sectionDescription}>Show the name "tagave" next to the mark, or the mark alone. Remembered in this browser only.</p>
+    <SegmentedControl label="Wordmark" value={prefs.showWordmark ? 'shown' : 'hidden'} onChange={(v) => setPrefs({ showWordmark: v === 'shown' })} options={[{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]} />
+    <h2 className={styles.modeSetting}>Short albums</h2>
+    <p className={styles.sectionDescription}>Albums of three tracks or fewer get a generated ripple artwork under the tracklist, drawn from the album's title. Remembered in this browser only.</p>
+    <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? 'on' : 'off'} onChange={(v) => setPrefs({ shortAlbumArt: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+  </>;
+}
