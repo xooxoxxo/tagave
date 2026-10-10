@@ -56,7 +56,7 @@ describe.skipIf(!url)('pg-boss connection drop (db)', () => {
     // A bare PgBoss, as api/src/boss.ts was: start, idle, have its
     // connections terminated from outside, see whether the process lives.
     const script = `
-      import PgBoss from 'pg-boss';
+      import { PgBoss } from 'pg-boss';
       import postgres from 'postgres';
       const boss = new PgBoss(${JSON.stringify(withAppName(scratchUrl, appName))});
       await boss.start();

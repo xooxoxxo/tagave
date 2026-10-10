@@ -20,8 +20,8 @@ const rule = (text: string, selector: string) =>
 const router = source('../router.tsx');
 /** Components routed under the app frame (getParentRoute: layoutRoute). */
 const framed = [...router.matchAll(/getParentRoute: \(\) => layoutRoute,[^}]*?component: (\w+)/g)].map((m) => m[1]!);
-/** Not a page in the frame's rhythm: a narrow, centred first-run wizard. */
-const EXEMPT = new Set(['OnboardingPage']);
+/** Not pages in the frame's rhythm: the narrow, centred first-run wizard steps. */
+const EXEMPT = new Set(['OnboardingPage', 'ProtectAccountPage']);
 const fileFor = (component: string) => `./${component}.tsx`;
 
 describe('page shell contract', () => {
