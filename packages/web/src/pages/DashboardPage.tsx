@@ -29,17 +29,23 @@ export function DashboardPage() {
 
   return (
     <PageShell title="Your music, in good company." subtitle="Explore your collection. Make room for your next discovery." actions={<LinkButton to="/albums">Browse all albums <span aria-hidden="true">↗</span></LinkButton>}>
-      <div className={styles.content}>
-        <section aria-labelledby="recent-heading">
+      {/* A kiosk view on a desktop: the page is exactly the height of the
+          window and the recently added row sizes its covers to the room left
+          (DashboardPage.module.css); on a phone it scrolls naturally. */}
+      <div className={styles.content} data-kiosk-page>
+        <section aria-labelledby="recent-heading" className={styles.recent}>
           <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>At home in your library</p><h2 id="recent-heading">Recently added</h2></div><Link to="/albums" search={{ sort: 'added_date' }}>View all →</Link></div>
           {libraryLoading || recent.isLoading ? <div className={styles.albumGrid} aria-label="Loading recent albums" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className={styles.skeleton} />)}</div>
             : !libraryId ? <div className={styles.empty}><h3>Connect your music</h3><p>Set up a library to start exploring your albums.</p><Link to="/onboarding">Set up your library →</Link></div>
             : recent.isError ? <div className={styles.empty} role="alert"><h3>We couldn’t load your albums</h3><p>Your library is still here. Try loading it again.</p><Button variant="secondary" onClick={() => void recent.refetch()}>Try again</Button></div>
             : !recent.data?.items.length ? <div className={styles.empty}><h3>A home for every record</h3><p>Add a music folder and scan it to bring your albums into tagave.</p><Link to="/settings/library">Add a music folder →</Link></div>
-            : <div className={styles.albumGrid}>{recent.data.items.map(album => <Link key={album.id} to="/albums/$albumId" params={{ albumId: album.id }} className={styles.album}>
-              <CoverArt src={album.coverUrl} title={album.title} className={styles.artwork} />
-              <h3>{album.title}</h3><p>{album.artistCredit}</p><span className={styles.year}>{album.year ?? 'Year unknown'}</span>
-            </Link>)}</div>}
+            : <div className={styles.stage}><div className={styles.albumGrid}>{recent.data.items.map(album => <Link key={album.id} to="/albums/$albumId" params={{ albumId: album.id }} className={styles.album}>
+              <CoverArt src={album.coverUrl} title={album.title} className={styles.artwork} interactive />
+              {/* dir="auto": a title in a right-to-left script (or mis-decoded
+                  tags that came out as one) keeps its own direction instead of
+                  being reordered around the Latin text */}
+              <h3 dir="auto" title={album.title}>{album.title}</h3><p dir="auto">{album.artistCredit}</p><span className={styles.year}>{album.year ?? 'Year unknown'}</span>
+            </Link>)}</div></div>}
         </section>
         <div className={styles.lowerGrid}>
           <section aria-labelledby="care-heading"><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>A little attention goes a long way</p><h2 id="care-heading">Care for your library</h2></div></div>
@@ -47,7 +53,7 @@ export function DashboardPage() {
             {(queue.isError || stats.isError || gaps.isError) && <p className={styles.status} role="status">Some library counts are unavailable. <Button variant="quiet" size="sm" onClick={() => { void queue.refetch(); void stats.refetch(); void gaps.refetch(); }}>Retry</Button></p>}
           </section>
           <section aria-labelledby="changes-heading"><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Thoughtful upkeep</p><h2 id="changes-heading">Recent tag changes</h2></div><Link to="/plans">View all →</Link></div>
-            {plans.isLoading ? <p className={styles.status}>Loading tag changes…</p> : plans.isError ? <p className={styles.status} role="alert">Couldn’t load tag changes. <Button variant="quiet" size="sm" onClick={() => void plans.refetch()}>Retry</Button></p> : plans.data?.items.length ? <Card padded={false}><div className={styles.plansList}>{plans.data.items.map(plan => <Link key={plan.id} to="/plans/$planId" params={{ planId: plan.id }} className={styles.planItem}><span className={styles.planName}>{plan.name}</span><span className={styles.planState}>{plan.status.replace(/_/g, ' ')}</span></Link>)}</div></Card> : <div className={styles.quietEmpty}><h3>Everything in its right place</h3><p>Preview and apply metadata corrections here when your albums need them.</p><Link to="/plans">Explore tag changes →</Link></div>}
+            {plans.isLoading ? <p className={styles.status}>Loading tag changes…</p> : plans.isError ? <p className={styles.status} role="alert">Couldn’t load tag changes. <Button variant="quiet" size="sm" onClick={() => void plans.refetch()}>Retry</Button></p> : plans.data?.items.length ? <Card padded={false}><div className={styles.plansList}>{plans.data.items.map(plan => <Link key={plan.id} to="/plans/$planId" params={{ planId: plan.id }} className={styles.planItem}><span className={styles.planName} dir="auto">{plan.name}</span><span className={styles.planState}>{plan.status.replace(/_/g, ' ')}</span></Link>)}</div></Card> : <div className={styles.quietEmpty}><h3>Everything in its right place</h3><p>Preview and apply metadata corrections here when your albums need them.</p><Link to="/plans">Explore tag changes →</Link></div>}
           </section>
         </div>
       </div>

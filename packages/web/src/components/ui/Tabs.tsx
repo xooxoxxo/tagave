@@ -2,6 +2,7 @@ import { type ReactNode, useCallback, useRef } from 'react';
 import { nextTabIndex } from './tabNavigation';
 import { useScrollFade } from './useScrollFade';
 import { useSlidingIndicator } from './useSlidingIndicator';
+import { SlidingPill } from './SlidingPill';
 import styles from './Tabs.module.css';
 
 export interface TabItem {
@@ -32,7 +33,7 @@ export function Tabs({ items, value, onChange, label = 'Sections', panelId }: Ta
   const setStrip = useCallback((el: HTMLDivElement | null) => { strip(el); trackRef(el); }, [strip, trackRef]);
   const activate = (item: TabItem) => { item.onClick?.(); onChange?.(item.value); };
   return <div ref={setStrip} className={styles.tablist} role="tablist" aria-label={label}>
-    <span ref={indicatorRef} className={styles.indicator} aria-hidden="true" />
+    <SlidingPill ref={indicatorRef} />
     {items.map((item, index) => <button
       type="button"
       key={item.value}

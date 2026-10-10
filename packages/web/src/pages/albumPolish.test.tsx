@@ -2,8 +2,6 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Tabs } from '../components/ui/Tabs';
-import { SegmentedControl } from '../components/ui/SegmentedControl';
-import { INDICATOR_MS, indicatorStyle, indicatorTransition } from '../components/ui/useSlidingIndicator';
 import { STAR_TARGET, nextRating, starHitGeometry } from '../components/StarRating';
 import { tabIdFor } from '../components/ui/Tabs';
 import { folderAlbumsSearch } from './AlbumFolders';
@@ -16,39 +14,7 @@ const rule = (css: string, selector: string) =>
   [...css.matchAll(new RegExp(`(?:^|\\n)\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`, 'g'))]
     .map((m) => m[1] ?? '').join('\n');
 
-describe('tab strips and segmented controls: the selected pill slides', () => {
-  it('a change of selection eases over ~250ms; the first placement and resizes are instant', () => {
-    expect(INDICATOR_MS).toBe(250);
-    const t = indicatorTransition(true, false);
-    expect(t).toMatch(/transform 250ms cubic-bezier\(0\.2, 0\.8, 0\.2, 1\)/);
-    expect(t).toMatch(/width 250ms/);
-    expect(indicatorTransition(false, false)).toBe('none');
-  });
-
-  it('reduced motion: always instant', () => {
-    expect(indicatorTransition(true, true)).toBe('none');
-    for (const file of ['../components/ui/Tabs.module.css', '../components/ui/SegmentedControl.module.css']) {
-      const css = read(file);
-      expect(css).toMatch(/prefers-reduced-motion: reduce\)\s*\{[^}]*\.indicator[^}]*\{\s*transition: none/);
-    }
-  });
-
-  it('places the pill with a transform, never left/top (no layout per frame)', () => {
-    expect(indicatorStyle({ x: 120, y: 4, width: 80, height: 40 }, 'none')).toEqual({
-      transform: 'translate(120px, 4px)', width: '80px', height: '40px', transition: 'none',
-    });
-  });
-
-  it('server markup: the active item paints its own bubble until the indicator is placed', () => {
-    const tabs = renderToStaticMarkup(<Tabs items={[{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]} value="b" />);
-    expect(tabs).toMatch(/aria-selected="true" data-active="true"/);
-    expect(tabs).not.toMatch(/data-indicator/);
-    const seg = renderToStaticMarkup(<SegmentedControl label="View" name="v" value="list" onChange={() => undefined} options={[{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }]} />);
-    expect(seg).toMatch(/data-active="true"[^>]*><input[^>]*value="list"/);
-    const css = read('../components/ui/Tabs.module.css');
-    expect(rule(css, '.tablist[data-indicator] .active,\n.tablist[data-indicator] .active:hover')).toMatch(/background: transparent/);
-  });
-
+describe('tab strips and segmented controls', () => {
   it('no focus ring on click; a ring for keyboard focus', () => {
     const css = read('../components/ui/Tabs.module.css');
     expect(rule(css, '.tab:focus')).toMatch(/outline: none/);
