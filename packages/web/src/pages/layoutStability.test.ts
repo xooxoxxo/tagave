@@ -3,7 +3,6 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { InlineRename } from '../components/InlineRename';
-import { MAX_SCORE_DOTS } from '../utils/matchScores';
 
 const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '');
 const read = (rel: string) => stripComments(readFileSync(new URL(rel, import.meta.url), 'utf8'));
@@ -20,28 +19,28 @@ const px = (block: string, prop: string) => {
 };
 
 describe('data tables keep their columns still', () => {
-  it('review candidates: fixed layout, a width on every column but Release', () => {
-    const css = read('./QueuePage.module.css');
-    expect(rule(css, '.table')).toMatch(/table-layout:\s*fixed/);
-    for (const col of ['.wSource', '.wYear', '.wCountry', '.wTracks', '.wScores', '.wStatus', '.wDistance', '.wLinks']) {
-      expect(rule(css, col)).toMatch(/width:\s*[\d.]+rem/);
-    }
+  it('review: the comparison is a fixed table; label and verdict columns are set, the values share the rest', () => {
+    const css = read('./review/review.module.css');
+    expect(rule(css, '.compare')).toMatch(/table-layout:\s*fixed/);
+    expect(rule(css, '.cField')).toMatch(/width:\s*[\d.]+%/);
+    expect(rule(css, '.cMark')).toMatch(/width:\s*[\d.]+rem/);
     const tsx = source('./QueuePage.tsx');
     expect(tsx).toMatch(/<colgroup>/);
-    expect(tsx).not.toMatch(/Match cells, left to right: \{scoreKeys\.join/);
   });
 
-  it('review candidates: the Match column holds the most dots any album carries', () => {
-    const css = read('./QueuePage.module.css');
-    const column = px(rule(css, '.wScores'), 'width');
-    const dot = px(rule(css, '.cellNone'), 'width');
-    const gap = px(rule(css, '.scoreStrip'), 'gap');
-    // row cells: padding var(--space-sm) var(--space-md), and --space-md is 1rem
-    expect(rule(css, '.rowSelected > td')).toMatch(/padding:\s*var\(--space-sm\) var\(--space-md\)/);
-    const cellPadding = 2 * 16;
-    expect(column - cellPadding).toBeGreaterThanOrEqual(MAX_SCORE_DOTS * dot + (MAX_SCORE_DOTS - 1) * gap);
-    // past that the dots wrap to a second line instead of being clipped
-    expect(rule(css, '.scoreStrip')).toMatch(/flex-wrap:\s*wrap/);
+  it('review: an edition row keeps the mark and the meter still and lets the facts take the rest', () => {
+    const css = read('./review/review.module.css');
+    expect(rule(css, '.edition,\n.editionSelected')).toMatch(/grid-template-columns:\s*auto minmax\(0, 1fr\) auto/);
+    expect(rule(css, '.meterBar')).toMatch(/width:\s*56px/);
+    expect(rule(css, '.meterPct')).toMatch(/min-width:\s*3\.4ch/);
+    expect(rule(css, '.meterWord')).toMatch(/min-width:\s*3\.4rem/);
+  });
+
+  it('review: the two panels stack on a phone, comparison first', () => {
+    const css = read('./review/review.module.css');
+    expect(css).toMatch(/@media \(max-width: 720px\)\s*\{\s*\.panels\s*\{\s*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    const tsx = source('./QueuePage.tsx');
+    expect(tsx.indexOf('aria-label="Selected edition beside your files"')).toBeLessThan(tsx.indexOf('id="editions-heading"'));
   });
 
   it('jobs and album candidates use fixed layout too', () => {
