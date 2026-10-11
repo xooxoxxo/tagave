@@ -1082,7 +1082,17 @@ td.cellOff {
    and switches what shows under it; no TRACKLIST label. */
 @media (min-width: 901px) {
   .flow > .tl { display: none; }
-  .flow > .foot { order: 1; padding-top: 1.5rem; padding-bottom: 0; }
+  /* the switcher sticks under the header, so sections change from anywhere */
+  .flow > .foot { display: contents; }
+  .flow > .foot > .footBar {
+    order: 1;
+    position: sticky;
+    top: 64px;
+    z-index: 4;
+    padding: 1rem var(--flow-gutter) .75rem;
+    background: var(--bg-nav);
+  }
+  .flow > .foot > .tabPanel { order: 2; padding: 1rem var(--flow-gutter) 2rem; }
   .flow > .tracksArea { order: 2; padding-top: 1rem; padding-bottom: 2rem; }
   .flow > .filler { order: 3; }
   .flow:not([data-album-tab="tracks"]) > .tracksArea,
