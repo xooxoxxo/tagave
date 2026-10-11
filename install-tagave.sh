@@ -30,6 +30,13 @@
 #   ./install-tagave.sh update              back up, move to the newest release, check health
 #   ./install-tagave.sh update --version 0.5.0 --yes
 #
+# Optional: the in-app updater (Settings > Updates performs the update). It
+# holds the Docker socket, so it is off unless asked for:
+#
+#   ./install-tagave.sh --with-updater ...     at install time
+#   ./install-tagave.sh enable-updater         on an existing install
+#   ./install-tagave.sh disable-updater        turn it off again
+#
 # Run with --help for every option.
 
 set -euo pipefail
@@ -61,6 +68,7 @@ FROM_FILE="${TAGAVE_FROM:-}"
 BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
 PUBLIC_URL="${TAGAVE_PUBLIC_URL:-}"
 BACKUP_DIR="${TAGAVE_BACKUP_DIR:-}"
+WITH_UPDATER="${TAGAVE_WITH_UPDATER:-}"
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
 PLATFORM=""
@@ -74,6 +82,8 @@ PROJECT_NAME="tagave"
 COMPOSE_MAIN="compose.yml"
 COMPOSE_DB="compose.db-published.yml"
 WORKER_ENV_NAME="files-worker.env"
+# Where the app reaches the opt-in updater, over the internal compose network.
+UPDATER_URL="http://updater:8080"
 
 # ---------------------------------------------------------------------------
 # Output
@@ -100,7 +110,7 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: install-tagave.sh [install|update|status] [options]
+Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater] [options]
 
   install                  set up or reconfigure tagave here (the default)
   update                   move this install to a new release: back up the
@@ -109,6 +119,11 @@ Usage: install-tagave.sh [install|update|status] [options]
                            print how to roll back
   status                   what runs here, its health, and whether a newer
                            release is out
+  enable-updater           add the optional in-app updater to this install, so
+                           Settings > Updates can perform an update. It holds
+                           the Docker socket (root on this computer); see
+                           docs/security.md. Restarts the app.
+  disable-updater          remove the in-app updater again
 
   --role all|app|files     what runs on this computer (default: all)
   --dir PATH               install directory (default: ~/tagave)
@@ -118,6 +133,8 @@ Usage: install-tagave.sh [install|update|status] [options]
                            release, written to .env as its number)
   --timezone ZONE          e.g. Europe/Berlin (default: this computer's, or UTC)
   --behind-https           the app will sit behind an https reverse proxy
+  --with-updater           also run the optional in-app updater (roles all,
+                           app); see enable-updater above
   --public-url URL         the address you open tagave at, e.g.
                            https://music.example.com (default: http://THIS
                            COMPUTER'S ADDRESS:PORT). Passkeys are bound to its
@@ -147,7 +164,8 @@ Usage: install-tagave.sh [install|update|status] [options]
 Each option can also be set as an environment variable: TAGAVE_ROLE,
 TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
 TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
-TAGAVE_FROM, TAGAVE_APP_URL, TAGAVE_BEHIND_HTTPS=1, TAGAVE_PUBLIC_URL, TAGAVE_BACKUP_DIR, TAGAVE_YES=1. TAGAVE_REF picks the git
+TAGAVE_FROM, TAGAVE_APP_URL, TAGAVE_BEHIND_HTTPS=1, TAGAVE_PUBLIC_URL, TAGAVE_BACKUP_DIR,
+TAGAVE_WITH_UPDATER=1, TAGAVE_YES=1. TAGAVE_REF picks the git
 ref the compose files are downloaded from (default: the release being installed).
 EOF
 }
@@ -159,7 +177,7 @@ EOF
 need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 
 case "${1:-}" in
-  install|update|status) COMMAND="$1"; shift ;;
+  install|update|status|enable-updater|disable-updater) COMMAND="$1"; shift ;;
 esac
 
 while [ "$#" -gt 0 ]; do
@@ -178,6 +196,7 @@ while [ "$#" -gt 0 ]; do
     --app-url)           need_arg "$@"; APP_URL="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
+    --with-updater)      WITH_UPDATER=1; shift ;;
     --public-url)        need_arg "$@"; PUBLIC_URL="$2"; shift 2 ;;
     --replace-secrets)   REPLACE_SECRETS=1; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
@@ -238,6 +257,12 @@ env_get() {
     \"*\") value="${value#\"}"; value="${value%\"}" ;;
   esac
   printf '%s' "$value"
+}
+
+# has_updater_profile FILE: COMPOSE_PROFILES in FILE includes "updater".
+has_updater_profile() {
+  case ",$(env_get COMPOSE_PROFILES "$1")," in *,updater,*) return 0 ;; esac
+  return 1
 }
 
 # 32 random bytes as base64 (44 characters): the app secret.
@@ -451,6 +476,7 @@ collect_answers() {
     if [ -z "$BEHIND_HTTPS" ] && [ "$(env_get ALLOW_INSECURE_HTTP "$existing")" = "false" ]; then
       BEHIND_HTTPS=1
     fi
+    if [ -z "$WITH_UPDATER" ] && has_updater_profile "$existing"; then WITH_UPDATER=1; fi
   fi
 
   step "Setup"
@@ -519,6 +545,18 @@ collect_answers() {
   fi
 
   ask TIMEZONE "Timezone" "$(detect_timezone)"
+
+  if [ "$ROLE" = "files" ] && [ "$WITH_UPDATER" = "1" ]; then
+    die "the in-app updater runs next to the app; add it on the app computer (--with-updater there), not with --role files"
+  fi
+  if [ "$ROLE" != "files" ] && [ -z "$WITH_UPDATER" ] && [ -n "$TTY" ]; then
+    say "  Optional: the in-app updater lets Settings > Updates install a new release"
+    say "  (backup, restart, health check, roll back on failure). It holds the Docker"
+    say "  socket, which is root on this computer; docs/security.md has the details."
+    local add_updater=""
+    ask add_updater "Add the in-app updater? (y/N)" "n"
+    case "$add_updater" in y|Y|yes|Yes|YES) WITH_UPDATER=1 ;; *) WITH_UPDATER=0 ;; esac
+  fi
 
   check_value "install directory" "$INSTALL_DIR"
   check_value "music folder" "$MUSIC_DIR"
@@ -632,6 +670,9 @@ resolve_version() {
   [ -n "$app_manifest" ] || explain_missing_image "$TAGAVE_REGISTRY/tagave-app:$tag"
   worker_manifest="$(manifest "$TAGAVE_REGISTRY/tagave-worker:$tag" || true)"
   [ -n "$worker_manifest" ] || explain_missing_image "$TAGAVE_REGISTRY/tagave-worker:$tag"
+  if [ "$WITH_UPDATER" = "1" ] && ! image_exists "$TAGAVE_REGISTRY/tagave-updater:$tag"; then
+    die "release $tag has no in-app updater image ($TAGAVE_REGISTRY/tagave-updater:$tag). Install without --with-updater, or pick a newer release."
+  fi
   VERSION="$tag"
   ok "Version $VERSION"
 
@@ -816,6 +857,7 @@ write_env() {
   if [ -z "$APP_SECRET" ] || [ -z "$POSTGRES_PASSWORD" ]; then
     die "refusing to write .env without an app secret and a database password"
   fi
+  if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then profiles="$profiles,updater"; fi
   insecure="true"
   if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
   local public_url="$PUBLIC_URL" local_origin=""
@@ -864,6 +906,9 @@ EOF
       else
         printf '\n# the app backs up the database before every update that changes it, into\n# the Docker volume "backups" with the nightly ones; set a folder here to keep\n# those backups outside Docker\n# TAGAVE_BACKUP_DIR=/path/to/backups\n'
       fi
+    fi
+    if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then
+      printf '\n# the optional in-app updater (profile "updater" above). It holds the Docker\n# socket: see docs/security.md. Turn it off with install-tagave.sh disable-updater.\nTAGAVE_INSTALL_DIR=%s\nTAGAVE_UPDATER_URL=%s\n' "$INSTALL_DIR" "$UPDATER_URL"
     fi
     if [ "$ROLE" = "app" ]; then
       printf '\n# database published for the file worker on the music computer\nDB_BIND=%s\nDB_PORT=%s\nTAGAVE_ADVERTISE_ADDRESS=%s\n' \
@@ -1069,6 +1114,13 @@ show_summary() {
   say "    ./install-tagave.sh status          version, health, and whether a release is out"
   say "    ./install-tagave.sh update          back up, update, check health (run it on every computer)"
   say ""
+  if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then
+    say "  The in-app updater is on: Settings > Updates can install a new release. It holds the"
+    say "  Docker socket; turn it off with ./install-tagave.sh disable-updater."
+  elif [ "$ROLE" != "files" ]; then
+    say "  To update from Settings > Updates instead, add the optional updater: ./install-tagave.sh enable-updater"
+  fi
+  say ""
   say "  Keep a copy of $INSTALL_DIR/.env somewhere safe: without it the database cannot be opened."
 }
 
@@ -1236,13 +1288,17 @@ confirm() {
 }
 
 # set_env_version FILE VERSION: rewrites TAGAVE_VERSION, keeping the file private.
-set_env_version() {
-  local file="$1" version="$2"
+set_env_version() { set_env_key "$1" TAGAVE_VERSION "$2"; }
+
+# set_env_key FILE KEY VALUE: rewrites (or appends) KEY=VALUE, keeping the
+# file private. VALUE must not contain | or a newline.
+set_env_key() {
+  local file="$1" key="$2" value="$3"
   [ -f "$file" ] || return 0
-  if grep -q '^TAGAVE_VERSION=' "$file"; then
-    sed "s/^TAGAVE_VERSION=.*/TAGAVE_VERSION=$version/" "$file" | write_private "$file" >/dev/null
+  if grep -q "^$key=" "$file"; then
+    sed "s|^$key=.*|$key=$value|" "$file" | write_private "$file" >/dev/null
   else
-    { cat "$file"; printf 'TAGAVE_VERSION=%s\n' "$version"; } | write_private "$file" >/dev/null
+    { cat "$file"; printf '%s=%s\n' "$key" "$value"; } | write_private "$file" >/dev/null
   fi
 }
 
@@ -1642,8 +1698,95 @@ run_status() {
   fi
 }
 
+# ---------------------------------------------------------------------------
+# enable-updater and disable-updater
+# ---------------------------------------------------------------------------
+
+# Adds the opt-in updater to an existing install: profile "updater", the
+# install folder (mounted at the same path inside it) and the URL the app
+# reaches it at. Then starts it and restarts the app, which joins the
+# updater's internal network and picks up TAGAVE_UPDATER_URL.
+run_enable_updater() {
+  local env_file profiles
+  say "${C_BOLD}tagave: add the in-app updater${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  [ "$ROLE" != "files" ] || die "this computer runs only the file worker; add the updater on the app computer"
+  check_value "install directory" "$INSTALL_DIR"
+  case "$INSTALL_DIR" in *'|'*|*'&'*) die "the install directory cannot contain | or &" ;; esac
+  env_file="$INSTALL_DIR/.env"
+  check_docker
+  if [ "${TAGAVE_SKIP_IMAGE_CHECK:-0}" != "1" ]; then
+    MANIFEST_ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/tagave-manifest.XXXXXX")"
+    trap 'rm -f "$MANIFEST_ERR_FILE"' EXIT
+    image_exists "$TAGAVE_REGISTRY/tagave-updater:$CURRENT" \
+      || die "release $CURRENT has no in-app updater image ($TAGAVE_REGISTRY/tagave-updater:$CURRENT). Move to a newer release first (./install-tagave.sh update), then run this again."
+  fi
+
+  say ""
+  say "  The updater lets Settings > Updates install a new release: it backs up the"
+  say "  database, sets TAGAVE_VERSION, pulls, restarts, checks health and rolls back"
+  say "  on failure. To do that it mounts the Docker socket, which gives it the power"
+  say "  of root on this computer, and this folder ($INSTALL_DIR)."
+  say "  It publishes no port; only the app can reach it, with signed requests."
+  say "  docs/security.md explains it. Remove it any time: ./install-tagave.sh disable-updater"
+  confirm "Add the in-app updater?"
+
+  step "Configuring"
+  profiles="$(env_get COMPOSE_PROFILES "$env_file")"
+  if ! has_updater_profile "$env_file"; then
+    set_env_key "$env_file" COMPOSE_PROFILES "${profiles:+$profiles,}updater"
+  fi
+  set_env_key "$env_file" TAGAVE_INSTALL_DIR "$INSTALL_DIR"
+  set_env_key "$env_file" TAGAVE_UPDATER_URL "$UPDATER_URL"
+  ok "COMPOSE_PROFILES=$(env_get COMPOSE_PROFILES "$env_file"), TAGAVE_INSTALL_DIR, TAGAVE_UPDATER_URL in .env"
+  compose config --services 2>/dev/null | grep -qx updater \
+    || die "the compose files in $INSTALL_DIR have no updater service (they come from an older release). Run ./install-tagave.sh update to a release with the updater first; .env already has the settings."
+  validate_compose
+
+  if [ "$NO_START" = "1" ]; then
+    step "Configuration written; nothing started (--no-start)"
+    say "  Start it with:  cd $INSTALL_DIR && docker compose up -d"
+    return 0
+  fi
+  step "Starting the updater and restarting the app"
+  compose pull updater || die "downloading the updater image failed (see above)."
+  compose up -d updater app || die "docker compose could not start the updater (see above)."
+  if wait_for app healthy 600; then
+    ok "Web app is up; Settings > Updates now offers the update button"
+  else
+    compose logs --tail 40 app >&2 || true
+    die "the web app did not become healthy after the restart. The log above says why."
+  fi
+}
+
+# Removes the updater container and its settings; the app restarts without it.
+run_disable_updater() {
+  local env_file profiles
+  say "${C_BOLD}tagave: remove the in-app updater${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  env_file="$INSTALL_DIR/.env"
+  check_docker
+  if [ "$NO_START" != "1" ]; then
+    compose rm --stop --force updater >/dev/null 2>&1 || true
+  fi
+  profiles="$(env_get COMPOSE_PROFILES "$env_file" | tr ',' '\n' | grep -vx updater | paste -sd, - || true)"
+  set_env_key "$env_file" COMPOSE_PROFILES "$profiles"
+  set_env_key "$env_file" TAGAVE_UPDATER_URL ""
+  ok "COMPOSE_PROFILES=$profiles; TAGAVE_UPDATER_URL cleared"
+  validate_compose
+  if [ "$NO_START" = "1" ]; then return 0; fi
+  if [ "$ROLE" != "files" ]; then
+    compose up -d app || die "docker compose could not restart the app (see above)."
+  fi
+  ok "The updater is removed; Settings > Updates shows the update command again"
+}
+
 case "$COMMAND" in
   install) main ;;
   update)  run_update ;;
   status)  run_status ;;
+  enable-updater)  run_enable_updater ;;
+  disable-updater) run_disable_updater ;;
 esac

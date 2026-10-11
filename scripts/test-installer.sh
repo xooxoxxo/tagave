@@ -101,6 +101,62 @@ config="$(render "$work/files")"
 printf '%s' "$config" | grep -q "@$address:5432/" || fail "role files: DATABASE_URL does not point at the app computer"
 pass "role files"
 
+# --- the opt-in updater --------------------------------------------------------
+run --role all --with-updater --dir "$work/updater" --music "$work/music" >"$work/updater.log" 2>&1 \
+  || { cat "$work/updater.log" >&2; fail "--with-updater"; }
+[ "$(env_value COMPOSE_PROFILES "$work/updater/.env")" = "app,files,updater" ] || fail "--with-updater: profiles"
+[ "$(env_value TAGAVE_INSTALL_DIR "$work/updater/.env")" = "$work/updater" ] || fail "--with-updater: TAGAVE_INSTALL_DIR"
+[ "$(env_value TAGAVE_UPDATER_URL "$work/updater/.env")" = "http://updater:8080" ] || fail "--with-updater: TAGAVE_UPDATER_URL"
+[ "$(services "$work/updater")" = "app postgres updater worker-files worker-identify " ] || fail "--with-updater: services are $(services "$work/updater")"
+config="$(render "$work/updater")"
+printf '%s' "$config" | grep -q '"TAGAVE_UPDATER_URL": "http://updater:8080"' || fail "--with-updater: the app does not get TAGAVE_UPDATER_URL"
+printf '%s' "$config" | grep -q '"source": "/var/run/docker.sock"' || fail "--with-updater: the updater has no Docker socket"
+updater_json="$(cd "$work/updater" && docker compose config --format json | python3 -c 'import json,sys; c=json.load(sys.stdin); u=c["services"]["updater"]; print(json.dumps(u.get("ports")), sorted(u["networks"]), sorted(v["source"] for v in u["volumes"]), c["networks"]["updater"].get("internal"))')"
+[ "$updater_json" = "null ['updater'] ['$work/updater', '/var/run/docker.sock'] True" ] \
+  || fail "--with-updater: the updater must publish no port, sit only on the internal network and mount only the socket and the install folder (got: $updater_json)"
+# Without the profile the same compose file has no updater, and the app no URL.
+[ "$(services "$work/all")" = "app postgres worker-files worker-identify " ] || fail "updater: present without the profile"
+render "$work/all" | grep -q '"TAGAVE_UPDATER_URL": ""' || fail "updater: the app has an updater URL without the profile"
+pass "--with-updater adds the updater: socket and install folder only, internal network, no port"
+
+run --role all --dir "$work/updater" --music "$work/music" >"$work/updater2.log" 2>&1 \
+  || { cat "$work/updater2.log" >&2; fail "--with-updater, re-run"; }
+[ "$(env_value COMPOSE_PROFILES "$work/updater/.env")" = "app,files,updater" ] || fail "updater: a re-run without the flag dropped it"
+pass "re-running the installer keeps the updater"
+
+if run --role files --with-updater --dir "$work/files-upd" --from "$work/app/files-worker.env" --music "$work/music" >"$work/files-upd.log" 2>&1; then
+  fail "updater: accepted --with-updater for --role files"
+fi
+grep -q 'runs next to the app' "$work/files-upd.log" || fail "updater: --role files refusal does not say why"
+pass "the file worker computer refuses the updater"
+
+# enable-updater and disable-updater on an existing install (nothing started).
+cp -R "$work/all" "$work/enable"
+if "$installer" enable-updater --dir "$work/enable" --no-start </dev/null >"$work/enable-noyes.log" 2>&1; then
+  fail "enable-updater: went ahead without --yes and without a terminal"
+fi
+[ "$(env_value COMPOSE_PROFILES "$work/enable/.env")" = "app,files" ] || fail "enable-updater: changed .env without confirmation"
+TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" enable-updater --dir "$work/enable" --yes --no-start </dev/null >"$work/enable.log" 2>&1 \
+  || { cat "$work/enable.log" >&2; fail "enable-updater"; }
+grep -q 'root on this computer' "$work/enable.log" || fail "enable-updater: does not say what the socket gives"
+[ "$(env_value COMPOSE_PROFILES "$work/enable/.env")" = "app,files,updater" ] || fail "enable-updater: profiles"
+[ "$(env_value TAGAVE_INSTALL_DIR "$work/enable/.env")" = "$work/enable" ] || fail "enable-updater: TAGAVE_INSTALL_DIR"
+[ "$(env_value TAGAVE_UPDATER_URL "$work/enable/.env")" = "http://updater:8080" ] || fail "enable-updater: TAGAVE_UPDATER_URL"
+[ "$(mode_of "$work/enable/.env")" = "600" ] || fail "enable-updater: .env is no longer mode 600"
+[ "$(services "$work/enable")" = "app postgres updater worker-files worker-identify " ] || fail "enable-updater: services are $(services "$work/enable")"
+TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" enable-updater --dir "$work/enable" --yes --no-start </dev/null >"$work/enable2.log" 2>&1 \
+  || { cat "$work/enable2.log" >&2; fail "enable-updater, again"; }
+[ "$(env_value COMPOSE_PROFILES "$work/enable/.env")" = "app,files,updater" ] || fail "enable-updater: a second run doubled the profile"
+"$installer" disable-updater --dir "$work/enable" --yes --no-start </dev/null >"$work/disable.log" 2>&1 \
+  || { cat "$work/disable.log" >&2; fail "disable-updater"; }
+[ "$(env_value COMPOSE_PROFILES "$work/enable/.env")" = "app,files" ] || fail "disable-updater: profiles"
+[ -z "$(env_value TAGAVE_UPDATER_URL "$work/enable/.env")" ] || fail "disable-updater: TAGAVE_UPDATER_URL still set"
+[ "$(services "$work/enable")" = "app postgres worker-files worker-identify " ] || fail "disable-updater: services are $(services "$work/enable")"
+if TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" enable-updater --dir "$work/files" --yes --no-start </dev/null >"$work/enable-files.log" 2>&1; then
+  fail "enable-updater: accepted the file worker computer"
+fi
+pass "enable-updater asks first, writes the settings once; disable-updater removes them"
+
 # --- version pinning ----------------------------------------------------------
 # A fake GitHub releases API: install-tagave.sh reads $TAGAVE_RELEASES_API/latest.
 mkdir -p "$work/releases"

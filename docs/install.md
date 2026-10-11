@@ -152,6 +152,32 @@ Under **If something goes wrong**, the page shows how to go back to the version 
 
 The update page decides which steps to show first from `TAGAVE_INSTALL_METHOD` (`installer`, `compose`, `source`, `portainer`, `dokploy`, `coolify` or `unraid`). The templates set it and the installer's `.env` is recognised on its own; you only need it when you wrote your own compose file for a platform.
 
+### Updating from the app (optional updater)
+
+Installs made with `install-tagave.sh` can add a small updater service, so **Settings › Updates** performs the update itself instead of showing a command. It is off unless you ask for it, because it holds the Docker socket (see [security](security.md#the-in-app-updater) before you turn it on).
+
+```sh
+./install-tagave.sh --with-updater ...      # when installing
+./install-tagave.sh enable-updater          # on an existing install, from the install folder
+./install-tagave.sh disable-updater         # turn it off again
+```
+
+With the updater on, the page offers **Update to x.y.z** (and a list of the newer releases to pick from). Only the owner can start an update. If your sign-in is older than five minutes, the page first asks you to confirm it is you: with a passkey or security key if you have one, otherwise with the authenticator app, otherwise with your password.
+
+The updater then works through these steps, and the page shows each one with the time it took and a log:
+
+1. **Check**: the install is healthy now, Docker has at least 2 GB free (`TAGAVE_UPDATER_MIN_FREE_MB`), and the new images download for this computer's architecture. Nothing has changed yet.
+2. **Back up**: `liner-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
+3. **Switch**: `TAGAVE_VERSION` in `.env` and the compose files are set to the new release. The old files stay next to them as `.env.bak` and `compose.yml.bak`.
+4. **Pull** and **restart**: the workers stop, the new app starts (and updates the database), then the workers start again.
+5. **Check every part**: `/api/v1/health` answers ok, the app reports the new version, and every worker on this computer sends heartbeats from it. It waits up to 10 minutes (`TAGAVE_UPDATER_HEALTH_TIMEOUT`, in seconds).
+
+If a step after the switch fails, the updater rolls back on its own: it puts the old `.env` and compose files back and starts the old version. When the new version had already changed the database, it stops the app and workers first and restores the backup from step 2 with `liner-doctor restore` (the database it replaces is kept under another name). The page then says what failed and what was rolled back.
+
+The run is kept by the updater, not by the app, so the page keeps following it while the app restarts, and after a reload. The updater itself moves to the new release last, once the rest reports healthy.
+
+On a split install the updater updates the app computer; run `install-tagave.sh update` on the music computer afterwards, as before.
+
 ## Manual install (build from source)
 
 The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.

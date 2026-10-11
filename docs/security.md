@@ -104,6 +104,24 @@ tagave has no telemetry. The server makes outbound requests only to:
 - the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
 - the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
 
+## The in-app updater
+
+The updater is an optional service (compose profile `updater`) that lets **Settings › Updates** install a new release. It is off by default. `install-tagave.sh --with-updater` or `install-tagave.sh enable-updater` turns it on.
+
+**What the Docker socket gives it.** To pull images and restart containers, the updater mounts `/var/run/docker.sock`. Access to that socket is the same as root on the host: whoever controls it can start a container that mounts `/` and change anything on the computer. Mounting it is therefore a real trade-off, which is why it is opt-in. Nextcloud AIO and Coolify make the same trade for their update buttons. If you would rather not make it, leave the updater off and use the command the page shows (`install-tagave.sh update`), which does the same steps from your shell.
+
+**What tagave does to keep that power narrow:**
+
+- The updater mounts the socket and the install folder (compose files and `.env`, at the same path as on the host) and nothing else. It has no access to your music, and no published port.
+- It sits on its own internal Docker network, `updater`, together with the app and nothing else. That network has no route out; Docker itself downloads the images.
+- It acts only on requests from the app. Every request is signed with HMAC-SHA256 using a key derived from `APP_SECRET` (`HMAC(APP_SECRET, "tagave/updater/v1")`), over the time, a nonce, the method, the path and the body. The updater refuses unsigned requests, signatures older than 60 seconds and replayed signatures, and compares in constant time. The updater signs its own calls back to the app the same way.
+- It does one job: move this install to a release number the app names (`0.8.0`, `0.8.0-rc.1`). It never runs commands it is sent.
+- In the app, only the owner can start an update, and only with a fresh verification: a sign-in or a re-verification (passkey or security key, then the authenticator app, then the password for an account with neither) within the last five minutes. The server enforces this; re-verification pauses for 15 minutes after five wrong answers. Each update and re-verification is logged.
+
+Anyone who can read `.env` can sign requests, so keep `.env` private (the installer writes it with mode 600), as you already must for the database password.
+
+**Turn it off** with `./install-tagave.sh disable-updater` in the install folder. By hand: remove `updater` from `COMPOSE_PROFILES` in `.env`, clear `TAGAVE_UPDATER_URL`, then run `docker compose rm --stop --force updater` and `docker compose up -d`.
+
 ## TLS and HTTPS
 
 **In production,** always run tagave behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS. Set:
