@@ -126,18 +126,33 @@ export function rippleField(centres: readonly RippleCentre[], x: number, y: numb
   return s;
 }
 
-/** The contour dots of the piece: [x, y, alpha] in CSS px. Same title, same piece. */
+/**
+ * The contour dots of the piece: [x, y, alpha] in CSS px, grouped by contour
+ * level. Same title, same piece. The field is sampled once on the 3px grid and
+ * every level is read from those samples: evaluating it again per level made
+ * a full-screen piece cost about a second of main thread (freeze hunt
+ * 2026-10-11).
+ */
 export function fillerDots(title: string, w: number, h: number): Array<[number, number, number]> {
   const centres = fillerCentres(title, w, h);
+  const xs: number[] = [0];
+  for (let x = 3; x < w; x += 3) xs.push(x);
+  const ys: number[] = [];
+  for (let y = 0; y < h; y += 3) ys.push(y);
+  const field = new Float64Array(xs.length * ys.length);
+  for (let j = 0; j < ys.length; j++) {
+    for (let i = 0; i < xs.length; i++) field[j * xs.length + i] = rippleField(centres, xs[i]!, ys[j]!);
+  }
   const dots: Array<[number, number, number]> = [];
-  for (let i = 0; i <= 6; i++) {
-    const level = -0.6 + i * 0.2;
+  for (let l = 0; l <= 6; l++) {
+    const level = -0.6 + l * 0.2;
     const alpha = 0.10 + 0.22 * (1 - Math.abs(level) / 0.6);
-    for (let y = 0; y < h; y += 3) {
-      let prev = rippleField(centres, 0, y) - level;
-      for (let x = 3; x < w; x += 3) {
-        const v = rippleField(centres, x, y) - level;
-        if ((v > 0) !== (prev > 0)) dots.push([x, y, alpha]);
+    for (let j = 0; j < ys.length; j++) {
+      const row = j * xs.length;
+      let prev = field[row]! - level;
+      for (let i = 1; i < xs.length; i++) {
+        const v = field[row + i]! - level;
+        if ((v > 0) !== (prev > 0)) dots.push([xs[i]!, ys[j]!, alpha]);
         prev = v;
       }
     }
@@ -145,25 +160,37 @@ export function fillerDots(title: string, w: number, h: number): Array<[number, 
   return dots;
 }
 
-/** Paint the piece: ripple contours in the accent colour, fading in from the tracklist above. */
-export function drawFiller(canvas: HTMLCanvasElement, title: string, ink: string): void {
-  const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  if (!w || !h) return;
-  canvas.width = Math.round(w * dpr);
-  canvas.height = Math.round(h * dpr);
-  const g = canvas.getContext('2d');
-  if (!g) return;
+/** A 2D context on the page or in a worker (OffscreenCanvas): the piece paints the same on both. */
+export type FillerContext = Pick<CanvasRenderingContext2D,
+  'setTransform' | 'clearRect' | 'fillStyle' | 'globalAlpha' | 'globalCompositeOperation' | 'beginPath' | 'moveTo' | 'arc' | 'fill' | 'createLinearGradient' | 'fillRect'>;
+
+/** The device pixel ratio the piece is painted at (capped: more is not visible in a decoration). */
+export const fillerDpr = (ratio: number | undefined) => Math.min(2, ratio || 1);
+
+/**
+ * Paint the piece on a context already sized to w x h CSS px at dpr: ripple
+ * contours in the accent colour, fading in from the tracklist above. The dots
+ * of one level share their alpha and never touch (3px apart, 0.9px radius),
+ * so each level is one path and one fill.
+ */
+export function paintFiller(g: FillerContext, w: number, h: number, dpr: number, title: string, ink: string): void {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, w, h);
   g.fillStyle = ink;
+  // a level's dots come in reading order: a new alpha, or a step back, starts the next level
+  let alpha = -1, px = -1, py = -1;
   for (const [x, y, a] of fillerDots(title, w, h)) {
-    g.globalAlpha = a;
-    g.beginPath();
+    if (a !== alpha || y < py || (y === py && x <= px)) {
+      if (alpha >= 0) g.fill();
+      alpha = a;
+      g.globalAlpha = a;
+      g.beginPath();
+    }
+    px = x; py = y;
+    g.moveTo(x + 0.9, y);
     g.arc(x, y, 0.9, 0, Math.PI * 2);
-    g.fill();
   }
+  if (alpha >= 0) g.fill();
   g.globalAlpha = 1;
   g.globalCompositeOperation = 'destination-out';
   const grad = g.createLinearGradient(0, 0, 0, 110);
@@ -172,6 +199,19 @@ export function drawFiller(canvas: HTMLCanvasElement, title: string, ink: string
   g.fillStyle = grad;
   g.fillRect(0, 0, w, 110);
   g.globalCompositeOperation = 'source-over';
+}
+
+/** Paint the piece on a canvas on the page, sized to its box (the fallback when no worker can). */
+export function drawFiller(canvas: HTMLCanvasElement, title: string, ink: string): void {
+  const dpr = fillerDpr(globalThis.devicePixelRatio);
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const g = canvas.getContext('2d');
+  if (!g) return;
+  paintFiller(g, w, h, dpr, title, ink);
 }
 
 /* ---------------- the album's details ---------------- */
