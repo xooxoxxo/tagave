@@ -356,3 +356,23 @@ export type {
   AutoAcceptView,
   AutoAcceptPreview,
 } from './matchReview.js';
+
+// The opt-in in-app updater (Settings › Updates) and step-up
+export {
+  UPDATE_STEPS,
+  UPDATE_TARGET_RE,
+  STEP_UP_WINDOW_MS,
+  startUpdateSchema,
+  type StartUpdate,
+  type UpdateStepId,
+  type UpdateStepStatus,
+  type UpdateStep,
+  type UpdateLogLine,
+  type UpdateRunStatus,
+  type UpdateRollback,
+  type UpdateRun,
+  type UpdaterStatus,
+  type UpdaterView,
+  type StepUpMethod,
+  type StepUpStatus,
+} from './updater.js';

@@ -11,7 +11,8 @@
     "./album": "./dist/src/album.js",
     "./job": "./dist/src/job.js",
     "./pagination": "./dist/src/pagination.js",
-    "./tags": "./dist/src/tags.js"
+    "./tags": "./dist/src/tags.js",
+    "./updater": "./dist/src/updater.js"
   },
   "scripts": {
     "build": "tsc -b",

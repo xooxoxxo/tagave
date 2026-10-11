@@ -1,0 +1,30 @@
+{
+  "name": "@liner/updater",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "tagave's opt-in updater: a small service, holding the Docker socket, that moves an install to a new release on the app's request",
+  "exports": {
+    "./token": {
+      "types": "./dist/token.d.ts",
+      "default": "./dist/token.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "@liner/shared": "workspace:*",
+    "@types/node": "^24.13.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

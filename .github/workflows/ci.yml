@@ -61,6 +61,7 @@ jobs:
       - run: pnpm --filter @liner/worker test
       - run: pnpm --filter @liner/api test
       - run: pnpm --filter @liner/auth test
+      - run: pnpm --filter @liner/updater test
 
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -98,7 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        image: [app, worker]
+        image: [app, worker, updater]
 
     permissions:
       packages: write
@@ -173,7 +174,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:
-        image: [app, worker]
+        image: [app, worker, updater]
 
     permissions:
       packages: write
@@ -307,6 +308,18 @@ jobs:
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
 
+      - name: Image tags — updater
+        id: tags_updater
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/tagave-updater
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,enable=${{ github.ref == 'refs/heads/main' }}
+
       - name: Merge app manifests
         run: |
           set -euo pipefail
@@ -357,6 +370,35 @@ jobs:
 
           # Build tag arguments for docker buildx imagetools create
           tags="${{ steps.tags_worker.outputs.tags }}"
+          tag_args=""
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args="${tag_args} -t ${tag}"
+          done <<< "$tags"
+
+          # shellcheck disable=SC2086
+          docker buildx imagetools create ${tag_args} ${refs}
+
+      - name: Merge updater manifests
+        run: |
+          set -euo pipefail
+          refs=""
+          # Collect available digests from artifacts
+          if [ -f /tmp/digests/digest-updater-linux-amd64/updater-linux-amd64.txt ]; then
+            amd64_digest=$(cat /tmp/digests/digest-updater-linux-amd64/updater-linux-amd64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-updater@${amd64_digest}"
+          fi
+          if [ -f /tmp/digests/digest-updater-linux-arm64/updater-linux-arm64.txt ]; then
+            arm64_digest=$(cat /tmp/digests/digest-updater-linux-arm64/updater-linux-arm64.txt)
+            refs="${refs} ghcr.io/${{ github.repository_owner }}/tagave-updater@${arm64_digest}"
+          fi
+
+          if [ -z "$refs" ]; then
+            echo "No digests found for updater image"
+            exit 1
+          fi
+
+          # Build tag arguments for docker buildx imagetools create
+          tags="${{ steps.tags_updater.outputs.tags }}"
           tag_args=""
           while IFS= read -r tag; do
             [ -n "$tag" ] && tag_args="${tag_args} -t ${tag}"

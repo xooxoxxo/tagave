@@ -7,6 +7,9 @@
 #
 #   profile "app"    database, web app and the identify worker
 #   profile "files"  the file worker, which reads your music folder
+#   profile "updater"  optional: the in-app updater (Settings > Updates). It
+#                    holds the Docker socket, so it is off unless you add it;
+#                    see docs/security.md before you do.
 #
 # One computer runs both profiles. In a split install the computer with the
 # database runs "app" (plus compose.db-published.yml, so the file worker can
@@ -106,6 +109,13 @@ services:
       TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-}
       TAGAVE_ROLE: ${TAGAVE_ROLE:-}
       TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
+      # Set (by install-tagave.sh --with-updater or enable-updater) when the
+      # "updater" profile runs: Settings > Updates then offers the update
+      # button. Empty: the page shows the command to run instead.
+      TAGAVE_UPDATER_URL: ${TAGAVE_UPDATER_URL:-}
+    networks:
+      - default
+      - updater
     volumes:
       - cache:/cache
       # A volume of its own by default; set TAGAVE_BACKUP_DIR in .env to a
@@ -184,6 +194,48 @@ services:
       app:
         condition: service_healthy
         required: false
+
+  # Opt-in: the in-app updater (Settings > Updates). It moves this install to
+  # a new release when the owner asks in the app: backup, TAGAVE_VERSION in
+  # .env, pull, restart, health check, and a roll back (with the database
+  # restored when needed) if the new version fails.
+  #
+  # It mounts the Docker socket, which gives it the power of root on this
+  # computer, and this install folder (compose files and .env) at the same
+  # path as on the host. Nothing else. It publishes no port: only the app
+  # reaches it, over the internal "updater" network, and every call is signed
+  # with a key derived from APP_SECRET. Turn it off by removing "updater"
+  # from COMPOSE_PROFILES in .env and running docker compose up -d
+  # --remove-orphans. docs/security.md has the details.
+  updater:
+    profiles: ["updater"]
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-updater:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    environment:
+      APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
+      # The absolute path of this install folder; install-tagave.sh
+      # --with-updater and enable-updater write it to .env.
+      TAGAVE_INSTALL_DIR: ${TAGAVE_INSTALL_DIR:-/TAGAVE_INSTALL_DIR-is-not-set}
+      TAGAVE_UPDATER_HEALTH_TIMEOUT: ${TAGAVE_UPDATER_HEALTH_TIMEOUT:-600}
+      TAGAVE_UPDATER_MIN_FREE_MB: ${TAGAVE_UPDATER_MIN_FREE_MB:-2048}
+      TZ: ${TZ:-UTC}
+    working_dir: ${TAGAVE_INSTALL_DIR:-/TAGAVE_INSTALL_DIR-is-not-set}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # The same path inside as outside, so compose resolves every relative
+      # path in compose.yml exactly as it does on the host.
+      - type: bind
+        source: ${TAGAVE_INSTALL_DIR:-/TAGAVE_INSTALL_DIR-is-not-set}
+        target: ${TAGAVE_INSTALL_DIR:-/TAGAVE_INSTALL_DIR-is-not-set}
+    networks:
+      - updater
+    restart: unless-stopped
+    logging: *logging
+
+networks:
+  # The updater's only network: the app and the updater, nothing else, and no
+  # route out (the Docker daemon, not the updater, downloads images).
+  updater:
+    internal: true
 
 volumes:
   pgdata:
