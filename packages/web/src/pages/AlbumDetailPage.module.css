@@ -1077,3 +1077,14 @@ td.cellOff {
   color: var(--ink-3);
   font-size: var(--font-size-sm);
 }
+
+/* Desktop (the sidebar layout): the sections switcher sits above the tracks
+   and switches what shows under it; no TRACKLIST label. */
+@media (min-width: 901px) {
+  .flow > .tl { display: none; }
+  .flow > .foot { order: 1; padding-top: 1.5rem; padding-bottom: 0; }
+  .flow > .tracksArea { order: 2; padding-top: 1rem; padding-bottom: 2rem; }
+  .flow > .filler { order: 3; }
+  .flow:not([data-album-tab="tracks"]) > .tracksArea,
+  .flow:not([data-album-tab="tracks"]) > .filler { display: none; }
+}

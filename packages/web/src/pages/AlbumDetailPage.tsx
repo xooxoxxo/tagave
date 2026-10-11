@@ -779,7 +779,7 @@ export function AlbumDetailPage() {
 
   return (
     <PageShell bare>
-      <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="">
+      <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="" data-album-tab={tab}>
         <AlbumFlowHeader
           docked={flow.docked}
           artist={artistLine}
