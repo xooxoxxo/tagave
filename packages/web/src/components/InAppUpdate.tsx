@@ -97,7 +97,7 @@ function RunView({ run, disconnected, onDismiss }: { run: UpdateRun; disconnecte
       head = { tone: 'info', title: `Updating to ${run.target}`, body: current ? `${current.label}…` : 'Starting…' };
       break;
     case 'succeeded':
-      head = { tone: 'ok', title: `Updated to ${run.target}`, body: `tagave ${run.target} runs and every part reports healthy. It took ${clock(elapsed)}.` };
+      head = { tone: 'ok', title: `Updated to ${run.target}`, body: 'Every part reports healthy.' };
       break;
     case 'rolled_back':
       head = {
@@ -130,7 +130,7 @@ function RunView({ run, disconnected, onDismiss }: { run: UpdateRun; disconnecte
         <span className={styles.elapsed} title="Elapsed">{clock(elapsed)}</span>
       </div>
       {disconnected && running && (
-        <p className={styles.note}>tagave is restarting, so this page cannot reach it for a moment. It reconnects on its own; you can also reload.</p>
+        <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
       )}
       <StepList run={run} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
@@ -157,9 +157,11 @@ export interface InAppUpdateProps {
   releases: ReleaseNote[];
   /** The requires-attention notes have been read (or there are none). */
   confirmed: boolean;
+  /** A release check ran and found nothing newer. */
+  upToDate?: boolean;
 }
 
-export function InAppUpdate({ view, disconnected, current, releases, confirmed }: InAppUpdateProps) {
+export function InAppUpdate({ view, disconnected, current, releases, confirmed, upToDate = false }: InAppUpdateProps) {
   const queryClient = useQueryClient();
   const start = useStartUpdate();
   const run = view.updater?.run ?? null;
@@ -233,10 +235,10 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed }
   return (
     <div className={styles.idle}>
       {view.updater?.role === 'app' && (
-        <p className={styles.note}>This is a split install: the updater updates this computer. Afterwards run <code>install-tagave.sh update</code> on the music computer.</p>
+        <p className={styles.note}>Split install: this updates this computer only. Then run <code>install-tagave.sh update</code> on the music computer.</p>
       )}
       {versions.length === 0 ? (
-        <p className={styles.note}>{current} is the newest release the server knows of. Check for updates below to look again.</p>
+        <p className={styles.note}>{upToDate ? `Up to date: ${current}.` : `You run ${current}. No newer release is known.`}</p>
       ) : (
         <>
           <div className={styles.row}>
@@ -249,10 +251,8 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed }
               Update to {picked}
             </Button>
           </div>
-          <p className={styles.note}>
-            Backup, switch, restart and health check run on this server; a failed update rolls back to {current} on its own. Only the owner can start one, and it asks you to confirm it is you if your sign-in is older than five minutes.
-          </p>
-          {!confirmed && <p className={styles.note}>Tick the box above once you have read the notes marked requires attention.</p>}
+          <p className={styles.note}>Backs up the database, restarts tagave and goes back to {current} if the new version fails its health check.</p>
+          {!confirmed && <p className={styles.note}>Tick the box above first.</p>}
         </>
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}

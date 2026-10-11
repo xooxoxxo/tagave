@@ -1,55 +1,65 @@
-/* width: 100% matters: this sits in a column flex box, where auto margins
-   turn off stretching and the box would grow to the widest table row. */
-.container {
-  width: 100%;
-  max-width: 960px;
+/* Settings › Updates: the same section rhythm, headings and table as Backups. */
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
   min-width: 0;
-  margin: 0 auto;
-  padding: 2rem 1rem;
 }
 
 .section {
-  margin-bottom: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
 }
 
-.sectionTitle {
-  font-size: 1.25rem;
-  margin: 0 0 1rem 0;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.5rem;
+.title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--ink);
 }
 
-.banner,
-.warn,
-.error {
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  margin-bottom: var(--space-md);
+.subTitle {
+  margin: var(--space-md) 0 var(--space-xs);
+  font-size: var(--font-size-base);
+  color: var(--ink);
+}
+
+.muted {
+  margin: 0;
+  color: var(--ink-3);
   font-size: var(--font-size-sm);
+}
+
+.dim { color: var(--ink-3); }
+
+.hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+/* long URLs in the hints wrap instead of widening the page */
+.hint code { overflow-wrap: anywhere; }
+
+/* the update steps: plain flow, so the gaps come from the paragraphs */
+.guide .hint { margin-bottom: var(--space-sm); }
+
+.error {
+  margin: 0;
+  color: var(--danger-ink);
+  font-size: var(--font-size-xs);
+}
+
+.bannerRow {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
-.banner {
-  border: 1px solid var(--accent);
-  background: rgba(var(--accent-rgb), 0.12);
-  color: var(--text-primary);
-}
-
-.warn {
-  border: 1px solid var(--warning);
-  background: var(--surface-warning);
-  color: var(--text-primary);
-}
-
-.error {
-  border: 1px solid var(--error);
-  background: var(--surface-danger);
-  color: var(--error);
-}
+.bannerAction { margin: -6px 0 -6px auto; }
 
 .attention {
   margin-left: var(--space-xs);
@@ -59,6 +69,7 @@
   color: var(--warning);
   font-size: var(--font-size-xs);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .attentionText {
@@ -66,6 +77,7 @@
   font-weight: 600;
 }
 
+/* the table scrolls inside its own box on a phone instead of widening the page */
 .tableScroll {
   max-width: 100%;
   overflow-x: auto;
@@ -80,46 +92,30 @@
 .table th {
   text-align: left;
   padding: 0.4rem 0.5rem;
-  color: var(--text-tertiary);
+  color: var(--ink-3);
   font-weight: 500;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 .table td {
-  padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid var(--border-secondary);
-  vertical-align: top;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
+.table td code { font-size: var(--font-size-xs); }
+
 .rowWarn td {
-  background: rgba(var(--warning-rgb), 0.08);
+  background: var(--warn-tint);
 }
 
 .queues {
-  max-width: 220px;
+  max-width: 16rem;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-}
-
-.muted {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-}
-
-.subTitle {
-  margin: var(--space-md) 0 var(--space-xs);
-  font-size: var(--font-size-base);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.hint {
-  margin: 0 0 var(--space-sm);
-  color: var(--text-secondary);
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-relaxed);
 }
 
 .row {
@@ -127,7 +123,6 @@
   gap: var(--space-sm);
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: var(--space-xs);
 }
 
 .input {
@@ -138,11 +133,10 @@
 }
 
 .release {
-  margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-secondary);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--surface);
 }
 
 .releaseHead {
@@ -150,20 +144,17 @@
   align-items: center;
   gap: var(--space-sm);
   flex-wrap: wrap;
-  margin-bottom: var(--space-xs);
   font-size: var(--font-size-sm);
 }
 
-.releaseHead a {
-  color: var(--accent);
-  text-decoration: none;
-  margin-left: auto;
-}
+.release[open] > .releaseHead { margin-bottom: var(--space-xs); }
+
+.release > summary { cursor: pointer; }
 
 .markdown {
   font-size: var(--font-size-sm);
   line-height: var(--line-height-relaxed);
-  color: var(--text-primary);
+  color: var(--ink);
 }
 
 .markdown p {
@@ -177,41 +168,16 @@
   font-size: var(--font-size-base);
 }
 
-.steps {
-  margin: 0;
-  padding-left: 1.25rem;
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-relaxed);
-  color: var(--text-secondary);
-}
-
-.steps li {
-  margin-bottom: var(--space-sm);
-}
-
-.steps strong {
-  color: var(--text-primary);
-}
-
 .code {
-  margin: 0.3rem 0 var(--space-sm);
+  margin: 0 0 var(--space-sm);
   padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-md);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
+  border-radius: var(--r-inner);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
   font-size: var(--font-size-xs);
   overflow-x: auto;
 }
-
-/* long URLs in the hints wrap instead of widening the page */
-.hint code { overflow-wrap: anywhere; }
-
-@media (max-width: 640px) {
-  .container { padding: 1rem 0; }
-}
-
-.bannerAction { margin-left: auto; }
 
 .gateText { margin: 0 0 var(--space-xs); line-height: var(--line-height-relaxed); }
 
@@ -219,9 +185,8 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
-  margin-bottom: var(--space-sm);
   font-size: var(--font-size-sm);
-  color: var(--text-primary);
+  color: var(--ink);
   cursor: pointer;
 }
 
@@ -236,16 +201,13 @@
 }
 
 .more {
-  margin-top: var(--space-sm);
   font-size: var(--font-size-sm);
 }
 
 .more > summary {
   cursor: pointer;
-  color: var(--text-secondary);
+  color: var(--ink-2);
   padding: var(--space-xs) 0;
 }
 
-.more[open] > summary { color: var(--text-primary); margin-bottom: var(--space-xs); }
-
-.release > summary { cursor: pointer; }
+.more[open] > summary { color: var(--ink); margin-bottom: var(--space-xs); }

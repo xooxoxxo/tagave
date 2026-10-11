@@ -15,18 +15,59 @@ import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { useUpdater } from '../hooks/useUpdater';
 import { InAppUpdate } from '../components/InAppUpdate';
-import { Button } from '../components/ui';
+import { Banner, Button } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import styles from './SettingsUpdatesPage.module.css';
 
+/** "Oct 11, 7:29 PM" in the reader's locale; the year only when it is not this one. */
 function when(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString() : '–';
+  if (!iso) return '–';
+  const d = new Date(iso);
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+/** "now" under a minute, then "2 min ago", "3 h ago". */
+function ago(iso: string, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  return when(iso);
+}
+function fullDate(iso: string | null | undefined): string | undefined {
+  return iso ? new Date(iso).toLocaleString() : undefined;
 }
 function shortSha(sha: string | null | undefined): string {
   return sha ? sha.slice(0, 7) : 'unknown';
 }
 function workerName(w: WorkerVersion): string {
   return w.host ?? w.workerId.replace(/^worker-/, '');
+}
+const SOURCE: Record<UpdatesStatus['app']['source'], string> = {
+  env: 'image build arguments',
+  'deployed-file': 'the DEPLOYED file',
+  git: 'the git checkout',
+  unknown: 'an unknown source',
+};
+
+/** A worker's queues by the kind of work, in the order the owner reads them; the full list is the cell's title. */
+const WORK: Array<[string, RegExp]> = [
+  ['folders', /^(scan|roots|cluster)\./],
+  ['identify', /^(identify|fingerprint|acoustid|edition)\.|^queue\.autoaccept$/],
+  ['details', /^(enrich|editions|art|reviews|artists?|tracks|gaps)\./],
+  ['tags', /^tags\./],
+  ['Discogs', /^collection\./],
+];
+export function workOf(queues: string[]): string {
+  if (queues.includes('*')) return 'all';
+  if (queues.length === 0) return '–';
+  const kinds = new Set(queues.map((q) => WORK.find(([, re]) => re.test(q))?.[0] ?? 'upkeep'));
+  return [...WORK.map(([k]) => k), 'upkeep'].filter((k) => kinds.has(k)).join(', ');
 }
 
 function GuideSteps({ guide }: { guide: RollbackGuide }) {
@@ -49,7 +90,7 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
       <summary className={styles.releaseHead}>
         <strong>{release.tag}</strong>
         {release.name && release.name !== release.tag && <span>{release.name}</span>}
-        {release.publishedAt && <span className={styles.muted}>{new Date(release.publishedAt).toLocaleDateString()}</span>}
+        {release.publishedAt && <span className={styles.muted}>{new Date(release.publishedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>}
         {release.requiresAttention && <span className={styles.attention}>requires attention</span>}
       </summary>
       <div className={styles.markdown}>
@@ -62,11 +103,11 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
 
 export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
-  const { data, isLoading, error } = useUpdates(libraryId);
-  if (isLoading) return <div className={styles.container}>Loading…</div>;
+  const { data, isLoading } = useUpdates(libraryId);
+  if (isLoading) return <p className={styles.muted}>Loading…</p>;
   // A failed refetch keeps the last answer: during an in-app update the app
   // restarts and this page must stay put.
-  if (!data) return <div className={styles.container}><div className={styles.error}>Could not load update status.</div></div>;
+  if (!data) return <Banner tone="danger">Could not load update status.</Banner>;
   return <UpdatesContent data={data} libraryId={libraryId} />;
 }
 
@@ -90,9 +131,11 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   // A run keeps the in-app view up while the app restarts and cannot answer.
   const inApp = !!uv?.installed && (uv.reachable || !!uv.updater?.run);
   const disconnected = !!updater.error || (!!uv?.installed && !uv.reachable);
+  // "Up to date" only when a check actually ran and found nothing newer.
+  const upToDate = feed.enabled && !!feed.lastCheckedAt && !feed.error && feed.newer.length === 0;
 
   const manual = confirmed ? (
-      <>
+      <div className={styles.guide}>
         <h3 className={styles.subTitle}>
           {primary!.title}
           {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
@@ -114,22 +157,23 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
             <GuideSteps guide={g} />
           </details>
         ))}
-      </>
+      </div>
     ) : (
       <p className={styles.muted}>The update steps appear once you have read the notes.</p>
     );
 
   return (
-    <div className={styles.container}>
-      {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
+    <div className={styles.page}>
       {target && data.updateAvailable && (
-        <div className={styles.banner}>
-          <span><strong>tagave {target.version} is out.</strong> You run {app.version}.</span>
-          {target.requiresAttention && <span className={styles.attention}>requires attention</span>}
-          <Button size="sm" variant="quiet" className={styles.bannerAction} disabled={skip.isPending} onClick={() => skip.mutate(target.version)}>
-            Skip this version
-          </Button>
-        </div>
+        <Banner tone="info">
+          <div className={styles.bannerRow}>
+            <span><strong>tagave {target.version} is out.</strong> You run {app.version}.</span>
+            {target.requiresAttention && <span className={styles.attention}>requires attention</span>}
+            <Button size="sm" variant="quiet" className={styles.bannerAction} disabled={skip.isPending} onClick={() => skip.mutate(target.version)}>
+              Skip this version
+            </Button>
+          </div>
+        </Banner>
       )}
       {skipped && (
         <p className={styles.muted}>
@@ -138,61 +182,58 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         </p>
       )}
       {data.mismatch && (
-        <div className={styles.warn}>
-          A worker runs a different build than the app. Bring the lagging side to the same version and restart it, as described under How to update.
-        </div>
+        <Banner tone="warning">A worker runs a different build than the app. Update the lagging side to the same version and restart it.</Banner>
       )}
 
       {feed.newer.length > 0 && (
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>What’s new</h2>
+        <section className={styles.section} aria-labelledby="updates-new">
+          <h3 id="updates-new" className={styles.title}>What’s new</h3>
           {feed.newer.map((r) => <ReleaseArticle key={r.tag} release={r} open={r.requiresAttention || r === target} />)}
         </section>
       )}
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{inApp ? 'Update this server' : target ? `Update to ${target.version}` : 'How to update'}</h2>
+      <section className={styles.section} aria-labelledby="updates-update">
+        <h3 id="updates-update" className={styles.title}>{inApp ? 'Update this server' : target ? `Update to ${target.version}` : 'How to update'}</h3>
         {attention.length > 0 && target && (
-          <div className={styles.warn}>
-            <div>
-              <p className={styles.gateText}>
-                {attention.length === 1 ? `${attention[0]!.tag} is` : `${attention.map((r) => r.tag).join(', ')} are`} marked
-                {' '}<strong>requires attention</strong>: the update may need a step from you. Read the notes above before you update.
-              </p>
-              <label className={styles.gateCheck}>
-                <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
-                I have read the notes marked requires attention
-              </label>
-            </div>
-          </div>
+          <Banner tone="warning">
+            <p className={styles.gateText}>
+              {attention.length === 1 ? `${attention[0]!.tag} is` : `${attention.map((r) => r.tag).join(', ')} are`} marked
+              {' '}<strong>requires attention</strong>: the update may need a step from you. Read the notes above first.
+            </p>
+            <label className={styles.gateCheck}>
+              <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
+              I have read the notes marked requires attention
+            </label>
+          </Banner>
         )}
         {inApp && uv ? (
           <>
-            <InAppUpdate view={uv} disconnected={disconnected} current={app.version} releases={feed.newer} confirmed={confirmed} />
+            <InAppUpdate view={uv} disconnected={disconnected} current={app.version} releases={feed.newer} confirmed={confirmed} upToDate={upToDate} />
             <details className={styles.more}>
-              <summary>Update by hand instead</summary>
+              <summary>Update by hand</summary>
               {manual}
             </details>
           </>
         ) : (
           <>
             {uv?.installed && !uv.reachable && (
-              <div className={styles.warn}>
+              <Banner tone="warning">
                 The updater is set up on this server but does not answer ({uv.error}). Check it with <code>docker compose ps</code> and <code>docker compose logs updater</code> in the install folder, or update by hand below.
-              </div>
+              </Banner>
             )}
+            {!target && upToDate && <p className={styles.hint}>Up to date: {app.version}.</p>}
             {manual}
             {uv && !uv.installed && (
               <p className={styles.hint}>
-                To update from this page instead, turn on the optional updater: run <code>./install-tagave.sh enable-updater</code> in the install folder. It holds the Docker socket, which <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/security.md#the-in-app-updater" target="_blank" rel="noreferrer">docs/security.md</a> explains.
+                To update from this page, turn on the optional updater: run <code>./install-tagave.sh enable-updater</code> in the install folder. It holds the Docker socket; see <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/security.md#the-in-app-updater" target="_blank" rel="noreferrer">docs/security.md</a>.
               </p>
             )}
           </>
         )}
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Running now</h2>
+      <section className={styles.section} aria-labelledby="updates-running">
+        <h3 id="updates-running" className={styles.title}>Running now</h3>
         {/* seven columns never fit a phone; the table scrolls inside its own box
             instead of pushing the whole page sideways */}
         <div className={styles.tableScroll}>
@@ -202,27 +243,27 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           </thead>
           <tbody>
             <tr>
-              <td><strong>App</strong> <span className={styles.muted}>({app.source})</span></td>
+              <td><strong>App</strong></td>
               <td>{app.version}</td>
-              <td><code>{shortSha(app.sha)}</code></td>
-              <td>{when(app.builtAt)}</td>
-              <td className={styles.muted}>api + web</td>
-              <td className={styles.muted}>now</td>
-              <td className={styles.muted}>–</td>
+              <td title={`${app.sha ?? 'No build id'}, read from ${SOURCE[app.source]}`}><code>{shortSha(app.sha)}</code></td>
+              <td title={fullDate(app.builtAt)}>{when(app.builtAt)}</td>
+              <td className={styles.dim}>web + API</td>
+              <td className={styles.dim}>now</td>
+              <td className={styles.dim}>–</td>
             </tr>
             {workers.length === 0 && (
-              <tr><td colSpan={7} className={styles.muted}>No worker heartbeat in the last two minutes.</td></tr>
+              <tr><td colSpan={7} className={styles.dim}>No worker heartbeat in the last two minutes.</td></tr>
             )}
             {workers.map((w) => {
               const lagging = !!(w.sha && app.sha && w.sha !== app.sha);
               return (
                 <tr key={w.workerId} className={lagging ? styles.rowWarn : undefined}>
-                  <td><strong>Worker</strong> <span className={styles.muted}>{workerName(w)}</span></td>
+                  <td><strong>Worker</strong> <span className={styles.dim}>{workerName(w)}</span></td>
                   <td>{w.version ?? '–'}</td>
-                  <td><code>{shortSha(w.sha)}</code>{lagging && <span className={styles.attention}>lagging</span>}</td>
-                  <td>{when(w.builtAt)}</td>
-                  <td className={styles.queues} title={w.queues.join(', ')}>{w.queues.join(', ')}</td>
-                  <td>{when(w.lastSeenAt)}</td>
+                  <td title={w.sha ?? undefined}><code>{shortSha(w.sha)}</code>{lagging && <span className={styles.attention}>lagging</span>}</td>
+                  <td title={fullDate(w.builtAt)}>{when(w.builtAt)}</td>
+                  <td className={styles.queues} title={w.queues.join(', ')}>{workOf(w.queues)}</td>
+                  <td title={fullDate(w.lastSeenAt)}>{ago(w.lastSeenAt)}</td>
                   <td className={w.loopLagMs != null && w.loopLagMs > 5000 ? styles.attentionText : undefined}>
                     {w.loopLagMs != null ? `${w.loopLagMs} ms` : '–'}
                   </td>
@@ -234,11 +275,9 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         </div>
       </section>
 
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Update checks</h2>
-        <p className={styles.hint}>
-          Every 12 hours the server asks GitHub for the list of tagave releases. That request carries nothing about you, this server or your library, and there is no other telemetry.
-        </p>
+      <section className={styles.section} aria-labelledby="updates-checks">
+        <h3 id="updates-checks" className={styles.title}>Update checks</h3>
+        <p className={styles.hint}>Every 12 hours the server fetches the release list from GitHub; nothing about you or your library is sent.</p>
         {feed.lockedByServer ? (
           <p className={styles.hint}>
             {feed.enabled ? <>Set on the server with <code>TAGAVE_UPDATE_FEED</code>: checks read <code>{feed.url}</code>.</> : <>Turned off on the server with <code>TAGAVE_UPDATE_FEED=off</code>.</>}
@@ -255,16 +294,15 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           </Button>
           <span className={styles.muted}>
             {!feed.enabled ? 'Update checks are off.'
-              : feed.lastCheckedAt ? `Last checked ${when(feed.lastCheckedAt)}.` : 'Not checked yet; the first check runs a minute after the server starts.'}
+              : feed.lastCheckedAt ? <>Last checked <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span>.</> : 'Not checked yet.'}
             {feed.enabled && feed.error ? ` The last check failed: ${feed.error}.` : ''}
-            {feed.enabled && !feed.error && feed.lastCheckedAt && feed.newer.length === 0 ? ` ${app.version} is the latest release.` : ''}
           </span>
         </div>
         {!feed.lockedByServer && feed.enabled && (
           <details className={styles.more} open={feed.custom}>
             <summary>Use a different release feed</summary>
             <p className={styles.hint}>
-              For a fork: a GitHub Releases API URL, such as <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Empty means the official feed, <code>{feed.defaultUrl}</code>.
+              For a fork: a GitHub Releases API URL, such as <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Empty uses the official feed, <code>{feed.defaultUrl}</code>.
             </p>
             <div className={styles.row}>
               <input
