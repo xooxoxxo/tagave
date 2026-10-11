@@ -153,6 +153,23 @@ export const authTrustedDevices = pgTable(
   (t) => [index('idx_auth_trusted_devices_user').on(t.userId)],
 );
 
+// Step-up (0039): the last re-verification of a session for a sensitive
+// action. A sign-in counts through auth_sessions.created_at.
+export const authStepUps = pgTable(
+  'auth_step_ups',
+  {
+    sessionId: uuid('session_id')
+      .primaryKey()
+      .references(() => authSessions.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    method: text().notNull(),
+    verifiedAt: timestamp('verified_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_auth_step_ups_user').on(t.userId)],
+);
+
 // Legacy (0.6.x) sessions: read only by the session bridge, dropped later.
 export const sessions = pgTable('sessions', {
   id: uuid().primaryKey().defaultRandom(),

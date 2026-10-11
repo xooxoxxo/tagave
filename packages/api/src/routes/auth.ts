@@ -8,6 +8,7 @@ import { setupRequestSchema, loginRequestSchema } from '@liner/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { forwardSetCookies, getAuthHandle, toSessionUser, tryGetAuthHandle } from '../middleware/auth.js';
 import { createAuthSecurityRoutes } from './authSecurity.js';
+import { createStepUpRoutes } from './stepUp.js';
 
 /** Held (transaction-scoped) while setup checks for and creates the owner. */
 export const SETUP_LOCK_KEY = 7_302_026_101;
@@ -22,6 +23,8 @@ function isSecureConnection(request: FastifyRequest): boolean {
 export async function createAuthRoutes(fastify: FastifyInstance) {
   // Settings > Security (signed-in only)
   await fastify.register(createAuthSecurityRoutes);
+  // Re-verification for sensitive actions (signed-in only)
+  await fastify.register(createStepUpRoutes);
 
   // Is the owner account still to be created? The login page sends a fresh
   // install to /setup on `true`. A database error is a 503, never a guess:

@@ -17,6 +17,7 @@ export { APIError } from 'better-auth/api';
 export { hashPassword, verifyPassword } from './password.js';
 export * from './trusted-devices.js';
 export * from './reseal.js';
+export * from './step-up.js';
 
 /** Cookie names are `tagave.<name>`, `__Secure-tagave.<name>` when PUBLIC_URL is https. */
 export const COOKIE_PREFIX = 'tagave';
@@ -283,3 +284,4 @@ export async function ensureCredentialAccounts(sql: postgres.Sql): Promise<numbe
     returning id`;
   return rows.length;
 }
+
