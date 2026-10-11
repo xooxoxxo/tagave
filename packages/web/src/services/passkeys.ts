@@ -4,6 +4,7 @@
  * the browser offer whatever it has (iCloud Keychain, Google Password
  * Manager, Windows Hello, a phone, or a key).
  */
+import { WebAuthnAbortService } from '@simplewebauthn/browser';
 import { authClient, type AuthClientError } from './authClient';
 
 export type PasskeyKind = 'passkey' | 'security-key';
@@ -29,6 +30,15 @@ export async function addPasskey(kind: PasskeyKind, name?: string): Promise<Pass
 export async function signInWithPasskey(autoFill = false): Promise<PasskeyResult> {
   const res = await authClient().signIn.passkey({ autoFill });
   return res?.error ? { ok: false, error: res.error } : { ok: true };
+}
+
+/**
+ * End the passkey request still open, if any. The sign-in page's autofill
+ * request otherwise stays open after the page is left (this is a single-page
+ * app), and a page can hold only one WebAuthn request.
+ */
+export function endPasskeyRequest(): void {
+  WebAuthnAbortService.cancelCeremony();
 }
 
 export async function renamePasskey(id: string, name: string): Promise<PasskeyResult> {

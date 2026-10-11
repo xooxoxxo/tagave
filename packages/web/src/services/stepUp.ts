@@ -4,79 +4,74 @@
  * (a sign-in or a re-verification within five minutes) and which methods the
  * account has; this file performs the re-verification.
  *
- * The passkey path uses the WebAuthn API directly with the server's
- * options (the same JSON @simplewebauthn/server produces), so it needs no
- * extra package.
+ * The passkey path goes through @simplewebauthn/browser, the library Better
+ * Auth's passkey sign-in uses. Only one WebAuthn request can be open in a
+ * page, and its abort service ends the one still open (the sign-in page's
+ * autofill request outlives that page in this single-page app) before it
+ * starts ours. Before, this called navigator.credentials.get directly with
+ * no signal, so it could neither end that request nor be stopped itself.
  */
+import { WebAuthnAbortService, browserSupportsWebAuthn, startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import type { StepUpStatus } from '@liner/shared';
 import { api } from './api';
+
+/** How long the dialog waits for a passkey before it stops the request. */
+export const PASSKEY_TIMEOUT_MS = 60_000;
 
 export function getStepUp(): Promise<StepUpStatus> {
   return api.get<StepUpStatus>('/auth/step-up');
 }
 
-export function stepUpWithPassword(password: string): Promise<StepUpStatus> {
-  return api.post<StepUpStatus>('/auth/step-up/password', { password });
+export function stepUpWithPassword(password: string, signal?: AbortSignal): Promise<StepUpStatus> {
+  return api.post<StepUpStatus>('/auth/step-up/password', { password }, signal ? { signal } : undefined);
 }
 
-export function stepUpWithTotp(code: string): Promise<StepUpStatus> {
-  return api.post<StepUpStatus>('/auth/step-up/totp', { code: code.replace(/\s+/g, '') });
+export function stepUpWithTotp(code: string, signal?: AbortSignal): Promise<StepUpStatus> {
+  return api.post<StepUpStatus>('/auth/step-up/totp', { code: code.replace(/\s+/g, '') }, signal ? { signal } : undefined);
 }
 
-const fromB64url = (s: string): ArrayBuffer => {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(s.length / 4) * 4, '=');
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
-};
-
-const toB64url = (buf: ArrayBuffer | null): string | undefined => {
-  if (!buf) return undefined;
-  let bin = '';
-  for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-};
-
-interface RequestOptionsJSON {
-  challenge: string;
-  timeout?: number;
-  rpId?: string;
-  userVerification?: UserVerificationRequirement;
-  allowCredentials?: Array<{ id: string; type: 'public-key'; transports?: AuthenticatorTransport[] }>;
-}
-
-export async function stepUpWithPasskey(): Promise<StepUpStatus> {
-  if (typeof navigator === 'undefined' || !navigator.credentials || typeof PublicKeyCredential === 'undefined') {
-    throw new Error('This browser cannot use passkeys.');
+/**
+ * Re-verify with a passkey. Aborting `signal` ends the browser's passkey
+ * request too, and the promise rejects with the signal's reason.
+ */
+export async function stepUpWithPasskey(signal?: AbortSignal): Promise<StepUpStatus> {
+  if (!browserSupportsWebAuthn()) throw new Error('This browser cannot use passkeys.');
+  const optionsJSON = await api.post<PublicKeyCredentialRequestOptionsJSON>('/auth/step-up/passkey/options', undefined, signal ? { signal } : undefined);
+  signal?.throwIfAborted();
+  const stop = () => WebAuthnAbortService.cancelCeremony();
+  signal?.addEventListener('abort', stop, { once: true });
+  let response;
+  try {
+    // The browser's own timeout is set past ours so the dialog's timeout,
+    // with its own message, is the one that ends a request nobody answers.
+    response = await startAuthentication({ optionsJSON: { ...optionsJSON, timeout: PASSKEY_TIMEOUT_MS + 10_000 } });
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason;
+    throw err;
+  } finally {
+    signal?.removeEventListener('abort', stop);
   }
-  const opts = await api.post<RequestOptionsJSON>('/auth/step-up/passkey/options');
-  const publicKey: PublicKeyCredentialRequestOptions = {
-    challenge: fromB64url(opts.challenge),
-    ...(opts.timeout ? { timeout: opts.timeout } : {}),
-    ...(opts.rpId ? { rpId: opts.rpId } : {}),
-    userVerification: opts.userVerification ?? 'required',
-    allowCredentials: (opts.allowCredentials ?? []).map((c) => ({
-      id: fromB64url(c.id),
-      type: 'public-key' as const,
-      ...(c.transports ? { transports: c.transports } : {}),
-    })),
-  };
-  const cred = (await navigator.credentials.get({ publicKey })) as PublicKeyCredential | null;
-  if (!cred) throw new Error('No passkey was used.');
-  const res = cred.response as AuthenticatorAssertionResponse;
-  const response = {
-    id: cred.id,
-    rawId: toB64url(cred.rawId),
-    type: cred.type,
-    authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
-    clientExtensionResults: cred.getClientExtensionResults(),
-    response: {
-      authenticatorData: toB64url(res.authenticatorData),
-      clientDataJSON: toB64url(res.clientDataJSON),
-      signature: toB64url(res.signature),
-      userHandle: toB64url(res.userHandle),
-    },
-  };
-  return api.post<StepUpStatus>('/auth/step-up/passkey', { response });
+  signal?.throwIfAborted();
+  return api.post<StepUpStatus>('/auth/step-up/passkey', { response }, signal ? { signal } : undefined);
+}
+
+/** What the dialog says when a re-verification fails, in plain words. */
+export function stepUpErrorMessage(err: unknown, origin = typeof window === 'undefined' ? '' : window.location.origin): string {
+  if (!err || typeof err !== 'object') return 'That did not work. Try again.';
+  const e = err as { name?: string; code?: string; detail?: string; message?: string; status?: number };
+  switch (e.name) {
+    case 'TimeoutError':
+      return `No passkey answered within ${PASSKEY_TIMEOUT_MS / 1000} seconds. Try again.`;
+    case 'NotAllowedError':
+      return 'No passkey was used: the prompt was closed or timed out, or the passkey did not check your PIN or fingerprint.';
+    case 'AbortError':
+      return 'The passkey request was stopped. Try again.';
+    case 'InvalidStateError':
+    case 'OperationError':
+      return 'Another passkey request is still open in this browser. Close it, then try again.';
+    case 'SecurityError':
+      return `Passkeys work only at the address set as PUBLIC_URL, over https or on localhost. This page is ${origin || 'at another address'}.`;
+  }
+  if (e.status === 0 || e.name === 'TypeError') return 'Cannot reach tagave. Check that the server is running.';
+  return e.detail ?? e.message ?? 'That did not work. Try again.';
 }

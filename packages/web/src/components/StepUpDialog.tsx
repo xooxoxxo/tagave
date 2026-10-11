@@ -3,12 +3,16 @@
  * the last sign-in is older than five minutes. It offers the strongest
  * method the account has first (passkey or security key, then the
  * authenticator app; the password only for an account with neither) and
- * lets the owner switch between the ones they have.
+ * lets the owner switch between the ones they have at any time.
+ *
+ * A passkey request can be stopped: Cancel, switching method or closing the
+ * dialog ends it, and it stops on its own after PASSKEY_TIMEOUT_MS. Every
+ * failure is shown in the dialog.
  */
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import type { StepUpMethod } from '@liner/shared';
 import { Button, TextField } from './ui';
-import { stepUpWithPasskey, stepUpWithPassword, stepUpWithTotp } from '../services/stepUp';
+import { PASSKEY_TIMEOUT_MS, stepUpErrorMessage, stepUpWithPasskey, stepUpWithPassword, stepUpWithTotp } from '../services/stepUp';
 import styles from './StepUpDialog.module.css';
 
 const LABEL: Record<StepUpMethod, string> = {
@@ -25,15 +29,6 @@ export interface StepUpDialogProps {
   onCancel: () => void;
 }
 
-function messageOf(err: unknown): string {
-  if (err && typeof err === 'object') {
-    const e = err as { detail?: string; message?: string; name?: string };
-    if (e.name === 'NotAllowedError') return 'The passkey prompt was closed or timed out.';
-    return e.detail ?? e.message ?? 'That did not work.';
-  }
-  return 'That did not work.';
-}
-
 export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialogProps) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -41,6 +36,16 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
   const [value, setValue] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The request in flight; aborting it ends the browser's passkey prompt too.
+  const pending = useRef<AbortController | null>(null);
+
+  const stop = () => {
+    pending.current?.abort();
+    pending.current = null;
+    setBusy(false);
+  };
+
+  useEffect(() => () => pending.current?.abort(), []);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -58,24 +63,42 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
   }, []);
 
   const pick = (m: StepUpMethod) => {
+    stop();
     setMethod(m);
     setValue('');
     setError(null);
   };
 
+  const cancel = () => {
+    stop();
+    onCancel();
+  };
+
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (!method || busy) return;
+    const ctrl = new AbortController();
+    pending.current = ctrl;
     setBusy(true);
     setError(null);
+    const timer = method === 'passkey'
+      ? setTimeout(() => ctrl.abort(new DOMException('No passkey answered in time.', 'TimeoutError')), PASSKEY_TIMEOUT_MS)
+      : undefined;
     try {
-      if (method === 'passkey') await stepUpWithPasskey();
-      else if (method === 'totp') await stepUpWithTotp(value);
-      else await stepUpWithPassword(value);
+      if (method === 'passkey') await stepUpWithPasskey(ctrl.signal);
+      else if (method === 'totp') await stepUpWithTotp(value, ctrl.signal);
+      else await stepUpWithPassword(value, ctrl.signal);
+      if (pending.current !== ctrl) return;
+      pending.current = null;
       onDone();
     } catch (err) {
-      setError(messageOf(err));
+      // Cancelled or replaced by another method: nothing to report.
+      if (pending.current !== ctrl) return;
+      pending.current = null;
+      setError(stepUpErrorMessage(ctrl.signal.aborted ? ctrl.signal.reason : err));
       setBusy(false);
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -86,8 +109,8 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
       ref={ref}
       className={styles.dialog}
       aria-labelledby={titleId}
-      onCancel={(e) => { e.preventDefault(); onCancel(); }}
-      onClick={(e) => { if (e.target === ref.current) onCancel(); }}
+      onCancel={(e) => { e.preventDefault(); cancel(); }}
+      onClick={(e) => { if (e.target === ref.current) cancel(); }}
     >
       <form className={styles.panel} onSubmit={submit}>
         <h2 id={titleId} className={styles.title}>Confirm it is you</h2>
@@ -100,7 +123,9 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
           </p>
         )}
         {method === 'passkey' && (
-          <p className={styles.message}>Your browser asks for the passkey or security key, with its PIN or fingerprint.</p>
+          <p className={styles.message} role={busy ? 'status' : undefined}>
+            {busy ? 'Waiting for your passkey or security key…' : 'Your browser asks for the passkey or security key, with its PIN or fingerprint.'}
+          </p>
         )}
         {method === 'totp' && (
           <TextField
@@ -128,12 +153,12 @@ export function StepUpDialog({ action, methods, onDone, onCancel }: StepUpDialog
         {others.length > 0 && (
           <div className={styles.switch}>
             {others.map((m) => (
-              <Button key={m} type="button" size="sm" variant="quiet" onClick={() => pick(m)} disabled={busy}>{LABEL[m]}</Button>
+              <Button key={m} type="button" size="sm" variant="quiet" onClick={() => pick(m)}>{LABEL[m]}</Button>
             ))}
           </div>
         )}
         <div className={styles.actions}>
-          <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>
+          <Button type="button" variant="secondary" onClick={cancel}>Cancel</Button>
           {method && (
             <Button type="submit" variant="primary" loading={busy} disabled={busy || (method !== 'passkey' && value.trim() === '')}>
               {method === 'passkey' ? 'Use passkey' : 'Confirm'}

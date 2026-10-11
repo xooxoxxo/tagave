@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { AUTH_QUERY_KEY, useLogin } from '../hooks/useAuth';
-import { conditionalUiAvailable, signInWithPasskey } from '../services/passkeys';
+import { conditionalUiAvailable, endPasskeyRequest, signInWithPasskey } from '../services/passkeys';
 import type { AuthClientError } from '../services/authClient';
 import { useSetupRequired } from '../hooks/useSystem';
 import { signInErrorMessage } from './loginErrors';
@@ -36,6 +36,9 @@ export function LoginPage() {
     })();
     return () => {
       live = false;
+      // Leaving the page must end the autofill request: it would otherwise
+      // stay open and block the next passkey request (re-verification).
+      endPasskeyRequest();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
