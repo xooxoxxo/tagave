@@ -12,6 +12,8 @@ export function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
+  // whole bytes have no fraction: 256 B, not 256.0 B
+  if (i === 0) return `${bytes} B`;
   return (bytes / Math.pow(k, i)).toFixed(1) + ' ' + sizes[i];
 }
 
