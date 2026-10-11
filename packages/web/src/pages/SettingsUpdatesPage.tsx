@@ -4,7 +4,8 @@
  * installed (that one first, the others folded away), what is running where
  * (app vs workers, with a warning for a lagging host), and the update-check
  * switch. The server checks the official release feed on its own at most
- * every 12 hours; nothing here performs an update.
+ * every 12 hours. With the opt-in updater installed, the page also starts
+ * an update and follows it (InAppUpdate); without it, it shows the command.
  */
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
@@ -12,6 +13,8 @@ import ReactMarkdown from 'react-markdown';
 import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@liner/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
+import { useUpdater } from '../hooks/useUpdater';
+import { InAppUpdate } from '../components/InAppUpdate';
 import { Button } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import styles from './SettingsUpdatesPage.module.css';
@@ -61,7 +64,9 @@ export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
   const { data, isLoading, error } = useUpdates(libraryId);
   if (isLoading) return <div className={styles.container}>Loading…</div>;
-  if (error || !data) return <div className={styles.container}><div className={styles.error}>Could not load update status.</div></div>;
+  // A failed refetch keeps the last answer: during an in-app update the app
+  // restarts and this page must stay put.
+  if (!data) return <div className={styles.container}><div className={styles.error}>Could not load update status.</div></div>;
   return <UpdatesContent data={data} libraryId={libraryId} />;
 }
 
@@ -69,6 +74,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   const setFeed = useSetUpdatesFeed(libraryId);
   const check = useCheckUpdates(libraryId);
   const skip = useSkipUpdate(libraryId);
+  const updater = useUpdater();
   const { app, workers, feed, install } = data;
   const target = feed.newer[0] ?? null;
   const attention = attentionReleases(feed.newer);
@@ -80,6 +86,38 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   const detected: InstallMethod = install.method;
   const [primary, ...others] = guideOrder(detected).map((m) => updateGuide(m, install, target?.version ?? null));
   const skipped = target && feed.skippedVersion && !data.updateAvailable;
+  const uv = updater.data;
+  // A run keeps the in-app view up while the app restarts and cannot answer.
+  const inApp = !!uv?.installed && (uv.reachable || !!uv.updater?.run);
+  const disconnected = !!updater.error || (!!uv?.installed && !uv.reachable);
+
+  const manual = confirmed ? (
+      <>
+        <h3 className={styles.subTitle}>
+          {primary!.title}
+          {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
+        </h3>
+        <GuideSteps guide={primary!} />
+        <p className={styles.hint}>
+          Then check: the table below lists every process at {target ? target.version : 'the new version'}, and <Link to="/settings/system">System status</Link> shows no failures.
+        </p>
+        <details className={styles.more}>
+          <summary>If something goes wrong</summary>
+          <p className={styles.hint}>
+            Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took.
+          </p>
+          <GuideSteps guide={rollbackGuide(primary!.method, install, app.version, target?.version ?? null)} />
+        </details>
+        {others.map((g) => (
+          <details key={g.method} className={styles.more}>
+            <summary>{g.title}</summary>
+            <GuideSteps guide={g} />
+          </details>
+        ))}
+      </>
+    ) : (
+      <p className={styles.muted}>The update steps appear once you have read the notes.</p>
+    );
 
   return (
     <div className={styles.container}>
@@ -113,7 +151,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
       )}
 
       <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>{target ? `Update to ${target.version}` : 'How to update'}</h2>
+        <h2 className={styles.sectionTitle}>{inApp ? 'Update this server' : target ? `Update to ${target.version}` : 'How to update'}</h2>
         {attention.length > 0 && target && (
           <div className={styles.warn}>
             <div>
@@ -128,32 +166,28 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
             </div>
           </div>
         )}
-        {confirmed ? (
+        {inApp && uv ? (
           <>
-            <h3 className={styles.subTitle}>
-              {primary!.title}
-              {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
-            </h3>
-            <GuideSteps guide={primary!} />
-            <p className={styles.hint}>
-              Then check: the table below lists every process at {target ? target.version : 'the new version'}, and <Link to="/settings/system">System status</Link> shows no failures.
-            </p>
+            <InAppUpdate view={uv} disconnected={disconnected} current={app.version} releases={feed.newer} confirmed={confirmed} />
             <details className={styles.more}>
-              <summary>If something goes wrong</summary>
-              <p className={styles.hint}>
-                Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took.
-              </p>
-              <GuideSteps guide={rollbackGuide(primary!.method, install, app.version, target?.version ?? null)} />
+              <summary>Update by hand instead</summary>
+              {manual}
             </details>
-            {others.map((g) => (
-              <details key={g.method} className={styles.more}>
-                <summary>{g.title}</summary>
-                <GuideSteps guide={g} />
-              </details>
-            ))}
           </>
         ) : (
-          <p className={styles.muted}>The update steps appear once you have read the notes.</p>
+          <>
+            {uv?.installed && !uv.reachable && (
+              <div className={styles.warn}>
+                The updater is set up on this server but does not answer ({uv.error}). Check it with <code>docker compose ps</code> and <code>docker compose logs updater</code> in the install folder, or update by hand below.
+              </div>
+            )}
+            {manual}
+            {uv && !uv.installed && (
+              <p className={styles.hint}>
+                To update from this page instead, turn on the optional updater: run <code>./install-tagave.sh enable-updater</code> in the install folder. It holds the Docker socket, which <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/security.md#the-in-app-updater" target="_blank" rel="noreferrer">docs/security.md</a> explains.
+              </p>
+            )}
+          </>
         )}
       </section>
 

@@ -43,6 +43,9 @@ importers:
       '@liner/shared':
         specifier: workspace:*
         version: link:../shared
+      '@liner/updater':
+        specifier: workspace:*
+        version: link:../updater
       argon2:
         specifier: ^0.45.1
         version: 0.45.1
@@ -205,6 +208,21 @@ importers:
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
+
+  packages/updater:
+    devDependencies:
+      '@liner/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@types/node':
+        specifier: ^24.13.4
+        version: 24.13.4
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.0
+        version: 5.0.0(@types/node@24.13.4)(vite@8.3.0(@types/node@24.13.4)(esbuild@0.28.2)(tsx@4.23.13)(yaml@2.9.0))
 
   packages/web:
     dependencies:

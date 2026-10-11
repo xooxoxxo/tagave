@@ -22,6 +22,9 @@
     },
     {
       "path": "../auth"
+    },
+    {
+      "path": "../updater"
     }
   ]
 }

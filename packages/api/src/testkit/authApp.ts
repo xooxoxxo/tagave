@@ -53,12 +53,16 @@ export function testAuth(url: string, appSecret: string = TEST_APP_SECRET): Auth
   return createAuth({ env, databaseUrl: url, rateLimit: false, maxConnections: 4 });
 }
 
-export async function buildAuthApp(handle: AuthHandle): Promise<FastifyInstance> {
+type Extra = (instance: FastifyInstance) => Promise<void>;
+
+/** `protectedRoutes` join the probe behind the sign-in check; `rootRoutes` sit next to the auth routes. */
+export async function buildAuthApp(handle: AuthHandle, protectedRoutes?: Extra, rootRoutes?: Extra): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   await app.register(fastifyCookie);
   initAuth(handle);
   await errorHandler(app);
   await authMiddleware(app);
+  if (rootRoutes) await app.register(rootRoutes);
   await app.register(createBetterAuthRoutes);
   await app.register(createAuthRoutes, { prefix: '/api/v1/auth' });
   await app.register(async (instance) => {
@@ -66,6 +70,7 @@ export async function buildAuthApp(handle: AuthHandle): Promise<FastifyInstance>
       if (!request.user) await reply.status(401).send({ status: 401, title: 'Unauthorized' });
     });
     instance.get('/api/v1/probe', async (request) => ({ user: request.user, sessionId: request.sessionId }));
+    if (protectedRoutes) await protectedRoutes(instance);
   });
   await app.ready();
   return app;

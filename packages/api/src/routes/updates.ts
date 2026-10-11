@@ -63,7 +63,7 @@ async function patchUpdates(libraryId: string, patch: Partial<UpdatesSettings>):
   return (typeof raw === 'string' ? JSON.parse(raw) : raw ?? patch) as UpdatesSettings;
 }
 
-async function liveWorkers(): Promise<WorkerVersion[]> {
+export async function liveWorkers(): Promise<WorkerVersion[]> {
   const rows = (await getDb().execute(sql`
     select info as progress, seen_at as created_at
     from worker_heartbeats

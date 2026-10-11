@@ -1,0 +1,188 @@
+/*
+ * In-app update: the idle row (release picker + the drop), and the run view
+ * (a tinted note on top, the step list with status marks, the log folded
+ * away). Status colours stay small: tinted notes and marks, never fills.
+ */
+.idle,
+.run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.select {
+  width: auto;
+  min-width: 10rem;
+}
+
+.note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+}
+
+.note code {
+  overflow-wrap: anywhere;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--font-size-sm);
+}
+
+.runHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+}
+
+.tone-info { background: var(--dew-tint); border-color: var(--dew); }
+.tone-ok { background: var(--ok-tint); border-color: var(--ok); }
+.tone-warn { background: var(--warn-tint); border-color: var(--warn); }
+.tone-error { background: var(--danger-tint); border-color: var(--danger); }
+
+.runTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.runBody {
+  margin: var(--space-xs) 0 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-relaxed);
+  overflow-wrap: anywhere;
+}
+
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.spinner {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--dew) 30%, transparent);
+  border-top-color: var(--dew);
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: var(--font-size-sm);
+}
+
+.steps li {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-3);
+}
+
+.steps li:last-child { border-bottom: 0; }
+
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.stepLabel { min-width: 0; }
+
+.stepTime {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.steps .step-done { color: var(--ink); }
+.step-done .mark { border-color: var(--ok); color: var(--ok); }
+.steps .step-running { color: var(--ink); font-weight: 600; }
+.step-running .mark { border: 2px solid color-mix(in srgb, var(--dew) 30%, transparent); border-top-color: var(--dew); animation: spin 900ms linear infinite; }
+.steps .step-failed { color: var(--ink); }
+.step-failed .mark { border-color: var(--danger); color: var(--danger); }
+.step-skipped .mark { border-style: dashed; }
+
+.log {
+  font-size: var(--font-size-sm);
+}
+
+.log > summary {
+  cursor: pointer;
+  color: var(--ink-2);
+  padding: var(--space-xs) 0;
+}
+
+.lastLine {
+  display: inline-block;
+  max-width: calc(100% - 4rem);
+  margin-left: var(--space-sm);
+  vertical-align: bottom;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.logText {
+  margin: var(--space-xs) 0 0;
+  padding: var(--space-sm) var(--space-md);
+  max-height: 22rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-inner);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--font-size-xs);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .step-running .mark { animation-duration: 2s; }
+}
+
+@media (forced-colors: active) {
+  .runHead { border: 2px solid CanvasText; }
+}

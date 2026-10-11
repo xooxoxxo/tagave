@@ -20,6 +20,7 @@
     "@liner/db": "workspace:*",
     "@liner/doctor": "workspace:*",
     "@liner/shared": "workspace:*",
+    "@liner/updater": "workspace:*",
     "argon2": "^0.45.1",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.12.5",
