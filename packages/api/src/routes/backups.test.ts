@@ -31,8 +31,9 @@ describe('backup routes', () => {
     service = new BackupService({
       databaseUrl: 'postgres://unused/db',
       env: { BACKUP_DIR: dir, TZ: 'Europe/Amsterdam' },
-      // A fake dump that finishes when the test says so.
-      run: async ({ dir: out, kind }) => {
+      // A fake dump that finishes when the test says so. Typed here, not left
+      // to inference: tsgo's parallel checkers sometimes lose the contextual type.
+      run: async ({ dir: out, kind }: { dir: string; kind: 'nightly' | 'manual' }) => {
         await new Promise<void>((r) => { release = r; });
         const file = `liner-2026-09-29T03-00-00Z${kind === 'manual' ? '' : `-${kind}`}.pgdump`;
         await writeFile(join(out, file), 'PGDMP-fake-dump');

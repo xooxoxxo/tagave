@@ -17,6 +17,7 @@ import {
 import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
 import { resolvePinnedMb } from '../lib/pinnedMb.js';
+import { acceptByRules } from '../lib/autoAccept.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
 
 export interface IdentifyAlbumJobData {
@@ -147,6 +148,74 @@ export async function persistFetched(ctx: WorkerContext, r: CanonicalRelease): P
   return ids;
 }
 
+type AlbumRow = typeof localAlbums.$inferSelect;
+type TrackRow = typeof localTracks.$inferSelect;
+
+/**
+ * What the matcher compares a release against: the album's guesses, its
+ * tracks, and the ids its first files' tags carry (IDN-1a). Shared by the
+ * identify run and by a pasted edition (addEdition), so a pasted release is
+ * scored exactly like one the search found.
+ */
+export async function localViewOf(ctx: WorkerContext, album: AlbumRow, tracks: TrackRow[]) {
+  // Embedded IDs from the first tracks' file tags (IDN-1a).
+  const fileRows = tracks.length === 0 ? [] : await ctx.db
+    .select({ tagsRaw: audioFiles.tagsRaw })
+    .from(audioFiles)
+    .where(inArray(audioFiles.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
+  let embedded: EmbeddedIds = {};
+  for (const f of fileRows) {
+    embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };
+  }
+
+  // What the files say about discs (XO-379). local_albums.disc_count is 1 for an
+  // album that never mentioned a disc, so it cannot answer "how many discs?" —
+  // the tracks can. No track carrying a disc number means "unknown", and then
+  // neither the alignment nor the medium component gets to guess.
+  // Use localTrackViews to build matching tracks (0026, shared with trackLinks)
+  const trackView = localTrackViews(tracks);
+  const discsKnown = trackView.discsKnown;
+  const distinctDiscs = trackView.discCount;
+
+  const local = {
+    artist: album.artistGuess ?? '',
+    title: album.titleGuess ?? '',
+    tracks: trackView.tracks,
+    discsKnown,
+    ...(discsKnown && distinctDiscs > 0 ? { discCount: distinctDiscs } : {}),
+    ...(album.yearGuess ? { year: album.yearGuess } : {}),
+    ...(embedded.albumMbid ? { embeddedMbId: embedded.albumMbid } : {}),
+    ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
+    ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
+  };
+  return { local, embedded, discsKnown, distinctDiscs };
+}
+
+/** core/matching input: seconds + 0-based indices; provider tracks are ms. */
+export function toScorable(r: CanonicalRelease) {
+  const mediumCount = mediumCountOf(r);
+  return {
+    id: r.id,
+    releaseGroupId: r.releaseGroupId,
+    title: r.title,
+    artists: r.artists,
+    tracks: (r.tracks ?? []).map((t, i) => ({
+      title: t.title,
+      ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
+      duration: (t.duration ?? 0) / 1000,
+      index: i,
+      ...(t.recordingId ? { recordingId: t.recordingId } : {}),
+      ...(t.mediumNumber ? { medium: t.mediumNumber } : {}),
+    })),
+    ...(mediumCount !== undefined ? { mediumCount } : {}),
+    ...(r.year ? { year: r.year } : {}),
+    ...(r.country ? { country: r.country } : {}),
+    ...(r.barcode ? { barcode: r.barcode } : {}),
+    ...(r.label ? { label: r.label } : {}),
+    source: r.source,
+  };
+}
+
 /**
  * Identify one local album. Provider lookups take seconds to minutes, and the
  * album can be merged into another (or retired by regrouping) meanwhile: the
@@ -242,67 +311,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     .where(eq(localTracks.localAlbumId, album.id));
   if (tracks.length === 0) return { outcome: 'skipped', message: 'The album has no tracks to compare.' };
 
-  // Embedded IDs from the first tracks' file tags (IDN-1a).
-  const fileRows = await ctx.db
-    .select({ tagsRaw: audioFiles.tagsRaw })
-    .from(audioFiles)
-    .where(inArray(audioFiles.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
-  let embedded: EmbeddedIds = {};
-  for (const f of fileRows) {
-    embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };
-  }
+  const { local, embedded, discsKnown, distinctDiscs } = await localViewOf(ctx, album, tracks);
   // Fast-path eligibility is a library metric (XO-309): remember the tag id.
   if ((embedded.albumMbid ?? null) !== (album.embeddedMbid ?? null)) {
     await ctx.db.update(localAlbums)
       .set({ embeddedMbid: embedded.albumMbid ?? null })
       .where(eq(localAlbums.id, album.id));
   }
-
-  // What the files say about discs (XO-379). local_albums.disc_count is 1 for an
-  // album that never mentioned a disc, so it cannot answer "how many discs?" —
-  // the tracks can. No track carrying a disc number means "unknown", and then
-  // neither the alignment nor the medium component gets to guess.
-  // Use localTrackViews to build matching tracks (0026, shared with trackLinks)
-  const trackView = localTrackViews(tracks);
-  const discsKnown = trackView.discsKnown;
-  const distinctDiscs = trackView.discCount;
-
-  const local = {
-    artist: album.artistGuess ?? '',
-    title: album.titleGuess ?? '',
-    tracks: trackView.tracks,
-    discsKnown,
-    ...(discsKnown && distinctDiscs > 0 ? { discCount: distinctDiscs } : {}),
-    ...(album.yearGuess ? { year: album.yearGuess } : {}),
-    ...(embedded.albumMbid ? { embeddedMbId: embedded.albumMbid } : {}),
-    ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
-    ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
-  };
-
-  // core/matching input: seconds + 0-based indices; provider tracks are ms.
-  const toScorable = (r: CanonicalRelease) => {
-    const mediumCount = mediumCountOf(r);
-    return {
-      id: r.id,
-      releaseGroupId: r.releaseGroupId,
-      title: r.title,
-      artists: r.artists,
-      tracks: (r.tracks ?? []).map((t, i) => ({
-        title: t.title,
-        ...(t.artists?.[0] ? { artist: t.artists[0] } : {}),
-        duration: (t.duration ?? 0) / 1000,
-        index: i,
-        ...(t.recordingId ? { recordingId: t.recordingId } : {}),
-        ...(t.mediumNumber ? { medium: t.mediumNumber } : {}),
-      })),
-      ...(mediumCount !== undefined ? { mediumCount } : {}),
-      ...(r.year ? { year: r.year } : {}),
-      ...(r.country ? { country: r.country } : {}),
-      ...(r.barcode ? { barcode: r.barcode } : {}),
-      ...(r.label ? { label: r.label } : {}),
-      source: r.source,
-    };
-  };
 
   // Candidate generation (IDN-1): pinned (IDN-6) short-circuits, then
   // embedded MBID, then MB search cascade, then Discogs (IDN-1c). Every
@@ -655,7 +670,17 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       }
       ctx.logger.info({ album: album.titleGuess, distance: best.distance, reds: cc2.reds, mediaCount, localDiscs }, 'identify: top candidate held for review');
     }
-    return giveUp('ambiguous');
+    const held = await giveUp('ambiguous');
+    // Review matches › Auto-accept: the owner's rules get the album the
+    // moment it lands in review (no-op while they are off).
+    const byRules = await acceptByRules(ctx, album.libraryId, { albumIds: [album.id], requireEnabled: true });
+    const took = byRules.acceptedAlbums[0];
+    if (took) {
+      const rel = fetched.find((r) => releaseDbIds.get(r.id) === took.releaseId);
+      const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
+      return { outcome: 'matched', message: label ? `Matched to ${label} by your auto-accept rules.` : 'Matched by your auto-accept rules.' };
+    }
+    return held;
   }
   return giveUp('weak_candidates');
 }

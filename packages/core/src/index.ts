@@ -31,6 +31,8 @@ export {
   hungarianAlgorithm,
   chipCounts,
   pickByChipRule,
+  evaluateAutoAccept,
+  rulesFromStored,
 } from './matching/index.js';
 
 export type {
@@ -41,6 +43,8 @@ export type {
   MatchingPreferences,
   MediumCountSource,
   Assignment,
+  RuleCandidate,
+  AutoAcceptDecision,
 } from './matching/index.js';
 
 // Matching types (re-exported for convenience)

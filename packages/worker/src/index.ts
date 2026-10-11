@@ -26,6 +26,7 @@ import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/finger
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
+import { addEditionJob, type AddEditionJobData } from './jobs/addEdition.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
@@ -260,6 +261,14 @@ async function main() {
   const ACOUSTID_IDENTIFY_WORKERS = Number(process.env['ACOUSTID_IDENTIFY_CONCURRENCY'] ?? 3);
   if (wants('identify.album')) for (let w = 0; w < IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.album', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.album'));
+  }
+  // Review matches › "Not listed?": rides with identify.album (same providers,
+  // same pacers). The handler's return value is the job output the API reads.
+  if (wants('identify.album')) {
+    await boss.work<AddEditionJobData>('edition.add', { batchSize: 1, pollingIntervalSeconds: 1 }, async (jobs) => {
+      const job = jobs[0]!;
+      return withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `edition.add ${job.data.localAlbumId}`, () => addEditionJob(ctx, job.data));
+    });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));

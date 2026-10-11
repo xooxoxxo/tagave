@@ -6,7 +6,7 @@
  */
 export const WORKER_QUEUES = [
   'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs',
-  'identify.album', 'identify.acoustid', 'identify.sweep',
+  'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add',
   'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept',
   'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch',
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
@@ -28,6 +28,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'collection.remove': 'enrich.release',
   // nightly provider_cache cleanup: database-only upkeep, on the facets worker
   'cache.purge': 'facets.refresh',
+  // a release the owner pasted on Review matches: fetched and scored like identify's
+  'edition.add': 'identify.album',
 };
 
 /** The names LINER_QUEUES chooses from: each needs some live worker. */

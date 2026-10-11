@@ -3,9 +3,28 @@ import { albumMatches, localAlbums, matchCandidates, releases } from '@liner/db'
 import { chipCounts, pickByChipRule, MATCHING_THRESHOLDS } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
+import { acceptByRules } from '../lib/autoAccept.js';
 
 export interface QueueAutoAcceptJobData {
   libraryId: string;
+  /** 'rules': the owner's auto-accept rules ("Accept N now" in Review
+   * matches); absent: the chip-rule sweep below */
+  mode?: 'rules';
+}
+
+/** "Accept N now": the saved rules over the whole queue, one Activity entry. */
+async function rulesSweep(ctx: WorkerContext, libraryId: string): Promise<void> {
+  const run = await acceptByRules(ctx, libraryId, { requireEnabled: false });
+  await reportProgress(ctx, null, {
+    libraryId,
+    type: 'queue.autoaccept',
+    state: 'completed',
+    done: run.accepted,
+    total: run.considered,
+    // same shape as the chip-rule sweep's message: the Activity summary reads it
+    message: `${run.accepted}/${run.considered} needs_review albums accepted by the auto-accept rules`,
+  });
+  ctx.logger.info({ libraryId, accepted: run.accepted, considered: run.considered }, 'auto-accept rules sweep done');
 }
 
 /**
@@ -16,6 +35,7 @@ export interface QueueAutoAcceptJobData {
  * idempotent (accepted albums leave needs_review).
  */
 export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcceptJobData): Promise<void> {
+  if (data.mode === 'rules') return rulesSweep(ctx, data.libraryId);
   const albums = await ctx.db
     .select({ id: localAlbums.id })
     .from(localAlbums)

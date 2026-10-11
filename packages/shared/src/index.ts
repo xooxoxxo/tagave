@@ -329,3 +329,30 @@ export { IDENTIFY_REQUESTED_BY_OWNER } from './identify.js';
 
 // Open-folder links (album page, Settings › Scan roots)
 export { FOLDER_LINK_SCHEMES, folderLinkBaseProblem, normalizeFolderLinkBase, folderLinkFor } from './folderLink.js';
+
+// Review matches: match percent, edition comparison, auto-accept rules
+export {
+  matchPercent,
+  matchStrength,
+  compareEdition,
+  everyCheckAgrees,
+  statusTag,
+  yearOf,
+  autoAcceptRulesSchema,
+  autoAcceptSourceSchema,
+  DEFAULT_AUTO_ACCEPT_RULES,
+  AUTO_ACCEPT_REASON_PREFIX,
+} from './matchReview.js';
+export type {
+  MatchStrength,
+  Verdict,
+  ComparisonField,
+  ComparisonRow,
+  ComparableAlbum,
+  ComparableEdition,
+  AutoAcceptSource,
+  AutoAcceptRules,
+  AutoAcceptRecentItem,
+  AutoAcceptView,
+  AutoAcceptPreview,
+} from './matchReview.js';

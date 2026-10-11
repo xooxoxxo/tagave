@@ -32,3 +32,6 @@ export type { ChipCounts } from './chipRule.js';
 
 export { hungarianAlgorithm } from './hungarian.js';
 export type { Assignment } from './hungarian.js';
+
+export { evaluateAutoAccept, rulesFromStored } from './autoAcceptRules.js';
+export type { RuleCandidate, AutoAcceptDecision } from './autoAcceptRules.js';

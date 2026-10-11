@@ -44,6 +44,7 @@ async function startBoss(): Promise<PgBoss> {
     'artists.enrich', // artists
     'collection.sync', 'collection.push', 'collection.remove', // collection
     'roots.validate', 'scan.root', 'enrich.sweep', // library / scan
+    'edition.add', 'queue.autoaccept', // review matches
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }

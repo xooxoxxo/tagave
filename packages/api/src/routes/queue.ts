@@ -8,6 +8,18 @@ import {
 import { getDb } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { mediaSummary } from '../lib/releaseSummary.js';
+
+/** Label, format and catalogue number of an edition, each null when the data has none. */
+export function editionDetails(labels: unknown, media: unknown): { labelName: string | null; format: string | null; catalogNumber: string | null } {
+  const first = Array.isArray(labels) ? (labels[0] as { name?: unknown; catalogNumber?: unknown; catno?: unknown } | undefined) : undefined;
+  const text = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+  return {
+    labelName: text(first?.name),
+    format: mediaSummary(media),
+    catalogNumber: text(first?.catalogNumber) ?? text(first?.catno),
+  };
+}
 
 // The process-wide pg-boss (one pool, one error handler) plus this route's queue.
 let bossReady: Promise<PgBoss> | null = null;
@@ -111,6 +123,7 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
         releaseStatus: releases.status,
         releaseTrackCount: releases.trackCount,
         releaseLabels: releases.labels,
+        releaseMedia: releases.media,
         sourceOfTruth: releases.sourceOfTruth,
         rgMbid: releaseGroups.mbid,
         rgArtistCredit: releaseGroups.artistCredit,
@@ -156,6 +169,7 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
           status: c.releaseStatus,
           trackCount: c.releaseTrackCount,
           labels: c.releaseLabels,
+          ...editionDetails(c.releaseLabels, c.releaseMedia),
           distance: Number(c.distance),
           breakdown: c.breakdown,
           source: c.source,

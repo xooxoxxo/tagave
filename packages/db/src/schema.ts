@@ -851,6 +851,20 @@ export const albumMatches = pgTable(
   })
 );
 
+/** 0038: Review matches › Auto-accept rules, one row per library (no row = defaults, off). */
+export const autoAcceptRules = pgTable('auto_accept_rules', {
+  libraryId: uuid('library_id')
+    .primaryKey()
+    .references(() => libraries.id, { onDelete: 'cascade' }),
+  enabled: boolean().notNull().default(false),
+  minMatch: integer('min_match').notNull().default(95),
+  allChecksAgree: boolean('all_checks_agree').notNull().default(true),
+  clearWinnerGap: integer('clear_winner_gap').notNull().default(5),
+  preferSource: text('prefer_source').notNull().default('either'),
+  officialOnly: boolean('official_only').notNull().default(true),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const fieldLocks = pgTable(
   'field_locks',
   {
