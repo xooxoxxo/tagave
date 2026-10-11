@@ -10,12 +10,18 @@ type Mod = typeof import('./jobStream');
 class FakeEventSource {
   static all: FakeEventSource[] = [];
   closed = false;
+  readyState = 0;
   private handlers = new Map<string, Array<(e: { data: string }) => void>>();
   constructor(public url: string) { FakeEventSource.all.push(this); }
   addEventListener(type: string, fn: (e: { data: string }) => void) {
     this.handlers.set(type, [...(this.handlers.get(type) ?? []), fn]);
   }
-  close() { this.closed = true; }
+  close() { this.closed = true; this.readyState = 2; }
+  /** the server answered with an error status: the browser gives the stream up */
+  fail() { this.readyState = 2; for (const fn of this.handlers.get('error') ?? []) fn({ data: '' }); }
+  /** a dropped connection: the browser reconnects by itself */
+  drop() { this.readyState = 0; for (const fn of this.handlers.get('error') ?? []) fn({ data: '' }); }
+  opened() { this.readyState = 1; for (const fn of this.handlers.get('open') ?? []) fn({ data: '' }); }
   emit(type: string, data: unknown) {
     for (const fn of this.handlers.get(type) ?? []) fn({ data: JSON.stringify(data) });
   }
@@ -123,6 +129,53 @@ describe('shared job stream', () => {
     await vi.advanceTimersByTimeAsync(b.LEASE_MS);
     expect(b.isJobStreamLeader(LIB)).toBe(true);
     expect(FakeEventSource.open()).toHaveLength(1);
+  });
+
+  it('opens the stream again after the browser gave it up (502 while the app restarts), backing off', async () => {
+    const a = await openTab();
+    const got: string[] = [];
+    a.subscribeJobEvents(LIB, (type) => got.push(type));
+    const b = await openTab();
+    const gotB: string[] = [];
+    b.subscribeJobEvents(LIB, (type) => gotB.push(type));
+    await vi.advanceTimersByTimeAsync(300);
+    expect(FakeEventSource.open()).toHaveLength(1);
+
+    FakeEventSource.open()[0]!.drop(); // the browser retries this one itself
+    expect(FakeEventSource.all).toHaveLength(1);
+    FakeEventSource.all[0]!.fail();
+    expect(FakeEventSource.open()).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(a.RETRY_MIN_MS);
+    expect(FakeEventSource.all).toHaveLength(2);
+    FakeEventSource.all[1]!.fail(); // still down: the wait doubles
+    await vi.advanceTimersByTimeAsync(a.RETRY_MIN_MS);
+    expect(FakeEventSource.all).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(a.RETRY_MIN_MS);
+    expect(FakeEventSource.all).toHaveLength(3);
+    // the same tab still leads through the outage, and events reach both tabs again
+    expect(a.isJobStreamLeader(LIB)).toBe(true);
+    expect(b.isJobStreamLeader(LIB)).toBe(false);
+    const live = FakeEventSource.all[2]!;
+    live.opened();
+    live.emit('job.progress', { libraryId: LIB });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(got).toEqual(['job.progress']);
+    expect(gotB).toEqual(['job.progress']);
+    // a later failure starts from the short wait again
+    live.fail();
+    await vi.advanceTimersByTimeAsync(a.RETRY_MIN_MS);
+    expect(FakeEventSource.all).toHaveLength(4);
+  });
+
+  it('does not reopen a stream after the last listener left', async () => {
+    const a = await openTab();
+    const unsub = a.subscribeJobEvents(LIB, () => undefined);
+    await vi.advanceTimersByTimeAsync(300);
+    FakeEventSource.open()[0]!.fail();
+    unsub();
+    await vi.advanceTimersByTimeAsync(a.RETRY_MAX_MS * 2);
+    expect(FakeEventSource.open()).toHaveLength(0);
+    expect(FakeEventSource.all).toHaveLength(1);
   });
 
   it('falls back to a stream per tab without BroadcastChannel', async () => {

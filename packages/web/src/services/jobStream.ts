@@ -22,6 +22,12 @@
  *
  * Without BroadcastChannel or a usable localStorage (very old browsers,
  * storage blocked), each tab falls back to its own EventSource.
+ *
+ * A browser gives an EventSource up for good when the server answers with an
+ * error status, as a reverse proxy does (502) while the app restarts for an
+ * update. The stream then opens again here, after RETRY_MIN_MS and doubling
+ * up to RETRY_MAX_MS; without that every tab went without live updates until
+ * a reload (freeze hunt 2026-10-11).
  */
 
 export const JOB_EVENT_TYPES = ['queue.changed', 'job.progress', 'job.completed', 'job.failed'] as const;
@@ -37,6 +43,9 @@ export const RENEW_MS = 5_000;
  * fine, and steps down when its timer next fires.
  */
 export const LEASE_MS = 30_000;
+/** First wait before opening a stream the browser gave up on; doubles up to RETRY_MAX_MS. */
+export const RETRY_MIN_MS = 2_000;
+export const RETRY_MAX_MS = 60_000;
 /** Wait after writing a claim before trusting it, so a simultaneous claim settles. */
 const CONFIRM_MIN_MS = 60;
 const CONFIRM_JITTER_MS = 120;
@@ -69,6 +78,9 @@ class LibraryStream {
   private source: EventSource | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private confirmTimer: ReturnType<typeof setTimeout> | null = null;
+  /** set while a stream the browser gave up on waits to open again (this tab still leads) */
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryMs = 0;
   private stopped = false;
   private readonly onPageHide = () => this.release();
   private readonly onPageShow = () => this.tryClaim();
@@ -142,7 +154,7 @@ class LibraryStream {
   private tick(): void {
     if (this.stopped) return;
     const lease = this.readLease();
-    if (this.source) {
+    if (this.source || this.retryTimer) {
       // leader: renew, unless another tab took over while our timers were throttled
       if (!lease || lease.id === this.tabId) this.writeLease();
       else if (lease.expires > Date.now()) this.closeSource();
@@ -166,7 +178,7 @@ class LibraryStream {
 
   /** Give the stream up: clear our lease and tell the other tabs to claim it. */
   private release(): void {
-    if (!this.source || !this.channel) return;
+    if ((!this.source && !this.retryTimer) || !this.channel) return;
     this.closeSource();
     try {
       if (this.readLease()?.id === this.tabId) this.storage?.removeItem(this.leaseKey);
@@ -179,6 +191,18 @@ class LibraryStream {
   private openSource(broadcast: boolean): void {
     if (this.source) return;
     const source = new EventSource(this.url, { withCredentials: true });
+    source.addEventListener('open', () => { this.retryMs = 0; });
+    source.addEventListener('error', () => {
+      // CONNECTING: the browser retries by itself. CLOSED: it gave up (an HTTP error status).
+      if (source.readyState !== 2 || this.source !== source || this.stopped) return;
+      source.close();
+      this.source = null;
+      this.retryMs = Math.min(RETRY_MAX_MS, this.retryMs ? this.retryMs * 2 : RETRY_MIN_MS);
+      this.retryTimer = setTimeout(() => {
+        this.retryTimer = null;
+        if (!this.stopped) this.openSource(broadcast);
+      }, this.retryMs);
+    });
     for (const type of JOB_EVENT_TYPES) {
       source.addEventListener(type, (e) => {
         const data = (e as MessageEvent<string>).data;
@@ -192,6 +216,8 @@ class LibraryStream {
   private closeSource(): void {
     this.source?.close();
     this.source = null;
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
   }
 
   private dispatch(type: JobEventType, data: string): void {
