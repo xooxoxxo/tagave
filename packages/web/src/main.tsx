@@ -26,8 +26,11 @@ import './styles/index.css';
 import { applyTheme, readThemePreference } from './theme';
 import { ConfirmHost } from './components/ui/ConfirmDialog';
 import { ToastHost } from './components/ui/Toast';
+import { startDiagnostics } from './services/diagnostics';
 
 applyTheme(readThemePreference());
+// off unless switched on in the console (services/diagnostics.ts)
+startDiagnostics();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');

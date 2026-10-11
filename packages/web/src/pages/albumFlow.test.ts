@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   A_HDR, A_REST, B_HDR, B_REST, B_TOP, HEADER,
-  albumFacts, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, flowState, formatLine, formatReleased, seededRandom, wantsFiller,
+  albumFacts, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, wantsFiller,
 } from './albumFlow';
 import type { DetailTrack } from './albumDetailTypes';
 
@@ -93,6 +93,47 @@ describe('album flow: generative filler', () => {
     expect(fillerCentres('Shock Me', 346, 400)).toEqual(fillerCentres('Shock Me', 346, 400));
     expect(fillerDots('Shock Me', 120, 90)).toEqual(fillerDots('Shock Me', 120, 90));
     expect(fillerDots('Shock Me', 120, 90)).not.toEqual(fillerDots('In Absentia', 120, 90));
+  });
+
+  it('samples the field once and finds the same dots as reading it per level', () => {
+    // the algorithm before the freeze hunt: the field evaluated again for each of the 7 levels
+    const perLevel = (title: string, w: number, h: number) => {
+      const centres = fillerCentres(title, w, h);
+      const dots: Array<[number, number, number]> = [];
+      for (let i = 0; i <= 6; i++) {
+        const level = -0.6 + i * 0.2;
+        const alpha = 0.10 + 0.22 * (1 - Math.abs(level) / 0.6);
+        for (let y = 0; y < h; y += 3) {
+          let prev = rippleField(centres, 0, y) - level;
+          for (let x = 3; x < w; x += 3) {
+            const v = rippleField(centres, x, y) - level;
+            if ((v > 0) !== (prev > 0)) dots.push([x, y, alpha]);
+            prev = v;
+          }
+        }
+      }
+      return dots;
+    };
+    for (const [title, w, h] of [['Shock Me', 346, 400], ['In Absentia', 1001, 322], ['', 2, 2], ['XX', 0, 0]] as const) {
+      expect(fillerDots(title, w, h)).toEqual(perLevel(title, w, h));
+    }
+  });
+
+  it('paints one path and one fill per contour level, not one per dot', () => {
+    const calls = { fill: 0, arc: 0, beginPath: 0 };
+    const g = {
+      setTransform() {}, clearRect() {}, fillRect() {}, moveTo() {},
+      beginPath() { calls.beginPath++; }, arc() { calls.arc++; }, fill() { calls.fill++; },
+      createLinearGradient: () => ({ addColorStop() {} }),
+      fillStyle: '', globalAlpha: 1, globalCompositeOperation: 'source-over',
+    } as unknown as FillerContext;
+    const dots = fillerDots('Shock Me', 800, 600);
+    paintFiller(g, 800, 600, 2, 'Shock Me', '#276a82');
+    expect(dots.length).toBeGreaterThan(1000);
+    expect(calls.arc).toBe(dots.length);
+    expect(calls.fill).toBe(calls.beginPath);
+    expect(calls.fill).toBeLessThanOrEqual(7);
+    expect(g.globalCompositeOperation).toBe('source-over');
   });
 
   it('3 to 5 ripple sources, inside the piece', () => {

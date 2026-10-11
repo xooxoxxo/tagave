@@ -116,6 +116,28 @@ docker compose -f docker-compose.prod.yml exec app node packages/doctor/dist/cli
 
 Add `--expect-workers 0` while no worker runs yet. Or on a worker host: `pnpm doctor`.
 
+## A page that freezes
+
+The web app can record what keeps the browser busy, so a hang can be looked
+into afterwards. It is off by default. To switch it on, open the browser's
+developer console on the tagave tab and run:
+
+```js
+localStorage.setItem('tagave:diagnostics', '1'); location.reload()
+```
+
+From then on every moment the page is busy for 200 ms or more is recorded
+with the page, how long it took and what ran; a freeze of a second or more is
+also shown as a warning in the console. The record survives a reload and
+never leaves the browser. When it happens again, run this in the console to
+copy the report, and paste it into an issue:
+
+```js
+copy(JSON.stringify(tagaveDiagnostics()))
+```
+
+To switch it off: `localStorage.removeItem('tagave:diagnostics')`.
+
 ## Where data lives
 
 - **Database:** `pgdata` volume
