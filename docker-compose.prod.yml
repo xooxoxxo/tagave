@@ -9,7 +9,7 @@ x-logging: &logging
 services:
   postgres:
     image: postgres:16
-    # Sized for the docker-apps VM (5.9 GB RAM, shared with other containers;
+    # Sized for a ~6 GB RAM host shared with other containers;
     # database ~2.3 GB). Defaults (128 MB buffers, 4 MB work_mem) gave a 90 %
     # cache hit ratio and 1 GB of temp-file spills (audit 2026-10-10).
     #   shared_buffers 1GB         ~1/6 of RAM: the hot tables stay resident
