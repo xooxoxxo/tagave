@@ -257,7 +257,7 @@ Then start the stack with the `workers` profile:
 docker compose -f docker-compose.prod.yml --profile workers up -d
 ```
 
-This adds two services: `worker-files` (scanning, clustering, cover art, tag plans; your library is mounted read-only at `/mnt/music`) and `worker-identify` (MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes, track linking; no file access).
+This adds two services: `worker-files` (scanning, clustering, cover art, tag plans; your library is mounted read-only at `/mnt/music`, or read-write with `--music-writable` so applying a tag plan can write tags) and `worker-identify` (MusicBrainz and Discogs lookups, enrichment, reviews, artist refreshes, track linking; no file access).
 
 When you register a scan root in the setup, use the container path `/mnt/music` (not your host path).
 

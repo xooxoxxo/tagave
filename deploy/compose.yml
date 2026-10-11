@@ -178,11 +178,12 @@ services:
       LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
     volumes:
       - cache:/cache
-      # read-only: tag previews only read. Applying a tag plan needs a
-      # writable mount and the Python tag writer, which this image lacks.
+      # Read-only unless TAGAVE_MUSIC_MODE=rw (install-tagave.sh
+      # --music-writable): previews only read; applying a tag plan writes, with
+      # the mutagen tag writer this image ships.
       # The installer always sets MUSIC_DIR; ./music is only a placeholder so
       # the database computer of a split install does not need one.
-      - ${MUSIC_DIR:-./music}:/mnt/music:ro
+      - ${MUSIC_DIR:-./music}:/mnt/music:${TAGAVE_MUSIC_MODE:-ro}
     restart: unless-stopped
     logging: *logging
     depends_on:

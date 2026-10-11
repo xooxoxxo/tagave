@@ -69,6 +69,7 @@ BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
 PUBLIC_URL="${TAGAVE_PUBLIC_URL:-}"
 BACKUP_DIR="${TAGAVE_BACKUP_DIR:-}"
 WITH_UPDATER="${TAGAVE_WITH_UPDATER:-}"
+MUSIC_WRITABLE="${TAGAVE_MUSIC_WRITABLE:-}"
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
 PLATFORM=""
@@ -128,6 +129,8 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater] 
   --role all|app|files     what runs on this computer (default: all)
   --dir PATH               install directory (default: ~/tagave)
   --music PATH             your music folder on this computer (roles all, files)
+  --music-writable         mount it writable, so applying a tag plan can write
+                           tags (default: read-only; roles all, files)
   --port N                 web app port on this computer (default: 3100)
   --version TAG            release to run, e.g. 0.5.0 (default: the newest
                            release, written to .env as its number)
@@ -197,6 +200,7 @@ while [ "$#" -gt 0 ]; do
     --dry-run)           DRY_RUN=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
     --with-updater)      WITH_UPDATER=1; shift ;;
+    --music-writable)    MUSIC_WRITABLE=1; shift ;;
     --public-url)        need_arg "$@"; PUBLIC_URL="$2"; shift 2 ;;
     --replace-secrets)   REPLACE_SECRETS=1; shift ;;
     --yes|-y)            ASSUME_YES=1; shift ;;
@@ -459,6 +463,7 @@ collect_answers() {
   if [ -f "$existing" ]; then
     [ -n "$ROLE" ]      || ROLE="$(env_get TAGAVE_ROLE "$existing")"
     [ -n "$MUSIC_DIR" ] || MUSIC_DIR="$(env_get MUSIC_DIR "$existing")"
+    if [ -z "$MUSIC_WRITABLE" ] && [ "$(env_get TAGAVE_MUSIC_MODE "$existing")" = "rw" ]; then MUSIC_WRITABLE=1; fi
     [ -n "$PORT" ]      || PORT="$(env_get TAGAVE_PORT "$existing")"
     if [ -z "$VERSION" ]; then
       VERSION="$(env_get TAGAVE_VERSION "$existing")"
@@ -921,7 +926,9 @@ EOF
       fi
     fi
     if [ "$ROLE" != "app" ]; then
-      printf "\n# your music, mounted read-only at /mnt/music in the file worker\nMUSIC_DIR='%s'\n" "$MUSIC_DIR"
+      local music_mode=ro
+      [ "$MUSIC_WRITABLE" = 1 ] && music_mode=rw
+      printf "\n# your music at /mnt/music in the file worker; rw lets tag plans write tags\nMUSIC_DIR='%s'\nTAGAVE_MUSIC_MODE=%s\n" "$MUSIC_DIR" "$music_mode"
     fi
   } | write_private "$env_file"
   ok ".env (readable only by you)"

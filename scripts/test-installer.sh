@@ -101,6 +101,17 @@ config="$(render "$work/files")"
 printf '%s' "$config" | grep -q "@$address:5432/" || fail "role files: DATABASE_URL does not point at the app computer"
 pass "role files"
 
+# --- writable music -----------------------------------------------------------
+[ "$(env_value TAGAVE_MUSIC_MODE "$work/all/.env")" = "ro" ] || fail "default music mode is not ro"
+run --role all --music-writable --dir "$work/rw" --music "$work/music" >"$work/rw.log" 2>&1 \
+  || { cat "$work/rw.log" >&2; fail "--music-writable"; }
+[ "$(env_value TAGAVE_MUSIC_MODE "$work/rw/.env")" = "rw" ] || fail "--music-writable: TAGAVE_MUSIC_MODE"
+render "$work/rw" | grep -q '"read_only": true' && fail "--music-writable: the music mount is still read-only"
+run --role all --dir "$work/rw" --music "$work/music" >"$work/rw2.log" 2>&1 \
+  || { cat "$work/rw2.log" >&2; fail "--music-writable, re-run"; }
+[ "$(env_value TAGAVE_MUSIC_MODE "$work/rw/.env")" = "rw" ] || fail "--music-writable: a re-run lost rw"
+pass "--music-writable mounts the music read-write and keeps it on a re-run"
+
 # --- the opt-in updater --------------------------------------------------------
 run --role all --with-updater --dir "$work/updater" --music "$work/music" >"$work/updater.log" 2>&1 \
   || { cat "$work/updater.log" >&2; fail "--with-updater"; }
