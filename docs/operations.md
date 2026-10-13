@@ -138,6 +138,26 @@ copy(JSON.stringify(tagaveDiagnostics()))
 
 To switch it off: `localStorage.removeItem('tagave:diagnostics')`.
 
+## Artist years after updating to 0.7.6
+
+Before 0.7.6 no artist got its years (formed, split up, born) from
+MusicBrainz: the lookup read the dates from the wrong place. Artists fetched
+from now on get them. For the artists fetched before, run the backfill once
+on the identify worker. It fetches each artist that has a MusicBrainz id and
+no years again, about one a second, and can be run again safely: an artist
+that has its years is skipped.
+
+```sh
+# how many artists it would fetch
+docker compose exec worker-identify node packages/worker/dist/backfillArtistDates.js --dry-run
+# fetch them (add --limit 500 to do it in batches)
+docker compose exec worker-identify node packages/worker/dist/backfillArtistDates.js
+```
+
+It prints how many artists have years now, how many have none on
+MusicBrainz, and any that failed (run it again later for those). Artists you
+open in the app also get their years when their details are next refreshed.
+
 ## Where data lives
 
 - **Database:** `pgdata` volume
