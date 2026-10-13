@@ -87,7 +87,14 @@ async function pixelCentring(page: Page, track: Locator, dpr: number) {
   const geometry = await track.evaluate((el, clip) => {
     const parts = [...el.querySelectorAll('[data-part]')].map((p) => p.getBoundingClientRect());
     const t = el.getBoundingClientRect();
-    return { pillTop: Math.min(...parts.map((p) => p.top)) - clip.y, pillBottom: Math.max(...parts.map((p) => p.bottom)) - clip.y, pillLeft: Math.min(...parts.map((p) => p.left)) - clip.x, pillRight: Math.max(...parts.map((p) => p.right)) - clip.x, trackTop: t.top - clip.y, trackBottom: t.bottom - clip.y };
+    // the first character's advance box, from the DOM: the glyph whose ink gives the cap band
+    const label = el.querySelector('[data-active="true"] > span')!;
+    const text = document.createTreeWalker(label, NodeFilter.SHOW_TEXT).nextNode()!;
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 1);
+    const first = range.getBoundingClientRect();
+    return { firstLeft: first.left - clip.x, firstRight: first.right - clip.x, pillTop: Math.min(...parts.map((p) => p.top)) - clip.y, pillBottom: Math.max(...parts.map((p) => p.bottom)) - clip.y, pillLeft: Math.min(...parts.map((p) => p.left)) - clip.x, pillRight: Math.max(...parts.map((p) => p.right)) - clip.x, trackTop: t.top - clip.y, trackBottom: t.bottom - clip.y };
   }, clip);
   return page.evaluate(async ({ shots, g, dpr }) => {
     const load = (b64: string) => new Promise<ImageData>((res) => {
@@ -106,16 +113,18 @@ async function pixelCentring(page: Page, track: Locator, dpr: number) {
     for (let y = y0; y < y1; y++) { const row: boolean[] = []; for (let x = x0; x < x1; x++) { const on = diff(A, L, x, y) > 60; row.push(on); if (on) minX = Math.min(minX, x); } ink.push(row); }
     // The cap band is read off the first glyph alone: every label starts with
     // a capital, and a capital has no descender, so its ink runs from cap
-    // height to the baseline (an O overshoots both ends alike). An earlier
-    // version took the baseline as the most common bottom of all ink columns;
-    // in "Off" the columns under the f's crossbars and hooks outnumber the
-    // stems at DPR 2 on Linux, so it read the crossbar as the baseline and
-    // reported the label 2.75px off. It is kept as `legacyOffset` for the
-    // diagnostics only.
-    const colHas = (x: number) => ink.some((row) => row[x - x0]);
-    let end = minX; while (end < x1 && colHas(end)) end++;
+    // height to the baseline (an O overshoots both ends alike). The glyph's
+    // columns come from the DOM (a Range over the first character), not from
+    // the ink: hinted text on Linux at DPR 1 joins "Li" into one blob, which
+    // dragged the g's descender in. An earlier version took the baseline as
+    // the most common bottom of all ink columns; in "Off" the columns under
+    // the f's crossbars and hooks outnumber the stems at DPR 2 on Linux, so it
+    // read a crossbar as the baseline and reported the label 2.75px off. That
+    // estimate is kept as `legacyOffset`, for the diagnostics only.
+    const gx0 = Math.max(x0, Math.ceil(g.firstLeft * dpr));
+    const gx1 = Math.min(x1, Math.floor(g.firstRight * dpr));
     let capTop = Infinity, capBottom = -Infinity;
-    for (let x = minX; x < end; x++) for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) { capTop = Math.min(capTop, y); capBottom = Math.max(capBottom, y + 1); }
+    for (let x = gx0; x < gx1; x++) for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) { capTop = Math.min(capTop, y); capBottom = Math.max(capBottom, y + 1); }
     const capCentre = (capTop + capBottom) / 2 / dpr;
     const bottoms = new Map<number, number>();
     for (let x = x0; x < x1; x++) { let b = -1; for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) b = y; if (b >= 0) bottoms.set(b, (bottoms.get(b) ?? 0) + 1); }
@@ -129,7 +138,7 @@ async function pixelCentring(page: Page, track: Locator, dpr: number) {
     const below = tint(y1 + 1, Math.floor(g.trackBottom * dpr) - dpr);
     return {
       labelOffset: capCentre - pillCentre, above, below,
-      diagnostics: { dpr, pillRows: [y0, y1], firstGlyphColumns: [minX - x0, end - x0], capTop: capTop - y0, capBottom: capBottom - y0, legacyBaseline: legacyBaseline - y0, legacyOffset: ((capTop + legacyBaseline) / 2 / dpr) - pillCentre, bottomHistogram },
+      diagnostics: { dpr, pillRows: [y0, y1], firstGlyphColumns: [gx0 - x0, gx1 - x0], inkStart: minX - x0, capTop: capTop - y0, capBottom: capBottom - y0, legacyBaseline: legacyBaseline - y0, legacyOffset: ((capTop + legacyBaseline) / 2 / dpr) - pillCentre, bottomHistogram },
     };
   }, { shots: [withAll, noLabel, noPill], g: geometry, dpr }).then((r) => ({ ...r, shot: withAll }));
 }
