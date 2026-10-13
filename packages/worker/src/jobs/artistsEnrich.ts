@@ -83,31 +83,39 @@ export async function artistsEnrichJob(ctx: WorkerContext, data: ArtistsEnrichJo
     return;
   }
 
-  // Find a library context (any library with this artist's albums)
-  const libRow = await ctx.sql`
+  // A library context for the provider settings (the MusicBrainz contact
+  // string): a library holding the artist's albums, identified or matched by
+  // their tags (0.7.6: an artist with tag-matched albums only used to fall
+  // through to an arbitrary library, often one without a contact string, and
+  // was never enriched); else a library with a contact string; else any.
+  const libRows = await ctx.sql`
     select l.id from libraries l
-    join local_albums la on la.library_id = l.id
-    join release_group_artists rga on rga.release_group_id = la.release_group_id
-    where rga.artist_id = ${artistId}
-    limit 1
+     where exists (select 1 from local_albums la
+                     join release_group_artists rga on rga.release_group_id = la.release_group_id
+                    where la.library_id = l.id and rga.artist_id = ${artistId})
+        or exists (select 1 from local_albums la
+                    where la.library_id = l.id
+                      and lower(liner_display_artist(la.artist_guess)) = lower(${artist.name}))
+     order by (l.settings->>'contactString') is null, l.created_at
+     limit 1
   ` as unknown as Array<{ id: string }>;
-
-  if (!libRow[0]) {
-    // No library context, fall back to first library
-    const libRows = await ctx.sql`select id from libraries limit 1` as unknown as Array<{ id: string }>;
-    if (!libRows[0]) {
-      ctx.logger.warn({ artistId }, 'enrich artist: no library found');
-      return;
-    }
+  const fallback = libRows[0] ? [] : await ctx.sql`
+    select id from libraries order by (settings->>'contactString') is null, created_at limit 1
+  ` as unknown as Array<{ id: string }>;
+  const libraryId = libRows[0]?.id ?? fallback[0]?.id;
+  if (!libraryId) {
+    ctx.logger.warn({ artistId }, 'enrich artist: no library found');
+    return;
   }
-
-  const libraryId = libRow[0]?.id || (await ctx.sql`select id from libraries limit 1` as unknown as Array<{ id: string }>)[0]!.id;
 
   let providers: Providers;
   try {
     const settings = await libraryProviderSettings(ctx, libraryId);
     providers = getProviders(settings);
   } catch (err) {
+    // recorded, so the page says the fetch failed instead of waiting for it
+    const msg = err instanceof Error ? err.message : String(err);
+    await ctx.db.update(artists).set({ enrichError: msg.slice(0, 300) }).where(eq(artists.id, artistId));
     ctx.logger.warn({ artistId, err }, 'enrich artist: providers failed');
     return;
   }
