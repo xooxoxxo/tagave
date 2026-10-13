@@ -14,6 +14,7 @@ import { normalizeFollowRules } from '@liner/core';
 import { followRulesSchema } from '@liner/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { followDefaultsFor } from '../lib/followRules.js';
+import { fetchArtistAlbums } from '../lib/artistAlbums.js';
 import {
   coverKey, coversFor, fetchArtistRows, orderArtists, parseArtistGroup, parseArtistSort, readArtistListPage,
   type ArtistGroupCount, type ArtistRow,
@@ -94,7 +95,8 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
 
   /**
    * GET /libraries/:libraryId/artists/:artistId
-   * Artist detail with discography, links, and follow status.
+   * Artist detail: details, links, follow status, the albums the library
+   * holds (owned: albums · tracks) and a followed artist's missing ones.
    * Side effect: enqueue artists.enrich if enriched_at is null or older than 7 days.
    * Side effect: update followed_artists.last_viewed_at to current timestamp if artist is followed.
    */
@@ -138,128 +140,16 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    // Get discography grouped by release group primary type with ownership
-    // Left join with gaps to include missing_album gaps (open, on the task list, or dismissed)
-    const discogRows = await db.execute(sql`
-      select rg.id as release_group_id,
-             rg.title,
-             rg.first_release_date,
-             rg.primary_type,
-             (select la.id from local_albums la
-              where la.release_group_id = rg.id and la.library_id = ${libraryId}
-              limit 1) as local_album_id,
-             exists (select 1 from local_albums la
-                     where la.release_group_id = rg.id and la.library_id = ${libraryId}) as has_digital,
-             exists (select 1 from collection_items ci
-                     where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                       and ci.removed_at is null and ci.push_state is distinct from 'removing') as has_physical,
-             g.id as gap_id,
-             g.state as gap_state,
-             g.dismiss_reason,
-             g.first_seen_at
-        from release_group_artists rga
-        join release_groups rg on rga.release_group_id = rg.id
-        left join gaps g on g.library_id = ${libraryId}
-                         and g.subject_id = rg.id
-                         and g.kind = 'missing_album'
-                         and g.state in ('open', 'todo', 'dismissed')
-       where rga.artist_id = ${artistId}
-         and (exists (select 1 from local_albums la
-                      where la.release_group_id = rg.id and la.library_id = ${libraryId})
-              or exists (select 1 from collection_items ci
-                         where ci.release_group_id = rg.id and ci.library_id = ${libraryId}
-                           and ci.removed_at is null and ci.push_state is distinct from 'removing')
-              or exists (select 1 from gaps gx
-                         where gx.library_id = ${libraryId}
-                           and gx.subject_id = rg.id
-                           and gx.kind = 'missing_album'
-                           and gx.state in ('open', 'todo', 'dismissed')))
-    `) as unknown as Array<{
-      release_group_id: string;
-      title: string;
-      first_release_date: string | null;
-      primary_type: string | null;
-      local_album_id: string | null;
-      has_digital: boolean;
-      has_physical: boolean;
-      gap_id: string | null;
-      gap_state: string | null;
-      dismiss_reason: string | null;
-      first_seen_at: string | null;
-    }>;
-
-    // Get cover images for albums in the discography
-    const localAlbumIds = discogRows
-      .filter((r) => r.local_album_id)
-      .map((r) => r.local_album_id as string);
-
-    const artRows = localAlbumIds.length
-      ? await db.select().from(images)
-          .where(and(eq(images.kind, 'front'), inArray(images.localAlbumId, localAlbumIds)))
-      : [];
-    const withArt = new Set(artRows.map((r) => r.localAlbumId));
-
-    // Map primary types to response types
-    const typeMap: Record<string, string> = {
-      'Album': 'Album',
-      'EP': 'EP',
-      'Single': 'Single',
-      'Live': 'Live',
-      'Compilation': 'Compilation',
-    };
-    const getType = (pt: string | null) => typeMap[pt ?? ''] || 'Other';
-
-    // Group by primary type
-    const byType = new Map<string, typeof discogRows>();
-    for (const row of discogRows) {
-      const type = getType(row.primary_type);
-      if (!byType.has(type)) byType.set(type, []);
-      byType.get(type)!.push(row);
-    }
-
-    const discography = Array.from(byType.entries()).map(([type, rows]) => ({
-      type,
-      items: rows.map((row) => {
-        // Five-state ownership logic:
-        // ignored = gap exists AND gap.state='dismissed'
-        // missing = neither digital nor physical AND (no gap OR gap.state='open')
-        // both = both digital and physical
-        // digital = only digital
-        // physical = only physical
-        let ownership: 'digital' | 'physical' | 'both' | 'missing' | 'ignored';
-        if (row.gap_state === 'dismissed') {
-          ownership = 'ignored';
-        } else if (!row.has_digital && !row.has_physical) {
-          ownership = 'missing';
-        } else if (row.has_digital && row.has_physical) {
-          ownership = 'both';
-        } else if (row.has_digital) {
-          ownership = 'digital';
-        } else {
-          ownership = 'physical';
-        }
-
-        return {
-          releaseGroupId: row.release_group_id,
-          title: row.title,
-          firstReleaseDate: row.first_release_date,
-          ownership,
-          localAlbumId: row.local_album_id,
-          coverUrl: row.local_album_id && withArt.has(row.local_album_id)
-            ? `/api/v1/images/album/${row.local_album_id}`
-            : null,
-          ...(row.gap_id && {
-            gapId: row.gap_id,
-            dismissReason: row.dismiss_reason,
-            firstSeenAt: row.first_seen_at,
-          }),
-        };
-      }),
-    }));
+    // What the library holds of the artist (credited and tag-matched albums,
+    // the shelf) and what a followed artist is missing (lib/artistAlbums.ts)
+    const { albums, owned } = await fetchArtistAlbums(db, libraryId, { id: artist.id, name: artist.name });
 
     // Check if enrichment is needed (null or older than 7 days)
-    const needsEnrich = !artist.enrichedAt ||
-      new Date(artist.enrichedAt as any).getTime() < Date.now() - ENRICH_TTL_DAYS * 86_400_000;
+    // Enrichment reads MusicBrainz by MBID: an artist without one is never
+    // enriched, so nothing is queued and the page shows what it has.
+    const canEnrich = !!artist.mbid;
+    const needsEnrich = canEnrich && (!artist.enrichedAt ||
+      new Date(artist.enrichedAt as any).getTime() < Date.now() - ENRICH_TTL_DAYS * 86_400_000);
 
     if (needsEnrich) {
       try {
@@ -290,9 +180,11 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
       bio: artist.bio ? (typeof artist.bio === 'string' ? JSON.parse(artist.bio) : artist.bio) : null,
       enrichedAt: artist.enrichedAt ? new Date(artist.enrichedAt as any).toISOString() : null,
       enrichError: artist.enrichError,
+      canEnrich,
       links,
       followed,
-      discography,
+      albums,
+      owned,
     });
   });
 
@@ -336,6 +228,49 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     }
 
     reply.send({ followed });
+  });
+
+  /**
+   * POST /libraries/:libraryId/artists/:artistId/enrich
+   * Fetch the artist's details again (MusicBrainz, Wikidata, Wikipedia): the
+   * Maintenance "Refresh details" and the Retry after a failed fetch. Clears
+   * the last error and the enrichment time, so the page shows the fetch in
+   * progress until the job finishes; a followed artist's discography is
+   * refreshed with it.
+   */
+  fastify.post('/libraries/:libraryId/artists/:artistId/enrich', async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    const { libraryId, artistId } = request.params as { libraryId: string; artistId: string };
+
+    await ownedLibrary(request.user.id, libraryId);
+    const db = getDb();
+    const [artist] = await db.select().from(artists).where(eq(artists.id, artistId));
+    if (!artist) throw new ApiError(404, 'Not Found', 'Artist not found');
+    if (!artist.mbid) throw new ApiError(409, 'Conflict', 'This artist has no MusicBrainz id to fetch details by');
+    const [followRow] = await db.select().from(followedArtists)
+      .where(and(eq(followedArtists.libraryId, libraryId), eq(followedArtists.artistId, artistId)));
+
+    try {
+      const boss = await getBoss();
+      await boss.send('artists.enrich', { artistId, force: true }, {
+        singletonKey: `artist:${artistId}`,
+        retryLimit: 2,
+        retryDelay: 30,
+      });
+      if (followRow) {
+        await boss.send('artist.refresh', { libraryId, artistId, force: true }, {
+          singletonKey: `artist.refresh:${artistId}`,
+          retryLimit: 2,
+          retryDelay: 30,
+        });
+      }
+    } catch (err) {
+      console.warn('Failed to enqueue artists.enrich', { artistId, err });
+      throw new ApiError(500, 'Internal Server Error', 'Failed to enqueue the details fetch');
+    }
+    // queued: the page shows the fetch until enriched_at is set again
+    await db.update(artists).set({ enrichedAt: null, enrichError: null }).where(eq(artists.id, artistId));
+    reply.code(202).send({ queued: true });
   });
 
   /**

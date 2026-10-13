@@ -99,12 +99,23 @@ export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], pe
     where im.local_album_id = la.id and im.kind = 'front' and im.thumb_bytes is not null)`;
   const arms = [];
   if (ids.length) {
+    const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
     arms.push(sql`
       select rga.artist_id::text as key, la.id::text as album_id, la.year_guess, la.created_at
         from release_group_artists rga
         join local_albums la on la.release_group_id = rga.release_group_id
        where la.library_id = ${libraryId}
-         and rga.artist_id in (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+         and rga.artist_id in (${idList})
+         and ${hasThumb}`);
+    // albums known only by their tags, under the artist of that name (as fetchArtistRows links them)
+    arms.push(sql`
+      select a.id::text as key, la.id::text as album_id, la.year_guess, la.created_at
+        from artists a
+        join local_albums la on la.library_id = ${libraryId}
+                            and lower(liner_display_artist(la.artist_guess)) = lower(a.name)
+       where a.id in (${idList})
+         and (la.release_group_id is null or not exists (
+           select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
          and ${hasThumb}`);
   }
   if (names.length) {
