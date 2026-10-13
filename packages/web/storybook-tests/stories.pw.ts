@@ -4,11 +4,15 @@ import AxeBuilder from '@axe-core/playwright';
 import { openStory, stories, type StoryEntry, type Theme } from './stories';
 
 const wanted = process.env.STORYBOOK_VISUAL === '1' || (process.platform === 'linux' && process.env.STORYBOOK_VISUAL !== '0');
-const updating = process.argv.some((a) => a === '--update-snapshots' || a === '-u' || a.startsWith('--update-snapshots='));
 // Until baselines are committed (they are rendered in CI, see DESIGN.md), the
 // comparison is skipped rather than failing on every story.
 const haveBaselines = existsSync(new URL('./__screenshots__/', import.meta.url));
-const visualOn = wanted && (haveBaselines || updating);
+/** Screenshots are taken when wanted and there is something to compare with, or when updating
+ *  (read in the test: workers do not see the runner's --update-snapshots flag in argv). */
+const visualOn = () => {
+  const mode = test.info().config.updateSnapshots;
+  return wanted && (haveBaselines || mode === 'all' || mode === 'changed');
+};
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 960, height: 640 } });
 
@@ -35,7 +39,7 @@ for (const story of stories()) {
       else if (story.tags.includes('shot-viewport')) await page.setViewportSize({ width: 720, height: 600 });
       await openStory(page, story.id, theme);
 
-      if (visualOn && !story.tags.includes('no-shot')) await screenshot(page, story, theme);
+      if (visualOn() && !story.tags.includes('no-shot')) await screenshot(page, story, theme);
 
       // a11y: WCAG 2.x A and AA on the whole document (dialogs and menus render outside the root)
       const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
