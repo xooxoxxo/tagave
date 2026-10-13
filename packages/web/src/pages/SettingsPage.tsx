@@ -82,8 +82,8 @@ function MaintenanceSetting() {
 
 
 /**
- * Sidebar and album display: where the search sits, the wordmark, and the
- * artwork under short albums. Each is its own setting with the same rhythm
+ * Sidebar, album and artist display: where the search sits, the wordmark,
+ * the artwork under short albums, and the artist page's layout. Each is its own setting with the same rhythm
  * as Maintenance above.
  */
 function DisplaySettings() {
@@ -98,5 +98,8 @@ function DisplaySettings() {
     <h2 className={styles.modeSetting}>Short albums</h2>
     <p className={styles.sectionDescription}>Albums of three tracks or fewer get a generated ripple artwork under the tracklist, drawn from the album's title. Remembered in this browser only.</p>
     <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? 'on' : 'off'} onChange={(v) => setPrefs({ shortAlbumArt: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+    <h2 className={styles.modeSetting}>Artist page</h2>
+    <p className={styles.sectionDescription}>Name first: the artist's name across the top, their details in a column that also takes you to each section. Like albums: their covers beside the name, laid out like an album page. Remembered in this browser only.</p>
+    <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
   </>;
 }

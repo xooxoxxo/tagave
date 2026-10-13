@@ -88,9 +88,9 @@ export function Layout() {
     </IconButton>
   );
   const shownTitle = back && barTitle.title ? barTitle.title : null;
-  // Maintenance changes the album page only, so its key lives in the album's
-  // own header; elsewhere a pill says it is on.
-  const onAlbumPage = /^\/albums\/[^/]+/.test(pathname);
+  // Maintenance changes the album and artist pages, so its key lives in
+  // their own header; elsewhere a pill says it is on.
+  const onAlbumPage = /^\/(albums|artists)\/[^/]+/.test(pathname);
   const backAct = back ? { label: backLabel, go: goBack } : null;
   const renderInlineBack = () => back && (
     <IconButton label={backLabel} variant="quiet" className={styles.inlineBack} onClick={goBack}>

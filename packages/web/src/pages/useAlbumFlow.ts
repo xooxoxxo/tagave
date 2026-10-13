@@ -63,7 +63,7 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
       tlTop: top(hero.current) + hero.current.offsetHeight,
     };
     // where the lines meet the header, relative to the title's spot in the middle key
-    const mid = root.current.querySelector<HTMLElement>('[data-album-header] button[aria-label="Back to the top of the album"]');
+    const mid = root.current.querySelector<HTMLElement>('[data-album-header] [data-top-key]');
     const a = root.current.querySelector<HTMLElement>('[data-header-artist]');
     if (mid && a) {
       const pad = parseFloat(getComputedStyle(mid).paddingLeft) || 0;

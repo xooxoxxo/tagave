@@ -1,7 +1,7 @@
 /**
  * Hooks for artists and genres (XO-310 enrichment plan)
  */
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 
@@ -27,21 +27,27 @@ export interface ArtistGroupCount {
   count: number;
 }
 
-export interface ArtistDiscographyItem {
-  releaseGroupId: string;
-  title: string;
-  firstReleaseDate: string | null;
-  ownership: 'digital' | 'physical' | 'both' | 'missing' | 'ignored';
+export type ArtistAlbumOwnership = 'digital' | 'physical' | 'both' | 'missing' | 'ignored';
+
+/** One album on the artist page: in the library (on disk or the shelf) or missing. */
+export interface ArtistAlbum {
+  /** the local album id, or "rg:<release group id>" for a release group not on disk */
+  key: string;
   localAlbumId: string | null;
+  releaseGroupId: string | null;
+  title: string;
+  year: number | null;
+  /** MusicBrainz primary type (Album, EP, Single, …); null when unknown */
+  primaryType: string | null;
+  ownership: ArtistAlbumOwnership;
+  /** tracks on disk */
+  trackCount: number | null;
   coverUrl: string | null;
+  /** credit: an identified release group; tags: the album-artist tag; gap: missing; shelf: physical only */
+  matchedBy: 'credit' | 'tags' | 'gap' | 'shelf';
   gapId?: string;
   dismissReason?: string | null;
   firstSeenAt?: string | null;
-}
-
-export interface ArtistDiscography {
-  type: 'Album' | 'EP' | 'Single' | 'Live' | 'Compilation' | 'Other';
-  items: ArtistDiscographyItem[];
 }
 
 export interface ArtistDetail {
@@ -73,8 +79,13 @@ export interface ArtistDetail {
     wikidata?: string | null;
     wikipedia?: string | null;
   };
+  /** false: no MusicBrainz id, so details are never fetched */
+  canEnrich: boolean;
   followed: boolean;
-  discography: ArtistDiscography[];
+  /** oldest first: in the library, then a followed artist's missing and skipped ones */
+  albums: ArtistAlbum[];
+  /** albums in the library (disk or shelf) and their tracks on disk */
+  owned: { albums: number; tracks: number };
 }
 
 export interface ArtistsListResponse {
@@ -164,28 +175,63 @@ export function useArtistsInfinite(
   });
 }
 
+/** Polls while details are being fetched: every 5 s, at most 12 times (one minute). */
+export const ARTIST_ENRICH_POLLS = 12;
+
 /**
- * Get artist detail with auto-refetch every 5s while enrichedAt is null,
- * capped at ~12 polls (up to 1 minute)
+ * Get artist detail. While the details are being fetched (enrichedAt null,
+ * no error, an MBID to fetch by) it polls every 5 s, ARTIST_ENRICH_POLLS
+ * times at most; `waiting` says whether the page should still show the
+ * fetch in progress, so a fetch that never finishes ends in a plain state
+ * instead of an endless spinner. `restartPolling` starts a new round (after
+ * Retry or Refresh details).
  */
 export function useArtist(libraryId: string | undefined, artistId: string | undefined) {
-  const pollCountRef = useRef(0);
-
-  return useQuery({
+  // fetches since the page (or Retry) started waiting: the first load plus
+  // the polls. Counted in queryFn, since refetchInterval is consulted on
+  // every observer update, not once per fetch.
+  const fetchesRef = useRef(0);
+  const [round, setRound] = useState(0);
+  const query = useQuery({
     queryKey: ['artist', libraryId, artistId],
-    queryFn: () => api.get<ArtistDetail>(`/libraries/${libraryId}/artists/${artistId}`),
-    enabled: !!libraryId && !!artistId,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      // If enrichedAt is null and we haven't exceeded ~12 polls, keep polling every 5s
-      if (data?.enrichedAt === null && pollCountRef.current < 12) {
-        pollCountRef.current += 1;
-        return 5000;
-      }
-      // Otherwise, disable refetching
-      return false;
+    queryFn: async () => {
+      const detail = await api.get<ArtistDetail>(`/libraries/${libraryId}/artists/${artistId}`);
+      fetchesRef.current += 1;
+      return detail;
     },
+    enabled: !!libraryId && !!artistId,
+    refetchInterval: (q) => (isFetchingDetails(q.state.data) && fetchesRef.current <= ARTIST_ENRICH_POLLS ? 5000 : false),
     staleTime: 0,
+  });
+  // a new artist starts a new round
+  useEffect(() => { fetchesRef.current = 0; }, [artistId, round]);
+  // read so every poll re-renders: `waiting` turns false after the last one
+  void query.dataUpdatedAt;
+  const waiting = isFetchingDetails(query.data) && fetchesRef.current <= ARTIST_ENRICH_POLLS;
+  const restartPolling = useCallback(() => {
+    fetchesRef.current = 0;
+    setRound((n) => n + 1);
+  }, []);
+  return { ...query, waiting, restartPolling };
+}
+
+/** Details are on their way: not fetched yet, no error, and an MBID to fetch them by. */
+export function isFetchingDetails(artist: Pick<ArtistDetail, 'enrichedAt' | 'enrichError' | 'canEnrich'> | undefined): boolean {
+  return !!artist && artist.enrichedAt === null && !artist.enrichError && artist.canEnrich !== false;
+}
+
+/**
+ * Fetch the artist's details again (Retry after a failure, Refresh details
+ * in Maintenance); a followed artist's discography is refreshed with them.
+ */
+export function useEnrichArtist(libraryId: string | undefined, artistId: string | undefined, onQueued?: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.post<{ queued: boolean }>(`/libraries/${libraryId}/artists/${artistId}/enrich`, {}),
+    onSuccess: () => {
+      onQueued?.();
+      void queryClient.invalidateQueries({ queryKey: ['artist', libraryId, artistId] });
+    },
   });
 }
 

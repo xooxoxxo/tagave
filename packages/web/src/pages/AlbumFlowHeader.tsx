@@ -21,6 +21,8 @@ export interface AlbumFlowHeaderProps {
   onBack: () => void;
   /** the middle key: back to the top of the album */
   onTop: () => void;
+  /** the middle key's accessible name (the artist page draws this header too) */
+  topLabel?: string;
   maintenance: boolean;
   onToggleMaintenance: () => void;
 }
@@ -39,7 +41,7 @@ export function pressHandlers(pressedClass: string) {
 
 export const maintenanceKeyLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 'Turn on Maintenance');
 
-export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBack, onTop, maintenance, onToggleMaintenance }: AlbumFlowHeaderProps) {
+export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBack, onTop, topLabel = 'Back to the top of the album', maintenance, onToggleMaintenance }: AlbumFlowHeaderProps) {
   const press = pressHandlers(styles.pressed!);
   return (
     <div className={`${styles.header} ${docked ? styles.docked : ''}`} data-album-header="" data-docked={docked ? '' : undefined}>
@@ -53,7 +55,8 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
         <button
           type="button"
           className={styles.midKey}
-          aria-label="Back to the top of the album"
+          aria-label={topLabel}
+          data-top-key=""
           tabIndex={docked ? 0 : -1}
           aria-hidden={docked ? undefined : true}
           onClick={onTop}

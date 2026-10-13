@@ -2,8 +2,8 @@ import { useCallback, useSyncExternalStore } from 'react';
 
 /**
  * Display preferences from Settings › Appearance: where the sidebar's search
- * sits, whether the "tagave" wordmark shows beside the mark, and the
- * generative artwork under short albums. Per-browser conveniences like the
+ * sits, whether the "tagave" wordmark shows beside the mark, the
+ * generative artwork under short albums, and how the artist page is laid out. Per-browser conveniences like the
  * theme, kept in localStorage; every access is guarded, and with storage
  * blocked the defaults (today's look) apply.
  */
@@ -13,10 +13,12 @@ export interface DisplayPrefs {
   showWordmark: boolean;
   /** The ripple artwork under albums of three tracks or fewer. */
   shortAlbumArt: boolean;
+  /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
+  artistLayout: 'name' | 'albums';
 }
 
 export const DISPLAY_STORAGE_KEY = 'tagave-display';
-export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true };
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, artistLayout: 'name' };
 
 /** Reads what is stored, keeping only valid values; anything else falls back to the default. */
 export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs {
@@ -29,6 +31,7 @@ export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs 
     searchPlacement: stored['searchPlacement'] === 'beside' ? 'beside' : 'below',
     showWordmark: typeof stored['showWordmark'] === 'boolean' ? stored['showWordmark'] : true,
     shortAlbumArt: typeof stored['shortAlbumArt'] === 'boolean' ? stored['shortAlbumArt'] : true,
+    artistLayout: stored['artistLayout'] === 'albums' ? 'albums' : 'name',
   };
 }
 

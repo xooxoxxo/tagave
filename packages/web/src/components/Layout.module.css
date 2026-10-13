@@ -229,10 +229,13 @@ between browsing and upkeep: the hairline cut into the
   }
 }
 /* The album flow draws its own header (back | album | Maintenance keys):
-   no app bar over it, and on a phone no top bar above it. */
+   no app bar over it, and on a phone no top bar above it. The artist page
+   draws the same header. */
 .main:has([data-album-flow]) > .appBar { display: none; }
+.main:has([data-artist-flow]) > .appBar { display: none; }
 @media (max-width: 720px) {
   .container:has([data-album-flow]) > .nav { display: none; }
+  .container:has([data-artist-flow]) > .nav { display: none; }
   /* detail pages: back button and the title that fades in, instead of the mark */
   .navDetail .brand { display: none; }
   .phoneBar { display: flex; grid-column: 1; grid-row: 1; }

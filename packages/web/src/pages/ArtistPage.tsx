@@ -1,373 +1,161 @@
 /**
- * Artist detail page (spec BRW-3): canonical artist with enrichment state,
- * bio excerpt from Wikipedia, link chips, follow toggle, refresh button, and
- * discography grouped by release type with five-state ownership.
+ * Artist page (spec BRW-3; approved prototype "artist-directions", 0.7.6).
+ *
+ * Two layouts, chosen in Settings › Appearance › Artist page: Name first
+ * (ArtistNameFirst, the default) and Like albums (ArtistLikeAlbums). Both
+ * draw the album page's header — back and Maintenance keys that dock into a
+ * strip with the artist's name once the name scrolls under them — and both
+ * list what the library holds of the artist (identified albums, albums known
+ * by their tags, the shelf) and what a followed artist is missing.
+ *
+ * The details (kind, country, years, aliases, biography) come from
+ * MusicBrainz and Wikipedia in the background; while they are on their way
+ * the page says so, and it stops waiting after a minute instead of spinning.
  */
-import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from '@tanstack/react-router';
-import { useCurrentLibrary, useArtist, useFollowArtist, useRefreshArtist, useReopenGap, useFollowRules, usePatchArtistFollowRules, useResetArtistFollowRules, type ArtistDiscographyItem } from '../hooks';
-import { PageShell, Button, IconButton, Badge, Card, CoverArt, CoverChip, UndoIcon, type CoverChipTone } from '../components/ui';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from '@tanstack/react-router';
+import {
+  useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
+  usePatchArtistFollowRules, useResetArtistFollowRules,
+} from '../hooks';
+import { PageShell, Button, IconButton } from '../components/ui';
+import { PageBackActionContext } from '../components/ui/PageShell';
 import { artistLabel } from '@liner/shared';
 import { useMaintenance } from '../maintenance';
+import { useDisplayPrefs } from '../displayPrefs';
+import { AlbumFlowHeader } from './AlbumFlowHeader';
+import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
+import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
+import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './artistPageView';
+import { useArtistFlow } from './useArtistFlow';
 import styles from './ArtistPage.module.css';
 
-const OWNERSHIP_LABEL: Record<ArtistDiscographyItem['ownership'], string> = {
-  digital: 'Digital', physical: 'Physical', both: 'Digital & Physical', missing: 'Missing', ignored: 'Ignored',
-};
-const OWNERSHIP_CHIP_TONE: Record<ArtistDiscographyItem['ownership'], CoverChipTone> = {
-  digital: 'neutral', physical: 'neutral', both: 'accent', missing: 'warn', ignored: 'neutral',
-};
+const NO_GLIDE = { x: 0, y: 0 };
 
 export function ArtistPage() {
-  // provider links, refresh, type filters and skipped releases: Maintenance only
-  const [maintenance] = useMaintenance();
-  const navigate = useNavigate();
+  const [maintenance, setMaintenance] = useMaintenance();
+  const [{ artistLayout }] = useDisplayPrefs();
   const { libraryId } = useCurrentLibrary();
   const { artistId } = useParams({ from: '/layout/artists/$artistId' });
-  const { data: artist, isLoading, error, refetch } = useArtist(libraryId, artistId);
+  const { data: artist, isLoading, error, waiting, restartPolling } = useArtist(libraryId, artistId);
   const followMutation = useFollowArtist(libraryId, artistId);
-  const refreshMutation = useRefreshArtist(libraryId, artistId);
+  const enrichMutation = useEnrichArtist(libraryId, artistId, restartPolling);
   const reopenMutation = useReopenGap(libraryId, artistId);
-  const [showRefreshNotification, setShowRefreshNotification] = useState(false);
-  const [showFollowRulesEditor, setShowFollowRulesEditor] = useState(false);
-  const { data: libraryFollowRules } = useFollowRules(libraryId);
-  const patchArtistFollowRulesMutation = usePatchArtistFollowRules(libraryId, artistId);
-  const resetArtistFollowRulesMutation = useResetArtistFollowRules(libraryId, artistId);
-  const [artistIncludePrimary, setArtistIncludePrimary] = useState<string[]>([]);
-  const [artistExcludeSecondary, setArtistExcludeSecondary] = useState<string[]>([]);
+  const backAct = useContext(PageBackActionContext);
 
-  // Initialize artist follow rules from data
-  useEffect(() => {
-    if (artist?.followed) {
-      // For now, we'll show library defaults until we can fetch per-artist rules
-      // When GET artist detail includes follow rules, we'll use those
-      if (libraryFollowRules) {
-        setArtistIncludePrimary(libraryFollowRules.includePrimary);
-        setArtistExcludeSecondary(libraryFollowRules.excludeSecondary);
-      }
-    }
-  }, [artist?.followed, libraryFollowRules]);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef<HTMLHeadingElement>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
-  // Re-fetch artist data 1-2s after refresh completes
-  useEffect(() => {
-    if (refreshMutation.isSuccess) {
-      const timeout = setTimeout(() => {
-        refetch();
-        setShowRefreshNotification(true);
-        // Hide notification after 3 seconds
-        setTimeout(() => setShowRefreshNotification(false), 3000);
-      }, 1500);
-      return () => clearTimeout(timeout);
-    }
-  }, [refreshMutation.isSuccess, refetch]);
+  const shelves = useMemo(() => shelvesOf(artist?.albums ?? []), [artist?.albums]);
+  const nameFirst = artistLayout !== 'albums';
+  const sections = useMemo(
+    () => (artist && nameFirst ? pageSections(artist, shelves, maintenance) : []),
+    [artist, nameFirst, shelves, maintenance],
+  );
+  const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
+  const [showReleaseTypes, setShowReleaseTypes] = useState(false);
 
-  if (isLoading) {
-    return <PageShell back title="Loading artist…" barTitle={null} children={null} />;
+  if (error) {
+    return <PageShell back title="Couldn’t load this artist" barTitle={null}><p className={styles.error}>Failed to load artist</p></PageShell>;
   }
 
-  if (error || !artist) {
-    return <PageShell back title="Couldn’t load this artist" barTitle={null} children={<div className={styles.error}>Failed to load artist</div>} />;
-  }
-
-  const isEnriching = artist.enrichedAt === null;
-  const isRefreshing = refreshMutation.isPending;
-
-  const actions = (
-    <div className={styles.actions}>
-      {isRefreshing && <div className={styles.refreshing}>Refreshing…</div>}
-      {maintenance && artist.followed && (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => refreshMutation.mutate()}
-          disabled={isRefreshing}
-          title="Refresh discography from MusicBrainz"
-        >
-          {isRefreshing ? '⟳ Refreshing' : '⟳ Refresh'}
-        </Button>
-      )}
-      <Button
-        variant="primary"
-        size="sm"
-        onClick={() => followMutation.mutate(!artist.followed)}
-        disabled={followMutation.isPending}
-      >
-        {artist.followed ? '✓ Following' : '+ Follow'}
-      </Button>
-      {maintenance && artist.followed && (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setShowFollowRulesEditor(!showFollowRulesEditor)}
-          title="Configure type filters for this artist"
-        >
-          ⚙ Type Filters
-        </Button>
-      )}
-    </div>
-  );
-
-  const subtitle = (
-    <div className={styles.subtitle}>
-      <div className={styles.meta}>
-        {artist.type && <span>{artist.type}</span>}
-        {artist.country && <span>{artist.country}</span>}
-        {(artist.beginDate || artist.endDate) && (
-          <span>
-            {artist.beginDate ? artist.beginDate.split('-')[0] : ''}
-            {artist.beginDate && artist.endDate ? '–' : ''}
-            {artist.endDate ? artist.endDate.split('-')[0] : ''}
-          </span>
-        )}
-        {artist.disambiguation && (
-          <span className={styles.disambiguation}>{artist.disambiguation}</span>
-        )}
-      </div>
-      {artist.sortName && artist.sortName !== artist.name && (
-        <p className={styles.sortName}>{artist.sortName}</p>
-      )}
-    </div>
-  );
+  const details = artist ? detailsState(artist, waiting) : 'fetching';
+  const name = artist ? artistLabel(artist.name) : '';
+  const headerLine = !artist || details === 'fetching' ? 'Artist' : kindLine(artist) || 'Artist';
 
   return (
-    <PageShell
-      back
-      title={artistLabel(artist.name)}
-      subtitle={subtitle}
-      actions={actions}
-    >
-      <div className={styles.content}>
-        {/* Aliases */}
-        {artist.aliases.length > 0 && (
-          <div className={styles.aliases}>
-            {artist.aliases.map((alias) => (
-              <Badge key={alias} tone="neutral">
-                {alias}
-              </Badge>
-            ))}
-          </div>
-        )}
-
-        {/* Enriching: a quiet stand-in where the biography will land */}
-        {maintenance && isEnriching && !artist.bio && (
-          <div className={styles.enriching} role="status">
-            <span className={styles.enrichingLabel}>Enriching…</span>
-            <span className={styles.enrichingLine} aria-hidden="true" />
-            <span className={styles.enrichingLine} aria-hidden="true" />
-            <span className={styles.enrichingLine} aria-hidden="true" />
-          </div>
-        )}
-
-        {/* Bio section */}
-        {artist.bio && (
-          <div className={styles.arrive}>
-          <Card title="Biography">
-            <div className={styles.bioContent}>
-              <p className={styles.bioText}>
-                {artist.bio.text.length > 600
-                  ? `${artist.bio.text.substring(0, 600)}…`
-                  : artist.bio.text}
-              </p>
-              <div className={styles.bioLinks}>
-                <a href={artist.bio.url} target="_blank" rel="noopener noreferrer" className={styles.bioLink}>
-                  Read on Wikipedia ↗
-                </a>
-                <span className={styles.bioLicense}>CC BY-SA 4.0</span>
-              </div>
-            </div>
-          </Card>
-          </div>
-        )}
-
-        {/* Link chips: provider pages are curation detail, shown in Maintenance */}
-        {maintenance && <div className={styles.links}>
-          {artist.links.musicbrainz && (
-            <a href={artist.links.musicbrainz} target="_blank" rel="noopener noreferrer" className={styles.linkChip}>
-              MusicBrainz
-            </a>
-          )}
-          {artist.links.discogs && (
-            <a href={artist.links.discogs} target="_blank" rel="noopener noreferrer" className={styles.linkChip}>
-              Discogs
-            </a>
-          )}
-          {artist.links.wikidata && (
-            <a href={artist.links.wikidata} target="_blank" rel="noopener noreferrer" className={styles.linkChip}>
-              Wikidata
-            </a>
-          )}
-          {artist.links.wikipedia && (
-            <a href={artist.links.wikipedia} target="_blank" rel="noopener noreferrer" className={styles.linkChip}>
-              Wikipedia
-            </a>
-          )}
-        </div>}
-
-        {/* Follow rules editor modal */}
-        {maintenance && showFollowRulesEditor && artist.followed && libraryFollowRules && (
-          <div className={styles.followRulesEditor}>
-            <div className={styles.editorHeader}>
-              <h3 className={styles.editorTitle}>Type Filters</h3>
-              <IconButton
-                variant="quiet"
-                size="sm"
-                label="Close"
-                onClick={() => setShowFollowRulesEditor(false)}
-              >
-                <span aria-hidden="true">✕</span>
-              </IconButton>
-            </div>
-
-            <div className={styles.editorContent}>
-              <div className={styles.rulesSection}>
-                <h4 className={styles.sectionLabel}>Include Primary Types</h4>
-                <div className={styles.typeOptions}>
-                  {['Album', 'EP', 'Single'].map((type) => (
-                    <label key={type} className={styles.checkbox}>
-                      <input
-                        type="checkbox"
-                        checked={artistIncludePrimary.includes(type)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setArtistIncludePrimary([...artistIncludePrimary, type]);
-                          } else {
-                            setArtistIncludePrimary(artistIncludePrimary.filter((t) => t !== type));
-                          }
-                        }}
-                      />
-                      {type}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className={styles.rulesSection}>
-                <h4 className={styles.sectionLabel}>Exclude Secondary Types</h4>
-                <div className={styles.typeOptions}>
-                  {['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'].map((type) => (
-                    <label key={type} className={styles.checkbox}>
-                      <input
-                        type="checkbox"
-                        checked={artistExcludeSecondary.includes(type)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setArtistExcludeSecondary([...artistExcludeSecondary, type]);
-                          } else {
-                            setArtistExcludeSecondary(artistExcludeSecondary.filter((t) => t !== type));
-                          }
-                        }}
-                      />
-                      {type}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className={styles.editorActions}>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    resetArtistFollowRulesMutation.mutate();
-                    setArtistIncludePrimary(libraryFollowRules.includePrimary);
-                    setArtistExcludeSecondary(libraryFollowRules.excludeSecondary);
-                  }}
-                  disabled={resetArtistFollowRulesMutation.isPending}
-                >
-                  Reset to Defaults
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    patchArtistFollowRulesMutation.mutate({
-                      includePrimary: artistIncludePrimary,
-                      excludeSecondary: artistExcludeSecondary,
-                    });
-                    setShowFollowRulesEditor(false);
-                  }}
-                  disabled={patchArtistFollowRulesMutation.isPending}
-                >
-                  Save Changes
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Discography sections */}
-        {artist.discography.length === 0 ? (
-          <p className={styles.emptyDiscography}>No albums in library</p>
-        ) : (
-          <div className={styles.discography}>
-            {artist.discography
-              .map((section) => ({ ...section, items: section.items.filter((item) => maintenance || item.ownership !== 'ignored') }))
-              .filter((section) => section.items.length > 0)
-              .map((section) => (
-              <div key={section.type} className={styles.discographySection}>
-                <h2 className={styles.discographyTitle}>{section.type}s</h2>
-                <div className={styles.albumGrid}>
-                  {section.items.map((item) => (
-                    <div
-                      key={item.releaseGroupId}
-                      className={`${styles.albumCard} ${item.ownership === 'missing' ? styles.missingItem : ''} ${item.ownership === 'ignored' ? styles.ignoredItem : ''}`}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        if (item.localAlbumId) {
-                          navigate({ to: `/albums/${item.localAlbumId}` });
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && item.localAlbumId) {
-                          navigate({ to: `/albums/${item.localAlbumId}` });
-                        }
-                      }}
-                    >
-                      <CoverArt
-                        src={item.coverUrl}
-                        title={item.title}
-                        dimmed={item.ownership === 'missing' || item.ownership === 'ignored' ? item.ownership : undefined}
-                      >
-                        {item.ownership !== 'digital' && (
-                          <CoverChip tone={OWNERSHIP_CHIP_TONE[item.ownership]}>{OWNERSHIP_LABEL[item.ownership]}</CoverChip>
-                        )}
-                        {item.ownership === 'ignored' && item.gapId && (
-                          <IconButton
-                            size="sm"
-                            label={`Reopen (dismissed: ${item.dismissReason || 'no reason'})`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              reopenMutation.mutate(item.gapId!);
-                            }}
-                            disabled={reopenMutation.isPending}
-                            className={styles.reopenButton}
-                          >
-                            <UndoIcon />
-                          </IconButton>
-                        )}
-                      </CoverArt>
-                      <div className={styles.cardInfo}>
-                        <h3 className={styles.cardTitle}>{item.title}</h3>
-                        {item.firstReleaseDate && (
-                          <p className={styles.cardYear}>
-                            {item.firstReleaseDate.split('-')[0]}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Refresh notification toast */}
-        {showRefreshNotification && (
-          <div className={styles.toast}>
-            Discography updated
-          </div>
+    <PageShell bare>
+      <div ref={rootRef} className={styles.page} data-artist-flow="" data-artist-layout={nameFirst ? 'name' : 'albums'}>
+        <AlbumFlowHeader
+          docked={flow.docked}
+          artist={headerLine}
+          title={name}
+          glide={NO_GLIDE}
+          backLabel={backAct?.label ?? null}
+          onBack={() => backAct?.go()}
+          onTop={flow.toTop}
+          topLabel="Back to the top of the artist page"
+          maintenance={maintenance}
+          onToggleMaintenance={() => setMaintenance(!maintenance)}
+        />
+        {isLoading || !artist
+          ? (nameFirst ? <ArtistNameFirstSkeleton /> : <ArtistLikeAlbumsSkeleton />)
+          : (() => {
+            const props = {
+              artist, shelves, details, maintenance, nameRef, endRef,
+              follow: { pending: followMutation.isPending, toggle: () => followMutation.mutate(!artist.followed) },
+              enrich: { pending: enrichMutation.isPending, run: () => enrichMutation.mutate() },
+              onReleaseTypes: () => setShowReleaseTypes(true),
+              onReopen: (gapId: string) => reopenMutation.mutate(gapId),
+              reopening: reopenMutation.isPending,
+            };
+            return nameFirst
+              ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
+              : <ArtistLikeAlbums {...props} />;
+          })()}
+        {maintenance && showReleaseTypes && artist?.followed && (
+          <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />
         )}
       </div>
     </PageShell>
+  );
+}
+
+const PRIMARY = ['Album', 'EP', 'Single'];
+const SECONDARY = ['Compilation', 'Live', 'Remix', 'DJ-mix', 'Mixtape/Street', 'Demo', 'Soundtrack'];
+
+/** Which release types count as missing for this followed artist (per-artist follow rules, XO-347). */
+function ReleaseTypes({ libraryId, artistId, onClose }: { libraryId: string | undefined; artistId: string; onClose: () => void }) {
+  const { data: libraryRules } = useFollowRules(libraryId);
+  const patch = usePatchArtistFollowRules(libraryId, artistId);
+  const reset = useResetArtistFollowRules(libraryId, artistId);
+  const [include, setInclude] = useState<string[]>([]);
+  const [exclude, setExclude] = useState<string[]>([]);
+  // the library's rules until the artist detail carries its own
+  useEffect(() => {
+    if (!libraryRules) return;
+    setInclude(libraryRules.includePrimary);
+    setExclude(libraryRules.excludeSecondary);
+  }, [libraryRules]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  if (!libraryRules) return null;
+  const toggle = (list: string[], set: (v: string[]) => void, t: string, on: boolean) => set(on ? [...list, t] : list.filter((x) => x !== t));
+  return (
+    <div className={styles.typesScrim} role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={styles.typesDialog} role="dialog" aria-modal="true" aria-labelledby="release-types-title">
+        <div className={styles.typesHeader}>
+          <h3 id="release-types-title" className={styles.typesTitle}>Release types</h3>
+          <IconButton variant="quiet" size="sm" label="Close" onClick={onClose}><span aria-hidden="true">✕</span></IconButton>
+        </div>
+        <fieldset className={styles.typesGroup}>
+          <legend className={styles.label}>Count as missing</legend>
+          {PRIMARY.map((t) => <label key={t} className={styles.check}>
+            <input type="checkbox" checked={include.includes(t)} onChange={(e) => toggle(include, setInclude, t, e.target.checked)} />{t}
+          </label>)}
+        </fieldset>
+        <fieldset className={styles.typesGroup}>
+          <legend className={styles.label}>Leave out</legend>
+          {SECONDARY.map((t) => <label key={t} className={styles.check}>
+            <input type="checkbox" checked={exclude.includes(t)} onChange={(e) => toggle(exclude, setExclude, t, e.target.checked)} />{t}
+          </label>)}
+        </fieldset>
+        <div className={styles.typesActions}>
+          <Button variant="secondary" size="sm" disabled={reset.isPending} onClick={() => {
+            reset.mutate();
+            setInclude(libraryRules.includePrimary);
+            setExclude(libraryRules.excludeSecondary);
+          }}>Use library defaults</Button>
+          <Button variant="primary" size="sm" disabled={patch.isPending} onClick={() => {
+            patch.mutate({ includePrimary: include, excludeSecondary: exclude });
+            onClose();
+          }}>Save</Button>
+        </div>
+      </div>
+    </div>
   );
 }
