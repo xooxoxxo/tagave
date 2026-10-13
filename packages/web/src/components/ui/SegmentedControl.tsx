@@ -9,7 +9,7 @@ export interface SegmentedOption<T extends string> {
   label: ReactNode;
 }
 
-interface SegmentedControlProps<T extends string> {
+export interface SegmentedControlProps<T extends string> {
   /** Accessible group name. */
   label: string;
   options: SegmentedOption<T>[];

@@ -1,0 +1,14 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Foundations/Overview" />
+
+# tagave component library
+
+The shared UI of the web app: every primitive in `packages/web/src/components/ui`, rendered with the app's own fonts, tokens and global styles. This is the reference for what exists; `DESIGN.md` at the repository root holds the rules for using it.
+
+- **Foundations**: colour, type, space and radii, elevation, motion and the two pressable systems, read live from `src/styles/tokens.css`.
+- **Components**: one page per primitive, with its props (generated from the TypeScript types), a short note on when to use it, and a story per variant, size and state.
+
+Toolbar: **Theme** sets `data-theme` on `<html>` exactly as the app does; **Size** switches components that have a small or dense form; **Direction** renders right to left; the viewport menu has the 390 and 1440 presets.
+
+Run it with `pnpm --filter @liner/web storybook`. `pnpm --filter @liner/web test-storybook` builds it and checks every story: an axe scan, the sliding-pill geometry, and (on Linux, in the Playwright image) a screenshot in both themes against the committed baselines.

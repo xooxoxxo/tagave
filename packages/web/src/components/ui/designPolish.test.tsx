@@ -65,9 +65,9 @@ describe('no danger drop at rest on a page', () => {
   };
   walk(src);
 
-  it('uses variant="danger" only in the confirm dialog and the catalogue', () => {
+  it('uses variant="danger" only in the confirm dialog (and its stories)', () => {
     const offenders = files
-      .filter((f) => !/ConfirmDialog\.tsx$|DesignSystemCatalog\.tsx$/.test(f))
+      .filter((f) => !/ConfirmDialog\.tsx$|\.stories\.tsx$/.test(f))
       .filter((f) => /variant=(\{[^}]*'danger'|"danger")/.test(readFileSync(f, 'utf8')));
     expect(offenders.map((f) => f.slice(src.length))).toEqual([]);
   });

@@ -5,6 +5,14 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Run by hand with "update storybook baselines" to render the story
+  # screenshots on the CI runner and download them as an artifact to commit.
+  workflow_dispatch:
+    inputs:
+      update-storybook-baselines:
+        description: Render the Storybook screenshot baselines and upload them
+        type: boolean
+        default: false
 
 # Least privilege by default. Only the publish job raises this.
 permissions:
@@ -74,6 +82,63 @@ jobs:
       - name: Release smoke
         if: startsWith(github.ref, 'refs/tags/v')
         run: ./scripts/smoke.sh
+
+  # The component library: build Storybook, then the story tests (axe on
+  # every story, the sliding-pill geometry, and a screenshot of every story in
+  # both themes against storybook-tests/__screenshots__). It runs inside the
+  # official Playwright image; the baselines are rendered here too (run this
+  # workflow by hand with update-storybook-baselines), so screenshots compare
+  # like for like. Until baselines are committed the screenshot comparison is
+  # skipped and only axe and geometry gate. The image tag follows
+  # @playwright/test in packages/web/package.json; bump both together.
+  storybook:
+    runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413  # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @liner/web build-storybook
+
+      - name: Story tests
+        if: ${{ !inputs.update-storybook-baselines }}
+        run: pnpm --filter @liner/web test-storybook
+        env:
+          STORYBOOK_VISUAL: '1'
+
+      - name: Render the screenshot baselines
+        if: ${{ inputs.update-storybook-baselines }}
+        run: pnpm --filter @liner/web test-storybook --update-snapshots
+        env:
+          STORYBOOK_VISUAL: '1'
+
+      - name: Upload the baselines (commit them to packages/web/storybook-tests/__screenshots__)
+        if: ${{ inputs.update-storybook-baselines }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: storybook-baselines
+          path: packages/web/storybook-tests/__screenshots__
+          retention-days: 7
+
+      - name: Upload story test results
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: storybook-test-results
+          path: |
+            packages/web/storybook-test-results
+            packages/web/storybook-test-report
+          retention-days: 7
 
   # The one-command installer: lint it, then run it unattended with --no-start
   # for every role against this checkout's deploy/ files and check what it

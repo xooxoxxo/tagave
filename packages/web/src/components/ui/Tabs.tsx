@@ -12,7 +12,7 @@ export interface TabItem {
   onClick?: () => void;
   count?: number;
 }
-interface TabsProps {
+export interface TabsProps {
   items: TabItem[];
   value: string;
   onChange?: ((value: string) => void) | undefined;
