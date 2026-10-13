@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { Tabs } from './Tabs';
 import { SegmentedControl } from './SegmentedControl';
-import { INDICATOR_EASE, INDICATOR_MS, INDICATOR_PEAK, INDICATOR_SETTLE_EASE, indicatorFrames, indicatorParts, midWidth, overshootFraction, partKeyframes, shouldAnimate, translationOf } from './useSlidingIndicator';
+import { INDICATOR_EASE, INDICATOR_MS, INDICATOR_PEAK, INDICATOR_SETTLE_EASE, indicatorFrames, measureItem, indicatorParts, midWidth, overshootFraction, partKeyframes, shouldAnimate, translationOf } from './useSlidingIndicator';
 
 const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '');
 const read = (rel: string) => stripComments(readFileSync(new URL(rel, import.meta.url), 'utf8'));
@@ -146,5 +146,43 @@ describe('sliding pill: one look in every tab strip and segmented control', () =
   it('reduced motion: the label colours change at once too', () => {
     expect(read('./Tabs.module.css')).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.tab\s*\{\s*transition: none/);
     expect(read('./SegmentedControl.module.css')).toMatch(/prefers-reduced-motion: reduce\)\s*\{\s*\.option\s*\{\s*transition: none/);
+  });
+});
+
+describe('sliding pill: placed exactly on its item and centred', () => {
+  const fake = (rect: { left: number; top: number; width: number; height: number }, extra: Record<string, number> = {}) =>
+    ({ getBoundingClientRect: () => rect, clientLeft: 0, clientTop: 0, scrollLeft: 0, scrollTop: 0, ...extra }) as unknown as HTMLElement;
+  const withLayout = (width: string, height: string, run: () => void) => {
+    const original = globalThis.getComputedStyle;
+    globalThis.getComputedStyle = (() => ({ width, height })) as unknown as typeof getComputedStyle;
+    try { run(); } finally { globalThis.getComputedStyle = original; }
+  };
+
+  it('measures the item to the fraction of a pixel (offsetWidth rounded 76.55px down to 76)', () => {
+    withLayout('261.1px', '48px', () => {
+      const box = measureItem(fake({ left: 100.3, top: 50, width: 261.1, height: 48 }), fake({ left: 184.85, top: 54, width: 76.546875, height: 40 }));
+      expect(box).toEqual({ x: 84.546875, y: 4, width: 76.546875, height: 40 });
+    });
+  });
+
+  it('cancels an ancestor scale (a sheet zooming in while it opens) and adds a strip scroll back', () => {
+    withLayout('200px', '48px', () => {
+      // drawn at 0.5x: every rect is half its laid-out size
+      const box = measureItem(fake({ left: 10, top: 10, width: 100, height: 24 }, { scrollLeft: 30 }), fake({ left: 20, top: 12, width: 25, height: 20 }));
+      expect(box).toEqual({ x: 50, y: 4, width: 50, height: 40 });
+    });
+  });
+
+  it('labels are trimmed to cap height so they centre optically, not by the em box', () => {
+    expect(rule(read('./SegmentedControl.module.css'), '.label')).toMatch(/text-box: trim-both cap alphabetic/);
+    expect(rule(read('./Tabs.module.css'), '.label')).toMatch(/text-box: trim-both cap alphabetic/);
+  });
+
+  it('the drop stays inside the track padding, so the gap under the pill reads like the gap above', () => {
+    const filter = /filter:([^;]+);/.exec(rule(read('./SlidingPill.module.css'), '.pill'))?.[1] ?? '';
+    const drops = [...filter.matchAll(/drop-shadow\(\s*(-?[\d.]+)(?:px)?\s+(-?[\d.]+)(?:px)?\s+([\d.]+)px/g)];
+    expect(drops.length).toBeGreaterThan(0);
+    // offset + blur below the pill never reaches past the track's 4px (3px small) padding
+    for (const [, , y, blur] of drops) expect(Number(y) + Number(blur)).toBeLessThanOrEqual(3);
   });
 });
