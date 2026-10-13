@@ -17,6 +17,8 @@ const TRACKS = '[role="radiogroup"], [role="tablist"]';
 interface Layout {
   pillVsItem: { left: number; right: number; top: number; bottom: number };
   pillInTrack: { top: number; bottom: number; left: number; right: number };
+  /** the label box (trimmed to the cap band) against the item, vertically */
+  labelVsItem: number;
   firstSelected: boolean;
   lastSelected: boolean;
   ready: boolean;
@@ -39,6 +41,7 @@ async function layouts(page: Page): Promise<Layout[]> {
     return {
       pillVsItem: { left: pill.left - a.left, right: pill.right - a.right, top: pill.top - a.top, bottom: pill.bottom - a.bottom },
       pillInTrack: { top: (pill.top - inner.top) / s, bottom: (inner.bottom - pill.bottom) / s, left: (pill.left - inner.left) / s, right: (inner.right - pill.right) / s },
+      labelVsItem: (() => { const l = active.querySelector(':scope > span')!.getBoundingClientRect(); return (l.top + l.bottom) / 2 - (a.top + a.bottom) / 2; })(),
       firstSelected: items[0] === active,
       lastSelected: items[items.length - 1] === active,
       ready: (track as HTMLElement).dataset['indicator'] === 'ready',
@@ -53,6 +56,8 @@ function expectCentred(list: Layout[], what: string) {
     expect(g.ready, `${at}: pill placed`).toBe(true);
     // on its item, to the hundredth of a pixel (offsetWidth rounding was up to 0.55px)
     for (const [side, d] of Object.entries(g.pillVsItem)) expect(Math.abs(d), `${at}: pill ${side} vs item`).toBeLessThan(0.02);
+    // the label box sits in the middle of its item (the pixel check below confirms what is painted)
+    expect(Math.abs(g.labelVsItem), `${at}: label box vs item centre`).toBeLessThan(0.02);
     // equal gaps above and below
     expect(Math.abs(g.pillInTrack.top - g.pillInTrack.bottom), `${at}: gap above vs below`).toBeLessThan(0.02);
     // an end item: the side gap matches the top gap
@@ -99,24 +104,34 @@ async function pixelCentring(page: Page, track: Locator, dpr: number) {
     const ink: boolean[][] = [];
     let minX = Infinity;
     for (let y = y0; y < y1; y++) { const row: boolean[] = []; for (let x = x0; x < x1; x++) { const on = diff(A, L, x, y) > 60; row.push(on); if (on) minX = Math.min(minX, x); } ink.push(row); }
-    // the first glyph (a capital): its columns, its top
+    // The cap band is read off the first glyph alone: every label starts with
+    // a capital, and a capital has no descender, so its ink runs from cap
+    // height to the baseline (an O overshoots both ends alike). An earlier
+    // version took the baseline as the most common bottom of all ink columns;
+    // in "Off" the columns under the f's crossbars and hooks outnumber the
+    // stems at DPR 2 on Linux, so it read the crossbar as the baseline and
+    // reported the label 2.75px off. It is kept as `legacyOffset` for the
+    // diagnostics only.
     const colHas = (x: number) => ink.some((row) => row[x - x0]);
     let end = minX; while (end < x1 && colHas(end)) end++;
-    let capTop = Infinity;
-    for (let x = minX; x < end; x++) for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) { capTop = Math.min(capTop, y); break; }
-    // the baseline: the most common bottom of an ink column
+    let capTop = Infinity, capBottom = -Infinity;
+    for (let x = minX; x < end; x++) for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) { capTop = Math.min(capTop, y); capBottom = Math.max(capBottom, y + 1); }
+    const capCentre = (capTop + capBottom) / 2 / dpr;
     const bottoms = new Map<number, number>();
     for (let x = x0; x < x1; x++) { let b = -1; for (let y = y0; y < y1; y++) if (ink[y - y0]![x - x0]) b = y; if (b >= 0) bottoms.set(b, (bottoms.get(b) ?? 0) + 1); }
-    const baseline = [...bottoms.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]![0] + 1;
-    const capCentre = (capTop + baseline) / 2 / dpr;
+    const legacyBaseline = [...bottoms.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0]![0] + 1;
+    const bottomHistogram = [...bottoms.entries()].sort((a, b) => a[0] - b[0]).map(([row, n]) => `${row - y0}:${n}`).join(' ');
     const pillCentre = (g.pillTop + g.pillBottom) / 2;
     // how strongly the pill (shadow included) tints the gap above and below, at its centre column
     const cx = Math.round((x0 + x1) / 2);
     const tint = (a: number, b: number) => { let s = 0, n = 0; for (let y = a; y < b; y++) { s += diff(A, P, cx, y); n++; } return n ? s / n : 0; };
     const above = tint(Math.ceil(g.trackTop * dpr) + dpr, y0);
     const below = tint(y1 + 1, Math.floor(g.trackBottom * dpr) - dpr);
-    return { labelOffset: capCentre - pillCentre, above, below };
-  }, { shots: [withAll, noLabel, noPill], g: geometry, dpr });
+    return {
+      labelOffset: capCentre - pillCentre, above, below,
+      diagnostics: { dpr, pillRows: [y0, y1], firstGlyphColumns: [minX - x0, end - x0], capTop: capTop - y0, capBottom: capBottom - y0, legacyBaseline: legacyBaseline - y0, legacyOffset: ((capTop + legacyBaseline) / 2 / dpr) - pillCentre, bottomHistogram },
+    };
+  }, { shots: [withAll, noLabel, noPill], g: geometry, dpr }).then((r) => ({ ...r, shot: withAll }));
 }
 
 const STORIES = [
@@ -135,12 +150,14 @@ for (const theme of ['light', 'dark'] as Theme[]) {
       test.use({ deviceScaleFactor: dpr, viewport: { width: 900, height: 600 }, reducedMotion: 'no-preference' });
 
       for (const id of STORIES) {
-        test(`${id}: pill on its item, label optically centred`, async ({ page }) => {
+        test(`${id}: pill on its item, label optically centred`, async ({ page }, testInfo) => {
           await openStory(page, id, theme);
           expectCentred(await layouts(page), id);
           const tracks = page.locator(TRACKS);
           for (let i = 0; i < await tracks.count(); i++) {
             const p = await pixelCentring(page, tracks.nth(i), dpr);
+            await testInfo.attach(`track-${i}.json`, { body: JSON.stringify({ labelOffset: p.labelOffset, above: p.above, below: p.below, ...p.diagnostics }, null, 1), contentType: 'application/json' });
+            if (Math.abs(p.labelOffset) > 0.5) await testInfo.attach(`track-${i}.png`, { body: Buffer.from(p.shot, 'base64'), contentType: 'image/png' });
             // capitals centred in the painted pill within half a pixel (they sat a full pixel high)
             expect(Math.abs(p.labelOffset), `${id} track ${i}: label cap band vs pill centre`).toBeLessThanOrEqual(0.5);
             // the drop never makes the gap below read much darker than the gap above
