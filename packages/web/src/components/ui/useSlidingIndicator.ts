@@ -137,11 +137,42 @@ function prefersReducedMotion(): boolean {
   }
 }
 
+/** Layout units are 1/64px; rounding to them drops float noise from the division below. */
+const toLayoutUnit = (n: number) => Math.round(n * 64) / 64;
+
+/**
+ * The active item's box in the track's own coordinates (its padding box, as
+ * the pill's absolute position uses), measured to the fraction of a pixel.
+ *
+ * Not offsetLeft / offsetWidth: those round to whole pixels, so an item
+ * 76.55px wide got a 76px pill and every item after a fractional one was
+ * off by up to half a pixel, a visibly lopsided bubble at DPR 2. Rects are
+ * exact but include ancestors' transforms (a sheet that slides or scales in
+ * while it opens), so both are divided by the track's own scale: its rect
+ * against its laid-out size from getComputedStyle, which transforms never
+ * touch. A scrolled strip (Tabs) adds its scroll offset back.
+ */
+export function measureItem(track: HTMLElement, item: HTMLElement): IndicatorBox {
+  const t = track.getBoundingClientRect();
+  const a = item.getBoundingClientRect();
+  const style = getComputedStyle(track);
+  const layoutW = parseFloat(style.width);
+  const layoutH = parseFloat(style.height);
+  const sx = layoutW > 0 && t.width > 0 ? t.width / layoutW : 1;
+  const sy = layoutH > 0 && t.height > 0 ? t.height / layoutH : 1;
+  return {
+    x: toLayoutUnit((a.left - t.left) / sx - track.clientLeft + track.scrollLeft),
+    y: toLayoutUnit((a.top - t.top) / sy - track.clientTop + track.scrollTop),
+    width: toLayoutUnit(a.width / sx),
+    height: toLayoutUnit(a.height / sy),
+  };
+}
+
 const sameBox = (a: IndicatorBox, b: IndicatorBox) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 
 /**
- * Returns a callback ref for the track (it must be position: relative, so
- * offsetLeft is measured from it) and a ref for the pill element (SlidingPill),
+ * Returns a callback ref for the track (it must be position: relative: the
+ * pill is placed in its padding box, see measureItem) and a ref for the pill element (SlidingPill),
  * whose parts are marked data-part="left" | "mid" | "right".
  */
 export function useSlidingIndicator<T extends HTMLElement>(activeKey: unknown) {
@@ -165,7 +196,7 @@ export function useSlidingIndicator<T extends HTMLElement>(activeKey: unknown) {
       last.current.box = null;
       return;
     }
-    const box = { x: active.offsetLeft, y: active.offsetTop, width: active.offsetWidth, height: active.offsetHeight };
+    const box = measureItem(track, active);
     if (box.width === 0) return; // not laid out yet (a hidden panel); the resize observer comes back
     const prev = last.current.box;
     const running = last.current.animations.some((a) => a.playState === 'running');

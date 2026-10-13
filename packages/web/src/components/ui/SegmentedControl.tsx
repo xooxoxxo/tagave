@@ -9,7 +9,7 @@ export interface SegmentedOption<T extends string> {
   label: ReactNode;
 }
 
-interface SegmentedControlProps<T extends string> {
+export interface SegmentedControlProps<T extends string> {
   /** Accessible group name. */
   label: string;
   options: SegmentedOption<T>[];
@@ -32,7 +32,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
     <SlidingPill ref={indicatorRef} />
     {options.map(option => <label key={option.value} data-active={option.value === value} className={[styles.option, option.value === value ? styles.selected : undefined].filter(Boolean).join(' ')}>
       <input className={styles.radio} type="radio" name={groupName} value={option.value} checked={option.value === value} onChange={() => onChange(option.value)} />
-      <span>{option.label}</span>
+      <span className={styles.label}>{option.label}</span>
     </label>)}
   </div>;
 }

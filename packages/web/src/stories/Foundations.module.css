@@ -1,0 +1,21 @@
+.page { display: flex; flex-direction: column; gap: 2rem; max-width: 1080px; }
+.lede { color: var(--ink-2); max-width: 70ch; margin: 0; }
+.group { display: flex; flex-direction: column; gap: 1rem; }
+.group h3 { margin: 0; font: var(--type-label); text-transform: uppercase; letter-spacing: .14em; color: var(--ink-3); }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem; }
+.swatch { display: flex; flex-direction: column; gap: .4rem; min-width: 0; }
+.chip { height: 3rem; border-radius: var(--r-inner); box-shadow: inset 0 0 0 1px rgba(128, 140, 150, .25); }
+.name { font: 500 13px / 1.3 var(--font-mono); color: var(--ink); overflow-wrap: anywhere; }
+.value { font: 400 12px / 1.3 var(--font-mono); color: var(--ink-2); overflow-wrap: anywhere; }
+.rows { display: flex; flex-direction: column; gap: 1.25rem; }
+.row { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1rem; align-items: baseline; border-top: 1px solid var(--line); padding-top: 1rem; }
+.bar { height: 12px; border-radius: 3px; background: var(--dew); }
+.radius { width: 96px; height: 64px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.elevation { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2rem; }
+.lift { height: 96px; border-radius: var(--r-card); background: var(--surface); display: grid; place-items: center; color: var(--ink-2); font: 400 12px / 1.3 var(--font-mono); padding: 8px; text-align: center; }
+.curve { width: 160px; height: 100px; overflow: visible; }
+.curve path { fill: none; stroke: var(--dew); stroke-width: 2; }
+.curve line { stroke: var(--line-strong); stroke-width: 1; }
+.keys { position: relative; height: 72px; width: min(100%, 560px); border-radius: var(--r-inner); overflow: hidden; background: var(--canvas); box-shadow: inset 0 0 0 1px var(--line); }
+.keys > * { position: absolute; inset: 0 0 auto 0; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 2rem; }

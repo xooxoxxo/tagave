@@ -1,0 +1,5 @@
+/* The story canvas is the app's canvas: same background and ink as <body>. */
+html, body { min-height: 100%; }
+#storybook-root { height: auto; display: block; }
+#storybook-root > * { flex: none; }
+.sb-show-main.sb-main-padded { padding: 24px; }

@@ -3,7 +3,7 @@ import styles from './CoverArt.module.css';
 
 export type CoverChipTone = 'neutral' | 'accent' | 'warn';
 
-interface CoverArtProps {
+export interface CoverArtProps {
   /** Image URL; without one the refined placeholder is drawn. */
   src?: string | null | undefined;
   /** Album title: the placeholder's initials and the image's tilt come from it. */

@@ -16,3 +16,9 @@ packages/tagwriter-py/.venv/
 # Both are machine-local and must never reach a public repo.
 .claude/
 .impeccable/
+
+# Storybook build and story-test output (packages/web)
+storybook-static/
+storybook-test-results/
+storybook-test-report/
+packages/web/.storybook-docker/

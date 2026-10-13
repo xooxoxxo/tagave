@@ -2,15 +2,19 @@
   "name": "@liner/web",
   "version": "0.1.0",
   "type": "module",
-  "description": "Liner music archive catalog \u2013 React SPA",
+  "description": "Liner music archive catalog – React SPA",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/precompress.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.storybook.json",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build -o storybook-static --quiet",
+    "test-storybook": "playwright test -c storybook-tests/playwright.config.ts",
+    "test-storybook:docker": "sh storybook-tests/docker.sh"
   },
   "dependencies": {
     "@better-auth/passkey": "~1.7.4",
@@ -33,11 +37,19 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/test": "1.63.0",
+    "@storybook/addon-a11y": "10.6.0",
+    "@storybook/addon-docs": "10.6.0",
+    "@storybook/addon-themes": "10.6.0",
+    "@storybook/react-vite": "10.6.0",
     "@types/node": "^24.13.4",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "storybook": "10.6.0",
+    "storybook-addon-pseudo-states": "10.6.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
