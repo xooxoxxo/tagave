@@ -1,0 +1,890 @@
+{
+  "id": "97c86b2c-2765-46a2-aef8-76a7e24c430f",
+  "gender-id": null,
+  "begin-area": {
+    "type": null,
+    "name": "Swindon",
+    "type-id": null,
+    "sort-name": "Swindon",
+    "disambiguation": "",
+    "id": "aee482fe-df6b-4f0f-849f-18f2329bab7c",
+    "iso-3166-2-codes": [
+      "GB-SWD"
+    ]
+  },
+  "relations": [
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type": "allmusic",
+      "url": {
+        "id": "65aa86ea-0925-4962-8f66-81a1ee9f649b",
+        "resource": "https://www.allmusic.com/artist/mn0000678339"
+      },
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "6b3e3c85-0002-4f34-aca6-80ace0d7e846",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "resource": "https://www.bandsintown.com/a/4927",
+        "id": "54f2cbed-c636-472f-a1a6-a4e678f9cf06"
+      },
+      "type": "bandsintown",
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "type-id": "ea45ed3d-2d5e-456e-8c32-94b6f51426e2",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": true,
+      "type": "BBC Music page",
+      "url": {
+        "id": "dc1ebd01-e898-4c6b-97ff-09b38d4a0d61",
+        "resource": "https://www.bbc.co.uk/music/artists/97c86b2c-2765-46a2-aef8-76a7e24c430f"
+      },
+      "source-credit": "",
+      "attribute-values": {},
+      "end": "2020-11-19",
+      "attributes": [],
+      "begin": null,
+      "type-id": "d028a975-000c-4525-9333-d3c8425e4b54",
+      "target-credit": "",
+      "target-type": "url"
+    },
+    {
+      "type-id": "4fb0eeec-a6eb-4ae3-ad52-b55765b94e8f",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": [],
+      "type": "discography page",
+      "url": {
+        "id": "6522c2bb-7685-474b-baf2-8891eb967186",
+        "resource": "http://chalkhills.org/discog/"
+      },
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false
+    },
+    {
+      "url": {
+        "resource": "http://www.xtcidearecords.co.uk/discs/discs_1.htm",
+        "id": "74ed8017-e843-4b75-b926-7775ec1a37db"
+      },
+      "type": "discography page",
+      "ended": true,
+      "attribute-ids": {},
+      "direction": "forward",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "4fb0eeec-a6eb-4ae3-ad52-b55765b94e8f",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "source-credit": ""
+    },
+    {
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "type": "discogs",
+      "url": {
+        "resource": "https://www.discogs.com/artist/15118",
+        "id": "658ced40-8d90-4590-9940-1c986d044da7"
+      },
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "04a5b104-a4c2-4bac-99a1-7b837c37d9e4"
+    },
+    {
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "f484f897-81cc-406e-96f9-cd799a04ee24",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "url": {
+        "resource": "http://chalkhills.org/",
+        "id": "0fe4fa08-1623-415d-83fd-07ffaab59650"
+      },
+      "type": "fanpage",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward"
+    },
+    {
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": [],
+      "type-id": "f484f897-81cc-406e-96f9-cd799a04ee24",
+      "target-credit": "",
+      "target-type": "url",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type": "fanpage",
+      "url": {
+        "resource": "https://web.archive.org/web/19981203100245/http://www.users.dircon.co.uk/~nonsuch/bungalow.htm",
+        "id": "5242af80-8fc7-4184-af40-7fb8432756dc"
+      }
+    },
+    {
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "769085a1-c2f7-4c24-a532-2375a77693bd",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "https://open.spotify.com/artist/2qT62DYO8Ajb276vUJmvhz",
+        "id": "a0f59020-816d-47ed-8dde-16da34a3986e"
+      },
+      "type": "free streaming"
+    },
+    {
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "769085a1-c2f7-4c24-a532-2375a77693bd",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type": "free streaming",
+      "url": {
+        "resource": "https://www.deezer.com/artist/2158",
+        "id": "04345279-0cd2-4d3c-848e-3c7c0b859b08"
+      }
+    },
+    {
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "94c8b0cc-4477-4106-932c-da60e63de61c",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "resource": "https://www.imdb.com/name/nm5421983/",
+        "id": "80c08938-0aa0-475c-80d6-59444d7106d6"
+      },
+      "type": "IMDb"
+    },
+    {
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "08db8098-c0df-4b78-82c3-c8697b4bba7f",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "resource": "https://www.last.fm/music/XTC",
+        "id": "b36e6a44-7676-4f2f-952b-10f82ad535ae"
+      },
+      "type": "last.fm"
+    },
+    {
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "url": {
+        "resource": "https://genius.com/artists/Xtc",
+        "id": "4baefd8f-bd44-481e-a8b5-8154f50ec661"
+      },
+      "type": "lyrics",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "e4d73442-3762-45a8-905c-401da65544ed"
+    },
+    {
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "type-id": "e4d73442-3762-45a8-905c-401da65544ed",
+      "target-credit": "",
+      "target-type": "url",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "url": {
+        "id": "73047951-3771-48a9-a5de-e1d1dca4ebcc",
+        "resource": "https://muzikum.eu/en/xtc/lyrics"
+      },
+      "type": "lyrics"
+    },
+    {
+      "url": {
+        "id": "2ad108a9-70e8-4725-9fc3-d8d00552931c",
+        "resource": "https://myspace.com/xtcfans"
+      },
+      "type": "myspace",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "bac47923-ecde-4b59-822e-d08f0cd10156",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": []
+    },
+    {
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "type-id": "fe33d22f-c3b0-4d68-bd53-a856badf2b15",
+      "target-credit": "",
+      "target-type": "url",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type": "official homepage",
+      "url": {
+        "resource": "https://www.xtcidearecords.co.uk/",
+        "id": "9292a1a4-3a7a-445e-9792-5999c8ba63a6"
+      }
+    },
+    {
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null,
+      "type-id": "fe33d22f-c3b0-4d68-bd53-a856badf2b15",
+      "target-credit": "",
+      "target-type": "url",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type": "official homepage",
+      "url": {
+        "resource": "http://www.ape.uk.net/",
+        "id": "b9d0f8b5-102e-42b8-b17c-37369dfe04f0"
+      }
+    },
+    {
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "http://id.loc.gov/authorities/names/n91121863",
+        "id": "8c73fa62-7e8f-42b6-bd5a-0c73f5e8512a"
+      },
+      "type": "other databases",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55"
+    },
+    {
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "url": {
+        "resource": "https://catalogue.bnf.fr/ark:/12148/cb13907579g",
+        "id": "e8b429c4-18c1-4eb7-93f8-b48b342b3117"
+      },
+      "type": "other databases",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false
+    },
+    {
+      "url": {
+        "id": "d5d7fbf9-bbed-4fe6-ad68-9e52c9d797a2",
+        "resource": "https://d-nb.info/gnd/1241052-4"
+      },
+      "type": "other databases",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null
+    },
+    {
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "url": {
+        "id": "a84dd7d9-6d86-4e9c-8d34-1b03fed7bfca",
+        "resource": "https://id.oclc.org/worldcat/entity/E39QQPVp7Prjfrm4JbcvdtGC6g"
+      },
+      "type": "other databases",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward"
+    },
+    {
+      "url": {
+        "resource": "https://rateyourmusic.com/artist/xtc",
+        "id": "0174f7eb-7103-4f25-88ba-5718a3e8b8e5"
+      },
+      "type": "other databases",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "source-credit": ""
+    },
+    {
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "type": "other databases",
+      "url": {
+        "id": "51f473b0-be74-4b33-8b65-bf30ce4766c8",
+        "resource": "https://www.musik-sammler.de/artist/xtc/"
+      },
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward"
+    },
+    {
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type": "other databases",
+      "url": {
+        "resource": "https://www.spirit-of-rock.com/en/band/XTC",
+        "id": "5f7c08b5-62a4-4b7e-9071-d57415420d42"
+      }
+    },
+    {
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "https://www.whosampled.com/XTC/",
+        "id": "6c3d1e8a-b29b-4529-abe6-0110cfde3fb3"
+      },
+      "type": "other databases"
+    },
+    {
+      "url": {
+        "resource": "https://itunes.apple.com/gb/artist/id14139726",
+        "id": "d326dad6-eb11-458b-9e99-9bcbbfe8adc1"
+      },
+      "type": "purchase for download",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null
+    },
+    {
+      "type": "purchase for download",
+      "url": {
+        "resource": "https://mora.jp/artist/340672/",
+        "id": "141fc2a5-4627-4a36-9947-972a7c69661c"
+      },
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-type": "url",
+      "target-credit": "",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {}
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "id": "f9bfdd62-6f86-4df0-88d3-8d48cf48f048",
+        "resource": "https://music.apple.com/gb/artist/14139726"
+      },
+      "type": "purchase for download",
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "url": {
+        "resource": "https://music.bugs.co.kr/artist/80003075",
+        "id": "aabeb961-0007-4018-999c-b118563b02dc"
+      },
+      "type": "purchase for download"
+    },
+    {
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type": "purchase for download",
+      "url": {
+        "id": "32fbeca3-f807-4afa-b7a1-6e3ea71d5ccf",
+        "resource": "https://ototoy.jp/_/default/a/276237"
+      },
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-credit": "",
+      "target-type": "url"
+    },
+    {
+      "url": {
+        "id": "4162c918-e384-45ad-a44a-29e2e5d18e45",
+        "resource": "https://uk.7digital.com/artist/xtc"
+      },
+      "type": "purchase for download",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "source-credit": ""
+    },
+    {
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "url": {
+        "resource": "https://www.melon.com/artist/detail.htm?artistId=105647",
+        "id": "7d0df037-7ac5-40a5-aab8-fd88b0100d2f"
+      },
+      "type": "purchase for download",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-credit": "",
+      "target-type": "url"
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type": "purchase for download",
+      "url": {
+        "id": "722dcbbd-f961-4a17-a348-94addd9be58e",
+        "resource": "https://www.qobuz.com/gb-en/interpreter/xtc/39213"
+      },
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "f8319a2f-f824-4617-81c8-be6560b3b203",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "79c5b84d-a206-4f4c-9832-78c028c312c3",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "type": "secondhandsongs",
+      "url": {
+        "resource": "https://secondhandsongs.com/artist/1934",
+        "id": "9ff63047-473d-4fc9-a8fe-2db845130f06"
+      }
+    },
+    {
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "bf5d0d5e-27a1-4e94-9df7-3cdc67b3b207",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "source-credit": "",
+      "url": {
+        "resource": "https://www.setlist.fm/setlists/xtc-53d6b789.html",
+        "id": "3fa4e170-4bee-41f7-b891-b0f0a559fff1"
+      },
+      "type": "setlistfm",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward"
+    },
+    {
+      "url": {
+        "resource": "https://www.songkick.com/artists/379906",
+        "id": "d350da72-0618-4179-9829-422d3b2cc441"
+      },
+      "type": "songkick",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "aac9c4bc-a5b9-30b8-9839-e3ac314c6e58",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "source-credit": ""
+    },
+    {
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "89e4a949-0976-440d-bda1-5f772c1e5710",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "id": "059397a7-9ad6-4605-bd85-4629c4765d1b",
+        "resource": "https://soundcloud.com/xtc-official"
+      },
+      "type": "soundcloud"
+    },
+    {
+      "url": {
+        "id": "f9bfdd62-6f86-4df0-88d3-8d48cf48f048",
+        "resource": "https://music.apple.com/gb/artist/14139726"
+      },
+      "type": "streaming",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "source-credit": ""
+    },
+    {
+      "url": {
+        "id": "aabeb961-0007-4018-999c-b118563b02dc",
+        "resource": "https://music.bugs.co.kr/artist/80003075"
+      },
+      "type": "streaming",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": [],
+      "source-credit": ""
+    },
+    {
+      "type": "streaming",
+      "url": {
+        "id": "5428de57-45fe-41e0-b0a0-8d2037d84c6f",
+        "resource": "https://tidal.com/artist/10588"
+      },
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": []
+    },
+    {
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "https://www.melon.com/artist/detail.htm?artistId=105647",
+        "id": "7d0df037-7ac5-40a5-aab8-fd88b0100d2f"
+      },
+      "type": "streaming",
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161"
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "resource": "https://www.qobuz.com/gb-en/interpreter/xtc/39213",
+        "id": "722dcbbd-f961-4a17-a348-94addd9be58e"
+      },
+      "type": "streaming",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "e8571dcc-35d4-4e91-a577-a3382fd84460",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "type": "VIAF",
+      "url": {
+        "resource": "http://viaf.org/viaf/130324282",
+        "id": "3f47f5b1-a93f-4abd-a970-1109905c4e70"
+      },
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward"
+    },
+    {
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "url": {
+        "id": "d8f4628c-9bd8-4798-8450-f61ed5ed2e45",
+        "resource": "https://www.wikidata.org/wiki/Q1413926"
+      },
+      "type": "wikidata",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "type-id": "689870a4-a1e4-4912-b17f-7b2664215698",
+      "target-credit": "",
+      "target-type": "url"
+    },
+    {
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {},
+      "type-id": "631712a0-7525-42ba-b7a3-605aa7a238c4",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "resource": "https://music.youtube.com/channel/UCgsgbGAPI68KlnBRGFMtRuA",
+        "id": "2b2bc59a-fad2-481d-8db7-c9047a1f5973"
+      },
+      "type": "youtube music"
+    }
+  ],
+  "aliases": [
+    {
+      "end": null,
+      "ended": false,
+      "begin": null,
+      "locale": null,
+      "name": "The Beech Avenue Boys",
+      "type-id": null,
+      "sort-name": "Beech Avenue Boys, The",
+      "primary": null,
+      "type": null
+    },
+    {
+      "type": null,
+      "name": "The Three Wise Men",
+      "locale": "en_GB",
+      "primary": false,
+      "sort-name": "Three Wise Men, The",
+      "type-id": null,
+      "end": null,
+      "begin": null,
+      "ended": false
+    },
+    {
+      "name": "엑스티씨",
+      "locale": "ko",
+      "primary": true,
+      "sort-name": "엑스티씨",
+      "type-id": "894afba6-2816-3c24-8072-eadb66bd04bc",
+      "type": "Artist name",
+      "end": null,
+      "begin": null,
+      "ended": false
+    }
+  ],
+  "type": "Group",
+  "name": "XTC",
+  "ipis": [],
+  "life-span": {
+    "end": "2006",
+    "begin": "1976",
+    "ended": true
+  },
+  "disambiguation": "English rock band",
+  "isnis": [
+    "0000000115474610"
+  ],
+  "end-area": null,
+  "gender": null,
+  "area": {
+    "type": null,
+    "name": "United Kingdom",
+    "sort-name": "United Kingdom",
+    "type-id": null,
+    "disambiguation": "",
+    "id": "8a754a16-0027-3a29-b6d7-2b40ea0481ed",
+    "iso-3166-1-codes": [
+      "GB"
+    ]
+  },
+  "sort-name": "XTC",
+  "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+  "country": "GB"
+}

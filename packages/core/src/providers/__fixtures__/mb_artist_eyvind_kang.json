@@ -1,0 +1,439 @@
+{
+  "relations": [
+    {
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "6b3e3c85-0002-4f34-aca6-80ace0d7e846",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "type": "allmusic",
+      "url": {
+        "id": "23d772f5-778b-4abe-a12a-e301e4b2c1c0",
+        "resource": "https://www.allmusic.com/artist/mn0000789393"
+      }
+    },
+    {
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "c550166e-0548-4a18-b1d4-e2ae423a3e88",
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "url": {
+        "id": "f682d931-eff5-4835-943c-4ca2c799517b",
+        "resource": "https://eyvindkang.bandcamp.com/"
+      },
+      "type": "bandcamp",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward"
+    },
+    {
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "url": {
+        "id": "ed4836b7-3a46-434b-9a73-12487e03640e",
+        "resource": "http://www.enotes.com/contemporary-musicians/kang-eyvind-biography"
+      },
+      "type": "biography",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null,
+      "type-id": "78f75830-94e1-4138-8f8a-643e3bb21ce5",
+      "target-credit": "",
+      "target-type": "url"
+    },
+    {
+      "url": {
+        "resource": "http://www.geocities.com/kanggallery/discography.html",
+        "id": "4ad674cd-020b-4ef5-a375-f6d8bfc55230"
+      },
+      "type": "discography page",
+      "attribute-ids": {},
+      "ended": true,
+      "direction": "forward",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "4fb0eeec-a6eb-4ae3-ad52-b55765b94e8f",
+      "attribute-values": {},
+      "end": "2009-10-26",
+      "begin": null,
+      "attributes": [],
+      "source-credit": ""
+    },
+    {
+      "type": "discogs",
+      "url": {
+        "id": "64cbe94a-9461-4152-8597-32c5c99ddf2c",
+        "resource": "https://www.discogs.com/artist/174688"
+      },
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "04a5b104-a4c2-4bac-99a1-7b837c37d9e4",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": []
+    },
+    {
+      "url": {
+        "id": "1b5401bf-f6fa-4267-a038-c72cca7a3369",
+        "resource": "https://open.spotify.com/artist/2aNAAza1OIE1qrfLBlhLaV"
+      },
+      "type": "free streaming",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "769085a1-c2f7-4c24-a532-2375a77693bd",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null,
+      "source-credit": ""
+    },
+    {
+      "type-id": "769085a1-c2f7-4c24-a532-2375a77693bd",
+      "target-type": "url",
+      "target-credit": "",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "url": {
+        "id": "26d5ea71-d03b-4a0d-a891-21aca1b09449",
+        "resource": "https://www.deezer.com/artist/5179"
+      },
+      "type": "free streaming",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {}
+    },
+    {
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "94c8b0cc-4477-4106-932c-da60e63de61c",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "source-credit": "",
+      "url": {
+        "id": "20466e7b-9252-49ff-bfaa-def84705e1b2",
+        "resource": "https://www.imdb.com/name/nm2210168/"
+      },
+      "type": "IMDb",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward"
+    },
+    {
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "type": "other databases",
+      "url": {
+        "id": "e7045d4f-dd4d-4374-bc55-0114d2a3c468",
+        "resource": "http://id.loc.gov/authorities/names/no00058808"
+      },
+      "attribute-values": {},
+      "end": null,
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55"
+    },
+    {
+      "type": "other databases",
+      "url": {
+        "id": "66ccbf89-b2d1-4581-a0f6-a47e3f446274",
+        "resource": "https://catalogue.bnf.fr/ark:/12148/cb14192185q"
+      },
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-type": "url",
+      "target-credit": "",
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "end": null,
+      "attribute-values": {}
+    },
+    {
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-type": "url",
+      "target-credit": "",
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type": "other databases",
+      "url": {
+        "resource": "https://d-nb.info/gnd/135429943",
+        "id": "e057cc36-bb1c-4afb-ace1-8d9813804833"
+      }
+    },
+    {
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "type": "other databases",
+      "url": {
+        "id": "01129165-8fc8-4a6c-92e8-5c28f4868486",
+        "resource": "https://rateyourmusic.com/artist/eyvind-kang"
+      },
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55"
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "id": "9e248138-163b-4e41-ac09-29e71d276f0f",
+        "resource": "https://www.muziekweb.nl/Link/M00000087928/POPULAR/"
+      },
+      "type": "other databases",
+      "source-credit": "",
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-type": "url",
+      "target-credit": ""
+    },
+    {
+      "url": {
+        "resource": "https://www.worldcat.org/identities/lccn-no00058808",
+        "id": "828fd305-1974-46b2-bb18-8b1420ddba3a"
+      },
+      "type": "other databases",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "d94fb61c-fa20-4e3c-a19a-71a949fb2c55",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null
+    },
+    {
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "79c5b84d-a206-4f4c-9832-78c028c312c3",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "https://secondhandsongs.com/artist/22184",
+        "id": "170b4721-8105-47fa-b045-846c5a7a8b08"
+      },
+      "type": "secondhandsongs"
+    },
+    {
+      "end": null,
+      "attribute-values": {},
+      "attributes": [],
+      "begin": null,
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "bf5d0d5e-27a1-4e94-9df7-3cdc67b3b207",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "type": "setlistfm",
+      "url": {
+        "id": "95e819ad-4ef4-4130-b947-d7018238a195",
+        "resource": "https://www.setlist.fm/setlists/eyvind-kang-43d6672b.html"
+      }
+    },
+    {
+      "end": null,
+      "attribute-values": {},
+      "begin": null,
+      "attributes": [],
+      "source-credit": "",
+      "target-credit": "",
+      "target-type": "url",
+      "type-id": "aac9c4bc-a5b9-30b8-9839-e3ac314c6e58",
+      "attribute-ids": {},
+      "ended": false,
+      "direction": "forward",
+      "url": {
+        "resource": "https://www.songkick.com/artists/479662",
+        "id": "cb0cb083-f2c1-44a6-840b-fdffb5c0a017"
+      },
+      "type": "songkick"
+    },
+    {
+      "type": "soundcloud",
+      "url": {
+        "resource": "https://soundcloud.com/eyvind-kang",
+        "id": "44401c59-0c62-4d31-81a6-a2e251ac2ace"
+      },
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "type-id": "89e4a949-0976-440d-bda1-5f772c1e5710",
+      "target-type": "url",
+      "target-credit": "",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null
+    },
+    {
+      "url": {
+        "id": "13a0b967-a853-42a1-8266-98dd7b1f5b91",
+        "resource": "https://music.apple.com/us/artist/7235008"
+      },
+      "type": "streaming",
+      "direction": "forward",
+      "attribute-ids": {},
+      "ended": false,
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "target-credit": "",
+      "target-type": "url",
+      "source-credit": "",
+      "attribute-values": {},
+      "end": null,
+      "attributes": [],
+      "begin": null
+    },
+    {
+      "begin": null,
+      "attributes": [],
+      "attribute-values": {},
+      "end": null,
+      "source-credit": "",
+      "target-type": "url",
+      "target-credit": "",
+      "type-id": "63cc5d1f-f096-4c94-a43f-ecb32ea94161",
+      "ended": false,
+      "attribute-ids": {},
+      "direction": "forward",
+      "type": "streaming",
+      "url": {
+        "id": "80b2b33a-19f1-4b42-aff2-84ef1e2a507c",
+        "resource": "https://tidal.com/artist/4262677"
+      }
+    },
+    {
+      "type-id": "e8571dcc-35d4-4e91-a577-a3382fd84460",
+      "target-type": "url",
+      "target-credit": "",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "attribute-values": {},
+      "end": null,
+      "type": "VIAF",
+      "url": {
+        "resource": "http://viaf.org/viaf/10059192",
+        "id": "ce48aa19-16ea-48d1-a976-619b1678ad90"
+      },
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {}
+    },
+    {
+      "direction": "forward",
+      "ended": false,
+      "attribute-ids": {},
+      "url": {
+        "id": "e2b27f6c-9e99-4325-8e8d-aa3278759b18",
+        "resource": "https://www.wikidata.org/wiki/Q703976"
+      },
+      "type": "wikidata",
+      "source-credit": "",
+      "attributes": [],
+      "begin": null,
+      "end": null,
+      "attribute-values": {},
+      "type-id": "689870a4-a1e4-4912-b17f-7b2664215698",
+      "target-type": "url",
+      "target-credit": ""
+    }
+  ],
+  "begin-area": {
+    "id": "6ed86dc3-bda5-48ca-a0c1-bef12363d6c7",
+    "type": null,
+    "disambiguation": "",
+    "sort-name": "Corvallis",
+    "type-id": null,
+    "name": "Corvallis"
+  },
+  "id": "a4772e12-bda2-4df0-9c3c-8733933865d8",
+  "gender-id": "36d3d30a-839d-3eda-8cb3-29be4384e4a9",
+  "name": "Eyvind Kang",
+  "aliases": [],
+  "type": "Person",
+  "isnis": [
+    "0000000055158869"
+  ],
+  "ipis": [],
+  "life-span": {
+    "end": null,
+    "begin": "1971-06-23",
+    "ended": false
+  },
+  "disambiguation": "American violist and composer",
+  "sort-name": "Kang, Eyvind",
+  "country": "US",
+  "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
+  "gender": "Male",
+  "end-area": null,
+  "area": {
+    "id": "489ce91b-6658-3307-9877-795b68554c98",
+    "disambiguation": "",
+    "iso-3166-1-codes": [
+      "US"
+    ],
+    "type": null,
+    "name": "United States",
+    "sort-name": "United States",
+    "type-id": null
+  }
+}

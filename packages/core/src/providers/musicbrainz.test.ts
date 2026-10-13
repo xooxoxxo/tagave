@@ -5,7 +5,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations, MusicBrainzProvider } from './musicbrainz.js';
+import { extractUrlRelations, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations, MusicBrainzProvider, mbPartialDateToSql } from './musicbrainz.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -652,5 +652,58 @@ describe('mbTrackToCanonical via getRelease', () => {
     });
     expect(mapped.tracks?.[1]?.recordingId).toBe('bbbbbbbb-0000-0000-0000-000000000002');
     expect(mapped.tracks?.[1]).not.toHaveProperty('trackId');
+  });
+});
+
+describe('getArtist: dates from life-span (real MusicBrainz responses)', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+  const serve = (fixture: unknown) => {
+    globalThis.fetch = (async () => new Response(JSON.stringify(fixture), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+  };
+
+  it('a group that ended: begin and end years, ended true (XTC)', async () => {
+    const fixture = loadFixture('mb_artist_xtc.json');
+    // the shape MusicBrainz sends: no top-level begin-date / end-date
+    expect(fixture['begin-date']).toBeUndefined();
+    expect(fixture['life-span']).toEqual({ begin: '1976', end: '2006', ended: true });
+    serve(fixture);
+    const artist = await new MusicBrainzProvider('Test/1.0 (+test)').getArtist(fixture.id, { priority: 'background' });
+    expect(artist).toMatchObject({ name: 'XTC', type: 'Group', country: 'GB', beginDate: '1976', endDate: '2006', ended: true });
+    expect(artist.disambiguation).toBe('English rock band');
+  });
+
+  it('a living person: a full begin date, no end (Eyvind Kang)', async () => {
+    const fixture = loadFixture('mb_artist_eyvind_kang.json');
+    serve(fixture);
+    const artist = await new MusicBrainzProvider('Test/1.0 (+test)').getArtist(fixture.id, { priority: 'background' });
+    expect(artist).toMatchObject({ type: 'Person', country: 'US', beginDate: '1971-06-23', ended: false });
+    expect(artist.endDate).toBeUndefined();
+  });
+
+  it('no life-span at all: no dates', async () => {
+    const fixture = { ...loadFixture('mb_artist_xtc.json') };
+    delete fixture['life-span'];
+    serve(fixture);
+    const artist = await new MusicBrainzProvider('Test/1.0 (+test)').getArtist(fixture.id, { priority: 'background' });
+    expect(artist.beginDate).toBeUndefined();
+    expect(artist.endDate).toBeUndefined();
+  });
+});
+
+describe('mbPartialDateToSql', () => {
+  it('fills a partial date to a whole one', () => {
+    expect(mbPartialDateToSql('1976')).toBe('1976-01-01');
+    expect(mbPartialDateToSql('1976-05')).toBe('1976-05-01');
+    expect(mbPartialDateToSql('1971-06-23')).toBe('1971-06-23');
+  });
+  it('anything else is null', () => {
+    expect(mbPartialDateToSql(null)).toBeNull();
+    expect(mbPartialDateToSql(undefined)).toBeNull();
+    expect(mbPartialDateToSql('')).toBeNull();
+    expect(mbPartialDateToSql('?')).toBeNull();
+    expect(mbPartialDateToSql('76')).toBeNull();
   });
 });

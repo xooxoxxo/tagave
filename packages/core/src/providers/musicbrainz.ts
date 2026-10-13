@@ -44,6 +44,18 @@ export type EditionsPage = {
 /**
  * MusicBrainz artist with extended metadata (spec ENR-7).
  */
+/**
+ * A MusicBrainz partial date ("1976", "1976-05", "1976-05-12") as a value
+ * for a Postgres date column: the missing month and day become 01. Only the
+ * year is shown anywhere, so the filled-in parts never surface. Anything
+ * else (empty, malformed) is null.
+ */
+export function mbPartialDateToSql(value: string | null | undefined): string | null {
+  const m = /^(\d{4})(?:-(\d{2}))?(?:-(\d{2}))?$/.exec((value ?? '').trim());
+  if (!m) return null;
+  return `${m[1]}-${m[2] ?? '01'}-${m[3] ?? '01'}`;
+}
+
 export type MbArtist = {
   id: string;
   name: string;
@@ -111,9 +123,13 @@ const ArtistSchema = z.object({
   'sort-name': z.string().nullish(),
   type: z.string().nullish(),
   country: z.string().nullish(),
-  'begin-date': z.string().nullish(),
-  'end-date': z.string().nullish(),
-  ended: z.boolean().nullish(),
+  // MusicBrainz sends the dates inside `life-span` ("1976", "1976-05" or
+  // "1976-05-12"); there is no top-level begin-date / end-date on an artist.
+  'life-span': z.object({
+    begin: z.string().nullish(),
+    end: z.string().nullish(),
+    ended: z.boolean().nullish(),
+  }).nullish(),
   disambiguation: z.string().nullish(),
   aliases: z.array(z.object({
     'sort-name': z.string(),
@@ -832,6 +848,7 @@ export class MusicBrainzProvider implements MetadataProvider {
 
     // Extract URL relations
     const urlRels = extractUrlRelations(artist.relations);
+    const lifeSpan = artist['life-span'];
 
     return {
       id: artist.id,
@@ -840,9 +857,9 @@ export class MusicBrainzProvider implements MetadataProvider {
       ...(artist.disambiguation ? { disambiguation: artist.disambiguation } : {}),
       ...(artist.type ? { type: artist.type } : {}),
       ...(country ? { country } : {}),
-      ...(artist['begin-date'] ? { beginDate: artist['begin-date'] } : {}),
-      ...(artist['end-date'] ? { endDate: artist['end-date'] } : {}),
-      ...(artist.ended !== null && artist.ended !== undefined ? { ended: artist.ended } : {}),
+      ...(lifeSpan?.begin ? { beginDate: lifeSpan.begin } : {}),
+      ...(lifeSpan?.end ? { endDate: lifeSpan.end } : {}),
+      ...(lifeSpan?.ended !== null && lifeSpan?.ended !== undefined ? { ended: lifeSpan.ended } : {}),
       aliases,
       urlRelations: urlRels,
     };

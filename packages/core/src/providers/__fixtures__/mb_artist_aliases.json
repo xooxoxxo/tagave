@@ -5,9 +5,11 @@
   "type": "Person",
   "type-id": "b6e035f4-3ce9-331c-97df-83397230b0df",
   "country": "GB",
-  "begin-date": "1980-01-01",
-  "end-date": "2020-12-31",
-  "ended": true,
+  "life-span": {
+    "begin": "1980-01-01",
+    "end": "2020-12-31",
+    "ended": true
+  },
   "disambiguation": "British musician",
   "aliases": [
     {

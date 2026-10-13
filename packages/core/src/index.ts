@@ -54,6 +54,7 @@ export type { CanonicalTrack as MatchingCanonicalTrack, ReleaseCandidate as Matc
 export {
   MusicBrainzProvider,
 MB_BROWSE_LIMIT,
+  mbPartialDateToSql,
   DiscogsProvider,
   WikidataClient,
   ProviderGateway,

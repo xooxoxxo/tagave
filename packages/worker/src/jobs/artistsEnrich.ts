@@ -3,6 +3,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { artists, externalIds } from '@liner/db';
+import { mbPartialDateToSql } from '@liner/core';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, wikidataCall, wikipediaCall, type Providers } from '../lib/providers.js';
 import { cached, cacheKey, TTLs } from '../lib/providerCache.js';
@@ -118,10 +119,12 @@ export async function artistsEnrichJob(ctx: WorkerContext, data: ArtistsEnrichJo
       return;
     }
 
+    // 'artist-v2': entries cached before the life-span fix (0.7.6) carry no
+    // dates; a new key makes every artist's next enrich read MusicBrainz again.
     const mbArtist = await cached(
       ctx.sql,
       'musicbrainz',
-      cacheKey('artist', artist.mbid),
+      cacheKey('artist-v2', artist.mbid),
       TTLs.mbArtist,
       () => mbCall(ctx, () => providers.mb.getArtist(artist.mbid!, bg)),
     );
@@ -132,8 +135,9 @@ export async function artistsEnrichJob(ctx: WorkerContext, data: ArtistsEnrichJo
         sortName: mbArtist.sortName || null,
         type: mbArtist.type || null,
         country: mbArtist.country || null,
-        beginDate: mbArtist.beginDate || null,
-        endDate: mbArtist.endDate || null,
+        // MB dates are partial ("1976"): a date column needs a whole one
+        beginDate: mbPartialDateToSql(mbArtist.beginDate),
+        endDate: mbPartialDateToSql(mbArtist.endDate),
         disambiguation: mbArtist.disambiguation || null,
         aliases: mbArtist.aliases || [],
       })
