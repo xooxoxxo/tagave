@@ -12,3 +12,16 @@ export function staticCacheControl(filePath: string): string {
   const parts = filePath.split(path.sep);
   return parts.includes('assets') ? 'public, max-age=31536000, immutable' : 'no-cache';
 }
+
+/**
+ * Whether a request the static files did not answer gets the app shell
+ * (index.html), for the SPA's deep links. Not for /api, and not for a file
+ * under /assets/: one that is missing is an old build's chunk after an
+ * update, and answering it with the shell (200, text/html) made the stale
+ * tab's import fail with a MIME error instead of a plain 404.
+ */
+export function servesAppShell(method: string, url: string): boolean {
+  if (method !== 'GET') return false;
+  const pathname = url.split('?')[0] ?? '';
+  return !pathname.startsWith('/api/') && !pathname.startsWith('/assets/');
+}

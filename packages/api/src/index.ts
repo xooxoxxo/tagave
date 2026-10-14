@@ -40,7 +40,7 @@ import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/
 import { getBoss, setBossLogger } from './boss.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { staticCacheControl } from './lib/staticCache.js';
+import { servesAppShell, staticCacheControl } from './lib/staticCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -271,9 +271,9 @@ try {
 }
 
 // SPA history-mode fallback: deep links (/albums, /queue) must serve the
-// app shell; only /api gets JSON 404s.
+// app shell; /api and missing /assets files get JSON 404s.
 app.setNotFoundHandler(async (request, reply) => {
-  if (request.method === 'GET' && !request.url.startsWith('/api/')) {
+  if (servesAppShell(request.method, request.url)) {
     return reply.sendFile('index.html', webDistPath);
   }
   return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
