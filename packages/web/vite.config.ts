@@ -1,9 +1,35 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'path';
 
-export default defineConfig({
+/**
+ * The build this bundle is, so an open tab can tell when the server runs a
+ * newer one (src/services/buildCheck.ts). The Docker build passes the same
+ * GIT_SHA and LINER_VERSION build args the server reports at /api/v1/version.
+ * Without a sha (vite dev, a plain local build) the bundle says "dev", which
+ * never counts as out of date.
+ */
+function bundleBuild(command: 'build' | 'serve'): { sha: string; version: string | null } {
+  const sha = (process.env.GIT_SHA ?? '').trim();
+  let rootVersion: string | null = null;
+  try {
+    const pkg = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../package.json'), 'utf8')) as { version?: string };
+    rootVersion = pkg.version ?? null;
+  } catch {
+    /* no root manifest: no version */
+  }
+  return {
+    sha: command === 'build' && sha && sha !== 'unknown' && sha !== 'dev' ? sha : 'dev',
+    version: (process.env.LINER_VERSION ?? '').trim() || rootVersion,
+  };
+}
+
+export default defineConfig(({ command }) => ({
   plugins: [react()],
+  define: {
+    __TAGAVE_BUILD__: JSON.stringify(bundleBuild(command)),
+  },
   server: {
     proxy: {
       '/api': {
@@ -26,4 +52,4 @@ export default defineConfig({
       '@': resolve(import.meta.dirname, 'src'),
     },
   },
-});
+}));

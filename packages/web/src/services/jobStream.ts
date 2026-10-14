@@ -81,6 +81,8 @@ class LibraryStream {
   /** set while a stream the browser gave up on waits to open again (this tab still leads) */
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryMs = 0;
+  /** the stream dropped or was given up since it last opened */
+  private dropped = false;
   private stopped = false;
   private readonly onPageHide = () => this.release();
   private readonly onPageShow = () => this.tryClaim();
@@ -191,8 +193,15 @@ class LibraryStream {
   private openSource(broadcast: boolean): void {
     if (this.source) return;
     const source = new EventSource(this.url, { withCredentials: true });
-    source.addEventListener('open', () => { this.retryMs = 0; });
+    source.addEventListener('open', () => {
+      this.retryMs = 0;
+      if (this.dropped) {
+        this.dropped = false;
+        notifyReconnect();
+      }
+    });
     source.addEventListener('error', () => {
+      if (this.source === source) this.dropped = true;
       // CONNECTING: the browser retries by itself. CLOSED: it gave up (an HTTP error status).
       if (source.readyState !== 2 || this.source !== source || this.stopped) return;
       source.close();
@@ -232,6 +241,27 @@ class LibraryStream {
 }
 
 const streams = new Map<string, LibraryStream>();
+
+const reconnectListeners = new Set<() => void>();
+function notifyReconnect(): void {
+  for (const listener of reconnectListeners) {
+    try {
+      listener();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Called when this tab's stream opens again after it dropped, as it does
+ * when the app restarts (an update): the build check asks the server then.
+ * Only the tab that holds the stream sees it; it shares what it finds.
+ */
+export function onJobStreamReconnect(listener: () => void): () => void {
+  reconnectListeners.add(listener);
+  return () => { reconnectListeners.delete(listener); };
+}
 
 /**
  * Listen to a library's job events. The first subscriber in a tab joins the

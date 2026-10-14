@@ -4,13 +4,14 @@
  * working while the app restarts (it polls and reconnects) and after a
  * reload. A finished run stays on screen until the owner dismisses it.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterView } from '@liner/shared';
 import { Button, Select, confirmDialog } from './ui';
 import { StepUpDialog } from './StepUpDialog';
 import { useStartUpdate } from '../hooks/useUpdater';
 import { getStepUp } from '../services/stepUp';
+import { reloadIntoNewBuild } from '../services/buildCheck';
 import styles from './InAppUpdate.module.css';
 
 const DISMISSED_KEY = 'tagave-update-run-dismissed';
@@ -84,7 +85,46 @@ function StepList({ run }: { run: UpdateRun }) {
   );
 }
 
-function RunView({ run, disconnected, onDismiss }: { run: UpdateRun; disconnected: boolean; onDismiss: () => void }) {
+/** How long a finished update shows its success before this tab reloads into the new build. */
+export const RELOAD_AFTER_UPDATE_MS = 2000;
+
+/**
+ * The run this tab watched go from running to succeeded: after
+ * RELOAD_AFTER_UPDATE_MS, reload into the new build (if the server runs one;
+ * a dev bundle never reloads). Only a run seen running here counts, so the
+ * reloaded page, which finds the run already finished, stays put.
+ */
+export function useReloadAfterUpdate(run: UpdateRun | null): boolean {
+  const watched = useRef<string | null>(null);
+  const [succeeded, setSucceeded] = useState<string | null>(null);
+  const [reloading, setReloading] = useState(false);
+  const id = run?.id ?? null;
+  const status = run?.status ?? null;
+  useEffect(() => {
+    if (!id) return;
+    if (status === 'running') watched.current = id;
+    else if (status === 'succeeded' && watched.current === id) {
+      watched.current = null;
+      setSucceeded(id);
+    }
+  }, [id, status]);
+  useEffect(() => {
+    if (!succeeded) return;
+    let cancelled = false;
+    const started = Date.now();
+    void reloadIntoNewBuild({
+      reload: () => {
+        if (cancelled) return;
+        setReloading(true);
+        setTimeout(() => { if (!cancelled) globalThis.location.reload(); }, Math.max(0, RELOAD_AFTER_UPDATE_MS - (Date.now() - started)));
+      },
+    });
+    return () => { cancelled = true; };
+  }, [succeeded]);
+  return reloading;
+}
+
+function RunView({ run, disconnected, reloading, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; onDismiss: () => void }) {
   const running = run.status === 'running';
   const now = useNow(running);
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
@@ -132,6 +172,7 @@ function RunView({ run, disconnected, onDismiss }: { run: UpdateRun; disconnecte
       {disconnected && running && (
         <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
       )}
+      {reloading && <p className={styles.note}>Loading the new version…</p>}
       <StepList run={run} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
       <details className={styles.log}>
@@ -170,6 +211,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
   const [stepUp, setStepUp] = useState<{ version: string; methods: StepUpMethod[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const versions = useMemo(() => releases.map((r) => r.version), [releases]);
+  const reloading = useReloadAfterUpdate(run);
 
   useEffect(() => {
     if (!versions.includes(picked)) setPicked(versions[0] ?? '');
@@ -227,6 +269,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
       <RunView
         run={run}
         disconnected={disconnected}
+        reloading={reloading}
         onDismiss={() => { writeDismissed(run.id); setDismissed(run.id); }}
       />
     );

@@ -13,7 +13,11 @@ COPY packages ./packages
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Build all packages
+# Build all packages. The web bundle bakes in the same GIT_SHA and
+# LINER_VERSION the server reports at /api/v1/version, so an open tab can tell
+# it runs an older build after an update (web: services/buildCheck.ts).
+ARG GIT_SHA=unknown
+ARG LINER_VERSION=
 RUN pnpm -r build
 
 # Runtime stage

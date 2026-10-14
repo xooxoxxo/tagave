@@ -83,3 +83,8 @@
     animation: none;
   }
 }
+
+/* The "tagave was updated." note holds the foot of the screen: sit above it. */
+:global(html[data-new-build]) .region {
+  bottom: calc(max(24px, env(safe-area-inset-bottom)) + 60px);
+}

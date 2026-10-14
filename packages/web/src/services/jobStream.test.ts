@@ -167,6 +167,25 @@ describe('shared job stream', () => {
     expect(FakeEventSource.all).toHaveLength(4);
   });
 
+  it('says when the stream opens again after it dropped (the app restarted), not on the first open', async () => {
+    const a = await openTab();
+    let reconnects = 0;
+    a.onJobStreamReconnect(() => { reconnects++; });
+    a.subscribeJobEvents(LIB, () => undefined);
+    await vi.advanceTimersByTimeAsync(300);
+    FakeEventSource.all[0]!.opened();
+    expect(reconnects).toBe(0);
+
+    FakeEventSource.all[0]!.drop(); // the browser reconnects by itself
+    FakeEventSource.all[0]!.opened();
+    expect(reconnects).toBe(1);
+
+    FakeEventSource.all[0]!.fail(); // given up: opened again after the back-off
+    await vi.advanceTimersByTimeAsync(a.RETRY_MIN_MS);
+    FakeEventSource.all[1]!.opened();
+    expect(reconnects).toBe(2);
+  });
+
   it('does not reopen a stream after the last listener left', async () => {
     const a = await openTab();
     const unsub = a.subscribeJobEvents(LIB, () => undefined);

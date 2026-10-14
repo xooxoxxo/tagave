@@ -1,0 +1,90 @@
+/*
+ * The "tagave was updated." note: the toast's glass pill (DESIGN.md: floating
+ * layers are glass, slide up 280ms, sit on --z-toast), in the lower right
+ * corner on wide screens and along the foot of a phone. A toast shown at the
+ * same time moves up above it (Toast.module.css, html[data-new-build]).
+ */
+.region {
+  position: fixed;
+  right: max(24px, env(safe-area-inset-right));
+  bottom: max(24px, env(safe-area-inset-bottom));
+  z-index: var(--z-toast);
+  max-width: calc(100vw - 32px);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.notice {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm, 8px);
+  max-width: 100%;
+  padding: 8px 8px 8px 18px;
+  border-radius: var(--r-pill);
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  box-shadow: var(--shadow-float);
+  color: var(--ink);
+  font-size: var(--font-size-sm, 14px);
+  animation: noticeIn var(--dur-slow) var(--ease-out);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .notice {
+    background: var(--surface);
+  }
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--ink);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--dew);
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .region {
+    left: 16px;
+    right: 16px;
+    max-width: none;
+    justify-content: center;
+  }
+}
+
+@keyframes noticeIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notice {
+    animation: none;
+  }
+}

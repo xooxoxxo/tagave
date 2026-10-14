@@ -8,7 +8,7 @@
  *   PORT=3299 RELEASES=0.7.3 node e2e/fake-updater.mjs
  *
  * GET  /_test/updates           the update requests it received
- * POST /_test/run?status=…      set the run it reports (running, succeeded, …)
+ * POST /_test/run?status=…      set the run it reports (running, succeeded, …); a running run keeps its id
  * POST /_test/releases?list=…   set the releases the feed lists (comma separated, empty for none)
  * POST /_test/reset             forget runs and requests
  */
@@ -103,7 +103,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/_test/updates') return send(res, 200, requests);
   if (req.method === 'POST' && url.pathname === '/_test/run') {
     const status = url.searchParams.get('status');
-    run = status ? makeRun(url.searchParams.get('target') ?? RELEASES[0], status) : null;
+    const target = url.searchParams.get('target') ?? RELEASES[0];
+    // a running run that finishes keeps its id, as the real updater's does
+    const next = status ? makeRun(target, status) : null;
+    if (next && run?.status === 'running' && run.target === target) next.id = run.id;
+    run = next;
     return send(res, 200, { run });
   }
   if (req.method === 'POST' && url.pathname === '/_test/releases') {
