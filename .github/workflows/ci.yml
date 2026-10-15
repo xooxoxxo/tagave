@@ -30,8 +30,8 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_PASSWORD: liner
-          POSTGRES_DB: liner_test
+          POSTGRES_PASSWORD: tagave
+          POSTGRES_DB: tagave_test
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready
@@ -42,8 +42,8 @@ jobs:
     env:
       # The worker and api suites are meaningless without a real database, and
       # migrating an empty one is also the stranger's exact first-boot path.
-      DATABASE_URL: postgres://postgres:liner@127.0.0.1:5432/liner_test
-      TEST_DATABASE_URL: postgres://postgres:liner@127.0.0.1:5432/liner_test
+      DATABASE_URL: postgres://postgres:tagave@127.0.0.1:5432/tagave_test
+      TEST_DATABASE_URL: postgres://postgres:tagave@127.0.0.1:5432/tagave_test
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -63,13 +63,13 @@ jobs:
 
       - run: pnpm -r typecheck
 
-      - run: pnpm --filter @liner/db migrate
+      - run: pnpm --filter @tagave/db migrate
 
-      - run: pnpm --filter @liner/core test
-      - run: pnpm --filter @liner/worker test
-      - run: pnpm --filter @liner/api test
-      - run: pnpm --filter @liner/auth test
-      - run: pnpm --filter @liner/updater test
+      - run: pnpm --filter @tagave/core test
+      - run: pnpm --filter @tagave/worker test
+      - run: pnpm --filter @tagave/api test
+      - run: pnpm --filter @tagave/auth test
+      - run: pnpm --filter @tagave/updater test
 
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')
@@ -108,17 +108,21 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - run: pnpm --filter @liner/web build-storybook
+      # The workspace packages the web imports (@tagave/shared) resolve to
+      # their dist/ builds, which a fresh checkout does not have yet.
+      - run: pnpm --filter "@tagave/web^..." build
+
+      - run: pnpm --filter @tagave/web build-storybook
 
       - name: Story tests
         if: ${{ !inputs.update-storybook-baselines }}
-        run: pnpm --filter @liner/web test-storybook
+        run: pnpm --filter @tagave/web test-storybook
         env:
           STORYBOOK_VISUAL: '1'
 
       - name: Render the screenshot baselines
         if: ${{ inputs.update-storybook-baselines }}
-        run: pnpm --filter @liner/web test-storybook --update-snapshots
+        run: pnpm --filter @tagave/web test-storybook --update-snapshots
         env:
           STORYBOOK_VISUAL: '1'
 
@@ -211,7 +215,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
-            LINER_VERSION=${{ steps.meta.outputs.version }}
+            TAGAVE_BUILD_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -286,7 +290,7 @@ jobs:
           build-args: |
             GIT_SHA=${{ github.sha }}
             BUILT_AT=${{ steps.meta.outputs.built_at }}
-            LINER_VERSION=${{ steps.meta.outputs.version }}
+            TAGAVE_BUILD_VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

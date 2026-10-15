@@ -183,6 +183,7 @@ music = [v for v in p["volumes"] if v["target"] == "/music"][0]
 data = [v for v in p["volumes"] if v["target"] == "/data"][0]
 print(p["image"], [x["published"] for x in p["ports"]], music.get("read_only", False), data["type"], data["source"],
       p["environment"]["ND_ENABLESHARING"], p["environment"]["ND_ENABLEINSIGHTSCOLLECTOR"], p["environment"]["ND_JELLYFIN_ENABLED"],
+      p["environment"]["ND_DEEZER_ENABLED"], repr(p["environment"]["ND_LASTFM_APIKEY"]), repr(p["environment"]["ND_LASTFM_SECRET"]),
       sorted(n for n, s in c["services"].items() if sys.argv[1] and sys.argv[1] in (s.get("environment") or {}).values()))' \
     "$(env_value TAGAVE_PLAYER_PASSWORD "$1/.env")"
 }
@@ -203,8 +204,8 @@ grep -qF "$player_pw" "$work/player.log" && fail "--with-player: the installer p
 config="$(render "$work/player")"
 printf '%s' "$config" | grep -q '"TAGAVE_PLAYER_URL": "http://player:4533"' || fail "--with-player: the app does not get TAGAVE_PLAYER_URL"
 got="$(player_json "$work/player")"
-[ "$got" = "deluan/navidrome:0.64.0 ['4533'] True volume player-data false false false ['app', 'player']" ] \
-  || fail "--with-player: the player must run the pinned image on port 4533, read the music read-only, keep its data in the player-data volume, with sharing, insights and Jellyfin off, and only the app and the player may get the password (got: $got)"
+[ "$got" = "deluan/navidrome:0.64.0 ['4533'] True volume player-data false false false false '' '' ['app', 'player']" ] \
+  || fail "--with-player: the player must run the pinned image on port 4533, read the music read-only, keep its data in the player-data volume, with sharing, insights, Jellyfin and Deezer off and no Last.fm key unless .env has one, and only the app and the player may get the password (got: $got)"
 # Without the profile the same compose file is valid, has no player, and the app no URL.
 [ "$(services "$work/all")" = "app postgres worker-files worker-identify " ] || fail "player: present without the profile"
 render "$work/all" | grep -q '"TAGAVE_PLAYER_URL": ""' || fail "player: the app has a player URL without the profile"
@@ -334,7 +335,9 @@ case "$1" in
   manifest) echo '{"manifests":[{"platform":{"architecture":"amd64"}},{"platform":{"architecture":"arm64"}}]}'; exit 0 ;;
   inspect)
     case "$*" in
-      *Config.Env*) [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf 'NODE_ENV=production\nLINER_VERSION=%s\n' "$(cat "$FAKE_STATE/version")" ;;
+      *Config.Env*)
+        [ -z "${FAKE_PG_USER:-}" ] || printf 'POSTGRES_USER=%s\nPOSTGRES_DB=%s\n' "$FAKE_PG_USER" "$FAKE_PG_USER"
+        [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf 'NODE_ENV=production\n%s=%s\n' "${FAKE_VERSION_VAR:-TAGAVE_BUILD_VERSION}" "$(cat "$FAKE_STATE/version")" ;;
       *) echo healthy ;;
     esac
     exit 0 ;;
@@ -357,7 +360,7 @@ case "$1" in
       *" app node "*) [ "${FAKE_APP_DOWN:-0}" = "1" ] || printf '%s ok ok ok pass\n' "$(cat "$FAKE_STATE/version")" ;;
       *psql*) cat >/dev/null; echo "${FAKE_FILE_WORKERS:-0}" ;;
       *pg_dump*) printf 'PGDMP fake dump' ;;
-      *"pg_restore --list"*) cat >/dev/null; printf ';\n; Archive\n215; 1259 16385 TABLE public albums liner\n' ;;
+      *"pg_restore --list"*) cat >/dev/null; printf ';\n; Archive\n215; 1259 16385 TABLE public albums tagave\n' ;;
     esac ;;
 esac
 exit 0
@@ -544,5 +547,94 @@ fi
 grep -q 'Cannot tell which version runs here' "$work/float-unknown.log" \
   || { cat "$work/float-unknown.log" >&2; fail "latest: unknown version refused without saying why"; }
 pass "update refuses without --yes when the running version is unknown"
+
+# --- an install from before 0.9 (the project's old name, liner) -------------
+# LINER_* settings in .env, database user and name "liner", an images that
+# report their version as LINER_VERSION. The new compose files must work with
+# that .env as it is (the in-app updater of 0.8 copies them without touching
+# .env), and the installer renames the settings once its compose files read
+# the new names, keeping values, a private backup and the database names.
+at_version 0.4.1 --role all --dir "$work/legacy" --music "$work/music" >"$work/legacy-install.log" 2>&1 \
+  || { cat "$work/legacy-install.log" >&2; fail "pre-0.9: install"; }
+legacy_env="$work/legacy/.env"
+sed -e 's/^POSTGRES_USER=.*/POSTGRES_USER=liner/' -e 's/^POSTGRES_DB=.*/POSTGRES_DB=liner/' "$legacy_env" >"$legacy_env.new"
+printf 'LINER_LIBRARY_ID=lib-123\nLINER_PREMIGRATE_BACKUP_KEEP=7\nLINER_ALLOW_SCHEMA_SKEW=0\nTAGAVE_ALLOW_SCHEMA_SKEW=1\n' >>"$legacy_env.new"
+mv "$legacy_env.new" "$legacy_env" && chmod 600 "$legacy_env"
+pg_password="$(env_value POSTGRES_PASSWORD "$legacy_env")"
+# the 0.8 compose.yml read LINER_LIBRARY_ID from .env
+# shellcheck disable=SC2016 # compose variables, not shell ones
+sed 's/TAGAVE_LIBRARY_ID: ${TAGAVE_LIBRARY_ID:-${LINER_LIBRARY_ID:-}}/LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}/' \
+  "$repo/deploy/compose.yml" >"$work/legacy/compose.yml"
+
+# The new compose files with the old .env, unchanged.
+mkdir -p "$work/legacy-new"
+cp "$legacy_env" "$work/legacy-new/.env"
+cp "$repo/deploy/compose.yml" "$repo/deploy/compose.db-published.yml" "$work/legacy-new/"
+legacy_config="$(render "$work/legacy-new")"
+printf '%s' "$legacy_config" | grep -q '"TAGAVE_LIBRARY_ID": "lib-123"' || fail "pre-0.9: new compose files lose LINER_LIBRARY_ID from an old .env"
+printf '%s' "$legacy_config" | grep -q '"TAGAVE_ALLOW_SCHEMA_SKEW": "1"' || fail "pre-0.9: new compose files do not read TAGAVE_ALLOW_SCHEMA_SKEW"
+printf '%s' "$legacy_config" | grep -qF "postgres://liner:$pg_password@postgres:5432/liner" || fail "pre-0.9: the app no longer reaches the liner database"
+printf '%s' "$legacy_config" | grep -q '"POSTGRES_USER": "liner"' || fail "pre-0.9: postgres would be created with another user"
+pass "the new compose files run an install from before 0.9 with its .env as it is"
+
+# An older compose.yml in the folder: enable-updater leaves the old names alone.
+TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" enable-updater --dir "$work/legacy" --yes --no-start </dev/null >"$work/legacy-enable.log" 2>&1 \
+  || { cat "$work/legacy-enable.log" >&2; fail "pre-0.9: enable-updater"; }
+[ "$(env_value LINER_LIBRARY_ID "$legacy_env")" = "lib-123" ] || fail "pre-0.9: renamed settings an older compose.yml still reads"
+"$installer" disable-updater --dir "$work/legacy" --yes --no-start </dev/null >"$work/legacy-disable.log" 2>&1 \
+  || { cat "$work/legacy-disable.log" >&2; fail "pre-0.9: disable-updater"; }
+pass "an older compose.yml keeps its LINER_* settings"
+
+# update: new compose files, then .env renamed.
+printf '0.4.1' >"$work/state/version"
+: >"$work/docker.log"
+FAKE_VERSION_VAR=LINER_VERSION fake update --dir "$work/legacy" --yes >"$work/legacy-update.log" 2>&1 \
+  || { cat "$work/legacy-update.log" >&2; fail "pre-0.9: update"; }
+[ "$(env_value TAGAVE_VERSION "$legacy_env")" = "0.5.0" ] || fail "pre-0.9: update did not move to 0.5.0"
+grep -q '^LINER_' "$legacy_env" && fail "pre-0.9: LINER_* keys left in .env after the update"
+[ "$(env_value TAGAVE_LIBRARY_ID "$legacy_env")" = "lib-123" ] || fail "pre-0.9: LINER_LIBRARY_ID not renamed with its value"
+[ "$(env_value TAGAVE_PREMIGRATE_BACKUP_KEEP "$legacy_env")" = "7" ] || fail "pre-0.9: LINER_PREMIGRATE_BACKUP_KEEP not renamed"
+[ "$(env_value TAGAVE_ALLOW_SCHEMA_SKEW "$legacy_env")" = "1" ] || fail "pre-0.9: the old name overrode a TAGAVE_* value already set"
+[ "$(grep -c '^TAGAVE_ALLOW_SCHEMA_SKEW=' "$legacy_env")" = "1" ] || fail "pre-0.9: TAGAVE_ALLOW_SCHEMA_SKEW twice in .env"
+[ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ] \
+  || fail "pre-0.9: the update changed the database names"
+[ "$(env_value POSTGRES_PASSWORD "$legacy_env")" = "$pg_password" ] || fail "pre-0.9: the update changed the database password"
+[ "$(mode_of "$legacy_env")" = "600" ] || fail "pre-0.9: .env is no longer mode 600"
+env_bak="$(find "$work/legacy" -maxdepth 1 -name '.env.bak.*' -newer "$work/legacy-disable.log" | head -n 1)"
+{ [ -n "$env_bak" ] && grep -q '^LINER_LIBRARY_ID=lib-123' "$env_bak"; } || fail "pre-0.9: no backup of the .env with the old names"
+[ "$(mode_of "$env_bak")" = "600" ] || fail "pre-0.9: the .env backup is not private"
+backup="$(find "$work/legacy/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
+grep -q '^LINER_LIBRARY_ID=lib-123' "$backup/.env" || fail "pre-0.9: the roll back copy of .env lost the names the old version reads"
+grep -q 'LINER_LIBRARY_ID->TAGAVE_LIBRARY_ID' "$work/legacy-update.log" || fail "pre-0.9: the update does not say what it renamed"
+grep -qF "$pg_password" "$work/legacy-update.log" && fail "pre-0.9: the update printed the database password"
+grep -qF "$(env_value APP_SECRET "$legacy_env")" "$work/legacy-update.log" && fail "pre-0.9: the update printed the app secret"
+render "$work/legacy" | grep -qF "postgres://liner:$pg_password@postgres:5432/liner" || fail "pre-0.9: after the update the app does not reach the liner database"
+render "$work/legacy" | grep -q '"TAGAVE_LIBRARY_ID": "lib-123"' || fail "pre-0.9: after the update the workers lost the library pin"
+pass "update renames the pre-0.9 settings in .env, keeps values, the database names and a private backup"
+
+# A re-run of the installer keeps the renamed settings and the database names.
+TAGAVE_SKIP_IMAGE_CHECK=1 fake --yes --no-start --dir "$work/legacy" >"$work/legacy-rerun.log" 2>&1 \
+  || { cat "$work/legacy-rerun.log" >&2; fail "pre-0.9: re-run"; }
+[ "$(env_value TAGAVE_LIBRARY_ID "$legacy_env")" = "lib-123" ] || fail "pre-0.9: a re-run dropped TAGAVE_LIBRARY_ID"
+[ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] || fail "pre-0.9: a re-run changed POSTGRES_USER"
+pass "re-running the installer keeps the renamed settings and the liner database"
+
+# An .env that left the database names to the old compose defaults gets the
+# names the database container was created with.
+sed -e '/^POSTGRES_USER=/d' -e '/^POSTGRES_DB=/d' "$legacy_env" >"$legacy_env.new" && mv "$legacy_env.new" "$legacy_env" && chmod 600 "$legacy_env"
+printf 'LINER_LIBRARY_ID=lib-456\n' >>"$legacy_env"
+FAKE_PG_USER=liner TAGAVE_SKIP_IMAGE_CHECK=1 fake enable-updater --dir "$work/legacy" --yes --no-start >"$work/legacy-pin.log" 2>&1 \
+  || { cat "$work/legacy-pin.log" >&2; fail "pre-0.9: enable-updater on an .env without database names"; }
+[ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ] \
+  || fail "pre-0.9: the database names the container was created with were not recorded"
+[ "$(env_value TAGAVE_LIBRARY_ID "$legacy_env")" = "lib-123" ] || fail "pre-0.9: an old LINER_* line overrode the TAGAVE_* value"
+grep -q '^LINER_' "$legacy_env" && fail "pre-0.9: enable-updater left a LINER_* key"
+pass "enable-updater records the database names and renames late LINER_* keys"
+
+# A new install uses the new database names.
+[ "$(env_value POSTGRES_USER "$work/all/.env")" = "tagave" ] && [ "$(env_value POSTGRES_DB "$work/all/.env")" = "tagave" ] \
+  || fail "new install: database user and name should be tagave"
+grep -q '^LINER_' "$work/all/.env" && fail "new install: .env has LINER_* keys"
+pass "a new install uses the tagave database names and no LINER_* settings"
 
 echo "test-installer: all roles pass"

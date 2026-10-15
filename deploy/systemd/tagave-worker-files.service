@@ -8,9 +8,10 @@
 #      match the host (WORKER_DIR / WORKER_NODE_BIN in .deploy.env).
 #   3. Create /etc/tagave/worker.env (mode 600, owned by root) from
 #      deploy/systemd/worker.env.example: DATABASE_URL and APP_SECRET, the same
-#      values the old ~/liner-worker.sh launcher exported.
-#   4. Stop the nohup workers (kill -TERM "$(cat ~/liner-worker.pid)" and
-#      ~/liner-identify.pid), then:
+#      values the pidfile launcher (~/tagave-worker.sh, or ~/liner-worker.sh
+#      on a host set up before 0.9) exported.
+#   4. Stop the nohup workers (kill -TERM "$(cat ~/tagave-worker.pid)" and
+#      ~/tagave-identify.pid, or the ~/liner-*.pid ones), then:
 #        systemctl daemon-reload
 #        systemctl enable --now tagave-worker-files tagave-worker-identify
 #   5. Check: systemctl status tagave-worker-files; journalctl -u tagave-worker-files -f
@@ -34,7 +35,7 @@ WorkingDirectory=/opt/tagave
 EnvironmentFile=/etc/tagave/worker.env
 Environment=NODE_ENV=production
 Environment=LOG_LEVEL=info
-Environment=LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+Environment=TAGAVE_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
 ExecStart=/usr/local/bin/node packages/worker/dist/index.js
 # The worker stops gracefully on SIGTERM (pg-boss drains for up to 30 s);
 # give it 45 s before systemd sends SIGKILL.
@@ -47,7 +48,7 @@ RestartSec=10
 # let a runaway scan push the host into swap.
 MemoryHigh=1536M
 MemoryMax=2G
-# Logs go to journald (rotated by journald's own size caps), not ~/liner-worker.log.
+# Logs go to journald (rotated by journald's own size caps), not a ~/*-worker.log file.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=tagave-worker-files

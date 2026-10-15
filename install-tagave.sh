@@ -828,6 +828,17 @@ compose_ref() {
   esac
 }
 
+# The database user and name when .env records none: "tagave" for a new
+# database. A database volume that already exists without them on record was
+# created by a release before 0.9, whose compose files defaulted to "liner".
+default_db_name() {
+  if docker volume inspect "${PROJECT_NAME}_pgdata" >/dev/null 2>&1; then
+    printf 'liner'
+  else
+    printf 'tagave'
+  fi
+}
+
 # Decides APP_SECRET and POSTGRES_PASSWORD. Existing ones always win, except
 # on a file worker explicitly told to take new ones from --from.
 settle_secrets() {
@@ -836,8 +847,8 @@ settle_secrets() {
   POSTGRES_PASSWORD="$(env_get POSTGRES_PASSWORD "$existing")"
   POSTGRES_USER="$(env_get POSTGRES_USER "$existing")"
   POSTGRES_DB="$(env_get POSTGRES_DB "$existing")"
-  POSTGRES_USER="${POSTGRES_USER:-liner}"
-  POSTGRES_DB="${POSTGRES_DB:-liner}"
+  POSTGRES_USER="${POSTGRES_USER:-$(default_db_name)}"
+  POSTGRES_DB="${POSTGRES_DB:-$POSTGRES_USER}"
 
   if [ "$ROLE" = "files" ] && [ -n "$FROM_FILE" ]; then
     local new_secret new_password new_user new_db
@@ -856,8 +867,8 @@ settle_secrets() {
     fi
     APP_SECRET="$new_secret"
     POSTGRES_PASSWORD="$new_password"
-    POSTGRES_USER="${new_user:-liner}"
-    POSTGRES_DB="${new_db:-liner}"
+    POSTGRES_USER="${new_user:-$POSTGRES_USER}"
+    POSTGRES_DB="${new_db:-$POSTGRES_DB}"
     return 0
   fi
 
@@ -931,11 +942,27 @@ write_private() {
       return 0
     fi
     backup="$target.bak.$(date +%Y%m%d-%H%M%S)"
+    # two writes in the same second keep both earlier versions
+    local n=1
+    while [ -e "$backup" ]; do backup="${backup%.~*}.~$n"; n=$((n + 1)); done
     ( umask 077; cp "$target" "$backup" )
     chmod 600 "$backup"
     say "     previous $(basename "$target") saved as $(basename "$backup")"
   fi
   mv "$tmp" "$target"
+}
+
+# Settings a re-run keeps from the .env it replaces: set by hand, or renamed
+# from their pre-0.9 LINER_* names. Values are written as they were.
+KEPT_SETTINGS="TAGAVE_LIBRARY_ID TAGAVE_PREMIGRATE_BACKUP_KEEP TAGAVE_SKIP_PREMIGRATE_BACKUP TAGAVE_ALLOW_SCHEMA_SKEW"
+carry_over_settings() {
+  local file="$1" key header=0
+  [ -f "$file" ] || return 0
+  for key in $KEPT_SETTINGS; do
+    grep -q "^$key=" "$file" || continue
+    [ "$header" = 1 ] || { printf '\n# kept from the previous .env\n'; header=1; }
+    printf '%s=%s\n' "$key" "$(env_get "$key" "$file")"
+  done
 }
 
 write_env() {
@@ -1024,6 +1051,7 @@ EOF
       [ "$MUSIC_WRITABLE" = 1 ] && music_mode=rw
       printf "\n# your music at /mnt/music in the file worker; rw lets tag plans write tags\nMUSIC_DIR='%s'\nTAGAVE_MUSIC_MODE=%s\n" "$MUSIC_DIR" "$music_mode"
     fi
+    carry_over_settings "$env_file"
   } | write_private "$env_file"
   ok ".env (readable only by you)"
 
@@ -1265,6 +1293,7 @@ main() {
   check_music_dir
   resolve_version
   fetch_compose_files
+  [ ! -f "$INSTALL_DIR/.env" ] || migrate_install_env
   settle_secrets
   write_env
   validate_compose
@@ -1349,13 +1378,14 @@ probe_app() {
 
 # local_image_version SERVICE IMAGE: the release the local container of
 # SERVICE (or, when there is none, the local IMAGE) was built as, from its
-# LINER_VERSION. Prints nothing when unknown.
+# TAGAVE_BUILD_VERSION (LINER_VERSION in images before 0.9). Prints nothing
+# when unknown.
 local_image_version() {
   local id ref out
   id="$(compose ps -q "$1" 2>/dev/null | head -n 1 || true)"
   ref="${id:-$2}"
   out="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$ref" 2>/dev/null \
-    | sed -n 's/^LINER_VERSION=//p' | head -n 1 || true)"
+    | sed -n 's/^TAGAVE_BUILD_VERSION=\(..*\)/\1/p; s/^LINER_VERSION=\(..*\)/\1/p' | head -n 1 || true)"
   if is_release "$out"; then printf '%s' "$out"; fi
 }
 
@@ -1436,6 +1466,92 @@ set_env_key() {
   else
     { cat "$file"; printf '%s=%s\n' "$key" "$value"; } | write_private "$file" >/dev/null
   fi
+}
+
+# ---------------------------------------------------------------------------
+# Settings from before 0.9
+#
+# Releases before 0.9 (when the project was called liner) named some settings
+# LINER_*. The compose files read the old names as a fallback until 0.10;
+# the installer renames them in .env as soon as the compose files in the
+# install folder read the new ones. Drop this section in 0.10.
+# ---------------------------------------------------------------------------
+
+# legacy_env_target KEY: the name a pre-0.9 LINER_* setting has now.
+legacy_env_target() {
+  case "$1" in
+    # TAGAVE_VERSION is the image tag, so the build's version got its own name
+    LINER_VERSION) printf 'TAGAVE_BUILD_VERSION' ;;
+    # TAGAVE_BACKUP_DIR is the host folder for the backups; the app's own
+    # setting for the folder inside its container is BACKUP_DIR
+    LINER_BACKUP_DIR) printf 'BACKUP_DIR' ;;
+    *) printf 'TAGAVE_%s' "${1#LINER_}" ;;
+  esac
+}
+
+# migrate_legacy_env FILE: renames every LINER_* key in FILE to its new name,
+# keeping the value. When the new name is already set, it wins and the old
+# line goes. The previous file is kept as a private .bak copy. Prints key
+# names only, never values.
+migrate_legacy_env() {
+  local file="$1" keys present key new tmp line notes=""
+  [ -f "$file" ] || return 0
+  keys="$(grep -oE '^LINER_[A-Z0-9_]+=' "$file" | tr -d '=' | sort -u || true)"
+  [ -n "$keys" ] || return 0
+  present="$(grep -oE '^[A-Za-z_][A-Za-z0-9_]*=' "$file" | tr -d '=' || true)"
+  for key in $keys; do
+    new="$(legacy_env_target "$key")"
+    if printf '%s\n' "$present" | grep -qx "$new"; then
+      notes="$notes $key (dropped: $new is set)"
+    else
+      notes="$notes $key->$new"
+    fi
+  done
+  tmp="$file.migrate.$$"
+  ( umask 077; : >"$tmp" )
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      LINER_*=*)
+        key="${line%%=*}"
+        new="$(legacy_env_target "$key")"
+        printf '%s\n' "$present" | grep -qx "$new" || printf '%s=%s\n' "$new" "${line#*=}" >>"$tmp"
+        ;;
+      *) printf '%s\n' "$line" >>"$tmp" ;;
+    esac
+  done <"$file"
+  write_private "$file" <"$tmp"
+  rm -f "$tmp"
+  ok "Renamed the pre-0.9 settings in $(basename "$file"):$notes"
+}
+
+# pin_db_names FILE: an .env without POSTGRES_USER or POSTGRES_DB left them to
+# the compose defaults, which were "liner" before 0.9 and are "tagave" now.
+# Records the names the existing database container was created with, so the
+# new defaults never point the app at a database that does not exist.
+pin_db_names() {
+  local file="$1" id envs user db
+  [ -f "$file" ] || return 0
+  if grep -q '^POSTGRES_USER=' "$file" && grep -q '^POSTGRES_DB=' "$file"; then return 0; fi
+  id="$(compose ps -aq postgres 2>/dev/null | head -n 1 || true)"
+  [ -n "$id" ] || return 0
+  envs="$(docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$id" 2>/dev/null || true)"
+  user="$(printf '%s\n' "$envs" | sed -n 's/^POSTGRES_USER=//p' | head -n 1)"
+  db="$(printf '%s\n' "$envs" | sed -n 's/^POSTGRES_DB=//p' | head -n 1)"
+  [ -n "$user" ] || return 0
+  db="${db:-$user}"
+  grep -q '^POSTGRES_USER=' "$file" || set_env_key "$file" POSTGRES_USER "$user"
+  grep -q '^POSTGRES_DB=' "$file" || set_env_key "$file" POSTGRES_DB "$db"
+  ok "POSTGRES_USER=$user and POSTGRES_DB=$db in $(basename "$file"): the names the database was created with"
+}
+
+# migrate_install_env: both of the above for this install's env files, once
+# its compose files read the new names (an older compose.yml still reads
+# LINER_LIBRARY_ID from .env, so its .env is left as it is).
+migrate_install_env() {
+  grep -q 'TAGAVE_LIBRARY_ID' "$INSTALL_DIR/$COMPOSE_MAIN" 2>/dev/null || return 0
+  migrate_legacy_env "$INSTALL_DIR/.env"
+  migrate_legacy_env "$INSTALL_DIR/$WORKER_ENV_NAME"
+  if [ "$ROLE" != "files" ]; then pin_db_names "$INSTALL_DIR/.env"; fi
 }
 
 # The image the player service runs with the compose files and .env as they
@@ -1724,6 +1840,7 @@ update_app_computer() {
   PLAYER_IMAGE_BEFORE="$(player_image)"
   VERSION="$TARGET"
   fetch_compose_files
+  migrate_install_env
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   set_env_version "$INSTALL_DIR/$WORKER_ENV_NAME" "$TARGET"
   ok "TAGAVE_VERSION=$TARGET"
@@ -1811,6 +1928,7 @@ update_files_computer() {
   ON_DIE=print_rollback
   VERSION="$TARGET"
   fetch_compose_files
+  migrate_install_env
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   ok "TAGAVE_VERSION=$TARGET"
   validate_compose
@@ -1912,6 +2030,7 @@ run_enable_updater() {
   say "${C_BOLD}tagave: add the in-app updater${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
   load_install
+  migrate_install_env
   [ "$ROLE" != "files" ] || die "this computer runs only the file worker; add the updater on the app computer"
   check_value "install directory" "$INSTALL_DIR"
   case "$INSTALL_DIR" in *'|'*|*'&'*) die "the install directory cannot contain | or &" ;; esac
@@ -1967,6 +2086,7 @@ run_disable_updater() {
   say "${C_BOLD}tagave: remove the in-app updater${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
   load_install
+  migrate_install_env
   env_file="$INSTALL_DIR/.env"
   check_docker
   if [ "$NO_START" != "1" ]; then
@@ -1997,6 +2117,7 @@ run_enable_player() {
   say "${C_BOLD}tagave: add the player${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
   load_install
+  migrate_install_env
   [ "$ROLE" = "all" ] || die "$PLAYER_SPLIT_REASON"
   env_file="$INSTALL_DIR/.env"
   [ -n "$PLAYER_PORT" ] || PLAYER_PORT="$(env_get TAGAVE_PLAYER_PORT "$env_file")"
@@ -2062,6 +2183,7 @@ run_disable_player() {
   say "${C_BOLD}tagave: remove the player${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
   load_install
+  migrate_install_env
   env_file="$INSTALL_DIR/.env"
   check_docker
   if [ "$NO_START" != "1" ]; then

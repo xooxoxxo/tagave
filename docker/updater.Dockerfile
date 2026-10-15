@@ -14,8 +14,8 @@ RUN npm install -g pnpm@10.34.6
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
 COPY packages ./packages
 
-RUN pnpm install --frozen-lockfile --filter @liner/updater...
-RUN pnpm --filter @liner/updater... build
+RUN pnpm install --frozen-lockfile --filter @tagave/updater...
+RUN pnpm --filter @tagave/updater... build
 
 # Runtime: the official Docker CLI image (docker + compose plugin) plus Node.
 FROM docker:29-cli
@@ -32,10 +32,10 @@ COPY deploy/compose.yml deploy/compose.db-published.yml /opt/tagave/deploy/
 
 ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown
-ARG LINER_VERSION=
-ENV LINER_GIT_SHA=$GIT_SHA \
-    LINER_BUILT_AT=$BUILT_AT \
-    LINER_VERSION=$LINER_VERSION \
+ARG TAGAVE_BUILD_VERSION=
+ENV TAGAVE_GIT_SHA=$GIT_SHA \
+    TAGAVE_BUILT_AT=$BUILT_AT \
+    TAGAVE_BUILD_VERSION=$TAGAVE_BUILD_VERSION \
     NODE_ENV=production
 
 ENTRYPOINT []

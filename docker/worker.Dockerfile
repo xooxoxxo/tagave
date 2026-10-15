@@ -47,10 +47,14 @@ ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown
 # Empty unless CI or deploy.sh passes it: readBuildInfo() then reads the
 # root package.json, so a plain build never reports a stale version.
-ARG LINER_VERSION=
-ENV LINER_GIT_SHA=$GIT_SHA \
-    LINER_BUILT_AT=$BUILT_AT \
-    LINER_VERSION=$LINER_VERSION \
+ARG TAGAVE_BUILD_VERSION=
+# LINER_VERSION: the pre-0.9 name, still set so an install-tagave.sh from
+# 0.8 or older (the copy in an install folder the in-app updater moved on)
+# can read which release this image is. Drop in 0.10.
+ENV TAGAVE_GIT_SHA=$GIT_SHA \
+    TAGAVE_BUILT_AT=$BUILT_AT \
+    TAGAVE_BUILD_VERSION=$TAGAVE_BUILD_VERSION \
+    LINER_VERSION=$TAGAVE_BUILD_VERSION \
     NODE_ENV=production
 
 CMD ["node", "packages/worker/dist/index.js"]

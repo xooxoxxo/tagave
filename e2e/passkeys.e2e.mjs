@@ -15,7 +15,7 @@
  * Run against a running build whose PUBLIC_URL is BASE_URL (never prod):
  *
  *   BASE_URL=http://localhost:3197 \
- *   DATABASE_URL=postgres://liner:liner@127.0.0.1:5435/liner \
+ *   DATABASE_URL=postgres://tagave:tagave@127.0.0.1:5435/tagave \
  *   PLAYWRIGHT_CORE=/path/to/playwright-core/index.mjs \
  *   CHROME_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
  *   node e2e/passkeys.e2e.mjs

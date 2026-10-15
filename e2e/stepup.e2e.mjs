@@ -19,11 +19,11 @@
  *
  * Needs a running build whose PUBLIC_URL is BASE_URL (http://localhost is
  * fine for WebAuthn), TAGAVE_UPDATER_URL and TAGAVE_UPDATE_FEED pointing at
- * e2e/fake-updater.mjs, and LINER_VERSION older than the fake's release:
+ * e2e/fake-updater.mjs, and TAGAVE_BUILD_VERSION older than the fake's release:
  *
  *   PORT=3299 RELEASES=0.7.3 node e2e/fake-updater.mjs &
  *   BASE_URL=http://localhost:3197 UPDATER_URL=http://127.0.0.1:3299 \
- *   DATABASE_URL=postgres://…/liner_e2e \
+ *   DATABASE_URL=postgres://…/tagave_e2e \
  *   PLAYWRIGHT_CORE=/path/to/playwright-core/index.mjs \
  *   node e2e/stepup.e2e.mjs
  *

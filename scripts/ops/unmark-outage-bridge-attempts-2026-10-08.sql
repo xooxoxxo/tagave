@@ -18,7 +18,7 @@
 --
 -- Run (prod, as the owner, after the fix is deployed):
 --   docker compose -f docker-compose.prod.yml exec -T postgres \
---     psql -U liner -d liner -v ON_ERROR_STOP=1 \
+--     sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1' \
 --     < scripts/ops/unmark-outage-bridge-attempts-2026-10-08.sql
 -- Expected output: "to_unmark 637" (or fewer if some were retried since),
 -- then UPDATE <n>, then "left_in_window 0".

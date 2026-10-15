@@ -24,16 +24,17 @@
 name: ${COMPOSE_PROJECT_NAME:-tagave}
 
 x-worker-env: &worker-env
-  DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${POSTGRES_DB:-liner}
+  DATABASE_URL: postgres://${POSTGRES_USER:-tagave}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${POSTGRES_DB:-tagave}
   APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
   CACHE_DIR: /cache
   # Empty: the nightly gap and collection jobs run for every library.
-  LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+  # (LINER_LIBRARY_ID is its name before 0.9, read until 0.10.)
+  TAGAVE_LIBRARY_ID: ${TAGAVE_LIBRARY_ID:-${LINER_LIBRARY_ID:-}}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   TZ: ${TZ:-UTC}
   # A worker waits while the app has not applied the database updates it
   # needs, and stops if a newer app has updated the database.
-  LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
+  TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
 
 # Labels for an optional update watcher. They do nothing unless you run one.
 # Diun (notify only) watches the repository for new release tags; What's Up
@@ -62,9 +63,9 @@ services:
     image: postgres:16
     command: postgres -c max_connections=300
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-liner}
+      POSTGRES_USER: ${POSTGRES_USER:-tagave}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}
-      POSTGRES_DB: ${POSTGRES_DB:-liner}
+      POSTGRES_DB: ${POSTGRES_DB:-tagave}
       TZ: ${TZ:-UTC}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -82,7 +83,7 @@ services:
     labels: *watch-labels
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
+      DATABASE_URL: postgres://${POSTGRES_USER:-tagave}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-tagave}
       APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
       CACHE_DIR: /cache
       # true while the app is reached over plain http; set false once it sits
@@ -101,10 +102,9 @@ services:
       # TAGAVE_PREMIGRATE_BACKUP_KEEP of them. Set TAGAVE_SKIP_PREMIGRATE_BACKUP=1
       # only to update without a backup on purpose.
       BACKUP_DIR: /backups
-      LINER_BACKUP_DIR: /backups
-      LINER_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
-      LINER_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
-      LINER_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
+      TAGAVE_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
+      TAGAVE_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
+      TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
       # Settings > Updates shows the update command for the way tagave was
       # installed: the installer writes TAGAVE_ROLE, the platform templates set
       # TAGAVE_INSTALL_METHOD. TAGAVE_UPDATE_FEED=off turns update checks off
@@ -160,8 +160,8 @@ services:
     labels: *watch-labels
     environment:
       <<: *worker-env
-      DATABASE_URL: postgres://${POSTGRES_USER:-liner}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-liner}
-      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+      DATABASE_URL: postgres://${POSTGRES_USER:-tagave}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is missing from .env}@postgres:5432/${POSTGRES_DB:-tagave}
+      TAGAVE_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
     volumes:
       - cache:/cache
     restart: unless-stopped
@@ -186,7 +186,7 @@ services:
     labels: *watch-labels
     environment:
       <<: *worker-env
-      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+      TAGAVE_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
     volumes:
       - cache:/cache
       # Read-only unless TAGAVE_MUSIC_MODE=rw (install-tagave.sh
@@ -252,8 +252,8 @@ services:
   # keeps its own database in the "player-data" volume. That is SQLite: keep
   # it on a local Docker volume, never on NFS. The file watcher is off
   # (inotify does not work over NFS); tagave asks for a scan after it writes
-  # tags, and a full scan runs every 24 hours. Sharing, the Jellyfin API and
-  # Navidrome's anonymous usage reports are off.
+  # tags, and a full scan runs every 24 hours. Sharing, the Jellyfin API,
+  # Deezer lookups and Navidrome's anonymous usage reports are off.
   #
   # The image is pinned per tagave release to the newest Navidrome release
   # that is at least 30 days old. 0.64.0 (2026-09-12) is that today; 0.64.1
@@ -294,6 +294,11 @@ services:
       ND_ENABLESHARING: "false"
       ND_ENABLEINSIGHTSCOLLECTOR: "false"
       ND_JELLYFIN_ENABLED: "false"
+      # no artist and album lookups at Deezer; Last.fm only with a key of the
+      # owner's in .env (empty: that agent stays off)
+      ND_DEEZER_ENABLED: "false"
+      ND_LASTFM_APIKEY: ${TAGAVE_LASTFM_API_KEY:-}
+      ND_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
       # tagave matches tracks to its files by path
       ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
       # Creates the user "admin" with this password on the first start,

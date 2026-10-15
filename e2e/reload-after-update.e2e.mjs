@@ -18,10 +18,10 @@
  * e2e/fake-updater.mjs, and swaps packages/web/dist between two web builds
  * made with different GIT_SHA (the original dist is put back at the end):
  *
- *   (cd packages/web && GIT_SHA=aaaa1111 LINER_VERSION=0.7.6 pnpm build && cp -R dist /tmp/dist-a)
- *   (cd packages/web && GIT_SHA=bbbb2222 LINER_VERSION=0.7.7 pnpm build && cp -R dist /tmp/dist-b)
+ *   (cd packages/web && GIT_SHA=aaaa1111 TAGAVE_BUILD_VERSION=0.7.6 pnpm build && cp -R dist /tmp/dist-a)
+ *   (cd packages/web && GIT_SHA=bbbb2222 TAGAVE_BUILD_VERSION=0.7.7 pnpm build && cp -R dist /tmp/dist-b)
  *   DIST_A=/tmp/dist-a SHA_A=aaaa1111 DIST_B=/tmp/dist-b SHA_B=bbbb2222 \
- *   DATABASE_URL=postgres://…/liner_e2e APP_SECRET=<64 hex> \
+ *   DATABASE_URL=postgres://…/tagave_e2e APP_SECRET=<64 hex> \
  *   PLAYWRIGHT_CORE=/path/to/playwright-core/index.mjs SHOTS=/tmp/shots \
  *   node e2e/reload-after-update.e2e.mjs
  *
@@ -111,8 +111,8 @@ async function startApp(sha, version) {
     DATABASE_URL,
     APP_SECRET,
     PUBLIC_URL: BASE_URL,
-    LINER_GIT_SHA: sha,
-    LINER_VERSION: version,
+    TAGAVE_GIT_SHA: sha,
+    TAGAVE_BUILD_VERSION: version,
     TAGAVE_UPDATER_URL: UPDATER_URL,
     TAGAVE_UPDATE_FEED: `${UPDATER_URL}/releases`,
     EXPECT_WORKERS: '0',

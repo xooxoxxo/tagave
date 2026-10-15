@@ -15,7 +15,7 @@ WorkingDirectory=/opt/tagave
 EnvironmentFile=/etc/tagave/worker.env
 Environment=NODE_ENV=production
 Environment=LOG_LEVEL=info
-Environment=LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+Environment=TAGAVE_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
 ExecStart=/usr/local/bin/node packages/worker/dist/index.js
 KillSignal=SIGTERM
 TimeoutStopSec=45

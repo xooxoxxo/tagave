@@ -14,10 +14,10 @@ COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 
 # Build all packages. The web bundle bakes in the same GIT_SHA and
-# LINER_VERSION the server reports at /api/v1/version, so an open tab can tell
+# TAGAVE_BUILD_VERSION the server reports at /api/v1/version, so an open tab can tell
 # it runs an older build after an update (web: services/buildCheck.ts).
 ARG GIT_SHA=unknown
-ARG LINER_VERSION=
+ARG TAGAVE_BUILD_VERSION=
 RUN pnpm -r build
 
 # Runtime stage
@@ -26,7 +26,7 @@ FROM node:24-slim
 WORKDIR /app
 
 # pg_dump/pg_restore for the backup the app takes before it migrates, and for
-# `liner-doctor backup`. They must match the server major (postgres:16):
+# `tagave-doctor backup`. They must match the server major (postgres:16):
 # Debian bookworm ships client 15,
 # and pg_dump refuses a newer server, so take 16 from the PGDG repository.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -51,22 +51,25 @@ ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown
 # Empty unless CI or deploy.sh passes it: readBuildInfo() then reads the
 # root package.json, so a plain build never reports a stale version.
-ARG LINER_VERSION=
-ENV LINER_GIT_SHA=$GIT_SHA \
-    LINER_BUILT_AT=$BUILT_AT \
-    LINER_VERSION=$LINER_VERSION
+ARG TAGAVE_BUILD_VERSION=
+# LINER_VERSION: the pre-0.9 name, still set so an install-tagave.sh from
+# 0.8 or older (the copy in an install folder the in-app updater moved on)
+# can read which release this image is. Drop in 0.10.
+ENV TAGAVE_GIT_SHA=$GIT_SHA \
+    TAGAVE_BUILT_AT=$BUILT_AT \
+    TAGAVE_BUILD_VERSION=$TAGAVE_BUILD_VERSION \
+    LINER_VERSION=$TAGAVE_BUILD_VERSION
 
 # Nightly, manual and pre-migration backups (Settings › Backups). Mount a
 # volume or a host folder here; compose does. VOLUME gives
 # an older compose.yml without a /backups mount a persistent anonymous volume
 # instead of the container layer; the app refuses to back up into a folder
-# that is not a mount (LINER_BACKUP_REQUIRE_MOUNT), since recreating the
+# that is not a mount (TAGAVE_BACKUP_REQUIRE_MOUNT), since recreating the
 # container would delete the dump.
 RUN mkdir -p /backups
 VOLUME /backups
 ENV BACKUP_DIR=/backups \
-    LINER_BACKUP_DIR=/backups \
-    LINER_BACKUP_REQUIRE_MOUNT=1
+    TAGAVE_BACKUP_REQUIRE_MOUNT=1
 
 EXPOSE 3000
 

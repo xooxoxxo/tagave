@@ -2,16 +2,16 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: liner
-      POSTGRES_PASSWORD: liner
-      POSTGRES_DB: liner
+      POSTGRES_USER: tagave
+      POSTGRES_PASSWORD: tagave
+      POSTGRES_DB: tagave
     volumes:
       - pgdata:/var/lib/postgresql/data
     command: postgres -c max_connections=300
     ports:
       - "5435:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U liner"]
+      test: ["CMD-SHELL", "pg_isready -U tagave -d tagave"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -21,13 +21,13 @@ services:
       context: .
       dockerfile: docker/app.Dockerfile
     environment:
-      DATABASE_URL: postgres://liner:liner@postgres:5432/liner
+      DATABASE_URL: postgres://tagave:tagave@postgres:5432/tagave
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-      LINER_BACKUP_DIR: /backups
+      BACKUP_DIR: /backups
     volumes:
       - cache:/cache
       - backups:/backups
@@ -51,7 +51,7 @@ services:
         GIT_SHA: ${GIT_SHA:-dev}
         BUILT_AT: ${BUILT_AT:-unknown}
     environment:
-      DATABASE_URL: postgres://liner:liner@postgres:5432/liner
+      DATABASE_URL: postgres://tagave:tagave@postgres:5432/tagave
       APP_SECRET: ${APP_SECRET:?set APP_SECRET in .env}
       CACHE_DIR: /cache
     volumes:

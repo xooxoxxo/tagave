@@ -1,3 +1,12 @@
+# Source build (scripts/deploy.sh). Superseded by the standard install
+# (install-tagave.sh, deploy/compose.yml) and the in-app updater.
+#
+# The database names and password come from .env and have no defaults: a
+# database this file created before 0.9 has user and database "liner" (and,
+# if .env never set one, the password "liner"); a new one can use "tagave".
+# Settings this file read as LINER_* before 0.9 are TAGAVE_* now; the old
+# names in .env still work until 0.10.
+
 # Container logs: json-file with no cap grew without limit (103k app lines in
 # 8 days, audit 2026-10-10). 3 × 10 MB per container is weeks of history.
 x-logging: &logging
@@ -41,16 +50,16 @@ services:
     shm_size: 512mb
     logging: *logging
     environment:
-      POSTGRES_USER: liner
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-liner}
-      POSTGRES_DB: liner
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U liner"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -63,9 +72,9 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
         # empty: the image reads the version from its root package.json
-        LINER_VERSION: ${LINER_VERSION:-}
+        TAGAVE_BUILD_VERSION: ${TAGAVE_BUILD_VERSION:-}
     environment:
-      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: "true"
@@ -78,12 +87,11 @@ services:
       NODE_ENV: production
       # Nightly, manual and pre-update database backups (Settings › Backups).
       # Before every database update the app writes a checked pg_dump here and
-      # refuses to update when it fails (LINER_SKIP_PREMIGRATE_BACKUP=1 overrides).
+      # refuses to update when it fails (TAGAVE_SKIP_PREMIGRATE_BACKUP=1 overrides).
       BACKUP_DIR: /backups
-      LINER_BACKUP_DIR: /backups
-      LINER_PREMIGRATE_BACKUP_KEEP: ${LINER_PREMIGRATE_BACKUP_KEEP:-5}
-      LINER_SKIP_PREMIGRATE_BACKUP: ${LINER_SKIP_PREMIGRATE_BACKUP:-}
-      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
+      TAGAVE_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-${LINER_PREMIGRATE_BACKUP_KEEP:-5}}
+      TAGAVE_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-${LINER_SKIP_PREMIGRATE_BACKUP:-}}
+      TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-${LINER_ALLOW_SCHEMA_SKEW:-}}
       TZ: ${TZ:-UTC}
       # Settings > Updates shows the source-build update steps first
       TAGAVE_INSTALL_METHOD: source
@@ -99,7 +107,7 @@ services:
       # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.
       - ${TAGAVE_BACKUP_DIR:-backups}:/backups
     ports:
-      - "${LINER_PORT:-3100}:3000"
+      - "${TAGAVE_PORT:-${LINER_PORT:-3100}}:3000"
     restart: unless-stopped
     logging: *logging
     depends_on:
@@ -126,15 +134,15 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
         # empty: the image reads the version from its root package.json
-        LINER_VERSION: ${LINER_VERSION:-}
+        TAGAVE_BUILD_VERSION: ${TAGAVE_BUILD_VERSION:-}
     environment:
-      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
-      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
-      LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+      TAGAVE_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+      TAGAVE_LIBRARY_ID: ${TAGAVE_LIBRARY_ID:-${LINER_LIBRARY_ID:-}}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
+      TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-${LINER_ALLOW_SCHEMA_SKEW:-}}
     volumes:
       - cache:/cache
       # read-only until M2 tag writing is switched on for this root
@@ -156,15 +164,15 @@ services:
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILT_AT: ${BUILT_AT:-unknown}
         # empty: the image reads the version from its root package.json
-        LINER_VERSION: ${LINER_VERSION:-}
+        TAGAVE_BUILD_VERSION: ${TAGAVE_BUILD_VERSION:-}
     environment:
-      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:-liner}@postgres:5432/liner
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}
       APP_SECRET: ${APP_SECRET:?set in .env}
       CACHE_DIR: /cache
-      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
-      LINER_LIBRARY_ID: ${LINER_LIBRARY_ID:-}
+      TAGAVE_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+      TAGAVE_LIBRARY_ID: ${TAGAVE_LIBRARY_ID:-${LINER_LIBRARY_ID:-}}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      LINER_ALLOW_SCHEMA_SKEW: ${LINER_ALLOW_SCHEMA_SKEW:-}
+      TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-${LINER_ALLOW_SCHEMA_SKEW:-}}
     volumes:
       - cache:/cache
     restart: unless-stopped
@@ -203,6 +211,9 @@ services:
       ND_ENABLESHARING: "false"
       ND_ENABLEINSIGHTSCOLLECTOR: "false"
       ND_JELLYFIN_ENABLED: "false"
+      ND_DEEZER_ENABLED: "false"
+      ND_LASTFM_APIKEY: ${TAGAVE_LASTFM_API_KEY:-}
+      ND_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
       ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
       ND_DEVAUTOCREATEADMINPASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
       ND_PASSWORDENCRYPTIONKEY: ${TAGAVE_PLAYER_ENCRYPTION_KEY:-}

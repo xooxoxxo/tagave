@@ -1,5 +1,7 @@
 #!/bin/bash
-# Liner deploy: app container (api+web) and/or the worker host.
+# tagave source deploy: app container (api+web) and/or the worker host.
+# Superseded by the standard install (install-tagave.sh) and the in-app
+# updater; kept for hosts that still deploy from a checkout.
 # Usage: scripts/deploy.sh [app|workers|all]   (default: all)
 #
 # Serialised: one deploy at a time per machine (local lock) AND per target
@@ -16,14 +18,16 @@ WHAT=${1:-all}
 source .deploy.env
 : "${APP_HOST:?}" "${APP_DIR:?}" "${WORKER_HOST:?}" "${WORKER_DIR:?}" "${WORKER_NODE_BIN:?}"
 
-# Worker restart on the worker host (pidfile launchers ~/liner-worker.sh and
-# ~/liner-identify.sh). A graceful stop can overrun when a job is wedged on a
+# Worker restart on the worker host (pidfile launchers ~/tagave-worker.sh and
+# ~/tagave-identify.sh; a host set up before 0.9 has them as ~/liner-*.sh,
+# which the restart still finds). A graceful stop can overrun when a job is wedged on a
 # provider call — the old generation then outlives its replacement as a ghost
 # that still holds a DB connection (seen 2026-09-08). So: TERM, wait up to
 # 30 s, KILL; then sweep any worker process no pidfile points at; then start.
 # .deploy.env may still set WORKER_RESTART_CMD to override this entirely.
 WORKER_RESTART_DEFAULT='
-for p in liner-worker liner-identify; do
+pre=tagave; [ -e ~/tagave-worker.sh ] || [ ! -e ~/liner-worker.sh ] || pre=liner
+for p in $pre-worker $pre-identify; do
   pid=$(cat ~/$p.pid 2>/dev/null) || continue
   [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || continue
   kill -TERM "$pid"
@@ -32,14 +36,14 @@ for p in liner-worker liner-identify; do
 done
 for pid in $(ps -eo pid,args | awk "/[n]ode packages\/worker\/dist\/index.js/ {print \$1}"); do echo "killing ghost worker $pid"; kill -9 "$pid"; done
 sleep 1
-nohup ~/liner-worker.sh > ~/liner-worker.log 2>&1 & echo $! > ~/liner-worker.pid
-nohup ~/liner-identify.sh > ~/liner-identify.log 2>&1 & echo $! > ~/liner-identify.pid
+nohup ~/$pre-worker.sh > ~/$pre-worker.log 2>&1 & echo $! > ~/$pre-worker.pid
+nohup ~/$pre-identify.sh > ~/$pre-identify.log 2>&1 & echo $! > ~/$pre-identify.pid
 # "alive after 8 s" is not "booted": a worker that dies while creating its
 # queues (pg-boss rejected a 24 h expiry, 2026-09-08) was reported alive.
 # Wait for each process to log "worker ready", up to 90 s, and fail the
 # deploy if one exits or never gets there.
 failed=0
-for p in liner-worker liner-identify; do
+for p in $pre-worker $pre-identify; do
   pid=$(cat ~/$p.pid); started=$(date +%s); state=""
   for i in $(seq 1 90); do
     if ! kill -0 "$pid" 2>/dev/null; then state="DEAD"; break; fi
@@ -89,7 +93,7 @@ if [ -n "$(git status --porcelain)" ]; then
   if [ "${DEPLOY_FROM_HEAD:-0}" = "1" ]; then
     # Two sessions share this checkout: ship exactly HEAD, never the other
     # session's work in progress. Export the commit and rsync from the export.
-    SRC_DIR=$(mktemp -d /tmp/liner-deploy-src.XXXXXX)
+    SRC_DIR=$(mktemp -d /tmp/tagave-deploy-src.XXXXXX)
     git archive HEAD | tar -x -C "$SRC_DIR"
     echo "working tree is dirty; DEPLOY_FROM_HEAD=1 → deploying commit $COMMIT from an export (uncommitted files ignored):"
     git status --short | sed 's/^/    ignored: /'
@@ -98,7 +102,7 @@ if [ -n "$(git status --porcelain)" ]; then
   fi
 fi
 cd "$SRC_DIR"
-EXPORT_DIR=""; case "$SRC_DIR" in /tmp/liner-deploy-src.*) EXPORT_DIR="$SRC_DIR" ;; esac
+EXPORT_DIR=""; case "$SRC_DIR" in /tmp/tagave-deploy-src.*) EXPORT_DIR="$SRC_DIR" ;; esac
 
 # The release version the app and workers report (Settings › Updates compares
 # it with the latest release). Read from the root package.json of what ships;
@@ -110,14 +114,14 @@ case "$VERSION" in
 esac
 
 # Local lock (mkdir is atomic on APFS; macOS has no flock binary).
-LOCK=/tmp/liner-deploy.lock
+LOCK=/tmp/tagave-deploy.lock
 if ! mkdir "$LOCK" 2>/dev/null; then
   echo "another deploy is running (lock $LOCK, owner: $(cat "$LOCK/owner" 2>/dev/null)); wait or remove a stale lock"; exit 4
 fi
 echo "$$ $(date +%FT%T) $USER" > "$LOCK/owner"
 REMOTE_LOCKED_HOST=""
 cleanup() {
-  [ -n "$REMOTE_LOCKED_HOST" ] && ssh "$REMOTE_LOCKED_HOST" 'rm -rf /tmp/liner-deploy.lock' 2>/dev/null || true
+  [ -n "$REMOTE_LOCKED_HOST" ] && ssh "$REMOTE_LOCKED_HOST" 'rm -rf /tmp/tagave-deploy.lock' 2>/dev/null || true
   rm -rf "$LOCK"
   [ -n "${EXPORT_DIR:-}" ] && rm -rf "$EXPORT_DIR"
   return 0
@@ -127,11 +131,11 @@ trap cleanup EXIT
 remote_lock() {  # $1 host
   ssh -o BatchMode=yes -o ConnectTimeout=10 "$1" true 2>/dev/null \
     || { echo "ssh to $1 failed — key agent locked or host down; nothing deployed there"; exit 6; }
-  ssh "$1" 'mkdir /tmp/liner-deploy.lock 2>/dev/null && echo "'"$COMMIT $(date +%FT%T)"'" > /tmp/liner-deploy.lock/owner' \
-    || { echo "remote deploy lock held on $1: $(ssh "$1" cat /tmp/liner-deploy.lock/owner 2>/dev/null)"; exit 5; }
+  ssh "$1" 'mkdir /tmp/tagave-deploy.lock 2>/dev/null && echo "'"$COMMIT $(date +%FT%T)"'" > /tmp/tagave-deploy.lock/owner' \
+    || { echo "remote deploy lock held on $1: $(ssh "$1" cat /tmp/tagave-deploy.lock/owner 2>/dev/null)"; exit 5; }
   REMOTE_LOCKED_HOST="$1"
 }
-remote_unlock() { ssh "$1" 'rm -rf /tmp/liner-deploy.lock' || true; REMOTE_LOCKED_HOST=""; }
+remote_unlock() { ssh "$1" 'rm -rf /tmp/tagave-deploy.lock' || true; REMOTE_LOCKED_HOST=""; }
 
 EXCLUDES=(--exclude node_modules --exclude .git --exclude '*.tsbuildinfo' --exclude 'packages/*/dist' --exclude '.deploy.env')
 
@@ -140,10 +144,10 @@ deploy_app() {
   remote_lock "$APP_HOST"
   # never --delete and never touch the host's own env file
   rsync -az "${EXCLUDES[@]}" --exclude '.env' ./ "$APP_HOST:$APP_DIR/"
-  # GIT_SHA/BUILT_AT/LINER_VERSION become build args → LINER_GIT_SHA,
-  # LINER_BUILT_AT and LINER_VERSION in the image, which /version and
+  # GIT_SHA/BUILT_AT/TAGAVE_BUILD_VERSION become build args → TAGAVE_GIT_SHA,
+  # TAGAVE_BUILT_AT and TAGAVE_BUILD_VERSION in the image, which /version and
   # Settings › Updates report (XO-313).
-  ssh "$APP_HOST" "cd $APP_DIR && GIT_SHA=$COMMIT BUILT_AT=$(date -u +%FT%TZ) LINER_VERSION=$VERSION docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
+  ssh "$APP_HOST" "cd $APP_DIR && GIT_SHA=$COMMIT BUILT_AT=$(date -u +%FT%TZ) TAGAVE_BUILD_VERSION=$VERSION docker compose -f docker-compose.prod.yml build app 2>&1 | tail -3 && docker compose -f docker-compose.prod.yml up -d app && echo $COMMIT > DEPLOYED && sleep 6 && docker compose -f docker-compose.prod.yml logs --tail=20 app | grep -E 'applying|Database initialized|Server running|rror' || true"
   echo "== health"; curl -sf "$APP_HEALTH_URL" && echo
   remote_unlock "$APP_HOST"
 }
@@ -160,12 +164,12 @@ deploy_workers() {
   # only for the worker-side packages to spare the host's disk
   # -R keeps the paths, creating a new package's folder on the host
   rsync -azR packages/*/package.json "$WORKER_HOST:$WORKER_DIR/"
-  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && pnpm install --frozen-lockfile --prefer-offline --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/auth --filter @liner/doctor --filter @liner/worker 2>&1 | tail -2"
-  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @liner/shared --filter @liner/core --filter @liner/db --filter @liner/auth --filter @liner/doctor --filter @liner/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
+  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && pnpm install --frozen-lockfile --prefer-offline --filter @tagave/shared --filter @tagave/core --filter @tagave/db --filter @tagave/auth --filter @tagave/doctor --filter @tagave/worker 2>&1 | tail -2"
+  ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && find packages -name '*.tsbuildinfo' -delete && pnpm --filter @tagave/shared --filter @tagave/core --filter @tagave/db --filter @tagave/auth --filter @tagave/doctor --filter @tagave/worker build 2>&1 | tail -4 && echo $COMMIT > DEPLOYED"
   # migrations before the workers restart (the app applies them on boot too; this is idempotent)
   ssh "$WORKER_HOST" "export PATH=$WORKER_NODE_BIN:\$PATH; cd $WORKER_DIR && DATABASE_URL='$WORKER_DATABASE_URL' node -e \"import('$WORKER_DIR/packages/db/dist/migrations-lib.js').then(m=>m.runMigrations(process.env.DATABASE_URL))\" 2>&1 | grep -E 'applying|rror' || true"
   # exported for the relaunched workers, which report it in their heartbeat
-  ssh "$WORKER_HOST" "export LINER_VERSION=$VERSION; $WORKER_RESTART_CMD"
+  ssh "$WORKER_HOST" "export TAGAVE_BUILD_VERSION=$VERSION; $WORKER_RESTART_CMD"
 }
 
 case "$WHAT" in

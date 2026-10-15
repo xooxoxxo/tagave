@@ -11,13 +11,13 @@
 #      is validated by the file worker (roots.validate over /mnt/music)
 #   7. Both workers heartbeat; doctor passes with --expect-workers 2 and the
 #      Build Versions check sees the same git sha on app and workers
-#   8. liner-doctor backup writes, verifies and prunes dumps; pg_restore --list
+#   8. tagave-doctor backup writes, verifies and prunes dumps; pg_restore --list
 #      reads a dump outside the app container (stock postgres:16 image)
 #
 # Environment:
 #   KEEP=1       don't tear down after test (for debugging)
 #   WORKERS=0    app-only gate (no worker services; doctor --expect-workers 0)
-#   LINER_PORT / POSTGRES_PORT   override defaults (3199/5499)
+#   TAGAVE_PORT / POSTGRES_PORT   override defaults (3199/5499)
 #
 # Usage: ./scripts/smoke.sh
 #
@@ -26,11 +26,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # Configuration
-PROJECT_NAME="liner-smoke"
-LINER_PORT="${LINER_PORT:-3199}"
+PROJECT_NAME="tagave-smoke"
+TAGAVE_PORT="${TAGAVE_PORT:-3199}"
 POSTGRES_PORT="${POSTGRES_PORT:-5499}"
-HEALTH_URL="http://localhost:$LINER_PORT/api/v1/health"
-API_URL="http://localhost:$LINER_PORT/api/v1"
+HEALTH_URL="http://localhost:$TAGAVE_PORT/api/v1/health"
+API_URL="http://localhost:$TAGAVE_PORT/api/v1"
 SMOKE_EMAIL="smoke@example.com"
 SMOKE_PASSWORD="Smoke123!@#long"
 SMOKE_DISPLAY_NAME="Smoke Test"
@@ -45,7 +45,7 @@ ENV_FILE=.env.smoke
 # real library is never touched. Same build args as scripts/deploy.sh so the
 # doctor Build Versions check compares real shas.
 TMPDIR="${TMPDIR:-/tmp}"
-MUSIC_DIR=$(mktemp -d "${TMPDIR%/}/liner-smoke-music.XXXXXX")
+MUSIC_DIR=$(mktemp -d "${TMPDIR%/}/tagave-smoke-music.XXXXXX")
 GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BUILT_AT=$(date -u +%FT%TZ)
 
@@ -57,13 +57,14 @@ DUMP_TMP_FACETS_S=$(mktemp)
 DUMP_TMP_FACETS_L=$(mktemp)
 
 compose() {
-  PUBLIC_URL="http://localhost:$LINER_PORT" LINER_PORT=$LINER_PORT POSTGRES_PORT=$POSTGRES_PORT MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
+  PUBLIC_URL="http://localhost:$TAGAVE_PORT" TAGAVE_PORT=$TAGAVE_PORT POSTGRES_PORT=$POSTGRES_PORT \
+  POSTGRES_USER=tagave POSTGRES_DB=tagave POSTGRES_PASSWORD=tagave-smoke MUSIC_DIR=$MUSIC_DIR GIT_SHA=$GIT_SHA BUILT_AT=$BUILT_AT \
     docker compose --env-file "$ENV_FILE" -f docker-compose.prod.yml -p "$PROJECT_NAME" ${PROFILE:+--profile $PROFILE} "$@"
 }
 
 cleanup_stack() {
   if [ "${KEEP:-0}" = "1" ]; then
-    echo "KEEP=1: stack left running (project: $PROJECT_NAME, ports: $LINER_PORT, $POSTGRES_PORT, music dir: $MUSIC_DIR)"
+    echo "KEEP=1: stack left running (project: $PROJECT_NAME, ports: $TAGAVE_PORT, $POSTGRES_PORT, music dir: $MUSIC_DIR)"
     return
   fi
   echo "Tearing down stack..."
@@ -91,9 +92,9 @@ wait_for() {
   done
 }
 
-echo "=== Liner Smoke Test ==="
+echo "=== tagave smoke test ==="
 echo "Project: $PROJECT_NAME"
-echo "Ports: app=$LINER_PORT, postgres=$POSTGRES_PORT"
+echo "Ports: app=$TAGAVE_PORT, postgres=$POSTGRES_PORT"
 echo "Workers: $([ "$WORKERS" = "1" ] && echo "worker-files + worker-identify (profile workers)" || echo "none (WORKERS=0)")"
 echo "Build: $GIT_SHA @ $BUILT_AT"
 echo ""
@@ -224,21 +225,21 @@ if [ "$WORKERS" = "1" ]; then
   # Facet summary (XO-363): the file worker builds album_facets at boot; the
   # facets endpoint must then answer from it, and its body must equal the live
   # path's (forced by stamping the library dirty).
-  echo "Waiting for the facet summary (x-liner-facets: summary)..."
+  echo "Waiting for the facet summary (x-tagave-facets: summary)..."
   FACETS_URL="$API_URL/libraries/$LIBRARY_ID/albums/facets"
-  if ! wait_for "facet summary" 90 "curl -s -D - -o /dev/null -b '$COOKIE_JAR' '$FACETS_URL?_=\$RANDOM' | grep -qi 'x-liner-facets: summary'"; then
-    curl -s -D - -o /dev/null -b "$COOKIE_JAR" "$FACETS_URL" | grep -i x-liner
+  if ! wait_for "facet summary" 90 "curl -s -D - -o /dev/null -b '$COOKIE_JAR' '$FACETS_URL?_=\$RANDOM' | grep -qi 'x-tagave-facets: summary'"; then
+    curl -s -D - -o /dev/null -b "$COOKIE_JAR" "$FACETS_URL" | grep -i x-tagave
     compose logs --tail=20 worker-files
     exit 1
   fi
   curl -s -b "$COOKIE_JAR" "$FACETS_URL?_=1" > "$DUMP_TMP_FACETS_S"
-  compose exec -T postgres psql -q -U liner -d liner -Atc "update facet_state set dirty_at = now()" >/dev/null
+  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update facet_state set dirty_at = now()" >/dev/null
   LIVE_HDR=$(curl -s -D - -o "$DUMP_TMP_FACETS_L" -b "$COOKIE_JAR" "$FACETS_URL?_=2")
-  echo "$LIVE_HDR" | grep -qi 'x-liner-facets: live' || { echo "✗ FAIL: a dirty summary did not fall back to the live path"; exit 1; }
+  echo "$LIVE_HDR" | grep -qi 'x-tagave-facets: live' || { echo "✗ FAIL: a dirty summary did not fall back to the live path"; exit 1; }
   if ! python3 -c "import json,sys; a=json.load(open(sys.argv[1])); b=json.load(open(sys.argv[2])); sys.exit(0 if a == b else 1)" "$DUMP_TMP_FACETS_S" "$DUMP_TMP_FACETS_L"; then
     echo "✗ FAIL: facet summary body differs from the live body"; cat "$DUMP_TMP_FACETS_S"; echo; cat "$DUMP_TMP_FACETS_L"; exit 1
   fi
-  compose exec -T postgres psql -q -U liner -d liner -Atc "update facet_state set dirty_at = null" >/dev/null
+  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update facet_state set dirty_at = null" >/dev/null
   echo "✓ Facet summary served and equal to the live counts"
 fi
 
@@ -270,7 +271,7 @@ done || exit 1
 echo "✓ Doctor critical checks passed"
 
 # Backup: four runs with --keep 3 must leave exactly three verified dumps
-echo "Running liner-doctor backup four times with --keep 3..."
+echo "Running tagave-doctor backup four times with --keep 3..."
 BACKUP_OUT=""
 for i in 1 2 3 4; do
   if ! BACKUP_OUT=$(compose exec -T app node packages/doctor/dist/cli.js backup --keep 3 2>&1); then
@@ -281,12 +282,12 @@ for i in 1 2 3 4; do
   sleep 1  # file names carry a 1 s timestamp
 done
 echo "$BACKUP_OUT"
-if ! echo "$BACKUP_OUT" | grep -q "backup written /backups/liner-"; then
+if ! echo "$BACKUP_OUT" | grep -q "backup written /backups/tagave-"; then
   echo "✗ FAIL: unexpected backup output"
   exit 1
 fi
-# manual dumps only (liner-<time>Z.pgdump): --keep never prunes other kinds
-DUMP_COUNT=$(compose exec -T app sh -c 'ls /backups/liner-*Z.pgdump | wc -l' | tr -d ' \r')
+# manual dumps only (tagave-<time>Z.pgdump): --keep never prunes other kinds
+DUMP_COUNT=$(compose exec -T app sh -c 'ls /backups/tagave-*Z.pgdump | wc -l' | tr -d ' \r')
 if [ "$DUMP_COUNT" != "3" ]; then
   echo "✗ FAIL: expected 3 dumps after --keep 3, found $DUMP_COUNT"
   exit 1
@@ -297,7 +298,7 @@ echo "✓ Backup written, verified (pg_restore --list) and pruned to 3"
 # and feed it to a stock postgres image over stdin (no host bind mount — Docker
 # Desktop does not always expose a file written to a temp dir moments earlier).
 LATEST=$(compose exec -T app sh -c 'ls /backups/*.pgdump | sort | tail -1' | tr -d '\r')
-DUMP_TMP=$(mktemp -d "${TMPDIR%/}/liner-smoke-dump.XXXXXX")
+DUMP_TMP=$(mktemp -d "${TMPDIR%/}/tagave-smoke-dump.XXXXXX")
 compose cp "app:$LATEST" "$DUMP_TMP/"
 DUMP_FILE="$DUMP_TMP/$(basename "$LATEST")"
 if [ ! -s "$DUMP_FILE" ]; then
@@ -314,7 +315,7 @@ rm -rf "$DUMP_TMP"
 
 # Restore: refused while the app runs, then swapped in from a one-off
 # container with everything stopped, and the app comes back healthy on it.
-echo "Restoring $(basename "$LATEST") with liner-doctor restore..."
+echo "Restoring $(basename "$LATEST") with tagave-doctor restore..."
 set +e
 REFUSED_OUT=$(compose exec -T app node packages/doctor/dist/cli.js restore "$(basename "$LATEST")" --yes 2>&1)
 REFUSED_RC=$?

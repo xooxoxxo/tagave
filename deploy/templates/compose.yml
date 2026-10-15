@@ -15,16 +15,21 @@
 # Update: set TAGAVE_VERSION to the new release and redeploy with a fresh
 # pull. Settings > Updates in the app shows the steps and the release notes.
 #
-# Keep the two LINER_QUEUES lists in step with deploy/compose.yml
+# Database names: new installs create user and database "tagave". A stack
+# first deployed from this template before 0.9 has "liner": set
+# POSTGRES_USER=liner and POSTGRES_DB=liner, or the app cannot sign in to
+# the database it already has.
+#
+# Keep the two TAGAVE_QUEUES lists in step with deploy/compose.yml
 # (packages/worker/src/deployQueues.test.ts checks both).
 
 name: tagave
 
 x-worker-env: &worker-env
-  DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/liner
+  DATABASE_URL: postgres://${POSTGRES_USER:-tagave}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-tagave}
   APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
   CACHE_DIR: /cache
-  LINER_LIBRARY_ID: ""
+  TAGAVE_LIBRARY_ID: ""
   LOG_LEVEL: info
   TZ: ${TZ:-UTC}
 
@@ -33,15 +38,15 @@ services:
     image: postgres:16
     command: postgres -c max_connections=300
     environment:
-      POSTGRES_USER: liner
+      POSTGRES_USER: ${POSTGRES_USER:-tagave}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: liner
+      POSTGRES_DB: ${POSTGRES_DB:-tagave}
       TZ: ${TZ:-UTC}
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U liner -d liner"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -50,7 +55,7 @@ services:
     image: ghcr.io/xooxoxxo/tagave-app:${TAGAVE_VERSION:-latest}
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgres://liner:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/liner
+      DATABASE_URL: postgres://${POSTGRES_USER:-tagave}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-tagave}
       APP_SECRET: ${APP_SECRET:?APP_SECRET is required}
       CACHE_DIR: /cache
       ALLOW_INSECURE_HTTP: ${ALLOW_INSECURE_HTTP:-true}
@@ -84,7 +89,7 @@ services:
     image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
     environment:
       <<: *worker-env
-      LINER_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
+      TAGAVE_QUEUES: identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup
     volumes:
       - cache:/cache
     restart: unless-stopped
@@ -99,7 +104,7 @@ services:
     image: ghcr.io/xooxoxxo/tagave-worker:${TAGAVE_VERSION:-latest}
     environment:
       <<: *worker-env
-      LINER_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
+      TAGAVE_QUEUES: scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert
     volumes:
       - cache:/cache
       # register /mnt/music as the music folder in the app
