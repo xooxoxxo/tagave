@@ -20,7 +20,7 @@
     "@liner/db": "workspace:*",
     "@liner/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
-    "music-metadata": "^11.16.0",
+    "music-metadata": "^12.1.0",
     "pg-boss": "^12.37.1",
     "pino": "^10.4.0",
     "pino-pretty": "^13.2.0",
