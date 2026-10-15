@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { IconButton } from './Button';
+import { IconButton, type ButtonSize } from './Button';
 import styles from './Menu.module.css';
 
 export interface MenuItem {
@@ -25,6 +25,8 @@ export interface MenuProps {
   heading?: ReactNode;
   /** trigger icon; three dots by default */
   icon?: ReactNode;
+  /** the trigger's size: md (48px) by default, sm (36px; 44px on touch) beside a small button */
+  size?: ButtonSize;
   className?: string;
 }
 
@@ -44,7 +46,7 @@ export function MoreIcon() {
  * and closes when the page scrolls under it. It renders into <body>, so no
  * stacking context on the page can cover it.
  */
-export function Menu({ label, items, heading, icon, className }: MenuProps) {
+export function Menu({ label, items, heading, icon, size, className }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // phones: a sheet from the bottom edge, like a music app's track menu
@@ -133,6 +135,7 @@ export function Menu({ label, items, heading, icon, className }: MenuProps) {
       <IconButton
         ref={trigger}
         label={label}
+        {...(size ? { size } : {})}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? id : undefined}

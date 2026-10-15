@@ -396,6 +396,8 @@ export {
   type UnplayableReason,
   type PlayerQueueTrack,
   type PlayerQueueView,
+  type PlayerScanStatus,
+  type PlayerAlbumAvailability,
   STREAM_FORMATS,
   streamFormatSchema,
   type StreamFormat,

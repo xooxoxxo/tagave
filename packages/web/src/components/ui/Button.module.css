@@ -31,6 +31,11 @@
   --b-sheen-boost: 0;
   position: relative;
   isolation: isolate;
+  /* The sheen (::before) spans 92% of the width at the top. On a circle
+     (icon-only) its ends stuck out past the curve as two light corners, the
+     "square cutout" around round buttons (2026-10-15): clip the inside to the
+     button's own shape. Outer shadows and the focus ring are not clipped. */
+  overflow: hidden;
   display: inline-flex;
   align-items: center;
   justify-content: center;

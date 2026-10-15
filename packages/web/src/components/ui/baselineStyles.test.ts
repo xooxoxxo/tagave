@@ -50,6 +50,14 @@ describe('bare <button> baseline', () => {
   });
 });
 
+describe('the gummy-glass Button', () => {
+  const buttonCss = stripComments(readFileSync(new URL('./Button.module.css', import.meta.url), 'utf8'));
+  it('clips its sheen to its own shape, so a round button has no corners (2026-10-15)', () => {
+    const base = rules(buttonCss, (selector) => selector === '.button');
+    expect(base.map((r) => r.body).join('')).toMatch(/overflow:\s*hidden/);
+  });
+});
+
 describe('bare headings', () => {
   it('h1 is the headline role and h2 the title role, both through --type-* tokens', () => {
     const h1 = rules(css, s => s === ':where(h1)');

@@ -26,6 +26,7 @@ function fakeNavidrome() {
     songs: [] as FakeSong[],
     albumMbid: '' as string,
     scanning: false,
+    lastScan: '2026-10-01T10:00:00Z' as string | null,
     scans: [] as string[][],
     streams: [] as Array<{ id: string; format: string | null; range: string | undefined; timeOffset: string | null }>,
     goneIds: new Set<string>(),
@@ -59,7 +60,7 @@ function fakeNavidrome() {
         return ok(res, { searchResult3: { album: albums, song: songs } });
       }
       case 'getAlbum': return ok(res, { album: { ...album, song: state.songs.map((x) => ({ ...x, albumId: 'al-1' })) } });
-      case 'getScanStatus': return ok(res, { scanStatus: { scanning: state.scanning, count: 3 } });
+      case 'getScanStatus': return ok(res, { scanStatus: { scanning: state.scanning, count: 3, ...(state.lastScan ? { lastScan: state.lastScan } : {}) } });
       case 'getMusicFolders': return ok(res, { musicFolders: { musicFolder: [{ id: 1, name: 'Music' }] } });
       case 'startScan': state.scans.push(q.getAll('target')); return ok(res, { scanStatus: { scanning: true, count: 0 } });
       case 'stream': {
@@ -253,6 +254,42 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(sent).toEqual([{ name: 'player.scan', data: { libraryId }, opts: expect.objectContaining({ singletonKey: `player.scan:${libraryId}` }) }]);
     // a stranger gets nothing
     expect((await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/queue`, headers: as(strangerId) })).statusCode).toBe(404);
+  });
+
+  it('says how far the first scan is, and whether an album can play, without asking for a scan', async () => {
+    bundled();
+    const { clearCapabilityCache } = await import('../lib/player.js');
+    nav.state.scanning = true;
+    nav.state.lastScan = null;
+    try {
+      await sql`delete from player_scan_requests where library_id = ${libraryId}`;
+      const status = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player/scan-status`, headers: as(ownerId) });
+      expect(status.statusCode).toBe(200);
+      // 3 files read of the 4 tagave knows
+      expect(status.json()).toEqual({ scanning: true, firstScan: true, count: 3, total: 4, percent: 75 });
+      expect((await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player/scan-status`, headers: as(strangerId) })).statusCode).toBe(404);
+
+      sent.length = 0;
+      const avail = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/availability`, headers: as(ownerId) });
+      expect(avail.statusCode).toBe(200);
+      expect(avail.json()).toEqual({ albumId, tracks: 4, playable: 2, reason: null, scan: { scanning: true, firstScan: true, count: 3, total: 4, percent: 75 } });
+      // a visit never makes the server scan
+      expect(sent).toEqual([]);
+      expect(await sql`select 1 from player_scan_requests where library_id = ${libraryId}`).toHaveLength(0);
+      // the queue carries the same scan, for the player bar's words
+      const q = await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/queue`, headers: as(ownerId) });
+      expect(q.json().scan).toMatchObject({ scanning: true, percent: 75 });
+      expect((await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/availability`, headers: as(strangerId) })).statusCode).toBe(404);
+
+      // a later scan (the server has scanned before): no percent, the count would mislead
+      nav.state.lastScan = '2026-10-01T10:00:00Z';
+      clearCapabilityCache();
+      const later = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player/scan-status`, headers: as(ownerId) });
+      expect(later.json()).toEqual({ scanning: true, firstScan: false, count: 3, total: null, percent: null });
+    } finally {
+      nav.state.scanning = false;
+      nav.state.lastScan = '2026-10-01T10:00:00Z';
+    }
   });
 
   it('streams the original with ranges, transcodes on request, and never forwards credentials', async () => {

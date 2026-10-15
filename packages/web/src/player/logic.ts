@@ -4,7 +4,7 @@
  * transcoded stream is seeked, how a failed stream is handled and when Space
  * belongs to the player. engine.ts applies them; logic.test.ts pins them.
  */
-import { PLAYER_QUALITY_STORAGE_KEY, STREAM_BITRATES, type PlayerQuality, type PlayerQueueTrack, type PlayerQueueView, type StreamFormat } from '@tagave/shared';
+import { PLAYER_QUALITY_STORAGE_KEY, STREAM_BITRATES, type PlayerQuality, type PlayerQueueTrack, type PlayerQueueView, type PlayerScanStatus, type StreamFormat } from '@tagave/shared';
 
 type Playable = Pick<PlayerQueueTrack, 'available'>;
 
@@ -56,9 +56,28 @@ const REASON_TEXT: Record<string, string> = {
   cue: 'Tracks inside a CUE image cannot be played yet.',
 };
 
+/** "34 %": a percent as the album page and the bar write it (a thin no-break space before the sign). */
+export const percentText = (n: number) => `${Math.round(n)}\u202f%`;
+
+/**
+ * The quiet line under a disabled Play while the player server has not
+ * reached the album yet; null when it is not scanning.
+ */
+export function scanWaitLine(scan: PlayerScanStatus | null | undefined): string | null {
+  if (!scan?.scanning) return null;
+  if (scan.firstScan) return scan.percent != null ? `On the player after its first scan (${percentText(scan.percent)})` : 'On the player after its first scan';
+  return 'On the player after the scan it is running';
+}
+
 /** The plain sentence shown when nothing in the queue can be played. */
-export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequested' | 'tracks'>, from = 0): string {
-  if (view.scanRequested) return 'None of these tracks are on the player yet; tagave asked it to scan. Try again in a minute.';
+export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequested' | 'tracks'> & { scan?: PlayerScanStatus | null }, from = 0): string {
+  const notScanned = view.tracks.length > 0 && view.tracks.every((t) => t.available || t.reason === 'not_scanned' || t.reason === 'cue')
+    && view.tracks.some((t) => t.reason === 'not_scanned');
+  if (view.scan?.scanning && (notScanned || view.scanRequested)) {
+    if (view.scan.firstScan && view.scan.percent != null) return `Not on the player yet — its first scan is at ${percentText(view.scan.percent)}.`;
+    return view.scan.firstScan ? 'Not on the player yet — its first scan is still running.' : 'Not on the player yet — it is scanning for new files.';
+  }
+  if (view.scanRequested) return 'Not on the player yet — tagave asked it to look for these files. Try again in a minute.';
   const reason = view.tracks.slice(Math.max(0, from)).find((t) => !t.available && t.reason)?.reason
     ?? view.tracks.find((t) => !t.available && t.reason)?.reason;
   if (view.tracks.length === 0) return 'This album has no tracks to play.';
