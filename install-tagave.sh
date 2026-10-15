@@ -832,7 +832,9 @@ compose_ref() {
 # database. A database volume that already exists without them on record was
 # created by a release before 0.9, whose compose files defaulted to "liner".
 default_db_name() {
-  if docker volume inspect "${PROJECT_NAME}_pgdata" >/dev/null 2>&1; then
+  local project
+  project="$(env_get COMPOSE_PROJECT_NAME "$INSTALL_DIR/.env")"
+  if docker volume inspect "${project:-$PROJECT_NAME}_pgdata" >/dev/null 2>&1; then
     printf 'liner'
   else
     printf 'tagave'
