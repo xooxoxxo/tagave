@@ -119,14 +119,30 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artist page albums (db)', () =>
   });
 
   it('uses the expression index for the tag lookup (0040)', async () => {
-    // one connection: the setting must apply to the explain (a tiny table would seq-scan anyway)
-    const plan = await client.begin(async (tx: any) => {
-      await tx`set local enable_seqscan = off`;
-      return tx.unsafe(
-        `explain select id from local_albums where library_id = $1 and lower(tagave_display_artist(artist_guess)) = lower($2)`,
-        [libraryId, name],
-      );
-    });
-    expect(plan.map((r: Record<string, string>) => Object.values(r)[0]).join('\n')).toMatch(/idx_local_albums_display_artist_lower/);
+    // With only this suite's six albums in the library, "library_id index, then
+    // filter" costs about the same as the expression index, so the planner's
+    // pick flipped with whatever stats the shared table had. In one rolled-back
+    // transaction: 500 more albums in the library under other names, fresh
+    // stats, no seq scan. Now only the expression index narrows the lookup to
+    // the artist's albums, and the plan must use it.
+    const rollback = new Error('rollback');
+    let plan: Record<string, string>[] = [];
+    await client
+      .begin(async (tx: any) => {
+        await tx`insert into local_albums (id, library_id, cluster_key, artist_guess, title_guess, track_count)
+                 select gen_random_uuid(), ${libraryId}, 'filler/' || g, 'Filler Artist ' || g, 'Filler ' || g, 1
+                 from generate_series(1, 500) g`;
+        await tx`analyze local_albums`;
+        await tx`set local enable_seqscan = off`;
+        plan = await tx.unsafe(
+          `explain select id from local_albums where library_id = $1 and lower(tagave_display_artist(artist_guess)) = lower($2)`,
+          [libraryId, name],
+        );
+        throw rollback;
+      })
+      .catch((err: unknown) => {
+        if (err !== rollback) throw err;
+      });
+    expect(plan.map((r) => Object.values(r)[0]).join('\n')).toMatch(/idx_local_albums_display_artist_lower/);
   });
 });
