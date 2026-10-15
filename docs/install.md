@@ -201,7 +201,7 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Give each person their own Navidrome user: open `http://<this computer>:4533`, sign in as `admin` with the password from `.env`, and add users under Settings › Users. Then enter the server address, user name and password in the app.
 
-**The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it.
+**The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it. Until then an album's Play is greyed out with how far the first scan is, and it turns on by itself when the scan reaches the album.
 
 **Resources.** Plan for about 150 MB more memory, and one more core while Navidrome scans or transcodes. The compose file caps it at 512 MB (`mem_limit`) and one core (`cpus: 1.0`), so a scan cannot starve the database on a small machine.
 
