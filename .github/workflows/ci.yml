@@ -70,6 +70,10 @@ jobs:
       - run: pnpm --filter @tagave/api test
       - run: pnpm --filter @tagave/auth test
       - run: pnpm --filter @tagave/updater test
+      - run: pnpm --filter @tagave/doctor test
+      # Unit tests only (vitest). The Storybook story tests run in the
+      # storybook job below.
+      - run: pnpm --filter @tagave/web test
 
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')
