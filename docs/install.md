@@ -128,7 +128,7 @@ Coolify keeps the generated secrets in its own settings. Copy `SERVICE_PASSWORD_
 
 [`deploy/templates/unraid/tagave.xml`](../deploy/templates/unraid/tagave.xml) is a draft Community Apps template for the web app container only. tagave needs Postgres and two workers besides it, so on Unraid today the simpler route is the **Docker Compose Manager** plugin with [`deploy/templates/compose.yml`](../deploy/templates/compose.yml): add a new stack, paste the file, set the three variables in its `.env`, and **Compose Up**.
 
-To use the draft template anyway: install the official Postgres 16 template, then in **Docker › Add Container › Template** paste the template URL `https://raw.githubusercontent.com/xooxoxxo/tagave/main/deploy/templates/unraid/tagave.xml`, and add the two worker containers by hand with the `tagave-worker` image and the `LINER_QUEUES` lists from `deploy/templates/compose.yml`.
+To use the draft template anyway: install the official Postgres 16 template, then in **Docker › Add Container › Template** paste the template URL `https://raw.githubusercontent.com/xooxoxxo/tagave/main/deploy/templates/unraid/tagave.xml`, and add the two worker containers by hand with the `tagave-worker` image and the `TAGAVE_QUEUES` lists from `deploy/templates/compose.yml`.
 
 ### Any other Docker UI
 
