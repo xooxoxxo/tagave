@@ -40,6 +40,9 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
   let fake: Server;
   let received: Array<{ method: string; path: string; body: string; verified: boolean }> = [];
   let jar: Jar;
+  /** The stand-in answers POST /v1/update the way an updater replacing itself does. */
+  let restarting = false;
+  let busy = false;
 
   const json = (j: Jar = jar) => ({ origin: TEST_PUBLIC_URL, 'content-type': 'application/json', cookie: cookieHeader(j) });
   const get = (path: string, j: Jar = jar) => app.inject({ method: 'GET', url: path, headers: { cookie: cookieHeader(j) } });
@@ -65,6 +68,15 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
         const verified = verifier.verify({ method: req.method!, path: req.url!, body, time: h(TIME_HEADER), signature: h(SIGNATURE_HEADER) }).ok;
         received.push({ method: req.method!, path: req.url!, body, verified });
         if (!verified) { res.writeHead(401).end('{"error":"bad signature"}'); return; }
+        if (restarting && req.method === 'POST') {
+          res.writeHead(409, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'the updater is restarting itself on version 0.8.0; try again in a minute', selfReplace: { expectedVersion: '0.8.0', fromVersion: '0.7.0', runId: 'r0', since: new Date().toISOString() } }));
+          return;
+        }
+        if (busy && req.method === 'POST') {
+          res.writeHead(409, { 'content-type': 'application/json' }).end('{"error":"an update is already running"}');
+          return;
+        }
         res.writeHead(req.method === 'POST' ? 202 : 200, { 'content-type': 'application/json' });
         res.end(req.method === 'POST'
           ? JSON.stringify({ run: { id: 'r1', from: '0.7.0', target: JSON.parse(body).version, status: 'running' } })
@@ -90,6 +102,8 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
 
   beforeEach(async () => {
     received = [];
+    restarting = false;
+    busy = false;
     resetStepUpFailures();
     const res = await app.inject({ method: 'POST', url: '/api/auth/sign-in/email', headers: { origin: TEST_PUBLIC_URL, 'content-type': 'application/json' }, payload: { email: EMAIL, password: PASSWORD } });
     jar = cookieJar(res.headers['set-cookie']);
@@ -144,6 +158,18 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     await age(6);
     for (let i = 0; i < 5; i++) expect((await post('/api/v1/auth/step-up/password', { password: `wrong ${i} wrong wrong` })).statusCode).toBe(401);
     expect((await post('/api/v1/auth/step-up/password', { password: PASSWORD })).statusCode).toBe(429);
+  });
+
+  it('passes the updater restarting itself on as a 409 the page can tell apart', async () => {
+    restarting = true;
+    const res = await post('/api/v1/updater/update', { version: '0.8.0' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ status: 409, title: 'Updater restarting', detail: 'the updater is restarting itself on version 0.8.0; try again in a minute' });
+    restarting = false;
+    busy = true;
+    const other = await post('/api/v1/updater/update', { version: '0.8.0' });
+    expect(other.statusCode).toBe(409);
+    expect(other.json()).toMatchObject({ title: 'Conflict', detail: 'an update is already running' });
   });
 
   it('validates the version before anything else', async () => {

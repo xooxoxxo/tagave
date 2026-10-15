@@ -34,7 +34,11 @@ function appSecret(): string {
   return s;
 }
 
-type CallResult<T> = { ok: true; status: number; body: T } | { ok: false; status: number; error: string };
+/** `restarting`: the updater refused because it is replacing itself on a new version (409). */
+type CallResult<T> = { ok: true; status: number; body: T } | { ok: false; status: number; error: string; restarting?: boolean };
+
+/** The title of the 409 the page shows as "restarting the updater". */
+const UPDATER_RESTARTING_TITLE = 'Updater restarting';
 
 async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<CallResult<T>> {
   const text = body === undefined ? '' : JSON.stringify(body);
@@ -45,8 +49,11 @@ async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string
       ...(text ? { body: text } : {}),
       signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
     });
-    const json = (await res.json().catch(() => ({}))) as T & { error?: string };
-    if (!res.ok) return { ok: false, status: res.status, error: json.error ?? `the updater answered ${res.status}` };
+    const json = (await res.json().catch(() => ({}))) as T & { error?: string; selfReplace?: unknown };
+    if (!res.ok) {
+      const error = json.error ?? `the updater answered ${res.status}`;
+      return res.status === 409 && json.selfReplace ? { ok: false, status: 409, error, restarting: true } : { ok: false, status: res.status, error };
+    }
     return { ok: true, status: res.status, body: json };
   } catch (err) {
     return { ok: false, status: 502, error: `the updater does not answer at ${base} (${(err as Error).message})` };
@@ -78,6 +85,7 @@ export async function createUpdaterRoutes(fastify: FastifyInstance) {
     if (!base) throw new ApiError(409, 'Conflict', 'The updater is not installed on this server');
     await requireFreshStepUp(request);
     const res = await callUpdater<{ run: UpdateRun }>(base, 'POST', '/v1/update', { version: parsed.data.version });
+    if (!res.ok && res.restarting) throw new ApiError(409, UPDATER_RESTARTING_TITLE, res.error);
     if (!res.ok) throw new ApiError(res.status === 409 || res.status === 400 ? res.status : 502, res.status === 409 ? 'Conflict' : 'Bad Gateway', res.error);
     request.log.info({ event: 'update.started', userId: user.id, version: parsed.data.version, runId: res.body.run.id }, 'in-app update started');
     return reply.status(202).send(res.body);
