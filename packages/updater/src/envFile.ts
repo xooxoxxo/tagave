@@ -3,7 +3,8 @@
  * KEY=value lines, one pair of surrounding quotes stripped, every other line
  * (comments, order, secrets) kept byte for byte.
  */
-import { chmod, copyFile, open, readFile, rename, stat } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+import { writeFileKeepingOwner } from './safe-write.js';
 
 export function envGet(text: string, key: string): string | null {
   let value: string | null = null;
@@ -31,31 +32,16 @@ export function envSet(text: string, key: string, value: string): string {
 }
 
 /**
- * Writes `content` to `path` atomically: a private temp file next to it,
- * fsynced, then renamed over the original. The original is first copied to
- * `path.bak` (same mode). The file keeps its mode (600 for .env).
+ * Writes `content` to `path` atomically (safe-write.ts: owner, group and mode
+ * of the file it replaces). The original is first copied to `path.bak`, with
+ * the original's owner and mode. A new file is 600: .env holds the secrets.
  */
 export async function writeFileAtomic(path: string, content: string, keepBackup = true): Promise<void> {
-  let mode = 0o600;
-  try {
-    mode = (await stat(path)).mode & 0o777;
-    if (keepBackup) {
-      await copyFile(path, `${path}.bak`);
-      await chmod(`${path}.bak`, mode);
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  if (keepBackup) {
+    const original = await readText(path);
+    if (original !== null) await writeFileKeepingOwner(`${path}.bak`, original, { ownerFrom: path });
   }
-  const tmp = `${path}.tmp.${process.pid}`;
-  const fh = await open(tmp, 'w', mode);
-  try {
-    await fh.writeFile(content);
-    await fh.sync();
-  } finally {
-    await fh.close();
-  }
-  await chmod(tmp, mode);
-  await rename(tmp, path);
+  await writeFileKeepingOwner(path, content, { fallbackMode: 0o600 });
 }
 
 export async function readText(path: string): Promise<string | null> {

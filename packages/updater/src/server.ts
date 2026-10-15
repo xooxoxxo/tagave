@@ -9,11 +9,11 @@
  *                     while one runs
  */
 import { randomUUID } from 'node:crypto';
-import { mkdir } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
 import { envGet, readText, writeFileAtomic } from './envFile.js';
+import { mkdirKeepingOwner } from './safe-write.js';
 import type { AppProbe, Runner } from './runner.js';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { Update, newRun, type UpdateConfig } from './update.js';
@@ -67,7 +67,7 @@ export class UpdaterService {
 
   private async save(run: UpdateRun): Promise<void> {
     this.run = run;
-    await mkdir(join(this.opts.installDir, STATE_DIR), { recursive: true, mode: 0o700 });
+    await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
     await writeFileAtomic(this.statePath, `${JSON.stringify(run, null, 2)}\n`, false);
   }
 
