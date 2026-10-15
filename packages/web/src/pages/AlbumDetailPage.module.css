@@ -193,40 +193,6 @@
   margin-top: 8px;
 }
 
-/* the album's Play (while a player is installed) and its ⋯ menu: one
-   compact row in the title area, so the tracks stay close */
-.playRow {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 12px;
-  margin-top: 16px;
-}
-
-.playButton {
-  padding-inline: 18px 20px;
-}
-
-.playButton svg {
-  width: 15px;
-  height: 15px;
-}
-
-/* why Play waits: one quiet line beside it (under it when there is no room) */
-.playNote {
-  margin: 0;
-  font: 400 13px / 1.35 var(--font-body);
-  color: var(--ink-3);
-}
-
-.genres span {
-  font: 500 12px / 1 var(--font-body);
-  padding: 6px 10px;
-  border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--dew) 12%, transparent);
-  color: var(--dew);
-}
-
 /* what needs a decision (and, in Maintenance, the state and tools): under
    the album, across the whole column; empty, it takes no room */
 .upkeep {

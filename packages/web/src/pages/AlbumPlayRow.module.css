@@ -1,0 +1,25 @@
+/* the album's Play (while a player is installed) and its ⋯ menu: one
+   compact row in the title area, so the tracks stay close */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  margin-top: 16px;
+}
+
+.play {
+  padding-inline: 18px 20px;
+}
+
+.play svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* why Play waits: one quiet line beside it (under it when there is no room) */
+.note {
+  margin: 0;
+  font: 400 13px / 1.35 var(--font-body);
+  color: var(--ink-3);
+}

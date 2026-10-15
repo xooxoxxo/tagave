@@ -39,7 +39,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, PlayIcon, PauseIcon, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, Collapse, CoverArt, LinkButton, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -47,6 +47,7 @@ import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
+import { AlbumPlayRow } from './AlbumPlayRow';
 import { AlbumFiller } from './AlbumFiller';
 import { albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
@@ -881,31 +882,19 @@ export function AlbumDetailPage() {
                 <div className={styles.genres}>{genreLabels.map((g) => <span key={g}>{g}</span>)}</div>
               )}
             </div>
-            {(playerInstalled || !maintenance) && (
-              // Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view)
-              <div className={styles.playRow}>
-                {playerInstalled && (playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? (
-                  <Button variant={playVariant} size="sm" className={styles.playButton} data-album-play="" onClick={togglePlayback}><PauseIcon />Pause</Button>
-                ) : playingHere && playStatus === 'paused' ? (
-                  <Button variant={playVariant} size="sm" className={styles.playButton} data-album-play="" onClick={togglePlayback}><PlayIcon />Resume</Button>
-                ) : (
-                  <Button
-                    variant={playVariant}
-                    size="sm"
-                    className={styles.playButton}
-                    data-album-play=""
-                    loading={queueLoading}
-                    disabled={playDisabled}
-                    aria-describedby={playNote ? 'album-play-note' : undefined}
-                    onClick={() => void playAlbum(albumRef)}
-                  >
-                    <PlayIcon />Play
-                  </Button>
-                ))}
-                {!maintenance && manageMenu}
-                {playNote && <p id="album-play-note" className={styles.playNote}>{playNote}</p>}
-              </div>
-            )}
+            {/* Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view) */}
+            <AlbumPlayRow
+              mode={!playerInstalled ? null
+                : playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
+                  : playingHere && playStatus === 'paused' ? 'resume' : 'play'}
+              variant={playVariant}
+              loading={queueLoading}
+              disabled={playDisabled}
+              note={playNote}
+              onPlay={() => void playAlbum(albumRef)}
+              onToggle={togglePlayback}
+              menu={maintenance ? null : manageMenu}
+            />
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
