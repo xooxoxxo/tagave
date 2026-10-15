@@ -8,3 +8,13 @@ minimumReleaseAge: 7200
 # Security exceptions to the age gate go in minimumReleaseAgeExclude: only the
 # exact patched version, only while it is younger than 5 days, with a comment
 # naming the advisory. Drop each entry once it ages past the gate.
+
+# Better Auth pins @better-auth/utils exactly; keep one copy across the tree.
+overrides:
+  '@better-auth/utils': 0.4.2
+
+# Neither needs its install script: argon2 loads a bundled prebuild and esbuild
+# ships its binary as an optional dependency.
+allowBuilds:
+  argon2: false
+  esbuild: false
