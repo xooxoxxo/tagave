@@ -3,14 +3,16 @@
  * and (on a desktop) the volume, along the foot of the content column. It is
  * mounted once in Layout, so moving between pages never stops the music; it
  * takes its own row under the page (the page scrolls above it, nothing is
- * covered). PlayerBarView is the bar alone, driven by props (stories,
- * tests); PlayerBar connects it to the engine (player/engine.ts).
+ * covered). The queue key opens the queue (PlayerQueue.tsx) above it.
+ * PlayerBarView is the bar alone, driven by props (stories, tests);
+ * PlayerBar connects it to the engine (player/engine.ts).
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon } from './ui';
+import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
-import { currentTrack, next, previous, retry, seek, setVolume, stop, toggle, usePlayerStore, type PlayerStatus } from '../player/engine';
+import { currentTrack, moveInQueue, next, playAt, previous, removeFromQueue, retry, seek, setVolume, stop, toggle, usePlayerStore, type PlayerStatus } from '../player/engine';
+import { PlayerQueueView } from './PlayerQueue';
 import styles from './PlayerBar.module.css';
 
 export interface PlayerBarViewProps {
@@ -35,10 +37,14 @@ export interface PlayerBarViewProps {
   onVolume: (volume: number) => void;
   onRetry: () => void;
   onClose: () => void;
+  /** the queue panel is open (the queue key shows pressed) */
+  queueOpen?: boolean;
+  /** opens and closes the queue; without it there is no queue key */
+  onQueue?: () => void;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -123,9 +129,16 @@ export function PlayerBarView({ title, artist, album, coverUrl, status, message,
         />
       </div>
 
-      <IconButton label="Close the player" variant="quiet" size="sm" className={styles.close} onClick={onClose}>
-        <CloseIcon />
-      </IconButton>
+      <div className={styles.ends}>
+        {onQueue && (
+          <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue}>
+            <QueueIcon />
+          </IconButton>
+        )}
+        <IconButton label="Close the player" variant="quiet" size="sm" className={styles.key} onClick={onClose}>
+          <CloseIcon />
+        </IconButton>
+      </div>
 
       <span className={styles.srOnly} role="status" aria-live="polite">{busy ? 'Loading' : ''}</span>
     </section>
@@ -146,6 +159,19 @@ export function PlayerBar() {
   useEffect(() => { if (uninstalled) stop(); }, [uninstalled]);
   const hasQueue = !!s.queue && !uninstalled;
   const ref = useRef<HTMLDivElement>(null);
+  const [queueOpen, setQueueOpen] = useState(false);
+  useEffect(() => { if (!hasQueue) setQueueOpen(false); }, [hasQueue]);
+  // a press outside the bar and the queue closes the queue
+  useEffect(() => {
+    if (!queueOpen) return;
+    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setQueueOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [queueOpen]);
+  const closeQueue = () => {
+    setQueueOpen(false);
+    (ref.current?.querySelector('[data-queue-key]') as HTMLElement | null)?.focus();
+  };
 
   useEffect(() => {
     if (!hasQueue) return;
@@ -179,6 +205,17 @@ export function PlayerBar() {
   const tracks = s.queue.tracks;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
+      {queueOpen && (
+        <PlayerQueueView
+          album={s.queue.album}
+          tracks={tracks}
+          index={s.index}
+          onPlay={playAt}
+          onMove={moveInQueue}
+          onRemove={removeFromQueue}
+          onClose={closeQueue}
+        />
+      )}
       <PlayerBarView
         title={track?.title ?? s.queue.album}
         artist={track?.artist || s.queue.albumArtist}
@@ -199,6 +236,8 @@ export function PlayerBar() {
         onVolume={setVolume}
         onRetry={retry}
         onClose={stop}
+        queueOpen={queueOpen}
+        onQueue={() => setQueueOpen((o) => !o)}
       />
     </div>
   );

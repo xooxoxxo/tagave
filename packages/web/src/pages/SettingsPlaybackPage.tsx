@@ -1,14 +1,18 @@
 /**
  * Settings › Playback: the opt-in player module. Whether a player server is
  * connected (the bundled Navidrome or one the owner already runs), a scan on
- * demand, the bring-your-own form (owner), and the quality this device asks
- * for (kept in this browser). Non-owners see the status and the quality.
+ * demand, the bring-your-own form (owner), Scrobbling (owner: the Last.fm
+ * API key tagave signs scrobbles with), and the quality this device asks
+ * for (kept in this browser). Non-owners see the status and the quality;
+ * everyone's own scrobbling is in Settings › Listening.
  */
 import { useEffect, useState, type FormEvent } from 'react';
-import { STREAM_BITRATES, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView } from '@tagave/shared';
+import { Link } from '@tanstack/react-router';
+import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
+import { useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
 import styles from './SettingsPlaybackPage.module.css';
 
@@ -64,12 +68,17 @@ export function SettingsPlaybackContent() {
       )}
       {scan.isError && <p className={styles.error} role="alert">{problem(scan.error, 'The scan could not be started.')}</p>}
 
-      {owner && settings.data?.bundled && (
-        <p className={styles.hint}>Phone and desktop apps that speak Subsonic can connect to this computer on port 4533 with a Navidrome user. Create that user in Navidrome&rsquo;s own web page, on the same port.</p>
+      {cap?.installed && settings.data?.bundled && (
+        <p className={styles.hint}>Everyone on this tagave plays as their own account on the player, which tagave makes and keeps in step with Settings › Users. Phone and desktop apps that speak Subsonic connect to this computer on port 4533; each person sets their own password for them in <Link to="/settings/$section" params={{ section: 'listening' }}>Settings › Listening</Link>.</p>
       )}
 
       {owner && settings.data && !settings.data.bundled && <OwnServerForm libraryId={libraryId} settings={settings.data} />}
       {owner && settings.isError && <Banner tone="danger">Could not load the playback settings. {problem(settings.error, '')}</Banner>}
+
+      {owner && cap?.installed && <ScrobblingSettings libraryId={libraryId} />}
+      {cap?.installed && (
+        <p className={styles.hint}>Your own Last.fm, ListenBrainz and recent plays: <Link to="/settings/$section" params={{ section: 'listening' }}>Settings › Listening</Link>.</p>
+      )}
 
       <QualitySetting />
     </>
@@ -167,5 +176,83 @@ function QualitySetting() {
         </label>
       </div>
     </>
+  );
+}
+
+// ---- Scrobbling (owner) ----
+
+function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
+  const view = useScrobblingSettings(libraryId, true);
+  const save = useSaveLastfmApp(libraryId);
+  const remove = useRemoveLastfmApp(libraryId);
+  const onRemove = async () => {
+    const ok = await confirmDialog({
+      title: 'Remove the Last.fm API key?',
+      message: 'Nobody can connect Last.fm until a key is added again, and scrobbles to Last.fm wait. Connected accounts stay connected.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (ok) remove.mutate();
+  };
+  if (view.isError) return <Banner tone="danger">Could not load the scrobbling settings. {problem(view.error, '')}</Banner>;
+  return (
+    <ScrobblingSettingsPanel
+      view={view.data ?? null}
+      saving={save.isPending}
+      saved={save.isSuccess && !save.isPending}
+      error={save.isError ? problem(save.error, 'Last.fm did not accept these.') : remove.isError ? problem(remove.error, 'The key could not be removed.') : null}
+      onSave={(body) => save.mutate(body)}
+      onRemove={() => void onRemove()}
+    />
+  );
+}
+
+export interface ScrobblingSettingsPanelProps {
+  view: ScrobblingSettingsView | null;
+  saving?: boolean;
+  saved?: boolean;
+  error?: string | null;
+  onSave: (body: SaveLastfmApp) => void;
+  onRemove: () => void;
+}
+
+/** The owner's half of scrobbling: the Last.fm application, with the steps to make one. */
+export function ScrobblingSettingsPanel({ view, saving = false, saved = false, error = null, onSave, onRemove }: ScrobblingSettingsPanelProps) {
+  const [apiKey, setApiKey] = useState('');
+  const [secret, setSecret] = useState('');
+  const [invalid, setInvalid] = useState<string | null>(null);
+  const lastfm = view?.lastfm;
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    const parsed = saveLastfmAppSchema.safeParse({ apiKey, secret });
+    if (!parsed.success) { setInvalid(parsed.error.issues[0]?.message ?? 'Check both values.'); return; }
+    setInvalid(null);
+    onSave(parsed.data);
+  };
+  useEffect(() => { if (saved) { setApiKey(''); setSecret(''); } }, [saved]);
+  return (
+    <section className={styles.scrobbling} aria-labelledby="playback-scrobbling">
+      <h3 id="playback-scrobbling" className={styles.subTitle}>Scrobbling</h3>
+      <p className={styles.hint}>tagave sends every play to each person&rsquo;s own Last.fm or ListenBrainz, from its player here and from phone apps through this server. Each person connects their own account in Settings › Listening. ListenBrainz needs nothing from you; Last.fm needs an API key for this server, once.</p>
+      <div className={styles.status} role="status">
+        <Badge tone={lastfm?.configured ? 'success' : 'neutral'}>{!view ? 'Checking…' : lastfm?.configured ? 'Last.fm ready' : 'Last.fm not set up'}</Badge>
+        {lastfm?.configured && <span className={styles.statusDetail}>API key ending in …{lastfm.apiKeyHint}{lastfm.source === 'env' ? ', from .env' : ''}</span>}
+      </div>
+      <ol className={styles.steps}>
+        <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in with any Last.fm account (yours is fine).</li>
+        <li>Under Application name, type a name, for example &ldquo;tagave at home&rdquo;. Leave every other field empty.</li>
+        <li>Press Submit. Last.fm shows an API key and a Shared secret.</li>
+        <li>Paste both below and press Save. tagave checks them with Last.fm first and keeps them sealed.</li>
+      </ol>
+      <form className={styles.form} onSubmit={submit} noValidate>
+        <TextField label="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.currentTarget.value)} placeholder={lastfm?.configured ? `…${lastfm.apiKeyHint ?? ''}` : '32 letters and digits'} />
+        <TextField label="Shared secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} error={invalid ?? error ?? undefined} />
+        {saved && <p className={styles.muted} role="status">Saved. Last.fm accepted the key.</p>}
+        <div className={styles.row}>
+          <Button type="submit" variant="secondary" loading={saving} disabled={!apiKey || !secret}>{lastfm?.configured ? 'Replace' : 'Save'}</Button>
+          {lastfm?.source === 'settings' && <Button variant="quiet-danger" onClick={onRemove} disabled={saving}>Remove</Button>}
+        </div>
+      </form>
+    </section>
   );
 }

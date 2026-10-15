@@ -82,13 +82,21 @@
   gap: var(--space-xs);
 }
 
-.key,
-.close {
+.key {
   flex: none;
 }
 
-.close {
+/* the queue key and close, at the bar's right end */
+.ends {
   grid-area: close;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ends [aria-pressed="true"] {
+  background: var(--mist);
+  color: var(--ink);
 }
 
 /* the play key keeps its size whether it holds a glyph or the spinner */

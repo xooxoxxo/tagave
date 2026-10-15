@@ -70,3 +70,31 @@ export function VolumeIcon() {
     </svg>
   );
 }
+
+/** Three lines, the last one short with a dot: the play queue. */
+export function QueueIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <path d="M4 6.5h16M4 12h16M4 17.5h9" />
+      <circle cx="18" cy="17.5" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** A chevron pointing up: move earlier. */
+export function ChevronUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M6.5 14.5 12 9l5.5 5.5" />
+    </svg>
+  );
+}
+
+/** A chevron pointing down: move later. */
+export function ChevronDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M6.5 9.5 12 15l5.5-5.5" />
+    </svg>
+  );
+}

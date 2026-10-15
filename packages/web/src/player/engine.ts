@@ -5,15 +5,18 @@
  * and the Media Session. The rules it applies live in logic.ts.
  *
  * One element plays; the other loads the next playable track once the
- * current one is within 20 s of its end, and the two swap on `ended`, so the
- * change between tracks is quick.
+ * current one is within 30 s of its end. In the last half second a timer
+ * starts the next one just before the current one ends (near-gapless where
+ * the browser allows; a background tab's slowed timers fall back to the
+ * `ended` swap). The queue view can reorder and remove upcoming tracks.
+ * Playback is on this device only: nothing hands it to another one.
  */
 import { create } from 'zustand';
 import type { PlayEventKind, PlayerQueueTrack, PlayerQueueView, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
-  FAILURE_TEXT, chooseFormat, classifyFailure, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, previousAction,
-  seekPlan, shouldPreload, shownDuration, shownPosition, startIndex, streamUrl, transcodeFormat, type CanPlay,
+  FAILURE_TEXT, chooseFormat, classifyFailure, handoffDelayMs, heardDelta, moveUpcoming, nextPlayable, nothingPlayableMessage, orderQueue,
+  previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, startIndex, streamUrl, transcodeFormat, type CanPlay,
 } from './logic';
 import { getPlayerQuality } from './quality';
 
@@ -64,6 +67,13 @@ let lastRequest: { album: AlbumRef; startTrackId: string | null } | null = null;
 /** bumped by every load, so a late answer for an old track is ignored */
 let generation = 0;
 let lastPositionState = 0;
+/** the timed switch to the preloaded track near the end of the current one */
+let handoffTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearHandoff() {
+  if (handoffTimer) clearTimeout(handoffTimer);
+  handoffTimer = null;
+}
 
 const el = () => elements?.[active] ?? null;
 const standby = () => elements?.[1 - active] ?? null;
@@ -135,7 +145,9 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
     heardSec: keep ? cur!.heardSec : 0,
     lastTime: null,
   };
-  if (preloaded && preloaded.index !== nextPlayable(s.queue!.tracks, index)) { release(standby()); preloaded = null; }
+  clearHandoff();
+  const nextIdx = nextPlayable(s.queue!.tracks, index);
+  if (preloaded && preloaded.trackId !== s.queue!.tracks[nextIdx]?.localTrackId) { release(standby()); preloaded = null; }
   set({ index, status: 'loading', message: null, retry: null, position: offset, duration: shownDuration(format, track.durationMs, Number.NaN) });
   a.src = streamUrl(track.localTrackId, format, getPlayerQuality().bitrate, offset);
   if (format === 'original' && offset > 0) {
@@ -162,6 +174,7 @@ function onPlaying(a: HTMLAudioElement) {
 
 function onPause(a: HTMLAudioElement) {
   if (a !== el() || a.ended) return;
+  clearHandoff();
   const { status } = get();
   // a src change pauses too; that is a load, not the listener pausing
   if (status === 'playing' || status === 'buffering') set({ status: 'paused' });
@@ -179,6 +192,18 @@ function onTime(a: HTMLAudioElement) {
   const duration = shownDuration(cur.format, track?.durationMs ?? null, a.duration);
   set({ position, duration });
   if (!preloaded && shouldPreload(position, duration)) preloadNext();
+  if (preloaded && !handoffTimer) {
+    const b = standby();
+    const delay = handoffDelayMs(position, duration, !!b && b.readyState >= 3, a.paused);
+    if (delay != null) {
+      const from = cur.trackId;
+      handoffTimer = setTimeout(() => {
+        handoffTimer = null;
+        // still the same track, still playing: start the next one now
+        if (cur?.trackId === from && !el()?.paused) advance(true);
+      }, delay);
+    }
+  }
   const t = Date.now();
   if (t - lastPositionState > 1000) { lastPositionState = t; updatePositionState(); }
 }
@@ -191,7 +216,26 @@ function onDuration(a: HTMLAudioElement) {
 
 function onEnded(a: HTMLAudioElement) {
   if (a !== el() || !cur) return;
+  advance(false);
+}
+
+/**
+ * The current track is done: at its `ended`, or (early) from the handoff
+ * timer a moment before it, so the next one is already sounding when this
+ * one stops.
+ */
+function advance(early: boolean) {
+  const a = el();
+  if (!a || !cur) return;
+  clearHandoff();
+  if (early) {
+    // only straight into a loaded next track; anything else waits for `ended`
+    const tracks = get().queue?.tracks ?? [];
+    const n = nextPlayable(tracks, get().index);
+    if (n < 0 || !preloaded || preloaded.trackId !== tracks[n]!.localTrackId) return;
+  }
   cur.completed = true;
+  if (early && a.currentTime > 0) cur.heardSec += heardDelta(cur.lastTime, a.currentTime);
   set({ position: get().duration ?? get().position });
   sendEvent('completed');
   const s = get();
@@ -203,7 +247,7 @@ function onEnded(a: HTMLAudioElement) {
     setPlaybackState('paused');
     return;
   }
-  if (preloaded && preloaded.index === next && elements) {
+  if (preloaded && preloaded.trackId === tracks[next]!.localTrackId && elements) {
     const p = preloaded;
     preloaded = null;
     const old = a;
@@ -215,7 +259,13 @@ function onEnded(a: HTMLAudioElement) {
     set({ index: next, status: 'loading', message: null, retry: null, position: 0, duration: shownDuration(p.format, track.durationMs, b.duration) });
     updateMetadata(track, s.queue!);
     startPlayback(b);
-    release(old);
+    if (early) {
+      // the old track's last few milliseconds play out under the new one's start
+      const src = old.getAttribute('src');
+      setTimeout(() => { if (old !== el() && old.getAttribute('src') === src) release(old); }, 150);
+    } else {
+      release(old);
+    }
     return;
   }
   loadTrack(next);
@@ -391,6 +441,7 @@ function updatePositionState() {
 export async function playAlbum(album: AlbumRef, startTrackId: string | null = null): Promise<void> {
   ensureElements();
   lastRequest = { album, startTrackId };
+  clearHandoff();
   leaveCurrent();
   generation++;
   release(el());
@@ -475,6 +526,7 @@ export function seek(sec: number) {
   if (!a || !cur) return;
   const plan = seekPlan(cur.format, sec, s.duration);
   cur.lastTime = null;
+  clearHandoff();
   if (plan.kind === 'native') {
     try { a.currentTime = plan.time; } catch { /* not seekable yet */ }
     set({ position: plan.time });
@@ -504,8 +556,45 @@ export function retry() {
   if (s.queue && s.index >= 0) loadTrack(s.index, { offset: s.position, keepSession: true, ...(cur?.format && cur.triedFallback ? { format: cur.format } : {}) });
 }
 
+// ---- the queue view ----
+
+/** Plays the queue's track `index` now (a row in the queue view). */
+export function playAt(index: number) {
+  const s = get();
+  const track = s.queue?.tracks[index];
+  if (!track || !track.available || index === s.index) return;
+  leaveCurrent();
+  loadTrack(index);
+}
+
+function setTracks(tracks: readonly PlayerQueueTrack[]) {
+  const s = get();
+  if (!s.queue || tracks === s.queue.tracks) return;
+  set({ queue: { ...s.queue, tracks: [...tracks] } });
+  // what waits in the other element may no longer be next
+  const next = nextPlayable(tracks, s.index);
+  if (preloaded && preloaded.trackId !== tracks[next]?.localTrackId) {
+    clearHandoff();
+    release(standby());
+    preloaded = null;
+  }
+}
+
+/** Moves an upcoming track to another upcoming place. */
+export function moveInQueue(from: number, to: number) {
+  const s = get();
+  if (s.queue) setTracks(moveUpcoming(s.queue.tracks, s.index, from, to));
+}
+
+/** Takes an upcoming track out of the queue. */
+export function removeFromQueue(at: number) {
+  const s = get();
+  if (s.queue) setTracks(removeUpcoming(s.queue.tracks, s.index, at));
+}
+
 /** Stops and clears the queue (the bar's close, Stop from a media key, signing out). */
 export function stop() {
+  clearHandoff();
   leaveCurrent();
   generation++;
   release(el());
