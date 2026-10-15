@@ -37,6 +37,15 @@ class FakeInstall {
   missingTags = new Set<string>();
   failRestore = false;
   restored = false;
+  /** The install runs the player (compose service "player", Navidrome). */
+  withPlayer = false;
+  /** What the target's updater image ships as compose.yml. */
+  newCompose = `${COMPOSE}# new\n`;
+  playerImage: string | null = null;
+  playerHealth = 'healthy';
+  failSnapshot = false;
+  playerSnapshots = 0;
+  playerRestored = false;
   now = Date.parse('2026-10-11T10:00:00Z');
 
   constructor(readonly dir: string) {
@@ -54,7 +63,25 @@ class FakeInstall {
     const ok = (stdout = ''): CommandResult => ({ code: 0, stdout, stderr: '' });
     const bad = (stderr: string): CommandResult => ({ code: 1, stdout: '', stderr });
     const a = args.join(' ');
-    if (a === 'compose config --services') return ok('postgres\napp\nworker-identify\nworker-files\nupdater\n');
+    if (a === 'compose config --services') return ok(`postgres\napp\nworker-identify\nworker-files\n${this.withPlayer ? 'player\n' : ''}updater\n`);
+    if (a === 'compose config --images player') {
+      const m = /navidrome:(\S+)/.exec(await readFile(join(this.dir, 'compose.yml'), 'utf8'));
+      return ok(`deluan/navidrome:${m?.[1] ?? 'none'}\n`);
+    }
+    if (a.startsWith('compose run --rm --no-deps -T --entrypoint sh player -c')) {
+      const script = args.at(-1)!;
+      if (script.includes('cp -a /data/navidrome /data/snapshots/pre-update')) {
+        if (this.failSnapshot) return bad('cp: write error: No space left on device');
+        this.playerSnapshots += 1;
+        return ok('saved\n');
+      }
+      if (script.includes('cp -a /data/snapshots/pre-update /data/navidrome')) {
+        this.playerRestored = true;
+        return ok('restored\n');
+      }
+    }
+    if (a === 'compose ps -q player') return ok(this.playerImage ? 'pl1\n' : '');
+    if (args[0] === 'inspect' && args.at(-1) === 'pl1') return ok(`${this.playerHealth}\n`);
     if (a === 'compose config --quiet') return ok();
     if (args[0] === 'compose' && args[1] === 'pull') {
       const v = await this.envVersion(opts?.env);
@@ -65,7 +92,7 @@ class FakeInstall {
       return ok(JSON.stringify({ path: '/backups/tagave-manual-20261011.pgdump', tocEntries: 412 }));
     }
     if (args[0] === 'run' && args.includes('cat')) {
-      return args.at(-1) === `${IMAGE_DEPLOY_DIR}/compose.yml` ? ok(`${COMPOSE}# new\n`) : bad('No such file');
+      return args.at(-1) === `${IMAGE_DEPLOY_DIR}/compose.yml` ? ok(this.newCompose) : bad('No such file');
     }
     if (args[0] === 'compose' && args[1] === 'stop') {
       for (const s of args.slice(2)) {
@@ -81,6 +108,10 @@ class FakeInstall {
         this.appVersion = v;
         this.appUp = true;
         if (this.migratesOn.has(v)) this.migrations += 1;
+      }
+      if (services.includes('player')) {
+        const m = /navidrome:(\S+)/.exec(await readFile(join(this.dir, 'compose.yml'), 'utf8'));
+        this.playerImage = `deluan/navidrome:${m?.[1] ?? 'none'}`;
       }
       if (services.some((s) => s.startsWith('worker-')) && !this.brokenWorkers.has(v)) {
         for (const s of services.filter((x) => x.startsWith('worker-'))) {
@@ -262,5 +293,102 @@ describe('update state machine', () => {
     expect(run.reason).toMatch(/liner-doctor restore failed/);
     expect(run.log.at(-1)!.message).toMatch(/by hand/);
     expect(await envNow()).toBe('0.7.0');
+  });
+
+  describe('with the player', () => {
+    const PLAYER_COMPOSE = (tag: string) => `${COMPOSE}  player:\n    image: deluan/navidrome:${tag}\n`;
+    const idx = (pred: (c: string[]) => boolean) => fake.calls.findIndex(pred);
+    const isSnapshot = (c: string[]) => c[1] === 'run' && c.includes('player') && c.at(-1)!.includes('cp -a /data/navidrome /data/snapshots/pre-update');
+    const isRestore = (c: string[]) => c[1] === 'run' && c.includes('player') && c.at(-1)!.includes('cp -a /data/snapshots/pre-update /data/navidrome');
+
+    beforeEach(async () => {
+      fake.withPlayer = true;
+      fake.playerImage = 'deluan/navidrome:0.64.0';
+      await writeFile(join(dir, 'compose.yml'), PLAYER_COMPOSE('0.64.0'));
+    });
+
+    it('pulls and restarts the player with everything else', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      const pulls = fake.calls.filter((c) => c[1] === 'pull');
+      expect(pulls.length).toBe(2);
+      for (const p of pulls) expect(p).toContain('player');
+      expect(fake.calls.some((c) => c[1] === 'up' && c.includes('player'))).toBe(true);
+    });
+
+    it('leaves the player data alone when its image does not change', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(fake.playerSnapshots).toBe(0);
+      expect(fake.calls.some((c) => c[1] === 'stop' && c.includes('player'))).toBe(false);
+      expect(run.log.some((l) => l.message.includes('player image unchanged (deluan/navidrome:0.64.0)'))).toBe(true);
+      expect(run.log.some((l) => l.message === 'the player reports healthy')).toBe(true);
+    });
+
+    it('stops the player and copies its data before the new app starts when its image changes', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(fake.playerSnapshots).toBe(1);
+      expect(fake.playerRestored).toBe(false);
+      const stopWorkers = idx((c) => c[1] === 'stop' && c.includes('worker-files'));
+      const stopPlayer = idx((c) => c.join(' ') === 'compose stop player');
+      const snapshot = idx(isSnapshot);
+      const upApp = idx((c) => c[1] === 'up' && c[3] === 'app' && c.length === 4);
+      const upAll = idx((c) => c[1] === 'up' && c.includes('player'));
+      expect(stopWorkers).toBeLessThan(stopPlayer);
+      expect(stopPlayer).toBeLessThan(snapshot);
+      expect(snapshot).toBeLessThan(upApp);
+      expect(upApp).toBeLessThan(upAll);
+      expect(fake.playerImage).toBe('deluan/navidrome:0.64.2');
+      expect(run.log.some((l) => l.message.includes('deluan/navidrome:0.64.0 -> deluan/navidrome:0.64.2'))).toBe(true);
+    });
+
+    it('puts the player data back when the update rolls back after the new player started', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(run.rollback).toEqual({ version: '0.7.0', restoredDatabase: true, healthy: true });
+      expect(fake.playerRestored).toBe(true);
+      const restore = idx(isRestore);
+      const stopPlayer = fake.calls.findLastIndex((c, i) => i < restore && c.join(' ') === 'compose stop player');
+      const oldUp = fake.calls.findIndex((c, i) => i > restore && c[1] === 'up' && c[3] === 'app');
+      expect(stopPlayer).toBeGreaterThan(idx(isSnapshot));
+      expect(restore).toBeGreaterThan(-1);
+      expect(oldUp).toBeGreaterThan(restore);
+      // the old player runs again on the old image
+      expect(fake.playerImage).toBe('deluan/navidrome:0.64.0');
+      expect(run.log.some((l) => l.message.startsWith("the player's data is back as it was"))).toBe(true);
+    });
+
+    it('rolls back the configuration only when the copy fails, before the new app starts', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.failSnapshot = true;
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(stepStatus(run)).toMatchObject({ pull: 'done', restart: 'failed', rollback: 'done' });
+      expect(run.reason).toMatch(/copying the player's data failed/);
+      expect(run.rollback?.restoredDatabase).toBe(false);
+      expect(fake.playerRestored).toBe(false);
+      expect(fake.calls.some((c) => c[1] === 'up' && c[3] === 'app' && fake.calls.indexOf(c) < idx(isSnapshot))).toBe(false);
+      expect(fake.appVersion).toBe('0.7.0');
+      expect(await envNow()).toBe('0.7.0');
+    });
+
+    it('warns about an unhealthy player after the update, and does not roll back', async () => {
+      fake.newCompose = PLAYER_COMPOSE('0.64.2');
+      fake.playerHealth = 'unhealthy';
+      const run = await update('0.8.0', { playerHealthTimeoutMs: 10_000 });
+      expect(run.status).toBe('succeeded');
+      expect(stepStatus(run)).toMatchObject({ verify: 'done', rollback: 'skipped' });
+      expect(fake.playerRestored).toBe(false);
+      const warning = run.log.find((l) => l.level === 'warn' && l.message.startsWith('the player did not report healthy'));
+      expect(warning?.message).toMatch(/the player reports unhealthy.*tagave itself is updated/);
+      expect(await envNow()).toBe('0.8.0');
+    });
   });
 });

@@ -37,6 +37,13 @@
 #   ./install-tagave.sh enable-updater         on an existing install
 #   ./install-tagave.sh disable-updater        turn it off again
 #
+# Optional: the player, a bundled Navidrome that plays your albums in tagave
+# and serves phone apps (single-computer installs, role all, only):
+#
+#   ./install-tagave.sh --with-player ...      at install time
+#   ./install-tagave.sh enable-player          on an existing install
+#   ./install-tagave.sh disable-player         turn it off again
+#
 # Run with --help for every option.
 
 set -euo pipefail
@@ -69,6 +76,8 @@ BEHIND_HTTPS="${TAGAVE_BEHIND_HTTPS:-}"
 PUBLIC_URL="${TAGAVE_PUBLIC_URL:-}"
 BACKUP_DIR="${TAGAVE_BACKUP_DIR:-}"
 WITH_UPDATER="${TAGAVE_WITH_UPDATER:-}"
+WITH_PLAYER="${TAGAVE_WITH_PLAYER:-}"
+PLAYER_PORT="${TAGAVE_PLAYER_PORT:-}"
 MUSIC_WRITABLE="${TAGAVE_MUSIC_WRITABLE:-}"
 ASSUME_YES="${TAGAVE_YES:-0}"
 NO_START=0
@@ -85,6 +94,11 @@ COMPOSE_DB="compose.db-published.yml"
 WORKER_ENV_NAME="files-worker.env"
 # Where the app reaches the opt-in updater, over the internal compose network.
 UPDATER_URL="http://updater:8080"
+# Where the app reaches the opt-in player (Navidrome), and the account it uses.
+PLAYER_URL="http://player:4533"
+PLAYER_USER="admin"
+PLAYER_PASSWORD=""
+PLAYER_ENCRYPTION_KEY=""
 
 # ---------------------------------------------------------------------------
 # Output
@@ -111,7 +125,8 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater] [options]
+Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
+                          enable-player|disable-player] [options]
 
   install                  set up or reconfigure tagave here (the default)
   update                   move this install to a new release: back up the
@@ -125,6 +140,14 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater] 
                            the Docker socket (root on this computer); see
                            docs/security.md. Restarts the app.
   disable-updater          remove the in-app updater again
+  enable-player            add the optional player to this install: a bundled
+                           Navidrome that plays your albums in tagave and
+                           serves phone apps. It reads your music read-only and
+                           publishes its port on this computer's network.
+                           Single-computer installs (role all) only. Restarts
+                           the app.
+  disable-player           remove the player again (asks before deleting its
+                           data)
 
   --role all|app|files     what runs on this computer (default: all)
   --dir PATH               install directory (default: ~/tagave)
@@ -138,6 +161,10 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater] 
   --behind-https           the app will sit behind an https reverse proxy
   --with-updater           also run the optional in-app updater (roles all,
                            app); see enable-updater above
+  --with-player            also run the optional player (role all only); see
+                           enable-player above
+  --player-port N          port the player is published on, for phone apps
+                           (default: 4533)
   --public-url URL         the address you open tagave at, e.g.
                            https://music.example.com (default: http://THIS
                            COMPUTER'S ADDRESS:PORT). Passkeys are bound to its
@@ -168,7 +195,7 @@ Each option can also be set as an environment variable: TAGAVE_ROLE,
 TAGAVE_DIR, TAGAVE_MUSIC_DIR, TAGAVE_PORT, TAGAVE_VERSION, TAGAVE_TZ,
 TAGAVE_ADVERTISE_ADDRESS, TAGAVE_DB_HOST, TAGAVE_DB_PORT, TAGAVE_DB_BIND,
 TAGAVE_FROM, TAGAVE_APP_URL, TAGAVE_BEHIND_HTTPS=1, TAGAVE_PUBLIC_URL, TAGAVE_BACKUP_DIR,
-TAGAVE_WITH_UPDATER=1, TAGAVE_YES=1. TAGAVE_REF picks the git
+TAGAVE_WITH_UPDATER=1, TAGAVE_WITH_PLAYER=1, TAGAVE_PLAYER_PORT, TAGAVE_YES=1. TAGAVE_REF picks the git
 ref the compose files are downloaded from (default: the release being installed).
 EOF
 }
@@ -180,7 +207,7 @@ EOF
 need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see --help)"; fi; }
 
 case "${1:-}" in
-  install|update|status|enable-updater|disable-updater) COMMAND="$1"; shift ;;
+  install|update|status|enable-updater|disable-updater|enable-player|disable-player) COMMAND="$1"; shift ;;
 esac
 
 while [ "$#" -gt 0 ]; do
@@ -200,6 +227,8 @@ while [ "$#" -gt 0 ]; do
     --dry-run)           DRY_RUN=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
     --with-updater)      WITH_UPDATER=1; shift ;;
+    --with-player)       WITH_PLAYER=1; shift ;;
+    --player-port)       need_arg "$@"; PLAYER_PORT="$2"; shift 2 ;;
     --music-writable)    MUSIC_WRITABLE=1; shift ;;
     --public-url)        need_arg "$@"; PUBLIC_URL="$2"; shift 2 ;;
     --replace-secrets)   REPLACE_SECRETS=1; shift ;;
@@ -268,6 +297,15 @@ has_updater_profile() {
   case ",$(env_get COMPOSE_PROFILES "$1")," in *,updater,*) return 0 ;; esac
   return 1
 }
+
+# has_player_profile FILE: COMPOSE_PROFILES in FILE includes "player".
+has_player_profile() {
+  case ",$(env_get COMPOSE_PROFILES "$1")," in *,player,*) return 0 ;; esac
+  return 1
+}
+
+# Why the bundled player needs a single-computer install, for the refusals.
+PLAYER_SPLIT_REASON="the bundled player has to run next to both your music and the app, so for now it works only when everything runs on one computer (--role all). On a split install, run your own Navidrome on the music computer and point Settings > Playback in tagave at it (server address, user and password)."
 
 # 32 random bytes as base64 (44 characters): the app secret.
 generate_secret() {
@@ -482,6 +520,8 @@ collect_answers() {
       BEHIND_HTTPS=1
     fi
     if [ -z "$WITH_UPDATER" ] && has_updater_profile "$existing"; then WITH_UPDATER=1; fi
+    if [ -z "$WITH_PLAYER" ] && has_player_profile "$existing"; then WITH_PLAYER=1; fi
+    [ -n "$PLAYER_PORT" ] || PLAYER_PORT="$(env_get TAGAVE_PLAYER_PORT "$existing")"
   fi
 
   step "Setup"
@@ -561,6 +601,26 @@ collect_answers() {
     local add_updater=""
     ask add_updater "Add the in-app updater? (y/N)" "n"
     case "$add_updater" in y|Y|yes|Yes|YES) WITH_UPDATER=1 ;; *) WITH_UPDATER=0 ;; esac
+  fi
+
+  if [ "$ROLE" != "all" ] && [ "$WITH_PLAYER" = "1" ]; then
+    die "$PLAYER_SPLIT_REASON"
+  fi
+  if [ "$ROLE" = "all" ] && [ -z "$WITH_PLAYER" ] && [ -n "$TTY" ]; then
+    say "  Optional: the player, a bundled Navidrome. It plays your albums inside tagave"
+    say "  and lets phone apps (Symfonium, Amperfy, play:Sub...) stream your library. It"
+    say "  reads your music read-only and publishes a port on this computer's network."
+    local add_player=""
+    ask add_player "Add the player (plays your albums in tagave through a bundled Navidrome)? (y/N)" "n"
+    case "$add_player" in y|Y|yes|Yes|YES) WITH_PLAYER=1 ;; *) WITH_PLAYER=0 ;; esac
+  fi
+  if [ "$WITH_PLAYER" = "1" ]; then
+    ask PLAYER_PORT "Player port for phone apps" "4533"
+  fi
+  PLAYER_PORT="${PLAYER_PORT:-4533}"
+  is_port "$PLAYER_PORT" || die "player port must be a number from 1 to 65535, not '$PLAYER_PORT'"
+  if [ "$WITH_PLAYER" = "1" ] && [ "$PLAYER_PORT" = "$PORT" ]; then
+    die "the player and the web app cannot share port $PORT; pick another with --player-port"
   fi
 
   check_value "install directory" "$INSTALL_DIR"
@@ -828,6 +888,32 @@ settle_secrets() {
   else
     ok "Kept the database password already in .env"
   fi
+  settle_player_secrets
+}
+
+# The player's admin password and Navidrome's encryption key: like the app
+# secret, the ones in .env always win. They stay in .env when the player is
+# turned off, so turning it on again reopens the same Navidrome data. Never
+# printed.
+settle_player_secrets() {
+  local existing="$INSTALL_DIR/.env"
+  PLAYER_PASSWORD="$(env_get TAGAVE_PLAYER_PASSWORD "$existing")"
+  PLAYER_ENCRYPTION_KEY="$(env_get TAGAVE_PLAYER_ENCRYPTION_KEY "$existing")"
+  [ "$WITH_PLAYER" = "1" ] || return 0
+  if [ -z "$PLAYER_PASSWORD" ]; then
+    PLAYER_PASSWORD="$(generate_password)" || die "generating the player password failed"
+    [ -n "$PLAYER_PASSWORD" ] || die "generating the player password failed"
+    ok "Generated the player's admin password (TAGAVE_PLAYER_PASSWORD in .env)"
+  else
+    ok "Kept the player's admin password already in .env"
+  fi
+  if [ -z "$PLAYER_ENCRYPTION_KEY" ]; then
+    PLAYER_ENCRYPTION_KEY="$(generate_password)" || die "generating the player encryption key failed"
+    [ -n "$PLAYER_ENCRYPTION_KEY" ] || die "generating the player encryption key failed"
+    ok "Generated the player's encryption key"
+  else
+    ok "Kept the player's encryption key already in .env"
+  fi
 }
 
 # Writes stdin to a file readable only by the owner: created under umask 077
@@ -863,6 +949,7 @@ write_env() {
     die "refusing to write .env without an app secret and a database password"
   fi
   if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then profiles="$profiles,updater"; fi
+  if [ "$WITH_PLAYER" = "1" ] && [ "$ROLE" = "all" ]; then profiles="$profiles,player"; fi
   insecure="true"
   if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
   local public_url="$PUBLIC_URL" local_origin=""
@@ -914,6 +1001,13 @@ EOF
     fi
     if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then
       printf '\n# the optional in-app updater (profile "updater" above). It holds the Docker\n# socket: see docs/security.md. Turn it off with install-tagave.sh disable-updater.\nTAGAVE_INSTALL_DIR=%s\nTAGAVE_UPDATER_URL=%s\n' "$INSTALL_DIR" "$UPDATER_URL"
+    fi
+    if [ "$ROLE" = "all" ] && { [ "$WITH_PLAYER" = "1" ] || [ -n "$PLAYER_PASSWORD" ]; }; then
+      local player_url=""
+      [ "$WITH_PLAYER" != "1" ] || player_url="$PLAYER_URL"
+      printf '\n# the optional player (profile "player" above): a bundled Navidrome. The app\n# reaches it at TAGAVE_PLAYER_URL (empty: the player is off) as this user;\n# phone apps use TAGAVE_PLAYER_PORT. The password and the key stay here only.\n# Turn it off with install-tagave.sh disable-player.\n'
+      printf 'TAGAVE_PLAYER_URL=%s\nTAGAVE_PLAYER_USER=%s\nTAGAVE_PLAYER_PORT=%s\nTAGAVE_PLAYER_PASSWORD=%s\nTAGAVE_PLAYER_ENCRYPTION_KEY=%s\n' \
+        "$player_url" "$PLAYER_USER" "$PLAYER_PORT" "$PLAYER_PASSWORD" "$PLAYER_ENCRYPTION_KEY"
     fi
     if [ "$ROLE" = "app" ]; then
       printf '\n# database published for the file worker on the music computer\nDB_BIND=%s\nDB_PORT=%s\nTAGAVE_ADVERTISE_ADDRESS=%s\n' \
@@ -1021,6 +1115,21 @@ start_services() {
     wait_for_worker "$worker"
   done
   [ "$ROLE" = "app" ] || check_music_visible
+  if [ "$WITH_PLAYER" = "1" ] && [ "$ROLE" = "all" ]; then wait_for_player || true; fi
+}
+
+# The player answers its health check once it listens; its first scan of the
+# library goes on in the background and is not waited for. Returns 1 (after
+# a warning and the log) when it does not come up.
+wait_for_player() {
+  say "  Waiting for the player..."
+  if wait_for player healthy 180; then
+    ok "The player is up (its first scan of your library runs in the background)"
+    return 0
+  fi
+  compose logs --tail 20 player >&2 || true
+  warn "The player did not become healthy. tagave itself runs; the log above says why the player does not. Check it with: docker compose logs player"
+  return 1
 }
 
 # Docker on macOS (Docker Desktop, colima) runs containers in a VM and only
@@ -1121,6 +1230,18 @@ show_summary() {
   say "    ./install-tagave.sh status          version, health, and whether a release is out"
   say "    ./install-tagave.sh update          back up, update, check health (run it on every computer)"
   say ""
+  if [ "$WITH_PLAYER" = "1" ] && [ "$ROLE" = "all" ]; then
+    say "  The player (Navidrome) is on. Phone apps connect to http://$addr:$PLAYER_PORT"
+    say "  with the user admin and the password TAGAVE_PLAYER_PASSWORD in .env (or a user"
+    say "  you create in Navidrome's web page at that address). Its first scan of your"
+    say "  library is running; on a large library over NFS it can take hours."
+    say "  Keep that port inside your network or VPN. Turn the player off with"
+    say "  ./install-tagave.sh disable-player."
+    say ""
+  elif [ "$ROLE" = "all" ]; then
+    say "  To play your albums in tagave, add the optional player: ./install-tagave.sh enable-player"
+    say ""
+  fi
   if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then
     say "  The in-app updater is on: Settings > Updates can install a new release. It holds the"
     say "  Docker socket; turn it off with ./install-tagave.sh disable-updater."
@@ -1169,6 +1290,9 @@ FROM_VERSION=""   # the release running before the update: CURRENT, or what
 TARGET=""         # the version the update moves to
 UPDATE_BACKUP_DIR=""     # this update's copy of the configuration and database
 NEW_APP_STARTED=0 # the new app has started, so it may have changed the database
+PLAYER_IMAGE_BEFORE=""  # the player's image before the update (empty: no player here)
+PLAYER_IMAGE_AFTER=""   # and with the new compose files
+PLAYER_SNAPSHOT=0       # the player's data was copied to /data/snapshots/pre-update
 
 # Same as compose, but keeps stdin (for feeding a dump to pg_restore).
 compose_in() { (cd "$INSTALL_DIR" && docker compose "$@"); }
@@ -1198,6 +1322,11 @@ check_docker() {
   docker info >/dev/null 2>&1 \
     || die "Docker is installed but not reachable. Start Docker, or add your user to the docker group, then run this again."
 }
+
+# has_service NAME: the active compose configuration has service NAME. (grep
+# reads all of it: with -q it could stop early and, under pipefail, fail the
+# pipeline when compose gets SIGPIPE.)
+has_service() { compose config --services 2>/dev/null | grep -x "$1" >/dev/null; }
 
 # The worker services this computer runs, one per line.
 local_workers() { compose config --services 2>/dev/null | grep '^worker-' || true; }
@@ -1309,6 +1438,41 @@ set_env_key() {
   fi
 }
 
+# The image the player service runs with the compose files and .env as they
+# are now; nothing when the active profiles have no player. (Naming a service
+# in "config --images" includes it even outside the active profiles, so the
+# service list is checked first.)
+player_image() {
+  has_service player || return 0
+  compose config --images player 2>/dev/null | head -n 1 || true
+}
+
+# Run inside the player's volume: copies Navidrome's data folder (its SQLite
+# database) to /data/snapshots/pre-update, replacing an older copy. Prints
+# "saved", or "none" when the player has never started.
+PLAYER_SNAPSHOT_SH='set -e
+if [ ! -d /data/navidrome ]; then echo none; exit 0; fi
+rm -rf /data/snapshots/pre-update
+mkdir -p /data/snapshots
+cp -a /data/navidrome /data/snapshots/pre-update
+echo saved'
+
+# Navidrome updates its database forward only, so before a new player image
+# starts, stop the player and copy its data; a roll back puts the copy back.
+snapshot_player() {
+  local out
+  say "  The player moves from $PLAYER_IMAGE_BEFORE to $PLAYER_IMAGE_AFTER. Navidrome changes its"
+  say "  database only forward, so it is copied first."
+  compose stop player || die "could not stop the player (see above)."
+  out="$(compose run --rm --no-deps -T --entrypoint sh player -c "$PLAYER_SNAPSHOT_SH" | tail -n 1)" \
+    || die "copying the player's data failed (see above)."
+  case "$out" in
+    saved) PLAYER_SNAPSHOT=1; ok "Player data copied to /data/snapshots/pre-update in its volume" ;;
+    none)  ok "The player has no data yet; nothing to copy" ;;
+    *)     die "copying the player's data did not finish (it said: ${out:-nothing})." ;;
+  esac
+}
+
 # Copies the configuration this update is about to change, so a roll back can
 # put it back as it was.
 save_configuration() {
@@ -1379,7 +1543,11 @@ print_rollback() {
     if [ "$ROLE" = "app" ]; then
       say "  # first, on the music computer: docker compose stop worker-files"
     fi
-    say "  docker compose stop app ${workers% }"
+    if [ "$PLAYER_SNAPSHOT" = "1" ]; then
+      say "  docker compose stop app ${workers% } player"
+    else
+      say "  docker compose stop app ${workers% }"
+    fi
     say "  cp -p $rel/.env $rel/*.yml ."
     [ ! -f "$UPDATE_BACKUP_DIR/$WORKER_ENV_NAME" ] || say "  cp -p $rel/$WORKER_ENV_NAME ."
     say "  # put the database back as it was before the update"
@@ -1387,9 +1555,17 @@ print_rollback() {
     say '  docker compose exec -T postgres sh -c '\''dropdb -U "$POSTGRES_USER" --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'\'''
     # shellcheck disable=SC2016
     say '  docker compose exec -T postgres sh -c '\''pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --exit-on-error'\'' < '"$rel/database.pgdump"
+    if [ "$PLAYER_SNAPSHOT" = "1" ]; then
+      say "  # put the player's data back as it was before the update; the copy the new"
+      say "  # Navidrome changed is kept in /data/snapshots/rolled-back-DATE in its volume"
+      # shellcheck disable=SC2016 # printed for the user to paste, not run here
+      say '  docker compose run --rm --no-deps -T --entrypoint sh player -c '\''mv /data/navidrome /data/snapshots/rolled-back-$(date +%Y%m%d-%H%M%S) && cp -a /data/snapshots/pre-update /data/navidrome'\'''
+    elif [ -n "$PLAYER_IMAGE_BEFORE" ]; then
+      say "  # the player's Navidrome version did not change, so its data needs nothing restored"
+    fi
     say "  docker compose pull && docker compose up -d"
   else
-    say "  # the new version never started, so the database is unchanged"
+    say "  # the new version never started, so the database (and the player's data) is unchanged"
     say "  cp -p $rel/.env $rel/*.yml ."
     [ ! -f "$UPDATE_BACKUP_DIR/$WORKER_ENV_NAME" ] || say "  cp -p $rel/$WORKER_ENV_NAME ."
     say "  docker compose pull && docker compose up -d"
@@ -1524,6 +1700,10 @@ update_app_computer() {
   say "  3. download the $TARGET images"
   say "  4. stop the workers, start the new app (it updates the database) and wait until it is healthy"
   say "  5. start the workers and wait until they run the same build"
+  if [ "$ROLE" = "all" ] && has_service player; then
+    say "     and the player; when the new release pins another Navidrome version, the"
+    say "     player is stopped and its data copied before the new app starts"
+  fi
   if [ "$ROLE" = "app" ]; then
     say "  Afterwards, run install-tagave.sh update on the music computer too."
   fi
@@ -1541,18 +1721,23 @@ update_app_computer() {
   ON_DIE=print_rollback
 
   step "Switching to $TARGET"
+  PLAYER_IMAGE_BEFORE="$(player_image)"
   VERSION="$TARGET"
   fetch_compose_files
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   set_env_version "$INSTALL_DIR/$WORKER_ENV_NAME" "$TARGET"
   ok "TAGAVE_VERSION=$TARGET"
   validate_compose
+  PLAYER_IMAGE_AFTER="$(player_image)"
   compose pull || die "downloading the $TARGET images failed (see above)."
 
   step "Restarting"
   if [ -n "$workers" ]; then
     # shellcheck disable=SC2086 # one service name per word
     compose stop $workers || die "could not stop the workers (see above)."
+  fi
+  if [ -n "$PLAYER_IMAGE_BEFORE" ] && [ -n "$PLAYER_IMAGE_AFTER" ] && [ "$PLAYER_IMAGE_BEFORE" != "$PLAYER_IMAGE_AFTER" ]; then
+    snapshot_player
   fi
   NEW_APP_STARTED=1
   compose up -d app || die "the new app did not start (see above)."
@@ -1570,6 +1755,9 @@ update_app_computer() {
   wait_for_update_health || die "tagave $TARGET did not report healthy in time. Check: docker compose logs --tail 50"
   ok "tagave $TARGET is healthy"
   ON_DIE=""
+  # A player that does not come back is reported, not rolled back: tagave
+  # itself runs fine without it.
+  [ -z "$PLAYER_IMAGE_AFTER" ] || wait_for_player || true
 
   step "Done"
   say "  tagave now runs $TARGET. The backup from before the update is in $UPDATE_BACKUP_DIR."
@@ -1684,6 +1872,12 @@ run_status() {
     warn ".env says TAGAVE_VERSION=$CURRENT, which moves with every pull. Pin it with: install-tagave.sh update"
   fi
 
+  if [ "$ROLE" = "all" ] && has_service player; then
+    say "  Player:           $(container_health player) (port $(env_get TAGAVE_PLAYER_PORT "$INSTALL_DIR/.env"))"
+  elif [ "$ROLE" = "all" ]; then
+    say "  Player:           off (./install-tagave.sh enable-player adds it)"
+  fi
+
   step "Containers"
   compose ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}' || true
 
@@ -1747,7 +1941,7 @@ run_enable_updater() {
   set_env_key "$env_file" TAGAVE_INSTALL_DIR "$INSTALL_DIR"
   set_env_key "$env_file" TAGAVE_UPDATER_URL "$UPDATER_URL"
   ok "COMPOSE_PROFILES=$(env_get COMPOSE_PROFILES "$env_file"), TAGAVE_INSTALL_DIR, TAGAVE_UPDATER_URL in .env"
-  compose config --services 2>/dev/null | grep -qx updater \
+  has_service updater \
     || die "the compose files in $INSTALL_DIR have no updater service (they come from an older release). Run ./install-tagave.sh update to a release with the updater first; .env already has the settings."
   validate_compose
 
@@ -1790,10 +1984,126 @@ run_disable_updater() {
   ok "The updater is removed; Settings > Updates shows the update command again"
 }
 
+# ---------------------------------------------------------------------------
+# enable-player and disable-player
+# ---------------------------------------------------------------------------
+
+# Adds the opt-in player to an existing install: profile "player", its admin
+# password and encryption key (generated once, kept in .env only), the URL
+# the app reaches it at and the port phone apps use. Then starts it and
+# restarts the app, which picks up TAGAVE_PLAYER_URL.
+run_enable_player() {
+  local env_file profiles
+  say "${C_BOLD}tagave: add the player${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  [ "$ROLE" = "all" ] || die "$PLAYER_SPLIT_REASON"
+  env_file="$INSTALL_DIR/.env"
+  [ -n "$PLAYER_PORT" ] || PLAYER_PORT="$(env_get TAGAVE_PLAYER_PORT "$env_file")"
+  PLAYER_PORT="${PLAYER_PORT:-4533}"
+  is_port "$PLAYER_PORT" || die "player port must be a number from 1 to 65535, not '$PLAYER_PORT'"
+  [ "$PLAYER_PORT" != "$PORT" ] || die "the player and the web app cannot share port $PORT; pick another with --player-port"
+  check_docker
+
+  say ""
+  say "  The player is Navidrome, an open-source music server, run next to tagave. It"
+  say "  plays your albums inside tagave and lets phone apps stream your library."
+  say "  - It reads your music folder read-only, and keeps its own database in a new"
+  say "    Docker volume (player-data)."
+  say "  - It publishes port $PLAYER_PORT on this computer's network, for phone apps."
+  say "    Keep that port inside your home network or VPN; never forward it from your router."
+  say "  - Its admin password is generated now and kept only in .env (TAGAVE_PLAYER_PASSWORD)."
+  say "  Remove it any time: ./install-tagave.sh disable-player"
+  confirm "Add the player?"
+
+  step "Configuring"
+  WITH_PLAYER=1
+  settle_player_secrets
+  profiles="$(env_get COMPOSE_PROFILES "$env_file")"
+  if ! has_player_profile "$env_file"; then
+    set_env_key "$env_file" COMPOSE_PROFILES "${profiles:+$profiles,}player"
+  fi
+  set_env_key "$env_file" TAGAVE_PLAYER_URL "$PLAYER_URL"
+  set_env_key "$env_file" TAGAVE_PLAYER_USER "$PLAYER_USER"
+  set_env_key "$env_file" TAGAVE_PLAYER_PORT "$PLAYER_PORT"
+  set_env_key "$env_file" TAGAVE_PLAYER_PASSWORD "$PLAYER_PASSWORD"
+  set_env_key "$env_file" TAGAVE_PLAYER_ENCRYPTION_KEY "$PLAYER_ENCRYPTION_KEY"
+  ok "COMPOSE_PROFILES=$(env_get COMPOSE_PROFILES "$env_file"), TAGAVE_PLAYER_URL, TAGAVE_PLAYER_USER, TAGAVE_PLAYER_PORT=$PLAYER_PORT and the player's secrets in .env"
+  has_service player \
+    || die "the compose files in $INSTALL_DIR have no player service (they come from an older release). Run ./install-tagave.sh update to a release with the player first; .env already has the settings."
+  validate_compose
+
+  if [ "$NO_START" = "1" ]; then
+    step "Configuration written; nothing started (--no-start)"
+    say "  Start it with:  cd $INSTALL_DIR && docker compose up -d"
+    return 0
+  fi
+  step "Starting the player and restarting the app"
+  compose pull player || die "downloading the player image failed (see above)."
+  compose up -d player app || die "docker compose could not start the player (see above)."
+  if wait_for app healthy 600; then
+    ok "Web app is up"
+  else
+    compose logs --tail 40 app >&2 || true
+    die "the web app did not become healthy after the restart. The log above says why."
+  fi
+  wait_for_player || die "the player did not start. The log above says why; fix it and run this again, or remove it with ./install-tagave.sh disable-player."
+  say ""
+  say "  Phone apps connect to http://$(detect_address):$PLAYER_PORT with the user admin and"
+  say "  the password TAGAVE_PLAYER_PASSWORD in .env, or a user you create in Navidrome's"
+  say "  web page at that address. The first scan of a large library can take hours."
+}
+
+# Removes the player container and turns the profile off. The admin password
+# and the encryption key stay in .env, and the data volume stays unless the
+# owner says yes, so turning the player on again finds the same Navidrome.
+run_disable_player() {
+  local env_file profiles project volume answer=""
+  say "${C_BOLD}tagave: remove the player${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  env_file="$INSTALL_DIR/.env"
+  check_docker
+  if [ "$NO_START" != "1" ]; then
+    compose rm --stop --force player >/dev/null 2>&1 || true
+  fi
+  profiles="$(env_get COMPOSE_PROFILES "$env_file" | tr ',' '\n' | grep -vx player | paste -sd, - || true)"
+  set_env_key "$env_file" COMPOSE_PROFILES "$profiles"
+  set_env_key "$env_file" TAGAVE_PLAYER_URL ""
+  ok "COMPOSE_PROFILES=$profiles; TAGAVE_PLAYER_URL cleared (the player's password and key stay in .env)"
+  validate_compose
+  if [ "$NO_START" = "1" ]; then
+    ok "The player is off in .env; nothing was stopped (--no-start)"
+  else
+    compose up -d app || die "docker compose could not restart the app (see above)."
+    ok "The player is removed"
+  fi
+
+  project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
+  volume="${project:-$PROJECT_NAME}_player-data"
+  if ! docker volume inspect "$volume" >/dev/null 2>&1; then return 0; fi
+  if [ -n "$TTY" ] && [ "$NO_START" != "1" ]; then
+    printf '%s' "Also delete the player's data volume (Navidrome's database: its own plays, stars and users)? (y/N): " >"$TTY"
+    IFS= read -r answer <"$TTY" || answer=""
+  fi
+  case "$answer" in
+    y|Y|yes|Yes|YES)
+      docker volume rm "$volume" >/dev/null || die "could not delete the volume $volume (see above)."
+      ok "Deleted the volume $volume"
+      ;;
+    *)
+      say "  The player's data is kept in the Docker volume $volume, so enable-player picks it up again."
+      say "  To delete it later:  docker volume rm $volume"
+      ;;
+  esac
+}
+
 case "$COMMAND" in
   install) main ;;
   update)  run_update ;;
   status)  run_status ;;
   enable-updater)  run_enable_updater ;;
   disable-updater) run_disable_updater ;;
+  enable-player)   run_enable_player ;;
+  disable-player)  run_disable_player ;;
 esac

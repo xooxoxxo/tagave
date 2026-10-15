@@ -10,6 +10,9 @@
 #   profile "updater"  optional: the in-app updater (Settings > Updates). It
 #                    holds the Docker socket, so it is off unless you add it;
 #                    see docs/security.md before you do.
+#   profile "player" optional: a bundled Navidrome that plays your albums in
+#                    tagave and serves phone apps. Single-computer installs
+#                    only for now; see docs/install.md.
 #
 # One computer runs both profiles. In a split install the computer with the
 # database runs "app" (plus compose.db-published.yml, so the file worker can
@@ -113,6 +116,14 @@ services:
       # "updater" profile runs: Settings > Updates then offers the update
       # button. Empty: the page shows the command to run instead.
       TAGAVE_UPDATER_URL: ${TAGAVE_UPDATER_URL:-}
+      # Set (by install-tagave.sh --with-player or enable-player) when the
+      # "player" profile runs: the app plays albums through the bundled
+      # Navidrome at this address with this account. Empty: no bundled player;
+      # Settings > Playback can still point at a server of your own. The
+      # workers never get these.
+      TAGAVE_PLAYER_URL: ${TAGAVE_PLAYER_URL:-}
+      TAGAVE_PLAYER_USER: ${TAGAVE_PLAYER_USER:-}
+      TAGAVE_PLAYER_PASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
     networks:
       - default
       - updater
@@ -232,6 +243,82 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  # Opt-in: the player, an unmodified Navidrome (https://www.navidrome.org)
+  # that streams your music to tagave and to phone apps. tagave reaches it as
+  # http://player:4533 with the admin account below; phone apps log in to it
+  # directly on the published port.
+  #
+  # It reads the music read-only, always (even with --music-writable), and
+  # keeps its own database in the "player-data" volume. That is SQLite: keep
+  # it on a local Docker volume, never on NFS. The file watcher is off
+  # (inotify does not work over NFS); tagave asks for a scan after it writes
+  # tags, and a full scan runs every 24 hours. Sharing, the Jellyfin API and
+  # Navidrome's anonymous usage reports are off.
+  #
+  # The image is pinned per tagave release to the newest Navidrome release
+  # that is at least 30 days old. 0.64.0 (2026-09-12) is that today; 0.64.1
+  # (security fixes, including throttling of Subsonic login attempts) becomes
+  # eligible on 2026-10-21 and 0.64.2 (fixes for "database is locked" on slow
+  # storage) on 2026-10-24: bump the pin then. TAGAVE_PLAYER_IMAGE overrides
+  # it (unsupported). Navidrome migrates its database forward only, so
+  # install-tagave.sh update and the in-app updater copy it to
+  # /data/snapshots/pre-update before a new image starts.
+  #
+  # Turn it on with install-tagave.sh --with-player or enable-player, off
+  # with disable-player. The port is published on this computer's network
+  # for phone apps; put it behind your HTTPS reverse proxy or VPN and never
+  # forward it from your router (docs/security.md).
+  player:
+    profiles: ["player"]
+    image: ${TAGAVE_PLAYER_IMAGE:-deluan/navidrome:0.64.0}
+    # Refuse to start without the admin password and the encryption key:
+    # a Navidrome without an admin lets whoever reaches its port first
+    # create one. The image itself is unchanged.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$ND_DEVAUTOCREATEADMINPASSWORD" ] || [ -z "$$ND_PASSWORDENCRYPTIONKEY" ]; then
+          echo "tagave: TAGAVE_PLAYER_PASSWORD or TAGAVE_PLAYER_ENCRYPTION_KEY is missing from .env, so the player does not start. Run ./install-tagave.sh enable-player to set them." >&2
+          exit 1
+        fi
+        exec /app/navidrome
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data/navidrome
+      ND_CACHEFOLDER: /data/cache
+      ND_CONFIGFILE: /data/navidrome/navidrome.toml
+      # 0 turns the file watcher off
+      ND_SCANNER_WATCHERWAIT: "0"
+      ND_SCANNER_SCHEDULE: "@every 24h"
+      ND_ENABLESHARING: "false"
+      ND_ENABLEINSIGHTSCOLLECTOR: "false"
+      ND_JELLYFIN_ENABLED: "false"
+      # tagave matches tracks to its files by path
+      ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
+      # Creates the user "admin" with this password on the first start,
+      # before Navidrome listens. Both values live only in .env.
+      ND_DEVAUTOCREATEADMINPASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
+      ND_PASSWORDENCRYPTIONKEY: ${TAGAVE_PLAYER_ENCRYPTION_KEY:-}
+      ND_LOGLEVEL: info
+      TZ: ${TZ:-UTC}
+    volumes:
+      - player-data:/data
+      - ${MUSIC_DIR:-./music}:/music:ro
+    ports:
+      - "${TAGAVE_PLAYER_PORT:-4533}:4533"
+    # A scan cannot starve Postgres on a small machine.
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:4533/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
 networks:
   # The updater's only network: the app and the updater, nothing else, and no
   # route out (the Docker daemon, not the updater, downloads images).
@@ -242,3 +329,4 @@ volumes:
   pgdata:
   cache:
   backups:
+  player-data:

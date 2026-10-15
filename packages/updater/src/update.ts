@@ -17,6 +17,14 @@
  *   verify     health ok, the app on the target, and every local worker
  *              sending heartbeats from the target since the restart
  *
+ * The optional player (compose service "player", a bundled Navidrome) is
+ * pulled and started with everything else. Navidrome migrates its SQLite
+ * database forward only, so when the new compose files pin another player
+ * image, restart stops the player and copies its data folder inside its
+ * volume (/data/snapshots/pre-update) before the new app starts, and a roll
+ * back puts that copy back. A player that is not healthy after a successful
+ * update is a warning in the log, never a reason to roll tagave back.
+ *
  * A failure in preflight or backup ends the run as `failed`: nothing was
  * changed. A failure from config on rolls back: the old .env and compose
  * files go back; if the migration count moved (or cannot be read), the app
@@ -50,6 +58,29 @@ const COMPOSE_FILES = ['compose.yml', 'compose.db-published.yml'];
 export const IMAGE_DEPLOY_DIR = '/opt/tagave/deploy';
 const DOCTOR = ['node', 'packages/doctor/dist/cli.js'];
 const MAX_LOG_LINES = 400;
+const PLAYER = 'player';
+/**
+ * Run in a one-off player container: copy Navidrome's data folder to
+ * /data/snapshots/pre-update (replacing an older copy). Prints "saved", or
+ * "none" when the player never started.
+ */
+export const PLAYER_SNAPSHOT_SH = [
+  'set -e',
+  'if [ ! -d /data/navidrome ]; then echo none; exit 0; fi',
+  'rm -rf /data/snapshots/pre-update',
+  'mkdir -p /data/snapshots',
+  'cp -a /data/navidrome /data/snapshots/pre-update',
+  'echo saved',
+].join('\n');
+/** Puts the snapshot back; the folder the new Navidrome changed is kept as rolled-back-<date>. */
+export const PLAYER_RESTORE_SH = [
+  'set -e',
+  'test -d /data/snapshots/pre-update',
+  'aside=/data/snapshots/rolled-back-$(date +%Y%m%d-%H%M%S)',
+  'if [ -d /data/navidrome ]; then mv /data/navidrome "$aside"; fi',
+  'cp -a /data/snapshots/pre-update /data/navidrome',
+  'echo restored',
+].join('\n');
 
 export interface UpdateConfig {
   minFreeBytes: number;
@@ -60,6 +91,8 @@ export interface UpdateConfig {
   commandTimeoutMs: number;
   /** Replace the updater's own container after a successful run. */
   selfUpdate: boolean;
+  /** How long the player may take to report healthy after a successful update. */
+  playerHealthTimeoutMs: number;
 }
 
 export const DEFAULT_CONFIG: UpdateConfig = {
@@ -68,6 +101,7 @@ export const DEFAULT_CONFIG: UpdateConfig = {
   pollMs: 3000,
   commandTimeoutMs: 20 * 60_000,
   selfUpdate: true,
+  playerHealthTimeoutMs: 2 * 60_000,
 };
 
 export interface UpdateDeps {
@@ -129,6 +163,13 @@ export class Update {
   /** The new app may have started, so it may have migrated the database. */
   private newAppStarted = false;
   private changed = false;
+  /** The player's image before and after the config step (null: no player here). */
+  private playerImageBefore: string | null = null;
+  private playerImageAfter: string | null = null;
+  /** Its data was copied to /data/snapshots/pre-update. */
+  private playerSnapshot = false;
+  /** The player may have started on the new image. */
+  private playerStarted = false;
   private saving: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: UpdateDeps, run: UpdateRun) {
@@ -192,6 +233,54 @@ export class Update {
 
   private workers(): string[] {
     return this.services.filter((s) => s.startsWith('worker-'));
+  }
+
+  private hasPlayer(): boolean {
+    return this.services.includes(PLAYER);
+  }
+
+  /** The image the player runs with the files as they are now; null without a player. */
+  private async playerImage(): Promise<string | null> {
+    if (!this.hasPlayer()) return null;
+    const res = await this.compose(['config', '--images', PLAYER], { quiet: true, timeoutMs: 60_000 });
+    const image = res.code === 0 ? res.stdout.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
+    return image ?? null;
+  }
+
+  private playerImageChanges(): boolean {
+    return this.playerImageBefore !== null && this.playerImageAfter !== null && this.playerImageBefore !== this.playerImageAfter;
+  }
+
+  /** Stops the player and copies its data; a failure fails the step before the new app starts. */
+  private async snapshotPlayer(): Promise<void> {
+    this.log('info', `the player moves from ${this.playerImageBefore} to ${this.playerImageAfter}; Navidrome changes its database only forward, so it is copied first`);
+    const stop = await this.compose(['stop', PLAYER]);
+    if (stop.code !== 0) this.fail('could not stop the player to copy its data');
+    const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', PLAYER, '-c', PLAYER_SNAPSHOT_SH], { timeoutMs: 10 * 60_000 });
+    const said = res.stdout.trim().split('\n').at(-1)?.trim();
+    if (res.code !== 0 || (said !== 'saved' && said !== 'none')) {
+      this.fail(`copying the player's data failed: ${tail(res.stderr || res.stdout, 3)}`);
+    }
+    if (said === 'saved') {
+      this.playerSnapshot = true;
+      this.log('info', "the player's data is copied to /data/snapshots/pre-update in its volume");
+    } else {
+      this.log('info', 'the player has no data yet; nothing to copy');
+    }
+  }
+
+  /** null when the player container reports healthy, else what it reports. */
+  private async playerHealth(): Promise<string | null> {
+    const ps = await this.compose(['ps', '-q', PLAYER], { quiet: true, timeoutMs: 30_000 });
+    const id = ps.stdout.trim().split('\n')[0]?.trim();
+    if (ps.code !== 0 || !id) return 'the player container is not running';
+    const res = await this.docker(['inspect', '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}', id], {
+      quiet: true,
+      timeoutMs: 30_000,
+    });
+    const state = res.stdout.trim();
+    if (res.code === 0 && state === 'healthy') return null;
+    return `the player reports ${state || 'nothing'}`;
   }
 
   private async migrationCount(): Promise<number | null> {
@@ -298,6 +387,7 @@ export class Update {
   }
 
   private async config(): Promise<void> {
+    this.playerImageBefore = await this.playerImage();
     for (const name of COMPOSE_FILES) {
       const text = await readText(join(this.deps.installDir, name));
       if (text !== null) this.originals.set(name, text);
@@ -323,6 +413,12 @@ export class Update {
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
     const check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
     if (check.code !== 0) this.fail(`docker compose rejects the new configuration: ${tail(check.stderr, 3)}`);
+    this.playerImageAfter = await this.playerImage();
+    if (this.playerImageBefore !== null) {
+      this.log('info', this.playerImageChanges()
+        ? `player image: ${this.playerImageBefore} -> ${this.playerImageAfter}`
+        : `player image unchanged (${this.playerImageBefore})`);
+    }
   }
 
   private async pull(): Promise<void> {
@@ -336,6 +432,7 @@ export class Update {
       const stop = await this.compose(['stop', ...workers]);
       if (stop.code !== 0) this.fail('could not stop the workers');
     }
+    if (this.playerImageChanges()) await this.snapshotPlayer();
     this.newAppStarted = true;
     const startedAt = this.now();
     const up = await this.compose(['up', '-d', 'app']);
@@ -343,6 +440,7 @@ export class Update {
     this.log('info', 'waiting for the new app (it backs up and updates the database before it answers)');
     const appIssue = await this.waitFor(this.appOn(this.run.target, null, false), this.deps.config.healthTimeoutMs);
     if (appIssue) this.fail(`the app did not answer healthy on ${this.run.target}: ${appIssue}`);
+    if (this.hasPlayer()) this.playerStarted = true;
     const rest = await this.compose(['up', '-d', ...this.services]);
     if (rest.code !== 0) this.fail(`docker compose could not start the workers: ${tail(rest.stderr, 3)}`);
     return startedAt;
@@ -351,6 +449,30 @@ export class Update {
   private async verify(since: Date): Promise<void> {
     const issue = await this.waitFor(this.appOn(this.run.target, since, true), this.deps.config.healthTimeoutMs);
     if (issue) this.fail(`not every part reports ${this.run.target}: ${issue}`);
+    if (this.hasPlayer()) await this.checkPlayer();
+  }
+
+  /** Warns, never fails: tagave runs fine while the player is down. */
+  private async checkPlayer(): Promise<void> {
+    const issue = await this.waitFor(() => this.playerHealth(), this.deps.config.playerHealthTimeoutMs);
+    if (issue === null) {
+      this.log('info', 'the player reports healthy');
+      return;
+    }
+    const minutes = Math.round(this.deps.config.playerHealthTimeoutMs / 60_000);
+    this.log('warn', `the player did not report healthy within ${minutes} minute${minutes === 1 ? '' : 's'} (${issue}). tagave itself is updated and runs; check the player with docker compose logs player`);
+  }
+
+  /** Puts the player's data back as it was before the update. */
+  private async restorePlayer(): Promise<void> {
+    this.log('warn', "the new player may have changed its database; putting the copy from before the update back");
+    const stop = await this.compose(['stop', PLAYER]);
+    if (stop.code !== 0) throw new Error('could not stop the player to restore its data');
+    const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'sh', PLAYER, '-c', PLAYER_RESTORE_SH], { timeoutMs: 10 * 60_000 });
+    if (res.code !== 0 || !res.stdout.includes('restored')) {
+      throw new Error(`restoring the player's data failed: ${tail(res.stderr || res.stdout, 3)}; the copy is in /data/snapshots/pre-update in the player's volume`);
+    }
+    this.log('info', "the player's data is back as it was; the changed copy is kept in /data/snapshots/rolled-back-<date>");
   }
 
   private async rollbackAll(reason: string): Promise<void> {
@@ -383,6 +505,8 @@ export class Update {
         }
         this.log('info', `restored ${this.run.backup}; the changed database is kept ${kept}`);
       }
+
+      if (this.playerSnapshot && this.playerStarted) await this.restorePlayer();
 
       const up = await this.compose(['up', '-d', 'app']);
       if (up.code !== 0) throw new Error(`the old app did not start: ${tail(up.stderr, 3)}`);

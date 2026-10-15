@@ -88,6 +88,12 @@ services:
       # Settings > Updates shows the source-build update steps first
       TAGAVE_INSTALL_METHOD: source
       TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
+      # The bundled player (profile "player" below): set all three in .env
+      # with TAGAVE_PLAYER_URL=http://player:4533 and TAGAVE_PLAYER_USER=admin.
+      # Empty: no bundled player; Settings > Playback can point at your own.
+      TAGAVE_PLAYER_URL: ${TAGAVE_PLAYER_URL:-}
+      TAGAVE_PLAYER_USER: ${TAGAVE_PLAYER_USER:-}
+      TAGAVE_PLAYER_PASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
     volumes:
       - cache:/cache
       # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.
@@ -169,7 +175,57 @@ services:
       app:
         condition: service_healthy
 
+  # Optional player: an unmodified Navidrome, the same service as in
+  # deploy/compose.yml (its comments explain each setting and the version
+  # pin). Start with `docker compose --profile player up -d` after setting
+  # TAGAVE_PLAYER_PASSWORD and TAGAVE_PLAYER_ENCRYPTION_KEY in .env (each
+  # `openssl rand -hex 32`); it refuses to start without them. The music is
+  # always read-only here; the database stays on a local volume (SQLite).
+  player:
+    profiles: ["player"]
+    image: ${TAGAVE_PLAYER_IMAGE:-deluan/navidrome:0.64.0}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$ND_DEVAUTOCREATEADMINPASSWORD" ] || [ -z "$$ND_PASSWORDENCRYPTIONKEY" ]; then
+          echo "tagave: TAGAVE_PLAYER_PASSWORD or TAGAVE_PLAYER_ENCRYPTION_KEY is missing from .env, so the player does not start." >&2
+          exit 1
+        fi
+        exec /app/navidrome
+    environment:
+      ND_MUSICFOLDER: /music
+      ND_DATAFOLDER: /data/navidrome
+      ND_CACHEFOLDER: /data/cache
+      ND_CONFIGFILE: /data/navidrome/navidrome.toml
+      ND_SCANNER_WATCHERWAIT: "0"
+      ND_SCANNER_SCHEDULE: "@every 24h"
+      ND_ENABLESHARING: "false"
+      ND_ENABLEINSIGHTSCOLLECTOR: "false"
+      ND_JELLYFIN_ENABLED: "false"
+      ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
+      ND_DEVAUTOCREATEADMINPASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
+      ND_PASSWORDENCRYPTIONKEY: ${TAGAVE_PLAYER_ENCRYPTION_KEY:-}
+      ND_LOGLEVEL: info
+      TZ: ${TZ:-UTC}
+    volumes:
+      - player-data:/data
+      - ${MUSIC_DIR:-/mnt/music}:/music:ro
+    ports:
+      - "${TAGAVE_PLAYER_PORT:-4533}:4533"
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:4533/ping"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+
 volumes:
   pgdata:
   cache:
   backups:
+  player-data:

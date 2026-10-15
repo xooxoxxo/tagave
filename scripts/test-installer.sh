@@ -4,6 +4,8 @@
 # configuration, the secrets files are private, a split install's two halves
 # agree, and the published database listens where it was told to.
 #
+# The optional updater and player profiles are checked the same way.
+#
 # Then checks version pinning against a fake releases feed, and runs
 # "update" and "status" against a stand-in docker that logs every call:
 # backup before anything changes, app restarted before the workers, roll back
@@ -168,6 +170,133 @@ if TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" enable-updater --dir "$work/files" --y
 fi
 pass "enable-updater asks first, writes the settings once; disable-updater removes them"
 
+# --- the opt-in player ----------------------------------------------------------
+is_hex64() { printf '%s' "$1" | grep -Eqx '[0-9a-f]{64}'; }
+# player_json DIR: the player service as compose renders it, in a few words,
+# and the services whose environment holds the player password.
+player_json() {
+  (cd "$1" && docker compose config --format json) | python3 -c '
+import json, sys
+c = json.load(sys.stdin)
+p = c["services"]["player"]
+music = [v for v in p["volumes"] if v["target"] == "/music"][0]
+data = [v for v in p["volumes"] if v["target"] == "/data"][0]
+print(p["image"], [x["published"] for x in p["ports"]], music.get("read_only", False), data["type"], data["source"],
+      p["environment"]["ND_ENABLESHARING"], p["environment"]["ND_ENABLEINSIGHTSCOLLECTOR"], p["environment"]["ND_JELLYFIN_ENABLED"],
+      sorted(n for n, s in c["services"].items() if sys.argv[1] and sys.argv[1] in (s.get("environment") or {}).values()))' \
+    "$(env_value TAGAVE_PLAYER_PASSWORD "$1/.env")"
+}
+run --role all --with-player --dir "$work/player" --music "$work/music" >"$work/player.log" 2>&1 \
+  || { cat "$work/player.log" >&2; fail "--with-player"; }
+[ "$(mode_of "$work/player/.env")" = "600" ] || fail "--with-player: .env is not mode 600"
+[ "$(env_value COMPOSE_PROFILES "$work/player/.env")" = "app,files,player" ] || fail "--with-player: profiles"
+[ "$(env_value TAGAVE_PLAYER_URL "$work/player/.env")" = "http://player:4533" ] || fail "--with-player: TAGAVE_PLAYER_URL"
+[ "$(env_value TAGAVE_PLAYER_USER "$work/player/.env")" = "admin" ] || fail "--with-player: TAGAVE_PLAYER_USER"
+[ "$(env_value TAGAVE_PLAYER_PORT "$work/player/.env")" = "4533" ] || fail "--with-player: TAGAVE_PLAYER_PORT"
+player_pw="$(env_value TAGAVE_PLAYER_PASSWORD "$work/player/.env")"
+player_key="$(env_value TAGAVE_PLAYER_ENCRYPTION_KEY "$work/player/.env")"
+is_hex64 "$player_pw" || fail "--with-player: TAGAVE_PLAYER_PASSWORD is not 64 hex characters"
+is_hex64 "$player_key" || fail "--with-player: TAGAVE_PLAYER_ENCRYPTION_KEY is not 64 hex characters"
+[ "$player_pw" != "$player_key" ] || fail "--with-player: the password and the key are the same"
+grep -qF "$player_pw" "$work/player.log" && fail "--with-player: the installer printed the player password"
+[ "$(services "$work/player")" = "app player postgres worker-files worker-identify " ] || fail "--with-player: services are $(services "$work/player")"
+config="$(render "$work/player")"
+printf '%s' "$config" | grep -q '"TAGAVE_PLAYER_URL": "http://player:4533"' || fail "--with-player: the app does not get TAGAVE_PLAYER_URL"
+got="$(player_json "$work/player")"
+[ "$got" = "deluan/navidrome:0.64.0 ['4533'] True volume player-data false false false ['app', 'player']" ] \
+  || fail "--with-player: the player must run the pinned image on port 4533, read the music read-only, keep its data in the player-data volume, with sharing, insights and Jellyfin off, and only the app and the player may get the password (got: $got)"
+# Without the profile the same compose file is valid, has no player, and the app no URL.
+[ "$(services "$work/all")" = "app postgres worker-files worker-identify " ] || fail "player: present without the profile"
+render "$work/all" | grep -q '"TAGAVE_PLAYER_URL": ""' || fail "player: the app has a player URL without the profile"
+grep -q '^TAGAVE_PLAYER_PASSWORD=' "$work/all/.env" && fail "player: an install without the player got a player password"
+pass "--with-player adds the player: pinned image, music read-only, own volume, secrets only in .env"
+
+run --role all --dir "$work/player" --music "$work/music" >"$work/player2.log" 2>&1 \
+  || { cat "$work/player2.log" >&2; fail "--with-player, re-run"; }
+[ "$(env_value COMPOSE_PROFILES "$work/player/.env")" = "app,files,player" ] || fail "player: a re-run without the flag dropped it"
+[ "$(env_value TAGAVE_PLAYER_PASSWORD "$work/player/.env")" = "$player_pw" ] || fail "player: a re-run replaced the password"
+[ "$(env_value TAGAVE_PLAYER_ENCRYPTION_KEY "$work/player/.env")" = "$player_key" ] || fail "player: a re-run replaced the encryption key"
+pass "re-running the installer keeps the player and its secrets"
+
+run --role all --with-player --music-writable --dir "$work/player-rw" --music "$work/music" >"$work/player-rw.log" 2>&1 \
+  || { cat "$work/player-rw.log" >&2; fail "--with-player --music-writable"; }
+case "$(player_json "$work/player-rw")" in *" True volume "*) ;; *) fail "player: --music-writable made the player's music writable" ;; esac
+render "$work/player-rw" | python3 -c 'import json,sys; c=json.load(sys.stdin); v=[v for v in c["services"]["worker-files"]["volumes"] if v["target"]=="/mnt/music"][0]; sys.exit(1 if v.get("read_only") else 0)' \
+  || fail "player: --music-writable no longer makes the file worker's music writable"
+pass "the player reads the music read-only even with --music-writable"
+
+run --role all --with-player --player-port 14533 --dir "$work/player-port" --music "$work/music" >"$work/player-port.log" 2>&1 \
+  || { cat "$work/player-port.log" >&2; fail "--player-port"; }
+[ "$(player_json "$work/player-port" | cut -d' ' -f2)" = "['14533']" ] || fail "--player-port: not published on 14533"
+for bad in abc 70000 3100; do
+  if run --role all --with-player --player-port "$bad" --dir "$work/player-bad" --music "$work/music" >"$work/player-bad.log" 2>&1; then
+    fail "--player-port: accepted '$bad'"
+  fi
+  grep -qE 'player port must be a number|cannot share port' "$work/player-bad.log" || fail "--player-port $bad: refused without saying why"
+done
+pass "--player-port publishes the port it is given and refuses bad ones"
+
+if run --role files --with-player --dir "$work/files-pl" --from "$work/app/files-worker.env" --music "$work/music" >"$work/files-pl.log" 2>&1; then
+  fail "player: accepted --with-player for --role files"
+fi
+grep -q 'everything runs on one computer' "$work/files-pl.log" || fail "player: --role files refusal does not say why"
+if run --role app --with-player --dir "$work/app-pl" --advertise-address "$address" >"$work/app-pl.log" 2>&1; then
+  fail "player: accepted --with-player for --role app"
+fi
+grep -q 'Settings > Playback' "$work/app-pl.log" || fail "player: --role app refusal does not point at bring your own"
+pass "split installs refuse the bundled player and point at bring your own"
+
+# enable-player and disable-player on an existing install (nothing started).
+cp -R "$work/all" "$work/enable-pl"
+if "$installer" enable-player --dir "$work/enable-pl" --no-start </dev/null >"$work/enable-pl-noyes.log" 2>&1; then
+  fail "enable-player: went ahead without --yes and without a terminal"
+fi
+[ "$(env_value COMPOSE_PROFILES "$work/enable-pl/.env")" = "app,files" ] || fail "enable-player: changed .env without confirmation"
+"$installer" enable-player --dir "$work/enable-pl" --yes --no-start </dev/null >"$work/enable-pl.log" 2>&1 \
+  || { cat "$work/enable-pl.log" >&2; fail "enable-player"; }
+grep -q 'read-only' "$work/enable-pl.log" || fail "enable-player: does not say the music is read-only"
+grep -q 'publishes port 4533' "$work/enable-pl.log" || fail "enable-player: does not say which port it publishes"
+[ "$(env_value COMPOSE_PROFILES "$work/enable-pl/.env")" = "app,files,player" ] || fail "enable-player: profiles"
+[ "$(env_value TAGAVE_PLAYER_URL "$work/enable-pl/.env")" = "http://player:4533" ] || fail "enable-player: TAGAVE_PLAYER_URL"
+[ "$(env_value TAGAVE_PLAYER_USER "$work/enable-pl/.env")" = "admin" ] || fail "enable-player: TAGAVE_PLAYER_USER"
+[ "$(env_value TAGAVE_PLAYER_PORT "$work/enable-pl/.env")" = "4533" ] || fail "enable-player: TAGAVE_PLAYER_PORT"
+en_pw="$(env_value TAGAVE_PLAYER_PASSWORD "$work/enable-pl/.env")"
+en_key="$(env_value TAGAVE_PLAYER_ENCRYPTION_KEY "$work/enable-pl/.env")"
+is_hex64 "$en_pw" || fail "enable-player: TAGAVE_PLAYER_PASSWORD is not 64 hex characters"
+is_hex64 "$en_key" || fail "enable-player: TAGAVE_PLAYER_ENCRYPTION_KEY is not 64 hex characters"
+grep -qF "$en_pw" "$work/enable-pl.log" && fail "enable-player: printed the player password"
+[ "$(mode_of "$work/enable-pl/.env")" = "600" ] || fail "enable-player: .env is no longer mode 600"
+[ "$(services "$work/enable-pl")" = "app player postgres worker-files worker-identify " ] || fail "enable-player: services are $(services "$work/enable-pl")"
+"$installer" enable-player --dir "$work/enable-pl" --yes --no-start </dev/null >"$work/enable-pl2.log" 2>&1 \
+  || { cat "$work/enable-pl2.log" >&2; fail "enable-player, again"; }
+[ "$(env_value COMPOSE_PROFILES "$work/enable-pl/.env")" = "app,files,player" ] || fail "enable-player: a second run doubled the profile"
+[ "$(env_value TAGAVE_PLAYER_PASSWORD "$work/enable-pl/.env")" = "$en_pw" ] || fail "enable-player: a second run replaced the password"
+"$installer" disable-player --dir "$work/enable-pl" --yes --no-start </dev/null >"$work/disable-pl.log" 2>&1 \
+  || { cat "$work/disable-pl.log" >&2; fail "disable-player"; }
+[ "$(env_value COMPOSE_PROFILES "$work/enable-pl/.env")" = "app,files" ] || fail "disable-player: profiles"
+[ -z "$(env_value TAGAVE_PLAYER_URL "$work/enable-pl/.env")" ] || fail "disable-player: TAGAVE_PLAYER_URL still set"
+[ "$(env_value TAGAVE_PLAYER_PASSWORD "$work/enable-pl/.env")" = "$en_pw" ] || fail "disable-player: dropped the password"
+[ "$(env_value TAGAVE_PLAYER_ENCRYPTION_KEY "$work/enable-pl/.env")" = "$en_key" ] || fail "disable-player: dropped the encryption key"
+[ "$(services "$work/enable-pl")" = "app postgres worker-files worker-identify " ] || fail "disable-player: services are $(services "$work/enable-pl")"
+# The installer re-run after disable-player keeps it off and keeps the secrets.
+run --role all --dir "$work/enable-pl" --music "$work/music" >"$work/enable-pl-rerun.log" 2>&1 \
+  || { cat "$work/enable-pl-rerun.log" >&2; fail "disable-player, installer re-run"; }
+[ "$(env_value COMPOSE_PROFILES "$work/enable-pl/.env")" = "app,files" ] || fail "disable-player: an installer re-run turned the player back on"
+[ "$(env_value TAGAVE_PLAYER_PASSWORD "$work/enable-pl/.env")" = "$en_pw" ] || fail "disable-player: an installer re-run dropped the password"
+"$installer" enable-player --dir "$work/enable-pl" --yes --no-start </dev/null >"$work/enable-pl3.log" 2>&1 \
+  || { cat "$work/enable-pl3.log" >&2; fail "enable-player after disable"; }
+[ "$(env_value TAGAVE_PLAYER_PASSWORD "$work/enable-pl/.env")" = "$en_pw" ] || fail "enable-player after disable: new password (the old Navidrome data would not open)"
+[ "$(env_value TAGAVE_PLAYER_ENCRYPTION_KEY "$work/enable-pl/.env")" = "$en_key" ] || fail "enable-player after disable: new encryption key"
+"$installer" enable-player --dir "$work/enable-pl" --player-port 0 --yes --no-start </dev/null >"$work/enable-pl-port.log" 2>&1 \
+  && fail "enable-player: accepted port 0"
+for d in files app; do
+  if "$installer" enable-player --dir "$work/$d" --yes --no-start </dev/null >"$work/enable-pl-$d.log" 2>&1; then
+    fail "enable-player: accepted role $d"
+  fi
+  grep -q 'everything runs on one computer' "$work/enable-pl-$d.log" || fail "enable-player: role $d refused without saying why"
+done
+pass "enable-player asks first and keeps its secrets; disable-player keeps them and clears the URL"
+
 # --- version pinning ----------------------------------------------------------
 # A fake GitHub releases API: install-tagave.sh reads $TAGAVE_RELEASES_API/latest.
 mkdir -p "$work/releases"
@@ -218,6 +347,7 @@ case "$1" in
   config) exec "$REAL_DOCKER" compose "$@" ;;
   ps) if [ "${2:-}" = "--format" ]; then printf 'SERVICE STATE STATUS\napp running Up\n'; else echo fakeid; fi ;;
   logs) echo '{"msg":"worker ready"}' ;;
+  run) case "$*" in *pre-update*) echo saved ;; esac ;;
   up)
     if [ "$*" != "up -d postgres" ] && [ "${FAKE_UP_KEEPS_OLD:-0}" != "1" ]; then
       grep '^TAGAVE_VERSION=' .env | cut -d= -f2 | tr -d '\n' >"$FAKE_STATE/version"
@@ -242,7 +372,8 @@ at_version() {
   TAGAVE_SKIP_IMAGE_CHECK=1 "$installer" --yes --no-start --version "$1" --timezone UTC "${@:2}" </dev/null
 }
 # line_of PATTERN: first line of the docker log matching PATTERN exactly.
-line_of() { grep -nx -- "$1" "$work/docker.log" | head -n 1 | cut -d: -f1; }
+# Empty when nothing matches (grep's exit status would end the script under pipefail).
+line_of() { { grep -nx -- "$1" "$work/docker.log" || true; } | head -n 1 | cut -d: -f1; }
 
 at_version 0.4.1 --role all --dir "$work/upd" --music "$work/music" >"$work/upd-install.log" 2>&1 \
   || { cat "$work/upd-install.log" >&2; fail "update: install 0.4.1"; }
@@ -301,6 +432,39 @@ fi
 grep -q 'How to roll back to 0.4.1' "$work/bad.log" || { cat "$work/bad.log" >&2; fail "update failure: no roll back instructions"; }
 grep -q 'dropdb' "$work/bad.log" || fail "update failure: roll back does not reset the database"
 pass "a failed update prints how to roll back"
+
+# The player: a release that pins another Navidrome copies its data first.
+at_version 0.4.1 --role all --with-player --dir "$work/upd-pl" --music "$work/music" >"$work/upd-pl-install.log" 2>&1 \
+  || { cat "$work/upd-pl-install.log" >&2; fail "update player: install 0.4.1"; }
+sed 's|deluan/navidrome:0\.64\.0|deluan/navidrome:0.63.0|' "$work/upd-pl/compose.yml" >"$work/upd-pl/compose.yml.new" \
+  && mv "$work/upd-pl/compose.yml.new" "$work/upd-pl/compose.yml"
+printf '0.4.1' >"$work/state/version"
+fake status --dir "$work/upd-pl" >"$work/upd-pl-status.log" 2>&1 || { cat "$work/upd-pl-status.log" >&2; fail "status with the player"; }
+grep -q 'Player: *healthy (port 4533)' "$work/upd-pl-status.log" || fail "status: does not show the player"
+: >"$work/docker.log"
+fake update --dir "$work/upd-pl" --yes >"$work/upd-pl.log" 2>&1 || { cat "$work/upd-pl.log" >&2; fail "update with a new player image"; }
+stop_pl="$(line_of 'compose stop player')"
+snap_pl="$({ grep -n 'entrypoint sh player' "$work/docker.log" || true; } | head -n 1 | cut -d: -f1)"
+app_at="$(line_of 'compose up -d app')"
+if [ -z "$stop_pl" ] || [ -z "$snap_pl" ] || [ -z "$app_at" ] || ! { [ "$stop_pl" -lt "$snap_pl" ] && [ "$snap_pl" -lt "$app_at" ]; }; then
+  cat "$work/docker.log" >&2; fail "update: expected stop player, copy its data, then start the new app"
+fi
+grep -q 'navidrome:0.63.0 to deluan/navidrome:0.64.0' "$work/upd-pl.log" || fail "update: does not say the player image changes"
+grep -q 'stop app .* player' "$work/upd-pl.log" || fail "update: roll back does not stop the player"
+grep -q 'cp -a /data/snapshots/pre-update /data/navidrome' "$work/upd-pl.log" || fail "update: roll back does not restore the player's data"
+grep -qF "$(env_value TAGAVE_PLAYER_PASSWORD "$work/upd-pl/.env")" "$work/upd-pl.log" && fail "update: printed the player password"
+pass "update copies the player's data before a new Navidrome starts, and the roll back restores it"
+
+# The same Navidrome on both sides: nothing to copy.
+at_version 0.4.1 --role all --with-player --dir "$work/upd-pl2" --music "$work/music" >"$work/upd-pl2-install.log" 2>&1 \
+  || { cat "$work/upd-pl2-install.log" >&2; fail "update player: second install"; }
+printf '0.4.1' >"$work/state/version"
+: >"$work/docker.log"
+fake update --dir "$work/upd-pl2" --yes >"$work/upd-pl2.log" 2>&1 || { cat "$work/upd-pl2.log" >&2; fail "update with the same player image"; }
+grep -q 'entrypoint sh player' "$work/docker.log" && fail "update: copied the player's data although its image did not change"
+grep -q "needs nothing restored" "$work/upd-pl2.log" || fail "update: roll back does not say the player needs nothing"
+grep -q 'The player is up' "$work/upd-pl2.log" || fail "update: did not check the player after the update"
+pass "update leaves the player's data alone when its image stays the same"
 
 # Split install: the file worker follows the app computer's version.
 at_version 0.4.1 --role app --dir "$work/split-app" --advertise-address "$address" >"$work/split-app.log" 2>&1 \
