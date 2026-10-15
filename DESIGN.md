@@ -8,7 +8,7 @@ A calm, airy catalogue with plenty of whitespace. Surfaces stay flat and quiet, 
 - `packages/web/src/styles/index.css`: baseline element styles. They are wrapped in `:where()`, so any class overrides them. Every action in the app is a `Button`, `IconButton` or `LinkButton`; a bare `<button>` is only ever structural (a clickable row, a tab, a star, a disclosure). Its baseline is deliberately flat: a `--accent` background colour, the pill radius and no shadow, gradient or filter, so a page class that sets only `background-color` or `background: transparent` replaces it completely. Bare `h1` takes the headline role and bare `h2` the title role, so page titles and section heads are set in the thin display face; `h3` and below stay in the body face. `baselineStyles.test.ts` guards this, and `pageStyles.test.ts` keeps hex colours, small radii and heavy display weights out of page CSS.
 - `packages/web/src/components/ui/`: production primitives.
 - `packages/web/src/theme.ts`: the theme preference (system, light or dark).
-- **Storybook** (`packages/web/.storybook`, stories next to each component as `*.stories.tsx`, foundations in `packages/web/src/stories`): the reference for what exists. Every primitive with its props, a usage note, and a story per variant, size and state, in both themes, rendered with the app's fonts, tokens and global styles; the Foundations pages read the tokens live from `tokens.css`. `pnpm --filter @liner/web storybook` runs it on port 6006; `build-storybook` builds it to `packages/web/storybook-static`.
+- **Storybook** (`packages/web/.storybook`, stories next to each component as `*.stories.tsx`, foundations in `packages/web/src/stories`): the reference for what exists. Every primitive with its props, a usage note, and a story per variant, size and state, in both themes, rendered with the app's fonts, tokens and global styles; the Foundations pages read the tokens live from `tokens.css`. `pnpm --filter @tagave/web storybook` runs it on port 6006; `build-storybook` builds it to `packages/web/storybook-static`.
 
 ## Principles
 
@@ -178,7 +178,7 @@ Extract a new pattern into `components/ui` only after it has at least three comp
 
 ## Validation
 
-Run web type checking, the Vite build and Vitest for `@liner/web`. The contrast and primitive-contract tests live in `components/ui`. In the catalogue, at desktop width and at 400px, in both themes, check:
+Run web type checking, the Vite build and Vitest for `@tagave/web`. The contrast and primitive-contract tests live in `components/ui`. In the catalogue, at desktop width and at 400px, in both themes, check:
 
 - the button states: hover, press, focus, disabled, loading
 - field validation
@@ -189,8 +189,8 @@ Run web type checking, the Vite build and Vitest for `@liner/web`. The contrast 
 
 Storybook documents the primitives; this file holds the rules. A new primitive in `components/ui` gets a `*.stories.tsx` beside it: a Playground story bound to its props, one story per variant, size and state (hover and focus-visible through the pseudo-states toolbar, disabled, loading, error, long text, right to left where text direction matters), and a `docs.description.component` that says when to use it and when to use something else.
 
-`pnpm --filter @liner/web test-storybook` runs the story tests (Playwright, `packages/web/storybook-tests`) against the built Storybook:
+`pnpm --filter @tagave/web test-storybook` runs the story tests (Playwright, `packages/web/storybook-tests`) against the built Storybook:
 
 - every story in both themes: an axe scan for WCAG 2.1 A and AA, and no console errors (a failing play function only logs);
 - `geometry.pw.ts`: the sliding pill of SegmentedControl and Tabs at DPR 1 and 2, in both themes. The pill must sit on its item to 0.02px with equal gaps in the track, the label's capitals must be centred in the painted pill within 0.5px, and the drop must not tint the gap below the pill much more than the gap above. Also after switching, after a resize, while a sheet scales in, and before and after the web fonts load;
-- every story in both themes at DPR 2: a screenshot against `storybook-tests/__screenshots__`. The baselines are rendered on the CI runner inside the official Playwright image, where the comparison runs: run the CI workflow by hand with *update storybook baselines* and commit the `storybook-baselines` artifact to that folder after an intended visual change. `pnpm --filter @liner/web test-storybook:docker` runs the same image locally (`PLATFORM=linux/arm64` on Apple silicon, whose anti-aliasing can differ from the amd64 runners by a few pixels). Until baselines are committed, and on macOS unless `STORYBOOK_VISUAL=1`, the comparison is skipped and axe and geometry still gate. Stories tagged `no-shot` are not screenshotted, `shot-viewport` takes the whole viewport (dialogs, menus, toasts), `shot-padded` leaves room for a tooltip.
+- every story in both themes at DPR 2: a screenshot against `storybook-tests/__screenshots__`. The baselines are rendered on the CI runner inside the official Playwright image, where the comparison runs: run the CI workflow by hand with *update storybook baselines* and commit the `storybook-baselines` artifact to that folder after an intended visual change. `pnpm --filter @tagave/web test-storybook:docker` runs the same image locally (`PLATFORM=linux/arm64` on Apple silicon, whose anti-aliasing can differ from the amd64 runners by a few pixels). Until baselines are committed, and on macOS unless `STORYBOOK_VISUAL=1`, the comparison is skipped and axe and geometry still gate. Stories tagged `no-shot` are not screenshotted, `shot-viewport` takes the whole viewport (dialogs, menus, toasts), `shot-padded` leaves room for a tooltip.

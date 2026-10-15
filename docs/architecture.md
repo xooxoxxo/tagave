@@ -24,18 +24,18 @@ The app is a stateless API and web frontend. All long-running operations (scanni
 
 ## Background jobs with pg-boss
 
-All queued work runs through a job queue stored in Postgres. The job system uses [pg-boss](https://github.com/timgit/pg-boss), which creates named queues for different types of work. When you start a worker, you tell it which queues to claim work from using the `LINER_QUEUES` environment variable.
+All queued work runs through a job queue stored in Postgres. The job system uses [pg-boss](https://github.com/timgit/pg-boss), which creates named queues for different types of work. When you start a worker, you tell it which queues to claim work from using the `TAGAVE_QUEUES` environment variable.
 
 For example:
 
 **File worker** (scanning, clustering, tag writing):
 ```
-LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep
+TAGAVE_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep
 ```
 
 **Identify worker** (metadata enrichment):
 ```
-LINER_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
+TAGAVE_QUEUES=identify.album,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,acoustid.lookup
 ```
 
 Two important enrichment jobs show how the system works:
@@ -43,7 +43,7 @@ Two important enrichment jobs show how the system works:
 - **`artists.resolve`** queries MusicBrainz for release group credits every 10 minutes (throttled to ~2 requests/min to respect rate limits). It discovers canonical artist names and identities and stores them for display on artist pages.
 - **`artists.enrich`** fetches artist biographies, type, country, and years from MusicBrainz, Wikidata, and Wikipedia on demand when an artist page is opened (if not already enriched in the last 7 days). This job is the expensive one in terms of rate-limit budget.
 
-Both jobs are named in the identify worker's queue list. When you split workers by role, the process whose `LINER_QUEUES` includes `artists.resolve` and `artists.enrich` claims them from the queue.
+Both jobs are named in the identify worker's queue list. When you split workers by role, the process whose `TAGAVE_QUEUES` includes `artists.resolve` and `artists.enrich` claims them from the queue.
 
 ## Worker roles in practice
 
@@ -68,4 +68,4 @@ To test jobs in development, start a worker in a separate terminal:
 pnpm -r build && node packages/worker/dist/index.js
 ```
 
-The worker will claim jobs from all queues by default (when `LINER_QUEUES` is unset).
+The worker will claim jobs from all queues by default (when `TAGAVE_QUEUES` is unset).

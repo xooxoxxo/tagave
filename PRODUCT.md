@@ -10,7 +10,7 @@ Music collectors managing a self-hosted archive, browsing albums and artists and
 
 ## Product Purpose
 
-Liner catalogs and identifies music, connects local files to releases, and previews and applies recoverable tag corrections. It is a catalog, not a player.
+tagave catalogs and identifies music, connects local files to releases, and previews and applies recoverable tag corrections. It is a catalog, not a player.
 
 ## Brand Personality
 

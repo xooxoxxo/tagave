@@ -92,7 +92,7 @@ To restore any dump (one from `update`, or one from the `backup` command below) 
 
 1. Get the dump onto the host. `update` dumps are already in `backups/`. A `backup` dump lives in the cache volume:
    ```sh
-   docker compose cp app:/cache/backups/liner-<timestamp>.pgdump ./backups/
+   docker compose cp app:/cache/backups/tagave-<timestamp>.pgdump ./backups/
    ```
 2. Check it can be read:
    ```sh
@@ -184,13 +184,13 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 | Kind | Taken | Deleted |
 |---|---|---|
 | Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
-| Manual | "Back up now", or `liner-doctor backup` | only when you delete it |
-| Before update | by the app, before it applies database updates | after a successful update, keeping the newest 5 (`LINER_PREMIGRATE_BACKUP_KEEP`) |
-| Before restore | by `liner-doctor restore --in-place` | only when you delete it |
+| Manual | "Back up now", or `tagave-doctor backup` | only when you delete it |
+| Before update | by the app, before it applies database updates | after a successful update, keeping the newest 5 (`TAGAVE_PREMIGRATE_BACKUP_KEEP`) |
+| Before restore | by `tagave-doctor restore --in-place` | only when you delete it |
 
-Files are named `liner-<UTC time>[-<kind>].pgdump`. The `liner-` prefix is the project's old name, kept so older dumps sort with new ones. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
+Files are named `tagave-<UTC time>[-<kind>].pgdump`. Releases before 0.9 named them `liner-<UTC time>[-<kind>].pgdump` (the project's old name); those stay listed, restorable and pruned with the new ones, sorted by time. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
 
-Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `LINER_BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
+Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
 
 ### Take a backup by hand
 
@@ -216,11 +216,11 @@ Keep `APP_SECRET` from `.env` in a password manager too. A database restored wit
 
 ### Restore a backup
 
-`liner-doctor restore` replaces the whole database with a dump. It refuses to run while the app or a worker is connected, so stop them first and run it from a one-off container:
+`tagave-doctor restore` replaces the whole database with a dump. It refuses to run while the app or a worker is connected, so stop them first and run it from a one-off container:
 
 ```sh
 docker compose stop app worker-identify worker-files
-docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore liner-<time>.pgdump --yes
+docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore tagave-<time>.pgdump --yes
 docker compose up -d
 ```
 
@@ -229,7 +229,7 @@ A bare file name is looked up in the backups folder; a path works too. Without `
 By default the dump is restored into a new database next to the current one. Once that has worked, the current database is renamed to `<name>_pre_restore_<time>` and the restored one takes its name. To go back, stop the app and swap the names back. Once you are happy, drop the old one:
 
 ```sh
-docker compose exec postgres dropdb -U liner liner_pre_restore_<time>
+docker compose exec postgres sh -c 'dropdb -U "$POSTGRES_USER" "${POSTGRES_DB}_pre_restore_<time>"'
 ```
 
 Options:
@@ -250,28 +250,30 @@ When the app starts, it updates the database to match its version (migrations). 
 
 1. **One at a time.** The app holds a database lock for the whole update. A second app that starts at the same moment waits ("another tagave process is migrating the database"), then finds nothing left to do.
 2. **Never onto a newer database.** If a newer version of tagave has already updated the database, an older app refuses to start. Update the app, or roll back as below.
-3. **Backup first.** If an existing database has updates to apply, the app writes `liner-<time>-pre-migration.pgdump` into `/backups` (listed under "Before update" in Settings › Backups), checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
-4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 5 (`LINER_PREMIGRATE_BACKUP_KEEP`).
+3. **Backup first.** If an existing database has updates to apply, the app writes `tagave-<time>-pre-migration.pgdump` into `/backups` (listed under "Before update" in Settings › Backups), checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
+4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 5 (`TAGAVE_PREMIGRATE_BACKUP_KEEP`).
 
 If a migration fails, the app exits and Docker restarts it. The database now has some of the update's migrations and not others. On the restart the app does not take a new backup, because that backup would hold the half-updated database. It keeps the first backup of this update as the rollback point (the log says "keeping its backup") and deletes nothing.
 
 Before you update from a version without automatic backups, run the installer again (or replace `compose.yml` with the current one). The old file has no `/backups` volume. Settings › System shows "not a mounted volume" when that is the case.
 
-The workers wait for the app: in the Compose files they start only once the app is healthy. A worker that is newer than the database waits until the app has updated it (up to `LINER_SCHEMA_WAIT_SECONDS`, 15 minutes by default, then it exits and Compose restarts it). A worker that is older than the database refuses to start, and a running worker stops when the app updates the database under it; its log says `will not run:` and which version it needs. On a split install, update the app computer first, then the music computer.
+The workers wait for the app: in the Compose files they start only once the app is healthy. A worker that is newer than the database waits until the app has updated it (up to `TAGAVE_SCHEMA_WAIT_SECONDS`, 15 minutes by default, then it exits and Compose restarts it). A worker that is older than the database refuses to start, and a running worker stops when the app updates the database under it; its log says `will not run:` and which version it needs. On a split install, update the app computer first, then the music computer.
 
-The status page (Settings › System) and `liner-doctor doctor` show this as two checks: **Database schema** (pending updates, or a database newer than this build) and **Backups before updates** (whether the next backup can be written, and where the last one is).
+The status page (Settings › System) and `tagave-doctor doctor` show this as two checks: **Database schema** (pending updates, or a database newer than this build) and **Backups before updates** (whether the next backup can be written, and where the last one is).
 
 Overrides, for when you know why you need them:
 
 | Setting | Effect |
 |---|---|
-| `LINER_SKIP_PREMIGRATE_BACKUP=1` | Update without the backup. The status page warns afterwards. With the installer, set `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` in `.env`. |
-| `LINER_ALLOW_SCHEMA_SKEW=1` | Let an app or worker run on a database a newer version updated. With the installer: `TAGAVE_ALLOW_SCHEMA_SKEW=1`. |
-| `LINER_BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
-| `LINER_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
-| `LINER_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep (default 5). With the installer: `TAGAVE_PREMIGRATE_BACKUP_KEEP`. |
+| `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` | Update without the backup. The status page warns afterwards. |
+| `TAGAVE_ALLOW_SCHEMA_SKEW=1` | Let an app or worker run on a database a newer version updated. |
+| `BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
+| `TAGAVE_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
+| `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep (default 5). |
 
-Outside Docker (a source checkout), the app needs `pg_dump` and `pg_restore` of the same major version as the server on its `PATH` (or `PG_DUMP` and `PG_RESTORE` pointing at them) before it will apply an update. On a throwaway development database you can set `LINER_SKIP_PREMIGRATE_BACKUP=1` instead.
+With the installer, set the `TAGAVE_*` ones in `.env`.
+
+Outside Docker (a source checkout), the app needs `pg_dump` and `pg_restore` of the same major version as the server on its `PATH` (or `PG_DUMP` and `PG_RESTORE` pointing at them) before it will apply an update. On a throwaway development database you can set `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` instead.
 
 ### Roll back an update
 
@@ -282,13 +284,13 @@ Migrations only go forward, so going back means restoring the backup the update 
 3. Start only the database: `docker compose up -d postgres`.
 4. Find the backup taken before the update you are undoing. It is the **first** backup that update took, which is not always the newest file. The app log shows it ("backup written ..."), and so does the database's record:
    ```sh
-   docker compose exec -T postgres psql -U liner liner -c \
-     "select created_at, path, from_version, to_version from _migration_backups order by id desc limit 5"
+   docker compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" "$POSTGRES_DB" -c \
+     "select created_at, path, from_version, to_version from _migration_backups order by id desc limit 5"'
    ```
    Use the row whose `to_version` is the version you are leaving and whose `from_version` is the version you are going back to.
    Settings › Backups lists the same file under "Before update". Restore it as in [Restore a backup](#restore-a-backup):
    ```sh
-   docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore liner-<time>-pre-migration.pgdump --yes
+   docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore tagave-<time>-pre-migration.pgdump --yes
    ```
 5. `docker compose up -d`.
 
@@ -337,3 +339,12 @@ Then relaunch the host workers. Both topologies can coexist, because jobs are cl
 ## Release gate
 
 `scripts/smoke.sh` runs exactly this topology on a throwaway stack (postgres, app, both workers, a temp music dir, and a `backup` round-trip) and is the release gate for the images.
+
+## Names from before 0.9
+
+tagave was called liner before 0.9. Some names still carried it; 0.9 renamed them, and an install from before keeps working:
+
+- **Settings** named `LINER_*` are `TAGAVE_*` now (`LINER_VERSION`, the version a build reports, is `TAGAVE_BUILD_VERSION`, since `TAGAVE_VERSION` is the image tag in `.env`). The old names still work until 0.10, with a note in the log. `install-tagave.sh update` (and a re-run, `enable-*` and `disable-*`) and the in-app updater rename them in `.env`, keeping the values and a private copy of the old file (`.env.bak.*` from the installer, `.env.bak` from the updater).
+- **The database** keeps the user and name it was created with. An install from before 0.9 has `liner`, recorded in `.env` as `POSTGRES_USER` and `POSTGRES_DB`; new installs use `tagave`. Nothing renames an existing database.
+- **Backups** are written as `tagave-<time>…pgdump`. Older `liner-<time>…pgdump` files stay in the list, sorted by time with the new ones, and are restored and pruned the same way.
+- **The command** is `tagave-doctor`. `liner-doctor` still runs it until 0.10 and says so.

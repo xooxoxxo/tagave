@@ -39,14 +39,14 @@ When you need to rotate the secret (for example, after a compromise), you must r
 
 2. Run the reseal command, passing both secrets inline:
    ```sh
-   LINER_OLD_APP_SECRET=<old_secret> APP_SECRET=<new_secret> \
+   TAGAVE_OLD_APP_SECRET=<old_secret> APP_SECRET=<new_secret> \
    node packages/doctor/dist/cli.js reseal
    ```
 
    Or in Docker:
    ```sh
    docker compose -f docker-compose.prod.yml exec \
-     -e LINER_OLD_APP_SECRET=<old_secret> -e APP_SECRET=<new_secret> \
+     -e TAGAVE_OLD_APP_SECRET=<old_secret> -e APP_SECRET=<new_secret> \
      app node packages/doctor/dist/cli.js reseal
    ```
 
@@ -54,7 +54,7 @@ When you need to rotate the secret (for example, after a compromise), you must r
    environment of every later command in that shell, and most shells record the
    line in history.
 
-4. Update `.env` to remove `LINER_OLD_APP_SECRET` and keep only the new `APP_SECRET`.
+4. Update `.env` to remove `TAGAVE_OLD_APP_SECRET` and keep only the new `APP_SECRET`.
 
 The reseal command decrypts all stored credentials with the old secret and encrypts them with the new one. Until this completes, the app cannot decrypt credentials.
 
@@ -65,7 +65,7 @@ Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed o
 Settings › Security › **Passkeys and security keys** adds a passkey (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, a phone) or a hardware security key such as a **YubiKey**. The sign-in page then offers **Sign in with a passkey**, and browsers that support it list your passkeys in the email field's autofill.
 
 - **A PIN or fingerprint is required.** tagave asks the authenticator to verify you (WebAuthn user verification) and refuses a key that only registers a touch. A YubiKey without a PIN: your browser asks you to create one when you add it. Because of this, a passkey sign-in counts as two factors and never asks for the authenticator code.
-- **Passkeys are bound to `PUBLIC_URL`'s host name.** They work only when you open tagave at that address, over https or on `localhost`. Changing the host name later means signing in with your password and adding them again; `liner-doctor doctor` warns when `PUBLIC_URL` no longer matches the host your passkeys were made for.
+- **Passkeys are bound to `PUBLIC_URL`'s host name.** They work only when you open tagave at that address, over https or on `localhost`. Changing the host name later means signing in with your password and adding them again; `tagave-doctor doctor` warns when `PUBLIC_URL` no longer matches the host your passkeys were made for.
 - Add at least two (for example a YubiKey and your phone) so losing one does not lock you out. Settings › Security shows how many factors you have.
 - The setup wizard ends with a skippable **Protect your account** step that offers the same choices.
 
@@ -75,7 +75,7 @@ Settings › Security › **Authenticator app** turns on a second step after the
 
 - Setting it up asks for your password, shows a QR code made in your browser (the secret never goes to a third-party service) and the key as text, and turns on only after you enter one correct code.
 - You then get **10 backup codes**, shown once, to download or print. Each signs you in once instead of the code. Settings › Security shows how many are left; making new ones cancels the old ones.
-- The authenticator secret and the backup codes are stored encrypted with the sign-in secret derived from `APP_SECRET`. `liner-doctor reseal` re-encrypts them when you rotate `APP_SECRET` (it changes nothing and stops if one cannot be decrypted with either secret).
+- The authenticator secret and the backup codes are stored encrypted with the sign-in secret derived from `APP_SECRET`. `tagave-doctor reseal` re-encrypts them when you rotate `APP_SECRET` (it changes nothing and stops if one cannot be decrypted with either secret).
 - Ten wrong codes in a row lock the second step for 15 minutes.
 - Passkey sign-in never asks for the code: a passkey with its PIN or fingerprint already counts as two factors.
 

@@ -1,23 +1,23 @@
 # Third-Party Dependencies and Licensing
 
-This document describes third-party software integrated into Liner with special licensing implications.
+This document describes third-party software integrated into tagave with special licensing implications.
 
 ## Tag Writer
 
 ### mutagen (GPL-2.0-or-later)
 
-**Status:** Active integration in tag writer pipeline (`packages/tagwriter-py/liner_tagwriter.py`)
+**Status:** Active integration in tag writer pipeline (`packages/tagwriter-py/tagave_tagwriter.py`)
 
 **License:** GPL-2.0-or-later
 
-**Usage:** Liner uses mutagen as the primary tag writing engine for reading and writing metadata tags in audio files (MP3, FLAC, M4A/ALAC, OGG, Opus, WAV, AIFF formats). The mutagen library is invoked as a Python sidecar process spawned by the worker.
+**Usage:** tagave uses mutagen as the primary tag writing engine for reading and writing metadata tags in audio files (MP3, FLAC, M4A/ALAC, OGG, Opus, WAV, AIFF formats). The mutagen library is invoked as a Python sidecar process spawned by the worker.
 
-**Personal use note:** Liner's tag-writing feature (scanning archives, reading canonical metadata from MusicBrainz/Discogs, writing to local files) is permitted for **personal, non-commercial use** under the GPL-2.0-or-later license. The GPL obligations (source availability, derivative work licensing) apply if Liner is distributed with or as part of a commercial service.
+**Personal use note:** tagave's tag-writing feature (scanning archives, reading canonical metadata from MusicBrainz/Discogs, writing to local files) is permitted for **personal, non-commercial use** under the GPL-2.0-or-later license. The GPL obligations (source availability, derivative work licensing) apply if tagave is distributed with or as part of a commercial service.
 
 **Commercial tier guardrail (spike verdict):** If a future product tier offers commercial hosting, tag writing using mutagen **requires legal review before launch**. Licensing options include:
 - Negotiating a commercial license with the mutagen maintainers
 - Replacing mutagen with a permissively-licensed alternative (taglib, etc.)
-- Licensing Liner's tag-writing feature as optional for commercial customers
+- Licensing tagave's tag-writing feature as optional for commercial customers
 
 Current deployment is personal/self-hosted only; this guardrail is a planning note for any commercial tier.
 

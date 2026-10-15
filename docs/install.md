@@ -167,12 +167,12 @@ With the updater on, the page offers **Update to x.y.z** (and a list of the newe
 The updater then works through these steps, and the page shows each one with the time it took and a log:
 
 1. **Check**: the install is healthy now, Docker has at least 2 GB free (`TAGAVE_UPDATER_MIN_FREE_MB`), and the new images download for this computer's architecture. Nothing has changed yet.
-2. **Back up**: `liner-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
+2. **Back up**: `tagave-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
 3. **Switch**: `TAGAVE_VERSION` in `.env` and the compose files are set to the new release. The old files stay next to them as `.env.bak` and `compose.yml.bak`.
 4. **Pull** and **restart**: the workers stop, the new app starts (and updates the database), then the workers start again.
 5. **Check every part**: `/api/v1/health` answers ok, the app reports the new version, and every worker on this computer sends heartbeats from it. It waits up to 10 minutes (`TAGAVE_UPDATER_HEALTH_TIMEOUT`, in seconds).
 
-If a step after the switch fails, the updater rolls back on its own: it puts the old `.env` and compose files back and starts the old version. When the new version had already changed the database, it stops the app and workers first and restores the backup from step 2 with `liner-doctor restore` (the database it replaces is kept under another name). The page then says what failed and what was rolled back.
+If a step after the switch fails, the updater rolls back on its own: it puts the old `.env` and compose files back and starts the old version. When the new version had already changed the database, it stops the app and workers first and restores the backup from step 2 with `tagave-doctor restore` (the database it replaces is kept under another name). The page then says what failed and what was rolled back.
 
 The run is kept by the updater, not by the app, so the page keeps following it while the app restarts, and after a reload. The updater itself moves to the new release last, once the rest reports healthy.
 
@@ -260,7 +260,7 @@ PUBLIC_URL=https://music.example.com      # behind an https reverse proxy
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The app listens on `http://localhost:3100` by default. Port is configurable via the `LINER_PORT` env var; Postgres listens on `5432` (configurable via `POSTGRES_PORT`).
+The app listens on `http://localhost:3100` by default. Port is configurable via the `TAGAVE_PORT` env var; Postgres listens on `5432` (configurable via `POSTGRES_PORT`).
 
 ## First-run setup
 
@@ -272,7 +272,7 @@ Open http://localhost:3100. A fresh install opens the setup wizard, which walks 
 4. **First album**: start the first scan and follow it until the first album is identified. A Discogs token (cover images, 25→55 requests/min) and an AcoustID key are optional on the same page.
 5. **Protect your account** (skippable): add a passkey or a security key such as a YubiKey, or set up an authenticator app and save its backup codes. Passkeys need `PUBLIC_URL` to be the address you are on, over https or `localhost`; the step says so when it is not. Skipped, Settings › Security keeps reminding you.
 
-Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `liner-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
+Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `tagave-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
 
 ## Connect your music
 
@@ -313,20 +313,20 @@ Then run one or both worker processes:
 **File worker** (scanning, clustering, cover art, tag plans):
 
 ```sh
-DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert \
+DATABASE_URL=postgres://tagave:…@db-host:5432/tagave APP_SECRET=<same value as the app> \
+TAGAVE_QUEUES=scan.root,scan.dir,scan.sweep,scan.parse,cluster.dir,cluster.repairDiscs,art.fetch,art.sweep,gaps.recompute,queue.autoaccept,facets.refresh,fingerprint.album,fingerprint.sweep,tags.preview,tags.apply,tags.revert \
 node packages/worker/dist/index.js
 ```
 
 **Identify worker** (MusicBrainz/Discogs lookups, enrichment, reviews, artist refreshes, track linking; can run anywhere with internet):
 
 ```sh
-DATABASE_URL=postgres://liner:…@db-host:5432/liner APP_SECRET=<same value as the app> \
-LINER_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup \
+DATABASE_URL=postgres://tagave:…@db-host:5432/tagave APP_SECRET=<same value as the app> \
+TAGAVE_QUEUES=identify.album,identify.acoustid,identify.sweep,enrich.release,enrich.sweep,reviews.fetch,artists.resolve,artists.enrich,artists.refresh,artist.refresh,tracks.link,acoustid.lookup \
 node packages/worker/dist/index.js
 ```
 
-The `LINER_QUEUES` env var limits which job queues a process claims from (default: all). Between them the workers must cover every queue; a queue no worker lists never runs. `APP_SECRET` must match the app's so the worker can decrypt stored provider credentials.
+The `TAGAVE_QUEUES` env var limits which job queues a process claims from (default: all). Between them the workers must cover every queue; a queue no worker lists never runs. `APP_SECRET` must match the app's so the worker can decrypt stored provider credentials.
 
 See `scripts/deploy.sh` for one way to keep a worker host in step with the app (rsync, build, migrate, pidfile restart).
 
