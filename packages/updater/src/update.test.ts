@@ -6,7 +6,8 @@ import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
 import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
-import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun } from './update.js';
+import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
+import { SelfReplaceGate, parseState, serializeState } from './self-replace.js';
 
 const ENV = `# tagave
 COMPOSE_PROJECT_NAME=tagave
@@ -53,6 +54,16 @@ class FakeInstall {
   /** Local images, as repository:tag. */
   images: string[] = [];
   imageLsFails = false;
+  /** Runs while the one-off container that replaces the updater starts. */
+  onReplaceSelf: (() => Promise<void>) | null = null;
+  replaceSelfResult: CommandResult = { code: 0, stdout: 'ho1\n', stderr: '' };
+  /** `ps -aq --filter label=…` finds the hand-over container. */
+  handoverListed = false;
+  /** What `docker wait` on it answers; by default it never returns (the replacement kills this process first). */
+  handoverExit: Promise<CommandResult> = new Promise(() => undefined);
+  waitedOn: string[] = [];
+  runningUpdaterImage = 'sha256:old';
+  updaterImageIds = new Map<string, string>();
   /** Free bytes Docker's filesystem reports, one per statfs call (the last one repeats). */
   dockerFree: number[] = [50 * GB];
   statfsCalls = 0;
@@ -94,6 +105,19 @@ class FakeInstall {
         return ok('restored\n');
       }
     }
+    // The updater's own container and image, and the target's updater image.
+    if (a === 'compose ps -q updater') return ok('upd1\n');
+    if (a === 'inspect -f {{.Image}} upd1') return ok(`${this.runningUpdaterImage}\n`);
+    if (a === 'compose config --images updater') return ok(`ghcr.io/xooxoxxo/tagave-updater:${await this.envVersion()}\n`);
+    if (args[0] === 'image' && args[1] === 'inspect' && args[2] === '-f' && args[3] === '{{.Id}}') {
+      return ok(`${this.updaterImageIds.get(args[4]!) ?? 'sha256:new'}\n`);
+    }
+    if (a.startsWith('ps -aq --filter label=tagave.updater.handover=')) return ok(this.handoverListed ? 'ho1\n' : '');
+    if (args[0] === 'wait') {
+      this.waitedOn.push(args[1]!);
+      return this.handoverExit;
+    }
+    if (args[0] === 'logs') return ok('Error response from daemon: pull access denied\n');
     if (a === 'compose ps -q player') return ok(this.playerImage ? 'pl1\n' : '');
     if (args[0] === 'inspect' && args.at(-1) === 'pl1') return ok(`${this.playerHealth}\n`);
     if (a === 'compose config --quiet') return ok();
@@ -157,6 +181,10 @@ class FakeInstall {
       this.migrations = 38;
       return ok('{"database":"tagave"}');
     }
+    if (a.startsWith('compose run -d --rm --no-deps --label tagave.updater.handover=')) {
+      await this.onReplaceSelf?.();
+      return this.replaceSelfResult;
+    }
     if (args[0] === 'compose' && args[1] === 'run') return ok('abc123');
     if (a.startsWith('image ls')) {
       if (this.imageLsFails) return bad('Cannot connect to the Docker daemon');
@@ -202,8 +230,9 @@ class FakeInstall {
 let dir: string;
 let fake: FakeInstall;
 let saved: UpdateRun[];
+let lastUpdate: Update;
 
-async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]> } = {}) {
+async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace'] } = {}) {
   let clock = fake.now;
   const u = new Update(
     {
@@ -216,9 +245,11 @@ async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> 
       sleep: async (ms) => { clock += ms; },
       statfs: fake.statfs,
       layers: seams.layers ?? fake.layers,
+      ...(seams.selfReplace ? { selfReplace: seams.selfReplace } : {}),
     },
     newRun('run-1', '0.7.0', target, new Date(clock)),
   );
+  lastUpdate = u;
   return u.execute();
 }
 
@@ -257,7 +288,7 @@ describe('update state machine', () => {
     // the updater is never restarted by the update itself, only replaced at the end by a one-off
     const ups = fake.calls.filter((c) => c[1] === 'up');
     expect(ups.every((c) => !c.includes('updater'))).toBe(true);
-    expect(fake.calls.at(-1)!.slice(0, 3)).toEqual(['compose', 'run', '-d']);
+    expect(fake.calls.filter((c) => c[1] === 'run' && c.includes('-d'))).toHaveLength(1);
     // workers stop before the new app starts, and start after it answers
     const stop = fake.calls.findIndex((c) => c[1] === 'stop');
     const upApp = fake.calls.findIndex((c) => c[1] === 'up' && c[3] === 'app' && c.length === 4);
@@ -553,7 +584,8 @@ describe('old images after an update', () => {
     expect(line?.message).toContain("3.0 GB by Docker's count");
     expect(line?.message).toContain('ghcr.io/xooxoxxo/tagave-app:0.6.0');
     // still before the updater replaces itself
-    expect(fake.calls.at(-1)!.slice(0, 3)).toEqual(['compose', 'run', '-d']);
+    const removed = fake.calls.findIndex((c) => c[0] === 'image' && c[1] === 'rm');
+    expect(removed).toBeLessThan(fake.calls.findIndex((c) => c[1] === 'run' && c.includes('-d')));
   });
 
   it('a cleanup that fails is a warning; the update still succeeds', async () => {
@@ -571,5 +603,138 @@ describe('old images after an update', () => {
     // (the free-space check only inspects images)
     expect(fake.calls.some((c) => c[0] === 'image' && c[1] !== 'inspect')).toBe(false);
     expect(fake.images).toHaveLength(6);
+  });
+
+  describe('while the updater replaces itself', () => {
+    /** The updater process: its gate, and state.json as the server writes it (run + marker). */
+    function updaterOn(version: string) {
+      const state: { text: string | null; writes: number } = { text: null, writes: 0 };
+      const logs: string[] = [];
+      const gate = new SelfReplaceGate({
+        version,
+        persist: async () => { state.writes += 1; state.text = serializeState(saved.at(-1) ?? newRun('run-1', '0.7.0', '0.8.0', new Date(fake.now)), gate.current); },
+        now: () => new Date(fake.now),
+        log: (level, m) => { logs.push(`${level}: ${m}`); },
+      });
+      return { gate, state, logs };
+    }
+    const compare = { handoverBackstopMs: 60_000 };
+
+    it('refuses a second run from the hand-over on, until the new updater is up on the target', async () => {
+      const old = updaterOn('0.7.0');
+      const attempts: Array<string | null> = [];
+      fake.onReplaceSelf = async () => { attempts.push(await old.gate.refusal()); };
+      const run = await update('0.8.0', compare, { selfReplace: old.gate });
+      expect(run.status).toBe('succeeded');
+      expect(attempts).toEqual(['the updater is restarting itself on version 0.8.0; try again in a minute']);
+      expect(await old.gate.refusal()).toMatch(/restarting itself on version 0\.8\.0/);
+      // the one-off carries the label, and this process waits on the container it started
+      expect(fake.calls.find((c) => c[1] === 'run' && c.includes('-d'))).toContain('tagave.updater.handover=run-1');
+      expect(fake.waitedOn).toEqual(['ho1']);
+      const { marker } = parseState(old.state.text!);
+      expect(marker).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', runId: 'run-1' });
+
+      // the replacement starts on 0.8.0, finds the marker, and accepts runs again
+      const fresh = updaterOn('0.8.0');
+      await fresh.gate.adopt(marker);
+      expect(await fresh.gate.refusal()).toBeNull();
+      expect(fresh.logs).toEqual(['info: the updater restarted on 0.8.0 as planned']);
+    });
+
+    it('writes nothing to state.json after the hand-over began', async () => {
+      const old = updaterOn('0.7.0');
+      let savesAtBegin = -1;
+      fake.onReplaceSelf = async () => { savesAtBegin = saved.length; };
+      const run = await update('0.8.0', compare, { selfReplace: old.gate });
+      await new Promise((r) => setTimeout(r, 10));
+      // the run's last write came before the marker; nothing after it
+      expect(saved.length).toBe(savesAtBegin);
+      expect(saved.at(-1)!.log.at(-1)!.message).toMatch(/handing over to the updater/);
+      expect(saved.at(-1)!.finishedAt).not.toBeNull();
+      expect(old.state.writes).toBe(1);
+      expect(run.status).toBe('succeeded');
+    });
+
+    it('skips the hand-over when the target updater image is the one that runs', async () => {
+      const old = updaterOn('0.7.0');
+      fake.updaterImageIds.set('ghcr.io/xooxoxxo/tagave-updater:0.8.0', 'sha256:old');
+      const run = await update('0.8.0', compare, { selfReplace: old.gate });
+      expect(run.status).toBe('succeeded');
+      expect(old.gate.current).toBeNull();
+      expect(fake.calls.some((c) => c[1] === 'run' && c.includes('-d'))).toBe(false);
+      expect(run.log.at(-1)!.message).toMatch(/the updater image did not change/);
+    });
+
+    it('hands over when the image ID differs, whatever the version strings say', async () => {
+      const old = updaterOn('0.8.0');
+      fake.runningUpdaterImage = 'sha256:aaa';
+      fake.updaterImageIds.set('ghcr.io/xooxoxxo/tagave-updater:0.8.0', 'sha256:bbb');
+      await update('0.8.0', compare, { selfReplace: old.gate });
+      expect(old.gate.current?.expectedVersion).toBe('0.8.0');
+    });
+
+    it('accepts runs again at once when docker never created the one-off', async () => {
+      const old = updaterOn('0.7.0');
+      fake.replaceSelfResult = { code: 1, stdout: '', stderr: 'Error: no such image' };
+      const run = await update('0.8.0', compare, { selfReplace: old.gate });
+      expect(run.status).toBe('succeeded');
+      expect(await old.gate.refusal()).toBeNull();
+      expect(old.logs.some((l) => /^warn: the one-off container that replaces it did not start.*; still on 0\.7\.0$/.test(l))).toBe(true);
+      expect(saved.at(-1)!.log.at(-1)!.message).toMatch(/could not replace itself/);
+    });
+
+    it('a compose run that times out keeps refusing; the backstop decides', async () => {
+      const old = updaterOn('0.7.0');
+      fake.replaceSelfResult = { code: 1, stdout: '', stderr: '\ntimed out after 60 s' };
+      await update('0.8.0', { handoverBackstopMs: 30 }, { selfReplace: old.gate });
+      expect(await old.gate.refusal()).not.toBeNull();
+      await lastUpdate.handover;
+      expect(await old.gate.refusal()).toBeNull();
+      expect(old.logs.at(-1)).toMatch(/^warn: the hand-over did not replace it within 0 s; still on 0\.7\.0$/);
+    });
+
+    it('a timed-out compose run whose container exists is waited on', async () => {
+      const old = updaterOn('0.7.0');
+      fake.replaceSelfResult = { code: 1, stdout: '', stderr: '\ntimed out after 60 s' };
+      fake.handoverListed = true;
+      let exit!: (r: CommandResult) => void;
+      fake.handoverExit = new Promise((r) => { exit = r; });
+      await update('0.8.0', compare, { selfReplace: old.gate });
+      expect(fake.waitedOn).toEqual(['ho1']);
+      expect(await old.gate.refusal()).not.toBeNull();
+      exit({ code: 0, stdout: '1\n', stderr: '' });
+      await lastUpdate.handover;
+      expect(await old.gate.refusal()).toBeNull();
+    });
+
+    it('reopens when the one-off exits and this process is still alive, with its last lines in the log', async () => {
+      const old = updaterOn('0.7.0');
+      fake.handoverExit = Promise.resolve({ code: 0, stdout: '18\n', stderr: '' });
+      await update('0.8.0', compare, { selfReplace: old.gate });
+      await lastUpdate.handover;
+      expect(await old.gate.refusal()).toBeNull();
+      expect(old.logs.at(-1)).toBe('warn: hand-over container exited (code 18); still on 0.7.0');
+      const last = saved.at(-1)!.log.at(-1)!.message;
+      expect(last).toMatch(/hand-over container exited \(code 18\).*Its last lines: Error response from daemon: pull access denied/);
+      expect(parseState(old.state.text!).marker).toBeNull();
+    });
+
+    it('the backstop reopens when nothing replaced this process in time', async () => {
+      const old = updaterOn('0.7.0');
+      await update('0.8.0', { handoverBackstopMs: 20 }, { selfReplace: old.gate });
+      expect(await old.gate.refusal()).not.toBeNull();
+      await lastUpdate.handover;
+      expect(await old.gate.refusal()).toBeNull();
+    });
+
+    it('sets no marker after a failed run, or with self-update off', async () => {
+      const old = updaterOn('0.7.0');
+      fake.missingTags.add('0.8.0');
+      expect((await update('0.8.0', compare, { selfReplace: old.gate })).status).toBe('failed');
+      expect(old.gate.current).toBeNull();
+      fake.missingTags.clear();
+      expect((await update('0.8.0', { selfUpdate: false }, { selfReplace: old.gate })).status).toBe('succeeded');
+      expect(old.gate.current).toBeNull();
+    });
   });
 });

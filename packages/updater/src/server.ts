@@ -6,7 +6,8 @@
  *   GET  /v1/status   the updater's version, the install's TAGAVE_VERSION,
  *                     and the current or last run
  *   POST /v1/update   {"version": "0.8.0"}: start an update (202), or 409
- *                     while one runs
+ *                     while one runs or while the updater restarts itself
+ *                     on a new version (self-replace.ts)
  */
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -14,6 +15,7 @@ import { join } from 'node:path';
 import type { UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
 import { envGet, readText, writeFileAtomic } from './envFile.js';
 import { mkdirKeepingOwner } from './safe-write.js';
+import { HANDOVER_LABEL, SelfReplaceGate, parseState, serializeState, type SelfReplaceLog, type SelfReplaceMarker } from './self-replace.js';
 import type { AppProbe, Runner } from './runner.js';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { Update, newRun, type UpdateConfig } from './update.js';
@@ -30,6 +32,8 @@ export interface UpdaterOptions {
   docker: Runner;
   app: AppProbe;
   config: UpdateConfig;
+  now?: () => Date;
+  log?: SelfReplaceLog;
 }
 
 export class UpdaterService {
@@ -37,10 +41,22 @@ export class UpdaterService {
   private active: Promise<UpdateRun> | null = null;
   private readonly verifier: SignatureVerifier;
   private readonly statePath: string;
+  private readonly selfReplace: SelfReplaceGate;
+  private writing: Promise<void> = Promise.resolve();
 
   constructor(private readonly opts: UpdaterOptions) {
     this.verifier = new SignatureVerifier(opts.appSecret);
     this.statePath = join(opts.installDir, STATE_DIR, 'state.json');
+    this.selfReplace = new SelfReplaceGate({
+      version: opts.version,
+      persist: () => this.writeState(),
+      handoverRunning: async () => {
+        const res = await opts.docker(['ps', '-q', '--filter', `label=${HANDOVER_LABEL}`], { timeoutMs: 15_000 });
+        return res.code === 0 ? res.stdout.trim() !== '' : null;
+      },
+      ...(opts.now ? { now: opts.now } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
+    });
   }
 
   /** Loads the last run; a run still marked running was cut off (the updater or the host restarted). */
@@ -48,7 +64,10 @@ export class UpdaterService {
     const text = await readText(this.statePath);
     if (!text) return;
     try {
-      const run = JSON.parse(text) as UpdateRun;
+      const { run, marker } = parseState(text);
+      if (!run) return;
+      this.run = run;
+      await this.selfReplace.adopt(marker);
       if (run.status === 'running') {
         const step = run.steps.find((s) => s.status === 'running');
         run.status = 'interrupted';
@@ -66,8 +85,19 @@ export class UpdaterService {
 
   private async save(run: UpdateRun): Promise<void> {
     this.run = run;
-    await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
-    await writeFileAtomic(this.statePath, `${JSON.stringify(run, null, 2)}\n`, false);
+    await this.writeState();
+  }
+
+  /** state.json: the run, and the self-replace marker while one is pending. One write at a time. */
+  private writeState(): Promise<void> {
+    const write = async () => {
+      if (!this.run) return;
+      await mkdirKeepingOwner(join(this.opts.installDir, STATE_DIR), 0o700);
+      await writeFileAtomic(this.statePath, serializeState(this.run, this.selfReplace.current), false);
+    };
+    const next = this.writing.then(write, write);
+    this.writing = next.catch(() => undefined);
+    return next;
   }
 
   async status(): Promise<UpdaterStatus> {
@@ -79,12 +109,15 @@ export class UpdaterService {
       role: envGet(env, 'TAGAVE_ROLE'),
       services: svc.code === 0 ? svc.stdout.split('\n').map((s) => s.trim()).filter((s) => s && s !== 'updater') : [],
       run: this.run,
+      selfReplace: await this.selfReplace.status(),
     };
   }
 
   /** Starts a run in the background. */
-  async start(target: string): Promise<{ ok: true; run: UpdateRun } | { ok: false; status: number; error: string }> {
+  async start(target: string): Promise<{ ok: true; run: UpdateRun } | { ok: false; status: number; error: string; selfReplace?: SelfReplaceMarker | null }> {
     if (!TARGET_RE.test(target)) return { ok: false, status: 400, error: 'version must be a release number such as 0.8.0' };
+    const restarting = await this.selfReplace.refusal();
+    if (restarting) return { ok: false, status: 409, error: restarting, selfReplace: this.selfReplace.current };
     if (this.active) return { ok: false, status: 409, error: 'an update is already running' };
     const env = (await readText(join(this.opts.installDir, '.env'))) ?? '';
     const from = envGet(env, 'TAGAVE_VERSION') ?? 'unknown';
@@ -96,6 +129,7 @@ export class UpdaterService {
         app: this.opts.app,
         config: this.opts.config,
         save: (r) => this.save(r),
+        selfReplace: this.selfReplace,
       },
       run,
     );
@@ -137,7 +171,8 @@ export class UpdaterService {
         return send(400, { error: 'body must be JSON' });
       }
       const result = await this.start(typeof version === 'string' ? version : '');
-      return result.ok ? send(202, { run: result.run }) : send(result.status, { error: result.error });
+      if (result.ok) return send(202, { run: result.run });
+      return send(result.status, { error: result.error, ...(result.selfReplace ? { selfReplace: result.selfReplace } : {}) });
     }
     return send(404, { error: 'not found' });
   }

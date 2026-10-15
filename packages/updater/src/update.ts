@@ -48,6 +48,7 @@ import { envGet, envSet, migrateLegacyEnv, readText, writeFileAtomic } from './e
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
+import { HANDOVER_LABEL, type SelfReplaceHooks } from './self-replace.js';
 
 export const STEP_LABELS: Record<UpdateStepId, string> = {
   preflight: 'Check the install and download the new images',
@@ -101,6 +102,8 @@ export interface UpdateConfig {
   selfUpdate: boolean;
   /** How long the player may take to report healthy after a successful update. */
   playerHealthTimeoutMs: number;
+  /** How long this process may outlive the hand-over to its replacement before it takes it as failed. */
+  handoverBackstopMs: number;
 }
 
 export const DEFAULT_CONFIG: UpdateConfig = {
@@ -110,6 +113,7 @@ export const DEFAULT_CONFIG: UpdateConfig = {
   commandTimeoutMs: 20 * 60_000,
   selfUpdate: true,
   playerHealthTimeoutMs: 2 * 60_000,
+  handoverBackstopMs: 150_000,
 };
 
 export interface UpdateDeps {
@@ -124,6 +128,8 @@ export interface UpdateDeps {
   /** Test seams for the free-space check: statfs of the updater's root, and image layers from the registry. */
   statfs?: (path: string) => Promise<StatfsLike>;
   layers?: (ref: string, signal?: AbortSignal) => Promise<Layer[]>;
+  /** Told before and (on failure) after the updater hands over to its replacement (self-replace.ts). */
+  selfReplace?: SelfReplaceHooks;
 }
 
 class StepFailed extends Error {}
@@ -176,6 +182,10 @@ export class Update {
   /** The player may have started on the new image. */
   private playerStarted = false;
   private saving: Promise<void> = Promise.resolve();
+  /** Handed over to the replacement: this process writes nothing more to state.json unless the hand-over fails. */
+  private handedOver = false;
+  /** Settles when the hand-over watch ends (the replacement kills this process first when it works). For tests. */
+  handover: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: UpdateDeps, run: UpdateRun) {
     this.run = run;
@@ -187,6 +197,7 @@ export class Update {
   // -- bookkeeping ---------------------------------------------------------
 
   private persist(): Promise<void> {
+    if (this.handedOver) return this.saving;
     const snapshot = structuredClone(this.run);
     this.saving = this.saving.then(() => this.deps.save(snapshot)).catch(() => undefined);
     return this.saving;
@@ -598,15 +609,91 @@ export class Update {
     }
   }
 
+  /** The image IDs of this updater's own container and of the target's updater image; null when either is unknown. */
+  private async updaterImages(): Promise<{ running: string; target: string } | null> {
+    const ps = await this.compose(['ps', '-q', 'updater'], { quiet: true, timeoutMs: 30_000 });
+    const own = ps.code === 0 ? ps.stdout.trim().split('\n')[0]?.trim() : '';
+    if (!own) return null;
+    const running = await this.docker(['inspect', '-f', '{{.Image}}', own], { quiet: true, timeoutMs: 30_000 });
+    const ref = await this.compose(['config', '--images', 'updater'], { quiet: true, timeoutMs: 30_000 });
+    const targetRef = ref.code === 0 ? ref.stdout.trim().split('\n')[0]?.trim() : '';
+    if (running.code !== 0 || !targetRef) return null;
+    const target = await this.docker(['image', 'inspect', '-f', '{{.Id}}', targetRef], { quiet: true, timeoutMs: 30_000 });
+    if (target.code !== 0) return null;
+    const a = running.stdout.trim();
+    const b = target.stdout.trim();
+    return a && b ? { running: a, target: b } : null;
+  }
+
+  /** The hand-over container of this run, by its label (null: docker did not answer). */
+  private async handoverContainer(): Promise<string | null | undefined> {
+    const res = await this.docker(['ps', '-aq', '--filter', `label=${HANDOVER_LABEL}=${this.run.id}`], { quiet: true, timeoutMs: 30_000 });
+    if (res.code !== 0) return null;
+    return res.stdout.trim().split('\n')[0]?.trim() || undefined;
+  }
+
   private async replaceSelf(): Promise<void> {
+    const images = await this.updaterImages();
+    if (images && images.running === images.target) {
+      this.log('info', `the updater image did not change (${images.target.slice(0, 19)}); the updater keeps running as it is`);
+      await this.persist();
+      return;
+    }
     // A one-off container of the updater service, on the new image, recreates
     // the updater service container; this process is the one being replaced,
-    // so it must not do that itself.
-    const res = await this.compose(['run', '-d', '--rm', '--no-deps', '--entrypoint', 'sh', 'updater', '-c', 'sleep 3; docker compose up -d --no-deps updater'], {
-      timeoutMs: 60_000,
+    // so it must not do that itself. From here until the replacement is up,
+    // the updater refuses new runs, and this process writes nothing more to
+    // state.json unless the hand-over fails (self-replace.ts).
+    this.log('info', 'handing over to the updater on the new version; it restarts in a few seconds');
+    await this.persist();
+    this.handedOver = true;
+    await this.deps.selfReplace?.begin(this.run.target, this.run.id);
+    const res = await this.deps.docker(
+      ['compose', 'run', '-d', '--rm', '--no-deps', '--label', `${HANDOVER_LABEL}=${this.run.id}`, '--entrypoint', 'sh', 'updater', '-c', 'sleep 3; docker compose up -d --no-deps updater'],
+      { timeoutMs: 60_000 },
+    );
+    const timedOut = res.code !== 0 && /timed out after/.test(res.stderr);
+    let id: string | null | undefined = res.code === 0 ? res.stdout.trim().split('\n').at(-1)?.trim() || undefined : undefined;
+    if (!id) id = await this.handoverContainer();
+    if (id === undefined && res.code !== 0 && !timedOut) {
+      // Docker says it never created the container: nothing will replace this process.
+      await this.handoverFailed(`the one-off container that replaces it did not start (${tail(res.stderr || res.stdout, 2)})`);
+      return;
+    }
+    // Started, or unknown (a timeout): keep refusing until the container
+    // exits with this process still alive, the backstop, or the stale limit.
+    this.handover = this.watchHandover(id ?? null);
+  }
+
+  private async watchHandover(id: string | null): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const backstop = new Promise<'backstop'>((resolve) => {
+      timer = setTimeout(() => resolve('backstop'), this.deps.config.handoverBackstopMs);
+      timer.unref?.();
     });
-    if (res.code === 0) this.log('info', 'the updater restarts on the new version in a few seconds');
-    else this.log('warn', 'the updater could not replace itself; it moves to the new version at its next restart (docker compose up -d updater)');
+    const exited = id
+      ? Promise.all([
+        this.deps.docker(['wait', id], { timeoutMs: this.deps.config.handoverBackstopMs + 60_000 }),
+        this.deps.docker(['logs', '-f', '--tail', '6', id], { timeoutMs: this.deps.config.handoverBackstopMs + 60_000 }),
+      ]).then(([wait, logs]) => ({ wait, logs }))
+      : new Promise<never>(() => undefined);
+    const result = await Promise.race([backstop, exited]);
+    clearTimeout(timer);
+    if (result === 'backstop') {
+      await this.handoverFailed(`the hand-over did not replace it within ${Math.round(this.deps.config.handoverBackstopMs / 1000)} s`);
+      return;
+    }
+    const code = result.wait.code === 0 && /^\d+$/.test(result.wait.stdout.trim()) ? result.wait.stdout.trim() : '?';
+    const lines = tail(`${result.logs.stdout}\n${result.logs.stderr}`, 6);
+    await this.handoverFailed(`hand-over container exited (code ${code})`, lines);
+  }
+
+  /** This process is still alive, so it was not replaced: open the gate again and say so. */
+  private async handoverFailed(reason: string, lines = ''): Promise<void> {
+    this.handedOver = false;
+    await this.deps.selfReplace?.abort(reason);
+    this.log('warn', `the updater could not replace itself: ${reason}. It moves to the new version at its next restart (docker compose up -d updater)${lines ? `. Its last lines: ${lines}` : ''}`);
+    await this.persist();
   }
 
   // -- driver ----------------------------------------------------------------
@@ -656,10 +743,8 @@ export class Update {
     if (this.run.status === 'succeeded') await this.cleanOldImages();
     this.run.finishedAt = this.now().toISOString();
     await this.persist();
-    if (this.run.status === 'succeeded' && this.deps.config.selfUpdate) {
-      await this.replaceSelf();
-      await this.persist();
-    }
+    // replaceSelf writes the run once more before it hands over, and not after.
+    if (this.run.status === 'succeeded' && this.deps.config.selfUpdate) await this.replaceSelf();
     return this.run;
   }
 }

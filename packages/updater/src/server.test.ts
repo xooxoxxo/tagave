@@ -74,7 +74,7 @@ describe('updater HTTP API', () => {
   it('reports its status, the configured version and the services an update restarts', async () => {
     const res = await call('GET', '/v1/status');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: null });
+    expect(await res.json()).toEqual({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: null, selfReplace: null });
   });
 
   it('starts a run, keeps its state on disk, and refuses a bad version', async () => {
@@ -99,5 +99,76 @@ describe('updater HTTP API', () => {
     const status = (await (await call('GET', '/v1/status')).json()) as { run: UpdateRun };
     expect(status.run.status).toBe('interrupted');
     expect(status.run.reason).toMatch(/Restart the app, then the workers.*\/backups\/x\.pgdump/);
+  });
+
+  describe('while it restarts itself on a new version', () => {
+    const writeState = async (state: unknown) => {
+      await mkdir(join(dir, STATE_DIR), { recursive: true });
+      await writeFile(join(dir, STATE_DIR, 'state.json'), JSON.stringify(state));
+    };
+    const readState = async () => JSON.parse(await readFile(join(dir, STATE_DIR, 'state.json'), 'utf8')) as Record<string, unknown>;
+    const finished = () => ({ ...newRun('r1', '0.6.0', '0.7.0', new Date()), status: 'succeeded' });
+
+    it('answers 409 with the version it waits for, and shows the marker in its status', async () => {
+      await writeState(finished());
+      await service.load();
+      await service['selfReplace'].begin('0.8.0', 'r1');
+      expect((await readState())['selfReplace']).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', runId: 'r1' });
+      const res = await call('POST', '/v1/update', '{"version":"0.8.0"}');
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; selfReplace: { expectedVersion: string } };
+      expect(body.error).toBe('the updater is restarting itself on version 0.8.0; try again in a minute');
+      expect(body.selfReplace.expectedVersion).toBe('0.8.0');
+      const status = (await (await call('GET', '/v1/status')).json()) as { selfReplace: { expectedVersion: string } | null };
+      expect(status.selfReplace?.expectedVersion).toBe('0.8.0');
+      expect((status.selfReplace as { ageMs?: number } | null)?.ageMs).toEqual(expect.any(Number));
+    });
+
+    it('the old updater restarted before the hand-over ran keeps refusing while the labelled one-off runs', async () => {
+      const { fresh, logs } = await startWith('0.6.0', new Date(), new Date(), 'ho1\n');
+      expect(logs[0]).toMatch(/^warn: restarted on 0\.6\.0 while the hand-over to 0\.7\.0 still runs/);
+      expect((await readState())['selfReplace']).toMatchObject({ expectedVersion: '0.7.0' });
+      expect((await fresh.start('0.7.0')).ok).toBe(false);
+    });
+
+    const startWith = async (version: string, since: Date, now = new Date(), handoverPs = '') => {
+      await writeState({ ...finished(), selfReplace: { expectedVersion: '0.7.0', fromVersion: '0.6.0', runId: 'r1', since: since.toISOString() } });
+      const logs: string[] = [];
+      const fresh = new UpdaterService({
+        installDir: dir,
+        appSecret: SECRET,
+        version,
+        docker: async (args) => (args.join(' ') === 'ps -q --filter label=tagave.updater.handover' ? { code: 0, stdout: handoverPs, stderr: '' } : { code: 1, stdout: '', stderr: 'no' }),
+        app: { health: async () => ({ ok: false, detail: 'down' }), versions: async () => null },
+        config: { ...DEFAULT_CONFIG, selfUpdate: false },
+        now: () => now,
+        log: (level, m) => { logs.push(`${level}: ${m}`); },
+      });
+      await fresh.load();
+      return { fresh, logs };
+    };
+
+    it('the replacement on the expected version clears the marker and keeps the run', async () => {
+      const { fresh, logs } = await startWith('0.7.0', new Date());
+      expect(logs).toEqual(['info: the updater restarted on 0.7.0 as planned']);
+      const state = await readState();
+      expect(state['selfReplace']).toBeUndefined();
+      expect(state['id']).toBe('r1');
+      expect((await fresh.status()).selfReplace).toBeNull();
+    });
+
+    it('an updater on another version clears the marker with a warning', async () => {
+      const { logs } = await startWith('0.6.5', new Date());
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatch(/^warn: the updater was to restart on 0\.7\.0 but runs 0\.6\.5/);
+      expect((await readState())['selfReplace']).toBeUndefined();
+    });
+
+    it('a marker older than ten minutes is cleared with a warning', async () => {
+      const now = new Date();
+      const { logs } = await startWith('0.6.0', new Date(now.getTime() - 11 * 60_000), now);
+      expect(logs[0]).toMatch(/^warn: found a restart onto 0\.7\.0 .* that never finished/);
+      expect((await readState())['selfReplace']).toBeUndefined();
+    });
   });
 });
