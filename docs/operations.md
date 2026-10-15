@@ -167,6 +167,25 @@ It prints how many artists have years now, how many have none on
 MusicBrainz, and any that failed (run it again later for those). Artists you
 open in the app also get their years when their details are next refreshed.
 
+## Disk space
+
+### Old images
+
+Each release brings new app, worker and updater images, about 3 GB together. After an update succeeds, Settings › Updates and `install-tagave.sh update` remove the older ones and say in the update's log (or the installer's output) what went and how much space Docker counts for it. They keep:
+
+- the images of the version that runs now, and of the version you updated from, so a roll back needs no download;
+- any image a container uses, running or stopped;
+- tags that are not plain release numbers (`latest`, `edge`, pre-releases such as `0.9.0-rc.1`), and images of any other repository.
+
+Only `<registry>/tagave-app`, `tagave-worker` and `tagave-updater` are looked at (the registry is `TAGAVE_REGISTRY` in `.env`, `ghcr.io/xooxoxxo` by default), and of the player only the exact Navidrome image it ran before, when the update moved it to another version (other Navidrome tags on the computer may not be tagave's, so they stay; a roll back downloads the old one again). Nothing is pruned: volumes, the build cache and other images are left alone. A removal that fails is a warning; the update itself still counts as done.
+
+To free space from releases before this one by hand, list the images and remove the old tags by name:
+
+```sh
+docker image ls | grep -E 'tagave-(app|worker|updater)'
+docker image rm ghcr.io/xooxoxxo/tagave-app:0.7.0 ghcr.io/xooxoxxo/tagave-worker:0.7.0 ghcr.io/xooxoxxo/tagave-updater:0.7.0
+```
+
 ## Where data lives
 
 - **Database:** `pgdata` volume
