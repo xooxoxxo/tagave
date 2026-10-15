@@ -178,6 +178,43 @@ The run is kept by the updater, not by the app, so the page keeps following it w
 
 On a split install the updater updates the app computer; run `install-tagave.sh update` on the music computer afterwards, as before.
 
+## Play your music (optional player)
+
+tagave can play your albums. The player module is [Navidrome](https://www.navidrome.org), an open-source music server, run unmodified next to tagave. tagave plays albums through it in the browser, and phone apps can use the same Navidrome to stream your library. It is off unless you ask for it.
+
+```sh
+./install-tagave.sh --with-player ...      # when installing (role all)
+./install-tagave.sh enable-player          # on an existing install, from the install folder
+./install-tagave.sh disable-player         # turn it off again
+```
+
+`enable-player` explains what it changes and asks first (`--yes` skips the question, `--no-start` writes the settings and starts nothing). It:
+
+- adds `player` to `COMPOSE_PROFILES` in `.env`;
+- generates an admin password and an encryption key for Navidrome, once, and keeps them only in `.env` (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, readable only by you). The installer never prints them;
+- writes `TAGAVE_PLAYER_URL=http://player:4533`, `TAGAVE_PLAYER_USER=admin` and `TAGAVE_PLAYER_PORT`;
+- starts Navidrome and restarts the app, which picks up the player.
+
+Navidrome reads your music folder read-only, always, even when you installed with `--music-writable`. It keeps its own database in a Docker volume of its own (`player-data`). That database is SQLite, so the volume must stay on a local disk, never on NFS.
+
+**The port.** Navidrome is published on port 4533 of this computer (`--player-port N` picks another), so phone apps on your network can reach it. Keep it inside your home network, or reach it from outside through a VPN or your HTTPS reverse proxy. Never forward it from your router. See [Security: the player](security.md#the-player).
+
+**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Give each person their own Navidrome user: open `http://<this computer>:4533`, sign in as `admin` with the password from `.env`, and add users under Settings › Users. Then enter the server address, user name and password in the app.
+
+**The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it.
+
+**Resources.** Plan for about 150 MB more memory, and one more core while Navidrome scans or transcodes. The compose file caps it at 512 MB (`mem_limit`) and one core (`cpus: 1.0`), so a scan cannot starve the database on a small machine.
+
+**Turning it off.** `disable-player` stops and removes the Navidrome container, removes `player` from `COMPOSE_PROFILES`, clears `TAGAVE_PLAYER_URL` and restarts the app. It keeps the password and the key in `.env`, so `enable-player` later reopens the same Navidrome data. It then asks whether to delete the `player-data` volume (Navidrome's own plays, stars and users); the answer defaults to no. With `--yes`, or without a terminal, it keeps the volume and prints the command to delete it later (`docker volume rm tagave_player-data`).
+
+**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Playback**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
+
+**Split installs.** For now the bundled player works only when everything runs on one computer (`--role all`): it has to run next to both the music and the app. On a split install the installer refuses `--with-player` and `enable-player`; run your own Navidrome on the music computer and point Settings › Playback at it.
+
+**Versions.** Each tagave release pins one Navidrome version in `compose.yml`, the newest release that has been out for at least 30 days. `install-tagave.sh update` and the in-app updater pull it with the rest. Navidrome changes its database only forward, so when a release pins a new Navidrome, the update stops the player and copies its data to `/data/snapshots/pre-update` inside the volume first, and the roll back puts that copy back (see [Operations: Roll back](operations.md#roll-back)). If the player does not come back after an update, the update warns and leaves tagave on the new release. `TAGAVE_PLAYER_IMAGE` in `.env` overrides the image; that is not supported.
+
+The one-click platform templates do not include the player yet. On those platforms, run Navidrome yourself and use Settings › Playback.
+
 ## Manual install (build from source)
 
 The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.

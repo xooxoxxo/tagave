@@ -71,6 +71,15 @@ docker compose exec -T postgres sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTG
 docker compose pull && docker compose up -d
 ```
 
+With the player on, when the update moved it to another Navidrome version, the update copied Navidrome's data to `/data/snapshots/pre-update` inside the `player-data` volume before the new version started. The printed roll back then also stops `player` and puts that copy back, before `docker compose pull && docker compose up -d`:
+
+```sh
+docker compose stop player
+docker compose run --rm --no-deps -T --entrypoint sh player -c 'mv /data/navidrome /data/snapshots/rolled-back-$(date +%Y%m%d-%H%M%S) && cp -a /data/snapshots/pre-update /data/navidrome'
+```
+
+The folder the newer Navidrome changed stays in `/data/snapshots/rolled-back-…`. When the Navidrome version did not change, the player's data needs nothing restored, and `update` says so. The in-app updater does the same on its own when it rolls back.
+
 If the update failed before the new app started, the database was not touched: copying the files back and running `docker compose pull && docker compose up -d` is enough, and `update` says so.
 
 On a split install, roll the music computer back too: copy its saved `.env` back from its own `backups/pre-update-…` folder, then `docker compose pull && docker compose up -d`. Or run `./install-tagave.sh update` there once the app computer is back; it follows the app's version.

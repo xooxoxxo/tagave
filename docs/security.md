@@ -122,6 +122,20 @@ Anyone who can read `.env` can sign requests, so keep `.env` private (the instal
 
 **Turn it off** with `./install-tagave.sh disable-updater` in the install folder. By hand: remove `updater` from `COMPOSE_PROFILES` in `.env`, clear `TAGAVE_UPDATER_URL`, then run `docker compose rm --stop --force updater` and `docker compose up -d`.
 
+## The player
+
+The player is an optional service (compose profile `player`): an unmodified [Navidrome](https://www.navidrome.org) that plays your albums in tagave and serves phone apps. It is off by default; `install-tagave.sh --with-player` or `enable-player` turns it on. See [Play your music](install.md#play-your-music-optional-player).
+
+**What it can read.** Your music folder, mounted read-only (always, even with `--music-writable`), and its own `player-data` volume. Nothing else: not the tagave database, not `.env`, not the Docker socket.
+
+**Credentials.** The installer generates Navidrome's admin password and its encryption key (`TAGAVE_PLAYER_PASSWORD`, `TAGAVE_PLAYER_ENCRYPTION_KEY`, 32 random bytes each) and writes them only to `.env`, mode 600. The compose file passes the password to Navidrome and to the app, and to no other service; the workers never get it. Navidrome refuses to start without both values, because a Navidrome with no admin lets whoever reaches its port first create one. The browser never gets the password: it plays through tagave. tagave signs each request to Navidrome with Subsonic token auth, `md5(password + salt)` with a new random salt per request, so the password itself does not cross the network. For a server of your own (Settings › Playback), tagave keeps the password sealed with `APP_SECRET` in the database, like the other provider secrets.
+
+**Network.** Navidrome's port (4533 by default, `TAGAVE_PLAYER_PORT`) is published on this computer's network, like tagave's own port, so phone apps at home can reach it. Phone apps log in with their own Navidrome user. To use them away from home, reach the port through a VPN (WireGuard, Tailscale) or put it behind your HTTPS reverse proxy. Never forward it from your router: it would answer the whole internet, over plain http. On Linux, Docker publishes ports past ufw and firewalld, so a firewall rule does not close it. Public share links, Navidrome's Jellyfin API and its anonymous usage reports (the insights collector) are turned off in the compose file.
+
+**The stream proxy.** The browser streams through tagave, never from Navidrome directly. Every stream needs a tagave session. Each user can hold only a few streams at once (`TAGAVE_PLAYER_MAX_STREAMS`, 4 by default), with a cap for the whole server, and a request to Navidrome that does not answer or stops sending in time is cut off.
+
+**Your responsibility.** tagave streams files you already have, to you and your household. It ships no music and fetches none. A public share link makes files downloadable by anyone who has the link, which can amount to distribution in many jurisdictions. That is why sharing is off.
+
 ## TLS and HTTPS
 
 **In production,** always run tagave behind a reverse proxy (nginx, Caddy, Traefik) that handles TLS. Set:

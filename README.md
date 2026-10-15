@@ -9,8 +9,9 @@
 tagave identifies every album in your archive down to the pressing, corrects the
 tags without ever damaging a file, and tells you what is missing.
 
-It is not a player. Navidrome, Plexamp and Roon play your music. tagave knows
-what it is.
+It is a catalogue that also plays: an optional player module (a bundled
+Navidrome, or your own Subsonic-compatible server) plays albums inside tagave
+and serves your phone apps.
 
 </div>
 
@@ -77,7 +78,7 @@ explains the two ways to arrange that.
 
 | | |
 |---|---|
-| [Installation](docs/install.md) | Getting it running, and connecting it to your music |
+| [Installation](docs/install.md) | Getting it running, connecting it to your music, and the optional player |
 | [Features](docs/features.md) | What the app does, in more detail |
 | [Tag correction](docs/tag-correction.md) | How writes work, and what stops them going wrong |
 | [Operations](docs/operations.md) | Backups, upgrades, health checks, moving workers |
