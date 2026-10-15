@@ -6,10 +6,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterView } from '@tagave/shared';
+import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
 import { Button, Select, confirmDialog } from './ui';
 import { StepUpDialog } from './StepUpDialog';
-import { useStartUpdate } from '../hooks/useUpdater';
+import { restartingOn, updaterKey, useStartUpdate, type SeenUpdaterView } from '../hooks/useUpdater';
 import { getStepUp } from '../services/stepUp';
 import { reloadIntoNewBuild } from '../services/buildCheck';
 import styles from './InAppUpdate.module.css';
@@ -124,7 +124,31 @@ export function useReloadAfterUpdate(run: UpdateRun | null): boolean {
   return reloading;
 }
 
-function RunView({ run, disconnected, reloading, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; onDismiss: () => void }) {
+/** The title of the api's 409 while the updater restarts itself (api routes/updater.ts). */
+const RESTARTING_TITLE = 'Updater restarting';
+
+/**
+ * After the "Updater restarting" 409 and a fresh status: nothing to show when
+ * the status carries the marker (the note says it); otherwise (the marker was
+ * cleared meanwhile, or an older updater) the 409's own message, so a click
+ * is never silent.
+ */
+export function restartConflictError(fresh: SeenUpdaterView | undefined, detail: string | undefined, now = Date.now()): string | null {
+  if (restartingOn(fresh, now)) return null;
+  return sentence(detail) || 'The update could not be started.';
+}
+
+/** Shown, with the Start button disabled, until the updater answers on the new version. */
+function RestartingNote({ restart }: { restart: UpdaterSelfReplace }) {
+  return (
+    <p className={`${styles.note} ${styles.restarting}`} role="status">
+      <span className={styles.spinner} aria-hidden="true" />
+      Restarting the updater on {restart.expectedVersion}… Another update can start once it is back, in a minute or so.
+    </p>
+  );
+}
+
+function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; restart: UpdaterSelfReplace | null; onDismiss: () => void }) {
   const running = run.status === 'running';
   const now = useNow(running);
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
@@ -173,6 +197,7 @@ function RunView({ run, disconnected, reloading, onDismiss }: { run: UpdateRun; 
         <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
       )}
       {reloading && <p className={styles.note}>Loading the new version…</p>}
+      {restart && !running && <RestartingNote restart={restart} />}
       <StepList run={run} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
       <details className={styles.log}>
@@ -212,6 +237,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
   const [error, setError] = useState<string | null>(null);
   const versions = useMemo(() => releases.map((r) => r.version), [releases]);
   const reloading = useReloadAfterUpdate(run);
+  const restart = restartingOn(view);
 
   useEffect(() => {
     if (!versions.includes(picked)) setPicked(versions[0] ?? '');
@@ -230,7 +256,10 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
       setDismissed(null);
     } catch (err) {
       const e = err as { status?: number; title?: string; detail?: string };
-      if (e.status === 403 && e.title === 'Step-up required') {
+      if (e.status === 409 && e.title === RESTARTING_TITLE) {
+        await queryClient.refetchQueries({ queryKey: updaterKey }).catch(() => undefined);
+        setError(restartConflictError(queryClient.getQueryData<SeenUpdaterView>(updaterKey), e.detail));
+      } else if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
         setStepUp({ version, methods: s.methods });
       } else {
@@ -270,6 +299,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
         run={run}
         disconnected={disconnected}
         reloading={reloading}
+        restart={restart}
         onDismiss={() => { writeDismissed(run.id); setDismissed(run.id); }}
       />
     );
@@ -290,7 +320,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
                 {versions.map((v, i) => <option key={v} value={v}>{v}{i === 0 ? ' (newest)' : ''}</option>)}
               </Select>
             )}
-            <Button disabled={!confirmed || !picked || start.isPending} loading={start.isPending} onClick={() => void begin()}>
+            <Button disabled={!confirmed || !picked || start.isPending || !!restart} loading={start.isPending} onClick={() => void begin()}>
               Update to {picked}
             </Button>
           </div>
@@ -298,6 +328,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
           {!confirmed && <p className={styles.note}>Tick the box above first.</p>}
         </>
       )}
+      {restart && <RestartingNote restart={restart} />}
       {error && <p className={styles.error} role="alert">{error}</p>}
       {stepUp && (
         <StepUpDialog
