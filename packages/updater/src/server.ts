@@ -30,7 +30,6 @@ export interface UpdaterOptions {
   docker: Runner;
   app: AppProbe;
   config: UpdateConfig;
-  freeBytes?: () => Promise<number>;
 }
 
 export class UpdaterService {
@@ -97,7 +96,6 @@ export class UpdaterService {
         app: this.opts.app,
         config: this.opts.config,
         save: (r) => this.save(r),
-        ...(this.opts.freeBytes ? { freeBytes: this.opts.freeBytes } : {}),
       },
       run,
     );

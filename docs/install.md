@@ -166,8 +166,8 @@ With the updater on, the page offers **Update to x.y.z** (and a list of the newe
 
 The updater then works through these steps, and the page shows each one with the time it took and a log:
 
-1. **Check**: the install is healthy now, Docker has at least 2 GB free (`TAGAVE_UPDATER_MIN_FREE_MB`), and the new images download for this computer's architecture. Nothing has changed yet.
-2. **Back up**: `tagave-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
+1. **Check**: the install is healthy now, there is room on disk for the new images and two backups with 3 GB to spare (see [Free space before updates](operations.md#free-space-before-updates)), and the new images download for this computer's architecture. Nothing has changed yet.
+2. **Back up**: the free space is measured again, then `tagave-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
 3. **Switch**: `TAGAVE_VERSION` in `.env` and the compose files are set to the new release. The old files stay next to them as `.env.bak` and `compose.yml.bak`.
 4. **Pull** and **restart**: the workers stop, the new app starts (and updates the database), then the workers start again.
 5. **Check every part**: `/api/v1/health` answers ok, the app reports the new version, and every worker on this computer sends heartbeats from it. It waits up to 10 minutes (`TAGAVE_UPDATER_HEALTH_TIMEOUT`, in seconds).

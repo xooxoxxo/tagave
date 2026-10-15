@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
+import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun } from './update.js';
 
@@ -16,6 +17,8 @@ TAGAVE_VERSION=0.7.0
 APP_SECRET=s3cret
 `;
 const COMPOSE = 'name: tagave\nservices:\n  app: {}\n';
+const GB = 1024 ** 3;
+const MB = 1024 ** 2;
 
 /**
  * A pretend install: the .env on disk decides which version `up -d` starts,
@@ -50,6 +53,14 @@ class FakeInstall {
   /** Local images, as repository:tag. */
   images: string[] = [];
   imageLsFails = false;
+  /** Free bytes Docker's filesystem reports, one per statfs call (the last one repeats). */
+  dockerFree: number[] = [50 * GB];
+  statfsCalls = 0;
+  /** The newest dump the app container finds in /backups, and that folder's disk (same size as Docker's: one filesystem). */
+  newestBackup: { name: string; bytes: number } | null = { name: 'tagave-2026-10-10T03-00-00Z-nightly.pgdump', bytes: 700 * MB };
+  backupsDisk: { free: number; total: number } | null = null;
+  /** Images already on this computer. */
+  localImages = new Set(['ghcr.io/xooxoxxo/tagave-app:0.7.0', 'ghcr.io/xooxoxxo/tagave-worker:0.7.0', 'ghcr.io/xooxoxxo/tagave-updater:0.7.0', 'postgres:17']);
 
   constructor(readonly dir: string) {
     this.workers.set('w-identify-old', { version: '0.7.0', seenAt: this.now });
@@ -86,9 +97,25 @@ class FakeInstall {
     if (a === 'compose ps -q player') return ok(this.playerImage ? 'pl1\n' : '');
     if (args[0] === 'inspect' && args.at(-1) === 'pl1') return ok(`${this.playerHealth}\n`);
     if (a === 'compose config --quiet') return ok();
+    if (a === 'compose config --images') {
+      const v = await this.envVersion(opts?.env);
+      return ok(`postgres:17\n${['app', 'worker', 'updater'].map((n) => `ghcr.io/xooxoxxo/tagave-${n}:${v}`).join('\n')}\n`);
+    }
+    if (args[0] === 'image' && args[1] === 'inspect' && (args.includes('{{.Id}}') || args.includes('{{json .RepoDigests}}'))) {
+      const ref = args.at(-1)!;
+      if (!this.localImages.has(ref)) return bad('No such image');
+      return args.includes('{{json .RepoDigests}}') ? ok(`${JSON.stringify([`${ref.replace(/:[^:/]+$/, '')}@sha256:pulled-${ref}`])}\n`) : ok('sha256:x\n');
+    }
+    if (args[0] === 'info') return ok('/var/lib/docker\n');
+    if (a.startsWith('compose exec -T app node -e')) {
+      const free = this.dockerFree[Math.min(this.statfsCalls, this.dockerFree.length) - 1] ?? 0;
+      return ok(`${JSON.stringify({ dir: '/backups', newest: this.newestBackup, disk: this.backupsDisk ?? { free, total: 100 * GB } })}\n`);
+    }
     if (args[0] === 'compose' && args[1] === 'pull') {
       const v = await this.envVersion(opts?.env);
-      return this.missingTags.has(v) ? bad(`Error response from daemon: manifest for ghcr.io/xooxoxxo/tagave-app:${v} not found: manifest unknown`) : ok();
+      if (this.missingTags.has(v)) return bad(`Error response from daemon: manifest for ghcr.io/xooxoxxo/tagave-app:${v} not found: manifest unknown`);
+      for (const n of ['app', 'worker', 'updater']) this.localImages.add(`ghcr.io/xooxoxxo/tagave-${n}:${v}`);
+      return ok();
     }
     if (a.includes('select count(*) from _migrations')) return ok(`${this.migrations}\n`);
     if (a.startsWith('compose exec -T app node packages/doctor/dist/cli.js backup')) {
@@ -144,6 +171,18 @@ class FakeInstall {
     return bad(`unexpected: docker ${a}`);
   };
 
+  statfs = async () => {
+    const free = this.dockerFree[Math.min(this.statfsCalls, this.dockerFree.length - 1)]!;
+    this.statfsCalls += 1;
+    return { bsize: 4096, bavail: free / 4096, blocks: (100 * GB) / 4096 };
+  };
+
+  /** Every tagave image: a shared base layer and one of its own, 200 MB. */
+  layers = async (ref: string): Promise<Layer[]> => {
+    if (ref.startsWith('postgres')) return [{ digest: 'sha256:pg', size: 150 * MB }];
+    return [{ digest: 'sha256:base', size: 100 * MB }, { digest: `sha256:${ref}`, size: 200 * MB }];
+  };
+
   app: AppProbe = {
     health: async () => {
       if (!this.appUp) return { ok: false, detail: 'the app does not answer' };
@@ -164,7 +203,7 @@ let dir: string;
 let fake: FakeInstall;
 let saved: UpdateRun[];
 
-async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}) {
+async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]> } = {}) {
   let clock = fake.now;
   const u = new Update(
     {
@@ -175,7 +214,8 @@ async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> 
       save: async (r) => { saved.push(r); },
       now: () => new Date(clock),
       sleep: async (ms) => { clock += ms; },
-      freeBytes: async () => 50 * 1024 ** 3,
+      statfs: fake.statfs,
+      layers: seams.layers ?? fake.layers,
     },
     newRun('run-1', '0.7.0', target, new Date(clock)),
   );
@@ -243,10 +283,58 @@ describe('update state machine', () => {
     expect(run.reason).toMatch(/not healthy now/);
   });
 
-  it('refuses when there is not enough disk', async () => {
-    const run = await update('0.8.0', { minFreeBytes: 100 * 1024 ** 3 });
-    expect(run.status).toBe('failed');
-    expect(run.reason).toMatch(/GB free for Docker/);
+  describe('free space', () => {
+    // 0.8.0 brings three new tagave images: 3 × 200 MB of their own layers
+    // (the base layer is here already) unpack to 1500 MB; two 700 MB dumps;
+    // (1500 + 1400) MB × 1.2 + 3 GB headroom = 6552 MB.
+    const NEEDED = Math.ceil(2900 * MB * 1.2) + 3 * GB;
+
+    it('refuses just below the requirement, says where and what to delete, and changes nothing', async () => {
+      fake.dockerFree = [NEEDED - 10 * MB];
+      const run = await update('0.8.0');
+      expect(run.status).toBe('failed');
+      expect(run.reason).toMatch(/^not enough free disk space: Docker's data on \/var\/lib\/docker has 6\.4 GB free and the update needs 6\.4 GB\. Free at least 10 MB;/);
+      expect(run.reason).toContain('docker builder prune');
+      expect(run.reason).toContain('old backups');
+      expect(run.reason).toMatch(/Nothing was changed\.$/);
+      expect(fake.calls.some((c) => c[1] === 'pull')).toBe(false);
+      expect(run.log.some((l) => l.message.includes('3 images to download, about 600 MB compressed'))).toBe(true);
+    });
+
+    it('goes ahead just above it', async () => {
+      fake.dockerFree = [NEEDED + 10 * MB];
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+    });
+
+    it('measures again before the backup, after the images came down', async () => {
+      // Plenty at first; the pull eats it.
+      fake.dockerFree = [50 * GB, 3 * GB];
+      const run = await update('0.8.0');
+      expect(run.status).toBe('failed');
+      expect(stepStatus(run)).toMatchObject({ preflight: 'done', backup: 'failed', config: 'skipped' });
+      expect(run.reason).toMatch(/has 3\.0 GB free and the update needs 4\.6 GB.*measured again after the new images were downloaded.*Nothing was changed/);
+      expect(fake.calls.some((c) => c.includes('backup'))).toBe(false);
+    });
+
+    it('checks a separate backups disk on its own', async () => {
+      await writeFile(join(dir, '.env'), `${ENV}TAGAVE_BACKUP_DIR=/mnt/nas/tagave-backups\n`);
+      fake.backupsDisk = { free: 1 * GB, total: 2000 * GB };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('failed');
+      // 1.4 GB × 1.2 + 512 MB
+      expect(run.reason).toMatch(/the backups on \/backups in the app container has 1\.0 GB free and the update needs 2\.1 GB/);
+      expect(run.reason).not.toMatch(/Docker's data on/);
+    });
+
+    it('falls back to conservative sizes, and says so, when nothing can be measured', async () => {
+      fake.newestBackup = null;
+      const run = await update('0.8.0', {}, { layers: async () => { throw new Error('offline'); } });
+      expect(run.status).toBe('succeeded');
+      const warns = run.log.filter((l) => l.level === 'warn').map((l) => l.message);
+      expect(warns.some((m) => /neither a backup nor the database could be measured; counting 2\.0 GB/.test(m))).toBe(true);
+      expect(warns.some((m) => /could not read the size of ghcr\.io\/xooxoxxo\/tagave-app:0\.8\.0.*offline.*counting 1\.0 GB/.test(m))).toBe(true);
+    });
   });
 
   it('rolls back without a restore when the new app never turns healthy and changed nothing', async () => {
@@ -480,7 +568,8 @@ describe('old images after an update', () => {
     fake.unhealthy.add('0.8.0');
     const run = await update('0.8.0');
     expect(run.status).toBe('rolled_back');
-    expect(fake.calls.some((c) => c[0] === 'image')).toBe(false);
+    // (the free-space check only inspects images)
+    expect(fake.calls.some((c) => c[0] === 'image' && c[1] !== 'inspect')).toBe(false);
     expect(fake.images).toHaveLength(6);
   });
 });

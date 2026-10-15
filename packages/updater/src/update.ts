@@ -2,10 +2,12 @@
  * One update, as a state machine:
  *
  *   preflight  .env and services readable, the current install healthy,
- *              enough disk, the target images pulled for this machine's
+ *              room on disk for the images and the backups (see
+ *              preflight-space.ts), the target images pulled for this machine's
  *              architecture (a pull with TAGAVE_VERSION overridden, so a
  *              missing tag fails here and nothing has changed yet)
- *   backup     count applied migrations; `tagave-doctor backup` in the app
+ *   backup     free space measured again; count applied migrations;
+ *              `tagave-doctor backup` in the app
  *              container (pg_dump, read back with pg_restore --list)
  *   config     compose files from the target's updater image (when it has
  *              them), then TAGAVE_VERSION=<target> in .env; each written
@@ -44,6 +46,7 @@ import { join } from 'node:path';
 import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
 import { envGet, envSet, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
+import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 
 export const STEP_LABELS: Record<UpdateStepId, string> = {
@@ -87,6 +90,7 @@ export const PLAYER_RESTORE_SH = [
 ].join('\n');
 
 export interface UpdateConfig {
+  /** Left free on Docker's filesystem once the images and backups are written. */
   minFreeBytes: number;
   /** How long the app (and then the workers) may take to answer on the new version. */
   healthTimeoutMs: number;
@@ -100,7 +104,7 @@ export interface UpdateConfig {
 }
 
 export const DEFAULT_CONFIG: UpdateConfig = {
-  minFreeBytes: 2 * 1024 ** 3,
+  minFreeBytes: 3 * 1024 ** 3,
   healthTimeoutMs: 10 * 60_000,
   pollMs: 3000,
   commandTimeoutMs: 20 * 60_000,
@@ -117,17 +121,14 @@ export interface UpdateDeps {
   save: (run: UpdateRun) => Promise<void>;
   now?: () => Date;
   sleep?: (ms: number) => Promise<void>;
-  freeBytes?: () => Promise<number>;
+  /** Test seams for the free-space check: statfs of the updater's root, and image layers from the registry. */
+  statfs?: (path: string) => Promise<StatfsLike>;
+  layers?: (ref: string, signal?: AbortSignal) => Promise<Layer[]>;
 }
 
 class StepFailed extends Error {}
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-export async function freeBytesAt(path: string): Promise<number> {
-  const s = await statfs(path);
-  return s.bavail * s.bsize;
-}
 
 export function newRun(id: string, from: string, target: string, now: Date): UpdateRun {
   return {
@@ -351,12 +352,7 @@ export class Update {
     const health = await this.deps.app.health();
     if (!health.ok) this.fail(`the install is not healthy now, so an update would be hard to judge: ${health.detail}`);
 
-    const free = await (this.deps.freeBytes ?? (() => freeBytesAt('/')))();
-    const gb = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
-    if (free < this.deps.config.minFreeBytes) {
-      this.fail(`only ${gb(free)} free for Docker; the update needs ${gb(this.deps.config.minFreeBytes)} for the new images and the backup`);
-    }
-    this.log('info', `${gb(free)} free`);
+    await this.checkSpace(this.run.target);
 
     const pull = await this.compose(['pull', ...this.services, ...(this.hasUpdaterService(svc.stdout) ? ['updater'] : [])], {
       env: { TAGAVE_VERSION: this.run.target },
@@ -373,7 +369,28 @@ export class Update {
     return servicesOut.split('\n').some((s) => s.trim() === 'updater');
   }
 
+  /** Fails the step when the disk cannot take what comes next; `target` null: the images are pulled already. */
+  private async checkSpace(target: string | null): Promise<void> {
+    const env = this.originals.get('.env') ?? '';
+    const space = await checkSpace(
+      {
+        docker: (args, opts) => this.docker(args, { ...opts, quiet: true }),
+        statfs: this.deps.statfs ?? statfs,
+        layers: this.deps.layers ?? registryClient(fetch),
+        log: (level, message) => this.log(level, message),
+      },
+      {
+        target,
+        imageCount: this.services.length + 1,
+        dockerHeadroom: this.deps.config.minFreeBytes,
+        backupsOnHost: backupsOnHostFolder(envGet(env, 'TAGAVE_BACKUP_DIR') || envGet(env, 'LINER_BACKUP_DIR')),
+      },
+    );
+    if (space.problem) this.fail(target === null ? `${space.problem} (measured again after the new images were downloaded)` : space.problem);
+  }
+
   private async backup(): Promise<void> {
+    await this.checkSpace(null);
     this.migrationsBefore = await this.migrationCount();
     this.log('info', `migrations applied: ${this.migrationsBefore ?? 'unknown'}`);
     const res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']);
@@ -553,7 +570,10 @@ export class Update {
 
   /** Removes the images older than the version this update came from. Warns, never fails the update. */
   private async cleanOldImages(): Promise<void> {
-    const free = this.deps.freeBytes ?? (() => freeBytesAt('/'));
+    const free = async () => {
+      const s = await (this.deps.statfs ?? statfs)('/');
+      return s.bavail * s.bsize;
+    };
     try {
       const freeBefore = await free().catch(() => null);
       const res = await removeOldImages(

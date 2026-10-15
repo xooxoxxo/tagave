@@ -8,7 +8,7 @@
  *   TAGAVE_UPDATER_APP_URL         the app on the internal network (default http://app:3000)
  *   TAGAVE_UPDATER_PORT            listen port inside the network (default 8080)
  *   TAGAVE_UPDATER_HEALTH_TIMEOUT  seconds the new version may take to answer healthy (default 600)
- *   TAGAVE_UPDATER_MIN_FREE_MB     free space Docker needs before an update (default 2048)
+ *   TAGAVE_UPDATER_MIN_FREE_MB     free space left on Docker's disk after an update's images and backups (default 3072)
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';

@@ -169,6 +169,35 @@ open in the app also get their years when their details are next refreshed.
 
 ## Disk space
 
+A full disk stops Postgres, and with it the app. Updates are the usual cause: new images and backups land on top of whatever Docker has kept.
+
+### Free space before updates
+
+Before the in-app updater pulls anything, it works out what the update will write and checks each filesystem it writes to:
+
+- **Docker's data** (`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`): the new images, unpacked (about 2.5 × their download size).
+- **The backups folder** (`/backups` in the app container): two dumps, the updater's own and the one the new app takes before it migrates. A dump is counted at the size of the newest one there, or, when there is none yet, at the database's size without its indexes.
+
+When the backups are a volume (the default), both loads are on Docker's filesystem. A backups folder that reports the same size or the same free space as Docker's counts as the same disk; a host folder (`TAGAVE_BACKUP_DIR`) with other numbers counts as another disk; when it cannot tell, the backups are counted on both. The rule is:
+
+```
+needed = (images unpacked + 2 × backup) × 1.2 + 3 GB
+```
+
+The 3 GB is what is left free once the update has written everything: Postgres and the logs need room to run. `TAGAVE_UPDATER_MIN_FREE_MB` in `.env` changes it (default 3072). A backups folder on another disk (`TAGAVE_BACKUP_DIR`) is checked on its own, with 512 MB left free. Image sizes come from the registry; layers the running images already have are not counted. When the registry does not answer within 30 s or a measurement is out of reach, the updater counts 1 GB per image and 2 GB per backup, and the log says so.
+
+If the space is not there, the update stops before it changes anything. The page says which filesystem is short, how much is free, how much the update needs, and what to delete. The check runs once more right before the backup, after the images came down.
+
+Safe to delete:
+
+```sh
+docker builder prune      # build cache; never needed to run tagave
+docker image prune        # images no container uses and no tag names
+docker image ls --filter 'reference=*/tagave-*'   # then docker image rm the versions you no longer run (see Old images)
+```
+
+Old backups go from Settings › Backups (keep the newest). `df -h` shows what is free; `docker system df` shows what Docker keeps.
+
 ### Old images
 
 Each release brings new app, worker and updater images, about 3 GB together. After an update succeeds, Settings › Updates and `install-tagave.sh update` remove the older ones and say in the update's log (or the installer's output) what went and how much space Docker counts for it. They keep:
