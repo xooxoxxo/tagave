@@ -2,7 +2,7 @@
   "name": "@liner/core",
   "version": "0.1.0",
   "type": "module",
-  "description": "Liner core domain logic: matching, tag mapping, provider gateway, string normalization",
+  "description": "tagave core domain logic: matching, tag mapping, provider gateway, string normalization",
   "exports": {
     ".": "./dist/index.js",
     "./normalize": "./dist/text/normalize.js",

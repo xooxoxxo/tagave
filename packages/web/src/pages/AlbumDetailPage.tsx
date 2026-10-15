@@ -1,6 +1,6 @@
 /**
  * Album page (spec BRW-2), laid out as the album page flow (vault spec
- * "Liner - Album Page Flow", approved prototype album-flow-prototype.html):
+ * "tagave - Album Page Flow", approved prototype album-flow-prototype.html):
  * the album first (cover, artist above album, the album's details) with
  * one TRACKLIST label resting at the bottom of a phone's first screen, then
  * the tracks. Back and Maintenance are keys that never move; the header
@@ -216,7 +216,7 @@ export function AlbumDetailPage() {
 
   const title = album ? album.release?.title ?? album.title ?? 'Untitled' : null;
 
-  // The flow (vault spec "Liner - Album Page Flow"): the album first, the
+  // The flow (vault spec "tagave - Album Page Flow"): the album first, the
   // header docking around the back and Maintenance keys, then the tracks.
   const backAct = useContext(PageBackActionContext);
   const flowRefs = useMemo(() => ({

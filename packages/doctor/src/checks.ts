@@ -530,7 +530,7 @@ export async function checkProviders(
       const checks: { name: string; status: CheckStatus; detail: string }[] = [];
 
       // MusicBrainz — UA format per their policy: App/version (contact)
-      const userAgent = contactString ? `Liner-doctor/0.1 (+${contactString})` : 'Liner-doctor/0.1';
+      const userAgent = contactString ? `tagave-doctor/0.1 (+${contactString})` : 'tagave-doctor/0.1';
       try {
         await claimProviderSlot(sql, 'musicbrainz', 1100);
         const controller = new AbortController();

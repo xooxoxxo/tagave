@@ -2,7 +2,7 @@
   "name": "@liner/doctor",
   "version": "0.1.0",
   "type": "module",
-  "description": "Liner diagnostics: health checks for database, workers, scan roots, providers, and configuration",
+  "description": "tagave diagnostics: health checks for database, workers, scan roots, providers, and configuration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {

@@ -529,7 +529,7 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     if (!token) throw new ApiError(400, 'Bad Request', 'Discogs token not configured');
 
     const unsealed = isSealed(token) && appSecret ? openSecret(token, appSecret) : token;
-    const provider = new DiscogsProvider({ token: unsealed, userAgent: 'Liner/1.0' });
+    const provider = new DiscogsProvider({ token: unsealed, userAgent: 'tagave/1.0' });
 
     const identity = await provider.getIdentity({} as any);
     const folders = await provider.listCollectionFolders(identity.username, {} as any);

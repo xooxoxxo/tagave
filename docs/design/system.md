@@ -1,4 +1,4 @@
-# Liner UI system
+# tagave UI system
 
 The complete component contract and catalog instructions live in `DESIGN.md`. Canonical tokens live in `packages/web/src/styles/tokens.css`. Use CSS Modules and semantic tokens for new interfaces.
 

@@ -1,5 +1,5 @@
 /**
- * The album page's header (vault spec "Liner - Album Page Flow", rules 6-10).
+ * The album page's header (vault spec "tagave - Album Page Flow", rules 6-10).
  *
  * Back (left) and Maintenance (right) never move: their icons sit 36px from
  * the edge and 32px down at every scroll depth. At rest they are raised

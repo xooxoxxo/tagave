@@ -213,7 +213,7 @@ export function deriveIdentifyRequest(
       ? { kind: 'failed', message: outputMsg ? `The lookup failed: ${outputMsg}` : 'The lookup failed.', finishedAt }
       : lastJob.state === 'cancelled'
         ? { kind: 'cancelled', message: 'The request was cancelled before it ran.', finishedAt }
-        : { kind: 'unknown', message: 'It finished, but this version of Liner did not record the result yet. Submit it again to see why nothing changed.', finishedAt };
+        : { kind: 'unknown', message: 'It finished, but this version of tagave did not record the result yet. Submit it again to see why nothing changed.', finishedAt };
     return {
       status: 'done', jobId: lastJob.id, kind: c.kind, pinned: c.pinned,
       createdAt: iso(lastJob.created_on), startedAt: null, jobsAhead: 0, outcome,

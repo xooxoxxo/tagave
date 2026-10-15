@@ -1,5 +1,5 @@
 /**
- * The album page flow (vault spec "Liner - Album Page Flow", approved
+ * The album page flow (vault spec "tagave - Album Page Flow", approved
  * prototype album-flow-prototype.html): the scroll-linked math and the
  * album details, kept free of the DOM so they can be tested.
  *

@@ -796,7 +796,7 @@ def handle_command(line: str) -> str:
 
 def main():
     """Main loop: read commands from stdin, output JSON-lines to stdout."""
-    sys.stderr.write("Liner tagwriter sidecar started\n")
+    sys.stderr.write("tagave tagwriter sidecar started\n")
     sys.stderr.flush()
 
     while True:

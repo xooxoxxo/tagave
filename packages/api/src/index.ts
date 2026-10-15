@@ -235,7 +235,7 @@ app.register(async (fastify) => {
 await app.register(fastifySwagger, {
   openapi: {
     info: {
-      title: 'Liner API',
+      title: 'tagave API',
       version: '1.0.0',
       description: 'Music archive catalog API',
     },

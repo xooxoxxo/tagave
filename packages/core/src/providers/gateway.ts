@@ -166,7 +166,7 @@ export class ProviderGateway {
     if (!this.contactUrl) {
       throw new Error('User-Agent contact string not set');
     }
-    return `Liner/${version} (+${this.contactUrl})`;
+    return `tagave/${version} (+${this.contactUrl})`;
   }
 
   /**

@@ -62,7 +62,7 @@
 }
 :root[data-theme="dark"] .backdrop { opacity: 0.32; }
 
-/* ---- the flow (vault spec "Liner - Album Page Flow") ----
+/* ---- the flow (vault spec "tagave - Album Page Flow") ----
    The album page lays out its own header and column (PageShell bare): the
    docking header, the album (cover, artist above album, the details), one
    TRACKLIST label that sticks under the header, the tracks, then the

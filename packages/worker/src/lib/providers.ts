@@ -85,7 +85,7 @@ export function getProviders(settings: LibraryProviderSettings): Providers {
   const key = `${settings.contactString}|${settings.discogsToken ?? ''}|${settings.acoustidKey ?? ''}`;
   const hit = memo.get(key);
   if (hit) return hit;
-  const userAgent = `Liner/0.1 (+${settings.contactString})`;
+  const userAgent = `tagave/0.1 (+${settings.contactString})`;
   const made: Providers = {
     mb: new MusicBrainzProvider(userAgent),
     discogs: new DiscogsProvider({

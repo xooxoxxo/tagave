@@ -24,7 +24,7 @@ const THUMB_SIZE = 300;
 
 /** Cover Art Archive: no rate limit documented; keep modest concurrency via
  * job settings and be a good citizen with a real UA. */
-const CAA_UA = 'Liner/0.1 (+liner-worker)';
+const CAA_UA = 'tagave/0.1 (+tagave-worker)';
 const DISCOGS_IMAGE_LICENSE = 'Discogs user-posted image (Restricted Data): cached for display in this library only; not redistributed';
 
 /** images.origin='provider' requires an image_sources row (CHECK constraint). */

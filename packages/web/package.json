@@ -2,7 +2,7 @@
   "name": "@liner/web",
   "version": "0.1.0",
   "type": "module",
-  "description": "Liner music archive catalog – React SPA",
+  "description": "tagave music archive catalog – React SPA",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {

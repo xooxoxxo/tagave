@@ -263,7 +263,7 @@ export function IdentifyPanel() {
           <span className={styles.provenanceTotal}>{stats.states.unidentified.toLocaleString()} {stats.states.unidentified === 1 ? 'album' : 'albums'}</span>
         </div>
         <p className={styles.fastPathLine}>
-          Liner searched MusicBrainz and Discogs for these and found nothing close enough. Open an album from the list below and pick one:
+          tagave searched MusicBrainz and Discogs for these and found nothing close enough. Open an album from the list below and pick one:
         </p>
         <ol className={styles.stepList}>
           <li><strong>Fingerprint it.</strong> AcoustID recognises the recordings even when the tags are wrong or missing (needs an AcoustID key in <Link to="/settings/providers">Settings › Providers</Link>).</li>
