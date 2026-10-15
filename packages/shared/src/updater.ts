@@ -62,6 +62,28 @@ export interface UpdateRun {
   rollback: UpdateRollback | null;
 }
 
+/**
+ * After a successful update the updater replaces its own container with one
+ * on the new updater image. From the moment it hands over until the
+ * replacement is up and reports `expectedVersion`, it refuses to start a run
+ * (409): the old process would be killed in the middle of it.
+ */
+export interface UpdaterSelfReplace {
+  /** The version the replacement updater must report. */
+  expectedVersion: string;
+  /** The version of the updater that handed over. */
+  fromVersion: string;
+  /** The run that ended in the hand-over. */
+  runId: string;
+  /** When the hand-over began. */
+  since: string;
+  /** In /v1/status only: the marker's age by the updater's clock, so a reader never compares clocks. */
+  ageMs?: number;
+}
+
+/** A hand-over older than this is taken as lost: the updater (and the page) stop waiting for it. */
+export const SELF_REPLACE_STALE_MS = 10 * 60_000;
+
 /** What the updater says about itself (GET /v1/status on the updater). */
 export interface UpdaterStatus {
   /** The updater's own build. */
@@ -73,6 +95,8 @@ export interface UpdaterStatus {
   /** The services an update restarts, in this install. */
   services: string[];
   run: UpdateRun | null;
+  /** Set while the updater restarts itself on a new version (absent from updaters before 0.9). */
+  selfReplace?: UpdaterSelfReplace | null;
 }
 
 /** GET /api/v1/updater: the page's view of the updater. */
