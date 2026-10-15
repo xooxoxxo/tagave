@@ -268,7 +268,13 @@ describe.skipIf(!url)('migration safety (integration)', () => {
 
   it('the backups check warns when the folder cannot take a file', async () => {
     const db = await fresh();
-    const check = await checkBackups(db, { backupDir: '/proc/tagave-cannot-write-here', pgDump: process.execPath });
+    // A regular file as the parent fails with ENOTDIR on every OS.
+    const parent = await mkdtemp(join(tmpdir(), 'tagave-notdir-'));
+    const file = join(parent, 'plain-file');
+    await writeFile(file, 'x');
+    const check = await checkBackups(db, { backupDir: join(file, 'backups'), pgDump: process.execPath }).finally(() =>
+      rm(parent, { recursive: true, force: true }),
+    );
     expect(check.status).toBe('warn');
     expect(check.detail).toMatch(/not writable/);
     expect(remediationFor(check)).toMatch(/refuses to update/);

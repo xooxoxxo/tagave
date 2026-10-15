@@ -1,6 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
+import { ensureDir } from './ensureDir.js';
 import postgres from 'postgres';
 import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@tagave/db';
 import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork } from '@tagave/core';
@@ -413,7 +414,7 @@ export async function checkCacheDir(cacheDir?: string): Promise<Check> {
 
   try {
     // Ensure directory exists
-    await fs.mkdir(dir, { recursive: true });
+    await ensureDir(dir);
 
     // Write and delete a temp file
     const testFile = path.join(dir, `.tagave-doctor-${Date.now()}.tmp`);

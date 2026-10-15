@@ -12,6 +12,7 @@ import postgres from 'postgres';
 import type { Check } from './checks.js';
 import { defaultBackupDir, isSeparateMount } from './backup.js';
 import { backupFolderProblem } from './premigrate.js';
+import { ensureDir } from './ensureDir.js';
 
 const run = promisify(execFile);
 
@@ -79,7 +80,7 @@ export async function checkBackups(databaseUrl: string, opts: BackupCheckOptions
 
   // 1. The folder must take a file.
   try {
-    await fs.mkdir(dir, { recursive: true });
+    await ensureDir(dir);
     const probe = path.join(dir, `.tagave-doctor-${process.pid}-${Date.now()}.tmp`);
     await fs.writeFile(probe, 'x');
     await fs.unlink(probe).catch(() => undefined);

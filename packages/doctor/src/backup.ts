@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { readFile, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readRenamedEnv, tagaveEnv } from '@tagave/shared/env';
+import { ensureDir } from './ensureDir.js';
 
 const run = promisify(execFile);
 
@@ -266,7 +267,7 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
   const started = Date.now();
   const kind = opts.kind ?? 'manual';
   const now = opts.now ?? new Date();
-  await mkdir(opts.outDir, { recursive: true });
+  await ensureDir(opts.outDir);
   const fileName = backupFileName(now, kind);
   const path = join(opts.outDir, fileName);
   const partial = join(opts.outDir, `.${fileName}.partial`);
@@ -502,7 +503,7 @@ async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
 }
 
 export async function writeBackupSettings(dir: string, settings: BackupSettings): Promise<void> {
-  await mkdir(dir, { recursive: true });
+  await ensureDir(dir);
   await writeJsonAtomic(join(dir, SETTINGS_FILE), settings);
 }
 
@@ -536,7 +537,7 @@ export async function recordBackupRun(dir: string, record: BackupRunRecord): Pro
     lastRun: record,
     lastNightly: record.kind === 'nightly' ? record : current.lastNightly,
   };
-  await mkdir(dir, { recursive: true });
+  await ensureDir(dir);
   await writeJsonAtomic(join(dir, STATUS_FILE), next);
 }
 
