@@ -14,6 +14,7 @@
     "./tags": "./dist/src/tags.js",
     "./updater": "./dist/src/updater.js",
     "./player": "./dist/src/player.js",
+    "./listening": "./dist/src/listening.js",
     "./env": "./dist/src/env.js"
   },
   "scripts": {

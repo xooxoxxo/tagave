@@ -9,7 +9,11 @@
  *   POST   /api/v1/libraries/:libraryId/player/scan     owner: ask the server to look for changes now
  *   GET    /api/v1/player/albums/:albumId/queue         the album as a play queue (tracks matched to songs)
  *   GET    /api/v1/player/stream/:localTrackId          the audio, proxied (ranges for the original file)
- *   POST   /api/v1/player/events                        now playing / completed / skipped, stored for later
+ *   POST   /api/v1/player/events                        now playing / completed / skipped (playerSync turns them into plays)
+ *
+ * Every signed-in person may play (player.use); the server settings are the
+ * owner's (system.manage). Streams and play reports use the person's own
+ * account on the server (lib/playerPeople.ts), never the admin's.
  *
  * The browser only ever talks to tagave: the server's address and password
  * stay here, every stream needs a tagave session, and each user may hold a
@@ -32,19 +36,23 @@ import { getBoss } from '../boss.js';
 import {
   StreamLimiter,
   WindowLimiter,
-  albumForUser,
+  albumById,
   albumQueue,
   backendFor,
   capabilityOf,
   clearCapabilityCache,
+  firstLibrary,
   forgetSong,
-  ownedLibrary,
-  parseSettings,
+  libraryById,
   requestPlayerScan,
   songIdFor,
-  trackForUser,
+  trackById,
   type PlayerLibrarySettings,
 } from '../lib/player.js';
+import { hasPlayerPermission, permission, requirePlayer } from '../lib/playerAccess.js';
+import { PlayerAccountError, personServer } from '../lib/playerPeople.js';
+import { kickPlayerSync } from '../lib/playerSync.js';
+import { NavidromeError } from '@tagave/core/player';
 
 function intEnv(name: string, fallback: number): number {
   const n = Number(process.env[name]);
@@ -63,16 +71,8 @@ const UPSTREAM_IDLE_MS = 60_000;
 
 const PASSTHROUGH_HEADERS = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'last-modified', 'etag'];
 
-function requireUser(request: FastifyRequest) {
-  if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
-  return request.user;
-}
-
-function requireOwnerRole(request: FastifyRequest) {
-  const user = requireUser(request);
-  if (user.role !== 'owner') throw new ApiError(403, 'Forbidden', 'Only the owner can change playback settings');
-  return user;
-}
+const requireUser = (request: FastifyRequest) => requirePlayer(request, 'player.use');
+const requireOwnerRole = (request: FastifyRequest) => requirePlayer(request, 'system.manage');
 
 const notInstalled = () => new ApiError(404, 'Not Found', 'The player is not installed on this server');
 
@@ -93,38 +93,31 @@ async function settingsView(settings: PlayerLibrarySettings, fresh = false): Pro
 }
 
 export async function createPlayerRoutes(fastify: FastifyInstance) {
-  fastify.get('/capabilities', async (request: FastifyRequest) => {
-    const user = requireUser(request);
+  fastify.get('/capabilities', permission('player.use'), async (request: FastifyRequest) => {
+    requireUser(request);
     const sql = getSql();
     const q = request.query as { libraryId?: string };
-    let settings: PlayerLibrarySettings | null = null;
-    if (q.libraryId) {
-      settings = (await ownedLibrary(sql, q.libraryId, user.id))?.settings ?? null;
-    } else {
-      const rows = await sql<{ settings: unknown }[]>`
-        select settings from libraries where owner_user_id = ${user.id} order by created_at limit 1`;
-      settings = rows[0] ? parseSettings(rows[0].settings) : null;
-    }
+    const settings: PlayerLibrarySettings | null = (q.libraryId ? await libraryById(sql, q.libraryId) : await firstLibrary(sql))?.settings ?? null;
     const player = settings ? await capabilityOf(backendFor(settings)) : await capabilityOf(backendFor({}));
     return { player } satisfies CapabilitiesView;
   });
 
-  fastify.get('/libraries/:libraryId/player', async (request: FastifyRequest) => {
+  fastify.get('/libraries/:libraryId/player', permission('player.use'), async (request: FastifyRequest) => {
     const user = requireUser(request);
     const { libraryId } = request.params as { libraryId: string };
-    const lib = await ownedLibrary(getSql(), libraryId, user.id);
+    const lib = await libraryById(getSql(), libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     const view = await settingsView(lib.settings, (request.query as { fresh?: string }).fresh === '1');
-    return user.role === 'owner' ? view : { ...view, external: null };
+    return hasPlayerPermission(user.role, 'system.manage') ? view : { ...view, external: null };
   });
 
-  fastify.put('/libraries/:libraryId/player/server', async (request: FastifyRequest) => {
-    const user = requireOwnerRole(request);
+  fastify.put('/libraries/:libraryId/player/server', permission('system.manage'), async (request: FastifyRequest) => {
+    requireOwnerRole(request);
     const { libraryId } = request.params as { libraryId: string };
     const parsed = savePlayerServerSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
     const sql = getSql();
-    const lib = await ownedLibrary(sql, libraryId, user.id);
+    const lib = await libraryById(sql, libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     if (backendFor({})?.managed === 'bundled') {
       throw new ApiError(409, 'Conflict', 'This install runs the bundled player; its address and password are set in .env');
@@ -150,11 +143,11 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     return settingsView(next, true);
   });
 
-  fastify.delete('/libraries/:libraryId/player/server', async (request: FastifyRequest) => {
-    const user = requireOwnerRole(request);
+  fastify.delete('/libraries/:libraryId/player/server', permission('system.manage'), async (request: FastifyRequest) => {
+    requireOwnerRole(request);
     const { libraryId } = request.params as { libraryId: string };
     const sql = getSql();
-    const lib = await ownedLibrary(sql, libraryId, user.id);
+    const lib = await libraryById(sql, libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     const { playerUrl: _u, playerUser: _n, playerPassword: _p, playerPasswordHint: _h, ...rest } = lib.settings;
     await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
@@ -162,24 +155,24 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     return settingsView(rest, true);
   });
 
-  fastify.post('/libraries/:libraryId/player/scan', async (request: FastifyRequest, reply: FastifyReply) => {
-    const user = requireOwnerRole(request);
+  fastify.post('/libraries/:libraryId/player/scan', permission('system.manage'), async (request: FastifyRequest, reply: FastifyReply) => {
+    requireOwnerRole(request);
     const { libraryId } = request.params as { libraryId: string };
     const sql = getSql();
-    const lib = await ownedLibrary(sql, libraryId, user.id);
+    const lib = await libraryById(sql, libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     if (!backendFor(lib.settings)) throw notInstalled();
     await requestPlayerScan(sql, await getBoss(), libraryId, [''], 0);
     return reply.status(202).send({ requested: true });
   });
 
-  fastify.get('/player/albums/:albumId/queue', async (request: FastifyRequest) => {
-    const user = requireUser(request);
+  fastify.get('/player/albums/:albumId/queue', permission('player.use'), async (request: FastifyRequest) => {
+    requireUser(request);
     const { albumId } = request.params as { albumId: string };
     const sql = getSql();
-    const album = await albumForUser(sql, albumId, user.id);
+    const album = await albumById(sql, albumId);
     if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
-    const lib = await ownedLibrary(sql, album.library_id, user.id);
+    const lib = await libraryById(sql, album.library_id);
     const backend = backendFor(lib?.settings);
     if (!backend) throw notInstalled();
     try {
@@ -190,16 +183,26 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     }
   });
 
-  fastify.get('/player/stream/:localTrackId', { exposeHeadRoute: false }, async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.get('/player/stream/:localTrackId', { exposeHeadRoute: false, ...permission('player.use') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = requireUser(request);
     const { localTrackId } = request.params as { localTrackId: string };
     const query = streamQuerySchema.safeParse(request.query ?? {});
     if (!query.success) throw new ApiError(400, 'Bad Request', query.error.issues[0]?.message ?? 'Invalid query');
     const sql = getSql();
-    const track = await trackForUser(sql, localTrackId, user.id);
+    const track = await trackById(sql, localTrackId);
     if (!track) throw new ApiError(404, 'Not Found', 'Track not found');
     const backend = backendFor(track.settings);
     if (!backend) throw notInstalled();
+    // the stream is this person's on the server (their account, made on their first play)
+    let person;
+    try {
+      person = await personServer(sql, backend, user.id, { create: true });
+    } catch (err) {
+      if (err instanceof PlayerAccountError) throw new ApiError(err.status, err.status === 403 ? 'Forbidden' : 'Conflict', err.message);
+      if (err instanceof NavidromeError) throw new ApiError(502, 'Bad Gateway', `The player could not make your account: ${err.message}`);
+      throw err;
+    }
+    const as = person!.server;
 
     const releaseUser = userStreams.acquire(user.id);
     if (!releaseUser) {
@@ -230,7 +233,7 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
       const resolve = async (): Promise<string | null> => {
         const known = await songIdFor(sql, localTrackId, backend.key);
         if (known) return known;
-        const album = await albumForUser(sql, track.local_album_id, user.id);
+        const album = await albumById(sql, track.local_album_id);
         if (!album) return null;
         await albumQueue({ sql, boss: await getBoss().catch(() => null) }, backend, album);
         return songIdFor(sql, localTrackId, backend.key);
@@ -241,7 +244,7 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
       const open = async (songId: string) => {
         const timer = setTimeout(() => upstreamAbort.abort(), UPSTREAM_HEADERS_MS);
         try {
-          return await fetch(streamUrl(backend.server, songId, {
+          return await fetch(streamUrl(as, songId, {
             format: format === 'original' ? 'raw' : format,
             ...(maxBitRate ? { maxBitRate } : {}),
             ...(offset ? { timeOffset: offset } : {}),
@@ -312,14 +315,14 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     }
   });
 
-  fastify.post('/player/events', async (request: FastifyRequest, reply: FastifyReply) => {
+  fastify.post('/player/events', permission('player.use'), async (request: FastifyRequest, reply: FastifyReply) => {
     const user = requireUser(request);
     if (!eventLimit.allow(user.id)) throw new ApiError(429, 'Too Many Requests', 'Too many play events');
     const parsed = playEventSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Invalid body');
     const e = parsed.data;
     const sql = getSql();
-    const track = await trackForUser(sql, e.localTrackId, user.id);
+    const track = await trackById(sql, e.localTrackId);
     if (!track) throw new ApiError(404, 'Not Found', 'Track not found');
     const backend = backendFor(track.settings);
     const songId = backend ? await songIdFor(sql, e.localTrackId, backend.key) : null;
@@ -332,6 +335,8 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
                                  server_key, server_song_id, queue_id, kind, played_ms, position_ms, duration_ms, occurred_at)
       values (${user.id}, ${track.library_id}, ${track.id}, ${track.local_album_id}, ${track.release_id}, ${track.recording_mbid},
               ${backend?.key ?? null}, ${songId}, ${e.queueId}, ${e.kind}, ${e.playedMs}, ${e.positionMs}, ${track.duration_ms}, ${occurredAt.toISOString()})`;
+    // plays, now playing and scrobbles go out within seconds
+    kickPlayerSync();
     return reply.status(202).send({ recorded: true });
   });
 }

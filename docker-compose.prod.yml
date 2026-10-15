@@ -102,6 +102,10 @@ services:
       TAGAVE_PLAYER_URL: ${TAGAVE_PLAYER_URL:-}
       TAGAVE_PLAYER_USER: ${TAGAVE_PLAYER_USER:-}
       TAGAVE_PLAYER_PASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
+      # Optional Last.fm API key + shared secret for scrobbling (Settings >
+      # Playback > Scrobbling can store them instead).
+      TAGAVE_LASTFM_API_KEY: ${TAGAVE_LASTFM_API_KEY:-}
+      TAGAVE_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
     volumes:
       - cache:/cache
       # A volume of its own, or a host folder when TAGAVE_BACKUP_DIR is set.
@@ -212,8 +216,9 @@ services:
       ND_ENABLEINSIGHTSCOLLECTOR: "false"
       ND_JELLYFIN_ENABLED: "false"
       ND_DEEZER_ENABLED: "false"
-      ND_LASTFM_APIKEY: ${TAGAVE_LASTFM_API_KEY:-}
-      ND_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
+      # tagave scrobbles for each person; Navidrome's own scrobblers stay off
+      ND_LASTFM_ENABLED: "false"
+      ND_LISTENBRAINZ_ENABLED: "false"
       ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
       ND_DEVAUTOCREATEADMINPASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
       ND_PASSWORDENCRYPTIONKEY: ${TAGAVE_PLAYER_ENCRYPTION_KEY:-}

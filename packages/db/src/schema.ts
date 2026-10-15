@@ -1207,6 +1207,8 @@ export const listens = pgTable(
     listenedAt: timestamp('listened_at', { withTimezone: true }).notNull(),
     format: varchar({ length: 50 }),
     note: text(),
+    /** manual (logged on the album page) | player (made from plays, 0044) */
+    source: text().notNull().default('manual'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
@@ -1421,4 +1423,112 @@ export const playerScanRequests = pgTable(
   (table) => ({
     pk: primaryKey({ columns: [table.libraryId, table.folder] }),
   })
+);
+
+// The player per person (0044). Written with raw SQL by the API (lib/player*.ts,
+// lib/scrobbling.ts); mirrored here for reference and typed reads.
+
+/** Each person's account on the player server (password sealed with APP_SECRET). */
+export const playerUsers = pgTable(
+  'player_users',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    serverKey: text('server_key').notNull(),
+    username: text().notNull(),
+    serverUserId: text('server_user_id'),
+    passwordSealed: text('password_sealed').notNull(),
+    /** managed (tagave made it) | person (their own login on the owner's server) */
+    source: text().notNull(),
+    phonePassword: boolean('phone_password').notNull().default(false),
+    /** active | disabled */
+    state: text().notNull().default('active'),
+    serverScrobbles: boolean('server_scrobbles').notNull().default(false),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.userId, table.serverKey] }) })
+);
+
+/** Each person's Last.fm session key / ListenBrainz token (sealed). */
+export const scrobbleAccounts = pgTable(
+  'scrobble_accounts',
+  {
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    /** lastfm | listenbrainz */
+    service: text().notNull(),
+    accountName: text('account_name').notNull(),
+    secretSealed: text('secret_sealed').notNull(),
+    connectedAt: timestamp('connected_at', { withTimezone: true }).notNull().defaultNow(),
+    lastOkAt: timestamp('last_ok_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.userId, table.service] }) })
+);
+
+/** An album listen made from plays (>= half the tracks within 6 h). */
+export const playerListens = pgTable('player_listens', {
+  id: uuid().primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+  localAlbumId: uuid('local_album_id').notNull().references(() => localAlbums.id, { onDelete: 'cascade' }),
+  releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
+  releaseGroupId: uuid('release_group_id').references(() => releaseGroups.id, { onDelete: 'set null' }),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  endedAt: timestamp('ended_at', { withTimezone: true }).notNull(),
+  tracksHeard: integer('tracks_heard').notNull(),
+  tracksTotal: integer('tracks_total').notNull(),
+  listenId: uuid('listen_id').references(() => listens.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One play of one track by one person; unique per (user, dedupe_key). */
+export const playerPlays = pgTable('player_plays', {
+  id: uuid().primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  libraryId: uuid('library_id').references(() => libraries.id, { onDelete: 'cascade' }),
+  dedupeKey: text('dedupe_key').notNull(),
+  /** web | server */
+  source: text().notNull(),
+  localTrackId: uuid('local_track_id').references(() => localTracks.id, { onDelete: 'set null' }),
+  localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
+  releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
+  serverKey: text('server_key'),
+  serverSongId: text('server_song_id'),
+  title: text().notNull(),
+  artist: text(),
+  album: text(),
+  albumArtist: text('album_artist'),
+  trackNo: integer('track_no'),
+  recordingMbid: varchar('recording_mbid', { length: 36 }),
+  releaseMbid: varchar('release_mbid', { length: 36 }),
+  durationMs: integer('duration_ms'),
+  playedMs: integer('played_ms'),
+  startedAt: timestamp('started_at', { withTimezone: true }).notNull(),
+  heard: boolean().notNull(),
+  scrobbles: boolean().notNull(),
+  /** none | pending | done | failed */
+  serverReport: text('server_report').notNull().default('none'),
+  playerListenId: uuid('player_listen_id').references(() => playerListens.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One scrobble per play per service. */
+export const playerScrobbles = pgTable(
+  'player_scrobbles',
+  {
+    playId: uuid('play_id').notNull().references(() => playerPlays.id, { onDelete: 'cascade' }),
+    service: text().notNull(),
+    /** pending | sending | sent | ignored | failed */
+    status: text().notNull().default('pending'),
+    attempts: integer().notNull().default(0),
+    nextAttemptAt: timestamp('next_attempt_at', { withTimezone: true }).notNull().defaultNow(),
+    claimedAt: timestamp('claimed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.playId, table.service] }) })
 );

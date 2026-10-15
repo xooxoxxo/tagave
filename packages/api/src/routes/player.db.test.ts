@@ -5,10 +5,10 @@
  * a song id that changed), play events and the debounced scan.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
-import { createHash, randomUUID } from 'node:crypto';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { fakeNavidrome } from '../testkit/playerFakes.js';
 
 const sent: Array<{ name: string; data: unknown; opts: unknown }> = [];
 vi.mock('../boss.js', () => ({
@@ -16,78 +16,12 @@ vi.mock('../boss.js', () => ({
 }));
 
 const PASSWORD = 'nav-secret-pw';
-const AUDIO = Buffer.from(Array.from({ length: 4096 }, (_, i) => i % 251));
-
-interface FakeSong { id: string; title: string; track: number; discNumber: number; path: string; musicBrainzId?: string; duration: number }
-
-/** A Subsonic server just big enough for these tests. */
-function fakeNavidrome() {
-  const state = {
-    songs: [] as FakeSong[],
-    albumMbid: '' as string,
-    scanning: false,
-    scans: [] as string[][],
-    streams: [] as Array<{ id: string; format: string | null; range: string | undefined; timeOffset: string | null }>,
-    goneIds: new Set<string>(),
-    hold: false,
-    holds: [] as ServerResponse[],
-  };
-  const ok = (res: ServerResponse, body: Record<string, unknown>) => {
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ 'subsonic-response': { status: 'ok', version: '1.16.1', type: 'navidrome', serverVersion: '0.64.0 (test)', openSubsonic: true, ...body } }));
-  };
-  const fail = (res: ServerResponse, code: number, message: string) => {
-    res.setHeader('content-type', 'application/json');
-    res.end(JSON.stringify({ 'subsonic-response': { status: 'failed', version: '1.16.1', error: { code, message } } }));
-  };
-  const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    const url = new URL(req.url ?? '/', 'http://x');
-    const q = url.searchParams;
-    const t = q.get('t');
-    const s = q.get('s') ?? '';
-    if (q.get('p') || !t || t !== createHash('md5').update(PASSWORD + s).digest('hex') || q.get('u') !== 'admin') {
-      return fail(res, 40, 'Wrong username or password');
-    }
-    const method = url.pathname.replace('/rest/', '');
-    const album = { id: 'al-1', name: 'Test Album', artist: 'Test Artist', songCount: state.songs.length, musicBrainzId: state.albumMbid };
-    switch (method) {
-      case 'ping': return ok(res, {});
-      case 'search3': {
-        const query = (q.get('query') ?? '').toLowerCase();
-        const albums = Number(q.get('albumCount')) > 0 && 'test album'.includes(query) ? [album] : [];
-        const songs = Number(q.get('songCount')) > 0 ? state.songs.filter((x) => x.title.toLowerCase().includes(query)).map((x) => ({ ...x, albumId: 'al-1' })) : [];
-        return ok(res, { searchResult3: { album: albums, song: songs } });
-      }
-      case 'getAlbum': return ok(res, { album: { ...album, song: state.songs.map((x) => ({ ...x, albumId: 'al-1' })) } });
-      case 'getScanStatus': return ok(res, { scanStatus: { scanning: state.scanning, count: 3 } });
-      case 'getMusicFolders': return ok(res, { musicFolders: { musicFolder: [{ id: 1, name: 'Music' }] } });
-      case 'startScan': state.scans.push(q.getAll('target')); return ok(res, { scanStatus: { scanning: true, count: 0 } });
-      case 'stream': {
-        const id = q.get('id') ?? '';
-        if (state.goneIds.has(id)) return fail(res, 70, 'Song not found');
-        state.streams.push({ id, format: q.get('format'), range: req.headers.range, timeOffset: q.get('timeOffset') });
-        if (state.hold) { state.holds.push(res); res.writeHead(200, { 'content-type': 'audio/flac' }); res.write(AUDIO.subarray(0, 10)); return; }
-        const m = /^bytes=(\d+)-(\d*)$/.exec(req.headers.range ?? '');
-        if (q.get('format') === 'raw' && m) {
-          const start = Number(m[1]);
-          const end = m[2] ? Number(m[2]) : AUDIO.length - 1;
-          res.writeHead(206, { 'content-type': 'audio/flac', 'content-range': `bytes ${start}-${end}/${AUDIO.length}`, 'content-length': String(end - start + 1), 'accept-ranges': 'bytes' });
-          return res.end(AUDIO.subarray(start, end + 1));
-        }
-        res.writeHead(200, { 'content-type': q.get('format') === 'raw' ? 'audio/flac' : 'audio/ogg', 'content-length': String(AUDIO.length), 'accept-ranges': 'bytes' });
-        return res.end(AUDIO);
-      }
-      default: return fail(res, 0, `unknown method ${method}`);
-    }
-  });
-  return { server, state };
-}
-
 describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
   let app: FastifyInstance;
   let sql: any;
   let base = '';
-  const nav = fakeNavidrome();
+  const nav = fakeNavidrome(PASSWORD);
+  const AUDIO = nav.AUDIO;
   const ownerId = randomUUID();
   const strangerId = randomUUID();
   const libraryId = randomUUID();
@@ -184,6 +118,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
       await sql`delete from libraries where id = ${libraryId}`;
       await sql`delete from releases where id = ${releaseId}`;
       await sql`delete from release_groups where id = ${rgId}`;
+      await sql`delete from player_users where user_id in (${ownerId}, ${strangerId})`;
       await sql`delete from users where id in (${ownerId}, ${strangerId})`;
       await sql.end({ timeout: 5 });
     }
@@ -232,8 +167,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(again.statusCode).toBe(200);
     const gone = await app.inject({ method: 'DELETE', url: `/api/v1/libraries/${libraryId}/player/server`, headers: as(ownerId) });
     expect(gone.json()).toMatchObject({ external: null, capability: { installed: false } });
-    // a stranger cannot see the library
-    expect((await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player`, headers: as(strangerId) })).statusCode).toBe(404);
+    // another person on the install (a listener) sees the status, never the server's details
+    const listenerView = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player`, headers: as(strangerId, 'listener') });
+    expect(listenerView.statusCode).toBe(200);
+    expect(listenerView.json().external).toBeNull();
+    expect((await app.inject({ method: 'POST', url: `/api/v1/libraries/${libraryId}/player/scan`, headers: as(strangerId, 'listener') })).statusCode).toBe(403);
   });
 
   it('builds the album queue: path, recording MBID, not scanned yet, CUE', async () => {
@@ -251,8 +189,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     const req = await sql`select folder from player_scan_requests where library_id = ${libraryId}`;
     expect(req.map((r: any) => r.folder)).toEqual(['Test Artist/Test Album']);
     expect(sent).toEqual([{ name: 'player.scan', data: { libraryId }, opts: expect.objectContaining({ singletonKey: `player.scan:${libraryId}` }) }]);
-    // a stranger gets nothing
-    expect((await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/queue`, headers: as(strangerId) })).statusCode).toBe(404);
+    // everyone on the install plays the shared library
+    expect((await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/queue`, headers: as(strangerId, 'listener') })).statusCode).toBe(200);
   });
 
   it('streams the original with ranges, transcodes on request, and never forwards credentials', async () => {
@@ -269,10 +207,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     const opus = await app.inject({ method: 'GET', url: `/api/v1/player/stream/${tracks.two}?format=opus&maxBitRate=160&offset=30`, headers: { ...as(ownerId), range: 'bytes=0-' } });
     expect(opus.statusCode).toBe(200);
     const last = nav.state.streams.at(-1)!;
-    expect(last).toEqual({ id: 'song-2', format: 'opus', range: undefined, timeOffset: '30' });
+    // the stream is the person's own on the server, never the admin's
+    const [account] = await sql`select username from player_users where user_id = ${ownerId} and server_key = 'bundled'`;
+    expect(account.username).toBe(`o-${ownerId}`.slice(0, 24).replace(/[-._]+$/, ''));
+    expect(last).toEqual({ id: 'song-2', user: account.username, format: 'opus', range: undefined, timeOffset: '30' });
+    expect(nav.state.streams.every((x) => x.user !== 'admin')).toBe(true);
     expect(JSON.stringify(opus.headers)).not.toContain(PASSWORD);
     expect((await app.inject({ method: 'GET', url: `/api/v1/player/stream/${tracks.one}?format=wav`, headers: as(ownerId) })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'GET', url: `/api/v1/player/stream/${tracks.one}`, headers: as(strangerId) })).statusCode).toBe(404);
+    // a second person streams as their own account
+    expect((await app.inject({ method: 'GET', url: `/api/v1/player/stream/${tracks.one}`, headers: as(strangerId, 'listener') })).statusCode).toBe(200);
+    expect(nav.state.streams.at(-1)!.user).not.toBe(account.username);
+    expect(await sql`select 1 from player_users where server_key = 'bundled' and user_id in (${ownerId}, ${strangerId})`).toHaveLength(2);
   });
 
   it('answers 409 for a track the server does not have yet', async () => {
@@ -330,7 +275,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(first.statusCode, first.body).toBe(202);
     expect((await post({ kind: 'completed', localTrackId: tracks.two, queueId, playedMs: 199000, positionMs: 200000, at: '1999-01-01T00:00:00Z' })).statusCode).toBe(202);
     expect((await post({ kind: 'bogus', localTrackId: tracks.two, queueId, playedMs: 0, positionMs: 0 })).statusCode).toBe(400);
-    expect((await post({ kind: 'completed', localTrackId: tracks.two, queueId, playedMs: 1, positionMs: 1 }, strangerId)).statusCode).toBe(404);
+    expect((await post({ kind: 'completed', localTrackId: randomUUID(), queueId, playedMs: 1, positionMs: 1 }, strangerId)).statusCode).toBe(404);
     const rows = await sql`select kind, release_id, recording_mbid, server_song_id, local_album_id, played_ms, occurred_at, processed_at
                            from player_events where queue_id = ${queueId} order by received_at`;
     expect(rows.map((r: any) => r.kind)).toEqual(['now_playing', 'completed']);

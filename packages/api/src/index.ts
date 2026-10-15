@@ -38,6 +38,8 @@ import { createBackupRoutes } from './routes/backups.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createPlayerRoutes } from './routes/player.js';
 import { startPlayerScanWorker } from './lib/player.js';
+import { createPlayerListeningRoutes } from './routes/playerListening.js';
+import { startPlayerPeopleWorker } from './lib/playerSync.js';
 import { getSql } from './db.js';
 import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
@@ -385,6 +387,8 @@ app.register(async (instance) => {
 
   // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
   instance.register(createPlayerRoutes, { prefix: '/api/v1' });
+  // The player per person: listening history, Last.fm and ListenBrainz, phone-app passwords
+  instance.register(createPlayerListeningRoutes, { prefix: '/api/v1' });
 });
 
 // Start server
@@ -414,6 +418,8 @@ const start = async () => {
     } catch (err) {
       logger.error({ err }, 'could not start the player scan worker');
     }
+    // Plays → listens, accounts on the player server, scrobbles, ratings out.
+    startPlayerPeopleWorker({ sql: getSql(), log: logger });
   } catch (err) {
     logger.error(err);
     process.exit(1);
