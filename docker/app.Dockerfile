@@ -4,7 +4,7 @@ FROM node:24-alpine AS builder
 WORKDIR /app
 
 # Install pnpm
-RUN npm install -g pnpm@10.30.1
+RUN npm install -g pnpm@10.34.6
 
 # Copy workspace files
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json tsconfig.base.json ./
@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm in runtime
-RUN npm install -g pnpm@10.30.1
+RUN npm install -g pnpm@10.34.6
 
 # pnpm's per-package node_modules symlink farms make selective copies
 # fragile; ship the whole built workspace.

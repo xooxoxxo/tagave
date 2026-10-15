@@ -23,7 +23,15 @@ function makeRouter() {
   });
   const plan = createRoute({ getParentRoute: () => root, path: '/plans/$planId' });
   const history = createMemoryHistory({ initialEntries: [`/albums/${ALBUM}`] });
-  const router = createRouter({ routeTree: root.addChildren([album, plans, plan]), history });
+  // Vitest runs in node, where there is no document: since router-core 1.171.35
+  // the router then counts as server-side and navigate() does nothing. Say it
+  // is a client, and give it the origin it would otherwise read from window.
+  const router = createRouter({
+    routeTree: root.addChildren([album, plans, plan]),
+    history,
+    isServer: false,
+    origin: 'http://localhost',
+  });
   return { router, history };
 }
 
