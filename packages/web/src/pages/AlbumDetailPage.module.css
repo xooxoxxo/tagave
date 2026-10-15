@@ -189,6 +189,14 @@
   gap: 6px;
 }
 
+/* the album's Play: under its details, only while a player is installed */
+.playRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 22px;
+}
+
 .genres span {
   font: 500 12px / 1 var(--font-body);
   padding: 6px 10px;

@@ -5,9 +5,15 @@
  * open in place on a long press (touch), from the row's "⋯" in Maintenance,
  * and as the row's hover text. In Maintenance missing tracks sit in the list
  * as dimmed rows, and a track whose file or title needs a look carries a mark.
+ *
+ * With the player module (`player`), the lead slot also holds "Play from
+ * here": on a desktop the number turns into a play key on hover or focus; on
+ * touch, tapping the title plays from that track (a long press still opens
+ * the file facts). The track playing now is marked in dew. Without it the
+ * list renders exactly as before.
  */
 import { useRef, useState } from 'react';
-import { Collapse, IconButton, MoreIcon } from '../components/ui';
+import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
 import type { DetailTrack } from './albumDetailTypes';
 import { dur, fileLine, trackArtistIfDifferent } from './albumFormat';
 import styles from './AlbumTracks.module.css';
@@ -49,11 +55,16 @@ export interface AlbumTracksProps {
   /** the linked album artists' names */
   artistNames: string[];
   maintenance: boolean;
+  /** the player module, when one is installed and answering; null hides every play affordance */
+  player?: { currentTrackId: string | null; onPlay: (trackId: string) => void } | null;
 }
 
-export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance }: AlbumTracksProps) {
+export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null }: AlbumTracksProps) {
   const [openFile, setOpenFile] = useState<string | null>(null);
   const press = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
+  // touch: a tap on the title plays from there, unless that touch was a long press
+  const lastPointer = useRef<string>('mouse');
+  const longPressed = useRef(false);
   const toggle = (id: string) => setOpenFile((cur) => (cur === id ? null : id));
 
   if (tracks.length === 0 && (!maintenance || missingTracks.length === 0)) {
@@ -63,8 +74,10 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
   const multiDisc = (discCount ?? 1) > 1 || groups.length > 1;
 
   const startPress = (e: React.PointerEvent, id: string) => {
+    lastPointer.current = e.pointerType;
+    longPressed.current = false;
     if (e.pointerType !== 'touch') return;
-    const timer = setTimeout(() => { press.current = null; toggle(id); }, 480);
+    const timer = setTimeout(() => { press.current = null; longPressed.current = true; toggle(id); }, 480);
     press.current = { id, timer };
   };
   const endPress = () => {
@@ -98,10 +111,12 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
               const titleDiffers = !!t.canonicalTitle && !!t.title && t.canonicalTitle.trim().toLowerCase() !== t.title.trim().toLowerCase();
               const fileError = t.file.status === 'error';
               const open = openFile === t.id;
+              const now = !!player && player.currentTrackId === t.id;
+              const name = t.title ?? 'this track';
               return (
-                <li key={e.key} className={styles.item}>
+                <li key={e.key} className={styles.item} aria-current={now || undefined}>
                   <div
-                    className={`${styles.row} ${fileError && maintenance ? styles.error : ''} ${open ? styles.rowOpen : ''}`}
+                    className={`${styles.row} ${fileError && maintenance ? styles.error : ''} ${open ? styles.rowOpen : ''} ${now ? styles.playing : ''}`}
                     title={file ? `${file}\n${t.file.relPath}` : t.file.relPath}
                     onPointerDown={(ev) => startPress(ev, t.id)}
                     onPointerUp={endPress}
@@ -109,9 +124,22 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                     onPointerCancel={endPress}
                     onContextMenu={(ev) => { if (press.current || open) ev.preventDefault(); }}
                   >
-                    <span className={styles.lead}>{t.trackNo ?? '–'}</span>
-                    <span className={styles.main}>
+                    {player ? (
+                      <span className={`${styles.lead} ${styles.leadPlayable}`}>
+                        <span className={styles.leadNo}>{t.trackNo ?? '–'}</span>
+                        <IconButton label={`Play from ${name}`} variant="quiet" size="sm" className={styles.leadPlay} onClick={() => player.onPlay(t.id)}>
+                          <PlayIcon />
+                        </IconButton>
+                      </span>
+                    ) : (
+                      <span className={styles.lead}>{t.trackNo ?? '–'}</span>
+                    )}
+                    <span
+                      className={styles.main}
+                      onClick={player ? () => { if (lastPointer.current === 'touch' && !longPressed.current) player.onPlay(t.id); } : undefined}
+                    >
                       <span className={styles.title}>
+                        {now && <span className={styles.srOnly}>Now playing: </span>}
                         {t.title ?? '(untitled)'}
                         {maintenance && (titleDiffers || fileError) && (
                           <span

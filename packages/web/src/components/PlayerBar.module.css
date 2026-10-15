@@ -1,0 +1,335 @@
+/*
+ * The player bar (DESIGN.md: floating layers are glass, hairlines are 1px,
+ * times are tabular, nothing moves at rest). It takes its own row at the
+ * foot of the content column, so the page above it scrolls and is never
+ * covered; on a phone it spans the screen and clears the home indicator.
+ */
+.dock {
+  flex: none;
+  position: relative;
+  z-index: var(--z-sticky);
+  min-width: 0;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(10rem, 1.4fr) auto auto;
+  grid-template-areas: "now keys seek volume close";
+  align-items: center;
+  column-gap: var(--space-lg);
+  row-gap: var(--space-xs);
+  min-height: 72px;
+  padding: 10px var(--page-pad, 24px) calc(10px + env(safe-area-inset-bottom));
+  background: var(--glass);
+  border-top: 1px solid var(--line);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  color: var(--ink);
+  animation: barIn var(--dur-slow) var(--ease-out);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .bar {
+    background: var(--surface);
+  }
+}
+
+.now {
+  grid-area: now;
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.cover {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--r-inner);
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.title,
+.artist {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.artist {
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+}
+
+.keys {
+  grid-area: keys;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.key,
+.close {
+  flex: none;
+}
+
+.close {
+  grid-area: close;
+}
+
+/* the play key keeps its size whether it holds a glyph or the spinner */
+.playKey {
+  flex: none;
+}
+
+.spinner {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.seek {
+  grid-area: seek;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.time {
+  min-width: 2.75rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.seek .time:first-child {
+  text-align: right;
+}
+
+.problem {
+  grid-area: seek;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.message {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.volume {
+  grid-area: volume;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 8.5rem;
+  color: var(--ink-2);
+}
+
+.volumeIcon {
+  display: inline-flex;
+  flex: none;
+}
+
+.volumeIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* ---- the sliders: native ranges on the tokens ---- */
+.range {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  margin: 0;
+  background: transparent;
+  accent-color: var(--dew);
+  cursor: pointer;
+}
+
+.range:disabled {
+  cursor: default;
+}
+
+.range:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: var(--r-pill);
+}
+
+@media (forced-colors: none) {
+  .range {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: linear-gradient(90deg, var(--dew) var(--fill, 0%), var(--line-strong) var(--fill, 0%));
+  }
+  .range::-moz-range-track {
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: var(--line-strong);
+  }
+  .range::-moz-range-progress {
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: var(--dew);
+  }
+  .range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--dew);
+    box-shadow: 0 0 0 3px var(--surface), 0 2px 6px -2px rgba(var(--shadow-tint), 0.5);
+  }
+  .range::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--dew);
+    box-shadow: 0 0 0 3px var(--surface), 0 2px 6px -2px rgba(var(--shadow-tint), 0.5);
+  }
+  .range:disabled::-webkit-slider-thumb {
+    background: var(--line-strong);
+  }
+  .range:disabled::-moz-range-thumb {
+    background: var(--line-strong);
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* a mouse-sized desktop has the volume; touch devices use their own buttons */
+@media (hover: none), (pointer: coarse) {
+  .bar {
+    grid-template-columns: minmax(0, 1fr) auto minmax(10rem, 1.4fr) auto;
+    grid-template-areas: "now keys seek close";
+  }
+  .volume {
+    display: none;
+  }
+  .range {
+    height: 44px;
+  }
+}
+
+/* narrower desktops: the volume steps aside first */
+@media (max-width: 1100px) and (min-width: 721px) {
+  .bar {
+    grid-template-columns: minmax(0, 1fr) auto minmax(9rem, 1.2fr) auto;
+    grid-template-areas: "now keys seek close";
+  }
+  .volume {
+    display: none;
+  }
+}
+
+/* phone: what is playing and the keys on one row, the seek bar under them */
+@media (max-width: 720px) {
+  .bar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "now keys close"
+      "seek seek seek";
+    column-gap: var(--space-sm);
+    padding: 8px 16px calc(6px + env(safe-area-inset-bottom));
+  }
+  .cover {
+    width: 40px;
+    height: 40px;
+  }
+  .keys {
+    gap: 2px;
+  }
+  .volume {
+    display: none;
+  }
+  .range {
+    height: 32px;
+  }
+  .time {
+    min-width: 2.5rem;
+    font-size: 0.75rem;
+  }
+}
+
+@keyframes barIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    animation: none;
+  }
+  /* a still ring: it still says "loading" without moving */
+  .spinner {
+    animation: none;
+    border-top-color: currentColor;
+    border-right-color: currentColor;
+  }
+}
+
+@media (forced-colors: active) {
+  .bar {
+    border-top-color: CanvasText;
+    background: Canvas;
+  }
+  .spinner {
+    border-color: GrayText;
+    border-top-color: ButtonText;
+  }
+}

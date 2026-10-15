@@ -185,6 +185,40 @@
   white-space: nowrap;
 }
 
+/* ---- the player module: "Play from here" in the lead slot ---- */
+/* the number and the play key share the slot; the key shows on hover or focus */
+.leadPlayable {
+  display: grid;
+  place-items: center;
+  width: 100%;
+}
+
+.leadNo,
+.leadPlay {
+  grid-area: 1 / 1;
+}
+
+.leadPlay {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease-out);
+}
+
+.row:hover .leadPlay,
+.leadPlay:focus-visible {
+  opacity: 1;
+}
+
+.row:hover .leadNo,
+.row:has(.leadPlay:focus-visible) .leadNo {
+  visibility: hidden;
+}
+
+/* the track playing now: number and title in dew (no motion) */
+.playing .leadNo,
+.playing .title {
+  color: var(--dew);
+}
+
 /* phone: title and artist stacked, length right, 56px rows */
 @media (max-width: 640px) {
   .row {
@@ -222,6 +256,19 @@
 @media (hover: none) {
   .row:hover {
     background: transparent;
+  }
+  /* touch: the title plays from here; the key stays for keyboards and screen readers */
+  .leadPlay:not(:focus-visible) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .row:hover .leadNo {
+    visibility: visible;
   }
   .rowTool {
     opacity: 1;

@@ -37,7 +37,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, Collapse, CoverArt, LinkButton, PlayIcon, PauseIcon, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -48,6 +48,8 @@ import { AlbumFlowHeader } from './AlbumFlowHeader';
 import { AlbumFiller } from './AlbumFiller';
 import { albumFacts, caretPath, fillerHeight, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
+import { usePlaybackAvailable } from '../hooks/usePlayer';
+import { currentTrack, playAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -90,6 +92,12 @@ export function AlbumDetailPage() {
   const queryClient = useQueryClient();
   const [maintenance, setMaintenance] = useMaintenance();
   const [{ shortAlbumArt }] = useDisplayPrefs();
+  // the opt-in player: Play and per-track play exist only while one is installed and answering
+  const canPlay = usePlaybackAvailable();
+  const playingHere = usePlayerStore((s) => s.queue?.albumId === albumId && s.index >= 0);
+  const playStatus = usePlayerStore((s) => s.status);
+  const playingTrackId = usePlayerStore((s) => (s.queue?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
+  const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
   const tab: AlbumTab = search.tab ?? 'tracks';
   const setTab = (next: AlbumTab) =>
     void navigate({ to: '/albums/$albumId', params: { albumId }, search: next === 'tracks' ? {} : { tab: next }, replace: true, resetScroll: false });
@@ -772,6 +780,8 @@ export function AlbumDetailPage() {
     tracks: album.tracks,
   });
   const artistLine = albumArtist ?? 'Unknown artist';
+  const playVariant = items.some((i) => i.tone === 'attention') ? 'secondary' as const : 'primary' as const;
+  const albumRef = { albumId, title: title ?? 'Untitled', artist: artistLine, coverUrl: album.coverUrl };
   const manageMenu = <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />;
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
@@ -838,6 +848,18 @@ export function AlbumDetailPage() {
                 <div className={styles.genres}>{genreLabels.map((g) => <span key={g}>{g}</span>)}</div>
               )}
             </dl>
+            {canPlay && (
+              // Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view)
+              <div className={styles.playRow}>
+                {playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? (
+                  <Button variant={playVariant} onClick={togglePlayback}><PauseIcon />Pause</Button>
+                ) : playingHere && playStatus === 'paused' ? (
+                  <Button variant={playVariant} onClick={togglePlayback}><PlayIcon />Resume</Button>
+                ) : (
+                  <Button variant={playVariant} loading={queueLoading} onClick={() => void playAlbum(albumRef)}><PlayIcon />Play</Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
@@ -908,6 +930,7 @@ export function AlbumDetailPage() {
             albumArtists={[album.artistCredit, albumArtist, Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit]}
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
+            player={canPlay ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
           />
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}

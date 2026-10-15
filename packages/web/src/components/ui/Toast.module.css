@@ -88,3 +88,12 @@
 :global(html[data-new-build]) .region {
   bottom: calc(max(24px, env(safe-area-inset-bottom)) + 60px);
 }
+
+/* the player bar holds the foot of the screen (PlayerBar sets its height) */
+:global(html[data-player-bar]) .region {
+  bottom: calc(24px + var(--player-bar-h, 0px));
+}
+
+:global(html[data-player-bar][data-new-build]) .region {
+  bottom: calc(24px + 60px + var(--player-bar-h, 0px));
+}

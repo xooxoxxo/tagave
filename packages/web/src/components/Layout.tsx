@@ -14,6 +14,8 @@ import { UpdateDot } from './UpdateDot';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
+import { PlayerBar } from './PlayerBar';
+import { stop as stopPlayback } from '../player/engine';
 import styles from './Layout.module.css';
 
 export function Layout() {
@@ -46,6 +48,8 @@ export function Layout() {
   const albumsReturnSearch = useAlbumsReturnSearch();
 
   useEffect(() => { main.current?.scrollTo(0, 0); setMenuOpen(false); }, [pathname]);
+  // the audio lives outside React: signed out (or the session ended), it stops
+  useEffect(() => { if (!user) stopPlayback(); }, [user]);
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
@@ -147,7 +151,7 @@ export function Layout() {
         </nav>
         <div className={styles.navUser}>
           <span className={styles.userEmail} title={user.email}>{user.email}</span>
-          <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => logout.mutate()}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
+          <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => { stopPlayback(); logout.mutate(); }}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
           {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
         </div>
         </div>
@@ -172,6 +176,8 @@ export function Layout() {
           </PageBackContext.Provider>
           <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
         </main>
+        {/* mounted once here, under the page: route changes never unmount the audio */}
+        <PlayerBar />
       </div>
       {searchOpen && <SearchModal onClose={closeSearch} />}
       <AlbumSelectionGuard />

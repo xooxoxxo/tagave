@@ -88,3 +88,8 @@
     animation: none;
   }
 }
+
+/* the player bar holds the foot of the screen (PlayerBar sets its height) */
+:global(html[data-player-bar]) .region {
+  bottom: calc(24px + var(--player-bar-h, 0px));
+}

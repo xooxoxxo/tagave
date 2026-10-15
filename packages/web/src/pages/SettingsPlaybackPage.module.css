@@ -1,0 +1,81 @@
+/* Settings › Playback: the same rhythm as the other settings sections. */
+.description {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  min-width: 0;
+}
+
+.statusDetail {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+  overflow-wrap: anywhere;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.subTitle {
+  margin: var(--space-lg) 0 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.muted {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+.error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 34rem;
+  min-width: 0;
+}
+
+.quality {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md) var(--space-lg);
+  min-width: 0;
+}
+
+.bitrate {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.bitrateLabel {
+  font-size: 0.875rem;
+  color: var(--ink-2);
+}

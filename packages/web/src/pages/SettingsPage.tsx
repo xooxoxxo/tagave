@@ -12,6 +12,7 @@ import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
+import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
@@ -27,6 +28,7 @@ const sections = [
   { value: 'following', label: 'Follow rules' },
   { value: 'appearance', label: 'Appearance' },
   { value: 'providers', label: 'Integrations', group: 'Connections & system' },
+  { value: 'playback', label: 'Playback' },
   { value: 'system', label: 'System status' },
   { value: 'storage', label: 'Storage' },
   { value: 'backups', label: 'Backups' },
@@ -52,6 +54,7 @@ export function SettingsPage() {
         {section === 'following' && <SettingsFollowRulesContent />}
         {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /><MaintenanceSetting /><DisplaySettings /></>}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
+        {section === 'playback' && <SettingsPlaybackContent />}
         {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails. Versions and connected workers are under <Link to="/settings/$section" params={{ section: 'updates' }}>Updates</Link>.</p><SystemStatus /></>}
         {section === 'storage' && <><h2>Storage</h2><p className={styles.sectionDescription}>How much room tagave takes: the database by kind of data, and the folders it keeps on this server. Your music files are not counted.</p><SettingsStorageContent /></>}
         {section === 'backups' && <><h2>Backups</h2><p className={styles.sectionDescription}>Copies of the database: your catalog, matches, reviews and settings. Your music files are not in them.</p><SettingsBackupsPage /></>}

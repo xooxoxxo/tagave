@@ -227,6 +227,8 @@ between browsing and upkeep: the hairline cut into the
     margin: 0;
     box-shadow: inset 0 1px 0 var(--highlight), 0 8px 24px -12px rgba(var(--shadow-tint), .45);
   }
+  /* the player bar holds the foot of the screen: the pill sits above it */
+  :global(html[data-player-bar]) .modePill { bottom: calc(1rem + var(--player-bar-h, 0px)); }
 }
 /* The album flow draws its own header (back | album | Maintenance keys):
    no app bar over it, and on a phone no top bar above it. The artist page
