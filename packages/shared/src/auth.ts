@@ -1,9 +1,11 @@
 import { z } from 'zod';
+import { roleSchema } from './permissions.js';
 
 /**
- * User roles per PLT-1 and Section 16
+ * User roles (0043): owner, editor, listener. What each may do is in
+ * permissions.ts.
  */
-export const userRoleSchema = z.enum(['owner', 'viewer']).describe('User role: owner can write, viewer is read-only');
+export const userRoleSchema = roleSchema.describe('User role: owner (everything), editor (library care), listener (browse and play)');
 
 export type UserRole = z.infer<typeof userRoleSchema>;
 

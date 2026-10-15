@@ -28,7 +28,7 @@ const RECENT_LIMIT = 8;
 
 async function assertLibrary(userId: string, libraryId: string): Promise<void> {
   const rows = await getDb().select({ id: libraries.id }).from(libraries)
-    .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+    .where(eq(libraries.id, libraryId));
   if (rows.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 }
 

@@ -193,7 +193,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const db = getDb();
     const lib = await db.select({ id: libraries.id }).from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
     const rawQuery = request.query as Record<string, unknown>;
@@ -314,7 +314,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -454,7 +454,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -1071,7 +1071,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const boss = await getBoss();
       const jobId = await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
@@ -1096,7 +1096,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const pending = await pendingIdentifyJob(albumId);
       if (pending) {
@@ -1140,7 +1140,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const pending = await pendingIdentifyJob(albumId);
       if (pending) {
@@ -1168,7 +1168,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const pending = await pendingIdentifyJob(albumId);
       if (!pending) throw new ApiError(404, 'Not Found', 'No identification request is queued for this album');
@@ -1190,7 +1190,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       const albums = await db
@@ -1296,7 +1296,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       const albums = await db
@@ -1332,7 +1332,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library
@@ -1380,7 +1380,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library
@@ -1435,7 +1435,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library
@@ -1501,11 +1501,10 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
     const db = getDb();
 
-    // Get user's libraries
+    // Every library on the install (all of them are shared)
     const userLibraries = await db
       .select()
-      .from(libraries)
-      .where(eq(libraries.ownerUserId, request.user.id));
+      .from(libraries);
 
     const libraryIds = userLibraries.map((l) => l.id);
 
@@ -1544,7 +1543,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
   const ownedAlbum = async (userId: string, libraryId: string, albumId: string) => {
     const db = getDb();
     const lib = await db.select({ id: libraries.id }).from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
     const [album] = await db.select({ id: localAlbums.id, dirPaths: localAlbums.dirPaths, clusterKey: localAlbums.clusterKey })
       .from(localAlbums)
@@ -1664,7 +1663,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const db = getDb();
     const lib = await db.select({ id: libraries.id }).from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
     const body = (request.body ?? {}) as { albumIds?: unknown; targetId?: unknown };
     const uuid = /^[0-9a-f-]{36}$/i;

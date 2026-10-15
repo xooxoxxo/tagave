@@ -18,7 +18,7 @@ export async function createFieldLocksRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library
@@ -59,7 +59,7 @@ export async function createFieldLocksRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library
@@ -110,7 +110,7 @@ export async function createFieldLocksRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify lock belongs to the specified library
@@ -141,7 +141,7 @@ export async function createFieldLocksRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select()
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       // Verify album belongs to the specified library

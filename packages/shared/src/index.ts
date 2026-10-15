@@ -23,6 +23,24 @@ export {
   type SessionUser,
 } from './auth.js';
 
+// Roles and permissions
+export {
+  ROLES,
+  roleSchema,
+  type Role,
+  PERMISSIONS,
+  permissionSchema,
+  type Permission,
+  ROLE_PERMISSIONS,
+  can,
+  type RoutePermission,
+  ROLE_LABELS,
+  ROLE_DESCRIPTIONS,
+} from './permissions.js';
+
+// People: Settings › Users and invite links
+export * from './users.js';
+
 // Library and scanning
 export {
   scanRootSchema,

@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql, inArray } from 'drizzle-orm';
+import { eq, and, asc, sql, inArray } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
 import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@tagave/db';
 import { getDb } from '../db.js';
@@ -13,11 +13,15 @@ import {
   librarySettingsViewSchema,
   patchLibrarySettingsSchema,
 } from '@tagave/shared/library';
+import { callerCan, requirePermission } from '../permissions/guard.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
 import { cachedScanRootCounts, invalidateScanRootCounts } from '../lib/scanRootCounts.js';
 import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
 import { normalizeFolderLinkBase } from '@tagave/shared';
+
+/** Library settings only an owner (system.manage) may change. */
+const SYSTEM_SETTING_KEYS = ['contactString', 'discogsToken', 'acoustidKey', 'onboardingCompletedAt'] as const;
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Adding, editing, removing or rescanning a music folder drops the cached
@@ -42,7 +46,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -80,13 +84,16 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       throw new ApiError(400, 'Bad Request', 'Invalid follow rules configuration');
     }
 
+    // The provider keys' hints and the contact address are for whoever
+    // manages the install; everyone else reads the library's own settings.
+    const system = callerCan(request, 'system.manage');
     reply.status(200).send(
       librarySettingsViewSchema.parse({
-        contactString,
+        contactString: system ? contactString : null,
         discogsTokenSet: discogsTokenHint !== null,
-        discogsTokenHint,
+        discogsTokenHint: system ? discogsTokenHint : null,
         acoustidKeySet: acoustidKeyHint !== null,
-        acoustidKeyHint,
+        acoustidKeyHint: system ? acoustidKeyHint : null,
         fingerprintingEnabled,
         onboardingCompletedAt,
         genreMap,
@@ -106,6 +113,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
 
     const { libraryId } = request.params as { libraryId: string };
     const body = patchLibrarySettingsSchema.parse(request.body);
+    // The route needs library.edit (tag preferences, genre mapping, follow
+    // rules); provider keys, the contact address and onboarding are the
+    // install's (Settings › Integrations, first run).
+    if (SYSTEM_SETTING_KEYS.some((k) => body[k] !== undefined)) requirePermission(request, 'system.manage');
 
     const db = getDb();
     const appSecret = process.env.APP_SECRET;
@@ -115,7 +126,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -279,7 +290,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -392,7 +403,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -412,7 +423,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const db = getDb();
     const lib = await db.select().from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
     const [albumStats] = await db.execute(sql`
@@ -457,7 +468,8 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     });
   });
 
-  // Get all libraries for the authenticated user
+  // Every library on the install: they are shared by everyone signed in
+  // (the household model, 0043); owner_user_id says who created it.
   fastify.get('/', async (request: FastifyRequest, reply: FastifyReply) => {
     if (!request.user) {
       throw new ApiError(401, 'Unauthorized', 'Authentication required');
@@ -468,7 +480,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const userLibraries = await db
       .select()
       .from(libraries)
-      .where(eq(libraries.ownerUserId, request.user.id));
+      .orderBy(asc(libraries.createdAt));
 
     reply.status(200).send({
       data: userLibraries.map((lib) =>
@@ -501,7 +513,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -556,7 +568,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .select()
       .from(libraries)
       .where(
-        and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+        eq(libraries.id, libraryId)
       );
 
     if (lib.length === 0) {
@@ -629,7 +641,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -725,7 +737,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -770,7 +782,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -817,7 +829,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {

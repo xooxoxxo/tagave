@@ -172,9 +172,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('POST .../jobs/:jobId/retry (db)
     expect(boss.send).not.toHaveBeenCalled();
   });
 
-  it("does not find another library's job, or a library that is not yours", async () => {
+  it("does not find another library's job, or a library that does not exist", async () => {
     expect((await app.inject({ method: 'POST', url: url(ids.strangerFailed) })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'POST', url: url(ids.strangerFailed, strangerLibraryId) })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: url(ids.strangerFailed, randomUUID()) })).statusCode).toBe(404);
     expect(boss.send).not.toHaveBeenCalled();
   });
 });

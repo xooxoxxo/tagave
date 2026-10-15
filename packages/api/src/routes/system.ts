@@ -40,7 +40,7 @@ export async function createSystemRoutes(fastify: FastifyInstance) {
       const owned = await getDb()
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (owned.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
     }
 

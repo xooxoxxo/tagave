@@ -1,6 +1,4 @@
 import Fastify from 'fastify';
-import fastifySwagger from '@fastify/swagger';
-import fastifySwaggerUI from '@fastify/swagger-ui';
 import fastifyCookie from '@fastify/cookie';
 import fastifyStatic from '@fastify/static';
 import pino from 'pino';
@@ -11,38 +9,13 @@ import { makeDb } from '@tagave/db';
 import { AuthConfigError, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
 import { readBuildInfo } from '@tagave/core';
 import { migrateOnBoot } from '@tagave/doctor';
-import { createReviewRoutes } from './routes/reviews.js';
-import { createViewRoutes } from './routes/views.js';
-import { createBulkRoutes } from './routes/bulk.js';
-import { createUpdateRoutes, startUpdateChecks } from './routes/updates.js';
-import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
-import { createAuthRoutes } from './routes/auth.js';
-import { createBetterAuthRoutes } from './routes/betterAuth.js';
-import { createLibraryRoutes } from './routes/library.js';
-import { createHealthRoutes } from './routes/health.js';
-import { createSystemRoutes } from './routes/system.js';
-import { createAlbumRoutes } from './routes/albums.js';
-import { createFieldLocksRoutes } from './routes/fieldLocks.js';
-import { createJobRoutes } from './routes/jobs.js';
-import { createQueueRoutes } from './routes/queue.js';
-import { createReviewMatchesRoutes } from './routes/reviewMatches.js';
-import { createGapRoutes } from './routes/gaps.js';
-import { createImageRoutes } from './routes/images.js';
-import { createSearchRoutes } from './routes/search.js';
-import { createCollectionRoutes } from './routes/collection.js';
-import { createIdentifyRoutes } from './routes/identify.js';
-import { createFingerprintRoutes } from './routes/fingerprint.js';
-import { createArtistsRoutes } from './routes/artists.js';
-import { createTagPlansRoutes } from './routes/tagPlans.js';
-import { createBackupRoutes } from './routes/backups.js';
-import { createStorageRoutes } from './routes/storage.js';
-import { createPlayerRoutes } from './routes/player.js';
+import { startUpdateChecks } from './routes/updates.js';
 import { startPlayerScanWorker } from './lib/player.js';
 import { getSql } from './db.js';
-import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
+import { BackupService, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
-import { authMiddleware, initAuth } from './middleware/auth.js';
-import { errorHandler } from './middleware/errorHandler.js';
+import { initAuth } from './middleware/auth.js';
+import { registerApiRoutes } from './app.js';
 import { servesAppShell, staticCacheControl } from './lib/staticCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -234,28 +207,7 @@ app.register(async (fastify) => {
   });
 });
 
-// Register Swagger/OpenAPI
-await app.register(fastifySwagger, {
-  openapi: {
-    info: {
-      title: 'tagave API',
-      version: '1.0.0',
-      description: 'Music archive catalog API',
-    },
-    servers: [
-      {
-        url: '/api/v1',
-        description: 'API v1',
-      },
-    ],
-  },
-});
-
-await app.register(fastifySwaggerUI, {
-  routePrefix: '/api/v1/docs',
-});
-
-app.get('/api/v1/openapi.json', async () => app.swagger());
+// OpenAPI and its docs page are registered with the API routes (app.ts).
 
 // Static file serving (web frontend)
 const webDistPath = path.join(__dirname, '../../web/dist');
@@ -282,110 +234,9 @@ app.setNotFoundHandler(async (request, reply) => {
   return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
 });
 
-// Error handler and auth hook must live on the ROOT instance — registering
-// them as plugins would encapsulate them away from sibling route plugins.
-await errorHandler(app);
-await authMiddleware(app);
-
-// Health check endpoint (no auth required)
-app.register(createHealthRoutes, { prefix: '/api/v1' });
-
-// Signed by the updater instead of a session (opt-in updater)
-app.register(createUpdaterInternalRoutes, { prefix: '/api/v1' });
-
-// Better Auth: /api/auth/* (sign-in, sign-out, session, 2FA, passkeys)
-app.register(createBetterAuthRoutes);
-
-// Auth routes (no auth required for setup/login)
-app.register(createAuthRoutes, { prefix: '/api/v1/auth' });
-
-// Protected routes
-app.register(async (instance) => {
-  // Require authentication for all routes below this point
-  instance.addHook('preHandler', async (request, reply) => {
-    // Skip auth check for health and auth endpoints
-    if (request.url.startsWith('/api/v1/health') || request.url.startsWith('/api/v1/auth')) {
-      return;
-    }
-
-    if (!request.user) {
-      reply.status(401).send({
-        status: 401,
-        title: 'Unauthorized',
-        detail: 'Authentication required',
-      });
-    }
-  });
-
-  // Library routes
-  instance.register(createLibraryRoutes, { prefix: '/api/v1/libraries' });
-
-  // Reviews, listens, clippings (REV-1..3)
-  instance.register(createReviewRoutes, { prefix: '/api/v1' });
-
-  // Saved grid views (BRW-1)
-  instance.register(createViewRoutes, { prefix: '/api/v1' });
-
-  // Bulk actions on a grid selection (§14.2)
-  instance.register(createBulkRoutes, { prefix: '/api/v1' });
-
-  // System checks with a fix per failure (status page, first-run wizard)
-  instance.register(createSystemRoutes, { prefix: '/api/v1' });
-
-  // Build identity + release feed (PLT-5 / XO-313)
-  instance.register(createUpdateRoutes, { prefix: '/api/v1' });
-  // The opt-in updater: start an update, follow its run (owner, step-up)
-  instance.register(createUpdaterRoutes, { prefix: '/api/v1' });
-
-  // Album routes
-  instance.register(createAlbumRoutes, { prefix: '/api/v1' });
-
-  // Field locks and history (M2)
-  instance.register(createFieldLocksRoutes, { prefix: '/api/v1' });
-
-  // Job routes
-  instance.register(createJobRoutes, { prefix: '/api/v1' });
-
-  // Review queue routes
-  instance.register(createQueueRoutes, { prefix: '/api/v1' });
-  // Review matches: auto-accept rules, pasted editions
-  instance.register(createReviewMatchesRoutes, { prefix: '/api/v1' });
-
-  // Gaps, their three-way decisions and the Tasks list (0032)
-  instance.register(createGapRoutes, { prefix: '/api/v1' });
-
-  // Image serving
-  instance.register(createImageRoutes, { prefix: '/api/v1' });
-
-  // Search (BRW-4)
-  instance.register(createSearchRoutes, { prefix: '/api/v1' });
-
-  // Collection (COL-1, GAP-3)
-  instance.register(createCollectionRoutes, { prefix: '/api/v1' });
-
-  // Identify triage + coverage metrics (XO-309)
-  instance.register(createIdentifyRoutes, { prefix: '/api/v1' });
-  instance.register(createFingerprintRoutes, { prefix: '/api/v1' });
-
-  // Artists (canonical + unresolved, enrichment, follow) (XO-310)
-  instance.register(createArtistsRoutes, { prefix: '/api/v1' });
-
-  // Tag plans (M2)
-  instance.register(createTagPlansRoutes, { prefix: '/api/v1/libraries/:libraryId' });
-
-  // Database backups (Settings › Backups)
-  instance.register(createBackupRoutes, {
-    prefix: '/api/v1',
-    service: backupService,
-    onSettingsChanged: async () => applyBackupSchedule(await getBoss(), backupService),
-  });
-
-  // Settings › Storage: disk use and the tag-change cleanup (owner only)
-  instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: backupService.dir, cacheDir: process.env.CACHE_DIR || undefined });
-
-  // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
-  instance.register(createPlayerRoutes, { prefix: '/api/v1' });
-});
+// Error handler, session + permission hooks and every /api route (app.ts):
+// the same wiring the route-permission tests build.
+await registerApiRoutes(app, { backupService, cacheDir: process.env.CACHE_DIR || undefined });
 
 // Start server
 const start = async () => {

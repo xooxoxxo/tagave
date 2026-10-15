@@ -15,14 +15,13 @@ export async function createImageRoutes(fastify: FastifyInstance) {
       .select({
         thumb: images.thumbBytes,
         libraryId: images.libraryId,
-        owner: libraries.ownerUserId,
       })
       .from(images)
       .innerJoin(libraries, eq(libraries.id, images.libraryId))
       .where(and(eq(images.localAlbumId, albumId), eq(images.kind, 'front')))
       .limit(1);
     const row = rows[0];
-    if (!row || row.owner !== request.user.id) {
+    if (!row) {
       throw new ApiError(404, 'Not Found', 'No cover for this album');
     }
     if (!row.thumb) throw new ApiError(404, 'Not Found', 'No thumbnail stored');

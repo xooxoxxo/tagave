@@ -39,7 +39,7 @@ async function loadLibrary(userId: string, libraryId: string) {
   const rows = await getDb()
     .select({ id: libraries.id, settings: libraries.settings })
     .from(libraries)
-    .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+    .where(eq(libraries.id, libraryId));
   if (!rows[0]) throw new ApiError(404, 'Not Found', 'Library not found');
   const settings = (typeof rows[0].settings === 'string' ? JSON.parse(rows[0].settings) : rows[0].settings ?? {}) as Record<string, unknown>;
   return { id: rows[0].id, settings, updates: (settings['updates'] ?? {}) as UpdatesSettings };

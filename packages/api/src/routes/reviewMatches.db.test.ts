@@ -129,10 +129,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
     expect(view.recent).toEqual([expect.objectContaining({ albumId: decided, title: 'Kosmonument', percent: 99 })]);
   });
 
-  it('keeps other people out', async () => {
-    expect((await req('GET', `/libraries/${libraryId}/auto-accept`, undefined, strangerId)).statusCode).toBe(404);
-    expect((await req('POST', `/libraries/${libraryId}/auto-accept/preview`, DEFAULT_AUTO_ACCEPT_RULES, strangerId)).statusCode).toBe(404);
-    expect((await req('POST', `/albums/${albumIds[0]}/editions`, { input: `https://musicbrainz.org/release/${randomUUID()}` }, strangerId)).statusCode).toBe(404);
+  it('finds no unknown library or album (every library on the install is shared, 0043)', async () => {
+    const unknown = randomUUID();
+    expect((await req('GET', `/libraries/${unknown}/auto-accept`, undefined, strangerId)).statusCode).toBe(404);
+    expect((await req('POST', `/libraries/${unknown}/auto-accept/preview`, DEFAULT_AUTO_ACCEPT_RULES, strangerId)).statusCode).toBe(404);
+    expect((await req('POST', `/albums/${randomUUID()}/editions`, { input: `https://musicbrainz.org/release/${randomUUID()}` }, strangerId)).statusCode).toBe(404);
   });
 
   it('paste field: says what is wrong with the input before any lookup', async () => {

@@ -137,7 +137,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
 
     expect((await post(`/libraries/${libraryId}/tag-edit/suggest`, { scope: { type: 'library' } })).statusCode).toBe(400);
     expect((await post(`/libraries/${libraryId}/tag-edit/suggest`, { scope: { type: 'albumIds', albumIds: [foreignAlbum] } })).statusCode).toBe(404);
-    expect((await post(`/libraries/${libraryId}/tag-edit/suggest`, { scope: { type: 'albumIds', albumIds: pieces } }, strangerId)).statusCode).toBe(404);
+    // Libraries are shared by everyone on the install (0043): another person gets the same answer.
+    expect((await post(`/libraries/${libraryId}/tag-edit/suggest`, { scope: { type: 'albumIds', albumIds: pieces } }, strangerId)).statusCode).toBe(200);
   });
 
   it('creates a manual plan; a folder plan keeps the folder (its files, not whole albums)', async () => {
@@ -189,7 +190,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
     const url = `/libraries/${libraryId}/albums/merge`;
     expect((await post(url, { albumIds: [pieces[1]] })).statusCode).toBe(400);
     expect((await post(url, { albumIds: [pieces[1], foreignAlbum] })).statusCode).toBe(404);
-    expect((await post(url, { albumIds: [pieces[1], vaAlbums[0]] }, strangerId)).statusCode).toBe(404);
+    // shared libraries (0043): another person is refused for the same reason the owner would be
+    expect((await post(url, { albumIds: [pieces[1], vaAlbums[0]] }, strangerId)).statusCode).toBe(409);
   });
 
   it('splits back: pins removed, folders queued for re-clustering', async () => {

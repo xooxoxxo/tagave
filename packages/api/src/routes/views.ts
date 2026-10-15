@@ -1,6 +1,7 @@
 /**
  * Saved album-grid views (spec BRW-1 P1): a name plus the URL query of the
- * grid, per library.
+ * grid, per library and per person (0043): nobody sees or deletes another
+ * person's views.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq } from 'drizzle-orm';
@@ -13,7 +14,7 @@ async function assertLibrary(userId: string, libraryId: string) {
   const rows = await getDb()
     .select({ id: libraries.id })
     .from(libraries)
-    .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+    .where(eq(libraries.id, libraryId));
   if (rows.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 }
 
@@ -32,7 +33,9 @@ export async function createViewRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     await assertLibrary(request.user.id, libraryId);
-    const rows = await getDb().select().from(savedViews).where(eq(savedViews.libraryId, libraryId)).orderBy(asc(savedViews.name));
+    const rows = await getDb().select().from(savedViews)
+      .where(and(eq(savedViews.libraryId, libraryId), eq(savedViews.userId, request.user.id)))
+      .orderBy(asc(savedViews.name));
     reply.send({ items: rows.map(toView) });
   });
 
@@ -47,7 +50,7 @@ export async function createViewRoutes(fastify: FastifyInstance) {
     }
     const inserted = (await getDb()
       .insert(savedViews)
-      .values({ libraryId, name: parsed.data.name.trim(), query: parsed.data.query })
+      .values({ libraryId, userId: request.user.id, name: parsed.data.name.trim(), query: parsed.data.query })
       .returning())[0]!;
     reply.status(201).send(toView(inserted));
   });
@@ -56,8 +59,8 @@ export async function createViewRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { viewId } = request.params as { viewId: string };
     const db = getDb();
-    const row = (await db.select({ id: savedViews.id, libraryId: savedViews.libraryId }).from(savedViews).where(eq(savedViews.id, viewId)).limit(1))[0];
-    if (!row) throw new ApiError(404, 'Not Found', 'Saved view not found');
+    const row = (await db.select({ id: savedViews.id, libraryId: savedViews.libraryId, userId: savedViews.userId }).from(savedViews).where(eq(savedViews.id, viewId)).limit(1))[0];
+    if (!row || row.userId !== request.user.id) throw new ApiError(404, 'Not Found', 'Saved view not found');
     await assertLibrary(request.user.id, row.libraryId);
     await db.delete(savedViews).where(eq(savedViews.id, viewId));
     reply.send({ ok: true });

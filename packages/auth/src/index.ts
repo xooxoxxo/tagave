@@ -89,7 +89,10 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
         updatedAt: 'updated_at',
       },
       additionalFields: {
-        role: { type: 'string' as const, required: false, defaultValue: 'owner', input: false, fieldName: 'role' },
+        // owner | editor | listener (0043). Never writable through the HTTP API.
+        role: { type: 'string' as const, required: false, defaultValue: 'listener', input: false, fieldName: 'role' },
+        disabledAt: { type: 'date' as const, required: false, input: false, fieldName: 'disabled_at' },
+        removedAt: { type: 'date' as const, required: false, input: false, fieldName: 'removed_at' },
       },
     },
     session: {
@@ -150,6 +153,12 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
       ...(env.trustProxy ? { ipAddress: { ipAddressHeaders: ['x-forwarded-for'] } } : {}),
     },
     databaseHooks: {
+      session: {
+        // The one place every sign-in (password, passkey, authenticator code,
+        // invite, set-password link) makes its session: a turned-off or
+        // removed account gets none.
+        create: { before: async (session: { userId?: string }) => refuseInactiveAccount(sql, session.userId) },
+      },
       verification: {
         // Name trusted-device rows so Settings > Security can list and revoke them.
         create: {
@@ -234,6 +243,21 @@ function userVerificationRequired() {
     message:
       'Your passkey or security key did not check a PIN or fingerprint. Set a PIN on the key (a YubiKey asks you to create one) and try again.',
   });
+}
+
+/** Turned off or removed in Settings › Users. */
+export const ACCOUNT_INACTIVE = 'ACCOUNT_INACTIVE';
+
+async function refuseInactiveAccount(sql: postgres.Sql, userId: string | undefined): Promise<void> {
+  if (!userId) return;
+  const [row] = await sql<Array<{ inactive: boolean }>>`
+    select (disabled_at is not null or removed_at is not null) as inactive from users where id = ${userId}`;
+  if (row?.inactive) {
+    throw new BetterAuthAPIError('FORBIDDEN', {
+      code: ACCOUNT_INACTIVE,
+      message: 'This account is turned off. Ask the owner of this tagave to turn it back on.',
+    });
+  }
 }
 
 async function mirrorPasswordHash(sql: postgres.Sql, accountId: string | undefined): Promise<void> {
