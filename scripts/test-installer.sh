@@ -600,8 +600,9 @@ grep -q '^LINER_' "$legacy_env" && fail "pre-0.9: LINER_* keys left in .env afte
   || fail "pre-0.9: the update changed the database names"
 [ "$(env_value POSTGRES_PASSWORD "$legacy_env")" = "$pg_password" ] || fail "pre-0.9: the update changed the database password"
 [ "$(mode_of "$legacy_env")" = "600" ] || fail "pre-0.9: .env is no longer mode 600"
-env_bak="$(find "$work/legacy" -maxdepth 1 -name '.env.bak.*' -newer "$work/legacy-disable.log" | head -n 1)"
-{ [ -n "$env_bak" ] && grep -q '^LINER_LIBRARY_ID=lib-123' "$env_bak"; } || fail "pre-0.9: no backup of the .env with the old names"
+# the update writes .env more than once; one of its backups has the old names
+env_bak="$(find "$work/legacy" -maxdepth 1 -name '.env.bak.*' -newer "$work/legacy-disable.log" -exec grep -l '^LINER_LIBRARY_ID=lib-123' {} + | head -n 1)"
+[ -n "$env_bak" ] || fail "pre-0.9: no backup of the .env with the old names"
 [ "$(mode_of "$env_bak")" = "600" ] || fail "pre-0.9: the .env backup is not private"
 backup="$(find "$work/legacy/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-update-0.4.1-*' | head -n 1)"
 grep -q '^LINER_LIBRARY_ID=lib-123' "$backup/.env" || fail "pre-0.9: the roll back copy of .env lost the names the old version reads"
