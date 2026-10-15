@@ -1,53 +1,10 @@
 packages:
   - packages/*
 
-# Never install a version published less than 30 days ago (minutes). Lives here
+# Never install a version published less than 5 days ago (minutes). Lives here
 # so CI and Docker builds honour it, not only a developer's global config.
-minimumReleaseAge: 43200
+minimumReleaseAge: 7200
 
-# Security exceptions to the age gate: only the exact patched version, only
-# while it is younger than 30 days. Drop each entry once it ages past the gate.
-minimumReleaseAgeExclude:
-  # GHSA-4mh8-r7rc-xpvc (HTTP/2 trailer DoS), patched in 5.12.5
-  - fastify@5.12.5
-  # GHSA-f94x-6692-553q (MP4 stsd infinite loop) and GHSA-5gfj-9q3v-qfp3
-  # (EBML memory exhaustion), patched in 11.16.0
-  - music-metadata@11.16.0
-  # GHSA-wq5f-xc86-pv6w (librsvg in the bundled libvips), patched in 0.35.5
-  - sharp@0.35.5
-  # ...and the prebuilt platform binaries it pins (libvips 1.3.4 carries the fix)
-  - '@img/sharp-darwin-arm64@0.35.5'
-  - '@img/sharp-darwin-x64@0.35.5'
-  - '@img/sharp-freebsd-wasm32@0.35.5'
-  - '@img/sharp-libvips-darwin-arm64@1.3.4'
-  - '@img/sharp-libvips-darwin-x64@1.3.4'
-  - '@img/sharp-libvips-linux-arm@1.3.4'
-  - '@img/sharp-libvips-linux-arm64@1.3.4'
-  - '@img/sharp-libvips-linux-ppc64@1.3.4'
-  - '@img/sharp-libvips-linux-riscv64@1.3.4'
-  - '@img/sharp-libvips-linux-s390x@1.3.4'
-  - '@img/sharp-libvips-linux-x64@1.3.4'
-  - '@img/sharp-libvips-linuxmusl-arm64@1.3.4'
-  - '@img/sharp-libvips-linuxmusl-x64@1.3.4'
-  - '@img/sharp-linux-arm@0.35.5'
-  - '@img/sharp-linux-arm64@0.35.5'
-  - '@img/sharp-linux-ppc64@0.35.5'
-  - '@img/sharp-linux-riscv64@0.35.5'
-  - '@img/sharp-linux-s390x@0.35.5'
-  - '@img/sharp-linux-x64@0.35.5'
-  - '@img/sharp-linuxmusl-arm64@0.35.5'
-  - '@img/sharp-linuxmusl-x64@0.35.5'
-  - '@img/sharp-webcontainers-wasm32@0.35.5'
-  - '@img/sharp-win32-arm64@0.35.5'
-  - '@img/sharp-win32-ia32@0.35.5'
-  - '@img/sharp-win32-x64@0.35.5'
-  - '@img/sharp-wasm32@0.35.5'
-  # Transitive, already at the newest in-range parent versions:
-  # GHSA-hrr3-gc8f-f4qj, GHSA-jvvf-x445-j334 (via fastify's ajv-compiler and
-  # @fastify/swagger's json-schema-resolver), patched in 4.1.5 / 3.1.8
-  - fast-uri@4.1.5 || 3.1.8
-  # GHSA-6j4f-fj2g-mc7p, GHSA-qhr7-859c-m2p7, GHSA-q2hr-2g5m-vwhr (via
-  # @fastify/static's glob/minimatch), all patched by 5.0.12
-  - brace-expansion@5.0.12
-  # GHSA-68fv-2mgg-jv7q (via vite's postcss, build-time only), patched in 1.2.2
-  - source-map-js@1.2.2
+# Security exceptions to the age gate go in minimumReleaseAgeExclude: only the
+# exact patched version, only while it is younger than 5 days, with a comment
+# naming the advisory. Drop each entry once it ages past the gate.
