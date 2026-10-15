@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ZodError } from 'zod';
 import type { ProblemDetails } from '@tagave/shared/problem';
-import { createProblemDetails } from '@tagave/shared/problem';
+import { PROBLEM_TYPES, createProblemDetails } from '@tagave/shared/problem';
+import { databaseUnreachable } from '../lib/databaseUnreachable.js';
 
 export class ApiError extends Error {
   constructor(
@@ -66,6 +67,15 @@ export async function errorHandler(fastify: FastifyInstance) {
 
     // Handle generic errors
     const status = (error as any).statusCode || 500;
+
+    // A 500 because the database is down (often the session lookup, before
+    // any route): say so instead of "An unexpected error occurred".
+    const down = status === 500 ? databaseUnreachable(error) : null;
+    if (down) {
+      return reply.status(503).send(
+        createProblemDetails(503, 'Database unreachable', `The database cannot be reached: ${down}.`, PROBLEM_TYPES.databaseUnreachable, requestId)
+      );
+    }
     return reply.status(status).send(
       createProblemDetails(
         status,

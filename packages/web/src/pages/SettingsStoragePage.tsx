@@ -4,7 +4,7 @@
  * the folders the app owns, and the cleanup of finished tag changes.
  */
 import { useRef, useState } from 'react';
-import type { TagChangeCleanupPreview, TagChangeCleanupScope } from '@tagave/shared';
+import { PROBLEM_TYPES, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
 import { Banner, Button, SegmentedControl, confirmDialog, showToast } from '../components/ui';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
@@ -18,11 +18,28 @@ function Bar({ share }: { share: number }) {
   return <span className={styles.track} aria-hidden="true"><span className={styles.fill} style={{ width: `${pct}%` }} /></span>;
 }
 
+/**
+ * What went wrong, from GET /storage's answer: the database, a measuring
+ * step, who is asking, or the server itself. Only a 403 is about the owner.
+ */
+export function storageErrorText(error: unknown): string {
+  const e = (error ?? {}) as { status?: unknown; type?: unknown; detail?: unknown };
+  const status = typeof e.status === 'number' ? e.status : null;
+  const detail = typeof e.detail === 'string' && e.detail.trim() ? ` ${e.detail.trim()}` : '';
+  if (status === 403) return 'Only the owner can see this page.';
+  if (status === 401) return 'You are signed out. Sign in again to see this page.';
+  if (e.type === PROBLEM_TYPES.databaseUnreachable) return `Could not measure storage: the database is not answering.${detail}`;
+  if (e.type === PROBLEM_TYPES.storageMeasurementFailed) return `Could not measure storage.${detail}`;
+  if (status === null) return 'Could not measure storage: the server did not answer. Check your connection, or whether tagave is running.';
+  if (status === 502 || status === 503 || status === 504) return `Could not measure storage: the server is not answering (${status}). It may be restarting; try again in a minute.`;
+  return `Could not measure storage: the server answered ${status}.${detail}`;
+}
+
 export function SettingsStorageContent() {
   const { data, isLoading, error, refetch, isFetching } = useStorage();
 
   if (isLoading) return <p className={styles.muted}>Measuring…</p>;
-  if (error || !data) return <Banner tone="danger">Could not measure storage. Only the owner can see this page.</Banner>;
+  if (error || !data) return <Banner tone="danger">{storageErrorText(error)}</Banner>;
 
   const db = data.database;
   const folderTotal = data.folders.reduce((n, f) => n + f.bytes, 0);

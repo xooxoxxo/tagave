@@ -2,15 +2,23 @@
  * Settings › Storage: disk use of everything tagave keeps (database groups,
  * the cache and backups folders) and the cleanup of finished tag changes.
  * Owner only: it names paths and covers every library.
+ *
+ * A measurement that fails says what failed: 503 when the database cannot
+ * be reached, 500 naming the step otherwise. The page used to blame
+ * permissions for every error, also while the database was down.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import {
+  PROBLEM_TYPES,
   tagChangeCleanupRequestSchema,
   type StorageFolderView,
   type StorageOverview,
+  type StorageProblem,
+  type StorageStep,
   type TagChangeCleanupScope,
 } from '@tagave/shared';
 import { getDb } from '../db.js';
+import { databaseUnreachable } from '../lib/databaseUnreachable.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import {
   databaseUsage,
@@ -33,6 +41,43 @@ function requireOwner(request: FastifyRequest): string {
   return request.user.id;
 }
 
+/** A failure while measuring one part, with what that part was. */
+export class StorageStepError extends Error {
+  constructor(readonly step: StorageStep, readonly what: string, readonly cause: unknown) {
+    super(`Measuring ${what} failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'StorageStepError';
+  }
+}
+
+async function measure<T>(step: StorageStep, what: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    throw new StorageStepError(step, what, err);
+  }
+}
+
+/** The answer for a failed GET /storage; null leaves `err` to the error handler. */
+export function storageProblem(err: unknown): StorageProblem | null {
+  const step = err instanceof StorageStepError ? err.step : undefined;
+  // Only the database step can blame the database: an NFS cache or backups
+  // folder that times out is a measurement failure of that folder.
+  const down = step === undefined || step === 'database' ? databaseUnreachable(err instanceof StorageStepError ? err.cause : err) : null;
+  if (down) {
+    return {
+      type: PROBLEM_TYPES.databaseUnreachable,
+      title: 'Database unreachable',
+      status: 503,
+      detail: `The database cannot be reached: ${down}. Check that the postgres container runs (docker compose ps postgres) and read its log (docker compose logs postgres); a full disk stops it.`,
+      ...(step ? { step } : {}),
+    };
+  }
+  if (err instanceof StorageStepError) {
+    return { type: PROBLEM_TYPES.storageMeasurementFailed, title: 'Measurement failed', status: 500, detail: err.message, step: err.step };
+  }
+  return null;
+}
+
 function scopeOf(raw: unknown): TagChangeCleanupScope {
   if (raw === undefined || raw === 'archived') return 'archived';
   if (raw === 'finished') return 'finished';
@@ -40,16 +85,25 @@ function scopeOf(raw: unknown): TagChangeCleanupScope {
 }
 
 export async function createStorageRoutes(fastify: FastifyInstance, opts: StorageRoutesOptions) {
-  fastify.get('/storage', async (request): Promise<StorageOverview> => {
+  fastify.get('/storage', async (request, reply): Promise<StorageOverview | StorageProblem> => {
     requireOwner(request);
     const db = getDb();
     const folders: StorageFolderView[] = [];
     const backupInCache = !!opts.cacheDir && isInside(opts.cacheDir, opts.backupDir);
-    const [database, cache, backups] = await Promise.all([
-      databaseUsage(db),
-      opts.cacheDir ? folderUsage(opts.cacheDir, backupInCache ? { skip: opts.backupDir } : {}) : null,
-      folderUsage(opts.backupDir),
-    ]);
+    const cacheDir = opts.cacheDir;
+    let database, cache, backups;
+    try {
+      [database, cache, backups] = await Promise.all([
+        measure('database', 'the database', () => databaseUsage(db)),
+        cacheDir ? measure('cache', `the cache folder (${cacheDir})`, () => folderUsage(cacheDir, backupInCache ? { skip: opts.backupDir } : {})) : null,
+        measure('backups', `the backups folder (${opts.backupDir})`, () => folderUsage(opts.backupDir)),
+      ]);
+    } catch (err) {
+      const problem = storageProblem(err);
+      if (!problem) throw err;
+      request.log.error({ err, step: problem.step }, 'storage measurement failed');
+      return reply.code(problem.status).send(problem);
+    }
     if (opts.cacheDir && cache) {
       folders.push({ key: 'cache', label: 'Cache folder', path: opts.cacheDir, ...cache });
     }

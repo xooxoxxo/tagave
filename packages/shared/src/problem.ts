@@ -52,3 +52,12 @@ export function createProblemDetails(
     ...(instance && { instance }),
   };
 }
+
+/**
+ * Problem `type`s the web tells apart. The database one can come from any
+ * route (the session lookup needs the database too), so it is not storage's.
+ */
+export const PROBLEM_TYPES = {
+  databaseUnreachable: 'urn:tagave:problem:database-unreachable',
+  storageMeasurementFailed: 'urn:tagave:problem:storage-measurement-failed',
+} as const;

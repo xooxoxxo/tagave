@@ -213,6 +213,7 @@ export {
   type ProblemDetails,
   HttpStatusCode,
   createProblemDetails,
+  PROBLEM_TYPES,
 } from './problem.js';
 
 // Canonical fields and tag mapping
@@ -272,6 +273,8 @@ export {
   type StorageOverview,
   type StorageCategoryView,
   type StorageFolderView,
+  type StorageStep,
+  type StorageProblem,
   type TagChangeCleanupScope,
   type TagChangeCleanupRequest,
   type TagChangeCleanupPreview,

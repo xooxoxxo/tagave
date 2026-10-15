@@ -73,6 +73,22 @@ export interface StorageOverview {
   folders: StorageFolderView[];
 }
 
+/** What GET /storage was measuring when it failed. */
+export type StorageStep = 'database' | 'cache' | 'backups';
+
+/**
+ * GET /storage when it cannot answer: 503 with PROBLEM_TYPES.databaseUnreachable,
+ * or 500 with PROBLEM_TYPES.storageMeasurementFailed. 401 and 403 are the
+ * usual problem bodies.
+ */
+export interface StorageProblem {
+  type: string;
+  title: string;
+  status: number;
+  detail: string;
+  step?: StorageStep;
+}
+
 /** archived: only archived plans; finished: every finished plan, archived or not. */
 export const tagChangeCleanupScopeSchema = z.enum(['archived', 'finished']);
 export type TagChangeCleanupScope = z.infer<typeof tagChangeCleanupScopeSchema>;
