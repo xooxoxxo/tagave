@@ -47,6 +47,9 @@ class FakeInstall {
   playerSnapshots = 0;
   playerRestored = false;
   now = Date.parse('2026-10-11T10:00:00Z');
+  /** Local images, as repository:tag. */
+  images: string[] = [];
+  imageLsFails = false;
 
   constructor(readonly dir: string) {
     this.workers.set('w-identify-old', { version: '0.7.0', seenAt: this.now });
@@ -128,6 +131,16 @@ class FakeInstall {
       return ok('{"database":"tagave"}');
     }
     if (args[0] === 'compose' && args[1] === 'run') return ok('abc123');
+    if (a.startsWith('image ls')) {
+      if (this.imageLsFails) return bad('Cannot connect to the Docker daemon');
+      return ok(this.images.map((r) => `${r.slice(0, r.lastIndexOf(':'))}\t${r.slice(r.lastIndexOf(':') + 1)}\tsha256:${r}`).join('\n'));
+    }
+    if (a.startsWith('ps -a')) return ok('');
+    if (a.startsWith('image inspect')) return ok(`${1024 ** 3}\n`);
+    if (args[0] === 'image' && args[1] === 'rm') {
+      this.images = this.images.filter((r) => r !== args[2]);
+      return ok(`Untagged: ${args[2]}`);
+    }
     return bad(`unexpected: docker ${a}`);
   };
 
@@ -437,5 +450,37 @@ describe('an install from before 0.9', () => {
     const env = await readFile(join(dir, '.env'), 'utf8');
     expect(envGet(env, 'LINER_LIBRARY_ID')).toBe('lib-1');
     expect(envGet(env, 'TAGAVE_LIBRARY_ID')).toBeNull();
+  });
+});
+
+describe('old images after an update', () => {
+  const set = (v: string) => ['app', 'worker', 'updater'].map((n) => `ghcr.io/xooxoxxo/tagave-${n}:${v}`);
+
+  it('removes the images older than the version it came from, and says so in the log', async () => {
+    fake.images = [...set('0.6.0'), ...set('0.7.0'), ...set('0.8.0'), 'postgres:16'];
+    const run = await update('0.8.0');
+    expect(run.status).toBe('succeeded');
+    expect(fake.images.sort()).toEqual([...set('0.7.0'), ...set('0.8.0'), 'postgres:16'].sort());
+    const line = run.log.find((l) => l.message.startsWith('removed 3 old images'));
+    expect(line?.message).toContain("3.0 GB by Docker's count");
+    expect(line?.message).toContain('ghcr.io/xooxoxxo/tagave-app:0.6.0');
+    // still before the updater replaces itself
+    expect(fake.calls.at(-1)!.slice(0, 3)).toEqual(['compose', 'run', '-d']);
+  });
+
+  it('a cleanup that fails is a warning; the update still succeeds', async () => {
+    fake.imageLsFails = true;
+    const run = await update('0.8.0');
+    expect(run.status).toBe('succeeded');
+    expect(run.log.find((l) => l.level === 'warn' && l.message.startsWith('removing old images failed'))?.message).toMatch(/Cannot connect.*the update itself is done/);
+  });
+
+  it('removes nothing after a roll back', async () => {
+    fake.images = [...set('0.6.0'), ...set('0.7.0')];
+    fake.unhealthy.add('0.8.0');
+    const run = await update('0.8.0');
+    expect(run.status).toBe('rolled_back');
+    expect(fake.calls.some((c) => c[0] === 'image')).toBe(false);
+    expect(fake.images).toHaveLength(6);
   });
 });

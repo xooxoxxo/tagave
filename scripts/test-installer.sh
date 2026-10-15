@@ -342,6 +342,25 @@ case "$1" in
     esac
     exit 0 ;;
   volume) exit 1 ;;
+  # Local images: "repository tag id" lines in $FAKE_IMAGES; containers made
+  # from the image refs in $FAKE_CONTAINERS. rm refuses -f and an image in use.
+  image)
+    case "$2" in
+      ls) if [ -n "${FAKE_IMAGES:-}" ]; then cat "$FAKE_IMAGES" || exit 1; fi ;;
+      inspect) echo 1073741824 ;;
+      rm)
+        case "$*" in *" -f"*|*--force*) echo "fake docker: image rm with -f" >&2; exit 1 ;; esac
+        if [ -n "${FAKE_CONTAINERS:-}" ] && grep -qxF -- "$3" "$FAKE_CONTAINERS"; then
+          echo "Error response from daemon: conflict: unable to remove repository reference \"$3\" (must force)" >&2; exit 1
+        fi
+        awk -v ref="$3" '$1 ":" $2 != ref' "$FAKE_IMAGES" >"$FAKE_IMAGES.new" && mv "$FAKE_IMAGES.new" "$FAKE_IMAGES" ;;
+    esac
+    exit 0 ;;
+  ps)
+    if [ -n "${FAKE_CONTAINERS:-}" ]; then
+      case "$*" in *--format*) cat "$FAKE_CONTAINERS" ;; *) awk '{print "c" NR}' "$FAKE_CONTAINERS" ;; esac
+    fi
+    exit 0 ;;
   compose) shift ;;
   *) exit 0 ;;
 esac
@@ -436,6 +455,61 @@ grep -q 'How to roll back to 0.4.1' "$work/bad.log" || { cat "$work/bad.log" >&2
 grep -q 'dropdb' "$work/bad.log" || fail "update failure: roll back does not reset the database"
 pass "a failed update prints how to roll back"
 
+# Old images: after the update only 0.5.0 and 0.4.1 stay of tagave's own; an
+# image a stopped container uses, other repositories and non-release tags stay.
+at_version 0.4.1 --role all --dir "$work/upd-img" --music "$work/music" >"$work/upd-img-install.log" 2>&1 \
+  || { cat "$work/upd-img-install.log" >&2; fail "old images: install 0.4.1"; }
+printf '0.4.1' >"$work/state/version"
+reg=ghcr.io/xooxoxxo
+{
+  for v in 0.3.0 0.4.0 0.4.1 0.5.0; do
+    for n in app worker updater; do printf '%s/tagave-%s %s sha256:%s%s\n' "$reg" "$n" "$v" "$n" "$v"; done
+  done
+  printf '%s/tagave-app edge sha256:edge\n' "$reg"
+  printf '%s/tagave-app 0.4.0-rc.10 sha256:rc10\n' "$reg"
+  printf 'postgres 16 sha256:pg\n'
+  printf '%s/tagave-app-fork 0.1.0 sha256:fork\n' "$reg"
+  printf 'ghcr.io/someone/tagave-app 0.1.0 sha256:someone\n'
+  printf 'deluan/navidrome 0.50.0 sha256:nd\n'
+} >"$work/images"
+printf '%s/tagave-worker:0.4.0\n' "$reg" >"$work/containers"
+: >"$work/docker.log"
+FAKE_IMAGES="$work/images" FAKE_CONTAINERS="$work/containers" fake update --dir "$work/upd-img" --yes >"$work/upd-img.log" 2>&1 \
+  || { cat "$work/upd-img.log" >&2; fail "old images: update"; }
+expected="$(cat <<EXPECTED
+deluan/navidrome 0.50.0
+ghcr.io/someone/tagave-app 0.1.0
+postgres 16
+$reg/tagave-app 0.4.0-rc.10
+$reg/tagave-app 0.4.1
+$reg/tagave-app 0.5.0
+$reg/tagave-app edge
+$reg/tagave-app-fork 0.1.0
+$reg/tagave-updater 0.4.1
+$reg/tagave-updater 0.5.0
+$reg/tagave-worker 0.4.0
+$reg/tagave-worker 0.4.1
+$reg/tagave-worker 0.5.0
+EXPECTED
+)"
+got="$(awk '{print $1, $2}' "$work/images" | LC_ALL=C sort)"
+if [ "$got" != "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ]; then
+  printf 'left:\n%s\n' "$got" >&2; cat "$work/upd-img.log" >&2; fail "old images: wrong images left"
+fi
+grep -q 'Removed 5 old image(s), 5.0 GB' "$work/upd-img.log" || { cat "$work/upd-img.log" >&2; fail "old images: no summary of what was removed"; }
+grep -q "Kept $reg/tagave-worker:0.4.0: a container uses it" "$work/upd-img.log" || fail "old images: does not say why it kept an image in use"
+if grep -E -q 'prune|image rm (-f|--force)' "$work/docker.log"; then fail "old images: pruned or forced a removal"; fi
+pass "update removes the tagave images older than the version it came from, and nothing else"
+
+# A Docker that cannot list images: a warning, and the update still succeeds.
+printf '0.4.1' >"$work/state/version"
+sed -i.orig 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=0.4.1/' "$work/upd-img/.env"
+FAKE_IMAGES="$work/no-such-file" fake update --dir "$work/upd-img" --version 0.5.0 --yes >"$work/upd-img2.log" 2>&1 \
+  || { cat "$work/upd-img2.log" >&2; fail "old images: a failing image list failed the update"; }
+grep -q 'tagave now runs 0.5.0' "$work/upd-img2.log" || fail "old images: update did not finish"
+grep -q 'Could not list the images' "$work/upd-img2.log" || fail "old images: no warning when the images cannot be listed"
+pass "a failure to remove old images does not fail the update"
+
 # The player: a release that pins another Navidrome copies its data first.
 at_version 0.4.1 --role all --with-player --dir "$work/upd-pl" --music "$work/music" >"$work/upd-pl-install.log" 2>&1 \
   || { cat "$work/upd-pl-install.log" >&2; fail "update player: install 0.4.1"; }
@@ -445,7 +519,10 @@ printf '0.4.1' >"$work/state/version"
 fake status --dir "$work/upd-pl" >"$work/upd-pl-status.log" 2>&1 || { cat "$work/upd-pl-status.log" >&2; fail "status with the player"; }
 grep -q 'Player: *healthy (port 4533)' "$work/upd-pl-status.log" || fail "status: does not show the player"
 : >"$work/docker.log"
-fake update --dir "$work/upd-pl" --yes >"$work/upd-pl.log" 2>&1 || { cat "$work/upd-pl.log" >&2; fail "update with a new player image"; }
+printf 'deluan/navidrome 0.62.0 a\ndeluan/navidrome 0.63.0 b\ndeluan/navidrome 0.64.0 c\ndeluan/navidrome latest d\n' >"$work/pl-images"
+FAKE_IMAGES="$work/pl-images" fake update --dir "$work/upd-pl" --yes >"$work/upd-pl.log" 2>&1 || { cat "$work/upd-pl.log" >&2; fail "update with a new player image"; }
+# Only the exact image the player ran before goes; 0.62.0 may not be tagave's.
+[ "$(awk '{print $2}' "$work/pl-images" | tr '\n' ' ')" = "0.62.0 0.64.0 latest " ] || fail "update: expected only the player's previous 0.63.0 image removed, left $(tr '\n' ' ' <"$work/pl-images")"
 stop_pl="$(line_of 'compose stop player')"
 snap_pl="$({ grep -n 'entrypoint sh player' "$work/docker.log" || true; } | head -n 1 | cut -d: -f1)"
 app_at="$(line_of 'compose up -d app')"

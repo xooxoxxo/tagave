@@ -32,6 +32,9 @@
  * restore` (the swap restore: the changed database is kept under another
  * name); then the old version is started and checked.
  *
+ * After a successful run the images older than the version it came from
+ * are removed (image-hygiene.ts); a failure there is a warning in the log.
+ *
  * The updater service itself is never part of these restarts. After a
  * successful run it is replaced last, by a one-off container, so the process
  * running this code is never the one being recreated mid-run.
@@ -40,6 +43,7 @@ import { statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
 import { envGet, envSet, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
+import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 
 export const STEP_LABELS: Record<UpdateStepId, string> = {
@@ -547,6 +551,33 @@ export class Update {
     };
   }
 
+  /** Removes the images older than the version this update came from. Warns, never fails the update. */
+  private async cleanOldImages(): Promise<void> {
+    const free = this.deps.freeBytes ?? (() => freeBytesAt('/'));
+    try {
+      const freeBefore = await free().catch(() => null);
+      const res = await removeOldImages(
+        // One summary line instead of every docker call.
+        (args, opts) => this.docker(args, { ...opts, quiet: true }),
+        (images) => [
+          ...tagaveGroups(this.registry, this.run.from, this.run.target, images),
+          ...playerGroups(this.playerImageBefore, this.playerImageAfter),
+        ],
+      );
+      if (res.removed.length > 0) {
+        const freeAfter = await free().catch(() => null);
+        const gained = freeBefore !== null && freeAfter !== null && freeAfter > freeBefore ? `, ${formatBytes(freeAfter - freeBefore)} more free on disk` : '';
+        this.log('info', `removed ${res.removed.length} old image${res.removed.length === 1 ? '' : 's'} (${formatBytes(res.bytes)} by Docker's count${gained}): ${res.removed.join(', ')}`);
+      } else {
+        this.log('info', 'no old images to remove');
+      }
+      if (res.inUse.length > 0) this.log('info', `kept, a container uses them: ${res.inUse.join(', ')}`);
+      for (const f of res.failed) this.log('warn', `could not remove ${f.ref}: ${f.error}`);
+    } catch (err) {
+      this.log('warn', `removing old images failed (${(err as Error).message}); the update itself is done`);
+    }
+  }
+
   private async replaceSelf(): Promise<void> {
     // A one-off container of the updater service, on the new image, recreates
     // the updater service container; this process is the one being replaced,
@@ -602,6 +633,7 @@ export class Update {
         this.run.reason = `${reason}. Nothing was changed.`;
       }
     }
+    if (this.run.status === 'succeeded') await this.cleanOldImages();
     this.run.finishedAt = this.now().toISOString();
     await this.persist();
     if (this.run.status === 'succeeded' && this.deps.config.selfUpdate) {

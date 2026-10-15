@@ -1767,6 +1767,114 @@ check_remote_file_worker() {
   done
 }
 
+# image_repo REF: the repository part of an image reference, without Docker
+# Hub's implicit prefixes, as "docker image ls" names it. Nothing for a
+# digest reference or one without a tag.
+image_repo() {
+  local ref="$1" repo
+  case "$ref" in *@*) return 0 ;; esac
+  repo="${ref%:*}"
+  case "${ref##*:}" in */*) return 0 ;; esac
+  [ "$repo" != "$ref" ] || return 0
+  repo="${repo#docker.io/library/}"
+  repo="${repo#docker.io/}"
+  printf '%s' "$repo"
+}
+
+# in_lines WORD... -- TEXT: true when a line of TEXT is exactly one of the
+# WORDs. Plain bash: no pipe to break, no temp file to write on a full disk.
+in_lines() {
+  local text word
+  text="$(printf '\n%s\n' "${*: -1}")"
+  for word in "${@:1:$#-2}"; do
+    case "$text" in *$'\n'"$word"$'\n'*) return 0 ;; esac
+  done
+  return 1
+}
+
+# remove_old_images FROM TARGET: after a successful update, removes the
+# tagave images older than FROM (TARGET and FROM stay, for a roll back). Only
+# <registry>/tagave-app, -worker and -updater are looked at, matched exactly,
+# and only plain release tags (X.Y.Z) older than FROM go; pre-releases,
+# latest, edge and untagged images stay. Of the player only the exact image
+# it ran before (PLAYER_IMAGE_BEFORE) goes, when the update moved it to
+# another one: other tags of its repository may not be tagave's. An image any
+# container uses, running or stopped, stays, and "docker image rm" runs
+# without -f, so Docker refuses one in use. Volumes and the build cache are
+# not touched. Call it as "remove_old_images ... || warn ...": a problem here
+# never ends the update, which is done by now.
+remove_old_images() {
+  local from="$1" target="$2" registry floor list used ids repo tag id ref size out
+  local player_repo="" player_tag="" removed="" count=0 bytes=0
+  is_release "$target" || return 0
+  registry="${TAGAVE_REGISTRY%/}"
+  if ! list="$(docker image ls --no-trunc --format '{{.Repository}} {{.Tag}} {{.ID}}' </dev/null 2>/dev/null)"; then
+    warn "Could not list the images to remove old ones; the update itself is done."
+    return 0
+  fi
+  floor="$from"
+  if ! is_release "$floor"; then
+    # .env said latest: the newest local release older than TARGET stands in.
+    floor=""
+    while read -r repo tag id; do
+      if [ "$repo" = "$registry/tagave-app" ] && is_release "$tag" && version_lt "$tag" "$target"; then
+        if [ -z "$floor" ] || version_lt "$floor" "$tag"; then floor="$tag"; fi
+      fi
+    done < <(printf '%s\n' "$list")
+    if [ -z "$floor" ]; then floor="$target"; fi
+  fi
+  if [ -n "${PLAYER_IMAGE_BEFORE:-}" ] && [ -n "${PLAYER_IMAGE_AFTER:-}" ]; then
+    player_repo="$(image_repo "$PLAYER_IMAGE_BEFORE")"
+    player_tag="${PLAYER_IMAGE_BEFORE##*:}"
+    if [ -z "$player_repo" ] || [ "$player_repo:$player_tag" = "$(image_repo "$PLAYER_IMAGE_AFTER"):${PLAYER_IMAGE_AFTER##*:}" ]; then
+      player_repo=""
+    fi
+  fi
+
+  # Every container, stopped ones too: its image by name and by id.
+  if ! ids="$(docker ps -a -q --no-trunc </dev/null 2>/dev/null)"; then
+    warn "Could not list the containers, so no old image was removed; the update itself is done."
+    return 0
+  fi
+  used="$(docker ps -a --no-trunc --format '{{.Image}}' </dev/null 2>/dev/null || true)"
+  if [ -n "$ids" ]; then
+    # shellcheck disable=SC2086 # one container id per word
+    used="$used
+$(docker inspect --format '{{.Image}}' $ids </dev/null 2>/dev/null || true)"
+  fi
+
+  while read -r repo tag id; do
+    [ -n "$repo" ] || continue
+    repo="${repo#docker.io/library/}"
+    repo="${repo#docker.io/}"
+    case "$repo" in
+      "$registry/tagave-app"|"$registry/tagave-worker"|"$registry/tagave-updater")
+        is_release "$tag" || continue
+        version_lt "$tag" "$floor" || continue ;;
+      *)
+        if [ -z "$player_repo" ] || [ "$repo" != "$player_repo" ] || [ "$tag" != "$player_tag" ]; then continue; fi ;;
+    esac
+    ref="$repo:$tag"
+    if in_lines "$ref" "$id" -- "$used"; then
+      say "  Kept $ref: a container uses it."
+      continue
+    fi
+    size="$(docker image inspect --format '{{.Size}}' "$ref" </dev/null 2>/dev/null || true)"
+    if out="$(docker image rm "$ref" </dev/null 2>&1 >/dev/null)"; then
+      removed="$removed $ref"
+      count=$((count + 1))
+      case "$size" in ''|*[!0-9]*) ;; *) bytes=$((bytes + size)) ;; esac
+    else
+      warn "Could not remove $ref: ${out##*$'\n'}"
+    fi
+  done < <(printf '%s\n' "$list")
+  if [ "$count" -eq 0 ]; then
+    say "  No old images to remove (keeping $target and $floor)."
+  else
+    ok "Removed $count old image(s), $(awk -v b="$bytes" 'BEGIN { printf "%.1f GB", b / 1073741824 }' </dev/null || true) by Docker's count:$removed"
+  fi
+}
+
 run_update() {
   say "${C_BOLD}tagave update${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
@@ -1878,6 +1986,9 @@ update_app_computer() {
   # itself runs fine without it.
   [ -z "$PLAYER_IMAGE_AFTER" ] || wait_for_player || true
 
+  step "Old images"
+  remove_old_images "$FROM_VERSION" "$TARGET" || warn "Removing old images did not finish; the update itself is done."
+
   step "Done"
   say "  tagave now runs $TARGET. The backup from before the update is in $UPDATE_BACKUP_DIR."
   if [ "$ROLE" = "app" ]; then
@@ -1953,6 +2064,8 @@ update_files_computer() {
     [ "$builds" != "pass" ] || ok "The app and every worker run the same build"
   fi
   ON_DIE=""
+  step "Old images"
+  remove_old_images "$FROM_VERSION" "$TARGET" || warn "Removing old images did not finish; the update itself is done."
   step "Done"
   say "  The file worker now runs $TARGET."
   print_rollback
