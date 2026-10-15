@@ -596,8 +596,9 @@ grep -q '^LINER_' "$legacy_env" && fail "pre-0.9: LINER_* keys left in .env afte
 [ "$(env_value TAGAVE_PREMIGRATE_BACKUP_KEEP "$legacy_env")" = "7" ] || fail "pre-0.9: LINER_PREMIGRATE_BACKUP_KEEP not renamed"
 [ "$(env_value TAGAVE_ALLOW_SCHEMA_SKEW "$legacy_env")" = "1" ] || fail "pre-0.9: the old name overrode a TAGAVE_* value already set"
 [ "$(grep -c '^TAGAVE_ALLOW_SCHEMA_SKEW=' "$legacy_env")" = "1" ] || fail "pre-0.9: TAGAVE_ALLOW_SCHEMA_SKEW twice in .env"
-[ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ] \
-  || fail "pre-0.9: the update changed the database names"
+if ! { [ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ]; }; then
+  fail "pre-0.9: the update changed the database names"
+fi
 [ "$(env_value POSTGRES_PASSWORD "$legacy_env")" = "$pg_password" ] || fail "pre-0.9: the update changed the database password"
 [ "$(mode_of "$legacy_env")" = "600" ] || fail "pre-0.9: .env is no longer mode 600"
 # the update writes .env more than once; one of its backups has the old names
@@ -626,15 +627,17 @@ sed -e '/^POSTGRES_USER=/d' -e '/^POSTGRES_DB=/d' "$legacy_env" >"$legacy_env.ne
 printf 'LINER_LIBRARY_ID=lib-456\n' >>"$legacy_env"
 FAKE_PG_USER=liner TAGAVE_SKIP_IMAGE_CHECK=1 fake enable-updater --dir "$work/legacy" --yes --no-start >"$work/legacy-pin.log" 2>&1 \
   || { cat "$work/legacy-pin.log" >&2; fail "pre-0.9: enable-updater on an .env without database names"; }
-[ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ] \
-  || fail "pre-0.9: the database names the container was created with were not recorded"
+if ! { [ "$(env_value POSTGRES_USER "$legacy_env")" = "liner" ] && [ "$(env_value POSTGRES_DB "$legacy_env")" = "liner" ]; }; then
+  fail "pre-0.9: the database names the container was created with were not recorded"
+fi
 [ "$(env_value TAGAVE_LIBRARY_ID "$legacy_env")" = "lib-123" ] || fail "pre-0.9: an old LINER_* line overrode the TAGAVE_* value"
 grep -q '^LINER_' "$legacy_env" && fail "pre-0.9: enable-updater left a LINER_* key"
 pass "enable-updater records the database names and renames late LINER_* keys"
 
 # A new install uses the new database names.
-[ "$(env_value POSTGRES_USER "$work/all/.env")" = "tagave" ] && [ "$(env_value POSTGRES_DB "$work/all/.env")" = "tagave" ] \
-  || fail "new install: database user and name should be tagave"
+if ! { [ "$(env_value POSTGRES_USER "$work/all/.env")" = "tagave" ] && [ "$(env_value POSTGRES_DB "$work/all/.env")" = "tagave" ]; }; then
+  fail "new install: database user and name should be tagave"
+fi
 grep -q '^LINER_' "$work/all/.env" && fail "new install: .env has LINER_* keys"
 pass "a new install uses the tagave database names and no LINER_* settings"
 
