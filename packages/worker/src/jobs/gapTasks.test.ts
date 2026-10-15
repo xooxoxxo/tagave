@@ -11,7 +11,7 @@ import pino from 'pino';
 import {
   users, libraries, releaseGroups, releases, canonicalTracks, localAlbums, localTracks,
   audioFiles, scanRoots, images, gaps, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { gapsRecomputeJob } from './gapsRecompute.js';
 

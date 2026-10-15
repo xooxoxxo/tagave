@@ -4,7 +4,7 @@
  * others folded away. `version` is the release to move to; null means the
  * page does not know one yet and a placeholder is shown.
  */
-import type { InstallInfo, InstallMethod, ReleaseNote } from '@liner/shared';
+import type { InstallInfo, InstallMethod, ReleaseNote } from '@tagave/shared';
 
 export interface UpdateStep {
   /** Plain sentence; may be empty when the command speaks for itself. */
@@ -207,7 +207,7 @@ function platformRollback(redeploy: string): RollbackGuide {
       {
         text: 'Put that file name in the first line, then run. Nothing changes if the file is missing or cannot be read:',
         command: [
-          `F=${IN_APP_BACKUP_DIR}/liner-<date>.pgdump`,
+          `F=${IN_APP_BACKUP_DIR}/<backup-name>.pgdump`,
           chain([
             'test -s "$F"',
             'pg_restore --list "$F" > /dev/null',

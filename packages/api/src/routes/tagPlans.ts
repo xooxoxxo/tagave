@@ -13,7 +13,7 @@ import {
   artists,
   images,
   releaseGroupArtists,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   type CreateTagPlan,
   createTagPlanSchema,
@@ -28,7 +28,7 @@ import {
   type TagPlanPreviewJob,
   type TagPlanScope,
   type TagPolicies,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

@@ -5,8 +5,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { makeDb, fetchArtistRows } from '@liner/db';
-import { orderArtists } from '@liner/core';
+import { makeDb, fetchArtistRows } from '@tagave/db';
+import { orderArtists } from '@tagave/core';
 import pino from 'pino';
 import { refreshArtistList, refreshLibraryFacets } from './facetsRefresh.js';
 import type { WorkerContext } from '../lib/context.js';

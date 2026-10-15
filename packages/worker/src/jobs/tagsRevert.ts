@@ -8,9 +8,9 @@ import { randomUUID } from 'node:crypto';
 import {
   tagPlans,
   tagPlanItems,
-} from '@liner/db';
+} from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { CanonicalField, type TagDiffEntry, type TagPlanStats, type TagPolicies } from '@liner/shared';
+import { CanonicalField, type TagDiffEntry, type TagPlanStats, type TagPolicies } from '@tagave/shared';
 
 export interface TagsRevertJobData {
   planId: string;

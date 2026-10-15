@@ -10,12 +10,12 @@
  */
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
-import { libraries } from '@liner/db';
-import { readBuildInfo } from '@liner/core';
+import { libraries } from '@tagave/db';
+import { readBuildInfo } from '@tagave/core';
 import {
   compareVersions, isGithubReleasesUrl, setUpdatesFeedSchema, skipUpdateSchema,
   type ReleaseNote, type WorkerVersion,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import {

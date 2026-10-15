@@ -1,5 +1,5 @@
 /**
- * The version a process reports. Images get LINER_VERSION as a build arg;
+ * The version a process reports. Images get TAGAVE_BUILD_VERSION as a build arg;
  * a build without it sets the variable empty, and the root package.json must
  * then win over any baked-in default (the app once reported 0.1.0 at 0.3.0).
  */
@@ -16,18 +16,29 @@ async function freshBuildInfo() {
 }
 
 describe('readBuildInfo version', () => {
-  const saved = process.env['LINER_VERSION'];
+  const names = ['TAGAVE_BUILD_VERSION', 'LINER_VERSION'] as const;
+  const saved = names.map((n) => process.env[n]);
   afterEach(() => {
-    if (saved === undefined) delete process.env['LINER_VERSION'];
-    else process.env['LINER_VERSION'] = saved;
+    names.forEach((n, i) => {
+      if (saved[i] === undefined) delete process.env[n];
+      else process.env[n] = saved[i];
+    });
   });
 
-  it('uses LINER_VERSION when a build passed one', async () => {
-    process.env['LINER_VERSION'] = '9.8.7';
+  it('uses TAGAVE_BUILD_VERSION when a build passed one', async () => {
+    process.env['TAGAVE_BUILD_VERSION'] = '9.8.7';
+    process.env['LINER_VERSION'] = '1.0.0';
     expect((await freshBuildInfo()).version).toBe('9.8.7');
   });
 
-  it('falls back to the root package.json when LINER_VERSION is empty', async () => {
+  it('still reads the pre-0.9 LINER_VERSION when the new name is unset', async () => {
+    delete process.env['TAGAVE_BUILD_VERSION'];
+    process.env['LINER_VERSION'] = '9.8.6';
+    expect((await freshBuildInfo()).version).toBe('9.8.6');
+  });
+
+  it('falls back to the root package.json when the version is empty', async () => {
+    process.env['TAGAVE_BUILD_VERSION'] = '';
     process.env['LINER_VERSION'] = '';
     expect((await freshBuildInfo()).version).toBe(rootVersion);
   });

@@ -9,7 +9,7 @@ import { Button, Chip, confirmDialog, CoverArt, PageShell, SegmentedControl, typ
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@liner/shared';
+import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@tagave/shared';
 import { useCurrentLibrary, useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
 import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';

@@ -1,14 +1,15 @@
 import { asc } from 'drizzle-orm';
-import { libraries } from '@liner/db';
+import { libraries } from '@tagave/db';
 import type { WorkerContext } from './context.js';
+import { tagaveEnv } from '@tagave/shared/env';
 
 /**
- * The library a scheduled job is pinned to, from LINER_LIBRARY_ID. Empty or
- * blank means none: compose files pass `${LINER_LIBRARY_ID:-}`, and `??`
+ * The library a scheduled job is pinned to, from TAGAVE_LIBRARY_ID. Empty or
+ * blank means none: compose files pass `${TAGAVE_LIBRARY_ID:-}`, and `??`
  * would otherwise keep the empty string as a library id.
  */
 export function pinnedLibraryId(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const value = env.LINER_LIBRARY_ID?.trim();
+  const value = tagaveEnv('LIBRARY_ID', env)?.trim();
   return value ? value : undefined;
 }
 

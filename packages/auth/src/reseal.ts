@@ -20,7 +20,7 @@ async function decrypts(key: string, data: string): Promise<string | null> {
 /**
  * Re-encrypt authenticator-app secrets and backup codes from the auth secret
  * derived from `oldAppSecret` to the one derived from `newAppSecret`
- * (`liner-doctor reseal`). Idempotent: a row that already opens with the new
+ * (`tagave-doctor reseal`). Idempotent: a row that already opens with the new
  * secret is left alone. A row that opens with neither aborts the whole run
  * (one transaction) so nothing is half-rotated.
  */

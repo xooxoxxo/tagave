@@ -7,7 +7,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { authClient, type AuthClientError } from '../services/authClient';
-import { SessionUser, SetupRequest, LoginRequest } from '@liner/shared';
+import { SessionUser, SetupRequest, LoginRequest } from '@tagave/shared';
 
 export const AUTH_QUERY_KEY = ['auth', 'me'];
 

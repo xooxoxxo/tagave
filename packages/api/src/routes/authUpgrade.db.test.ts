@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import argon2 from 'argon2';
 import postgres from 'postgres';
 import type { FastifyInstance } from 'fastify';
-import type { AuthHandle } from '@liner/auth';
+import type { AuthHandle } from '@tagave/auth';
 import {
   TEST_PUBLIC_URL,
   buildAuthApp,
@@ -70,7 +70,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
       select column_name, data_type from information_schema.columns
        where table_name = 'users' order by column_name`;
 
-    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql']);
+    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql']);
     handle = testAuth(db.url);
     app = await buildAuthApp(handle);
   });
@@ -242,7 +242,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
   });
 
   it('heals a user that a rolled-back 0.6.x wrote after 0036 (no credential account)', async () => {
-    const { ensureCredentialAccounts } = await import('@liner/auth');
+    const { ensureCredentialAccounts } = await import('@tagave/auth');
     const hash = await argon2.hash('rollback-era password');
     await sql`insert into users (email, display_name, password_hash) values ('later@example.com', 'Later', ${hash})`;
     expect(await ensureCredentialAccounts(handle.sql)).toBe(1);

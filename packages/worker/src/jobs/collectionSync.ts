@@ -4,9 +4,9 @@
 import { eq, and, notInArray, sql as dsql, sql, lt } from 'drizzle-orm';
 import {
   libraries, collectionSources, collectionItems, releases, releaseGroups,
-} from '@liner/db';
-import { conditionsFromNotes } from '@liner/core';
-import { openSecret } from '@liner/core';
+} from '@tagave/db';
+import { conditionsFromNotes } from '@tagave/core';
+import { openSecret } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { errorMessage } from '../lib/dbErrors.js';
 import { reportProgress } from './progress.js';
@@ -66,7 +66,7 @@ export async function collectionSyncJob(ctx: WorkerContext, data: CollectionSync
     if (!providerSettings.discogsToken) {
       await reportProgress(ctx, jobRunId, {
         libraryId, type: 'collection.sync', state: 'failed',
-        error: 'Discogs token could not be opened on this host (APP_SECRET missing or different) — see liner-doctor',
+        error: 'Discogs token could not be opened on this host (APP_SECRET missing or different) — see tagave-doctor',
       });
       return;
     }

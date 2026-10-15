@@ -9,10 +9,10 @@ import {
   libraries,
   users,
   followedArtists,
-} from '@liner/db';
-import { makeDb } from '@liner/db';
-import { normalizeFollowRules } from '@liner/core';
-import type { FollowRules } from '@liner/shared/library';
+} from '@tagave/db';
+import { makeDb } from '@tagave/db';
+import { normalizeFollowRules } from '@tagave/core';
+import type { FollowRules } from '@tagave/shared/library';
 
 describe('Artist routes - follow rules (unit)', () => {
   it('should normalize follow rules with defaults', () => {

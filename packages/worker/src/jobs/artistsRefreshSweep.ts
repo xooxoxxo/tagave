@@ -5,7 +5,7 @@
  * Spec: XO-301 T1, spec §9.6 GAP-2, §10.3.
  */
 import { and, eq } from 'drizzle-orm';
-import { followedArtists, libraries } from '@liner/db';
+import { followedArtists, libraries } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface ArtistsRefreshSweepJobData {

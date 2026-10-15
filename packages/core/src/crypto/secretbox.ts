@@ -11,6 +11,9 @@ import { createCipheriv, createDecipheriv, randomBytes, createHmac } from 'node:
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH = 12; // 96 bits
 const TAG_LENGTH = 16; // 128 bits
+// Key-derivation label, fixed for good: it is part of every stored secret's
+// key, so changing it (it dates from the project's old name, liner) would make
+// every saved provider token and password unreadable.
 const KDF_INFO = 'liner-credentials-v1';
 
 /**

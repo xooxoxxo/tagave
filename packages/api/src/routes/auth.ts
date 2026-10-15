@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { uuidv7 } from 'uuidv7';
 import { sql } from 'drizzle-orm';
-import { users } from '@liner/db';
+import { users } from '@tagave/db';
 import { getDb } from '../db.js';
-import { APIError, LEGACY_SESSION_COOKIE, fromNodeHeaders } from '@liner/auth';
-import { setupRequestSchema, loginRequestSchema } from '@liner/shared/auth';
+import { APIError, LEGACY_SESSION_COOKIE, fromNodeHeaders } from '@tagave/auth';
+import { setupRequestSchema, loginRequestSchema } from '@tagave/shared/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { forwardSetCookies, getAuthHandle, toSessionUser, tryGetAuthHandle } from '../middleware/auth.js';
 import { createAuthSecurityRoutes } from './authSecurity.js';

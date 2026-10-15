@@ -1,9 +1,10 @@
 /**
- * Build identity for every Liner process (spec PLT-5 / XO-313): the app, the
+ * Build identity for every tagave process (spec PLT-5 / XO-313): the app, the
  * workers and the doctor report the same triple so a split-host deploy can be
  * seen to lag. Resolution order, first hit wins:
- *  1. env LINER_VERSION / LINER_GIT_SHA / LINER_BUILT_AT — baked into the
- *     Docker images as build args;
+ *  1. env TAGAVE_BUILD_VERSION / TAGAVE_GIT_SHA / TAGAVE_BUILT_AT — baked into
+ *     the Docker images as build args (before 0.9: LINER_VERSION /
+ *     LINER_GIT_SHA / LINER_BUILT_AT, still read until 0.10);
  *  2. a DEPLOYED file (the short sha scripts/deploy.sh writes) found walking
  *     up from the process cwd and from this module — the bare-node workers;
  *  3. `git rev-parse HEAD` when a .git directory is reachable — dev.
@@ -12,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tagaveEnv } from '@tagave/shared/env';
 
 export interface BuildInfo {
   version: string;
@@ -48,10 +50,11 @@ let cached: BuildInfo | null = null;
 export function readBuildInfo(): BuildInfo {
   if (cached) return cached;
   const here = dirname(fileURLToPath(import.meta.url));
-  const version = process.env['LINER_VERSION'] || readRootVersion(process.cwd()) || readRootVersion(here) || '0.0.0';
+  const version = tagaveEnv('BUILD_VERSION') || readRootVersion(process.cwd()) || readRootVersion(here) || '0.0.0';
 
-  if (process.env['LINER_GIT_SHA']) {
-    cached = { version, sha: process.env['LINER_GIT_SHA'], builtAt: process.env['LINER_BUILT_AT'] ?? null, source: 'env' };
+  const sha = tagaveEnv('GIT_SHA');
+  if (sha) {
+    cached = { version, sha, builtAt: tagaveEnv('BUILT_AT') ?? null, source: 'env' };
     return cached;
   }
 

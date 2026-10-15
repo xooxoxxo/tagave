@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { scanRoots, scans } from '@liner/db';
+import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { reportProgress } from './progress.js';

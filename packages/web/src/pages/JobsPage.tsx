@@ -9,7 +9,7 @@
  */
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import type { JobView, JobsSummary } from '@liner/shared';
+import type { JobView, JobsSummary } from '@tagave/shared';
 import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
 import type { IdentifyStatsResponse } from '../hooks';
 import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from '../components/ui';

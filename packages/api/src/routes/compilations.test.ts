@@ -11,7 +11,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
 import {
   audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, tagPlans, users,
-} from '@liner/db';
+} from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 vi.mock('../boss.js', () => ({

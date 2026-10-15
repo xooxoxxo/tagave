@@ -18,7 +18,7 @@ import {
   localTracks,
   releaseGroups,
   releases,
-} from '@liner/db';
+} from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import {
   resolveFields,
@@ -26,7 +26,7 @@ import {
   normalizeGenreMap,
   type ResolvedMetadata,
   type ResolutionInput,
-} from '@liner/core';
+} from '@tagave/core';
 
 type Credit = { name: string; joinPhrase?: string; mbid?: string };
 

@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { getAuthTables } from 'better-auth/db';
-import { runMigrations } from '@liner/db';
+import { runMigrations } from '@tagave/db';
 import { createAuth, readAuthEnv, type AuthHandle } from './index.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -21,7 +21,7 @@ describe.skipIf(!url)('Better Auth schema vs migrations (integration)', () => {
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
-    name = `liner_authschema_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+    name = `tagave_authschema_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
     await admin.unsafe(`create database ${name}`);
     const u = new URL(url!);
     u.pathname = `/${name}`;

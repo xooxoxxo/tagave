@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
-import { audioFiles, libraries, scanDirs, scanRoots, sidecarFiles, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, scanDirs, scanRoots, sidecarFiles, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from './context.js';
 import { walkRoot } from './walk.js';
@@ -46,7 +46,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
     libraryId = randomUUID();
     await db.insert(libraries).values({ id: libraryId, name: 'Walk', ownerUserId: userId, settings: {} });
 
-    rootPath = await mkdtemp(path.join(tmpdir(), 'liner-walk-'));
+    rootPath = await mkdtemp(path.join(tmpdir(), 'tagave-walk-'));
     await mkdir(path.join(rootPath, 'A'));
     await mkdir(path.join(rootPath, 'B', 'CD1'), { recursive: true });
     await writeFile(path.join(rootPath, 'A', '01 - One.mp3'), 'a1');
@@ -160,7 +160,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
   });
 
   it('a root that suddenly yields nothing is reported unmounted and nothing is marked missing', async () => {
-    const empty = await mkdtemp(path.join(tmpdir(), 'liner-empty-'));
+    const empty = await mkdtemp(path.join(tmpdir(), 'tagave-empty-'));
     try {
       const r = await walkRoot(ctx, { ...root, path: empty }, { mode: 'full' });
       expect(r.looksUnmounted).toBe(true);
@@ -173,7 +173,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
   });
 
   it('sidecar rows keep their ids across walks, and a removed sidecar takes its image row with it', async () => {
-    const { images } = await import('@liner/db');
+    const { images } = await import('@tagave/db');
     await writeFile(path.join(rootPath, 'A', 'back.jpg'), 'img2');
     await bump(path.join(rootPath, 'A'));
     await walkRoot(ctx, root, { mode: 'full' });

@@ -2,7 +2,7 @@
  * Album grid facets and saved views (spec BRW-1).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { AlbumFacets, AlbumsQuery, CreateSavedView, SavedView } from '@liner/shared';
+import type { AlbumFacets, AlbumsQuery, CreateSavedView, SavedView } from '@tagave/shared';
 import { api } from '../services/api';
 import { apiSearchParams } from '../pages/albumsSearch';
 

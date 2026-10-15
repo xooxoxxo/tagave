@@ -8,7 +8,7 @@
  * Albums (by kind, then what a followed artist is missing) and Biography.
  */
 import { useState, type ReactNode } from 'react';
-import { artistLabel } from '@liner/shared';
+import { artistLabel } from '@tagave/shared';
 import { Button, CoverArt, Tabs, type TabItem } from '../components/ui';
 import { AlbumGrid, Bar, BioSource, DetailsNote, FollowButton, ProviderLinks, SkeletonGrid, detailsWhen } from './ArtistParts';
 import type { ArtistLayoutProps } from './ArtistNameFirst';

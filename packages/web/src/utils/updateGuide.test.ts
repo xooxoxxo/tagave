@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { InstallMethod, ReleaseNote } from '@liner/shared';
+import type { InstallMethod, ReleaseNote } from '@tagave/shared';
 import { attentionReleases, backupLocation, guideOrder, rollbackGuide, updateGuide } from './updateGuide';
 
 const commands = (g: ReturnType<typeof updateGuide>) => g.steps.map((s) => s.command ?? '').join('\n');

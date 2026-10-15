@@ -36,7 +36,8 @@ async function main(): Promise<void> {
   const service = new UpdaterService({
     installDir,
     appSecret,
-    version: process.env['LINER_VERSION'] || 'unknown',
+    // TAGAVE_BUILD_VERSION; LINER_VERSION is its pre-0.9 name (read until 0.10).
+    version: process.env['TAGAVE_BUILD_VERSION'] || process.env['LINER_VERSION'] || 'unknown',
     docker: dockerRunner(installDir),
     app: httpAppProbe(appUrl, appSecret),
     config: {

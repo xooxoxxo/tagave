@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -81,7 +81,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
     await db.insert(libraries).values({ id: libraryId, name: 'Discs', ownerUserId: userId, settings: {} });
     rootId = randomUUID();
     await db.insert(scanRoots).values({
-      id: rootId, libraryId, path: '/tmp/liner-discs-root', displayName: 'discs',
+      id: rootId, libraryId, path: '/tmp/tagave-discs-root', displayName: 'discs',
       validationStatus: 'ok', pollIntervalS: 3600,
     });
   });

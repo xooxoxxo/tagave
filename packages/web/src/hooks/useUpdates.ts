@@ -2,7 +2,7 @@
  * Build identity + release feed (spec PLT-5, XO-313).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SetUpdatesFeed, UpdatesStatus } from '@liner/shared';
+import type { SetUpdatesFeed, UpdatesStatus } from '@tagave/shared';
 import { api } from '../services/api';
 
 const key = (libraryId: string | undefined) => ['updates', libraryId] as const;

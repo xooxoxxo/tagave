@@ -25,7 +25,7 @@ describe('Audio stream hashing', () => {
   let testDir: string;
 
   beforeEach(async () => {
-    testDir = await mkdtemp(join(tmpdir(), 'liner-audio-hash-'));
+    testDir = await mkdtemp(join(tmpdir(), 'tagave-audio-hash-'));
   });
 
   afterEach(async () => {
@@ -479,7 +479,7 @@ function isFFmpegAvailable(): boolean {
  */
 function canCreateValidFlac(): boolean {
   try {
-    const testPath = join(tmpdir(), 'liner-ffmpeg-test-' + Date.now() + '.flac');
+    const testPath = join(tmpdir(), 'tagave-ffmpeg-test-' + Date.now() + '.flac');
     try {
       execFileSync(
         'ffmpeg',
@@ -559,7 +559,7 @@ function buildFlac(opts: { comment: string; padding: number; frames: Buffer }): 
   const streamInfo = Buffer.alloc(34);
   streamInfo.writeUInt16BE(4096, 0);
   streamInfo.writeUInt16BE(4096, 2);
-  const vendor = Buffer.from('liner-test');
+  const vendor = Buffer.from('tagave-test');
   const entry = Buffer.from(opts.comment);
   const vc = Buffer.alloc(4 + vendor.length + 4 + 4 + entry.length);
   let o = 0;

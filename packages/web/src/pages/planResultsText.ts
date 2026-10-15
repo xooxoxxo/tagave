@@ -3,7 +3,7 @@
  * albums ("3 albums became 1: The Last Tycoon by Peter Morén") and what it
  * wrote ("10 files written"). Pure, so the phrasing is tested on its own.
  */
-import type { TagPlanResults } from '@liner/shared';
+import type { TagPlanResults } from '@tagave/shared';
 import { plural } from './planOutcome';
 
 export function resultsHeadline(r: TagPlanResults): string {

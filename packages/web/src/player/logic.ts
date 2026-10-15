@@ -4,7 +4,7 @@
  * transcoded stream is seeked, how a failed stream is handled and when Space
  * belongs to the player. engine.ts applies them; logic.test.ts pins them.
  */
-import { PLAYER_QUALITY_STORAGE_KEY, STREAM_BITRATES, type PlayerQuality, type PlayerQueueTrack, type PlayerQueueView, type StreamFormat } from '@liner/shared';
+import { PLAYER_QUALITY_STORAGE_KEY, STREAM_BITRATES, type PlayerQuality, type PlayerQueueTrack, type PlayerQueueView, type StreamFormat } from '@tagave/shared';
 
 type Playable = Pick<PlayerQueueTrack, 'available'>;
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import { scanRootCounts } from './scanRootCounts.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('scanRootCounts', () => {

@@ -7,7 +7,8 @@
  *    stop a running worker when that happens under it.
  */
 import type postgres from 'postgres';
-import { classifySkew, readSchemaState, type SkewVerdict } from '@liner/db';
+import { classifySkew, readSchemaState, type SkewVerdict } from '@tagave/db';
+import { tagaveEnv } from '@tagave/shared/env';
 
 export class WorkerSchemaError extends Error {
   constructor(message: string) {
@@ -20,16 +21,16 @@ export interface SchemaGuardOptions {
   version: string;
   files: string[];
   log: { info: (obj: object, msg: string) => void; warn: (obj: object, msg: string) => void };
-  /** Give up waiting for the app after this long (LINER_SCHEMA_WAIT_SECONDS, default 15 min). */
+  /** Give up waiting for the app after this long (TAGAVE_SCHEMA_WAIT_SECONDS, default 15 min). */
   maxWaitMs?: number;
-  /** LINER_ALLOW_SCHEMA_SKEW: start on a newer database anyway. */
+  /** TAGAVE_ALLOW_SCHEMA_SKEW: start on a newer database anyway. */
   allowSkew?: boolean;
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
 }
 
 export function schemaWaitMs(env: NodeJS.ProcessEnv): number {
-  const s = Number.parseInt(env['LINER_SCHEMA_WAIT_SECONDS'] ?? '', 10);
+  const s = Number.parseInt(tagaveEnv('SCHEMA_WAIT_SECONDS', env) ?? '', 10);
   return (Number.isFinite(s) && s >= 0 ? s : 15 * 60) * 1000;
 }
 
@@ -37,7 +38,7 @@ export function newerMessage(detail: string, version: string): string {
   return (
     `This worker (tagave ${version}) will not run: ${detail}. ` +
     'Update this worker to the same version as the app (with the installer: set TAGAVE_VERSION in .env, then ' +
-    '`docker compose pull && docker compose up -d`). Set LINER_ALLOW_SCHEMA_SKEW=1 to run anyway.'
+    '`docker compose pull && docker compose up -d`). Set TAGAVE_ALLOW_SCHEMA_SKEW=1 to run anyway.'
   );
 }
 
@@ -73,7 +74,7 @@ export async function waitForCompatibleSchema(sql: postgres.Sql, opts: SchemaGua
     if (verdict?.verdict === 'ok') return verdict;
     if (verdict?.verdict === 'newer') {
       if (opts.allowSkew) {
-        opts.log.warn({ detail: verdict.detail }, 'LINER_ALLOW_SCHEMA_SKEW is set: running on a database newer than this worker');
+        opts.log.warn({ detail: verdict.detail }, 'TAGAVE_ALLOW_SCHEMA_SKEW is set: running on a database newer than this worker');
         return verdict;
       }
       throw new WorkerSchemaError(newerMessage(verdict.detail, opts.version));
@@ -83,7 +84,7 @@ export async function waitForCompatibleSchema(sql: postgres.Sql, opts: SchemaGua
       throw new WorkerSchemaError(
         `This worker gave up after ${Math.round(waited / 1000)}s waiting for the app to update the database: ${reason}. ` +
           'Start or update the app first (it updates the database when it starts), then restart this worker. ' +
-          'LINER_SCHEMA_WAIT_SECONDS sets how long a worker waits.',
+          'TAGAVE_SCHEMA_WAIT_SECONDS sets how long a worker waits.',
       );
     }
     opts.log.info({ detail: reason, retryInMs: delay }, 'waiting for the app to update the database');

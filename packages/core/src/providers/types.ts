@@ -2,7 +2,7 @@
  * Provider gateway types and interfaces.
  * Spec §12.4, §10.2
  */
-import type { CanonicalField, TagSet } from '@liner/shared';
+import type { CanonicalField, TagSet } from '@tagave/shared';
 
 /**
  * Call context with priority for rate limiting.

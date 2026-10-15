@@ -18,8 +18,8 @@
  * collection.push, once, after the insert commits.
  */
 import { sql } from 'drizzle-orm';
-import { collectionItems, collectionSources } from '@liner/db';
-import { physicalFormatLabel } from '@liner/core';
+import { collectionItems, collectionSources } from '@tagave/db';
+import { physicalFormatLabel } from '@tagave/core';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;

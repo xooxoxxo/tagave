@@ -5,7 +5,7 @@
  * single-select. Every choice is written to the URL by the page.
  */
 import { useState } from 'react';
-import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@liner/shared';
+import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@tagave/shared';
 import { isMultiActive } from '../pages/albumsSearch';
 import { Button, IconButton } from './ui';
 import styles from './FilterRail.module.css';

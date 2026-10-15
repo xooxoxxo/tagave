@@ -1,5 +1,5 @@
 /** The album detail as GET /libraries/:id/albums/:albumId returns it. */
-import type { IdentifyRequestView } from '@liner/shared';
+import type { IdentifyRequestView } from '@tagave/shared';
 
 /** another album with this title that fits together with this one */
 export interface MergeCandidateView {

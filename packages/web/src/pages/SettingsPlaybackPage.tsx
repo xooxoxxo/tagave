@@ -5,7 +5,7 @@
  * for (kept in this browser). Non-owners see the status and the quality.
  */
 import { useEffect, useState, type FormEvent } from 'react';
-import { STREAM_BITRATES, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView } from '@liner/shared';
+import { STREAM_BITRATES, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';

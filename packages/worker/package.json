@@ -1,10 +1,10 @@
 {
-  "name": "@liner/worker",
+  "name": "@tagave/worker",
   "version": "0.1.0",
   "type": "module",
   "description": "tagave music archive worker: scanning, clustering, matching, enrichment, tag writing",
   "_notes": {
-    "python": "The tag writer sidecar requires Python 3.13+ with mutagen >=1.47. Set LINER_TAGWRITER_PYTHON env var to override the interpreter path, or use .venv/bin/python in packages/tagwriter-py."
+    "python": "The tag writer sidecar requires Python 3.13+ with mutagen >=1.47. Set TAGAVE_TAGWRITER_PYTHON env var to override the interpreter path, or use .venv/bin/python in packages/tagwriter-py."
   },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,9 +16,9 @@
     "dev": "node --watch --loader tsx dist/index.js"
   },
   "dependencies": {
-    "@liner/core": "workspace:*",
-    "@liner/db": "workspace:*",
-    "@liner/shared": "workspace:*",
+    "@tagave/core": "workspace:*",
+    "@tagave/db": "workspace:*",
+    "@tagave/shared": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "music-metadata": "^12.1.0",
     "pg-boss": "^12.37.1",

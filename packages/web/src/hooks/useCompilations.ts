@@ -3,7 +3,7 @@
  * split back. Writing tags always goes through a tag plan (preview first).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ManualTagValues } from '@liner/shared';
+import type { ManualTagValues } from '@tagave/shared';
 import { api } from '../services/api';
 import { dropFromAlbumSelection } from '../pages/albumSelection';
 

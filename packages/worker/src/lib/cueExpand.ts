@@ -1,5 +1,5 @@
-import type { CueSheet, CueFile, VirtualTrack, CueCandidate } from '@liner/core';
-import { virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from '@liner/core';
+import type { CueSheet, CueFile, VirtualTrack, CueCandidate } from '@tagave/core';
+import { virtualTracksForFile, matchCueFileToAudio, chooseCueForAudio } from '@tagave/core';
 import { relDirname, relBasename } from './helpers.js';
 
 interface FileRow {

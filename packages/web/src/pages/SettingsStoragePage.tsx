@@ -4,7 +4,7 @@
  * the folders the app owns, and the cleanup of finished tag changes.
  */
 import { useRef, useState } from 'react';
-import type { TagChangeCleanupPreview, TagChangeCleanupScope } from '@liner/shared';
+import type { TagChangeCleanupPreview, TagChangeCleanupScope } from '@tagave/shared';
 import { Banner, Button, SegmentedControl, confirmDialog, showToast } from '../components/ui';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';

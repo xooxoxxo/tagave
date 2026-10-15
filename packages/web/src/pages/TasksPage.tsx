@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { TASK_DONE_DAYS, TASK_NOTE_MAX, type GapTask } from '@liner/shared';
+import { TASK_DONE_DAYS, TASK_NOTE_MAX, type GapTask } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useGapTasks, useRecheckGaps, useSaveTaskNote } from '../hooks/useGaps';
 import { ReopenGapButton } from '../components/GapChoices';

@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { jobRuns, libraries, scanRoots, users } from '@liner/db';
+import { jobRuns, libraries, scanRoots, users } from '@tagave/db';
 
 const boss = vi.hoisted(() => ({
   createQueue: vi.fn(async () => undefined),
@@ -101,7 +101,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('POST .../jobs/:jobId/retry (db)
   it('lists every task that needs the owner apart from the paged entries', async () => {
     const res = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/jobs?limit=1&include=routine` });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as import('@liner/shared').JobsListResponse;
+    const body = res.json() as import('@tagave/shared').JobsListResponse;
     const attention = body.attention.map((v) => v.id).sort();
     expect(attention).toEqual([ids.scanFailed, ids.badRootFailed, ids.goneRootFailed, ids.syncNew, ids.dirFailed].sort());
     expect(body.summary.needsAttention).toBe(5);

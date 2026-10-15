@@ -3,7 +3,7 @@
  * fast-path verdict (XO-309).
  */
 import { describe, it, expect } from 'vitest';
-import { MATCHING_THRESHOLDS } from '@liner/core';
+import { MATCHING_THRESHOLDS } from '@tagave/core';
 import { embeddedIdsOf, fastPathOutcome } from './identifyAlbum.js';
 
 const MBID = '1cf9ebd6-6a5f-4592-8203-910f71b9ddb0';

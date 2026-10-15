@@ -5,7 +5,7 @@
  * player.
  */
 import { describe, expect, it } from 'vitest';
-import type { PlayerQueueTrack } from '@liner/shared';
+import type { PlayerQueueTrack } from '@tagave/shared';
 import {
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
   previousAction, previousPlayable, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,

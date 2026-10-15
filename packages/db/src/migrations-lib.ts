@@ -214,7 +214,7 @@ export interface RunMigrationsOptions {
    * aborts the run before anything is applied.
    */
   beforeApply?: (state: SchemaState, previous: PreviousBackup | null) => Promise<BackupRecord>;
-  /** Start even though a newer app migrated the database (LINER_ALLOW_SCHEMA_SKEW). */
+  /** Start even though a newer app migrated the database (TAGAVE_ALLOW_SCHEMA_SKEW). */
   allowNewerSchema?: boolean;
   /** How often to say "still waiting" while another start holds the lock. */
   lockNoticeMs?: number;
@@ -298,7 +298,7 @@ export async function runMigrations(
       throw new SchemaTooNewError(
         `This app is tagave ${opts.appVersion}, but the database was last migrated by tagave ${state.schemaAppVersion}. ` +
           'An older app must not run on a newer database. Update this app to that version or newer, or restore the ' +
-          'backup taken before that update. Set LINER_ALLOW_SCHEMA_SKEW=1 to start anyway.',
+          'backup taken before that update. Set TAGAVE_ALLOW_SCHEMA_SKEW=1 to start anyway.',
       );
     }
     if (state.newer.length > 0) {

@@ -1,7 +1,7 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { listMigrationFiles, makeDb } from '@liner/db';
-import { readBuildInfo, WORKER_QUEUES } from '@liner/core';
+import { listMigrationFiles, makeDb } from '@tagave/db';
+import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
 import type { WorkerContext } from './lib/context.js';
@@ -39,6 +39,7 @@ import { artistRefreshJob, type ArtistRefreshJobData } from './jobs/artistRefres
 import { tracksLinkJob, type TracksLinkJobData } from './jobs/tracksLink.js';
 import { libraryIdsFor, pinnedLibraryId } from './lib/libraries.js';
 import { newerMessage, schemaVerdict, schemaWaitMs, waitForCompatibleSchema } from './lib/schemaGuard.js';
+import { tagaveEnv } from '@tagave/shared/env';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -118,7 +119,7 @@ async function main() {
   // to apply migrations this worker needs; refuse a database a newer app
   // migrated. Before pg-boss starts, so nothing is claimed meanwhile.
   const migrationFiles = await listMigrationFiles();
-  const allowSkew = /^(1|true|yes|on)$/i.test(process.env['LINER_ALLOW_SCHEMA_SKEW'] ?? '');
+  const allowSkew = /^(1|true|yes|on)$/i.test(tagaveEnv('ALLOW_SCHEMA_SKEW') ?? '');
   await waitForCompatibleSchema(client, {
     version: build.version,
     files: migrationFiles,
@@ -138,7 +139,7 @@ async function main() {
   const watchdog = startWatchdog(logger);
 
   // Queues must exist before work() in pg-boss v10+.
-  // One list for the worker and the worker check (@liner/core).
+  // One list for the worker and the worker check (@tagave/core).
   const queues = [...WORKER_QUEUES, ...M1_PLACEHOLDER_QUEUES];
   for (const q of queues) {
     const opts = { ...(QUEUE_POLICIES[q] ? { policy: QUEUE_POLICIES[q] } : {}), ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) };
@@ -159,11 +160,12 @@ async function main() {
                  where name = ${name} and (expire_seconds <> ${o.expireInSeconds} or retry_limit <> ${o.retryLimit})`;
   }
 
-  // LINER_QUEUES=identify.album,identify.sweep,artists.resolve,artists.enrich
+  // TAGAVE_QUEUES=identify.album,identify.sweep,artists.resolve,artists.enrich
   // restricts which queues this process works — lets an identify-only worker
   // run beside the file worker. Default: all queues. For identify worker, add
   // artists.resolve,artists.enrich to include artist enrichment jobs.
-  const only = process.env.LINER_QUEUES ? new Set(process.env.LINER_QUEUES.split(',').map((q) => q.trim())) : null;
+  const queueList = tagaveEnv('QUEUES');
+  const only = queueList ? new Set(queueList.split(',').map((q) => q.trim())) : null;
   const wants = (q: string) => !only || only.has(q);
 
   if (wants('scan.root')) {
@@ -313,7 +315,7 @@ async function main() {
     });
 
     // Daily collection.sync at 04:15 (spec COL-1), for every library unless
-    // LINER_LIBRARY_ID pins one.
+    // TAGAVE_LIBRARY_ID pins one.
     const syncLibrary = pinnedLibraryId();
     await boss.schedule('collection.sync', '15 4 * * *', syncLibrary ? { libraryId: syncLibrary } : {}, {});
   }
@@ -434,7 +436,7 @@ async function main() {
       }
     });
     // nightly at 03:15 (spec: nightly + after identification batches), for
-    // every library unless LINER_LIBRARY_ID pins one.
+    // every library unless TAGAVE_LIBRARY_ID pins one.
     const gapsLibrary = pinnedLibraryId();
     await boss.schedule('gaps.recompute', '15 3 * * *', gapsLibrary ? { libraryId: gapsLibrary } : {}, {});
   }

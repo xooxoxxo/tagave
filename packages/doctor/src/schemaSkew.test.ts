@@ -1,6 +1,6 @@
-// Pure rules from @liner/db's migrations-lib (that package has no test runner).
+// Pure rules from @tagave/db's migrations-lib (that package has no test runner).
 import { describe, it, expect } from 'vitest';
-import { classifySkew, compareVersions, type SchemaState } from '@liner/db';
+import { classifySkew, compareVersions, type SchemaState } from '@tagave/db';
 
 const base: SchemaState = {
   files: ['0001_a.sql', '0002_b.sql'],

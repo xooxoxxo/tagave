@@ -3,7 +3,7 @@
  * task list, and the three choices every gap offers.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { GapTaskCounts, GapTasksResponse } from '@liner/shared';
+import type { GapTaskCounts, GapTasksResponse } from '@tagave/shared';
 import { api } from '../services/api';
 
 export interface GapCountsResponse {

@@ -1,11 +1,11 @@
 /**
- * Album folders with their "Open folder" links (see @liner/shared folderLink).
+ * Album folders with their "Open folder" links (see @tagave/shared folderLink).
  * The base per scan root lives in the library settings as `folderLinks`
  * ({ [scanRootId]: 'smb://nas/music/' }); a folder is linked only when its
  * root has one.
  */
 import { sql } from 'drizzle-orm';
-import { folderLinkFor } from '@liner/shared';
+import { folderLinkFor } from '@tagave/shared';
 
 export interface AlbumFolderView {
   /** relative to the scan root, as dir_paths are */

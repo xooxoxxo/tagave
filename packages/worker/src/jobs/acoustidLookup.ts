@@ -1,4 +1,4 @@
-import { rankAcoustIdReleases, AcoustIdError, type AcoustIdRecording } from '@liner/core';
+import { rankAcoustIdReleases, AcoustIdError, type AcoustIdRecording } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { fingerprintHash } from '../lib/fingerprint.js';
 import { openCooldown } from '../lib/pacer.js';

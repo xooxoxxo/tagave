@@ -3,7 +3,7 @@
  * and upsert canonical artist links (spec XO-310, §5).
  */
 import { and, eq, isNull, isNotNull, desc } from 'drizzle-orm';
-import { releaseGroups, jobRuns, localAlbums } from '@liner/db';
+import { releaseGroups, jobRuns, localAlbums } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, type Providers } from '../lib/providers.js';
 import { cached, cacheKey, TTLs } from '../lib/providerCache.js';

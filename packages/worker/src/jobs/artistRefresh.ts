@@ -14,8 +14,8 @@
  * excludeSecondary, so loosening that rule needs no refetch.
  */
 import { and, eq, sql } from 'drizzle-orm';
-import type { MusicBrainzProvider } from '@liner/core';
-import { artists, releaseGroups, followedArtists } from '@liner/db';
+import type { MusicBrainzProvider } from '@tagave/core';
+import { artists, releaseGroups, followedArtists } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, getProviders, libraryProviderSettings, type Providers } from '../lib/providers.js';
 import { cached, cacheKey } from '../lib/providerCache.js';

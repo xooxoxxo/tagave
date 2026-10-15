@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { TagPlan } from '@liner/shared';
+import type { TagPlan } from '@tagave/shared';
 
 const openPlans = vi.hoisted(() => ({
   current: { isSuccess: true, isError: false, data: { items: [] as unknown[], total: 0, limit: 200, offset: 0 } as unknown },

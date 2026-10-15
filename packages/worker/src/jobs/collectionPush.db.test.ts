@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { collectionItems, collectionSources, libraries, users, makeDb } from '@liner/db';
+import { collectionItems, collectionSources, libraries, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { collectionPushJob, collectionRemoveJob } from './collectionSync.js';

@@ -11,8 +11,8 @@ import pino from 'pino';
 import {
   albumMatches, audioFiles, autoAcceptRules, jobRuns, libraries, localAlbums, localTracks, matchCandidates,
   releaseGroups, releases, scanRoots, users, makeDb,
-} from '@liner/db';
-import { AUTO_ACCEPT_REASON_PREFIX } from '@liner/shared';
+} from '@tagave/db';
+import { AUTO_ACCEPT_REASON_PREFIX } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { acceptByRules } from './autoAccept.js';
 import { queueAutoAcceptJob } from '../jobs/queueAutoAccept.js';

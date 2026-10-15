@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PgBoss } from 'pg-boss';
-import type { SessionUser } from '@liner/shared/auth';
-import type { BackupsStatus } from '@liner/shared';
+import type { SessionUser } from '@tagave/shared/auth';
+import type { BackupsStatus } from '@tagave/shared';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { BackupService, applyBackupSchedule, nightlyCron } from '../lib/backupService.js';
 import { createBackupRoutes } from './backups.js';
@@ -35,7 +35,7 @@ describe('backup routes', () => {
       // to inference: tsgo's parallel checkers sometimes lose the contextual type.
       run: async ({ dir: out, kind }: { dir: string; kind: 'nightly' | 'manual' }) => {
         await new Promise<void>((r) => { release = r; });
-        const file = `liner-2026-09-29T03-00-00Z${kind === 'manual' ? '' : `-${kind}`}.pgdump`;
+        const file = `tagave-2026-09-29T03-00-00Z${kind === 'manual' ? '' : `-${kind}`}.pgdump`;
         await writeFile(join(out, file), 'PGDMP-fake-dump');
         await writeFile(join(out, `${file}.json`), JSON.stringify({ kind, verified: true, bytes: 15 }));
         const now = new Date().toISOString();
@@ -79,14 +79,14 @@ describe('backup routes', () => {
     await vi.waitFor(async () => {
       const list = (await app.inject({ method: 'GET', url: '/api/v1/backups' })).json<BackupsStatus>();
       expect(list.running).toBe(false);
-      expect(list.backups).toEqual([expect.objectContaining({ name: 'liner-2026-09-29T03-00-00Z.pgdump', kind: 'manual', bytes: 15, verified: true })]);
+      expect(list.backups).toEqual([expect.objectContaining({ name: 'tagave-2026-09-29T03-00-00Z.pgdump', kind: 'manual', bytes: 15, verified: true })]);
     });
   });
 
   it('streams a download as an attachment', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/v1/backups/liner-2026-09-29T03-00-00Z.pgdump/download' });
+    const res = await app.inject({ method: 'GET', url: '/api/v1/backups/tagave-2026-09-29T03-00-00Z.pgdump/download' });
     expect(res.statusCode).toBe(200);
-    expect(res.headers['content-disposition']).toBe('attachment; filename="liner-2026-09-29T03-00-00Z.pgdump"');
+    expect(res.headers['content-disposition']).toBe('attachment; filename="tagave-2026-09-29T03-00-00Z.pgdump"');
     expect(res.headers['content-length']).toBe('15');
     expect(res.body).toBe('PGDMP-fake-dump');
   });
@@ -94,7 +94,7 @@ describe('backup routes', () => {
   it('refuses names that are not backups, and 404s missing ones', async () => {
     expect((await app.inject({ method: 'GET', url: '/api/v1/backups/..%2Fsecret.pgdump/download' })).statusCode).toBe(400);
     expect((await app.inject({ method: 'GET', url: '/api/v1/backups/backup-settings.json/download' })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'GET', url: '/api/v1/backups/liner-2020-01-01T00-00-00Z.pgdump/download' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/api/v1/backups/tagave-2020-01-01T00-00-00Z.pgdump/download' })).statusCode).toBe(404);
   });
 
   it('saves settings, validates them and re-applies the schedule', async () => {
@@ -108,9 +108,9 @@ describe('backup routes', () => {
   });
 
   it('deletes a backup and its record', async () => {
-    const res = await app.inject({ method: 'DELETE', url: '/api/v1/backups/liner-2026-09-29T03-00-00Z.pgdump' });
+    const res = await app.inject({ method: 'DELETE', url: '/api/v1/backups/tagave-2026-09-29T03-00-00Z.pgdump' });
     expect(res.statusCode).toBe(204);
-    expect((await readdir(dir)).filter((f) => f.startsWith('liner-'))).toEqual([]);
+    expect((await readdir(dir)).filter((f) => f.startsWith('tagave-'))).toEqual([]);
   });
 });
 

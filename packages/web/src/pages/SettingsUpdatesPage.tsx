@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import ReactMarkdown from 'react-markdown';
-import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@liner/shared';
+import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { useUpdater } from '../hooks/useUpdater';

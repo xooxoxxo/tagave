@@ -5,7 +5,7 @@
  * identifyRequest (live pg-boss job + the outcome the worker recorded); the
  * page polls while the job is live, so "queued" never outlives the job.
  */
-import type { IdentifyOutcomeKind, IdentifyRequestView, ReleaseChoice } from '@liner/shared';
+import type { IdentifyOutcomeKind, IdentifyRequestView, ReleaseChoice } from '@tagave/shared';
 import { Badge, Button, type BadgeTone } from './ui';
 import { formatRelativeTime } from '../utils/time';
 import { ACTIONABLE_OUTCOMES } from '../utils/albumAttention';

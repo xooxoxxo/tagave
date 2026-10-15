@@ -9,11 +9,11 @@ import { eq } from 'drizzle-orm';
 import {
   audioFiles, canonicalTracks, libraries, localAlbums, localTracks,
   releases, releaseGroups, scanRoots, users, providerCache, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import pino from 'pino';
 import { linkAlbumTracks, fillTrackIdsFromCache } from './trackLinks.js';
 import type { WorkerContext } from './context.js';
-import type { CanonicalRelease } from '@liner/core';
+import type { CanonicalRelease } from '@tagave/core';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
   let ctx: WorkerContext;

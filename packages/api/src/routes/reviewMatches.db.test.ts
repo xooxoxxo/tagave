@@ -9,8 +9,8 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
 import {
   albumMatches, libraries, localAlbums, localTracks, matchCandidates, releaseGroups, releases, users, audioFiles, scanRoots,
-} from '@liner/db';
-import { DEFAULT_AUTO_ACCEPT_RULES } from '@liner/shared';
+} from '@tagave/db';
+import { DEFAULT_AUTO_ACCEPT_RULES } from '@tagave/shared';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
   let app: FastifyInstance;

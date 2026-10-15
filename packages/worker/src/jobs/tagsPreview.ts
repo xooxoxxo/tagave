@@ -29,11 +29,11 @@ import {
   scanRoots,
   tagPlanItems,
   tagPlans,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   CanonicalField, MANUAL_TAG_FIELDS,
   type ManualTagValues, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats,
-} from '@liner/shared';
+} from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { errorMessage } from '../lib/dbErrors.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';

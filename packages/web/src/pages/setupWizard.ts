@@ -3,7 +3,7 @@
  * validation (the same rules the server applies), which system checks gate
  * setup, and what to tell the owner about a music folder the worker checked.
  */
-import { SCAN_ROOT_EMPTY_MESSAGE, setupRequestSchema, type SetupRequest, type ScanRoot } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, setupRequestSchema, type SetupRequest, type ScanRoot } from '@tagave/shared';
 
 /** The whole journey, across /setup and /onboarding. */
 export const SETUP_STEPS = ['System check', 'Owner account', 'Music folder', 'First album', 'Protect your account'] as const;
@@ -74,7 +74,7 @@ export function setupBlocked(checks: SystemCheck[]): boolean {
 
 /**
  * Whether a live worker takes folder checks. roots.validate runs on the
- * worker that serves scan.root; '*' means a worker without LINER_QUEUES.
+ * worker that serves scan.root; '*' means a worker without TAGAVE_QUEUES.
  * Undefined while the list of workers is not known.
  */
 export function folderCheckerLive(workers: Array<{ queues: string[] }> | undefined): boolean | undefined {

@@ -1,6 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { albumMatches, localAlbums, matchCandidates, releases } from '@liner/db';
-import { chipCounts, pickByChipRule, MATCHING_THRESHOLDS } from '@liner/core';
+import { albumMatches, localAlbums, matchCandidates, releases } from '@tagave/db';
+import { chipCounts, pickByChipRule, MATCHING_THRESHOLDS } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
 import { acceptByRules } from '../lib/autoAccept.js';

@@ -22,7 +22,7 @@ describe('MusicBrainzProvider.getReleaseGroupRating', () => {
       seenUrl = url;
       return new Response(JSON.stringify(loadFixture('mb_rg_ratings_okcomputer.json')), { status: 200 });
     });
-    const mb = new MusicBrainzProvider('Liner/test (+test)');
+    const mb = new MusicBrainzProvider('tagave/test (+test)');
 
     const rating = await mb.getReleaseGroupRating('b1392450-e666-3926-a536-22c65f834433', ctx);
 

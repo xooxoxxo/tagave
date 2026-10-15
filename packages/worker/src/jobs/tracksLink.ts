@@ -6,7 +6,7 @@
  */
 
 import { eq, and, isNotNull, or, isNull, lt, sql } from 'drizzle-orm';
-import { localAlbums } from '@liner/db';
+import { localAlbums } from '@tagave/db';
 import { linkAlbumTracks, fillTrackIdsFromCache } from '../lib/trackLinks.js';
 import type { WorkerContext } from '../lib/context.js';
 

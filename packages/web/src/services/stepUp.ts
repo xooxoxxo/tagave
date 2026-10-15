@@ -12,7 +12,7 @@
  * no signal, so it could neither end that request nor be stopped itself.
  */
 import { WebAuthnAbortService, browserSupportsWebAuthn, startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
-import type { StepUpStatus } from '@liner/shared';
+import type { StepUpStatus } from '@tagave/shared';
 import { api } from './api';
 
 /** How long the dialog waits for a passkey before it stops the request. */

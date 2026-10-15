@@ -8,8 +8,8 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
-import { gaps, libraries } from '@liner/db';
-import { TASK_DONE_DAYS, TASK_NOTE_MAX, type GapTask, type GapTasksResponse } from '@liner/shared';
+import { gaps, libraries } from '@tagave/db';
+import { TASK_DONE_DAYS, TASK_NOTE_MAX, type GapTask, type GapTasksResponse } from '@tagave/shared';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -159,7 +159,7 @@ export async function createGapRoutes(fastify: FastifyInstance) {
              g.accepted_at, g.resolved_at,
              la.id as la_id, la.dir_paths,
              coalesce(r.title, la.title_guess) as album_title,
-             coalesce(liner_display_artist(la.artist_guess), la.artist_guess) as album_artist,
+             coalesce(tagave_display_artist(la.artist_guess), la.artist_guess) as album_artist,
              rg.id as rg_id, rg.title as rg_title,
              ra.id as rg_artist_id, ra.name as rg_artist
         from gaps g

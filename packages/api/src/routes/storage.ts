@@ -9,7 +9,7 @@ import {
   type StorageFolderView,
   type StorageOverview,
   type TagChangeCleanupScope,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import {

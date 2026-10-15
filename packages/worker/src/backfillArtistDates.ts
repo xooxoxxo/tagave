@@ -20,7 +20,7 @@
  */
 import { pathToFileURL } from 'node:url';
 import pino from 'pino';
-import { makeDb } from '@liner/db';
+import { makeDb } from '@tagave/db';
 import type { PgBoss } from 'pg-boss';
 import type { WorkerContext } from './lib/context.js';
 import { artistsEnrichJob } from './jobs/artistsEnrich.js';

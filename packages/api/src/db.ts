@@ -1,4 +1,4 @@
-import { makeDb } from '@liner/db';
+import { makeDb } from '@tagave/db';
 
 /** One connection pool for the whole API process. Route handlers previously
  * called makeDb() per request, each spawning a fresh postgres.js pool that

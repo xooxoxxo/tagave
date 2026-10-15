@@ -25,8 +25,8 @@
  * the folders so the usual rules confirm the result.
  */
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, fieldLocks, localAlbums, localTracks } from '@liner/db';
-import { VARIOUS_ARTISTS, displayArtistName, isVariousArtists, stripTrackNumberPrefix } from '@liner/shared';
+import { audioFiles, clusterOverrides, fieldLocks, localAlbums, localTracks } from '@tagave/db';
+import { VARIOUS_ARTISTS, displayArtistName, isVariousArtists, stripTrackNumberPrefix } from '@tagave/shared';
 import type { getDb } from '../db.js';
 import { SPLIT_KEY_PREFIX } from './splitByFormat.js';
 
@@ -499,7 +499,7 @@ export async function findMergeCandidates(db: Db, input: { libraryId: string; al
        and lower(btrim(la.title_guess)) = lower(btrim(${album.titleGuess}))
        and (la.year_guess is null or ${album.yearGuess}::int is null or la.year_guess = ${album.yearGuess}::int)
        and (
-         liner_display_artist(la.artist_guess) is not distinct from liner_display_artist(${album.artistGuess}::text)
+         tagave_display_artist(la.artist_guess) is not distinct from tagave_display_artist(${album.artistGuess}::text)
          or ${small}::boolean
          or coalesce(la.track_count, 0) <= 3
        )

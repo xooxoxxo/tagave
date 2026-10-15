@@ -9,7 +9,7 @@ import type {
   TagPlanItem,
   CreateTagPlan,
   TagPlanResults,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { api } from '../services/api';
 
 export interface TagPlansResponse {

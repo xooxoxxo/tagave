@@ -10,7 +10,7 @@
  *          files: its indexed files count as seen and its sidecars carry
  *          over. Adding, removing or renaming an entry bumps the directory
  *          mtime; an in-place edit does not, which the weekly full scan
- *          still catches (and Liner's own tag writes are journaled).
+ *          still catches (and tagave's own tag writes are journaled).
  * - subtree: only the given directory and what is below it (the album
  *          page's "Rescan this folder"); missing detection is confined to
  *          that subtree.
@@ -23,7 +23,7 @@
 import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, inArray, like, lt, or, sql as dsql } from 'drizzle-orm';
-import { audioFiles, images, scanDirs, sidecarFiles } from '@liner/db';
+import { audioFiles, images, scanDirs, sidecarFiles } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { isAudioFile, sidecarKind, storagePath, extOf, relDirname } from './helpers.js';
 

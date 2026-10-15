@@ -268,3 +268,11 @@ export interface JobsListResponse {
   summary: JobsSummary;
   pagination: { limit: number; offset: number; total: number };
 }
+
+/** The Postgres NOTIFY channel workers publish job and queue events on; the API streams them (SSE). */
+export const JOB_EVENTS_CHANNEL = 'tagave_jobs';
+/**
+ * The channel's pre-0.9 name. The API listens on it too, so a worker still on
+ * 0.8 (a split install mid-update) keeps its progress live. Drop in 0.10.
+ */
+export const LEGACY_JOB_EVENTS_CHANNEL = 'liner_jobs';

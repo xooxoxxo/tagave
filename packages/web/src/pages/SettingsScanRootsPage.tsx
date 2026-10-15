@@ -5,7 +5,7 @@
 
 import { useId, useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, folderLinkFor, type ScanRoot } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, folderLinkFor, type ScanRoot } from '@tagave/shared';
 import { Button, confirmDialog } from '../components/ui';
 import styles from './SettingsScanRootsPage.module.css';
 

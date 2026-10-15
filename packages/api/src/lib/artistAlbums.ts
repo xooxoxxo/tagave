@@ -6,7 +6,7 @@
  *  - every local album of a release group the artist is credited on;
  *  - every local album known only by its tags (no release group, or one with
  *    no credits) whose album artist is this artist's name, compared as the
- *    artists list compares it (liner_display_artist, case-insensitive) —
+ *    artists list compares it (tagave_display_artist, case-insensitive) —
  *    so an artist whose albums were matched by tags alone lists them too;
  *  - release groups held only on the shelf (collection items).
  * Not in the library: release groups with a missing_album gap (open, on the
@@ -70,7 +70,7 @@ export async function fetchArtistAlbums(db: Db, libraryId: string, artist: { id:
         select la.id, 'tags'::text
           from local_albums la
          where la.library_id = ${libraryId}
-           and lower(liner_display_artist(la.artist_guess)) = lower(${artist.name})
+           and lower(tagave_display_artist(la.artist_guess)) = lower(${artist.name})
            and (la.release_group_id is null or not exists (
              select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
       )

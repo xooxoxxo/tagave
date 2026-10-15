@@ -9,8 +9,8 @@ import path from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import { eq, inArray } from 'drizzle-orm';
-import { libraries, scanRoots, users } from '@liner/db';
-import type { SessionUser } from '@liner/shared/auth';
+import { libraries, scanRoots, users } from '@tagave/db';
+import type { SessionUser } from '@tagave/shared/auth';
 import { initDb, getDb } from '../db.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { createAuthRoutes } from './auth.js';
@@ -40,7 +40,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
   beforeAll(async () => {
     const databaseUrl = process.env.TEST_DATABASE_URL!;
     process.env.DATABASE_URL = databaseUrl;
-    process.env.CACHE_DIR = path.join(os.tmpdir(), `liner-system-test-${process.pid}`);
+    process.env.CACHE_DIR = path.join(os.tmpdir(), `tagave-system-test-${process.pid}`);
     await initDb(databaseUrl);
 
     app = Fastify();

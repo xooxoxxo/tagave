@@ -5,7 +5,7 @@ import {
   passkeysCanWork,
   revokeTrustedDevice,
   trustIdentifierFromCookie,
-} from '@liner/auth';
+} from '@tagave/auth';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 

@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import {
   audioFiles, clusterOverrides, libraries, localAlbums, localTracks, playerScanRequests, playerTrackMap, scanRoots, tagPlanItems, tagPlans, users, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob, agreedAlbumNames } from './clusterDir.js';
 import { reclusterWrittenDirs } from './tagsApply.js';
@@ -56,7 +56,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('re-cluster after apply (db)', (
     };
     await db.insert(users).values({ id: userId, email: `recluster-${userId}@test.com`, passwordHash: 'x' });
     await db.insert(libraries).values({ id: libraryId, name: 'Recluster', ownerUserId: userId, settings: {} });
-    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/liner-recluster-root', displayName: 'rc', validationStatus: 'ok', pollIntervalS: 3600 });
+    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/tagave-recluster-root', displayName: 'rc', validationStatus: 'ok', pollIntervalS: 3600 });
     // The files as the plan left them: new tags already in tags_raw.
     for (const [i, dir] of dirs.entries()) {
       await db.insert(audioFiles).values({

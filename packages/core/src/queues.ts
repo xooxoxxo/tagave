@@ -17,7 +17,7 @@ export const WORKER_QUEUES = [
 
 /**
  * Queues a worker works along with another one, not by their own name in
- * LINER_QUEUES: folder checks with scans, editions and the Discogs
+ * TAGAVE_QUEUES: folder checks with scans, editions and the Discogs
  * collection with release enrichment.
  */
 export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
@@ -32,7 +32,7 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'edition.add': 'identify.album',
 };
 
-/** The names LINER_QUEUES chooses from: each needs some live worker. */
+/** The names TAGAVE_QUEUES chooses from: each needs some live worker. */
 export const GATED_QUEUES: readonly string[] = WORKER_QUEUES.filter((q) => !(q in QUEUES_RIDING_WITH));
 
 /** What a queue does, in words the owner knows. */

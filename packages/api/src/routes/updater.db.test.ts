@@ -9,8 +9,8 @@ import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { FastifyInstance } from 'fastify';
-import type { AuthHandle } from '@liner/auth';
-import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@liner/updater/token';
+import type { AuthHandle } from '@tagave/auth';
+import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@tagave/updater/token';
 import {
   TEST_APP_SECRET,
   TEST_PUBLIC_URL,

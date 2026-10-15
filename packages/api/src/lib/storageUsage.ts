@@ -13,7 +13,7 @@ import {
   type TagChangeCleanupPreview,
   type TagChangeCleanupResult,
   type TagChangeCleanupScope,
-} from '@liner/shared';
+} from '@tagave/shared';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;

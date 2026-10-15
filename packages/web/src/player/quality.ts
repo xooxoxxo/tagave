@@ -4,7 +4,7 @@
  * choice still applies for this page view. The engine and the settings page
  * read the same snapshot.
  */
-import { PLAYER_QUALITY_STORAGE_KEY, type PlayerQuality } from '@liner/shared';
+import { PLAYER_QUALITY_STORAGE_KEY, type PlayerQuality } from '@tagave/shared';
 import { parseQuality, readQuality } from './logic';
 
 const listeners = new Set<() => void>();

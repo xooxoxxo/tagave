@@ -3,7 +3,7 @@
  */
 import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { JobsListResponse } from '@liner/shared';
+import type { JobsListResponse } from '@tagave/shared';
 import { api } from '../services/api';
 import { subscribeJobEvents } from '../services/jobStream';
 
@@ -93,7 +93,7 @@ export interface TriageResponse {
   offset: number;
 }
 
-export type { JobView as JobInfo, JobsListResponse as JobsResponse } from '@liner/shared';
+export type { JobView as JobInfo, JobsListResponse as JobsResponse } from '@tagave/shared';
 
 /**
  * Identify stats with 30s refetch (G1 metrics, queue depth, rate, ETA, series, sweep status)

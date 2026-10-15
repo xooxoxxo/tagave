@@ -4,12 +4,18 @@ import { libraryIdsFor, pinnedLibraryId } from './libraries.js';
 describe('pinnedLibraryId', () => {
   it('treats an unset, empty or blank value as no pin', () => {
     expect(pinnedLibraryId({})).toBeUndefined();
-    expect(pinnedLibraryId({ LINER_LIBRARY_ID: '' })).toBeUndefined();
-    expect(pinnedLibraryId({ LINER_LIBRARY_ID: '  ' })).toBeUndefined();
+    expect(pinnedLibraryId({ TAGAVE_LIBRARY_ID: '' })).toBeUndefined();
+    expect(pinnedLibraryId({ TAGAVE_LIBRARY_ID: '  ' })).toBeUndefined();
   });
 
   it('returns a set id', () => {
-    expect(pinnedLibraryId({ LINER_LIBRARY_ID: ' abc ' })).toBe('abc');
+    expect(pinnedLibraryId({ TAGAVE_LIBRARY_ID: ' abc ' })).toBe('abc');
+  });
+
+  it('still reads the pre-0.9 LINER_LIBRARY_ID when TAGAVE_LIBRARY_ID is unset or empty', () => {
+    expect(pinnedLibraryId({ LINER_LIBRARY_ID: 'old' })).toBe('old');
+    expect(pinnedLibraryId({ TAGAVE_LIBRARY_ID: '', LINER_LIBRARY_ID: 'old' })).toBe('old');
+    expect(pinnedLibraryId({ TAGAVE_LIBRARY_ID: 'new', LINER_LIBRARY_ID: 'old' })).toBe('new');
   });
 });
 

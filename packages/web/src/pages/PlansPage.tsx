@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { api } from '../services/api';
-import { isFinishedPlanStatus, type TagPlan } from '@liner/shared';
+import { isFinishedPlanStatus, type TagPlan } from '@tagave/shared';
 import { PageShell, Button, IconButton, Badge, Table, Th, Td, TableRow, EmptyState, Tabs, type TabItem } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useTagPlans, useDeleteTagPlan, useRenameTagPlan, useArchiveTagPlan } from '../hooks/usePlanWizard';

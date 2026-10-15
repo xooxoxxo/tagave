@@ -2,7 +2,7 @@ import path from 'node:path';
 import { access } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, scanRoots } from '@liner/db';
+import { audioFiles, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';

@@ -7,8 +7,8 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { gaps, libraries, localAlbums, users } from '@liner/db';
-import type { GapTasksResponse } from '@liner/shared';
+import { gaps, libraries, localAlbums, users } from '@tagave/db';
+import type { GapTasksResponse } from '@tagave/shared';
 
 const boss = vi.hoisted(() => ({
   createQueue: vi.fn(async () => undefined),

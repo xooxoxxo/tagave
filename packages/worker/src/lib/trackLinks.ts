@@ -7,12 +7,12 @@
 import { eq, and, isNull } from 'drizzle-orm';
 import {
   localTracks, canonicalTracks, localAlbums, releases,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   alignTracks, type LocalTrack, type MatchingCanonicalTrack,
-} from '@liner/core';
+} from '@tagave/core';
 import type { WorkerContext } from './context.js';
-import type { CanonicalRelease } from '@liner/core';
+import type { CanonicalRelease } from '@tagave/core';
 import { cached, cacheKey, TTLs } from './providerCache.js';
 import { getProviders, libraryProviderSettings, mbCall } from './providers.js';
 import { upsertCanonical } from './canonical.js';

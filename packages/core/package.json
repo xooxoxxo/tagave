@@ -1,5 +1,5 @@
 {
-  "name": "@liner/core",
+  "name": "@tagave/core",
   "version": "0.1.0",
   "type": "module",
   "description": "tagave core domain logic: matching, tag mapping, provider gateway, string normalization",
@@ -21,7 +21,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@liner/shared": "workspace:*",
+    "@tagave/shared": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

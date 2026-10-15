@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { images, libraries, localAlbums } from '@liner/db';
+import { images, libraries, localAlbums } from '@tagave/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 

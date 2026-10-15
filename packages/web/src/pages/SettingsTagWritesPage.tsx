@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import type { TagPolicies } from '@liner/shared';
+import type { TagPolicies } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import { Button, LinkButton, confirmDialog } from '../components/ui';

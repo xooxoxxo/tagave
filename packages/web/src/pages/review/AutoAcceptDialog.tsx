@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import {
   autoAcceptRulesSchema,
   type AutoAcceptPreview, type AutoAcceptRules, type AutoAcceptSource, type AutoAcceptView,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { api } from '../../services/api';
 import { Button, Input, SegmentedControl, Select, showToast, type SegmentedOption } from '../../components/ui';
 import { ReviewDialog } from './ReviewDialog';

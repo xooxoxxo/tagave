@@ -12,12 +12,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   autoAcceptRules, libraries, localAlbums, fetchAutoAcceptRulesRow, fetchRulesInputs,
-} from '@liner/db';
-import { evaluateAutoAccept, rulesFromStored } from '@liner/core';
+} from '@tagave/db';
+import { evaluateAutoAccept, rulesFromStored } from '@tagave/core';
 import {
   autoAcceptRulesSchema, matchPercent, AUTO_ACCEPT_REASON_PREFIX,
   type AutoAcceptPreview, type AutoAcceptRules, type AutoAcceptView,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

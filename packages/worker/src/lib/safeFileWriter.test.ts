@@ -10,8 +10,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { promises as fsPromises } from 'node:fs';
 import { execSync } from 'child_process';
-import type { TagSet } from '@liner/shared';
-import { hashAudioStream } from '@liner/core';
+import type { TagSet } from '@tagave/shared';
+import { hashAudioStream } from '@tagave/core';
 
 /**
  * Check if mutagen is available
@@ -218,7 +218,7 @@ describe.skipIf(!isMutagenAvailable())('SafeFileWriter', () => {
     try {
       const files = await fsPromises.readdir(testDir);
       for (const file of files) {
-        if (file.includes('.liner-tmp-')) {
+        if (file.includes('.tagave-tmp-')) {
           const filePath = path.join(testDir, file);
           await fsPromises.unlink(filePath);
         }
@@ -328,7 +328,7 @@ describe.skipIf(!isMutagenAvailable())('SafeFileWriter', () => {
       const dir = path.dirname(invalidPath);
       if (fs.existsSync(dir)) {
         const files = fs.readdirSync(dir);
-        const tempFiles = files.filter((f) => f.includes('.liner-tmp-'));
+        const tempFiles = files.filter((f) => f.includes('.tagave-tmp-'));
         expect(tempFiles).toHaveLength(0);
       }
     });
@@ -354,7 +354,7 @@ describe.skipIf(!isMutagenAvailable())('SafeFileWriter', () => {
 
         // Verify no orphaned temp files
         const files = fs.readdirSync(dir);
-        const tempFiles = files.filter((f) => f.includes('.liner-tmp-'));
+        const tempFiles = files.filter((f) => f.includes('.tagave-tmp-'));
         expect(tempFiles).toHaveLength(0);
       } finally {
         // Restore file permissions

@@ -4,7 +4,7 @@
  * worker finds out which), or a Discogs release / master URL or id. Any other
  * MusicBrainz page gets a sentence saying what to paste instead.
  */
-import { parseDiscogsRef } from '@liner/core';
+import { parseDiscogsRef } from '@tagave/core';
 
 export type MatchTarget =
   | { source: 'musicbrainz'; entity: 'release' | 'release-group' | 'unknown'; mbid: string }

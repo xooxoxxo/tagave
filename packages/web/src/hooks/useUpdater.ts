@@ -5,7 +5,7 @@
  * minute otherwise. A failed poll keeps the last answer on screen.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { UpdateRun, UpdaterView } from '@liner/shared';
+import type { UpdateRun, UpdaterView } from '@tagave/shared';
 import { api } from '../services/api';
 
 export const updaterKey = ['updater'] as const;

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { TagPlanResults } from '@liner/shared';
+import type { TagPlanResults } from '@tagave/shared';
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, params, search, children, className }: { to: string; params?: Record<string, string>; search?: Record<string, string>; children: unknown; className?: string }) => {

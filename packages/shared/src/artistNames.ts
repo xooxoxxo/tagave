@@ -6,7 +6,7 @@
  *   which files every track of "Hotel Costes Vol. 11" under its own artist;
  * - the many spellings of "Various Artists" ("Various", "VA", "V.A.").
  *
- * These helpers never touch files. The SQL function liner_display_artist
+ * These helpers never touch files. The SQL function tagave_display_artist
  * (migration 0028) mirrors displayArtistName so list queries group the same
  * way the API presents names; keep the two in step.
  */

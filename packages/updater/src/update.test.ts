@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { UpdateRun } from '@liner/shared/updater';
+import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun } from './update.js';
@@ -121,11 +121,11 @@ class FakeInstall {
       }
       return ok();
     }
-    if (a.includes('liner-doctor') || a.includes('cli.js restore')) {
+    if (a.includes('tagave-doctor') || a.includes('cli.js restore')) {
       if (this.failRestore) return bad('pg_restore: error: could not connect');
       this.restored = true;
       this.migrations = 38;
-      return ok('{"database":"liner"}');
+      return ok('{"database":"tagave"}');
     }
     if (args[0] === 'compose' && args[1] === 'run') return ok('abc123');
     return bad(`unexpected: docker ${a}`);
@@ -290,7 +290,7 @@ describe('update state machine', () => {
     fake.failRestore = true;
     const run = await update('0.8.0');
     expect(run.status).toBe('rollback_failed');
-    expect(run.reason).toMatch(/liner-doctor restore failed/);
+    expect(run.reason).toMatch(/tagave-doctor restore failed/);
     expect(run.log.at(-1)!.message).toMatch(/by hand/);
     expect(await envNow()).toBe('0.7.0');
   });
@@ -390,5 +390,52 @@ describe('update state machine', () => {
       expect(warning?.message).toMatch(/the player reports unhealthy.*tagave itself is updated/);
       expect(await envNow()).toBe('0.8.0');
     });
+  });
+});
+
+// An install from before 0.9 (the project's old name, liner) has LINER_*
+// settings in .env. Once the compose files the update installs read the new
+// names, the update renames them; a roll back puts the original .env back.
+describe('an install from before 0.9', () => {
+  const LEGACY_ENV = `${ENV}POSTGRES_USER=liner\nPOSTGRES_DB=liner\nLINER_LIBRARY_ID=lib-1\nLINER_PREMIGRATE_BACKUP_KEEP=7\n`;
+  const NEW_COMPOSE = `${COMPOSE}# new\nx-worker-env:\n  TAGAVE_LIBRARY_ID: \${TAGAVE_LIBRARY_ID:-\${LINER_LIBRARY_ID:-}}\n`;
+
+  beforeEach(async () => {
+    await writeFile(join(dir, '.env'), LEGACY_ENV, { mode: 0o600 });
+  });
+
+  it('renames the LINER_* settings, keeps their values and the database names', async () => {
+    fake.newCompose = NEW_COMPOSE;
+    const run = await update('0.9.0');
+    expect(run.status).toBe('succeeded');
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    expect(env).not.toMatch(/^LINER_/m);
+    expect(envGet(env, 'TAGAVE_LIBRARY_ID')).toBe('lib-1');
+    expect(envGet(env, 'TAGAVE_PREMIGRATE_BACKUP_KEEP')).toBe('7');
+    expect(envGet(env, 'POSTGRES_USER')).toBe('liner');
+    expect(envGet(env, 'POSTGRES_DB')).toBe('liner');
+    expect(envGet(env, 'APP_SECRET')).toBe('s3cret');
+    expect(envGet(env, 'TAGAVE_VERSION')).toBe('0.9.0');
+    expect((await stat(join(dir, '.env'))).mode & 0o777).toBe(0o600);
+    expect(envGet(await readFile(join(dir, '.env.bak'), 'utf8'), 'LINER_LIBRARY_ID')).toBe('lib-1');
+    const note = run.log.find((l) => l.message.startsWith('renamed the pre-0.9 settings'));
+    expect(note?.message).toBe('renamed the pre-0.9 settings in .env: LINER_LIBRARY_ID->TAGAVE_LIBRARY_ID, LINER_PREMIGRATE_BACKUP_KEEP->TAGAVE_PREMIGRATE_BACKUP_KEEP');
+    expect(run.log.some((l) => l.message.includes('s3cret'))).toBe(false);
+  });
+
+  it('puts the original .env back on a roll back', async () => {
+    fake.newCompose = NEW_COMPOSE;
+    fake.unhealthy.add('0.9.0');
+    const run = await update('0.9.0');
+    expect(run.status).toBe('rolled_back');
+    expect(await readFile(join(dir, '.env'), 'utf8')).toBe(LEGACY_ENV);
+  });
+
+  it('leaves .env alone when the new compose files still read the old names', async () => {
+    const run = await update('0.8.1');
+    expect(run.status).toBe('succeeded');
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    expect(envGet(env, 'LINER_LIBRARY_ID')).toBe('lib-1');
+    expect(envGet(env, 'TAGAVE_LIBRARY_ID')).toBeNull();
   });
 });

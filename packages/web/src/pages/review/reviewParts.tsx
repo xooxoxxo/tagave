@@ -2,7 +2,7 @@
  * Small pieces of the Review matches screen: the provider mark that is also
  * the link to the release, and the match meter (bar, percent, word).
  */
-import { matchStrength } from '@liner/shared';
+import { matchStrength } from '@tagave/shared';
 import styles from './review.module.css';
 
 export interface EditionLinkSource {

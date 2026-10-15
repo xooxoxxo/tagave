@@ -23,7 +23,7 @@ create index if not exists idx_provider_cache_expires
 -- The artists list, one row per artist row the page shows (canonical artists
 -- and unresolved album-artist names), rebuilt by facets.refresh with the
 -- album facets. The A–Z order follows rules SQL collation cannot express
--- (@liner/shared artistLabels), so the worker sorts in JS and stores each
+-- (@tagave/shared artistLabels), so the worker sorts in JS and stores each
 -- row's position per sort; the API then pages with an index range instead
 -- of aggregating and sorting ~14.5k artists on every request.
 create table if not exists artist_list (

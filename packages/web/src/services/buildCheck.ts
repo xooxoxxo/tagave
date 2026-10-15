@@ -2,7 +2,7 @@
  * Is the server running a newer build than this tab?
  *
  * The bundle knows its own build (vite.config.ts defines __TAGAVE_BUILD__
- * from the image's GIT_SHA and LINER_VERSION build args); the server says
+ * from the image's GIT_SHA and TAGAVE_BUILD_VERSION build args); the server says
  * which build it runs at /api/v1/version. After an update, a tab that stayed
  * open keeps running the old bundle: its lazy pages may be gone from the
  * server (hashed file names), and new API behaviour may not match.

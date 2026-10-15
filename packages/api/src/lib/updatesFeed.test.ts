@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DEFAULT_RELEASES_URL, UPDATE_CHECK_INTERVAL_MS, type ReleaseNote } from '@liner/shared';
+import { DEFAULT_RELEASES_URL, UPDATE_CHECK_INTERVAL_MS, type ReleaseNote } from '@tagave/shared';
 import { buildStatus, checkDue, detectInstall, effectiveFeed, toReleaseNote, type UpdatesSettings } from './updatesFeed.js';
 
 const app = { version: '0.4.1', sha: 'abc1234', builtAt: null, source: 'env' as const };

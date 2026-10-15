@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { UpdateRun } from '@liner/shared/updater';
+import type { UpdateRun } from '@tagave/shared/updater';
 import { SignatureVerifier, signRequest, SIGNATURE_HEADER, TIME_HEADER } from './token.js';
 import { UpdaterService, STATE_DIR } from './server.js';
 import { DEFAULT_CONFIG, newRun } from './update.js';

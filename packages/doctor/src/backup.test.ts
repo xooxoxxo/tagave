@@ -10,7 +10,7 @@ import {
 
 describe('backupFileName', () => {
   it('encodes the UTC timestamp without colons or milliseconds', () => {
-    expect(backupFileName(new Date('2026-09-08T00:30:00.123Z'))).toBe('liner-2026-09-08T00-30-00Z.pgdump');
+    expect(backupFileName(new Date('2026-09-08T00:30:00.123Z'))).toBe('tagave-2026-09-08T00-30-00Z.pgdump');
   });
 
   it('sorts chronologically as plain strings', () => {
@@ -22,22 +22,22 @@ describe('backupFileName', () => {
 
 describe('pruneList', () => {
   const files = [
-    'liner-2026-09-03T02-00-00Z.pgdump',
-    'liner-2026-09-01T02-00-00Z.pgdump',
-    'liner-2026-09-02T02-00-00Z.pgdump',
+    'tagave-2026-09-03T02-00-00Z.pgdump',
+    'tagave-2026-09-01T02-00-00Z.pgdump',
+    'tagave-2026-09-02T02-00-00Z.pgdump',
     'notes.txt',
     'other-2026-09-04T02-00-00Z.pgdump',
   ];
 
   it('returns the oldest of our dumps beyond keep', () => {
-    expect(pruneList(files, 2)).toEqual(['liner-2026-09-01T02-00-00Z.pgdump']);
+    expect(pruneList(files, 2)).toEqual(['tagave-2026-09-01T02-00-00Z.pgdump']);
   });
 
   it('never lists foreign files', () => {
     expect(pruneList(files, 0)).toEqual([
-      'liner-2026-09-01T02-00-00Z.pgdump',
-      'liner-2026-09-02T02-00-00Z.pgdump',
-      'liner-2026-09-03T02-00-00Z.pgdump',
+      'tagave-2026-09-01T02-00-00Z.pgdump',
+      'tagave-2026-09-02T02-00-00Z.pgdump',
+      'tagave-2026-09-03T02-00-00Z.pgdump',
     ]);
     expect(ownBackups(files)).toHaveLength(3);
   });
@@ -50,44 +50,44 @@ describe('pruneList', () => {
 
   it('only prunes manual dumps: nightly, pre-migration and pre-restore dumps are left alone', () => {
     const mixed = [
-      'liner-2026-09-01T03-00-00Z-nightly.pgdump',
-      'liner-2026-09-01T04-00-00Z-pre-restore.pgdump',
-      'liner-2026-09-01T05-00-00Z-pre-migration.pgdump',
-      'liner-2026-09-02T02-00-00Z.pgdump',
-      'liner-2026-09-03T02-00-00Z.pgdump',
-      'liner-2026-09-04T03-00-00Z-nightly.pgdump',
+      'tagave-2026-09-01T03-00-00Z-nightly.pgdump',
+      'tagave-2026-09-01T04-00-00Z-pre-restore.pgdump',
+      'tagave-2026-09-01T05-00-00Z-pre-migration.pgdump',
+      'tagave-2026-09-02T02-00-00Z.pgdump',
+      'tagave-2026-09-03T02-00-00Z.pgdump',
+      'tagave-2026-09-04T03-00-00Z-nightly.pgdump',
     ];
-    expect(pruneList(mixed, 1)).toEqual(['liner-2026-09-02T02-00-00Z.pgdump']);
-    expect(pruneList(mixed, 0)).toEqual(['liner-2026-09-02T02-00-00Z.pgdump', 'liner-2026-09-03T02-00-00Z.pgdump']);
+    expect(pruneList(mixed, 1)).toEqual(['tagave-2026-09-02T02-00-00Z.pgdump']);
+    expect(pruneList(mixed, 0)).toEqual(['tagave-2026-09-02T02-00-00Z.pgdump', 'tagave-2026-09-03T02-00-00Z.pgdump']);
   });
 });
 
 describe('ownKind', () => {
   it('reads only names this app writes, without guessing', () => {
-    expect(ownKind('liner-2026-09-29T03-00-00Z.pgdump')).toBe('manual');
-    expect(ownKind('liner-2026-09-29T03-00-00Z-nightly.pgdump')).toBe('nightly');
-    expect(ownKind('liner-2026-09-29T03-00-00Z-weekly.pgdump')).toBeNull();
+    expect(ownKind('tagave-2026-09-29T03-00-00Z.pgdump')).toBe('manual');
+    expect(ownKind('tagave-2026-09-29T03-00-00Z-nightly.pgdump')).toBe('nightly');
+    expect(ownKind('tagave-2026-09-29T03-00-00Z-weekly.pgdump')).toBeNull();
     expect(ownKind('otherapp-nightly.pgdump')).toBeNull();
-    expect(ownKind('liner-nightly.pgdump')).toBeNull();
+    expect(ownKind('tagave-nightly.pgdump')).toBeNull();
   });
 });
 
 describe('secrets in pg_dump / pg_restore errors', () => {
   it('moves the password out of the URL into PGPASSWORD', () => {
-    const c = pgConnection('postgres://liner:s%40cret@db:5432/liner');
-    expect(c.dbname).toBe('postgres://liner@db:5432/liner');
+    const c = pgConnection('postgres://tagave:s%40cret@db:5432/tagave');
+    expect(c.dbname).toBe('postgres://tagave@db:5432/tagave');
     expect(c.env['PGPASSWORD']).toBe('s@cret');
-    const q = pgConnection('postgres://liner@db/liner?password=hunter2&sslmode=disable');
+    const q = pgConnection('postgres://tagave@db/tagave?password=hunter2&sslmode=disable');
     expect(q.dbname).not.toContain('hunter2');
     expect(q.env['PGPASSWORD']).toBe('hunter2');
   });
 
   it('never repeats the command line when the tool gives no stderr', () => {
-    const cmd = 'Command failed: pg_dump --dbname=postgres://liner:hunter2@db/liner';
+    const cmd = 'Command failed: pg_dump --dbname=postgres://tagave:hunter2@db/tagave';
     expect(describeExecError(Object.assign(new Error(cmd), { signal: 'SIGKILL', stderr: '' }), 'pg_dump')).not.toContain('hunter2');
     expect(describeExecError(Object.assign(new Error(cmd), { code: 1, stderr: '' }), 'pg_dump')).toBe('pg_dump exited with code 1');
     expect(describeExecError(new Error(cmd), 'pg_dump')).not.toContain('hunter2');
-    expect(describeExecError(Object.assign(new Error(cmd), { stderr: 'could not connect to postgres://liner:hunter2@db/liner' }), 'pg_dump'))
+    expect(describeExecError(Object.assign(new Error(cmd), { stderr: 'could not connect to postgres://tagave:hunter2@db/tagave' }), 'pg_dump'))
       .not.toContain('hunter2');
   });
 
@@ -102,11 +102,11 @@ describe('countTocEntries', () => {
     const listing = [
       ';',
       '; Archive created at 2026-09-08 00:30:00 UTC',
-      ';     dbname: liner',
+      ';     dbname: tagave',
       ';',
-      '2; 1262 16384 DATABASE - liner liner',
-      '215; 1259 16400 TABLE public albums liner',
-      '3521; 0 16400 TABLE DATA public albums liner',
+      '2; 1262 16384 DATABASE - tagave tagave',
+      '215; 1259 16400 TABLE public albums tagave',
+      '3521; 0 16400 TABLE DATA public albums tagave',
       '',
     ].join('\n');
     expect(countTocEntries(listing)).toBe(3);
@@ -126,9 +126,9 @@ describe('defaultBackupDir', () => {
 describe('credentials stay out of argv and errors', () => {
   it('redacts --dbname and user:pass@ from error text', async () => {
     const { redactSecrets } = await import('./backup.js');
-    const msg = redactSecrets('Command failed: pg_dump --file=/b/x --dbname=postgres://liner:hunter2@db:5432/liner');
+    const msg = redactSecrets('Command failed: pg_dump --file=/b/x --dbname=postgres://tagave:hunter2@db:5432/tagave');
     expect(msg).not.toMatch(/hunter2/);
-    expect(redactSecrets('could not connect to postgres://liner:hunter2@db/liner')).not.toMatch(/hunter2/);
+    expect(redactSecrets('could not connect to postgres://tagave:hunter2@db/tagave')).not.toMatch(/hunter2/);
   });
 
   it('passes the password to pg_dump through PGPASSWORD, never on the command line, and a killed pg_dump does not leak it', async () => {
@@ -136,14 +136,14 @@ describe('credentials stay out of argv and errors', () => {
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
     const { runBackup } = await import('./backup.js');
-    const dir = await mkdtemp(join(tmpdir(), 'liner-fakedump-'));
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-fakedump-'));
     try {
       const fake = join(dir, 'pg_dump');
       // Records its argv and PGPASSWORD, then dies from a signal with no stderr.
       await writeFile(fake, `#!/bin/sh\necho "$@" > "${dir}/argv"\necho "$PGPASSWORD" > "${dir}/pw"\nkill -9 $$\n`);
       await chmod(fake, 0o755);
       const err = await runBackup({
-        databaseUrl: 'postgres://liner:hunter2@db:5432/liner',
+        databaseUrl: 'postgres://tagave:hunter2@db:5432/tagave',
         outDir: join(dir, 'out'),
         pgDump: fake,
       }).catch((e: unknown) => e as Error);
@@ -163,14 +163,14 @@ describe('isSeparateMount', () => {
     const { isSeparateMount } = await import('./backup.js');
     const { tmpdir } = await import('node:os');
     expect(isSeparateMount(tmpdir(), tmpdir())).toBe(false);
-    expect(isSeparateMount('/no/such/liner/dir')).toBeNull();
+    expect(isSeparateMount('/no/such/tagave/dir')).toBeNull();
   });
 });
 
 describe('pruneBackups', () => {
   it('keeps the newest dumps of one kind and never touches other kinds or foreign files', async () => {
     const { pruneBackups } = await import('./backup.js');
-    const dir = await mkdtemp(join(tmpdir(), 'liner-prune-'));
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-prune-'));
     try {
       const names = [
         backupFileName(new Date('2026-09-01T00:00:00Z'), 'pre-migration'),
@@ -193,9 +193,9 @@ describe('backup kinds in file names', () => {
   const at = new Date('2026-09-29T03:00:00Z');
 
   it('adds the kind, except for manual dumps (the name older releases wrote)', () => {
-    expect(backupFileName(at, 'nightly')).toBe('liner-2026-09-29T03-00-00Z-nightly.pgdump');
-    expect(backupFileName(at, 'pre-migration')).toBe('liner-2026-09-29T03-00-00Z-pre-migration.pgdump');
-    expect(backupFileName(at)).toBe('liner-2026-09-29T03-00-00Z.pgdump');
+    expect(backupFileName(at, 'nightly')).toBe('tagave-2026-09-29T03-00-00Z-nightly.pgdump');
+    expect(backupFileName(at, 'pre-migration')).toBe('tagave-2026-09-29T03-00-00Z-pre-migration.pgdump');
+    expect(backupFileName(at)).toBe('tagave-2026-09-29T03-00-00Z.pgdump');
   });
 
   it('reads kind and time back', () => {
@@ -211,11 +211,11 @@ describe('backup kinds in file names', () => {
   });
 
   it('refuses names with path parts or hidden files', () => {
-    expect(isSafeBackupName('liner-2026-09-29T03-00-00Z.pgdump')).toBe(true);
+    expect(isSafeBackupName('tagave-2026-09-29T03-00-00Z.pgdump')).toBe(true);
     expect(isSafeBackupName('../etc/passwd.pgdump')).toBe(false);
     expect(isSafeBackupName('a/b.pgdump')).toBe(false);
-    expect(isSafeBackupName('.liner.pgdump')).toBe(false);
-    expect(isSafeBackupName('liner.pgdump.json')).toBe(false);
+    expect(isSafeBackupName('.tagave.pgdump')).toBe(false);
+    expect(isSafeBackupName('tagave.pgdump.json')).toBe(false);
   });
 });
 
@@ -261,7 +261,7 @@ describe('retentionDeletes', () => {
     const entries = [
       nightly('2026-09-29T03:00:00Z'),
       { name: 'otherapp-nightly.pgdump', kind: 'nightly' as BackupKind, createdAt: '2026-01-01T00:00:00.000Z' },
-      { name: 'liner-nightly-copy.pgdump', kind: 'nightly' as BackupKind, createdAt: '2026-01-02T00:00:00.000Z' },
+      { name: 'tagave-nightly-copy.pgdump', kind: 'nightly' as BackupKind, createdAt: '2026-01-02T00:00:00.000Z' },
     ];
     expect(retentionDeletes(entries, { keepDaily: 1, keepWeekly: 0 }, 'UTC')).toEqual([]);
   });
@@ -288,7 +288,7 @@ describe('backups folder', () => {
     await writeFile(join(dir, fresh), 'abcdef');
     await writeFile(join(dir, fresh + '.json'), JSON.stringify({ kind: 'manual', verified: true, bytes: 999 })); // size changed since
     await writeFile(join(dir, 'backup-settings.json'), '{}');
-    await writeFile(join(dir, '.liner-x.pgdump.partial'), 'half');
+    await writeFile(join(dir, '.tagave-x.pgdump.partial'), 'half');
     const list = await listBackups(dir);
     expect(list.map((e) => [e.name, e.kind, e.bytes, e.verified])).toEqual([
       [fresh, 'manual', 6, false],
@@ -299,11 +299,11 @@ describe('backups folder', () => {
   it('applies retention without touching foreign files in a shared folder', async () => {
     const keep = backupFileName(new Date('2026-09-29T03:00:00Z'), 'nightly');
     const old = backupFileName(new Date('2026-09-20T03:00:00Z'), 'nightly');
-    for (const name of [keep, old, 'otherapp-nightly.pgdump', 'liner-2026-01-01T00-00-00Z-pre-restore.pgdump']) {
+    for (const name of [keep, old, 'otherapp-nightly.pgdump', 'tagave-2026-01-01T00-00-00Z-pre-restore.pgdump']) {
       await writeFile(join(dir, name), 'x');
     }
     expect(await applyRetention(dir, { keepDaily: 1, keepWeekly: 0 }, 'UTC')).toEqual([old]);
-    expect((await readdir(dir)).sort()).toEqual(['liner-2026-01-01T00-00-00Z-pre-restore.pgdump', keep, 'otherapp-nightly.pgdump'].sort());
+    expect((await readdir(dir)).sort()).toEqual(['tagave-2026-01-01T00-00-00Z-pre-restore.pgdump', keep, 'otherapp-nightly.pgdump'].sort());
   });
 
   it('is empty when the folder does not exist yet', async () => {
@@ -336,5 +336,72 @@ describe('backups folder', () => {
     const status = await readBackupStatus(dir);
     expect(status.lastRun?.kind).toBe('manual');
     expect(status.lastNightly).toMatchObject({ ok: false, error: 'disk full' });
+  });
+});
+
+// Releases before 0.9 named their dumps liner-<time>[-kind].pgdump. They stay
+// this app's own after the rename: listed, sorted by time with the new
+// tagave-* ones, pruned and kept by the same rules.
+describe('dumps from before the rename (liner-*)', () => {
+  const legacy = (iso: string, kind?: string) => `liner-${iso.replace(/:/g, '-')}${kind ? `-${kind}` : ''}.pgdump`;
+
+  it('are recognised by kind and time', () => {
+    expect(ownKind(legacy('2026-09-29T03:00:00Z'))).toBe('manual');
+    expect(ownKind(legacy('2026-09-29T03:00:00Z', 'nightly'))).toBe('nightly');
+    expect(ownKind(legacy('2026-09-29T03:00:00Z', 'pre-migration'))).toBe('pre-migration');
+    expect(parseBackupName(legacy('2026-09-29T03:00:00Z', 'pre-restore'))).toEqual({
+      kind: 'pre-restore',
+      createdAt: new Date('2026-09-29T03:00:00Z'),
+    });
+    expect(isSafeBackupName(legacy('2026-09-29T03:00:00Z'))).toBe(true);
+    expect(ownKind('liner-nightly.pgdump')).toBeNull();
+  });
+
+  it('sort by time with the new names, whichever era is newer', () => {
+    const files = [
+      backupFileName(new Date('2026-10-02T02:00:00Z')),
+      legacy('2026-10-03T02:00:00Z'), // a copy put back by hand, newer than a tagave-* one
+      legacy('2026-09-30T02:00:00Z'),
+      backupFileName(new Date('2026-10-01T02:00:00Z')),
+    ];
+    expect(ownBackups(files)).toEqual([
+      'liner-2026-09-30T02-00-00Z.pgdump',
+      'tagave-2026-10-01T02-00-00Z.pgdump',
+      'tagave-2026-10-02T02-00-00Z.pgdump',
+      'liner-2026-10-03T02-00-00Z.pgdump',
+    ]);
+    expect(pruneList(files, 2)).toEqual(['liner-2026-09-30T02-00-00Z.pgdump', 'tagave-2026-10-01T02-00-00Z.pgdump']);
+  });
+
+  it('are pruned with the new ones, oldest first, and only the kind asked for', async () => {
+    const { pruneBackups } = await import('./backup.js');
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-prune-eras-'));
+    try {
+      const old1 = legacy('2026-09-01T00:00:00Z', 'pre-migration');
+      const old2 = legacy('2026-09-02T00:00:00Z', 'pre-migration');
+      const new1 = backupFileName(new Date('2026-09-03T00:00:00Z'), 'pre-migration');
+      const nightly = legacy('2026-08-01T00:00:00Z', 'nightly');
+      for (const n of [new1, old2, old1, nightly]) await writeFile(join(dir, n), 'x');
+      expect(await pruneBackups(dir, 2, 'pre-migration')).toEqual([old1]);
+      expect((await readdir(dir)).sort()).toEqual([nightly, old2, new1].sort());
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('list newest first next to the new ones, and nightly retention counts both', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-list-eras-'));
+    try {
+      const a = legacy('2026-09-28T03:00:00Z', 'nightly');
+      const b = backupFileName(new Date('2026-09-29T03:00:00Z'), 'nightly');
+      const c = legacy('2026-09-27T03:00:00Z', 'nightly');
+      const d = backupFileName(new Date('2026-09-30T03:00:00Z'));
+      for (const n of [a, b, c, d]) await writeFile(join(dir, n), 'x');
+      expect((await listBackups(dir)).map((e) => e.name)).toEqual([d, b, a, c]);
+      expect(await applyRetention(dir, { keepDaily: 2, keepWeekly: 0 }, 'UTC')).toEqual([c]);
+      expect((await readdir(dir)).sort()).toEqual([a, b, d].sort());
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

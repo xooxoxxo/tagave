@@ -1,6 +1,6 @@
 /**
  * Step-up for sensitive one-time actions (today: starting an in-app update).
- * The rules live in @liner/auth (step-up.ts); this file is the HTTP side and
+ * The rules live in @tagave/auth (step-up.ts); this file is the HTTP side and
  * the guard routes call.
  *
  *   GET  /api/v1/auth/step-up                   fresh or not, and the methods this account has
@@ -23,8 +23,8 @@ import {
   verifyPasswordStepUp,
   verifyTotpStepUp,
   type StepUpMethod,
-} from '@liner/auth';
-import type { StepUpStatus } from '@liner/shared';
+} from '@tagave/auth';
+import type { StepUpStatus } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 

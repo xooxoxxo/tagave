@@ -1,9 +1,9 @@
 import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
-import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@liner/db';
-import { parseCueSheet, type VirtualTrack, type CueSheet } from '@liner/core';
-import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@liner/shared';
+import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
+import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
+import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import {

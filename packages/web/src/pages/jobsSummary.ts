@@ -4,7 +4,7 @@
  * so the background queue and the albums still waiting for identification
  * count too. "All caught up" is said only when all three are empty.
  */
-import type { JobsSummary } from '@liner/shared';
+import type { JobsSummary } from '@tagave/shared';
 
 export interface SummaryMessage {
   tone: 'danger' | 'info' | 'success';

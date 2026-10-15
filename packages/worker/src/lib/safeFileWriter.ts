@@ -8,9 +8,9 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { parseFile } from 'music-metadata';
 import { statfs } from 'node:fs';
-import type { TagSet } from '@liner/shared';
-import { hashAudioStream } from '@liner/core';
-import type { TagWriter, WriteOptions } from '@liner/core';
+import type { TagSet } from '@tagave/shared';
+import { hashAudioStream } from '@tagave/core';
+import type { TagWriter, WriteOptions } from '@tagave/core';
 
 /**
  * Result from a write operation
@@ -44,7 +44,7 @@ export class SafeFileWriter {
   ): Promise<WriteResult> {
     const dir = path.dirname(filePath);
     const filename = path.basename(filePath);
-    const tempFilename = `.liner-tmp-${randomUUID()}${path.extname(filename)}`;
+    const tempFilename = `.tagave-tmp-${randomUUID()}${path.extname(filename)}`;
     const tempFilePath = path.join(dir, tempFilename);
 
     try {

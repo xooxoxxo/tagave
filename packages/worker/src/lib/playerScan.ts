@@ -9,8 +9,8 @@
  * Harmless when no player is set up: the app drops the requests.
  */
 import { inArray, sql } from 'drizzle-orm';
-import { localTracks, playerScanRequests, playerTrackMap } from '@liner/db';
-import { folderOf, musicRelativePath } from '@liner/core/player';
+import { localTracks, playerScanRequests, playerTrackMap } from '@tagave/db';
+import { folderOf, musicRelativePath } from '@tagave/core/player';
 import type { WorkerContext } from './context.js';
 
 export const PLAYER_SCAN_QUEUE = 'player.scan';

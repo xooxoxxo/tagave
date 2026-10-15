@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { libraries, tagPlans, users } from '@liner/db';
+import { libraries, tagPlans, users } from '@tagave/db';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan archive (route)', () => {
   let app: FastifyInstance;

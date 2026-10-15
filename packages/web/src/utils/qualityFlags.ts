@@ -3,7 +3,7 @@
  *
  * The worker stores one quality gap per album and flag (0032), each with
  * `details.flags` holding that one flag. The flags come from two sources:
- * audio checks (`true` or a count) and the TAG-6 lint rules in @liner/core, which keep their own shapes — `missing: number[]`,
+ * audio checks (`true` or a count) and the TAG-6 lint rules in @tagave/core, which keep their own shapes — `missing: number[]`,
  * `tracks: number[]`, `issues: string[]`, `fields: string[]` and
  * `gap: { missing: number[] }`. Track references are 0-based positions in the
  * album's disc/track order; rows show them 1-based.

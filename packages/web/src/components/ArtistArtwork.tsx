@@ -3,7 +3,7 @@
  * album covers, or a quiet initials tile when none has a cover. Decorative:
  * the name next to it is the accessible label.
  */
-import { artistInitials, isSymbolOnlyName } from '@liner/shared';
+import { artistInitials, isSymbolOnlyName } from '@tagave/shared';
 import { mosaicCovers, IDENTITY_HINT } from '../pages/artistsView';
 import styles from './ArtistArtwork.module.css';
 

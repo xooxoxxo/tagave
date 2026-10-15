@@ -1,7 +1,7 @@
 import { access, opendir, stat } from 'node:fs/promises';
 import { eq, and } from 'drizzle-orm';
-import { scanRoots } from '@liner/db';
-import { SCAN_ROOT_EMPTY_MESSAGE } from '@liner/shared';
+import { scanRoots } from '@tagave/db';
+import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface RootsValidateJobData {

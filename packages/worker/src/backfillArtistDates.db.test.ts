@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { makeDb } from '@liner/db';
+import { makeDb } from '@tagave/db';
 import pino from 'pino';
 import { artistsMissingDates, backfillArtistDates } from './backfillArtistDates.js';
 import type { WorkerContext } from './lib/context.js';

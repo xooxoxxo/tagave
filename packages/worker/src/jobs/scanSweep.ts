@@ -6,7 +6,7 @@
  * with a scan still running is left alone.
  */
 import { and, desc, eq } from 'drizzle-orm';
-import { scanRoots, scans } from '@liner/db';
+import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface ScanSweepJobData {

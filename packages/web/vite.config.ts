@@ -6,7 +6,7 @@ import { resolve } from 'path';
 /**
  * The build this bundle is, so an open tab can tell when the server runs a
  * newer one (src/services/buildCheck.ts). The Docker build passes the same
- * GIT_SHA and LINER_VERSION build args the server reports at /api/v1/version.
+ * GIT_SHA and TAGAVE_BUILD_VERSION build args the server reports at /api/v1/version.
  * Without a sha (vite dev, a plain local build) the bundle says "dev", which
  * never counts as out of date.
  */
@@ -21,7 +21,7 @@ function bundleBuild(command: 'build' | 'serve'): { sha: string; version: string
   }
   return {
     sha: command === 'build' && sha && sha !== 'unknown' && sha !== 'dev' ? sha : 'dev',
-    version: (process.env.LINER_VERSION ?? '').trim() || rootVersion,
+    version: (process.env.TAGAVE_BUILD_VERSION ?? '').trim() || rootVersion,
   };
 }
 

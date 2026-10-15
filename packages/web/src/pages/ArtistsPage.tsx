@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@liner/shared';
+import { ARTIST_GROUP_ORDER, artistGroupLabel, artistLabel, cleanArtistName } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useArtistsInfinite, type ArtistListItem, type ArtistSort } from '../hooks/useArtists';
 import { Button, EmptyState, PageShell, SearchField, Select, SegmentedControl, type SegmentedOption } from '../components/ui';

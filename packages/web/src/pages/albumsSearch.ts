@@ -4,7 +4,7 @@
  * one parser without a circular import. Multi-value filters travel as arrays
  * in the browser URL and as repeated parameters on the API request.
  */
-import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@liner/shared';
+import { MULTI_FILTER_KEYS, type AlbumsQuery, type MultiFilterKey } from '@tagave/shared';
 
 export type AlbumsSearch = AlbumsQuery;
 

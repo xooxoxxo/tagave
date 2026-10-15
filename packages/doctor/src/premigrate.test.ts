@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { PreMigrationBackupError, type PreviousBackup, type SchemaState } from '@liner/db';
+import { PreMigrationBackupError, type PreviousBackup, type SchemaState } from '@tagave/db';
 import {
+  allowSchemaSkew,
   backupFolderProblem,
   preMigrationBackup,
   preMigrationKeep,
@@ -21,11 +22,11 @@ const state: SchemaState = {
 const quiet = () => undefined;
 
 describe('preMigrationBackup', () => {
-  it('dumps into LINER_BACKUP_DIR with its own prefix and does not prune before migrating', async () => {
+  it('dumps into BACKUP_DIR with its own prefix and does not prune before migrating', async () => {
     let seen: BackupOptions | null = null;
     const hook = preMigrationBackup({
       databaseUrl: 'postgres://x/y',
-      env: { LINER_BACKUP_DIR: '/backups', LINER_PREMIGRATE_BACKUP_KEEP: '3' },
+      env: { BACKUP_DIR: '/backups', TAGAVE_PREMIGRATE_BACKUP_KEEP: '3' },
       log: quiet,
       backup: async (opts): Promise<BackupResult> => {
         seen = opts;
@@ -40,7 +41,7 @@ describe('preMigrationBackup', () => {
   it('refuses with a plain reason and the override when the backup fails', async () => {
     const hook = preMigrationBackup({
       databaseUrl: 'postgres://x/y',
-      env: { LINER_BACKUP_DIR: '/backups' },
+      env: { BACKUP_DIR: '/backups' },
       log: quiet,
       backup: async () => {
         throw new Error('pg_dump: could not open output file: No space left on device');
@@ -50,7 +51,7 @@ describe('preMigrationBackup', () => {
     expect(err).toBeInstanceOf(PreMigrationBackupError);
     expect((err as Error).message).toMatch(/^Not migrating: the backup before migrating failed \(pg_dump: could not open/);
     expect((err as Error).message).toMatch(/Nothing was changed/);
-    expect((err as Error).message).toMatch(/LINER_SKIP_PREMIGRATE_BACKUP=1/);
+    expect((err as Error).message).toMatch(/TAGAVE_SKIP_PREMIGRATE_BACKUP=1/);
   });
 
   it('refuses an empty dump', async () => {
@@ -67,7 +68,7 @@ describe('preMigrationBackup', () => {
     let called = false;
     const hook = preMigrationBackup({
       databaseUrl: 'postgres://x/y',
-      env: { LINER_SKIP_PREMIGRATE_BACKUP: '1' },
+      env: { TAGAVE_SKIP_PREMIGRATE_BACKUP: '1' },
       log: quiet,
       backup: async () => {
         called = true;
@@ -84,7 +85,7 @@ describe('backup folder must be a mount in the app image', () => {
     let called = false;
     const hook = preMigrationBackup({
       databaseUrl: 'postgres://x/y',
-      env: { LINER_BACKUP_DIR: '/backups', LINER_BACKUP_REQUIRE_MOUNT: '1' },
+      env: { BACKUP_DIR: '/backups', TAGAVE_BACKUP_REQUIRE_MOUNT: '1' },
       log: quiet,
       isMount: () => false,
       backup: async () => {
@@ -101,9 +102,9 @@ describe('backup folder must be a mount in the app image', () => {
 
   it('only applies when the image asks for it, or when the folder is mounted', () => {
     expect(backupFolderProblem('/backups', {}, () => false)).toBeNull();
-    expect(backupFolderProblem('/backups', { LINER_BACKUP_REQUIRE_MOUNT: '1' }, () => true)).toBeNull();
-    expect(backupFolderProblem('/backups', { LINER_BACKUP_REQUIRE_MOUNT: '0' }, () => false)).toBeNull();
-    expect(backupFolderProblem('/backups', { LINER_BACKUP_REQUIRE_MOUNT: '1' }, () => false)).toMatch(/not a mounted volume/);
+    expect(backupFolderProblem('/backups', { TAGAVE_BACKUP_REQUIRE_MOUNT: '1' }, () => true)).toBeNull();
+    expect(backupFolderProblem('/backups', { TAGAVE_BACKUP_REQUIRE_MOUNT: '0' }, () => false)).toBeNull();
+    expect(backupFolderProblem('/backups', { TAGAVE_BACKUP_REQUIRE_MOUNT: '1' }, () => false)).toMatch(/not a mounted volume/);
   });
 });
 
@@ -154,10 +155,19 @@ describe('a restart after a failed update', () => {
 describe('env knobs', () => {
   it('reads the override and the retention', () => {
     expect(skipPreMigrationBackup({})).toBe(false);
-    expect(skipPreMigrationBackup({ LINER_SKIP_PREMIGRATE_BACKUP: 'true' })).toBe(true);
-    expect(skipPreMigrationBackup({ LINER_SKIP_PREMIGRATE_BACKUP: '0' })).toBe(false);
+    expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: 'true' })).toBe(true);
+    expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: '0' })).toBe(false);
     expect(preMigrationKeep({})).toBe(5);
-    expect(preMigrationKeep({ LINER_PREMIGRATE_BACKUP_KEEP: '0' })).toBe(5);
-    expect(preMigrationKeep({ LINER_PREMIGRATE_BACKUP_KEEP: '9' })).toBe(9);
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '0' })).toBe(5);
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '9' })).toBe(9);
+  });
+
+  it('still reads the pre-0.9 LINER_* names until 0.10, the new name first', () => {
+    expect(skipPreMigrationBackup({ LINER_SKIP_PREMIGRATE_BACKUP: '1' })).toBe(true);
+    expect(allowSchemaSkew({ LINER_ALLOW_SCHEMA_SKEW: '1' })).toBe(true);
+    expect(preMigrationKeep({ LINER_PREMIGRATE_BACKUP_KEEP: '7' })).toBe(7);
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '3', LINER_PREMIGRATE_BACKUP_KEEP: '7' })).toBe(3);
+    // an empty new name (compose passes `${TAGAVE_X:-}`) does not hide the old one
+    expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: '', LINER_SKIP_PREMIGRATE_BACKUP: 'yes' })).toBe(true);
   });
 });

@@ -60,12 +60,12 @@ describe('WikipediaClient', () => {
     const urls: string[] = [];
     const fetchImpl = (async (url: string, init: { headers: Record<string, string> }) => {
       urls.push(url);
-      expect(init.headers['User-Agent']).toBe('Liner/test (+test)');
+      expect(init.headers['User-Agent']).toBe('tagave/test (+test)');
       if (url.includes('prop=sections')) return new Response(JSON.stringify(sectionsFixture), { status: 200 });
       if (url.includes('section=17')) return new Response(JSON.stringify(textFixture), { status: 200 });
       return new Response('{}', { status: 500 });
     }) as unknown as typeof fetch;
-    const client = new WikipediaClient({ userAgent: 'Liner/test (+test)', fetchImpl });
+    const client = new WikipediaClient({ userAgent: 'tagave/test (+test)', fetchImpl });
 
     const out = await client.getReceptionSection('OK_Computer');
 

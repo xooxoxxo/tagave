@@ -6,7 +6,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   Clipping, CreateClipping, CreateListen, Listen, OwnReview, PutOwnReview, ReviewRevision, ReviewsBundle,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { api } from '../services/api';
 
 const reviewsKey = (rgId: string | null | undefined) => ['reviews', rgId ?? ''] as const;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SCAN_ROOT_EMPTY_MESSAGE } from '@liner/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE } from '@tagave/shared';
 import { classifyProbe, probeRoot } from './rootsValidate.js';
 
 describe('classifyProbe', () => {
@@ -50,7 +50,7 @@ describe('classifyProbe', () => {
 
 describe('probeRoot', () => {
   it('flags an empty folder, which is how a mount Docker does not share looks', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'liner-probe-'));
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-probe-'));
     try {
       const probe = await probeRoot(dir, true);
       expect(probe.status).toBe('ok');
@@ -61,7 +61,7 @@ describe('probeRoot', () => {
   });
 
   it('does not flag a folder with something in it', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'liner-probe-'));
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-probe-'));
     try {
       await writeFile(join(dir, 'a.flac'), '');
       const probe = await probeRoot(dir, true);

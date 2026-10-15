@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { BackupsStatus } from '@liner/shared';
+import type { BackupsStatus } from '@tagave/shared';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 
 const status = (over: Partial<BackupsStatus> = {}): BackupsStatus => ({
@@ -34,8 +34,8 @@ describe('SettingsBackupsPage', () => {
   it('lists backups with kind, size, the check result and an authenticated download link', () => {
     const html = render(status({
       backups: [
-        { name: 'liner-2026-09-29T03-00-00Z-nightly.pgdump', kind: 'nightly', createdAt: '2026-09-29T03:00:00.000Z', bytes: 2048, verified: true },
-        { name: 'liner-2026-09-28T10-00-00Z-pre-migration.pgdump', kind: 'pre-migration', createdAt: '2026-09-28T10:00:00.000Z', bytes: 1024, verified: null },
+        { name: 'tagave-2026-09-29T03-00-00Z-nightly.pgdump', kind: 'nightly', createdAt: '2026-09-29T03:00:00.000Z', bytes: 2048, verified: true },
+        { name: 'tagave-2026-09-28T10-00-00Z-pre-migration.pgdump', kind: 'pre-migration', createdAt: '2026-09-28T10:00:00.000Z', bytes: 1024, verified: null },
       ],
       totalBytes: 3072,
     }));
@@ -43,7 +43,7 @@ describe('SettingsBackupsPage', () => {
     expect(html).toContain('Before update');
     expect(html).toContain('Readable');
     expect(html).toContain('Not checked');
-    expect(html).toContain('href="/api/v1/backups/liner-2026-09-29T03-00-00Z-nightly.pgdump/download"');
+    expect(html).toContain('href="/api/v1/backups/tagave-2026-09-29T03-00-00Z-nightly.pgdump/download"');
     expect(html).toContain('2 backups, 3.0 KB in all.');
   });
 

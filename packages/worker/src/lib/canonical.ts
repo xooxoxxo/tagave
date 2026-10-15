@@ -5,8 +5,8 @@
 import { eq, sql } from 'drizzle-orm';
 import {
   releaseGroups, releases, canonicalTracks, externalIds, entityTags, imageSources, artists, releaseGroupArtists,
-} from '@liner/db';
-import type { CanonicalRelease, CanonicalTrack, ArtistCredit } from '@liner/core';
+} from '@tagave/db';
+import type { CanonicalRelease, CanonicalTrack, ArtistCredit } from '@tagave/core';
 import type { WorkerContext } from './context.js';
 import { pgErrorCode } from './dbErrors.js';
 

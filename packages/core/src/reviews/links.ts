@@ -1,6 +1,6 @@
 /**
  * Review link-out resolver (spec REV-2, §10.4). Publications offer no API and
- * forbid scraping, so Liner only ever stores URLs: direct ones from Wikidata
+ * forbid scraping, so tagave only ever stores URLs: direct ones from Wikidata
  * identifiers (Metacritic P1712, AllMusic P1729, Rate Your Music P8392) and
  * MusicBrainz `review` / `allmusic` URL relationships, and site-search URLs
  * for everything else. Pure — nothing here touches the network.

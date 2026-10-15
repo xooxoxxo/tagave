@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { runDoctor, remediationFor } from '@liner/doctor';
-import { readBuildInfo } from '@liner/core';
+import { runDoctor, remediationFor } from '@tagave/doctor';
+import { readBuildInfo } from '@tagave/core';
 import { getDb } from '../db.js';
 import { expectedWorkers } from './system.js';
 

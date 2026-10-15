@@ -1,5 +1,5 @@
 {
-  "name": "@liner/updater",
+  "name": "@tagave/updater",
   "version": "0.1.0",
   "type": "module",
   "description": "tagave's opt-in updater: a small service, holding the Docker socket, that moves an install to a new release on the app's request",
@@ -19,7 +19,7 @@
     "start": "node dist/main.js"
   },
   "devDependencies": {
-    "@liner/shared": "workspace:*",
+    "@tagave/shared": "workspace:*",
     "@types/node": "^24.19.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

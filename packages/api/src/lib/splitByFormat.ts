@@ -10,7 +10,7 @@
  * re-clusters into one album again.
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, localAlbums, localTracks } from '@liner/db';
+import { audioFiles, clusterOverrides, localAlbums, localTracks } from '@tagave/db';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;

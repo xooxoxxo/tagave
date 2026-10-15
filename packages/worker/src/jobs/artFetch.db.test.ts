@@ -11,7 +11,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { audioFiles, images, libraries, localAlbums, localTracks, makeDb, scanRoots, sidecarFiles, users } from '@liner/db';
+import { audioFiles, images, libraries, localAlbums, localTracks, makeDb, scanRoots, sidecarFiles, users } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 const tmp = vi.hoisted(() => ({ dir: '' }));
@@ -29,7 +29,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
   beforeAll(async () => {
     const databaseUrl = process.env.TEST_DATABASE_URL;
     if (!databaseUrl) throw new Error('TEST_DATABASE_URL not set');
-    tmp.dir = await mkdtemp(path.join(os.tmpdir(), 'liner-art-'));
+    tmp.dir = await mkdtemp(path.join(os.tmpdir(), 'tagave-art-'));
     process.env.CACHE_DIR = path.join(tmp.dir, 'cache');
     ({ artFetchJob } = await import('./artFetch.js'));
     const made = await makeDb(databaseUrl);

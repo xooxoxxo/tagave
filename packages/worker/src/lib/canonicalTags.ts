@@ -4,8 +4,8 @@
  * field names (tracknumber, musicbrainz_recordingid, ...). This is the one
  * place that maps between the two.
  */
-import type { CanonicalField } from '@liner/shared';
-import type { RawTrackTags } from '@liner/core';
+import type { CanonicalField } from '@tagave/shared';
+import type { RawTrackTags } from '@tagave/core';
 
 export type CanonicalValue = string | string[] | null;
 

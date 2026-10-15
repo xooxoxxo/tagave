@@ -11,7 +11,7 @@
  */
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import type { ArtistDetail } from '../hooks';
-import { artistLabel } from '@liner/shared';
+import { artistLabel } from '@tagave/shared';
 import { AlbumGrid, Bar, Biography, DetailsNote, FollowButton, ProviderLinks, SkeletonGrid, detailsWhen } from './ArtistParts';
 import { Button } from '../components/ui';
 import { kickerLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';

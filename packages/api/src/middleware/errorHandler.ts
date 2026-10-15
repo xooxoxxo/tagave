@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ZodError } from 'zod';
-import type { ProblemDetails } from '@liner/shared/problem';
-import { createProblemDetails } from '@liner/shared/problem';
+import type { ProblemDetails } from '@tagave/shared/problem';
+import { createProblemDetails } from '@tagave/shared/problem';
 
 export class ApiError extends Error {
   constructor(

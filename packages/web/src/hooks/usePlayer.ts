@@ -5,7 +5,7 @@
  */
 import { useCallback, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { type CapabilitiesView, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SavePlayerServer } from '@liner/shared';
+import { type CapabilitiesView, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SavePlayerServer } from '@tagave/shared';
 import { api } from '../services/api';
 import { useCurrentLibrary } from './useCurrentLibrary';
 import { useMe } from './useAuth';

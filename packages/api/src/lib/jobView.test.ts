@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { JobView } from '@liner/shared';
+import type { JobView } from '@tagave/shared';
 import { deriveJobViews, jobLabel, jobSummary, parseProgress, retryRequest, summarizeJobs, toIso, type JobRow } from './jobView.js';
 
 const LIB = '01a05c38-c7d3-7d58-b32a-0f0ecc428e64';

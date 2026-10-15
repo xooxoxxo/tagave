@@ -8,8 +8,8 @@ import { MutagenTagWriter, resolvePythonInterpreter } from './tagWriter.js';
 import path from 'path';
 import fs from 'fs';
 import { execSync } from 'child_process';
-import type { TagSet } from '@liner/shared';
-import type { WriteOptions } from '@liner/core';
+import type { TagSet } from '@tagave/shared';
+import type { WriteOptions } from '@tagave/core';
 
 /**
  * Check if mutagen is available

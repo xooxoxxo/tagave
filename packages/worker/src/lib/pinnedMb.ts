@@ -6,8 +6,8 @@
  * the local files. "pinned id not found" used to be a log line only
  * (2026-09-29, Hotel Costes Vol. 11: 593f3c1a-… is a release group).
  */
-import type { CanonicalRelease, Edition, EditionsPage } from '@liner/core';
-import type { ReleaseChoice } from '@liner/shared';
+import type { CanonicalRelease, Edition, EditionsPage } from '@tagave/core';
+import type { ReleaseChoice } from '@tagave/shared';
 
 /** Choices shown on the album page; the rest are counted. */
 export const MAX_RELEASE_CHOICES = 12;

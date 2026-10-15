@@ -3,7 +3,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { normalizeCatno, pickBarcodeHit, pickCatnoHit, pickFuzzyHit } from './enrichRelease.js';
-import type { CanonicalRelease } from '@liner/core';
+import type { CanonicalRelease } from '@tagave/core';
 
 describe('normalizeCatno', () => {
   it('converts to uppercase', () => {

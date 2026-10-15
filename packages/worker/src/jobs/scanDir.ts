@@ -6,7 +6,7 @@
  * Seconds, where a root scan is minutes to hours.
  */
 import { eq } from 'drizzle-orm';
-import { scanRoots } from '@liner/db';
+import { scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot } from '../lib/walk.js';
 import { reportProgress } from './progress.js';

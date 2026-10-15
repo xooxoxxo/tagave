@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   artistGroup, artistInitials, artistLabel, cleanArtistName, compareArtistNames, isSymbolOnlyName, UNKNOWN_ARTIST,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { orderArtists, parseArtistGroup, parseArtistSort, type ArtistRow } from './artistList.js';
 
 describe('artist name display', () => {

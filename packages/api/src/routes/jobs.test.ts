@@ -6,8 +6,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { jobRuns, libraries, scanRoots, users, makeDb } from '@liner/db';
-import type { JobView } from '@liner/shared';
+import { jobRuns, libraries, scanRoots, users, makeDb } from '@tagave/db';
+import type { JobView } from '@tagave/shared';
 import { loadJobRows } from './jobs.js';
 import { deriveJobViews, summarizeJobs } from '../lib/jobView.js';
 

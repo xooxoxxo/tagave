@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -31,7 +31,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
     ctx = { db: made.db, sql: made.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
     await db.insert(users).values({ id: userId, email: `comp-${userId}@test.com`, passwordHash: 'x' });
     await db.insert(libraries).values({ id: libraryId, name: 'Comp', ownerUserId: userId, settings: {} });
-    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/liner-comp-root', displayName: 'comp', validationStatus: 'ok', pollIntervalS: 3600 });
+    await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/tagave-comp-root', displayName: 'comp', validationStatus: 'ok', pollIntervalS: 3600 });
   });
 
   beforeEach(async () => {
@@ -104,7 +104,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
     // rule change only renames the key. Before 0028's rule the key carried
     // the numbered artist; seed rows under that old key as a deploy finds them.
     const { clusterKey, normKey } = await import('../lib/helpers.js');
-    const { fieldLocks, localTracks } = await import('@liner/db');
+    const { fieldLocks, localTracks } = await import('@tagave/db');
     const ids: string[] = [];
     for (const n of [2, 3]) {
       const nn = String(n).padStart(2, '0');
@@ -145,7 +145,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
     // in the same folder; after, one album. The matched one keeps its id,
     // the other goes, and its album lock becomes a lock on its file.
     const { clusterKey, normKey } = await import('../lib/helpers.js');
-    const { fieldLocks, localTracks } = await import('@liner/db');
+    const { fieldLocks, localTracks } = await import('@tagave/db');
     const dir = 'C/Compilation';
     const made: Array<{ albumId: string; fileId: string }> = [];
     for (const [i, artist] of ['One Band', 'Other Band'].entries()) {

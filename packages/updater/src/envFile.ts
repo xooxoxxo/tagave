@@ -66,3 +66,50 @@ export async function readText(path: string): Promise<string | null> {
     throw err;
   }
 }
+
+/**
+ * The name a pre-0.9 LINER_* setting has now (the project was called liner).
+ * TAGAVE_VERSION is the image tag, so the build's version is
+ * TAGAVE_BUILD_VERSION; LINER_BACKUP_DIR was the app's folder inside its
+ * container, BACKUP_DIR now (TAGAVE_BACKUP_DIR is the host folder).
+ * Same rules as legacy_env_target in install-tagave.sh. Drop in 0.10.
+ */
+export function legacyEnvTarget(key: string): string {
+  if (key === 'LINER_VERSION') return 'TAGAVE_BUILD_VERSION';
+  if (key === 'LINER_BACKUP_DIR') return 'BACKUP_DIR';
+  return `TAGAVE_${key.slice('LINER_'.length)}`;
+}
+
+export interface LegacyEnvMigration {
+  text: string;
+  /** "LINER_X->TAGAVE_X", or "LINER_X (dropped: TAGAVE_X is set)". Names only, never values. */
+  notes: string[];
+}
+
+/**
+ * Renames every LINER_* key to its new name, keeping its value; when the new
+ * name is already set it wins and the old line goes. Every other line stays
+ * byte for byte.
+ */
+export function migrateLegacyEnv(text: string): LegacyEnvMigration {
+  const lines = text.split('\n');
+  const keyOf = (line: string) => /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)?.[1] ?? null;
+  const present = new Set(lines.map(keyOf).filter((k): k is string => k !== null));
+  const notes = new Set<string>();
+  const out: string[] = [];
+  for (const line of lines) {
+    const key = keyOf(line);
+    if (key === null || !/^LINER_[A-Z0-9_]+$/.test(key)) {
+      out.push(line);
+      continue;
+    }
+    const target = legacyEnvTarget(key);
+    if (present.has(target)) {
+      notes.add(`${key} (dropped: ${target} is set)`);
+      continue;
+    }
+    notes.add(`${key}->${target}`);
+    out.push(`${target}${line.slice(key.length)}`);
+  }
+  return { text: out.join('\n'), notes: [...notes] };
+}

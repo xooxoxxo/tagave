@@ -5,7 +5,7 @@
  * live and how to get a copy off this computer.
  */
 import { useState } from 'react';
-import type { BackupEntryView, BackupKindView, BackupSettingsView } from '@liner/shared';
+import type { BackupEntryView, BackupKindView, BackupSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Input, SegmentedControl, Select, buttonClassName, confirmDialog, type BadgeTone } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';

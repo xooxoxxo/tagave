@@ -5,7 +5,7 @@
  */
 import {
   MusicBrainzProvider, DiscogsProvider, WikidataClient, CritiqueBrainzClient, WikipediaClient, AcoustIdClient, openSecret, isSealed,
-} from '@liner/core';
+} from '@tagave/core';
 import type { WorkerContext } from './context.js';
 import { PROVIDER_INTERVALS, openCooldown, paced } from './pacer.js';
 

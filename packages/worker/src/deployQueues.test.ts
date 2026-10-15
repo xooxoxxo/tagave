@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { GATED_QUEUES, unservedWork } from '@liner/core';
+import { GATED_QUEUES, unservedWork } from '@tagave/core';
 
-// Every compose file that splits the worker into LINER_QUEUES roles must, taken
+// Every compose file that splits the worker into TAGAVE_QUEUES roles must, taken
 // together, give each queue the worker can run to some worker. A queue left
 // out is never worked: the API enqueues it and the job waits forever.
 
@@ -18,10 +18,10 @@ function gatedQueues(): string[] {
   return [...new Set(names)].sort();
 }
 
-/** Each LINER_QUEUES value in a compose file, as a list of queue names. */
+/** Each TAGAVE_QUEUES value in a compose file, as a list of queue names. */
 function queueLists(file: string): string[][] {
   const text = readFileSync(path.join(repo, file), 'utf8');
-  return [...text.matchAll(/^\s*LINER_QUEUES:\s*(\S+)\s*$/gm)].map((m) => m[1]!.split(',').map((q) => q.trim()));
+  return [...text.matchAll(/^\s*TAGAVE_QUEUES:\s*(\S+)\s*$/gm)].map((m) => m[1]!.split(',').map((q) => q.trim()));
 }
 
 describe.each([

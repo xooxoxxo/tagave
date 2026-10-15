@@ -11,6 +11,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { AlbumsSearch } from './albumsSearch';
+import { migrateStorageKey } from '../utils/renamedStorageKey';
 
 export interface AlbumListMemory {
   /** The list query the selection belongs to (filters + sort, not the view). */
@@ -27,7 +28,9 @@ export interface AlbumListMemory {
   scrollTop: number;
 }
 
-const STORAGE_KEY = 'liner.albums.selection';
+const STORAGE_KEY = 'tagave.albums.selection';
+/** Its name before 0.9; load() moves a selection kept under it (drop in 0.10). */
+const LEGACY_STORAGE_KEY = 'liner.albums.selection';
 
 const EMPTY: AlbumListMemory = { queryKey: '', search: {}, ids: [], allMatching: false, total: 0, anchorId: null, scrollTop: 0 };
 
@@ -123,6 +126,7 @@ export function leaveMessage(count: number): string {
 
 function load(): AlbumListMemory {
   try {
+    migrateStorageKey(sessionStorage, LEGACY_STORAGE_KEY, STORAGE_KEY);
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return EMPTY;
     const parsed = JSON.parse(raw) as Partial<AlbumListMemory>;

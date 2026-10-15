@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { TagPlanResultAlbum, TagPlanResults } from '@liner/shared';
+import type { TagPlanResultAlbum, TagPlanResults } from '@tagave/shared';
 import { RESULT_STATUSES, resultsFilesLine, resultsHeadline, revertedLine } from './planResultsText';
 
 const album = (over: Partial<TagPlanResultAlbum> = {}): TagPlanResultAlbum => ({

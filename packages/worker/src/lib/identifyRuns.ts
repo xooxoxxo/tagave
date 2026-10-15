@@ -4,7 +4,7 @@
  * beside the live pg-boss job, so a request that failed says why instead of
  * sitting "queued" forever.
  */
-import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyRequestKind, type ReleaseChoice } from '@liner/shared';
+import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyRequestKind, type ReleaseChoice } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 
 export interface IdentifyOutcome {

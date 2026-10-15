@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseCueSheet } from '@liner/core';
+import { parseCueSheet } from '@tagave/core';
 import { expandFilesWithCues } from './cueExpand.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

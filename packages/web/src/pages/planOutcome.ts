@@ -8,7 +8,7 @@
  * album as reason "audio_file_error" with the message "album not
  * identified"; those still read correctly.
  */
-import type { TagPlanStats } from '@liner/shared';
+import type { TagPlanStats } from '@tagave/shared';
 
 export interface PreviewOutcome {
   /** the preview wrote nothing for any file */

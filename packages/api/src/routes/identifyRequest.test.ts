@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { libraries, localAlbums, releaseGroups, releases, users } from '@liner/db';
+import { libraries, localAlbums, releaseGroups, releases, users } from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 // lets a test stand in for pg-boss: write the job row and return its id

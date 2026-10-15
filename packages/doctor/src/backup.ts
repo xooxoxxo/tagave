@@ -3,36 +3,43 @@ import { mkdir, readFile, readdir, rename, stat, unlink, writeFile } from 'node:
 import { statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
+import { readRenamedEnv, tagaveEnv } from '@tagave/shared/env';
 
 const run = promisify(execFile);
 
-export const BACKUP_PREFIX = 'liner-';
+export const BACKUP_PREFIX = 'tagave-';
+/**
+ * The prefixes of this app's own dumps: tagave- and, from releases before
+ * 0.9, liner-. Dumps with either are listed, restored, pruned and sorted by
+ * time together. The old one is never written again.
+ */
+const OWN_PREFIX_RE = /^(?:tagave|liner)-/;
 export const BACKUP_SUFFIX = '.pgdump';
 /** Written next to each dump by runBackup: what kind it is and whether pg_restore could read it back. */
 export const SIDECAR_SUFFIX = '.json';
 
 /**
  * Why a dump exists. nightly: the scheduled job (the only kind retention
- * deletes). manual: "Back up now" or `liner-doctor backup`. pre-migration:
+ * deletes). manual: "Back up now" or `tagave-doctor backup`. pre-migration:
  * taken by the app before it applies database updates (premigrate.ts); the
- * app keeps the newest LINER_PREMIGRATE_BACKUP_KEEP of them.
- * pre-restore: taken by `liner-doctor restore --in-place` before it replaces
+ * app keeps the newest TAGAVE_PREMIGRATE_BACKUP_KEEP of them.
+ * pre-restore: taken by `tagave-doctor restore --in-place` before it replaces
  * the data.
  */
 export const BACKUP_KINDS = ['nightly', 'manual', 'pre-migration', 'pre-restore'] as const;
 export type BackupKind = (typeof BACKUP_KINDS)[number];
 
 /**
- * liner-2026-09-08T00-30-00Z-nightly.pgdump — sorts chronologically; no colons
- * so SMB/Windows shares accept it. The kind suffix is left off for manual
- * dumps, which keeps the name older releases wrote.
+ * tagave-2026-09-08T00-30-00Z-nightly.pgdump — no colons so SMB/Windows
+ * shares accept it. The kind suffix is left off for manual dumps, which
+ * keeps the shape older releases wrote (with the liner- prefix before 0.9).
  */
 export function backupFileName(now: Date, kind: BackupKind = 'manual'): string {
   const ts = now.toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '-');
   return `${BACKUP_PREFIX}${ts}${kind === 'manual' ? '' : `-${kind}`}${BACKUP_SUFFIX}`;
 }
 
-const NAME_RE = /^liner-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z(?:-([a-z-]+))?\.pgdump$/;
+const NAME_RE = /^(?:tagave|liner)-(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})Z(?:-([a-z-]+))?\.pgdump$/;
 
 /**
  * Kind and time from a dump's file name. Any other *.pgdump in the directory
@@ -70,8 +77,8 @@ export function isSafeBackupName(name: string): boolean {
 }
 
 /**
- * Kind the file name itself declares, for files this app wrote (liner-<time>
- * with an optional known kind suffix), or null for anything else. Unlike
+ * Kind the file name itself declares, for files this app wrote (tagave-<time>,
+ * or liner-<time> before 0.9, with an optional known kind suffix), or null for anything else. Unlike
  * parseBackupName this never guesses: it decides what may be deleted.
  */
 export function ownKind(name: string): BackupKind | null {
@@ -81,35 +88,47 @@ export function ownKind(name: string): BackupKind | null {
   return (BACKUP_KINDS as readonly string[]).includes(m[5]) ? (m[5] as BackupKind) : null;
 }
 
+/**
+ * Oldest first for this app's dump names, whichever prefix they carry: the
+ * name after the prefix starts with the UTC time, so it sorts by time.
+ */
+export function compareBackupNames(a: string, b: string): number {
+  const key = (n: string) => n.replace(OWN_PREFIX_RE, '');
+  const ka = key(a);
+  const kb = key(b);
+  if (ka !== kb) return ka < kb ? -1 : 1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /** Dump files this app wrote among `files`, oldest first. Foreign files in the directory are never touched. */
 export function ownBackups(files: string[]): string[] {
-  return files.filter((f) => ownKind(f) !== null).sort();
+  return files.filter((f) => ownKind(f) !== null).sort(compareBackupNames);
 }
 
 /**
  * Files to delete so that only the newest `keep` manual dumps remain
- * (`liner-doctor backup --keep N`). Nightly dumps have their own retention,
+ * (`tagave-doctor backup --keep N`). Nightly dumps have their own retention,
  * the app prunes pre-migration dumps after a successful update (pruneBackups),
  * and pre-restore dumps are kept until the user deletes them.
  */
 export function pruneList(files: string[], keep: number): string[] {
-  const manual = files.filter((f) => ownKind(f) === 'manual').sort();
+  const manual = files.filter((f) => ownKind(f) === 'manual').sort(compareBackupNames);
   if (keep < 0) return [];
   return manual.slice(0, Math.max(0, manual.length - keep));
 }
 
-/** `pg_restore --list` prints one line per archive entry ("123; 1259 16384 TABLE public albums liner"); comment lines start with ';'. */
+/** `pg_restore --list` prints one line per archive entry ("123; 1259 16384 TABLE public albums tagave"); comment lines start with ';'. */
 export function countTocEntries(listing: string): number {
   return listing.split('\n').filter((line) => /^\d+;/.test(line)).length;
 }
 
 /**
  * Where dumps go: BACKUP_DIR (the compose files mount a dedicated backups
- * volume there), LINER_BACKUP_DIR (older name), then CACHE_DIR/backups for a
+ * volume there), LINER_BACKUP_DIR (its pre-0.9 name, until 0.10), then CACHE_DIR/backups for a
  * source install, then ./backups.
  */
 export function defaultBackupDir(env: NodeJS.ProcessEnv, cwd = process.cwd()): string {
-  const explicit = env['BACKUP_DIR'] || env['LINER_BACKUP_DIR'];
+  const explicit = env['BACKUP_DIR'] || readRenamedEnv('BACKUP_DIR', 'LINER_BACKUP_DIR', env);
   if (explicit) return explicit;
   const cacheDir = env['CACHE_DIR'];
   if (cacheDir) return join(cacheDir, 'backups');
@@ -130,9 +149,9 @@ export function isSeparateMount(dir: string, root = '/'): boolean | null {
   }
 }
 
-/** The app image sets LINER_BACKUP_REQUIRE_MOUNT=1: there, a backup folder that is not a mount does not survive. */
+/** The app image sets TAGAVE_BACKUP_REQUIRE_MOUNT=1: there, a backup folder that is not a mount does not survive. */
 export function backupMountRequired(env: NodeJS.ProcessEnv): boolean {
-  return /^(1|true|yes|on)$/i.test((env['LINER_BACKUP_REQUIRE_MOUNT'] ?? '').trim());
+  return /^(1|true|yes|on)$/i.test((tagaveEnv('BACKUP_REQUIRE_MOUNT', env) ?? '').trim());
 }
 
 export interface BackupOptions {
@@ -289,7 +308,7 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
 
 /** Delete this app's older dumps of `kind` in `outDir` so only the newest `keep` remain. Returns the names removed. */
 export async function pruneBackups(outDir: string, keep: number, kind: BackupKind): Promise<string[]> {
-  const ours = (await readdir(outDir)).filter((f) => ownKind(f) === kind).sort();
+  const ours = (await readdir(outDir)).filter((f) => ownKind(f) === kind).sort(compareBackupNames);
   const doomed = keep < 0 ? [] : ours.slice(0, Math.max(0, ours.length - keep));
   for (const old of doomed) await removeDump(outDir, old);
   return doomed;

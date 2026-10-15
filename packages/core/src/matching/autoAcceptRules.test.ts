@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   compareEdition, everyCheckAgrees, matchPercent, matchStrength, statusTag,
   DEFAULT_AUTO_ACCEPT_RULES, autoAcceptRulesSchema, type AutoAcceptRules,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { evaluateAutoAccept, type RuleCandidate } from './autoAcceptRules.js';
 import { MATCHING_THRESHOLDS } from './types.js';
 

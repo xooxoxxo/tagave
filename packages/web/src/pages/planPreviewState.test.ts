@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TagPlanPreviewJob } from '@liner/shared';
+import type { TagPlanPreviewJob } from '@tagave/shared';
 import { awaitAfterPreview, canPreview, derivePreviewState, progressSignature, shouldPollPlan, type PreviewInput } from './planPreviewState';
 import { previewTagPlanOptions } from '../hooks/usePlanWizard';
 

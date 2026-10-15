@@ -1,4 +1,4 @@
-import type { IdentifyRequestView } from '@liner/shared';
+import type { IdentifyRequestView } from '@tagave/shared';
 import { describe, expect, it } from 'vitest';
 import {
   albumSearchRedirect,

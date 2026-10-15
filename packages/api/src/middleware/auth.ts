@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { SessionUser } from '@liner/shared/auth';
+import type { SessionUser } from '@tagave/shared/auth';
 import {
   LEGACY_SESSION_COOKIE,
   fromNodeHeaders,
   sessionCookieNames,
   type AuthHandle,
-} from '@liner/auth';
+} from '@tagave/auth';
 
 declare module 'fastify' {
   interface FastifyRequest {

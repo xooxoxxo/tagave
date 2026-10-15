@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, desc } from 'drizzle-orm';
-import { fieldLocks, auditLog, libraries, localAlbums } from '@liner/db';
+import { fieldLocks, auditLog, libraries, localAlbums } from '@tagave/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 

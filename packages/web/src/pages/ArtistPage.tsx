@@ -20,7 +20,7 @@ import {
 } from '../hooks';
 import { PageShell, Button, IconButton } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
-import { artistLabel } from '@liner/shared';
+import { artistLabel } from '@tagave/shared';
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumFlowHeader } from './AlbumFlowHeader';

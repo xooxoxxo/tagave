@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { compareEdition, matchPercent, statusTag, type AutoAcceptView, type ComparisonRow } from '@liner/shared';
+import { compareEdition, matchPercent, statusTag, type AutoAcceptView, type ComparisonRow } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
 import { Button, IconButton, Input } from '../components/ui';

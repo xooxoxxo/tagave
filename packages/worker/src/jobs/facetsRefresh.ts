@@ -1,5 +1,5 @@
-import { fetchArtistRows } from '@liner/db';
-import { artistListPositions } from '@liner/core';
+import { fetchArtistRows } from '@tagave/db';
+import { artistListPositions } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 
 export interface FacetsRefreshJobData {

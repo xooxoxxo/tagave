@@ -13,7 +13,7 @@ import {
   type PreviousBackup,
   type RunMigrationsResult,
   type SchemaState,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   backupMountRequired,
   defaultBackupDir,
@@ -23,24 +23,25 @@ import {
   type BackupOptions,
   type BackupResult,
 } from './backup.js';
+import { tagaveEnv } from '@tagave/shared/env';
 
-/** Kind of the dump the app takes before it migrates: liner-<time>-pre-migration.pgdump in the backups folder. */
+/** Kind of the dump the app takes before it migrates: tagave-<time>-pre-migration.pgdump in the backups folder. */
 export const PREMIGRATE_KIND = 'pre-migration' as const;
 export const PREMIGRATE_KEEP_DEFAULT = 5;
 
 const truthy = (v: string | undefined) => v !== undefined && /^(1|true|yes|on)$/i.test(v.trim());
 
 export function skipPreMigrationBackup(env: NodeJS.ProcessEnv): boolean {
-  return truthy(env['LINER_SKIP_PREMIGRATE_BACKUP']);
+  return truthy(tagaveEnv('SKIP_PREMIGRATE_BACKUP', env));
 }
 
 export function allowSchemaSkew(env: NodeJS.ProcessEnv): boolean {
-  return truthy(env['LINER_ALLOW_SCHEMA_SKEW']);
+  return truthy(tagaveEnv('ALLOW_SCHEMA_SKEW', env));
 }
 
-/** How many pre-migration dumps to keep (LINER_PREMIGRATE_BACKUP_KEEP, default 5, at least 1). */
+/** How many pre-migration dumps to keep (TAGAVE_PREMIGRATE_BACKUP_KEEP, default 5, at least 1). */
 export function preMigrationKeep(env: NodeJS.ProcessEnv): number {
-  const n = Number.parseInt(env['LINER_PREMIGRATE_BACKUP_KEEP'] ?? '', 10);
+  const n = Number.parseInt(tagaveEnv('PREMIGRATE_BACKUP_KEEP', env) ?? '', 10);
   return Number.isFinite(n) && n >= 1 ? n : PREMIGRATE_KEEP_DEFAULT;
 }
 
@@ -58,7 +59,7 @@ export interface PreMigrationBackupOptions {
 
 /**
  * The plain reason the backup folder will not keep a dump, or null. Only the
- * app image asks for a mount (LINER_BACKUP_REQUIRE_MOUNT=1): there, a folder
+ * app image asks for a mount (TAGAVE_BACKUP_REQUIRE_MOUNT=1): there, a folder
  * that is not a volume or host folder is inside the container and is lost
  * when the container is recreated, for example by the rollback itself.
  */
@@ -86,8 +87,8 @@ export function preMigrationBackup(
   return async (state, previous = null) => {
     const outDir = defaultBackupDir(env);
     if (skipPreMigrationBackup(env)) {
-      log(`LINER_SKIP_PREMIGRATE_BACKUP is set: applying ${state.pending.length} migration(s) without a backup`);
-      return { status: 'skipped', path: null, bytes: null, note: 'LINER_SKIP_PREMIGRATE_BACKUP' };
+      log(`TAGAVE_SKIP_PREMIGRATE_BACKUP is set: applying ${state.pending.length} migration(s) without a backup`);
+      return { status: 'skipped', path: null, bytes: null, note: 'TAGAVE_SKIP_PREMIGRATE_BACKUP' };
     }
     // A restart after this same update failed part way: the database is half
     // migrated, so a new dump would not be a rollback point. Keep the first one.
@@ -107,8 +108,8 @@ export function preMigrationBackup(
     const folderProblem = backupFolderProblem(outDir, env, opts.isMount);
     if (folderProblem) {
       throw new PreMigrationBackupError(
-        `Not migrating: ${folderProblem}. Nothing was changed. Set LINER_BACKUP_REQUIRE_MOUNT=0 to write there ` +
-          'anyway, or LINER_SKIP_PREMIGRATE_BACKUP=1 to migrate without a backup.',
+        `Not migrating: ${folderProblem}. Nothing was changed. Set TAGAVE_BACKUP_REQUIRE_MOUNT=0 to write there ` +
+          'anyway, or TAGAVE_SKIP_PREMIGRATE_BACKUP=1 to migrate without a backup.',
       );
     }
     log(`backing up the database to ${outDir} before applying ${state.pending.length} migration(s)...`);
@@ -128,8 +129,8 @@ export function preMigrationBackup(
       throw new PreMigrationBackupError(
         `Not migrating: the backup before migrating failed (${(err as Error).message}). Nothing was changed. ` +
           `Check that ${outDir} exists, is writable and has free space, and that pg_dump 16 is installed ` +
-          '(the app image has it). Set LINER_BACKUP_DIR to use another folder, or set ' +
-          'LINER_SKIP_PREMIGRATE_BACKUP=1 to migrate without a backup.',
+          '(the app image has it). Set BACKUP_DIR to use another folder, or set ' +
+          'TAGAVE_SKIP_PREMIGRATE_BACKUP=1 to migrate without a backup.',
       );
     }
   };
@@ -137,7 +138,7 @@ export function preMigrationBackup(
 
 export interface MigrateOnBootOptions extends PreMigrationBackupOptions {
   appVersion: string;
-  /** Tests only; the app uses the migrations shipped in @liner/db. */
+  /** Tests only; the app uses the migrations shipped in @tagave/db. */
   migrationsDir?: string;
 }
 

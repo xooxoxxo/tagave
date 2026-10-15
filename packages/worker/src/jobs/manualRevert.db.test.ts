@@ -19,7 +19,7 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import { parseFile } from 'music-metadata';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from '../lib/tagWriter.js';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
@@ -73,7 +73,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !toolsAvailable())('manual pla
     ctx = { db, sql: client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
     writer = new MutagenTagWriter();
 
-    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'liner-manual-revert-'));
+    tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tagave-manual-revert-'));
     const full = path.join(tempDir, relPath);
     await fs.mkdir(path.dirname(full), { recursive: true });
     execSync(`ffmpeg -loglevel error -f lavfi -i "sine=frequency=440:duration=1" -c:a libmp3lame -b:a 128k -y "${full}"`, { stdio: 'pipe' });

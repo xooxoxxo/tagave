@@ -4,7 +4,7 @@
  * the policy follows the Q5 defaults of the M2 plan when nothing (or something
  * unparseable) is stored.
  */
-import { tagPoliciesSchema, type TagPolicies } from '@liner/shared';
+import { tagPoliciesSchema, type TagPolicies } from '@tagave/shared';
 
 export const DEFAULT_TAG_POLICY: TagPolicies = {
   preset: 'canonical_ids_and_fill',

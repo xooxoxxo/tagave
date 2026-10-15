@@ -3,7 +3,7 @@
  * (preview GET /storage/tag-changes, run POST /storage/tag-changes/cleanup).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { StorageOverview, TagChangeCleanupPreview, TagChangeCleanupRequest, TagChangeCleanupResult, TagChangeCleanupScope } from '@liner/shared';
+import type { StorageOverview, TagChangeCleanupPreview, TagChangeCleanupRequest, TagChangeCleanupResult, TagChangeCleanupScope } from '@tagave/shared';
 import { api } from '../services/api';
 
 export function useStorage() {

@@ -9,8 +9,8 @@
  * screen: the new candidate's id, or a sentence saying why there is none.
  */
 import { and, eq } from 'drizzle-orm';
-import { localAlbums, localTracks, matchCandidates } from '@liner/db';
-import { scoreCandidates, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@liner/core';
+import { localAlbums, localTracks, matchCandidates } from '@tagave/db';
+import { scoreCandidates, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
 import { discogsMaster, discogsRelease, localViewOf, mbRelease, persistFetched, toScorable } from './identifyAlbum.js';

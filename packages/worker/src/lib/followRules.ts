@@ -4,7 +4,7 @@
  * rules); a followed_artists row overrides them per artist, and a null column
  * inherits the library value.
  */
-import { normalizeFollowRules, type FollowRules } from '@liner/core';
+import { normalizeFollowRules, type FollowRules } from '@tagave/core';
 import type { WorkerContext } from './context.js';
 
 export interface EffectiveFollowRules {

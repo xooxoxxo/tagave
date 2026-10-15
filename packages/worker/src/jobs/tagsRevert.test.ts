@@ -12,9 +12,9 @@ import {
   users,
   audioFiles,
   scanRoots,
-} from '@liner/db';
-import type { TagDiffEntry } from '@liner/shared';
-import { makeDb } from '@liner/db';
+} from '@tagave/db';
+import type { TagDiffEntry } from '@tagave/shared';
+import { makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { tagsRevertJob } from './tagsRevert.js';
 import pino from 'pino';

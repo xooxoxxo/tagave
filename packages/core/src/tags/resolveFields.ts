@@ -11,8 +11,8 @@
  * Spec: §9.5 ENR-5 (lines 258–261), §11.5 (line 547), Appendix A.
  */
 
-import type { CanonicalField } from '@liner/shared';
-import { CanonicalField as CanonicalFieldEnum } from '@liner/shared';
+import type { CanonicalField } from '@tagave/shared';
+import { CanonicalField as CanonicalFieldEnum } from '@tagave/shared';
 import type { EffectiveGenres } from '../genres/index.js';
 
 /**

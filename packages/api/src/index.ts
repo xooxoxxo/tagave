@@ -7,10 +7,10 @@ import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { makeDb } from '@liner/db';
-import { AuthConfigError, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@liner/auth';
-import { readBuildInfo } from '@liner/core';
-import { migrateOnBoot } from '@liner/doctor';
+import { makeDb } from '@tagave/db';
+import { AuthConfigError, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
+import { readBuildInfo } from '@tagave/core';
+import { migrateOnBoot } from '@tagave/doctor';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
@@ -100,7 +100,7 @@ if (appSecret.length < 32) {
   process.exit(1);
 }
 if (isHex && appSecret.length < 64) {
-  logger.warn(`APP_SECRET is ${appSecret.length} hex characters (< 32 bytes); rotate with \`openssl rand -hex 32\` + \`liner-doctor reseal\` (README › Security)`);
+  logger.warn(`APP_SECRET is ${appSecret.length} hex characters (< 32 bytes); rotate with \`openssl rand -hex 32\` + \`tagave-doctor reseal\` (README › Security)`);
 }
 
 // Sign-in settings: PUBLIC_URL is required (Better Auth base URL, trusted
@@ -141,7 +141,7 @@ try {
     }
   } catch (err) {
     logger.error((err as Error).message);
-    logger.error('The app did not start. Run `liner-doctor doctor` (or read GET /api/v1/health once it is up) for the full check list.');
+    logger.error('The app did not start. Run `tagave-doctor doctor` (or read GET /api/v1/health once it is up) for the full check list.');
     process.exit(1);
   }
   const { initDb } = await import('./db.js');
@@ -155,7 +155,7 @@ try {
 
   // One-time boot migration: seal plaintext credentials (PLT-5)
   try {
-    const { sealSecret, isSealed } = await import('@liner/core');
+    const { sealSecret, isSealed } = await import('@tagave/core');
     const libraries = await db.client`
       select id, settings from libraries
       where settings->>'discogsToken' is not null

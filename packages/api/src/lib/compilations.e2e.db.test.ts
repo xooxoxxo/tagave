@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url';
 import { eq, inArray } from 'drizzle-orm';
 import {
   audioFiles, clusterOverrides, fieldLocks, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import { findMergeCandidates, mergeAlbums, unmergeAlbum, isMergedKey, MergeError } from './mergeAlbums.js';
 import { filesOfAlbums, suggestBulkValues } from './bulkTagEdit.js';
 

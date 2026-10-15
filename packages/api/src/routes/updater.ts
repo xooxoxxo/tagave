@@ -14,9 +14,9 @@
  *   GET  /api/v1/internal/updater/versions   the app's version and the live workers' heartbeats
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { readBuildInfo } from '@liner/core';
-import { startUpdateSchema, type UpdateRun, type UpdaterStatus, type UpdaterView } from '@liner/shared';
-import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@liner/updater/token';
+import { readBuildInfo } from '@tagave/core';
+import { startUpdateSchema, type UpdateRun, type UpdaterStatus, type UpdaterView } from '@tagave/shared';
+import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@tagave/updater/token';
 import { ApiError } from '../middleware/errorHandler.js';
 import { liveWorkers } from './updates.js';
 import { requireFreshStepUp } from './stepUp.js';

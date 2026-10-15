@@ -9,7 +9,7 @@
  * change between tracks is quick.
  */
 import { create } from 'zustand';
-import type { PlayEventKind, PlayerQueueTrack, PlayerQueueView, StreamFormat } from '@liner/shared';
+import type { PlayEventKind, PlayerQueueTrack, PlayerQueueView, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
   FAILURE_TEXT, chooseFormat, classifyFailure, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, previousAction,

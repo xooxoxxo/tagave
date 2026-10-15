@@ -14,7 +14,7 @@ const log = { info: () => undefined, warn: () => undefined };
 describe.skipIf(!url)('worker schema guard (integration)', () => {
   let admin: postgres.Sql;
   let sql: postgres.Sql;
-  const name = `liner_wguard_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const name = `tagave_wguard_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
@@ -88,6 +88,6 @@ describe.skipIf(!url)('worker schema guard (integration)', () => {
 
   it('reads the wait budget from the environment', () => {
     expect(schemaWaitMs({})).toBe(900_000);
-    expect(schemaWaitMs({ LINER_SCHEMA_WAIT_SECONDS: '30' })).toBe(30_000);
+    expect(schemaWaitMs({ TAGAVE_SCHEMA_WAIT_SECONDS: '30' })).toBe(30_000);
   });
 });

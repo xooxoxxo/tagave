@@ -1,12 +1,13 @@
 {
-  "name": "@liner/doctor",
+  "name": "@tagave/doctor",
   "version": "0.1.0",
   "type": "module",
   "description": "tagave diagnostics: health checks for database, workers, scan roots, providers, and configuration",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "liner-doctor": "./dist/cli.js"
+    "tagave-doctor": "./dist/cli.js",
+    "liner-doctor": "./dist/liner-doctor.js"
   },
   "scripts": {
     "build": "tsc -b",
@@ -15,9 +16,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@liner/auth": "workspace:*",
-    "@liner/core": "workspace:*",
-    "@liner/db": "workspace:*",
+    "@tagave/auth": "workspace:*",
+    "@tagave/core": "workspace:*",
+    "@tagave/db": "workspace:*",
+    "@tagave/shared": "workspace:*",
     "postgres": "^3.4.9",
     "zod": "^4.6.5"
   },

@@ -6,10 +6,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { canonicalTracks, releases, releaseGroups, makeDb } from '@liner/db';
+import { canonicalTracks, releases, releaseGroups, makeDb } from '@tagave/db';
 import pino from 'pino';
 import { canonicalTrackRows, upsertCanonical } from './canonical.js';
-import type { CanonicalRelease, CanonicalTrack } from '@liner/core';
+import type { CanonicalRelease, CanonicalTrack } from '@tagave/core';
 import type { WorkerContext } from './context.js';
 
 describe('canonicalTrackRows', () => {

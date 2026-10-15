@@ -9,7 +9,7 @@
 import {
   DEFAULT_RELEASES_URL, UPDATE_CHECK_INTERVAL_MS, compareVersions, installMethodSchema, isGithubReleasesUrl,
   type BuildInfoView, type InstallInfo, type ReleaseNote, type UpdatesStatus, type WorkerVersion,
-} from '@liner/shared';
+} from '@tagave/shared';
 
 /** GitHub asks for a User-Agent; this one names the app and nothing else. */
 export const FEED_USER_AGENT = 'tagave-update-check';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { folderLinkBaseProblem, folderLinkFor, normalizeFolderLinkBase } from '@liner/shared';
+import { folderLinkBaseProblem, folderLinkFor, normalizeFolderLinkBase } from '@tagave/shared';
 import { albumFoldersView, folderLinksOf } from './folderLinks.js';
 import { artFetchViewOf } from './artFetchState.js';
 

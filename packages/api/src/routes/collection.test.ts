@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
-import { collectionItems, collectionSources, libraries, localAlbums, releaseGroups, releases, users } from '@liner/db';
+import { collectionItems, collectionSources, libraries, localAlbums, releaseGroups, releases, users } from '@tagave/db';
 
 const boss = vi.hoisted(() => ({
   createQueue: vi.fn(async () => undefined),

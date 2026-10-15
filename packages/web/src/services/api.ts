@@ -7,7 +7,7 @@
  * - Credentials (httpOnly cookies)
  */
 
-import { ProblemDetails } from '@liner/shared';
+import { ProblemDetails } from '@tagave/shared';
 
 export interface ApiError extends ProblemDetails {
   status: number;

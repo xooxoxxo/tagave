@@ -6,7 +6,7 @@
  * ones from before.
  */
 import { Link } from '@tanstack/react-router';
-import type { TagPlanResultAlbum, TagPlanResults } from '@liner/shared';
+import type { TagPlanResultAlbum, TagPlanResults } from '@tagave/shared';
 import { plural } from './planOutcome';
 import { resultsFilesLine, resultsHeadline, revertedLine } from './planResultsText';
 import styles from './PlanResults.module.css';

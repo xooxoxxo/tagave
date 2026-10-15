@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@liner/db';
+import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 vi.mock('../boss.js', () => ({

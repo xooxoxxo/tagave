@@ -4,8 +4,8 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq } from 'drizzle-orm';
-import { libraries, savedViews } from '@liner/db';
-import { albumsQuerySchema, createSavedViewSchema, type SavedView } from '@liner/shared';
+import { libraries, savedViews } from '@tagave/db';
+import { albumsQuerySchema, createSavedViewSchema, type SavedView } from '@tagave/shared';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 

@@ -3,10 +3,10 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AlbumSummary } from '@liner/shared';
+import type { AlbumSummary } from '@tagave/shared';
 import { api } from '../services/api';
 import { LibraryState, LocalAlbum, ScanRootWithStatus, PaginatedResponse } from '../types/index';
-import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@liner/shared';
+import { ScanRoot, Library, LibrarySettingsView, PatchLibrarySettings, CreateScanRootRequest } from '@tagave/shared';
 
 const LIBRARY_QUERY_KEY = ['library'];
 const LIBRARIES_QUERY_KEY = ['libraries'];

@@ -3,7 +3,7 @@
  * These complement the shared types and define API-specific structures
  */
 
-import { SessionUser, Library, ScanRoot, ScanStats } from '@liner/shared';
+import { SessionUser, Library, ScanRoot, ScanStats } from '@tagave/shared';
 
 /**
  * Paginated response wrapper

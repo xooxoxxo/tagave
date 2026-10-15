@@ -28,7 +28,7 @@ export const tagavePlugin = (sql: postgres.Sql, rpId: string) =>
           }),
         },
         {
-          // Remember which host a new passkey is bound to (liner-doctor
+          // Remember which host a new passkey is bound to (tagave-doctor
           // compares it with PUBLIC_URL).
           matcher: (ctx) => ctx.path === '/passkey/verify-registration',
           handler: createAuthMiddleware(async (ctx) => {

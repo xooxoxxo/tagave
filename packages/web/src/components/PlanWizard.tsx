@@ -8,7 +8,7 @@
  */
 
 import { Fragment, useState, useCallback, useEffect, useId, useRef } from 'react';
-import type { TagPlan, TagPlanScope, TagPolicies, CreateTagPlan } from '@liner/shared';
+import type { TagPlan, TagPlanScope, TagPolicies, CreateTagPlan } from '@tagave/shared';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { Button, Badge, Banner } from '../components/ui';
 import { useCreateTagPlan, useLibrarySettings, useAddToTagPlan, useOpenTagPlans } from '../hooks/usePlanWizard';

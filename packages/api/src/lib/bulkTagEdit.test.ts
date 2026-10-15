@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { displayArtistName, isVariousArtists, leadingNumberOf, stripTrackNumberPrefix, manualTagValuesSchema } from '@liner/shared';
+import { displayArtistName, isVariousArtists, leadingNumberOf, stripTrackNumberPrefix, manualTagValuesSchema } from '@tagave/shared';
 import { bulkTagsFrom, suggestBulkValues, type BulkFileTags } from './bulkTagEdit.js';
 import { mergedArtistGuess, mergedOriginalKey, isMergedKey } from './mergeAlbums.js';
 

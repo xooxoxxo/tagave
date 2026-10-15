@@ -51,7 +51,7 @@ export {
 export interface DoctorOptions {
   databaseUrl: string;
   cacheDir?: string;
-  /** Pre-migration backup folder; LINER_BACKUP_DIR (then CACHE_DIR/backups) when absent. */
+  /** Pre-migration backup folder; BACKUP_DIR (then CACHE_DIR/backups) when absent. */
   backupDir?: string;
   expectWorkers?: number;
   offline?: boolean;

@@ -9,11 +9,11 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
-import type { CanonicalRelease } from '@liner/core';
+import type { CanonicalRelease } from '@tagave/core';
 import {
   albumMatches, audioFiles, autoAcceptRules, libraries, localAlbums, localTracks, matchCandidates,
   releases, scanRoots, users, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 const catalogue = new Map<string, CanonicalRelease>();

@@ -14,8 +14,8 @@ import {
   readBackupStatus,
   writeBackupSettings,
   type BackupEntry,
-} from '@liner/doctor';
-import { backupSettingsSchema, type BackupsStatus } from '@liner/shared';
+} from '@tagave/doctor';
+import { backupSettingsSchema, type BackupsStatus } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import type { BackupService } from '../lib/backupService.js';
 

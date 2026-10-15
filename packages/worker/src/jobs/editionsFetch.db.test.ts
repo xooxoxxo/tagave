@@ -6,10 +6,10 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq, asc } from 'drizzle-orm';
-import { libraries, users, releaseGroups, releases } from '@liner/db';
-import { makeDb } from '@liner/db';
+import { libraries, users, releaseGroups, releases } from '@tagave/db';
+import { makeDb } from '@tagave/db';
 import pino from 'pino';
-import type { Edition } from '@liner/core';
+import type { Edition } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { editionsFetchJob } from './editionsFetch.js';
 

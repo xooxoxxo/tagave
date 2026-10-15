@@ -1,7 +1,7 @@
 import {
   compareEdition, everyCheckAgrees, matchPercent, statusTag, autoAcceptRulesSchema, DEFAULT_AUTO_ACCEPT_RULES,
   type AutoAcceptRules, type ComparableAlbum, type ComparableEdition,
-} from '@liner/shared';
+} from '@tagave/shared';
 
 /**
  * The owner's auto-accept rules (Review matches › Auto-accept), as one pure

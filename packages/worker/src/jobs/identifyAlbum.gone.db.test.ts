@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { libraries, localAlbums, matchCandidates, users, makeDb } from '@liner/db';
+import { libraries, localAlbums, matchCandidates, users, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { identifyAlbumJob, unlessAlbumGone } from './identifyAlbum.js';
 

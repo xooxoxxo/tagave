@@ -1,5 +1,5 @@
 /**
- * `liner-doctor restore <file>`: put a dump back into the configured database.
+ * `tagave-doctor restore <file>`: put a dump back into the configured database.
  *
  * Two ways, both refuse to run while the app or a worker is connected
  * (unless --force), and both leave a way back:

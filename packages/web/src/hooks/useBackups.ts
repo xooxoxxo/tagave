@@ -3,7 +3,7 @@
  * delete, and the nightly schedule and retention.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { BackupSettingsView, BackupsStatus } from '@liner/shared';
+import type { BackupSettingsView, BackupsStatus } from '@tagave/shared';
 import { api } from '../services/api';
 
 const key = ['backups'] as const;

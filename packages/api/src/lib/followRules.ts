@@ -5,7 +5,7 @@
  * later library change leaves existing follows alone; "Reset to library
  * defaults" on the artist page copies again.
  */
-import { normalizeFollowRules, type FollowRules } from '@liner/core';
+import { normalizeFollowRules, type FollowRules } from '@tagave/core';
 
 export function followDefaultsFor(settings: unknown): Pick<FollowRules, 'includePrimary' | 'excludeSecondary'> {
   let obj: unknown = settings;

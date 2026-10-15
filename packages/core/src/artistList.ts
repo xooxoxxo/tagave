@@ -1,18 +1,18 @@
 /**
  * Ordering, grouping and positions of the artists list (rows from
- * @liner/db fetchArtistRows).
+ * @tagave/db fetchArtistRows).
  *
  * Ordering happens here rather than in SQL because "A–Z" has rules SQL
  * collation cannot express portably: control and zero-width characters are
  * ignored, symbol-only and blank names file last under "#", other scripts
  * keep their own group, and a leading "The" does not count (see
- * @liner/shared artistLabels). A library has at most tens of thousands of
+ * @tagave/shared artistLabels). A library has at most tens of thousands of
  * artist rows, so sorting the aggregated rows in memory costs a few
  * milliseconds next to the aggregate query itself.
  */
 import {
   ARTIST_GROUP_ORDER, artistGroup, artistNameKey, compareArtistNameKeys, type ArtistGroupKey,
-} from '@liner/shared';
+} from '@tagave/shared';
 
 export type ArtistSort = 'name' | 'albums' | 'recent';
 export const ARTIST_SORTS: readonly ArtistSort[] = ['name', 'albums', 'recent'];

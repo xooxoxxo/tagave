@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { CanonicalRelease, Edition, EditionsPage } from '@liner/core';
+import type { CanonicalRelease, Edition, EditionsPage } from '@tagave/core';
 import { formatsLabel, rankEditions, resolvePinnedMb, MAX_RELEASE_CHOICES } from './pinnedMb.js';
 
 const notFound = () => Object.assign(new Error('Not Found'), { status: 404 });

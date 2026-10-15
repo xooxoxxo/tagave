@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
-import { jobRuns } from '@liner/db';
+import { jobRuns } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
 
 export interface ProgressUpdate {
   libraryId: string;
@@ -81,7 +82,7 @@ export async function reportProgress(
   };
   // NOTIFY payload cap is 8000 bytes; our events are small, but guard anyway.
   const payload = JSON.stringify(event).slice(0, 7900);
-  await ctx.sql`select pg_notify('liner_jobs', ${payload})`;
+  await ctx.sql`select pg_notify(${JOB_EVENTS_CHANNEL}, ${payload})`;
   return id;
 }
 
@@ -98,7 +99,7 @@ export async function notifyQueueChanged(
 ): Promise<void> {
   const payload = JSON.stringify({ type: 'queue.changed', libraryId, localAlbumId, state });
   try {
-    await ctx.sql`select pg_notify('liner_jobs', ${payload})`;
+    await ctx.sql`select pg_notify(${JOB_EVENTS_CHANNEL}, ${payload})`;
   } catch (err) {
     ctx.logger.warn({ err: (err as Error).message }, 'queue.changed notify failed');
   }

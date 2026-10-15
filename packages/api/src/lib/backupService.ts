@@ -13,7 +13,8 @@ import {
   runRecordedBackup,
   type BackupRunRecord,
   type BackupSettings,
-} from '@liner/doctor';
+} from '@tagave/doctor';
+import { readRenamedEnv } from '@tagave/shared/env';
 
 export const BACKUP_QUEUE = 'backup.nightly';
 
@@ -38,7 +39,7 @@ export function nightlyCron(settings: BackupSettings): string {
 
 export class BackupService {
   readonly dir: string;
-  /** The folder was named on purpose (BACKUP_DIR / LINER_BACKUP_DIR), not the fallback inside the cache. */
+  /** The folder was named on purpose (BACKUP_DIR, or the pre-0.9 LINER_BACKUP_DIR), not the fallback inside the cache. */
   readonly dedicated: boolean;
   readonly timeZone: string;
   private readonly databaseUrl: string;
@@ -51,7 +52,7 @@ export class BackupService {
     this.env = opts.env ?? process.env;
     this.databaseUrl = opts.databaseUrl;
     this.dir = defaultBackupDir(this.env);
-    this.dedicated = !!(this.env['BACKUP_DIR'] || this.env['LINER_BACKUP_DIR']);
+    this.dedicated = !!(this.env['BACKUP_DIR'] || readRenamedEnv('BACKUP_DIR', 'LINER_BACKUP_DIR', this.env));
     this.timeZone = this.env['TZ'] || 'UTC';
     this.runFn = opts.run ?? runRecordedBackup;
   }

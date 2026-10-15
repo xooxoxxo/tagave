@@ -17,15 +17,15 @@
  */
 import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { computeHint, sealSecret } from '@liner/core';
-import { ping, streamUrl, SubsonicError } from '@liner/core/player';
+import { computeHint, sealSecret } from '@tagave/core';
+import { ping, streamUrl, SubsonicError } from '@tagave/core/player';
 import {
   playEventSchema,
   savePlayerServerSchema,
   streamQuerySchema,
   type CapabilitiesView,
   type PlayerSettingsView,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getSql } from '../db.js';
 import { getBoss } from '../boss.js';

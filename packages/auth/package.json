@@ -1,8 +1,8 @@
 {
-  "name": "@liner/auth",
+  "name": "@tagave/auth",
   "version": "0.1.0",
   "type": "module",
-  "description": "tagave's one Better Auth configuration (createAuth), shared by the api and liner-doctor",
+  "description": "tagave's one Better Auth configuration (createAuth), shared by the api and tagave-doctor",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -28,7 +28,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@liner/db": "workspace:*",
+    "@tagave/db": "workspace:*",
     "@types/node": "^24.19.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"

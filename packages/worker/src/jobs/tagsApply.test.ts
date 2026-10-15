@@ -15,8 +15,8 @@ import {
   tagPlanItems,
   localAlbums,
   localTracks,
-} from '@liner/db';
-import { makeDb } from '@liner/db';
+} from '@tagave/db';
+import { makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { tagsApplyJob } from './tagsApply.js';
 import { errorMessage } from '../lib/dbErrors.js';
@@ -70,7 +70,7 @@ describe('tagsApply job', () => {
 
     // Create test scan root
     scanRootId = randomUUID();
-    tempDir = path.join(process.cwd(), '.liner-test-tmp');
+    tempDir = path.join(process.cwd(), '.tagave-test-tmp');
     await fs.mkdir(tempDir, { recursive: true });
 
     await db.insert(scanRoots).values({

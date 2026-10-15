@@ -13,8 +13,8 @@ import {
   scanRoots,
   libraries,
   gaps,
-} from '@liner/db';
-import { hashAudioStream } from '@liner/core';
+} from '@tagave/db';
+import { hashAudioStream } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { errorMessage } from '../lib/dbErrors.js';
 import { SafeFileWriter } from '../lib/safeFileWriter.js';
@@ -22,9 +22,9 @@ import { MutagenTagWriter } from '../lib/tagWriter.js';
 import { parseFile } from 'music-metadata';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { TagDiffEntry } from '@liner/shared';
+import type { TagDiffEntry } from '@tagave/shared';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
-import { localTracks } from '@liner/db';
+import { localTracks } from '@tagave/db';
 import { clusterSingletonKey, relDirname } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
 

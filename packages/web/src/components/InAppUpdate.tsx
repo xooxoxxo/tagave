@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterView } from '@liner/shared';
+import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterView } from '@tagave/shared';
 import { Button, Select, confirmDialog } from './ui';
 import { StepUpDialog } from './StepUpDialog';
 import { useStartUpdate } from '../hooks/useUpdater';

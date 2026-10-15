@@ -3,11 +3,11 @@
  * Spec ENR-1.
  */
 import { eq } from 'drizzle-orm';
-import { releases, releaseGroups, externalIds } from '@liner/db';
+import { releases, releaseGroups, externalIds } from '@tagave/db';
 import {
   fuzzyBridgeScore, FUZZY_BRIDGE_ACCEPT, discogsIdsFromUrlRelations, wikidataQidFromUrlRelations,
-} from '@liner/core';
-import type { CanonicalRelease } from '@liner/core';
+} from '@tagave/core';
+import type { CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, discogsCall, wikidataCall, type Providers } from '../lib/providers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';

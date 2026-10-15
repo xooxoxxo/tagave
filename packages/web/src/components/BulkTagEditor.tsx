@@ -11,7 +11,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import type { ManualTagValues } from '@liner/shared';
+import type { ManualTagValues } from '@tagave/shared';
 import { Button, Banner } from './ui';
 import { Input } from './ui/FormControl';
 import { useCreateTagPlan } from '../hooks/usePlanWizard';

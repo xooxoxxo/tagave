@@ -10,8 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, libraries, scanRoots, tagPlanItems, tagPlans, users } from '@liner/db';
-import type { StorageOverview, TagChangeCleanupPreview, TagChangeCleanupResult } from '@liner/shared';
+import { audioFiles, libraries, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
+import type { StorageOverview, TagChangeCleanupPreview, TagChangeCleanupResult } from '@tagave/shared';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
   let app: FastifyInstance;
@@ -55,7 +55,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
     await mkdir(join(cacheDir, 'art', 'ab'), { recursive: true });
     await writeFile(join(cacheDir, 'art', 'ab', 'cover.jpg'), Buffer.alloc(1000));
     await mkdir(join(cacheDir, 'backups'));
-    await writeFile(join(cacheDir, 'backups', 'liner.pgdump'), Buffer.alloc(300));
+    await writeFile(join(cacheDir, 'backups', 'tagave.pgdump'), Buffer.alloc(300));
 
     await db.insert(users).values([
       { id: ownerId, email: `owner-${ownerId}@test.com`, passwordHash: 'x' },

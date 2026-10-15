@@ -11,9 +11,9 @@
  * dialog lists.
  */
 import { and, eq, inArray } from 'drizzle-orm';
-import { albumMatches, localAlbums, releases, fetchAutoAcceptRulesRow, fetchRulesInputs } from '@liner/db';
-import { evaluateAutoAccept, rulesFromStored } from '@liner/core';
-import { AUTO_ACCEPT_REASON_PREFIX, type AutoAcceptRules } from '@liner/shared';
+import { albumMatches, localAlbums, releases, fetchAutoAcceptRulesRow, fetchRulesInputs } from '@tagave/db';
+import { evaluateAutoAccept, rulesFromStored } from '@tagave/core';
+import { AUTO_ACCEPT_REASON_PREFIX, type AutoAcceptRules } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { notifyQueueChanged } from '../jobs/progress.js';
 import { linkAlbumTracks } from './trackLinks.js';

@@ -1,5 +1,5 @@
 /**
- * @liner/shared - Shared Zod schemas and TypeScript types
+ * @tagave/shared - Shared Zod schemas and TypeScript types
  *
  * Exports organized by domain:
  * - Schemas with .Schema suffix for validation
@@ -7,7 +7,7 @@
  * - Utility functions and enums
  *
  * Usage:
- *   import { sessionUserSchema, type SessionUser } from '@liner/shared';
+ *   import { sessionUserSchema, type SessionUser } from '@tagave/shared';
  *   const validated = sessionUserSchema.parse(data);
  */
 

@@ -34,7 +34,7 @@ const missing = url ? toolsMissing() : 'TEST_DATABASE_URL is not set';
 if (missing) console.warn(`[restore.db.test] skipped: ${missing}`);
 
 describe.skipIf(!!missing)('backup and restore (integration)', () => {
-  const name = `liner_rt_${randomBytes(4).toString('hex')}`;
+  const name = `tagave_rt_${randomBytes(4).toString('hex')}`;
   let admin: ReturnType<typeof postgres>;
   let scratchUrl: string;
   let dir: string;
@@ -166,7 +166,7 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     await import('node:fs/promises').then((fs) => fs.writeFile(join(dir, 'otherapp-2026.pgdump'), 'x'));
     await runBackup({ databaseUrl: scratchUrl, outDir: dir, kind: 'manual', keep: 1, now: new Date('2026-09-30T00:00:00Z') });
     const list = await listBackups(dir);
-    expect(list.filter((e) => e.kind === 'manual' && e.name.startsWith('liner-'))).toHaveLength(1);
+    expect(list.filter((e) => e.kind === 'manual' && e.name.startsWith('tagave-'))).toHaveLength(1);
     expect(list.some((e) => e.name === 'otherapp-2026.pgdump')).toBe(true); // not ours: never pruned
     expect(list.filter((e) => e.kind === 'pre-restore').length).toBeGreaterThanOrEqual(2);
     expect(list.filter((e) => e.kind === 'nightly')).toHaveLength(1);

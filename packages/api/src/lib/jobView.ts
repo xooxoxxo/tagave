@@ -8,7 +8,7 @@
  * routine rows. This module turns rows into what the owner
  * can act on: what ran, how it went, what needs them, what they can retry.
  */
-import type { JobView, JobViewStatus, JobsSummary } from '@liner/shared';
+import type { JobView, JobViewStatus, JobsSummary } from '@tagave/shared';
 
 /** Worker bookkeeping, never shown. Heartbeats live in worker_heartbeats since
  * 0027; older installs may still hold these rows until the migration clears them. */

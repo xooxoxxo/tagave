@@ -3,7 +3,7 @@
  * API reports and what this page has asked for. Pure, so every state the
  * banner and the button can be in is testable without rendering the page.
  */
-import type { TagPlanPreviewJob } from '@liner/shared';
+import type { TagPlanPreviewJob } from '@tagave/shared';
 
 export interface PreviewInput {
   /** The newest preview job for the plan, as GET /tag-plans/:id reports it. */

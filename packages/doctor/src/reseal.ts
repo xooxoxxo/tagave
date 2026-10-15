@@ -2,27 +2,28 @@
  * Doctor reseal subcommand: re-encrypt all sealed credentials from an old APP_SECRET to a new one
  *
  * Usage:
- *   LINER_OLD_APP_SECRET=old_secret APP_SECRET=new_secret node dist/cli.js reseal
+ *   TAGAVE_OLD_APP_SECRET=old_secret APP_SECRET=new_secret node dist/cli.js reseal
  *
- * The command reads the old APP_SECRET from LINER_OLD_APP_SECRET and the new one from APP_SECRET,
+ * The command reads the old APP_SECRET from TAGAVE_OLD_APP_SECRET and the new one from APP_SECRET,
  * then re-encrypts all sealed credentials in the database: provider tokens
  * and the player server password (libraries.settings) and the authenticator-app secrets and backup codes
  * (auth_two_factors, encrypted with the sign-in secret derived from APP_SECRET).
  */
 
 import postgres from 'postgres';
-import { openSecret, sealSecret, isSealed } from '@liner/core';
-import { resealTwoFactorSecrets } from '@liner/auth';
+import { openSecret, sealSecret, isSealed } from '@tagave/core';
+import { resealTwoFactorSecrets } from '@tagave/auth';
+import { tagaveEnv } from '@tagave/shared/env';
 
 /** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Playback, bring your own server). */
 export const SEALED_LIBRARY_KEYS = ['discogsToken', 'acoustidKey', 'playerPassword'] as const;
 
 export async function resealCredentials(databaseUrl: string): Promise<void> {
-  const oldSecret = process.env.LINER_OLD_APP_SECRET;
+  const oldSecret = tagaveEnv('OLD_APP_SECRET');
   const newSecret = process.env.APP_SECRET;
 
   if (!oldSecret) {
-    throw new Error('LINER_OLD_APP_SECRET environment variable not set');
+    throw new Error('TAGAVE_OLD_APP_SECRET environment variable not set');
   }
   if (!newSecret) {
     throw new Error('APP_SECRET environment variable not set');

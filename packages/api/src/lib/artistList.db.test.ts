@@ -6,8 +6,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { images, libraries, localAlbums, users, makeDb } from '@liner/db';
-import { artistListPositions } from '@liner/core';
+import { images, libraries, localAlbums, users, makeDb } from '@tagave/db';
+import { artistListPositions } from '@tagave/core';
 import { coverKey, coversFor, fetchArtistRows, orderArtists, readArtistListPage } from './artistList.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {

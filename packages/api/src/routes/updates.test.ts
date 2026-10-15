@@ -7,9 +7,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq } from 'drizzle-orm';
-import { libraries, users } from '@liner/db';
-import { DEFAULT_RELEASES_URL, type UpdatesStatus } from '@liner/shared';
-import type { SessionUser } from '@liner/shared/auth';
+import { libraries, users } from '@tagave/db';
+import { DEFAULT_RELEASES_URL, type UpdatesStatus } from '@tagave/shared';
+import type { SessionUser } from '@tagave/shared/auth';
 import { initDb, getDb } from '../db.js';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { createUpdateRoutes } from './updates.js';

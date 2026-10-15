@@ -2,8 +2,8 @@
  * Enrich artist with MusicBrainz and Wikipedia data (spec XO-310, §5).
  */
 import { eq } from 'drizzle-orm';
-import { artists, externalIds } from '@liner/db';
-import { mbPartialDateToSql } from '@liner/core';
+import { artists, externalIds } from '@tagave/db';
+import { mbPartialDateToSql } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, wikidataCall, wikipediaCall, type Providers } from '../lib/providers.js';
 import { cached, cacheKey, TTLs } from '../lib/providerCache.js';
@@ -95,7 +95,7 @@ export async function artistsEnrichJob(ctx: WorkerContext, data: ArtistsEnrichJo
                     where la.library_id = l.id and rga.artist_id = ${artistId})
         or exists (select 1 from local_albums la
                     where la.library_id = l.id
-                      and lower(liner_display_artist(la.artist_guess)) = lower(${artist.name}))
+                      and lower(tagave_display_artist(la.artist_guess)) = lower(${artist.name}))
      order by (l.settings->>'contactString') is null, l.created_at
      limit 1
   ` as unknown as Array<{ id: string }>;

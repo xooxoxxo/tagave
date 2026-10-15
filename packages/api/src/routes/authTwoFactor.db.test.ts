@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { FastifyInstance } from 'fastify';
-import { resealTwoFactorSecrets, type AuthHandle } from '@liner/auth';
+import { resealTwoFactorSecrets, type AuthHandle } from '@tagave/auth';
 import {
   TEST_APP_SECRET,
   TEST_PUBLIC_URL,
@@ -184,7 +184,7 @@ describe.skipIf(!url)('two-factor sign-in (integration)', () => {
     expect((await security(jar)).trustedDevices).toHaveLength(1);
     const owner = (await handle.sql`select id from users`)[0]!['id'] as string;
 
-    const { revokeAllTrustedDevices } = await import('@liner/auth');
+    const { revokeAllTrustedDevices } = await import('@tagave/auth');
     // (The /two-factor/disable hook calls this; exercised directly so the
     // authenticator stays on for the reseal test below.)
     expect(await revokeAllTrustedDevices(handle.sql, owner)).toBe(1);

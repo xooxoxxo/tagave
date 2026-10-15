@@ -1,5 +1,5 @@
 import { sql as dsql } from 'drizzle-orm';
-import { lintAlbum } from '@liner/core';
+import { lintAlbum } from '@tagave/core';
 import { rawTracksForLint } from '../lib/canonicalTags.js';
 import type { WorkerContext } from '../lib/context.js';
 import { recomputeMissingAlbumGaps } from '../lib/missingAlbumGaps.js';

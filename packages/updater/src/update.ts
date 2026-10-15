@@ -5,7 +5,7 @@
  *              enough disk, the target images pulled for this machine's
  *              architecture (a pull with TAGAVE_VERSION overridden, so a
  *              missing tag fails here and nothing has changed yet)
- *   backup     count applied migrations; `liner-doctor backup` in the app
+ *   backup     count applied migrations; `tagave-doctor backup` in the app
  *              container (pg_dump, read back with pg_restore --list)
  *   config     compose files from the target's updater image (when it has
  *              them), then TAGAVE_VERSION=<target> in .env; each written
@@ -28,7 +28,7 @@
  * A failure in preflight or backup ends the run as `failed`: nothing was
  * changed. A failure from config on rolls back: the old .env and compose
  * files go back; if the migration count moved (or cannot be read), the app
- * and workers are stopped and the backup is restored with `liner-doctor
+ * and workers are stopped and the backup is restored with `tagave-doctor
  * restore` (the swap restore: the changed database is kept under another
  * name); then the old version is started and checked.
  *
@@ -38,8 +38,8 @@
  */
 import { statfs } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@liner/shared/updater';
-import { envGet, envSet, readText, writeFileAtomic } from './envFile.js';
+import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
+import { envGet, envSet, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 
 export const STEP_LABELS: Record<UpdateStepId, string> = {
@@ -409,7 +409,19 @@ export class Update {
         this.log('warn', `${image} has no ${name}; keeping the current one`);
       }
     }
-    await writeFileAtomic(this.envPath, envSet(this.originals.get('.env')!, 'TAGAVE_VERSION', this.run.target));
+    let env = this.originals.get('.env')!;
+    // Settings named LINER_* before 0.9 get their TAGAVE_* names once the
+    // compose files in place read them (the old compose.yml read
+    // LINER_LIBRARY_ID). A roll back puts the original .env back.
+    const compose = await readText(join(this.deps.installDir, 'compose.yml'));
+    if (compose?.includes('TAGAVE_LIBRARY_ID')) {
+      const migrated = migrateLegacyEnv(env);
+      if (migrated.notes.length > 0) {
+        env = migrated.text;
+        this.log('info', `renamed the pre-0.9 settings in .env: ${migrated.notes.join(', ')}`);
+      }
+    }
+    await writeFileAtomic(this.envPath, envSet(env, 'TAGAVE_VERSION', this.run.target));
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
     const check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
     if (check.code !== 0) this.fail(`docker compose rejects the new configuration: ${tail(check.stderr, 3)}`);
@@ -494,7 +506,7 @@ export class Update {
         this.log('warn', 'the new version changed the database; restoring the backup');
         await this.compose(['stop', 'app', ...this.workers()]);
         const res = await this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', this.run.backup, '--yes', '--json']);
-        if (res.code !== 0) throw new Error(`liner-doctor restore failed: ${tail(res.stderr || res.stdout, 3)}`);
+        if (res.code !== 0) throw new Error(`tagave-doctor restore failed: ${tail(res.stderr || res.stdout, 3)}`);
         restored = true;
         let kept = 'under another name';
         try {
@@ -526,7 +538,7 @@ export class Update {
       this.run.reason = `${reason}. The roll back did not finish: ${(err as Error).message}`;
       this.log('error', `roll back failed: ${(err as Error).message}`);
       this.log('error', `by hand, in the install folder: check TAGAVE_VERSION in .env is ${this.run.from}, then docker compose up -d${
-        this.run.backup ? `; if the app refuses the database, restore ${this.run.backup} with liner-doctor restore (docs/operations.md, Roll back)` : ''}`);
+        this.run.backup ? `; if the app refuses the database, restore ${this.run.backup} with tagave-doctor restore (docs/operations.md, Roll back)` : ''}`);
     }
     this.run.rollback = {
       version: envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from,

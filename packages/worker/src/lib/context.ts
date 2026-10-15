@@ -1,6 +1,6 @@
 import type { PgBoss } from 'pg-boss';
 import type { Logger } from 'pino';
-import { makeDb } from '@liner/db';
+import { makeDb } from '@tagave/db';
 
 export type Db = Awaited<ReturnType<typeof makeDb>>['db'];
 export type Sql = Awaited<ReturnType<typeof makeDb>>['client'];

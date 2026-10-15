@@ -1,5 +1,5 @@
 {
-  "name": "@liner/db",
+  "name": "@tagave/db",
   "version": "0.1.0",
   "type": "module",
   "exports": {

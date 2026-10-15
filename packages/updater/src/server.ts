@@ -12,13 +12,13 @@ import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import type { UpdateRun, UpdaterStatus } from '@liner/shared/updater';
+import type { UpdateRun, UpdaterStatus } from '@tagave/shared/updater';
 import { envGet, readText, writeFileAtomic } from './envFile.js';
 import type { AppProbe, Runner } from './runner.js';
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER } from './token.js';
 import { Update, newRun, type UpdateConfig } from './update.js';
 
-/** Same rule as @liner/shared UPDATE_TARGET_RE (kept here so the image needs no runtime packages). */
+/** Same rule as @tagave/shared UPDATE_TARGET_RE (kept here so the image needs no runtime packages). */
 const TARGET_RE = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]{1,40})?$/;
 const MAX_BODY = 4096;
 export const STATE_DIR = '.updater';

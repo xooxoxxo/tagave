@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import {
   audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, users, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from './splitByFormat.js';
 
 describe('splitOriginOf', () => {

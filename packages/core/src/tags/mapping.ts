@@ -2,7 +2,7 @@
  * Tag mapping from canonical fields to format-specific tag names.
  * Follows spec Appendix A and MusicBrainz Picard tag mapping.
  */
-import type { CanonicalField, TagSet } from '@liner/shared';
+import type { CanonicalField, TagSet } from '@tagave/shared';
 
 /**
  * Tag names for each format.
@@ -72,7 +72,7 @@ export const TAG_MAPPING: Record<CanonicalField | string, FormatTagMapping> = {
     id3v24: 'TDOR',
     id3v23: 'TORY',
     vorbis: 'ORIGINALDATE',
-    mp4: '----:com.apple.iTunes:ORIGINALDATE', // Liner custom convention
+    mp4: '----:com.apple.iTunes:ORIGINALDATE', // tagave custom convention
   },
   tracknumber: {
     id3v24: 'TRCK', // n/N format
@@ -273,4 +273,4 @@ export function splitMultiValue(value: string, separator: string = ';'): string[
 /**
  * Export TagSet type from shared for convenience.
  */
-export type { TagSet } from '@liner/shared';
+export type { TagSet } from '@tagave/shared';

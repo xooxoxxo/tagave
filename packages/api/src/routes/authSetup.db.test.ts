@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
 import type { FastifyInstance } from 'fastify';
-import type { AuthHandle } from '@liner/auth';
+import type { AuthHandle } from '@tagave/auth';
 import { TEST_PUBLIC_URL, buildAuthApp, cookieHeader, cookieJar, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 
 const url = process.env.TEST_DATABASE_URL;

@@ -1,5 +1,5 @@
 {
-  "name": "@liner/shared",
+  "name": "@tagave/shared",
   "version": "0.1.0",
   "type": "module",
   "sideEffects": false,
@@ -13,7 +13,8 @@
     "./pagination": "./dist/src/pagination.js",
     "./tags": "./dist/src/tags.js",
     "./updater": "./dist/src/updater.js",
-    "./player": "./dist/src/player.js"
+    "./player": "./dist/src/player.js",
+    "./env": "./dist/src/env.js"
   },
   "scripts": {
     "build": "tsc -b",

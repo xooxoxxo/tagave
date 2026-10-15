@@ -54,7 +54,7 @@ describe('workerCoverageCheck', () => {
     expect(workerCoverageCheck(1, [['*']])).toMatchObject({ status: 'pass', detail: '1 worker running, handling all work' });
   });
   it('passes for a split install that covers every queue between its workers', async () => {
-    const { GATED_QUEUES } = await import('@liner/core');
+    const { GATED_QUEUES } = await import('@tagave/core');
     const half = Math.floor(GATED_QUEUES.length / 2);
     expect(workerCoverageCheck(2, [GATED_QUEUES.slice(0, half), GATED_QUEUES.slice(half)]).status).toBe('pass');
   });

@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { artists, audioFiles, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@liner/db';
+import { artists, audioFiles, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@tagave/db';
 import { foldWords } from './search.js';
 
 describe('foldWords', () => {

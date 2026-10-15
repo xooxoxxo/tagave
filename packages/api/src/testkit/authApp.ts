@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
-import { MIGRATIONS_DIR, listMigrationFiles, runMigrations } from '@liner/db';
-import { createAuth, readAuthEnv, type AuthHandle } from '@liner/auth';
+import { MIGRATIONS_DIR, listMigrationFiles, runMigrations } from '@tagave/db';
+import { createAuth, readAuthEnv, type AuthHandle } from '@tagave/auth';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { authMiddleware, initAuth } from '../middleware/auth.js';
 import { createBetterAuthRoutes } from '../routes/betterAuth.js';
@@ -24,7 +24,7 @@ export const TEST_APP_SECRET = 'f'.repeat(64);
 const quiet = () => undefined;
 
 export async function createScratchDb(adminUrl: string, admin: postgres.Sql): Promise<{ url: string; name: string }> {
-  const name = `liner_auth_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const name = `tagave_auth_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   await admin.unsafe(`create database ${name}`);
   const u = new URL(adminUrl);
   u.pathname = `/${name}`;
@@ -33,7 +33,7 @@ export async function createScratchDb(adminUrl: string, admin: postgres.Sql): Pr
 
 /** Migrate a database to the last schema before `beforeFile` (e.g. the 0.6.1 shape). */
 export async function migrateUpTo(url: string, beforeFile: string): Promise<void> {
-  const dir = await mkdtemp(join(tmpdir(), 'liner-auth-migs-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tagave-auth-migs-'));
   try {
     for (const f of await listMigrationFiles()) {
       if (f < beforeFile) await copyFile(join(MIGRATIONS_DIR, f), join(dir, f));

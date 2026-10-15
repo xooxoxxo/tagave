@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { runMigrations } from '@liner/db';
+import { runMigrations } from '@tagave/db';
 import { checkPublicUrl } from './authCheck.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -13,7 +13,7 @@ describe.skipIf(!url)('checkPublicUrl against passkeys (integration)', () => {
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
-    name = `liner_doc_auth_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+    name = `tagave_doc_auth_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
     await admin.unsafe(`create database ${name}`);
     const u = new URL(url!);
     u.pathname = `/${name}`;

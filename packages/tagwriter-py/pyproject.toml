@@ -3,9 +3,9 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "liner-tagwriter"
+name = "tagave-tagwriter"
 version = "0.1.0"
-description = "Mutagen-based tag writer sidecar for Liner music archive"
+description = "Mutagen-based tag writer sidecar for the tagave music catalog"
 requires-python = ">=3.11"
 dependencies = [
     "mutagen>=1.47",

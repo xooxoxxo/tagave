@@ -4,7 +4,7 @@ import type { PgBoss } from 'pg-boss';
 import {
   albumMatches, canonicalTracks, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
-} from '@liner/db';
+} from '@tagave/db';
 import { getDb } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@liner/db';
+import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -54,7 +54,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     await db.insert(libraries).values({ id: libraryId, name: 'Repair', ownerUserId: userId, settings: {} });
     rootId = randomUUID();
     await db.insert(scanRoots).values({
-      id: rootId, libraryId, path: '/tmp/liner-repair-root', displayName: 'repair',
+      id: rootId, libraryId, path: '/tmp/tagave-repair-root', displayName: 'repair',
       validationStatus: 'ok', pollIntervalS: 3600,
     });
   });

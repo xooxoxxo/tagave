@@ -2,7 +2,7 @@
  * The artists list rows of a library: canonical artists linked to the
  * library's albums (identified, or by an album-artist tag that names them)
  * plus the remaining unresolved album-artist guesses, aggregated but not
- * ordered (ordering lives in @liner/core orderArtists). Shared by the API
+ * ordered (ordering lives in @tagave/core orderArtists). Shared by the API
  * (live list, searches) and the worker (facets.refresh rebuilds artist_list).
  */
 import { sql } from 'drizzle-orm';
@@ -38,9 +38,9 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
       -- to Aarni even when only the split release was identified
       select a.id, la.id, la.track_count, la.year_guess, la.created_at
         from local_albums la
-        join artists a on lower(a.name) = lower(liner_display_artist(la.artist_guess))
+        join artists a on lower(a.name) = lower(tagave_display_artist(la.artist_guess))
        where la.library_id = ${libraryId}
-         and liner_display_artist(la.artist_guess) is not null
+         and tagave_display_artist(la.artist_guess) is not null
          and (la.release_group_id is null or not exists (
            select 1 from release_group_artists rga
             where rga.release_group_id = la.release_group_id))
@@ -73,7 +73,7 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
       -- … "17. Stephane Pompougnac" are one artist, and "Various", "VA"
       -- and "Various Artists" one compilations row.
       select null::uuid as id,
-             liner_display_artist(la.artist_guess) as name,
+             tagave_display_artist(la.artist_guess) as name,
              null::varchar as sort_name,
              false as resolved,
              count(distinct la.id)::int as album_count,
@@ -83,14 +83,14 @@ export async function fetchArtistRows(db: Db, libraryId: string, search: string)
              max(la.created_at) as added_at
         from local_albums la
        where la.library_id = ${libraryId}
-         and liner_display_artist(la.artist_guess) is not null
+         and tagave_display_artist(la.artist_guess) is not null
          and (la.release_group_id is null or not exists (
            select 1 from release_group_artists rga
             where rga.release_group_id = la.release_group_id))
          and not exists (
-           select 1 from canon_names cn where cn.lname = lower(liner_display_artist(la.artist_guess)))
+           select 1 from canon_names cn where cn.lname = lower(tagave_display_artist(la.artist_guess)))
          ${search ? sql`and la.artist_guess ilike ${like}` : sql``}
-       group by liner_display_artist(la.artist_guess)
+       group by tagave_display_artist(la.artist_guess)
     )
     select * from canon union all select * from guess
   `) as Array<{

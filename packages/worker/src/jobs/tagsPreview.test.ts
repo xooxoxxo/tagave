@@ -9,7 +9,7 @@ import { eq } from 'drizzle-orm';
 import {
   audioFiles, canonicalTracks, fieldLocks, jobRuns, libraries, localAlbums, localTracks,
   releaseGroups, releases, scanRoots, tagPlanItems, tagPlans, users, makeDb,
-} from '@liner/db';
+} from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { tagsPreviewJob, currentFieldsFrom, decideField, valueKey, manualCanonical, presetPolicy } from './tagsPreview.js';

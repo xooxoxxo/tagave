@@ -21,7 +21,7 @@ import { relations, sql } from 'drizzle-orm';
 // Platform tables (not library-scoped)
 
 // Also Better Auth's user model (user.modelName "users", name -> display_name;
-// see @liner/auth). 0036 added email_verified .. two_factor_enabled.
+// see @tagave/auth). 0036 added email_verified .. two_factor_enabled.
 export const users = pgTable('users', {
   id: uuid().primaryKey().defaultRandom(),
   email: varchar({ length: 255 }).notNull().unique(),
@@ -37,8 +37,8 @@ export const users = pgTable('users', {
   twoFactorEnabled: boolean('two_factor_enabled').notNull().default(false),
 });
 
-// Better Auth tables (0036). Written by Better Auth through @liner/auth; the
-// app reads them only for Settings > Security and liner-doctor.
+// Better Auth tables (0036). Written by Better Auth through @tagave/auth; the
+// app reads them only for Settings > Security and tagave-doctor.
 export const authAccounts = pgTable(
   'auth_accounts',
   {

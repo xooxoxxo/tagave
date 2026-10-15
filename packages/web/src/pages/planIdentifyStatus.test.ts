@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { IdentifyRequestView } from '@liner/shared';
+import type { IdentifyRequestView } from '@tagave/shared';
 import type { IdentifyStatusItem } from '../hooks/useIdentifyStatus';
 import { identifyLines, planAlbumScope } from './planIdentifyStatus';
 

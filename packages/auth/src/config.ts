@@ -56,7 +56,7 @@ export function passkeysCanWork(publicUrl: PublicUrl): boolean {
 /**
  * Better Auth's secret, derived from APP_SECRET (no second secret to manage).
  * Rotating APP_SECRET therefore signs everyone out and needs
- * `liner-doctor reseal` to re-encrypt TOTP secrets and backup codes.
+ * `tagave-doctor reseal` to re-encrypt TOTP secrets and backup codes.
  */
 export function deriveAuthSecret(appSecret: string): string {
   return Buffer.from(hkdfSync('sha256', appSecret, '', 'tagave/better-auth', 32)).toString('hex');

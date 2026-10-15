@@ -2,10 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray, desc, type SQL } from 'drizzle-orm';
 import {
   libraries, collectionSources, collectionItems, releases, releaseGroups, localAlbums,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   DiscogsProvider, openSecret, isSealed, parseDiscogsRef, rankPhysicalSuggestions, discogsArtistName, matchTitle,
-} from '@liner/core';
+} from '@tagave/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

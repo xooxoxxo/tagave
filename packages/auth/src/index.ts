@@ -261,7 +261,7 @@ export interface AuthHandle {
   close: () => Promise<void>;
 }
 
-/** The one Better Auth configuration, shared by the api and liner-doctor. */
+/** The one Better Auth configuration, shared by the api and tagave-doctor. */
 export function createAuth(opts: CreateAuthOptions): AuthHandle {
   const sql = openAuthSql(opts.databaseUrl, opts.maxConnections ?? 5);
   const auth = makeAuth(opts, sql);

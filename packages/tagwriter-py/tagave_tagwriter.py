@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Liner Mutagen Tag Writer Sidecar
+tagave mutagen tag writer sidecar
 Reads and writes audio metadata via mutagen, communicating via JSON-lines over stdio.
 """
 

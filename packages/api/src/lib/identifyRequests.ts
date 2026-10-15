@@ -7,7 +7,7 @@
  */
 import { sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
-import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyOutcomeView, type IdentifyRequestView, type ReleaseChoice } from '@liner/shared';
+import { IDENTIFY_REQUESTED_BY_OWNER, type IdentifyOutcomeKind, type IdentifyOutcomeView, type IdentifyRequestView, type ReleaseChoice } from '@tagave/shared';
 import { getDb } from '../db.js';
 
 export const IDENTIFY_PRIORITY = { manual: 100, retry: 50, sweep: 0 } as const;

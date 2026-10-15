@@ -5,7 +5,8 @@ import sharp from 'sharp';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
   audioFiles, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles,
-} from '@liner/db';
+} from '@tagave/db';
+import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname } from '../lib/helpers.js';
 import { cached, cacheKey, TTLs, stripDiscogs } from '../lib/providerCache.js';
@@ -19,7 +20,7 @@ export interface ArtSweepJobData {
   limit?: number;
 }
 
-const CACHE_ROOT = process.env.CACHE_DIR || path.join(process.env.HOME || '/tmp', 'liner-cache');
+const CACHE_ROOT = process.env.CACHE_DIR || defaultCacheDir(process.env.HOME || '/tmp');
 const THUMB_SIZE = 300;
 
 /** Cover Art Archive: no rate limit documented; keep modest concurrency via

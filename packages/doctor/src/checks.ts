@@ -2,8 +2,8 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 import postgres from 'postgres';
-import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@liner/db';
-import { MusicBrainzProvider, DiscogsProvider, isSealed, openSecret, unservedWork } from '@liner/core';
+import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@tagave/db';
+import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork } from '@tagave/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
@@ -89,7 +89,7 @@ export async function checkMigrations(databaseUrl: string, ownVersion?: string):
     try {
       const allFiles = await getMigrationFiles();
       const state = await readSchemaState(sql, allFiles);
-      const version = ownVersion ?? (await import('@liner/core')).readBuildInfo().version;
+      const version = ownVersion ?? (await import('@tagave/core')).readBuildInfo().version;
 
       // A newer app migrated this database: this build must not run on it.
       const skew = classifySkew(state, version);
@@ -409,14 +409,14 @@ function ageText(minutes: number): string {
 // Check 6: Cache directory writability
 export async function checkCacheDir(cacheDir?: string): Promise<Check> {
   const start = Date.now();
-  const dir = cacheDir || path.join(os.homedir(), 'liner-cache');
+  const dir = cacheDir || defaultCacheDir(os.homedir());
 
   try {
     // Ensure directory exists
     await fs.mkdir(dir, { recursive: true });
 
     // Write and delete a temp file
-    const testFile = path.join(dir, `.liner-doctor-${Date.now()}.tmp`);
+    const testFile = path.join(dir, `.tagave-doctor-${Date.now()}.tmp`);
     try {
       await fs.writeFile(testFile, 'test', 'utf-8');
       await fs.unlink(testFile);
@@ -764,7 +764,7 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
 export async function checkWorkerVersions(databaseUrl: string): Promise<Check> {
   const start = Date.now();
   try {
-    const { readBuildInfo } = await import('@liner/core');
+    const { readBuildInfo } = await import('@tagave/core');
     const me = readBuildInfo();
     const sql = postgres(databaseUrl, { max: 1 });
     try {

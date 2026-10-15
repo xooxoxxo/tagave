@@ -159,7 +159,7 @@ describe('getReleaseGroupEditions', () => {
       return new Response(JSON.stringify(fixture), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
 
-    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const provider = new MusicBrainzProvider('tagave-test/0.1');
     const page = await provider.getReleaseGroupEditions('ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4', { priority: 'background' });
 
     const url = new URL(requested);
@@ -223,7 +223,7 @@ describe('getReleaseGroupEditions', () => {
       return new Response(JSON.stringify({ 'release-count': 0, 'release-offset': 200, releases: [] }), { status: 200 });
     }) as typeof fetch;
 
-    const page = await new MusicBrainzProvider('Liner-test/0.1')
+    const page = await new MusicBrainzProvider('tagave-test/0.1')
       .getReleaseGroupEditions('ce2bdcd6-ea6f-40e6-bc0f-4b67399b97b4', { priority: 'background' }, { offset: 200, limit: 500 });
 
     const url = new URL(requested);
@@ -249,7 +249,7 @@ describe('getReleaseGroupEditions', () => {
       }],
     }), { status: 200 })) as typeof fetch;
 
-    const page = await new MusicBrainzProvider('Liner-test/0.1').getReleaseGroupEditions('rg-1', { priority: 'background' });
+    const page = await new MusicBrainzProvider('tagave-test/0.1').getReleaseGroupEditions('rg-1', { priority: 'background' });
     expect(page.releaseGroup).toEqual({ mbid: 'rg-1', title: 'Test Album' });
     expect(page.editions[0]!.trackCount).toBe(10);
     expect(page.editions[0]!.labels).toEqual([{ name: 'Test Label', catalogNumber: 'CAT001' }]);
@@ -257,7 +257,7 @@ describe('getReleaseGroupEditions', () => {
   });
 
   it('surfaces a 503 as a rate-limit error and attaches the status to other failures', async () => {
-    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const provider = new MusicBrainzProvider('tagave-test/0.1');
 
     globalThis.fetch = (async () => new Response('{"error":"The MusicBrainz web server is currently busy."}', { status: 503, statusText: 'Service Unavailable' })) as typeof fetch;
     await expect(provider.getReleaseGroupEditions('x', { priority: 'background' })).rejects.toThrow(/rate limited \(503\)/);
@@ -540,7 +540,7 @@ describe('browseArtistReleaseGroups', () => {
       return new Response(JSON.stringify(fixture), { status: 200, headers: { 'content-type': 'application/json' } });
     }) as typeof fetch;
 
-    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const provider = new MusicBrainzProvider('tagave-test/0.1');
     const page = await provider.browseArtistReleaseGroups(
       '83d91898-7763-47d7-b03b-b92132375c47',
       { priority: 'background' },
@@ -575,7 +575,7 @@ describe('browseArtistReleaseGroups', () => {
       return new Response(JSON.stringify({ 'release-group-count': 0, 'release-group-offset': 300, 'release-groups': [] }), { status: 200 });
     }) as typeof fetch;
 
-    const page = await new MusicBrainzProvider('Liner-test/0.1')
+    const page = await new MusicBrainzProvider('tagave-test/0.1')
       .browseArtistReleaseGroups('83d91898-7763-47d7-b03b-b92132375c47', { priority: 'background' }, { limit: 500, offset: 300 });
 
     const url = new URL(requested);
@@ -586,7 +586,7 @@ describe('browseArtistReleaseGroups', () => {
   });
 
   it('surfaces a 503 as a rate-limit error and attaches the status to other failures', async () => {
-    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const provider = new MusicBrainzProvider('tagave-test/0.1');
 
     globalThis.fetch = (async () => new Response('{"error":"The MusicBrainz web server is currently busy."}', { status: 503, statusText: 'Service Unavailable' })) as typeof fetch;
     await expect(provider.browseArtistReleaseGroups('x', { priority: 'background' })).rejects.toThrow(/rate limited \(503\)/);
@@ -640,7 +640,7 @@ describe('mbTrackToCanonical via getRelease', () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify(release), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
 
-    const provider = new MusicBrainzProvider('Liner-test/0.1');
+    const provider = new MusicBrainzProvider('tagave-test/0.1');
     const mapped = await provider.getRelease('11111111-1111-1111-1111-111111111111', { priority: 'background' });
 
     expect(mapped.tracks?.[0]).toMatchObject({

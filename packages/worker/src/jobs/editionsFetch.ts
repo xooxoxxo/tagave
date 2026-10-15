@@ -3,8 +3,8 @@
  * Spec ENR-1, BRW-2, IDN-3.
  */
 import { eq } from 'drizzle-orm';
-import { releaseGroups, releases } from '@liner/db';
-import { MB_BROWSE_LIMIT, type Edition, type EditionsPage } from '@liner/core';
+import { releaseGroups, releases } from '@tagave/db';
+import { MB_BROWSE_LIMIT, type Edition, type EditionsPage } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { mbCall, type Providers } from '../lib/providers.js';
 import { cached, cacheKey, TTLs } from '../lib/providerCache.js';

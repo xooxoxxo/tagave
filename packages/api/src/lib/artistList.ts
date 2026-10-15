@@ -2,7 +2,7 @@
  * The artists list: canonical artists linked to the library's albums plus
  * unresolved album-artist guesses, ordered, grouped and paged.
  *
- * Rows come from @liner/db fetchArtistRows and are ordered by @liner/core
+ * Rows come from @tagave/db fetchArtistRows and are ordered by @tagave/core
  * orderArtists (A–Z rules SQL collation cannot express). Computing that for
  * ~14.5k artists cost 200–400 ms per 120-row page (audit 2026-10-10), so the
  * worker keeps the ordered list in artist_list (facets.refresh) and
@@ -10,14 +10,14 @@
  * for searches and for a library whose list was never built.
  */
 import { sql } from 'drizzle-orm';
-import { ARTIST_GROUP_ORDER, type ArtistGroupKey } from '@liner/shared';
-import { type ArtistGroupCount, type ArtistRow, type ArtistSort } from '@liner/core';
+import { ARTIST_GROUP_ORDER, type ArtistGroupKey } from '@tagave/shared';
+import { type ArtistGroupCount, type ArtistRow, type ArtistSort } from '@tagave/core';
 
-export { fetchArtistRows } from '@liner/db';
+export { fetchArtistRows } from '@tagave/db';
 export {
   orderArtists, parseArtistGroup, parseArtistSort, ARTIST_SORTS,
   type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists,
-} from '@liner/core';
+} from '@tagave/core';
 
 type Db = { execute: (query: ReturnType<typeof sql>) => Promise<unknown> };
 
@@ -112,7 +112,7 @@ export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], pe
       select a.id::text as key, la.id::text as album_id, la.year_guess, la.created_at
         from artists a
         join local_albums la on la.library_id = ${libraryId}
-                            and lower(liner_display_artist(la.artist_guess)) = lower(a.name)
+                            and lower(tagave_display_artist(la.artist_guess)) = lower(a.name)
        where a.id in (${idList})
          and (la.release_group_id is null or not exists (
            select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
@@ -120,10 +120,10 @@ export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], pe
   }
   if (names.length) {
     arms.push(sql`
-      select 'name:' || liner_display_artist(la.artist_guess) as key, la.id::text as album_id, la.year_guess, la.created_at
+      select 'name:' || tagave_display_artist(la.artist_guess) as key, la.id::text as album_id, la.year_guess, la.created_at
         from local_albums la
        where la.library_id = ${libraryId}
-         and liner_display_artist(la.artist_guess) in (${sql.join(names.map((n) => sql`${n}`), sql`, `)})
+         and tagave_display_artist(la.artist_guess) in (${sql.join(names.map((n) => sql`${n}`), sql`, `)})
          and ${hasThumb}`);
   }
   const rowsOut = await db.execute(sql`

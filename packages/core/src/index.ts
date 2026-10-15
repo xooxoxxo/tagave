@@ -1,5 +1,5 @@
 /**
- * @liner/core - Liner core domain logic
+ * @tagave/core - tagave core domain logic
  *
  * Exports:
  * - Text normalization and string distance (spec §12.5)
@@ -154,6 +154,7 @@ export type { LinkIdentity, LinkInputs, ResolvedLink } from './reviews/index.js'
 // Build identity (PLT-5 / XO-313)
 export { readBuildInfo } from './build/info.js';
 export type { BuildInfo } from './build/info.js';
+export { defaultCacheDir } from './build/cacheDir.js';
 
 // Credential encryption
 export { sealSecret, openSecret, isSealed, computeHint } from './crypto/secretbox.js';

@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { AlbumSummary, JobsListResponse } from '@liner/shared';
+import type { AlbumSummary, JobsListResponse } from '@tagave/shared';
 import {
   useCurrentLibrary,
   useScanRoots,

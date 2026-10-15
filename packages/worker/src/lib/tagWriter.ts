@@ -7,8 +7,9 @@
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import { existsSync } from 'node:fs';
-import type { TagSet } from '@liner/shared';
-import type { TagWriter, WriteOptions } from '@liner/core';
+import type { TagSet } from '@tagave/shared';
+import type { TagWriter, WriteOptions } from '@tagave/core';
+import { tagaveEnv } from '@tagave/shared/env';
 
 /**
  * Response from the sidecar
@@ -57,7 +58,7 @@ export class MutagenTagWriter implements TagWriter {
       const pythonInterpreter = this.getPythonInterpreter();
       const scriptPath = path.resolve(
         import.meta.dirname,
-        '../../../tagwriter-py/liner_tagwriter.py'
+        '../../../tagwriter-py/tagave_tagwriter.py'
       );
 
       try {
@@ -310,14 +311,14 @@ export class MutagenTagWriter implements TagWriter {
 }
 
 /**
- * Interpreter for the mutagen sidecar: LINER_TAGWRITER_PYTHON, then the
+ * Interpreter for the mutagen sidecar: TAGAVE_TAGWRITER_PYTHON, then the
  * repo-local venv (packages/tagwriter-py/.venv), then the system python3.
  * Exported so tests decide availability with the same rule the client uses
  * (the previous copy used require('fs') inside an ES module, which threw,
  * was swallowed, and silently always chose the system python3).
  */
 export function resolvePythonInterpreter(): string {
-  const env = process.env.LINER_TAGWRITER_PYTHON;
+  const env = tagaveEnv('TAGWRITER_PYTHON');
   if (env) return env;
   const venv = path.resolve(import.meta.dirname, '../../../tagwriter-py/.venv/bin/python');
   if (existsSync(venv)) return venv;

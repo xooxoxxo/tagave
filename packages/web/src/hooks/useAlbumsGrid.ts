@@ -3,7 +3,7 @@
  * "renders 12,000 items"), and bulk actions over a selection (§14.2).
  */
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AlbumSummary, AlbumsQuery, BulkAlbumsRequest, BulkAlbumsResult } from '@liner/shared';
+import type { AlbumSummary, AlbumsQuery, BulkAlbumsRequest, BulkAlbumsResult } from '@tagave/shared';
 import { api } from '../services/api';
 import { apiSearchParams } from '../pages/albumsSearch';
 

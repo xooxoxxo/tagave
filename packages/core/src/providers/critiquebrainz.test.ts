@@ -68,7 +68,7 @@ describe('CritiqueBrainzClient', () => {
       seenHeaders = init.headers;
       return new Response(JSON.stringify(loadFixture('critiquebrainz_reviews_okcomputer.json')), { status: 200 });
     }) as unknown as typeof fetch;
-    const client = new CritiqueBrainzClient({ userAgent: 'Liner/test (+test)', fetchImpl });
+    const client = new CritiqueBrainzClient({ userAgent: 'tagave/test (+test)', fetchImpl });
 
     const reviews = await client.getReviewsForReleaseGroup('b1392450-e666-3926-a536-22c65f834433', ctx);
 
@@ -77,7 +77,7 @@ describe('CritiqueBrainzClient', () => {
     expect(seenUrl).toContain('entity_id=b1392450-e666-3926-a536-22c65f834433');
     expect(seenUrl).toContain('entity_type=release_group');
     expect(seenUrl).toContain('limit=50');
-    expect(seenHeaders['User-Agent']).toBe('Liner/test (+test)');
+    expect(seenHeaders['User-Agent']).toBe('tagave/test (+test)');
   });
 
   it('returns [] when the entity has no reviews (404) and throws a rate-limit error on 503', async () => {

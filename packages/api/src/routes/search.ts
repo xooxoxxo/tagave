@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
-import { libraries } from '@liner/db';
+import { libraries } from '@tagave/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 

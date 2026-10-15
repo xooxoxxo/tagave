@@ -7,11 +7,11 @@ import {
   artists, releaseGroupArtists, releaseGroups, localAlbums,
   collectionItems, followedArtists, externalIds, libraries,
   images, gaps,
-} from '@liner/db';
+} from '@tagave/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { normalizeFollowRules } from '@liner/core';
-import { followRulesSchema } from '@liner/shared/library';
+import { normalizeFollowRules } from '@tagave/core';
+import { followRulesSchema } from '@tagave/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { followDefaultsFor } from '../lib/followRules.js';
 import { fetchArtistAlbums } from '../lib/artistAlbums.js';
@@ -65,12 +65,12 @@ export async function createArtistsRoutes(fastify: FastifyInstance) {
     if (summary) {
       page = summary.items;
       ordered = summary;
-      reply.header('x-liner-artists', 'summary');
+      reply.header('x-tagave-artists', 'summary');
     } else {
       const all = orderArtists(await fetchArtistRows(db, libraryId, search), { sort, group });
       page = all.items.slice(offsetN, offsetN + limitN);
       ordered = { total: all.items.length, groups: all.groups };
-      reply.header('x-liner-artists', 'live');
+      reply.header('x-tagave-artists', 'live');
     }
     const covers = await coversFor(db, libraryId, page);
 

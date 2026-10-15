@@ -14,7 +14,7 @@
  * Spec: §9.5 TAG-6.
  */
 
-import type { CanonicalField } from '@liner/shared';
+import type { CanonicalField } from '@tagave/shared';
 
 /**
  * A lint flag indicating a quality issue in an album.

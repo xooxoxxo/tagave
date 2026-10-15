@@ -10,7 +10,7 @@
  * failure is shown in the dialog.
  */
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import type { StepUpMethod } from '@liner/shared';
+import type { StepUpMethod } from '@tagave/shared';
 import { Button, TextField } from './ui';
 import { PASSKEY_TIMEOUT_MS, stepUpErrorMessage, stepUpWithPasskey, stepUpWithPassword, stepUpWithTotp } from '../services/stepUp';
 import styles from './StepUpDialog.module.css';

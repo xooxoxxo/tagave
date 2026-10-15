@@ -15,7 +15,7 @@ export const problemDetailsSchema = z.object({
 export type ProblemDetails = z.infer<typeof problemDetailsSchema>;
 
 /**
- * Common HTTP error status codes used in Liner
+ * Common HTTP error status codes used in tagave
  */
 export enum HttpStatusCode {
   OK = 200,

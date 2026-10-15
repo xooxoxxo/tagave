@@ -9,7 +9,7 @@ import { Input, Select } from '../components/ui/FormControl';
 import { Fragment, useEffect, useMemo, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
-import type { TagDiffEntry, TagPlanItem } from '@liner/shared';
+import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
 import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';

@@ -5,7 +5,7 @@
  * turns into what actually happened.
  */
 import { useQuery } from '@tanstack/react-query';
-import type { IdentifyRequestView } from '@liner/shared';
+import type { IdentifyRequestView } from '@tagave/shared';
 import { api } from '../services/api';
 
 export type IdentifyStatusItem =

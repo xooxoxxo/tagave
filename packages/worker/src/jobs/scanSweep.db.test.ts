@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { libraries, scanRoots, scans, users, makeDb } from '@liner/db';
+import { libraries, scanRoots, scans, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { scanSweepJob, STALE_RUNNING_MS } from './scanSweep.js';

@@ -16,7 +16,7 @@ import {
   PreMigrationBackupError,
   SchemaTooNewError,
   runMigrations,
-} from '@liner/db';
+} from '@tagave/db';
 import { checkMigrations } from './checks.js';
 import { checkBackups } from './backupCheck.js';
 import { migrateOnBoot } from './premigrate.js';
@@ -40,7 +40,7 @@ function hasPgDump(): boolean {
 }
 
 async function scratchDb(admin: postgres.Sql): Promise<{ url: string; name: string }> {
-  const name = `liner_mig_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const name = `tagave_mig_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   await admin.unsafe(`create database ${name}`);
   const u = new URL(url!);
   u.pathname = `/${name}`;
@@ -48,7 +48,7 @@ async function scratchDb(admin: postgres.Sql): Promise<{ url: string; name: stri
 }
 
 async function migrationsDir(files: Record<string, string>): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'liner-migs-'));
+  const dir = await mkdtemp(join(tmpdir(), 'tagave-migs-'));
   for (const [name, body] of Object.entries(files)) await writeFile(join(dir, name), body);
   return dir;
 }
@@ -200,10 +200,10 @@ describe.skipIf(!url)('migration safety (integration)', () => {
 
   it.skipIf(!hasPgDump())('takes a real, verified pg_dump before migrating and keeps the last N', async () => {
     const db = await fresh();
-    const backups = await mkdtemp(join(tmpdir(), 'liner-premig-'));
+    const backups = await mkdtemp(join(tmpdir(), 'tagave-premig-'));
     dirs.push(backups);
     const migs = await dir({ '0001_a.sql': 'create table a (id int); insert into a values (1);' });
-    const env = { ...process.env, LINER_BACKUP_DIR: backups, LINER_PREMIGRATE_BACKUP_KEEP: '2' };
+    const env = { ...process.env, BACKUP_DIR: backups, TAGAVE_PREMIGRATE_BACKUP_KEEP: '2' };
     await migrateOnBoot({ databaseUrl: db, appVersion: '1.0.0', env, log: quiet, migrationsDir: migs });
     for (const n of [2, 3, 4]) {
       await writeFile(join(migs, `000${n}_m.sql`), `create table m${n} (id int);`);
@@ -221,13 +221,13 @@ describe.skipIf(!url)('migration safety (integration)', () => {
 
   it('a failed update keeps its first dump through restarts, and prunes only after success', async () => {
     const db = await fresh();
-    const backups = await mkdtemp(join(tmpdir(), 'liner-premig-retry-'));
+    const backups = await mkdtemp(join(tmpdir(), 'tagave-premig-retry-'));
     dirs.push(backups);
     // Three dumps from earlier updates; keep 2.
     for (const d of ['2026-01-01', '2026-02-01', '2026-03-01']) {
       await writeFile(join(backups, pre(d)), 'old');
     }
-    const env = { LINER_BACKUP_DIR: backups, LINER_PREMIGRATE_BACKUP_KEEP: '2' };
+    const env = { BACKUP_DIR: backups, TAGAVE_PREMIGRATE_BACKUP_KEEP: '2' };
     const migs = await dir({ '0001_a.sql': 'create table a (id int);' });
     await migrateOnBoot({ databaseUrl: db, appVersion: '1.0.0', env, log: quiet, migrationsDir: migs });
 
@@ -268,7 +268,7 @@ describe.skipIf(!url)('migration safety (integration)', () => {
 
   it('the backups check warns when the folder cannot take a file', async () => {
     const db = await fresh();
-    const check = await checkBackups(db, { backupDir: '/proc/liner-cannot-write-here', pgDump: process.execPath });
+    const check = await checkBackups(db, { backupDir: '/proc/tagave-cannot-write-here', pgDump: process.execPath });
     expect(check.status).toBe('warn');
     expect(check.detail).toMatch(/not writable/);
     expect(remediationFor(check)).toMatch(/refuses to update/);

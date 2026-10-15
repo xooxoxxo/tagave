@@ -1,10 +1,10 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, sql, inArray } from 'drizzle-orm';
 import { uuidv7 } from 'uuidv7';
-import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@liner/db';
+import { libraries, scanRoots, jobRuns, entityTags, releaseGroups, localAlbums } from '@tagave/db';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
-import { sealSecret, computeHint, normalizeGenreMap, normalizeFollowRules, effectiveGenres } from '@liner/core';
+import { sealSecret, computeHint, normalizeGenreMap, normalizeFollowRules, effectiveGenres } from '@tagave/core';
 import {
   createScanRootSchema,
   patchScanRootSchema,
@@ -12,12 +12,12 @@ import {
   librarySchema,
   librarySettingsViewSchema,
   patchLibrarySettingsSchema,
-} from '@liner/shared/library';
+} from '@tagave/shared/library';
 import { ApiError } from '../middleware/errorHandler.js';
 import { tagSettingsOf } from '../lib/tagSettings.js';
 import { cachedScanRootCounts, invalidateScanRootCounts } from '../lib/scanRootCounts.js';
 import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
-import { normalizeFolderLinkBase } from '@liner/shared';
+import { normalizeFolderLinkBase } from '@tagave/shared';
 
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Adding, editing, removing or rescanning a music folder drops the cached

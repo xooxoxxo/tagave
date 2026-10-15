@@ -13,8 +13,8 @@ import {
   localAlbums,
   followedArtists,
   gaps,
-} from '@liner/db';
-import { makeDb } from '@liner/db';
+} from '@tagave/db';
+import { makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './gapsRecompute.js';
 import pino from 'pino';

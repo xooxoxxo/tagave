@@ -69,7 +69,7 @@ describe('AcoustIdClient', () => {
       seen = { url, body: String(init.body), headers: init.headers as Record<string, string> };
       return new Response(JSON.stringify(sample), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }) as unknown as typeof fetch;
-    const client = new AcoustIdClient({ apiKey: 'KEY', userAgent: 'Liner/test', fetchImpl });
+    const client = new AcoustIdClient({ apiKey: 'KEY', userAgent: 'tagave/test', fetchImpl });
     const rows = await client.lookup('AQADtImU', 284.6);
     expect(rows).toHaveLength(2);
     const params = new URLSearchParams(seen!.body);
@@ -78,7 +78,7 @@ describe('AcoustIdClient', () => {
     expect(params.get('duration')).toBe('285');
     expect(params.get('fingerprint')).toBe('AQADtImU');
     expect(params.get('meta')).toBe('recordings releases releasegroups');
-    expect(seen!.headers['User-Agent']).toBe('Liner/test');
+    expect(seen!.headers['User-Agent']).toBe('tagave/test');
   });
 
   it('turns 503 and an error status into AcoustIdError with isRateLimit', async () => {

@@ -12,7 +12,7 @@
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { ExternalReview, Listen, ListenFormat, ReviewsBundle } from '@liner/shared';
+import type { ExternalReview, Listen, ListenFormat, ReviewsBundle } from '@tagave/shared';
 import type { Edition } from '../hooks/useLibrary';
 import {
   useAddClipping, useAddListen, useDeleteClipping, useDeleteListen, useDeleteReview,

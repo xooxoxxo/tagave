@@ -9,7 +9,7 @@
  */
 import type { PgBoss } from 'pg-boss';
 import type postgres from 'postgres';
-import type { PlayerCapability, PlayerQueueTrack, PlayerQueueView, UnplayableReason } from '@liner/shared';
+import type { PlayerCapability, PlayerQueueTrack, PlayerQueueView, UnplayableReason } from '@tagave/shared';
 import {
   getAlbum,
   getMusicFolders,
@@ -26,7 +26,7 @@ import {
   type LocalTrackRef,
   type PlayerBackend,
   type ServerSong,
-} from '@liner/core/player';
+} from '@tagave/core/player';
 
 type Sql = postgres.Sql;
 

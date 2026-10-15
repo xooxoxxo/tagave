@@ -1,5 +1,5 @@
 import { and, eq, sql, desc, lt, isNull, or } from 'drizzle-orm';
-import { localAlbums, libraries, jobRuns } from '@liner/db';
+import { localAlbums, libraries, jobRuns } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
 

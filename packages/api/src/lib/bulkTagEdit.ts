@@ -7,11 +7,11 @@
  * journalled and revertible like any other.
  */
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
-import { audioFiles, localAlbums, localTracks } from '@liner/db';
+import { audioFiles, localAlbums, localTracks } from '@tagave/db';
 import {
   VARIOUS_ARTISTS, isVariousArtists, leadingNumberOf, stripTrackNumberPrefix,
   type ManualTagValues, type TagPlanScope,
-} from '@liner/shared';
+} from '@tagave/shared';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;

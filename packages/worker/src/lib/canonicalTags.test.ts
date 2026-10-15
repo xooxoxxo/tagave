@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lintAlbum } from '@liner/core';
+import { lintAlbum } from '@tagave/core';
 import { currentFieldsFrom, rawTracksForLint } from './canonicalTags.js';
 
 // The shape scanParse stores: music-metadata's common block under `common`.

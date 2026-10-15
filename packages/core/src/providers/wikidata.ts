@@ -2,7 +2,7 @@
  * Wikidata client for music metadata (spec §10.2.3, ENR-7, REV-2).
  * One SPARQL round trip per release group answers the whole identity
  * question: QID, Discogs master (P1954), English Wikipedia article, and the
- * review-site identifiers Liner links out to (Metacritic P1712, AllMusic
+ * review-site identifiers tagave links out to (Metacritic P1712, AllMusic
  * P1729, Rate Your Music P8392). Wikidata is CC0.
  */
 import { z } from 'zod';

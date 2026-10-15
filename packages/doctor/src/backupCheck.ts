@@ -24,7 +24,7 @@ interface LastBackup {
 }
 
 export interface BackupCheckOptions {
-  /** Where the pre-migration dumps go; LINER_BACKUP_DIR (then CACHE_DIR/backups) when absent. */
+  /** Where the pre-migration dumps go; BACKUP_DIR (then CACHE_DIR/backups) when absent. */
   backupDir?: string;
   pgDump?: string;
   env?: NodeJS.ProcessEnv;
@@ -80,7 +80,7 @@ export async function checkBackups(databaseUrl: string, opts: BackupCheckOptions
   // 1. The folder must take a file.
   try {
     await fs.mkdir(dir, { recursive: true });
-    const probe = path.join(dir, `.liner-doctor-${process.pid}-${Date.now()}.tmp`);
+    const probe = path.join(dir, `.tagave-doctor-${process.pid}-${Date.now()}.tmp`);
     await fs.writeFile(probe, 'x');
     await fs.unlink(probe).catch(() => undefined);
   } catch (err) {
@@ -126,7 +126,7 @@ export async function checkBackups(databaseUrl: string, opts: BackupCheckOptions
     const when = new Date(last.created_at).toISOString().slice(0, 16).replace('T', ' ');
     const to = last.to_version ? ` to ${last.to_version}` : '';
     if (last.status === 'skipped') {
-      problems.push(`the last update${to} (${when} UTC) migrated without a backup (LINER_SKIP_PREMIGRATE_BACKUP was set)`);
+      problems.push(`the last update${to} (${when} UTC) migrated without a backup (TAGAVE_SKIP_PREMIGRATE_BACKUP was set)`);
     } else if (last.path) {
       let present = true;
       try {

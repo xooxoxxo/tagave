@@ -4,7 +4,7 @@
  * only on the RP ID it was created for, so changing the host orphans them).
  */
 import postgres from 'postgres';
-import { AuthConfigError, parsePublicUrl, passkeysCanWork } from '@liner/auth';
+import { AuthConfigError, parsePublicUrl, passkeysCanWork } from '@tagave/auth';
 import { plural, type Check } from './checks.js';
 
 export async function checkPublicUrl(databaseUrl: string | undefined, env: NodeJS.ProcessEnv = process.env): Promise<Check> {

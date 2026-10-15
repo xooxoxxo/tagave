@@ -14,7 +14,7 @@
  *
  * Every row is one line plus one action; rows expand in place for the rest.
  */
-import type { IdentifyOutcomeKind, IdentifyRequestView } from '@liner/shared';
+import type { IdentifyOutcomeKind, IdentifyRequestView } from '@tagave/shared';
 import { describeQualityFlag, plural, type QualityAction } from './qualityFlags';
 import { gapLine, missingCount, qualityFlagOf } from './gapTasks';
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { runDoctor, remediationFor } from '@liner/doctor';
+import { runDoctor, remediationFor } from '@tagave/doctor';
 import { and, eq } from 'drizzle-orm';
-import { libraries } from '@liner/db';
+import { libraries } from '@tagave/db';
 import { getDb } from '../db.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
@@ -20,7 +20,7 @@ export function expectedWorkers(raw: string | undefined): number {
 
 /**
  * Settings › System status and the first-run wizard, once the owner account
- * exists. Same checks as `liner-doctor` (and /health), with a plain fix for
+ * exists. Same checks as `tagave-doctor` (and /health), with a plain fix for
  * each one that did not pass. Owner only: the details name paths and hosts.
  * Local checks only: opening the page must not spend MusicBrainz or Discogs
  * budget.

@@ -7,11 +7,11 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql } from 'drizzle-orm';
-import { libraries, localAlbums } from '@liner/db';
+import { libraries, localAlbums } from '@tagave/db';
 import {
   BULK_JOB_CAP, BULK_UPDATE_CAP, bulkAlbumsRequestSchema,
   type BulkAlbumAction, type BulkAlbumsResult,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

@@ -4,8 +4,8 @@ import {
   albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog,
-} from '@liner/db';
-import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@liner/core';
+} from '@tagave/db';
+import { normalizeGenreMap, effectiveGenres, physicalFormatLabel } from '@tagave/core';
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
@@ -14,8 +14,8 @@ import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
 import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
-import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@liner/shared';
-import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@liner/db';
+import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
+import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -65,7 +65,7 @@ export function albumQueryParts(
   const artist = str(q['artist']);
   // Unresolved artists are listed by their shown name (numbering stripped,
   // VA spellings folded, migration 0028), so the filter matches the same way.
-  if (artist) conds.push(sql`liner_display_artist(${localAlbums.artistGuess}) = liner_display_artist(${artist}::text)`);
+  if (artist) conds.push(sql`tagave_display_artist(${localAlbums.artistGuess}) = tagave_display_artist(${artist}::text)`);
   // "Show albums in this folder" (album page): the folder itself or anything
   // below it, relative to the scan root as dir_paths are.
   const folder = str(q['folder'])?.replace(/\/+$/, '');
@@ -201,7 +201,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const cacheKey = facetCacheKey(libraryId, userId, rawQuery);
     const hit = facetCache.get(cacheKey);
     if (hit && Date.now() - hit.at < FACET_CACHE_TTL_MS) {
-      reply.header('x-liner-cache', 'hit');
+      reply.header('x-tagave-cache', 'hit');
       return reply.send(hit.body);
     }
     // XO-363: the worker-maintained album_facets table answers every request
@@ -209,11 +209,11 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     if (summaryEligible(rawQuery) && (await summaryFresh(db, libraryId))) {
       const body = await summaryFacets(db, libraryId, userId, rawQuery);
       storeFacetCache(cacheKey, libraryId, body);
-      reply.header('x-liner-cache', 'miss');
-      reply.header('x-liner-facets', 'summary');
+      reply.header('x-tagave-cache', 'miss');
+      reply.header('x-tagave-facets', 'summary');
       return reply.send(body);
     }
-    reply.header('x-liner-facets', 'live');
+    reply.header('x-tagave-facets', 'live');
     const { conds, REVIEW_CLAUSES, ownedSql, openGap } = albumQueryParts(libraryId, userId, rawQuery);
     const where = and(...conds)!;
     // A dimension's own filter is dropped from its own counts, so a checked
@@ -293,7 +293,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
     };
     storeFacetCache(cacheKey, libraryId, body);
-    reply.header('x-liner-cache', 'miss');
+    reply.header('x-tagave-cache', 'miss');
     reply.send(body);
   });
 

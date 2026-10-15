@@ -13,12 +13,12 @@ import type { PgBoss } from 'pg-boss';
 import {
   clippings, externalReviews, libraries, listens, releaseGroups, releases, reviewLinks,
   userReviewRevisions, userReviews,
-} from '@liner/db';
+} from '@tagave/db';
 import {
   createClippingSchema, createListenSchema, putOwnReviewSchema, reviewLinkLabel,
   type Clipping, type ExternalReview, type Listen, type OwnReview, type ReviewLink,
   type ReviewRevision, type ReviewsBundle,
-} from '@liner/shared';
+} from '@tagave/shared';
 import { getDb } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';

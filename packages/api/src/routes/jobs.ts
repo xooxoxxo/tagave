@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, desc, gte, notInArray, sql } from 'drizzle-orm';
-import { libraries, jobRuns, scanRoots } from '@liner/db';
-import type { JobView, JobsListResponse, JobsSummary } from '@liner/shared';
+import { libraries, jobRuns, scanRoots } from '@tagave/db';
+import type { JobView, JobsListResponse, JobsSummary } from '@tagave/shared';
+import { JOB_EVENTS_CHANNEL, LEGACY_JOB_EVENTS_CHANNEL } from '@tagave/shared/job';
 import { getDb, getSql } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -79,21 +80,22 @@ let listening: Promise<void> | undefined;
 /** One LISTEN connection per process (postgres.js keeps it dedicated). */
 function ensureListener(fastify: FastifyInstance): Promise<void> {
   if (listening) return listening;
-  listening = getSql()
-    .listen('liner_jobs', (payload) => {
-      let event: { type?: string; libraryId?: string } = {};
-      try { event = JSON.parse(payload); } catch { return; }
-      if (!event.libraryId) return;
-      const subs = subscribers.get(event.libraryId);
-      if (!subs) return;
-      const frame = `event: ${event.type ?? 'message'}\ndata: ${payload}\n\n`;
-      for (const r of subs) {
-        try { r.raw.write(frame); } catch { subs.delete(r); }
-      }
-    })
+  const onEvent = (payload: string) => {
+    let event: { type?: string; libraryId?: string } = {};
+    try { event = JSON.parse(payload); } catch { return; }
+    if (!event.libraryId) return;
+    const subs = subscribers.get(event.libraryId);
+    if (!subs) return;
+    const frame = `event: ${event.type ?? 'message'}\ndata: ${payload}\n\n`;
+    for (const r of subs) {
+      try { r.raw.write(frame); } catch { subs.delete(r); }
+    }
+  };
+  const client = getSql();
+  listening = Promise.all([JOB_EVENTS_CHANNEL, LEGACY_JOB_EVENTS_CHANNEL].map((channel) => client.listen(channel, onEvent)))
     .then(() => undefined, (err: Error) => {
       listening = undefined;
-      fastify.log.error({ err }, 'LISTEN liner_jobs failed');
+      fastify.log.error({ err }, `LISTEN ${JOB_EVENTS_CHANNEL} failed`);
     });
   return listening;
 }
@@ -243,8 +245,8 @@ export async function createJobRoutes(fastify: FastifyInstance) {
     }
   );
 
-  // Stream job events via SSE (spec §11.4): one LISTEN on `liner_jobs` per
-  // process, fanned out to the clients of the library named in each event.
+  // Stream job events via SSE (spec §11.4): one LISTEN on `tagave_jobs` (and,
+  // until 0.10, its pre-0.9 name `liner_jobs`) per process, fanned out to the clients of the library named in each event.
   // Workers publish job.progress/completed/failed (reportProgress) and
   // queue.changed (identification decisions); a heartbeat keeps proxies open.
   fastify.get(
