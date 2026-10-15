@@ -36,6 +36,9 @@ import { createArtistsRoutes } from './routes/artists.js';
 import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { createBackupRoutes } from './routes/backups.js';
 import { createStorageRoutes } from './routes/storage.js';
+import { createPlayerRoutes } from './routes/player.js';
+import { startPlayerScanWorker } from './lib/player.js';
+import { getSql } from './db.js';
 import { BackupService, applyBackupSchedule, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { authMiddleware, initAuth } from './middleware/auth.js';
@@ -379,6 +382,9 @@ app.register(async (instance) => {
 
   // Settings › Storage: disk use and the tag-change cleanup (owner only)
   instance.register(createStorageRoutes, { prefix: '/api/v1', backupDir: backupService.dir, cacheDir: process.env.CACHE_DIR || undefined });
+
+  // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
+  instance.register(createPlayerRoutes, { prefix: '/api/v1' });
 });
 
 // Start server
@@ -400,6 +406,13 @@ const start = async () => {
       logger.info({ dir: backupService.dir, enabled: s.enabled, hour: s.hour, tz: backupService.timeZone }, 'backup schedule applied');
     } catch (err) {
       logger.error({ err }, 'could not start the nightly backup schedule');
+    }
+    // The player module's scans: the API works this queue itself, so the
+    // player credentials never leave the app.
+    try {
+      await startPlayerScanWorker(await getBoss(), getSql(), logger);
+    } catch (err) {
+      logger.error({ err }, 'could not start the player scan worker');
     }
   } catch (err) {
     logger.error(err);

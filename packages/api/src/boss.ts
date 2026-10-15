@@ -48,5 +48,7 @@ async function startBoss(): Promise<PgBoss> {
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }
+  // the player module's debounced scans (worked by the API itself, see lib/player.ts)
+  await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   return boss;
 }

@@ -145,6 +145,9 @@ async function main() {
     await boss.createQueue(q, opts);
     await boss.updateQueue(q, { ...QUEUE_RETRY_DEFAULTS, ...(LONG_JOB_QUEUES[q] ?? {}) });
   }
+  // The player module's scans: this worker only sends to it after a tag
+  // write; the app works it (it holds the player's credentials).
+  await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   // pg-boss ≥10 honours singletonKey only under a non-standard queue policy,
   // and updateQueue() cannot change the policy of an existing queue — so the
   // policies are (re)applied here on every boot for queues created before.

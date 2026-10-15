@@ -31,6 +31,7 @@ const TABLE_CATEGORY: Record<string, StorageCategoryKey> = {
   gaps: 'care', identify_runs: 'care', field_locks: 'care', followed_artists: 'care',
   user_reviews: 'care', user_review_revisions: 'care', listens: 'care', clippings: 'care',
   collection_items: 'care', collection_sources: 'care', wantlist_items: 'care', player_links: 'care',
+  player_track_map: 'library', player_scan_requests: 'library', player_events: 'care',
   job_runs: 'jobs', worker_heartbeats: 'jobs',
 };
 

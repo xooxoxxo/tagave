@@ -6,13 +6,16 @@
  *
  * The command reads the old APP_SECRET from LINER_OLD_APP_SECRET and the new one from APP_SECRET,
  * then re-encrypts all sealed credentials in the database: provider tokens
- * (libraries.settings) and the authenticator-app secrets and backup codes
+ * and the player server password (libraries.settings) and the authenticator-app secrets and backup codes
  * (auth_two_factors, encrypted with the sign-in secret derived from APP_SECRET).
  */
 
 import postgres from 'postgres';
 import { openSecret, sealSecret, isSealed } from '@liner/core';
 import { resealTwoFactorSecrets } from '@liner/auth';
+
+/** Provider secrets kept sealed in libraries.settings (playerPassword: Settings › Playback, bring your own server). */
+export const SEALED_LIBRARY_KEYS = ['discogsToken', 'acoustidKey', 'playerPassword'] as const;
 
 export async function resealCredentials(databaseUrl: string): Promise<void> {
   const oldSecret = process.env.LINER_OLD_APP_SECRET;
@@ -36,6 +39,7 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
       from libraries
       where settings->>'discogsToken' like 'enc:%'
          or settings->>'acoustidKey' like 'enc:%'
+         or settings->>'playerPassword' like 'enc:%'
     ` as unknown as Array<{ id: string; settings: Record<string, any> }>;
 
     // Authenticator apps first: one transaction, and it refuses (changing
@@ -61,39 +65,21 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
 
       let updated = false;
 
-      // Re-seal discogsToken (idempotent: skip if already sealed with new secret)
-      if (settings.discogsToken && isSealed(settings.discogsToken)) {
+      // Re-seal each provider secret (idempotent: skip one already sealed with the new secret)
+      for (const key of SEALED_LIBRARY_KEYS) {
+        const value = settings[key];
+        if (!value || typeof value !== 'string' || !isSealed(value)) continue;
         try {
-          // Check if already resealed with new secret
           try {
-            openSecret(settings.discogsToken, newSecret);
+            openSecret(value, newSecret);
             // Already sealed with new secret, skip
           } catch {
-            // Not resealed yet; decrypt with old secret and reseal with new
-            const plaintext = openSecret(settings.discogsToken, oldSecret);
-            settings.discogsToken = sealSecret(plaintext, newSecret);
+            const plaintext = openSecret(value, oldSecret);
+            settings[key] = sealSecret(plaintext, newSecret);
             updated = true;
           }
         } catch (err) {
-          throw new Error(`Failed to reseal discogsToken for library ${row.id}: ${(err as Error).message}`);
-        }
-      }
-
-      // Re-seal acoustidKey (idempotent: skip if already sealed with new secret)
-      if (settings.acoustidKey && isSealed(settings.acoustidKey)) {
-        try {
-          // Check if already resealed with new secret
-          try {
-            openSecret(settings.acoustidKey, newSecret);
-            // Already sealed with new secret, skip
-          } catch {
-            // Not resealed yet; decrypt with old secret and reseal with new
-            const plaintext = openSecret(settings.acoustidKey, oldSecret);
-            settings.acoustidKey = sealSecret(plaintext, newSecret);
-            updated = true;
-          }
-        } catch (err) {
-          throw new Error(`Failed to reseal acoustidKey for library ${row.id}: ${(err as Error).message}`);
+          throw new Error(`Failed to reseal ${key} for library ${row.id}: ${(err as Error).message}`);
         }
       }
 

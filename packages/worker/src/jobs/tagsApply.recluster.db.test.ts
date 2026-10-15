@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import {
-  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
+  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, playerScanRequests, playerTrackMap, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@liner/db';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob, agreedAlbumNames } from './clusterDir.js';
@@ -104,6 +104,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('re-cluster after apply (db)', (
       expect(j.data).toMatchObject({ libraryId, scanRootId: rootId });
       expect(j.opts.singletonKey).toContain(j.data.dirPath);
     }
+  });
+
+  it('asks the player to re-read what was written and forgets the cached song ids', async () => {
+    // outside /mnt/music: the whole library is scanned
+    const reqs = await db.select().from(playerScanRequests).where(eq(playerScanRequests.libraryId, libraryId));
+    expect(reqs.map((r: any) => r.folder)).toEqual(['']);
+    expect(sent.filter((j) => j.name === 'player.scan')).toEqual([
+      { name: 'player.scan', data: { libraryId }, opts: expect.objectContaining({ singletonKey: `player.scan:${libraryId}`, startAfter: 10 }) },
+    ]);
+    const [t] = await db.select({ id: localTracks.id }).from(localTracks).where(eq(localTracks.audioFileId, fileIds[0]!));
+    await db.insert(playerTrackMap).values({ localTrackId: t.id, serverKey: 'bundled', songId: 'old', matchedBy: 'path' });
+    await reclusterWrittenDirs(ctx, planId);
+    expect(await db.select().from(playerTrackMap).where(eq(playerTrackMap.localTrackId, t.id))).toHaveLength(0);
   });
 
   it('the re-cluster keeps the merge and gives the album the names its files agree on', async () => {

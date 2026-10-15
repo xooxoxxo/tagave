@@ -1359,3 +1359,66 @@ export const identifyRuns = pgTable(
     jobIdx: index('idx_identify_runs_job').on(table.jobId),
   })
 );
+
+// The opt-in player module (0041). Empty while the module is off.
+
+/** Which song on the player server is which local track (resolved on demand, cached). */
+export const playerTrackMap = pgTable(
+  'player_track_map',
+  {
+    localTrackId: uuid('local_track_id')
+      .primaryKey()
+      .references(() => localTracks.id, { onDelete: 'cascade' }),
+    serverKey: text('server_key').notNull(),
+    songId: text('song_id').notNull(),
+    serverAlbumId: text('server_album_id'),
+    serverPath: text('server_path'),
+    /** path | recording | position */
+    matchedBy: text('matched_by').notNull(),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    serverIdx: index('idx_player_track_map_server').on(table.serverKey),
+  })
+);
+
+/** What the web player reported (now_playing | completed | skipped); turned into listens and scrobbles later. */
+export const playerEvents = pgTable(
+  'player_events',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    localTrackId: uuid('local_track_id').references(() => localTracks.id, { onDelete: 'set null' }),
+    localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'set null' }),
+    releaseId: uuid('release_id').references(() => releases.id, { onDelete: 'set null' }),
+    recordingMbid: varchar('recording_mbid', { length: 36 }),
+    serverKey: text('server_key'),
+    serverSongId: text('server_song_id'),
+    queueId: uuid('queue_id').notNull(),
+    kind: text().notNull(),
+    playedMs: integer('played_ms').notNull(),
+    positionMs: integer('position_ms').notNull(),
+    durationMs: integer('duration_ms'),
+    occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => ({
+    userTimeIdx: index('idx_player_events_user_time').on(table.userId, table.occurredAt),
+  })
+);
+
+/** Folders the player server should re-read, drained by the debounced player.scan job. */
+export const playerScanRequests = pgTable(
+  'player_scan_requests',
+  {
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    /** relative to the music root; '' = the whole library */
+    folder: text().notNull(),
+    requestedAt: timestamp('requested_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.libraryId, table.folder] }),
+  })
+);

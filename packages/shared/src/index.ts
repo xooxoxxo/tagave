@@ -376,3 +376,32 @@ export {
   type StepUpMethod,
   type StepUpStatus,
 } from './updater.js';
+
+// The opt-in player module (Navidrome or another Subsonic-compatible server)
+export {
+  playerManagedSchema,
+  type PlayerManaged,
+  playerCapabilitySchema,
+  type PlayerCapability,
+  type CapabilitiesView,
+  type PlayerSettingsView,
+  savePlayerServerSchema,
+  type SavePlayerServer,
+  unplayableReasonSchema,
+  type UnplayableReason,
+  type PlayerQueueTrack,
+  type PlayerQueueView,
+  STREAM_FORMATS,
+  streamFormatSchema,
+  type StreamFormat,
+  STREAM_BITRATES,
+  streamQuerySchema,
+  type StreamQuery,
+  playerQualitySchema,
+  type PlayerQuality,
+  PLAYER_QUALITY_STORAGE_KEY,
+  playEventKindSchema,
+  type PlayEventKind,
+  playEventSchema,
+  type PlayEvent,
+} from './player.js';

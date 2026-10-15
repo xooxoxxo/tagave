@@ -8,7 +8,8 @@
     "./normalize": "./dist/text/normalize.js",
     "./matching": "./dist/matching/index.js",
     "./providers": "./dist/providers/index.js",
-    "./tags": "./dist/tags/mapping.js"
+    "./tags": "./dist/tags/mapping.js",
+    "./player": "./dist/player/index.js"
   },
   "files": [
     "dist"

@@ -26,6 +26,7 @@ import type { TagDiffEntry } from '@liner/shared';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 import { localTracks } from '@liner/db';
 import { clusterSingletonKey, relDirname } from '../lib/helpers.js';
+import { requestPlayerRescan } from '../lib/playerScan.js';
 
 export interface TagsApplyJobData {
   planId: string;
@@ -508,9 +509,10 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
  */
 export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss' | 'logger'>, planId: string): Promise<number> {
   const rows = await ctx.db
-    .selectDistinct({ libraryId: audioFiles.libraryId, scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+    .selectDistinct({ libraryId: audioFiles.libraryId, scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath, fileId: audioFiles.id, scanRootPath: scanRoots.path })
     .from(tagPlanItems)
     .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+    .innerJoin(scanRoots, eq(scanRoots.id, audioFiles.scanRootId))
     .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
   const dirs = new Map<string, { libraryId: string; scanRootId: string; dirPath: string }>();
   for (const r of rows) {
@@ -527,6 +529,8 @@ export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss
     }
   }
   if (dirs.size > 0) ctx.logger.info({ planId, dirs: dirs.size, queued }, 'tags.apply: re-cluster queued');
+  // the player server re-reads the same folders (its watcher is off over NFS)
+  await requestPlayerRescan(ctx, rows);
   return queued;
 }
 
