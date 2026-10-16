@@ -1,13 +1,13 @@
 /**
- * mc.purge: keep the Music Connections change log small. The triggers only
- * append (migration 0048), so a key that changes often gathers rows; once a
+ * mc.purge: keep the facet change log (facet_changes) small. The triggers
+ * only append (migration 0048), so a key that changes often gathers rows; once a
  * day this
  *
  *   1. re-logs, as an upsert, any key whose newest row is a delete older than
  *      90 days yet which has data now (a writer's op can go stale when two
  *      write at once; the feed serves what is there, the log must not lose it),
- *   2. drops every row a newer row of the same key supersedes (capability,
- *      key, library, person): the feed serves a key's current data from its
+ *   2. drops every row a newer row of the same key supersedes (facet,
+ *      key, library, person, source): the feed serves a key's current data from its
  *      newest row, so the older ones say nothing more,
  *   3. drops delete rows older than 90 days whose key has no data, the time
  *      the feeds promise to keep tombstones (spec §3). A cursor from before
@@ -38,25 +38,27 @@ export async function mcPurgeJob(
   const batchSize = data.batchSize ?? 5000;
 
   const relogged = (await ctx.sql`
-    insert into mc_changes (capability, key, op, user_id, library_id)
-    select m.capability, m.key, 'upsert', m.user_id, m.library_id
-      from mc_changes m
+    insert into facet_changes (facet, key, op, user_id, library_id, source_module, source_ref)
+    select m.facet, m.key, 'upsert', m.user_id, m.library_id, m.source_module, m.source_ref
+      from facet_changes m
      where m.op = 'delete' and m.changed_at < now() - make_interval(days => ${keepDays})
-       and not exists (select 1 from mc_changes n
-                        where n.capability = m.capability and n.key = m.key and n.library_id = m.library_id
-                          and n.user_id is not distinct from m.user_id and (n.changed_at, n.id) > (m.changed_at, m.id))
-       and mc_present(m.capability, m.library_id, m.user_id, m.key)
+       and not exists (select 1 from facet_changes n
+                        where n.facet = m.facet and n.key = m.key and n.library_id = m.library_id
+                          and n.user_id is not distinct from m.user_id
+                          and n.source_ref is not distinct from m.source_ref and (n.changed_at, n.id) > (m.changed_at, m.id))
+       and facet_present(m.facet, m.library_id, m.user_id, m.key)
     returning 1`).length;
 
   let superseded = 0;
   for (;;) {
     const rows = await ctx.sql`
-      delete from mc_changes
+      delete from facet_changes
        where id in (
-         select m.id from mc_changes m
-          where exists (select 1 from mc_changes n
-                         where n.capability = m.capability and n.key = m.key and n.library_id = m.library_id
-                           and n.user_id is not distinct from m.user_id and (n.changed_at, n.id) > (m.changed_at, m.id))
+         select m.id from facet_changes m
+          where exists (select 1 from facet_changes n
+                         where n.facet = m.facet and n.key = m.key and n.library_id = m.library_id
+                           and n.user_id is not distinct from m.user_id
+                          and n.source_ref is not distinct from m.source_ref and (n.changed_at, n.id) > (m.changed_at, m.id))
           limit ${batchSize})
       returning 1`;
     superseded += rows.length;
@@ -66,17 +68,17 @@ export async function mcPurgeJob(
   let tombstones = 0;
   for (;;) {
     const rows = await ctx.sql`
-      delete from mc_changes
+      delete from facet_changes
        where id in (
-         select m.id from mc_changes m
+         select m.id from facet_changes m
           where m.op = 'delete' and m.changed_at < now() - make_interval(days => ${keepDays})
-            and not mc_present(m.capability, m.library_id, m.user_id, m.key)
+            and not facet_present(m.facet, m.library_id, m.user_id, m.key)
           limit ${batchSize})
       returning 1`;
     tombstones += rows.length;
     if (rows.length < batchSize) break;
   }
 
-  ctx.logger.info({ relogged, superseded, tombstones, keepDays }, 'mc.purge: Music Connections change log compacted');
+  ctx.logger.info({ relogged, superseded, tombstones, keepDays }, 'mc.purge: facet change log compacted');
   return { relogged, superseded, tombstones };
 }

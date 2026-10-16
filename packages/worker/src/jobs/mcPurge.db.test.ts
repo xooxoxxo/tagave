@@ -19,10 +19,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
   const tag = randomUUID().slice(0, 8);
 
   const row = (key: string, op: 'upsert' | 'delete', age: string) =>
-    client`insert into mc_changes (capability, key, op, user_id, library_id, changed_at)
-           values ('ratings', ${key}, ${op}, ${userId}, ${libraryId}, now() - ${age}::interval)`;
+    client`insert into facet_changes (facet, key, op, user_id, library_id, changed_at)
+           values ('album.rating@1', ${key}, ${op}, ${userId}, ${libraryId}, now() - ${age}::interval)`;
   const left = async () =>
-    (await client`select key, op from mc_changes where library_id = ${libraryId} order by key, changed_at`)
+    (await client`select key, op from facet_changes where library_id = ${libraryId} order by key, changed_at`)
       .map((r: { key: string; op: string }) => `${r.key.replace(`${tag}:`, '')} ${r.op}`)
       .sort();
 
@@ -35,7 +35,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
     await client`insert into release_groups (id, mbid, title) values (${rgLive}, ${randomUUID()}, 'purge test')`;
     // a rating that exists (its trigger logs one upsert, removed below)
     await client`insert into user_reviews (library_id, user_id, release_group_id, rating) values (${libraryId}, ${userId}, ${rgLive}, 4)`;
-    await client`delete from mc_changes where library_id = ${libraryId}`;
+    await client`delete from facet_changes where library_id = ${libraryId}`;
 
     await row(`${tag}:old-delete`, 'delete', '91 days');
     await row(`${tag}:older-delete`, 'delete', '400 days');

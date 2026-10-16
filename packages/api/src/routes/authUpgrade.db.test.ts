@@ -89,7 +89,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     // later migrations may only add new tables that point at users (0041:
     // player_events; 0043: saved_views per person, user_invites; 0044: the
     // player's per-person tables; 0047: Music Connections requests and tokens;
-    // 0048: the Music Connections change log; 0049: Music Connections links
+    // 0048: the facet change log; 0049: Music Connections links
     // and authorizations in flight, tagave as a client).
     const fksAfter = await fkQuery();
     const key = (f: any) => `${f.table_name}.${f.conname}`;
@@ -98,7 +98,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     expect(fksAfter.filter((f: any) => before.has(key(f)) && key(f) !== restricted)).toEqual(fksBefore.filter((f: any) => key(f) !== restricted));
     expect(fksAfter.find((f: any) => key(f) === restricted)?.def).toBe('FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT');
     expect(fksAfter.filter((f: any) => !before.has(key(f))).map((f: any) => f.table_name)).toEqual([
-      'mc_changes', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending',
+      'facet_changes', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending',
       'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_rating_sync', 'player_song_counts', 'player_users',
       'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites',
     ]);

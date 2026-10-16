@@ -1667,27 +1667,43 @@ export const mcOauthTokens = pgTable(
   })
 );
 
-// Music Connections, phases 2-3 (0048): the change log the /mc/v1 feeds page
-// through. Written only by triggers (see the migration); read by api ›
-// lib/mcFeeds.ts, tombstones purged after 90 days by mc.purge.
-export const mcChanges = pgTable(
-  'mc_changes',
+// The facet change log (0048): which facet of which entity changed, in order.
+// Written only by triggers (see the migration); read through @tagave/db ›
+// facetLog.ts (the /mc/v1 feeds, in-process consumers), tombstones purged
+// after 90 days by mc.purge.
+export const facetChanges = pgTable(
+  'facet_changes',
   {
     id: bigint({ mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
-    capability: text().notNull(),
+    facet: text().notNull(),
     key: text().notNull(),
     op: text().notNull(),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
     libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    sourceModule: text('source_module'),
+    sourceRef: uuid('source_ref'),
     changedAt: tstz('changed_at').notNull().default(sql`clock_timestamp()`),
   },
   (table) => ({
-    feedIdx: index('idx_mc_changes_feed').on(table.capability, table.userId, table.changedAt, table.id),
-    keyIdx: index('idx_mc_changes_key').on(table.capability, table.key),
-    tombstonesIdx: index('idx_mc_changes_tombstones').on(table.changedAt).where(sql`op = 'delete'`),
-    capabilityCheck: check('mc_changes_capability_check', sql`capability in ('ratings', 'collection', 'listens', 'identity')`),
-    opCheck: check('mc_changes_op_check', sql`op in ('upsert', 'delete')`),
+    feedIdx: index('idx_facet_changes_feed').on(table.facet, table.userId, table.changedAt, table.id),
+    keyIdx: index('idx_facet_changes_key').on(table.facet, table.key),
+    tombstonesIdx: index('idx_facet_changes_tombstones').on(table.changedAt).where(sql`op = 'delete'`),
+    facetCheck: check('facet_changes_facet_check', sql`facet in ('album.rating@1', 'album.collection@1', 'album.listens@1', 'album.identity@1')`),
+    opCheck: check('facet_changes_op_check', sql`op in ('upsert', 'delete')`),
   })
+);
+
+// Where an in-process consumer stopped reading a facet (0048).
+export const facetCursors = pgTable(
+  'facet_cursors',
+  {
+    consumer: text().notNull(),
+    facet: text().notNull(),
+    scopeKey: text('scope_key').notNull().default(''),
+    cursor: text().notNull(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.consumer, table.facet, table.scopeKey] }) })
 );
 
 // Music Connections, tagave as a client (0049): one row per person and linked

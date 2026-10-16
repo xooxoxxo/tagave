@@ -12,6 +12,7 @@ import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { CAPABILITY_DATA, FeedPageSchema, encodeCursor, runConformance, type Capability } from 'music-connections';
 import type { AuthHandle } from '@tagave/auth';
+import { nextFacetChanges } from '@tagave/db';
 import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
@@ -19,7 +20,7 @@ import { createTestUser, type TestUser } from '../testkit/users.js';
 import { hashToken } from '../lib/mcOAuth.js';
 import { createMcFeedRoutes, resetMcFeedLimits } from './mcFeeds.js';
 import { errorHandler } from '../middleware/errorHandler.js';
-import { feedTuning, readFeed } from '../lib/mcFeeds.js';
+import { FACET_OF, feedTuning, readFeed, type ServedCapability } from '../lib/mcFeeds.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const ALL = ['ratings:read', 'collection:read', 'listens:read', 'identity:read', 'offline_access'];
@@ -91,7 +92,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
   const tail = async (cap: Capability) => (await all(cap)).next;
   const latest = (items: Item[], key: string) => items.filter((i) => i.key === key).at(-1);
   const logRows = async (cap: string, key: string) =>
-    (await sql<Array<{ n: number }>>`select count(*)::int as n from mc_changes where capability = ${cap} and key = ${key}`)[0]!.n;
+    (await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes where facet = ${FACET_OF[cap as ServedCapability]} and key = ${key}`)[0]!.n;
 
   beforeAll(async () => {
     admin = postgres(adminUrl!, { max: 1, onnotice: () => undefined });
@@ -298,13 +299,13 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     expect(await logRows('listens', `${rgA}:2026-09-30`)).toBe(1);
 
     // collection.sync rewrites every copy with the values it already has
-    const n = (await sql<Array<{ n: number }>>`select count(*)::int as n from mc_changes`)[0]!.n;
-    const maxId = (await sql<Array<{ m: string }>>`select max(id)::text as m from mc_changes`)[0]!.m;
+    const n = (await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes`)[0]!.n;
+    const maxId = (await sql<Array<{ m: string }>>`select max(id)::text as m from facet_changes`)[0]!.m;
     await sql`update collection_items set formats = formats, basic_info = basic_info, last_seen_at = now() where library_id = ${libraryId}`;
     await sql`update local_albums set identify_attempts = identify_attempts + 1, updated_at = now() where library_id = ${libraryId}`;
     await sql`update audio_files set last_seen_at = now(), status = status where library_id = ${libraryId}`;
-    expect((await sql<Array<{ n: number }>>`select count(*)::int as n from mc_changes where id > ${maxId}::bigint`)[0]!.n).toBe(0);
-    expect((await sql<Array<{ n: number }>>`select count(*)::int as n from mc_changes`)[0]!.n).toBe(n);
+    expect((await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes where id > ${maxId}::bigint`)[0]!.n).toBe(0);
+    expect((await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes`)[0]!.n).toBe(n);
   });
 
   it('files going missing change the album’s formats, logged once for the album', async () => {
@@ -321,9 +322,9 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     const gone = await createTestUser(handle, { role: 'listener' });
     await sql`insert into user_reviews (library_id, user_id, release_group_id, rating) values (${libraryId}, ${gone.userId}, ${rgA}, 5)`;
     await sql`insert into listens (library_id, user_id, release_group_id, listened_at) values (${libraryId}, ${gone.userId}, ${rgA}, now())`;
-    expect((await sql`select 1 from mc_changes where user_id = ${gone.userId}`).length).toBe(2);
+    expect((await sql`select 1 from facet_changes where user_id = ${gone.userId}`).length).toBe(2);
     await sql`delete from users where id = ${gone.userId}`;
-    expect((await sql`select 1 from mc_changes where user_id = ${gone.userId}`).length).toBe(0);
+    expect((await sql`select 1 from facet_changes where user_id = ${gone.userId}`).length).toBe(0);
   });
 
   it('a change is served only once every transaction that started before it has ended', async () => {
@@ -348,7 +349,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
 
   it('a delete row whose key has data when read is served as an upsert', async () => {
     const since = await tail('collection');
-    await sql`insert into mc_changes (capability, key, op, user_id, library_id) values ('collection', ${rgA}, 'delete', null, ${libraryId})`;
+    await sql`insert into facet_changes (facet, key, op, user_id, library_id) values ('album.collection@1', ${rgA}, 'delete', null, ${libraryId})`;
     const p = await all('collection', since);
     expect(p.items.map((i) => [i.key, i.op])).toEqual([[rgA, 'upsert']]);
     expect(p.items[0]!.data.formats.length).toBeGreaterThan(0);
@@ -383,7 +384,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
       a.release();
       b.release();
     }
-    const ops = (await sql<Array<{ op: string }>>`select op from mc_changes where capability = 'collection' and key = ${k} order by changed_at, id`).map((r) => r.op);
+    const ops = (await sql<Array<{ op: string }>>`select op from facet_changes where facet = 'album.collection@1' and key = ${k} order by changed_at, id`).map((r) => r.op);
     expect(ops.at(-1)).toBe('delete'); // the race left a stale delete as the newest row
     const p = await all('collection', since);
     expect(p.items.filter((i) => i.key === k).map((i) => [i.op, i.data?.formats])).toEqual([['upsert', [{ kind: 'digital', detail: 'FLAC' }]]]);
@@ -554,6 +555,30 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     expect(res.json()).toMatchObject({ type: 'object' });
     expect((await get('/mc/v1/schema/critic-scores.json', null)).statusCode).toBe(404);
     expect((await get('/mc/v1/schema/nope.json', null)).statusCode).toBe(404);
+  });
+
+  // ── an in-process consumer of the same log ───────────────────────────────
+
+  it('an in-process consumer resumes from its facet_cursors row', async () => {
+    const scope = { libraryId, userId: person.userId };
+    // read everything there is, and keep the place
+    for (;;) {
+      const batch = await nextFacetChanges(sql, 'test.consumer', 'album.rating@1', scope, 50);
+      await batch.commit();
+      if (batch.changes.length < 50) break;
+    }
+    expect((await nextFacetChanges(sql, 'test.consumer', 'album.rating@1', scope)).changes).toEqual([]);
+    await sql`update user_reviews set rating = 2.0 where user_id = ${person.userId} and release_group_id = ${rgA}`;
+    const next = await nextFacetChanges(sql, 'test.consumer', 'album.rating@1', scope);
+    expect(next.changes.map((c) => [c.key, c.op])).toEqual([[rgA, 'upsert']]);
+    // not committed: read again from the same place
+    expect((await nextFacetChanges(sql, 'test.consumer', 'album.rating@1', scope)).changes).toHaveLength(1);
+    await next.commit();
+    expect((await nextFacetChanges(sql, 'test.consumer', 'album.rating@1', scope)).changes).toEqual([]);
+    // another consumer starts from the beginning
+    expect((await nextFacetChanges(sql, 'other.consumer', 'album.rating@1', scope)).changes.length).toBeGreaterThan(0);
+    await sql`update user_reviews set rating = 3.5 where user_id = ${person.userId} and release_group_id = ${rgA}`;
+    await sql`delete from facet_cursors where consumer in ('test.consumer', 'other.consumer')`;
   });
 
   // ── the package's conformance suite, against tagave itself ───────────────

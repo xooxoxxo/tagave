@@ -1,7 +1,7 @@
 /**
  * Music Connections feeds (spec §3): what tagave serves at /mc/v1/<capability>.
- * The change log (mc_changes, migration 0048, written by triggers) says which
- * keys changed and in what order; each item's data is built here from the
+ * The facet change log (facet_changes, migration 0048, written by triggers;
+ * @tagave/db › facetLog.ts) says which keys changed and in what order; each item's data is built here from the
  * current rows when the page is read, so a page never carries a stale value.
  *
  * Everything is scoped to one person and one library (scopeFor): ratings and
@@ -12,6 +12,7 @@
  * rated_at, never the review's text (user_reviews.body_md).
  */
 import type postgres from 'postgres';
+import { facetLogHorizon, readFacetChanges, type LoggedFacet } from '@tagave/db';
 import { AlbumRefSchema, CAPABILITY_DATA, CURSOR_ID_BIGINT, MAX_FEED_LIMIT, TOMBSTONE_DAYS, parseSince as mcParseSince, type Capability, type Cursor, type SinceCheck } from 'music-connections';
 
 type Sql = postgres.Sql;
@@ -244,13 +245,13 @@ async function collectionData(sql: Sql, scope: FeedScope, keys: string[]): Promi
        group by a.release_group_id`,
     // Discogs copies mapped to no release group: keyed by their Discogs release
     others.length === 0 ? [] : sql<Array<{ key: string; formats: unknown; date_added: Date | null; master: number | null; release: number | null; title: string | null; artists: string | null }>>`
-      select mc_collection_key(release_group_id, discogs_release_id, id) as key, formats, date_added,
+      select facet_collection_key(release_group_id, discogs_release_id, id) as key, formats, date_added,
              discogs_master_id as master, discogs_release_id as release, basic_info->>'title' as title,
              case when jsonb_typeof(basic_info->'artists') = 'array'
                   then (select string_agg(x, ', ') from jsonb_array_elements_text(basic_info->'artists') x) end as artists
         from collection_items
        where library_id = ${scope.libraryId} and removed_at is null and release_group_id is null
-         and mc_collection_key(release_group_id, discogs_release_id, id) = any(${others}::text[])
+         and facet_collection_key(release_group_id, discogs_release_id, id) = any(${others}::text[])
        order by date_added nulls last, id`,
     albumRefs(sql, scope.libraryId, ids),
   ]);
@@ -292,11 +293,11 @@ async function listensData(sql: Sql, scope: FeedScope, keys: string[]): Promise<
   const ids = [...new Set(wanted.map((k) => k.slice(0, 36)))];
   const [rows, refs] = await Promise.all([
     sql<Array<{ key: string; rg: string; n: number; formats: string[] }>>`
-      select mc_listen_key(release_group_id, listened_at) as key, release_group_id::text as rg, count(*)::int as n,
+      select facet_listen_key(release_group_id, listened_at) as key, release_group_id::text as rg, count(*)::int as n,
              coalesce(array_agg(distinct format) filter (where format is not null and format <> ''), '{}') as formats
         from listens
        where library_id = ${scope.libraryId} and user_id = ${scope.userId} and release_group_id = any(${ids}::uuid[])
-         and mc_listen_key(release_group_id, listened_at) = any(${wanted}::text[])
+         and facet_listen_key(release_group_id, listened_at) = any(${wanted}::text[])
        group by 1, 2`,
     albumRefs(sql, scope.libraryId, ids),
   ]);
@@ -351,6 +352,15 @@ const BUILDERS: Partial<Record<Capability, (sql: Sql, scope: FeedScope, keys: st
   identity: identityData,
 };
 
+/** The facet behind each capability tagave serves (facet_changes.facet). */
+export type ServedCapability = 'ratings' | 'collection' | 'listens' | 'identity';
+export const FACET_OF: Readonly<Record<ServedCapability, LoggedFacet>> = {
+  ratings: 'album.rating@1',
+  collection: 'album.collection@1',
+  listens: 'album.listens@1',
+  identity: 'album.identity@1',
+};
+
 /** Whether a capability's rows are one person's (true) or the library's (null user). */
 export const PERSONAL: ReadonlySet<Capability> = new Set<Capability>(['ratings', 'listens']);
 
@@ -362,7 +372,7 @@ export type CursorCheck = SinceCheck;
 
 /**
  * The `since` parameter: absent (a full snapshot), bad (400), or older than
- * the tombstones (410). The package's rule, with mc_changes' bigint ids.
+ * the tombstones (410). The package's rule, with facet_changes' bigint ids.
  */
 export function parseSince(since: unknown, now = Date.now()): CursorCheck {
   return mcParseSince(since, { id: CURSOR_ID_BIGINT, now, tombstoneDays: TOMBSTONE_DAYS });
@@ -409,35 +419,20 @@ export async function readFeed(
   limit: number,
   log?: (msg: string) => void,
 ): Promise<FeedRow[]> {
-  const [horizon] = await sql<Array<{ t: string; lag_ms: number }>>`
-    select to_char(h at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as t,
-           (extract(epoch from (clock_timestamp() - h)) * 1000)::float8 as lag_ms
-      from (select least(clock_timestamp(),
-                     (select min(xact_start) from pg_stat_activity
-                       where datname = current_database() and backend_xid is not null and pid <> pg_backend_pid())) as h) s`;
-  if (horizon!.lag_ms > feedTuning.horizonLagWarnMs) {
+  const facet = FACET_OF[cap as ServedCapability];
+  if (!facet) return [];
+  const horizon = await facetLogHorizon(sql);
+  if (horizon.lagMs > feedTuning.horizonLagWarnMs) {
     // once per episode, not once per read
     if (!horizonLagging) {
       horizonLagging = true;
-      log?.(`mc feed: a transaction open for ${Math.round(horizon!.lag_ms / 60_000)} min holds the feeds back; changes made since it began wait until it ends`);
+      log?.(`mc feed: a transaction open for ${Math.round(horizon.lagMs / 60_000)} min holds the feeds back; changes made since it began wait until it ends`);
     }
   } else {
     horizonLagging = false;
   }
-  // ::text first: postgres.js would serialise a timestamptz parameter through
-  // a JS Date and drop the microseconds the cursor carries.
-  const t = after?.t ?? '1970-01-01T00:00:00Z';
-  const id = after?.id ?? '0';
-  const rows = await sql<Array<{ id: string; key: string; op: 'upsert' | 'delete'; changed_at: string }>>`
-    select id::text as id, key, op, to_char(changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as changed_at
-      from mc_changes
-     where capability = ${cap}
-       and ${PERSONAL.has(cap) ? sql`user_id = ${scope.userId}` : sql`user_id is null`}
-       and library_id = ${scope.libraryId}
-       and (changed_at, id) > (${t}::text::timestamptz, ${id}::text::bigint)
-       and changed_at < ${horizon!.t}::text::timestamptz
-     order by changed_at, id
-     limit ${limit + 1}`;
+  const rows = await readFacetChanges(sql, facet, { libraryId: scope.libraryId, userId: PERSONAL.has(cap) ? scope.userId : null },
+    after ? { t: after.t, id: String(after.id) } : null, limit + 1, horizon.t);
 
   const head = rows.slice(0, limit);
   const lastIndex = new Map<string, number>();

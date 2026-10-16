@@ -30,3 +30,4 @@ export async function makeDb(databaseUrl: string) {
     client,
   };
 }
+export * from './facetLog.js';
