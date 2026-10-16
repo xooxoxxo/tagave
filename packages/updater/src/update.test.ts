@@ -59,6 +59,11 @@ class FakeInstall {
   restoredFrom: string | null = null;
   /** Versions whose app commits a migration (and records its dump) as it is stopped. */
   commitsOnStop = new Set<string>();
+  /** Migration files in the target's app image (null: ls fails), and the ones applied. */
+  imageMigrations: string[] | null = ['0044_player_people.sql', '0045_player_retired_accounts.sql'];
+  appliedMigrations = ['0044_player_people.sql', '0045_player_retired_accounts.sql'];
+  /** What images.thumb_bytes holds. */
+  thumbBytes = 0;
   /** The install runs the player (compose service "player", Navidrome). */
   withPlayer = false;
   /** What the target's updater image ships as compose.yml. */
@@ -161,6 +166,12 @@ class FakeInstall {
     }
     if (a.startsWith('compose exec -T postgres') && this.psqlFails) return bad('service "postgres" is not running');
     if (a.includes('select count(*) from _migrations')) return ok(`${this.migrations}\n`);
+    if (a.includes('select name from _migrations')) return ok(`${this.appliedMigrations.join('\n')}\n`);
+    if (a.includes('sum(octet_length(thumb_bytes))')) return ok(`${this.thumbBytes}\n`);
+    if (a === 'compose config --images app') return ok(`ghcr.io/xooxoxxo/tagave-app:${await this.envVersion(opts?.env)}\n`);
+    if (args[0] === 'run' && args.includes('ls') && args.at(-1) === '/app/packages/db/migrations') {
+      return this.imageMigrations ? ok(`${this.imageMigrations.join('\n')}\n`) : bad('ls: cannot access');
+    }
     if (a.includes("to_regclass('public._migration_backups')")) return ok(this.backupRows ? 't\n' : 'f\n');
     if (a.includes('select max(id) from _migration_backups')) {
       const rows = this.backupRows ?? [];
@@ -409,6 +420,36 @@ describe('update state machine', () => {
       expect(stepStatus(run)).toMatchObject({ preflight: 'done', backup: 'failed', config: 'skipped' });
       expect(run.reason).toMatch(/has 3\.5 GB free and the update needs 3\.8 GB.*measured again after the new images were downloaded.*Nothing was changed/);
       expect(fake.calls.some((c) => c.includes('backup'))).toBe(false);
+    });
+
+    it("counts what a heavy migration of the new version writes, read from its app image after the download", async () => {
+      fake.imageMigrations!.push('0046_cover_thumbs.sql');
+      fake.thumbBytes = 1 * GB;
+      // room for the images and the dump, not for 3 × 1 GB more
+      fake.dockerFree = [50 * GB, 6 * GB];
+      const run = await update('0.8.0');
+      expect(run.status).toBe('failed');
+      expect(stepStatus(run)).toMatchObject({ preflight: 'done', backup: 'failed', config: 'skipped' });
+      // (700 MB + 3 GB) × 1.2 + 3 GB
+      expect(run.reason).toMatch(/has 6\.0 GB free and the update needs 7\.4 GB.*measured again after the new images were downloaded/);
+      expect(run.log.some((l) => l.message.includes('moving the cover thumbnails into their own table (0046_cover_thumbs.sql, 1.0 GB × 3)'))).toBe(true);
+      // read from the image preflight pulled, never a fresh download
+      expect(fake.calls.find((c) => c.includes('ls'))).toEqual(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'ls', 'ghcr.io/xooxoxxo/tagave-app:0.8.0', '/app/packages/db/migrations']);
+    });
+
+    it('does not count a heavy migration the database has applied, nor one it cannot see', async () => {
+      fake.imageMigrations!.push('0046_cover_thumbs.sql');
+      fake.appliedMigrations.push('0046_cover_thumbs.sql');
+      fake.thumbBytes = 10 * GB;
+      fake.dockerFree = [50 * GB, 6 * GB];
+      expect((await update('0.8.0')).status).toBe('succeeded');
+      fake.imageMigrations = null;
+      fake.appliedMigrations = [];
+      fake.appVersion = '0.7.0';
+      await writeFile(join(dir, '.env'), ENV);
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(run.log.some((l) => l.message.startsWith('space: could not compare the migrations of the new version'))).toBe(true);
     });
 
     it('checks a separate backups disk on its own', async () => {

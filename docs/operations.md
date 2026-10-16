@@ -208,8 +208,10 @@ Before the in-app updater pulls anything, it works out what the update will writ
 When the backups are a volume (the default), both loads are on Docker's filesystem. A backups folder that reports the same size or the same free space as Docker's counts as the same disk; a host folder (`TAGAVE_BACKUP_DIR`) with other numbers counts as another disk; when it cannot tell, the backups are counted on both. The rule is:
 
 ```
-needed = (images unpacked + backup) × 1.2 + 3 GB
+needed = (images unpacked + backup + heavy migrations) × 1.2 + 3 GB
 ```
+
+Heavy migrations are the few that copy a lot inside the database while they run, such as the one that moves the cover thumbnails into their own table (about three times the thumbnails' size). The updater finds them in the new version's app image once it is downloaded, so they count only in the second check below. The new app checks the room again before it applies them.
 
 The 3 GB is what is left free once the update has written everything: Postgres and the logs need room to run. `TAGAVE_UPDATER_MIN_FREE_MB` in `.env` changes it (default 3072). A backups folder on another disk (`TAGAVE_BACKUP_DIR`) is checked on its own, with 512 MB left free. Image sizes come from the registry; layers the running images already have are not counted. When the registry does not answer within 30 s or a measurement is out of reach, the updater counts 1 GB per image and 2 GB per backup, and the log says so.
 

@@ -58,6 +58,7 @@ import { MODULES_DIR, isOn, moduleComposeFile, pullVerified, renderModuleCompose
 import { MANIFEST_FILE, ReleaseRefused, SIGNATURE_FILE, digestFor, envPins, imageForService, type VerifiedRelease } from './release.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
+import { IMAGE_MIGRATIONS_DIR, pendingHeavy } from './heavy-migrations.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
 import {
   BACKUPS_TABLE_SQL,
@@ -461,9 +462,43 @@ export class Update {
     return servicesOut.split('\n').some((s) => s.trim() === 'updater');
   }
 
+  /**
+   * What the target's heavy migrations (heavy-migrations.ts) write to the
+   * database, read from its app image, which preflight pulled. Undefined
+   * when there are none or nothing can be read: the new app checks again
+   * before it migrates.
+   */
+  private async heavyMigrationLoad(): Promise<{ bytes: number; what: string } | undefined> {
+    const env = this.deps.release ? { TAGAVE_VERSION: this.run.target, ...envPins(this.deps.release.verified.manifest, this.deps.release.platform) } : { TAGAVE_VERSION: this.run.target };
+    const ref = await this.compose(['config', '--images', 'app'], { env, quiet: true, timeoutMs: 60_000 });
+    const image = ref.code === 0 ? ref.stdout.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
+    if (!image) return undefined;
+    const files = await this.docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'ls', image, IMAGE_MIGRATIONS_DIR], { quiet: true, timeoutMs: 60_000 });
+    const applied = await this.psql('select name from _migrations');
+    if (files.code !== 0 || applied === null) {
+      this.log('info', 'space: could not compare the migrations of the new version with the database; the new app checks the room its migrations need before it applies them');
+      return undefined;
+    }
+    let bytes = 0;
+    const what: string[] = [];
+    for (const { name, migration } of pendingHeavy(files.stdout, applied)) {
+      const out = await this.psql(migration.bytesSql);
+      const n = Number(out);
+      if (out === null || !Number.isFinite(n) || n < 0) {
+        this.log('info', `space: could not measure what ${name} moves; the new app checks before it applies it`);
+        continue;
+      }
+      bytes += n * migration.factor;
+      what.push(`${migration.what} (${name}, ${formatBytes(n)} × ${migration.factor})`);
+    }
+    return bytes > 0 ? { bytes, what: what.join(', ') } : undefined;
+  }
+
   /** Fails the step when the disk cannot take what comes next; `target` null: the images are pulled already. */
   private async checkSpace(target: string | null): Promise<void> {
     const env = this.originals.get('.env') ?? '';
+    // Known only once the new app image is here.
+    const migration = target === null ? await this.heavyMigrationLoad() : undefined;
     const space = await checkSpace(
       {
         docker: (args, opts) => this.docker(args, { ...opts, quiet: true }),
@@ -480,6 +515,7 @@ export class Update {
         // One dump per update: the new app's, or the updater's own, and then
         // the new app is started with TAGAVE_SKIP_PREMIGRATE_BACKUP=1.
         backupCopies: 1,
+        ...(migration ? { migration } : {}),
       },
     );
     if (space.problem) this.fail(target === null ? `${space.problem} (measured again after the new images were downloaded)` : space.problem);
