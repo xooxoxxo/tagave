@@ -46,6 +46,18 @@ describe('app shell framing', () => {
     expect(json.headers['x-frame-options']).toBeUndefined();
   });
 
+  it.each(['/mc/v1/nope', '/mc/v1/ratings/extra', '/.well-known/nope', '/api/v1/nope'])('%s is a JSON 404, not the app shell', async (url) => {
+    const res = await app.inject({ method: 'GET', url });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers['content-type']).toMatch(/^application\/json/);
+    expect(res.json()).toMatchObject({ status: 404 });
+  });
+
+  it('a 404 under /mc is never cached', async () => {
+    const res = await app.inject({ method: 'GET', url: '/mc/v1/nope' });
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
   it('merges frame-ancestors into a CSP that is already set', () => {
     expect(withFrameAncestorsNone(undefined)).toBe("frame-ancestors 'none'");
     expect(withFrameAncestorsNone("default-src 'self'; img-src *")).toBe("default-src 'self'; img-src *; frame-ancestors 'none'");

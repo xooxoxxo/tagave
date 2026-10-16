@@ -6,7 +6,7 @@
  */
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import fastifyStatic from '@fastify/static';
-import { servesAppShell, staticCacheControl } from './staticCache.js';
+import { isNoStorePath, servesAppShell, staticCacheControl } from './staticCache.js';
 
 const FRAME_ANCESTORS = "frame-ancestors 'none'";
 
@@ -48,9 +48,10 @@ export async function registerWebApp(app: FastifyInstance, root: string, onMissi
     onMissing?.(err);
   }
   // SPA history-mode fallback: deep links (/albums, /queue) must serve the
-  // app shell; /api and missing /assets files get JSON 404s.
+  // app shell; /api, /mc, /.well-known and missing /assets files get JSON 404s.
   app.setNotFoundHandler(async (request, reply) => {
     if (servesAppShell(request.method, request.url)) return reply.sendFile('index.html', root);
+    if (isNoStorePath(request.url)) reply.header('cache-control', 'no-store');
     return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
   });
 }
