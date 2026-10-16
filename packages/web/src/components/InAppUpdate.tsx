@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStep, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
+import type { ReleaseNote, StepUpMethod, UpdateRun, UpdateStall, UpdateStep, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
 import { Button, Select, confirmDialog } from './ui';
 import { StepUpDialog } from './StepUpDialog';
 import { restartingOn, updaterKey, useStartUpdate, type SeenUpdaterView } from '../hooks/useUpdater';
@@ -165,11 +165,34 @@ function RestartingNote({ restart }: { restart: UpdaterSelfReplace }) {
   );
 }
 
-function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; restart: UpdaterSelfReplace | null; onDismiss: () => void }) {
+/** Stalls that only ask for patience; the others need the owner. */
+const PATIENT: ReadonlyArray<UpdateStall['cause']> = ['slow', 'db_recovering'];
+
+/**
+ * A running step that has not moved: since when (the updater's time, so a
+ * browser clock that is off does not matter), the likely cause and what to do.
+ */
+export function StallNote({ stall }: { stall: UpdateStall }) {
+  const tone = PATIENT.includes(stall.cause) ? 'info' : 'warn';
+  return (
+    <div className={`${styles.runHead} ${styles[`tone-${tone}`]}`}>
+      <div>
+        <p className={styles.runTitle}>No progress since {time(stall.since)}</p>
+        <p className={styles.runBody}>{sentence(stall.message)}</p>
+        <p className={styles.runBody}><span className={styles.label}>What to do:</span> {stall.advice}</p>
+      </div>
+    </div>
+  );
+}
+
+export function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; restart: UpdaterSelfReplace | null; onDismiss: () => void }) {
   const running = run.status === 'running';
   const now = useNow(running);
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
   const current = run.steps.find((s) => s.status === 'running');
+  // The sub-state of the running step (updaters before 0.9.1 send none).
+  const detail = running && current && run.progress?.step === current.id ? sentence(run.progress.message) : '';
+  const stall = running ? run.stall ?? null : null;
 
   let head: { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined };
   switch (run.status) {
@@ -206,9 +229,11 @@ function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: Up
             {head.title}
           </p>
           {head.body && <p className={styles.runBody}>{head.body}</p>}
+          {detail && <p className={styles.runDetail}>{detail}</p>}
         </div>
         <span className={styles.elapsed} title="Elapsed">{clock(elapsed)}</span>
       </div>
+      {stall && <StallNote stall={stall} />}
       {disconnected && running && (
         <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
       )}

@@ -77,6 +77,19 @@
   overflow-wrap: anywhere;
 }
 
+.runDetail {
+  margin: var(--space-xs) 0 0;
+  color: var(--ink-2);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.label {
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .elapsed {
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);

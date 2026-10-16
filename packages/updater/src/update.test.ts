@@ -597,9 +597,9 @@ describe('update state machine', () => {
       expect(stall.advice).toMatch(/docker compose logs app/);
       // found once the step had not moved for 2 minutes, not later
       const at = saved.find((r) => r.stall)!;
-      const found = Date.parse(at.log.find((l) => l.message.startsWith('no progress since'))!.at);
+      const found = Date.parse(at.log.find((l) => l.message.startsWith('no progress for'))!.at);
       expect(found - Date.parse(stall.since)).toBeLessThanOrEqual(2 * 60_000 + 1000);
-      expect(run.log.some((l) => l.level === 'warn' && /no progress since .*app keeps stopping/.test(l.message))).toBe(true);
+      expect(run.log.some((l) => l.level === 'warn' && /no progress for \d+ min .*app keeps stopping/.test(l.message))).toBe(true);
     });
 
     it('shows a full disk', async () => {
@@ -656,7 +656,7 @@ describe('update state machine', () => {
       // stall time 0: the first check finds the download stuck
       const stuck = await update('0.8.0', { stallMs: 0, stallCheckMs: 20 }, { docker: slowPull, statfs: async () => ({ bsize: 4096, bavail: free / 4096, blocks: (100 * GB) / 4096 }) });
       expect(stuck.status).toBe('succeeded');
-      expect(stuck.log.some((l) => /no progress since .*downloading the images \(0 of 5 done\).*the download has not moved/.test(l.message))).toBe(true);
+      expect(stuck.log.some((l) => /no progress for \d+ min .*downloading the images \(0 of 5 done\).*the download has not moved/.test(l.message))).toBe(true);
       saved = [];
       fake.appVersion = '0.7.0';
       await writeFile(join(dir, '.env'), ENV);

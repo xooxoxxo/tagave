@@ -408,7 +408,7 @@ export class Update {
       this.lastDiagnosed = nowMs;
       if (this.run.stall?.cause === stall.cause && this.run.stall.message === redact(stall.message)) return;
       this.run.stall = { ...stall, message: redact(stall.message), advice: redact(stall.advice) };
-      this.log(stallNeedsAction(stall.cause) ? 'warn' : 'info', `no progress since ${p.at.slice(11, 19)} (${p.message}): ${stall.message}. ${stall.advice}`);
+      this.log(stallNeedsAction(stall.cause) ? 'warn' : 'info', `no progress for ${Math.max(1, Math.round(stalledMs / 60_000))} min (${p.message}): ${stall.message}. ${stall.advice}`);
     } finally {
       this.diagnosing = false;
     }
