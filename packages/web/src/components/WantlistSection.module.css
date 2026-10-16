@@ -1,0 +1,16 @@
+/* The wantlist and the suggestions beside it: flat rows on hairlines, like the collection list. */
+.section { display: flex; flex-direction: column; gap: var(--space-md); margin-top: var(--space-3xl); min-width: 0; }
+.head { display: flex; flex-direction: column; gap: var(--space-xs); }
+.title { margin: 0; }
+.lede { margin: 0; max-width: 62ch; color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-normal); }
+.subTitle { margin: var(--space-md) 0 0; font-size: var(--font-size-base); font-weight: 600; color: var(--ink); }
+.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.item { display: flex; flex-direction: column; gap: var(--space-xs); padding: var(--space-md) 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.itemHead { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-xs) var(--space-sm); min-width: 0; }
+.albumTitle { margin: 0; font-size: var(--font-size-base); font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.artist { color: var(--ink-2); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.reason { margin: 0; color: var(--ink-2); font-size: var(--font-size-sm); line-height: var(--line-height-relaxed); overflow-wrap: anywhere; }
+.meta { margin: 0; color: var(--ink-3); font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-xs); }
+.error { margin: 0; color: var(--danger); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.empty { margin: 0; color: var(--ink-3); font-size: var(--font-size-sm); }

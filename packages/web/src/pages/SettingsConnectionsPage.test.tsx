@@ -87,4 +87,10 @@ describe('ConnectionsPanel', () => {
     expect(problem({ detail: 'waiting', retryAt: new Date(now + 1000).toISOString() }, 'x', now)).toBe('Already syncing.');
     expect(problem({ detail: 'A sync is already waiting to run.', retryAt: new Date(now + 600_000).toISOString() }, 'x', now)).toMatch(/^A sync is already waiting to run\. It starts .+\.$/);
   });
+
+  it('says when parked items were dropped and when sent IDs disagree', () => {
+    const html = render({ view: { links: [{ ...link, parkedDropped: 12, identityConflicts: 2 }], ownUrl: null } });
+    expect(html).toContain('12 items for albums not in your library were dropped');
+    expect(html).toContain('2 album IDs it sent are');
+  });
 });

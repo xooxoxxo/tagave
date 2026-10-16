@@ -31,6 +31,7 @@ import { useCan } from '../hooks/usePermissions';
 import {
   Banner, Button, Collapse, CoverArt, EmptyState, LinkButton, Menu, PageShell, Tabs, confirmDialog, showToast, updateToast, type MenuItem,
 } from '../components/ui';
+import { WantlistSection } from '../components/WantlistSection';
 import styles from './CollectionPage.module.css';
 
 type View = 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates';
@@ -272,6 +273,7 @@ export function CollectionPage() {
           <p className={styles.footer}>Data provided by <a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer">Discogs</a></p>
         </>
       )}
+      <WantlistSection />
     </PageShell>
   );
 }

@@ -87,6 +87,7 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
       <RatingRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <ReviewRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <ListenRow libraryId={libraryId} releaseGroupId={releaseGroupId} listens={data.listens} onAdd={() => setAdding('listen')} />
+      <CriticScoresRow bundle={data} />
       <ExternalRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
       <LinkChips bundle={data} />
       <ClippingsRow releaseGroupId={releaseGroupId} bundle={data} />
@@ -266,6 +267,52 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
 }
 
 /* ---------- External reviews and ratings (REV-1) ---------- */
+
+/* ---------- Critic scores (the album.critic-scores facet) ---------- */
+const score10 = (n: number | null) => (n === null ? 'no score' : `${n.toFixed(1)} / 10`);
+
+/**
+ * Every source of critic scores, labelled: CritiqueBrainz, and what each
+ * linked app sent ("Pitchfork (via review-gatherer)"). Scores only, no text;
+ * a link opens the review where it was published.
+ */
+export function CriticScoresRow({ bundle }: { bundle: ReviewsBundle }) {
+  const values = bundle.criticScores?.available ? bundle.criticScores.values : [];
+  if (values.length === 0) return null;
+  return (
+    <Row label="Critic scores">
+      <ul className={styles.list}>
+        {values.map((v) => (
+          <li key={`${v.source.module}:${v.source.ref ?? ''}`} className={styles.listRow}>
+            <span className={styles.chip}>{v.source.label}</span>
+            {v.aggregate && v.aggregate.score !== null && (
+              <span>{score10(v.aggregate.score)}{v.aggregate.tier ? ` · ${v.aggregate.tier}` : ''}{v.aggregate.reviewCount > 1 ? ` · ${v.aggregate.reviewCount} reviews` : ''}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+      {values.some((v) => v.reviews.length > 0 || v.criticRatings.length > 0) && (
+        <div className={styles.ratingsRow}>
+          {values.flatMap((v) => [
+            ...v.reviews.map((r, i) => (
+              <span key={`${v.source.module}:${v.source.ref ?? ''}:r${i}`} className={styles.ratingCard}>
+                <strong>{r.label}</strong>
+                <span>{r.scoreRaw && r.score === null ? r.scoreRaw : score10(r.score)}</span>
+                {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" className={styles.extLink} aria-label={`${r.label}: the review`}>↗</a>}
+              </span>
+            )),
+            ...v.criticRatings.map((r, i) => (
+              <span key={`${v.source.module}:${v.source.ref ?? ''}:c${i}`} className={styles.ratingCard}>
+                <strong>{r.label}</strong>
+                <span>{r.score === null ? r.scoreRaw : score10(r.score)}</span>
+              </span>
+            )),
+          ])}
+        </div>
+      )}
+    </Row>
+  );
+}
 
 function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | undefined; releaseGroupId: string; bundle: ReviewsBundle }) {
   const refresh = useRefreshReviews(libraryId, releaseGroupId);

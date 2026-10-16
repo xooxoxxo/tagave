@@ -26,6 +26,7 @@ import { SettingsUsersPage } from './SettingsUsersPage';
 import { SettingsAccountPage } from './SettingsAccountPage';
 import { NotAvailable } from '../components/access/NotAvailable';
 import { useRole } from '../hooks/usePermissions';
+import { useModuleOn } from '../hooks/useFacets';
 import { can, type Permission } from '@tagave/shared';
 import styles from './SettingsPage.module.css';
 
@@ -64,7 +65,9 @@ const sections: Section[] = [
 
 export function SettingsPage() {
   const role = useRole();
-  const visible = sections.filter((item) => !item.permission || can(role, item.permission));
+  // Music Connections off (Settings › Modules): its Connections page hides
+  const mcOn = useModuleOn('mc');
+  const visible = sections.filter((item) => (!item.permission || can(role, item.permission)) && !(item.value === 'connections' && mcOn === false));
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
@@ -98,7 +101,7 @@ export function SettingsPage() {
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}
-        {section === 'connections' && <SettingsConnectionsContent />}
+        {section === 'connections' && (mcOn === false ? <p>Music Connections is turned off on this tagave. The owner turns it on in Settings › Modules.</p> : <SettingsConnectionsContent />)}
         {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
         </>}
       </div>

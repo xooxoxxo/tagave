@@ -6,11 +6,12 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { moduleCommand, type McModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
 import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
+import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { getStepUp } from '../services/stepUp';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
@@ -230,7 +231,7 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
   );
 }
 
-export function SettingsModulesContent() {
+function CatalogueModules() {
   const modules = useModules();
   const action = useModuleAction();
   const queryClient = useQueryClient();
@@ -325,5 +326,115 @@ export function SettingsModulesContent() {
         />
       )}
     </>
+  );
+}
+
+/* ---------- Music Connections: a module switched by a setting (D5) ---------- */
+
+export interface McModuleRowProps {
+  view: McModuleView;
+  pending?: boolean;
+  error?: string | null;
+  onTurnOn: () => void;
+  onTurnOff: () => void;
+}
+
+/** The Music Connections row: the same shape as the catalogue's, a setting in place of a container. */
+export function McModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: McModuleRowProps) {
+  return (
+    <ul className={styles.list} aria-label="Built-in modules">
+      <li className={styles.item}>
+        <div className={styles.head}>
+          <h3 className={styles.name}>Music Connections</h3>
+          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
+        </div>
+        <p className={styles.purpose}>
+          Links tagave to other music apps you run, such as review-gatherer: their critic scores, which release each album is, and wantlist suggestions come in; your ratings, collection and listens go out to apps you approve.
+        </p>
+        <p className={styles.meta}>
+          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items received{view.fills > 0 ? ` · ${view.fills} album IDs it filled in` : ''} · built in, nothing to download
+        </p>
+        <div className={styles.actions}>
+          {view.enabled
+            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
+            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
+        </div>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </li>
+    </ul>
+  );
+}
+
+type McAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove'; keepFills: boolean };
+
+function McModuleSection() {
+  const mc = useMcModule();
+  const setOn = useSetMcModule();
+  const remove = useRemoveMcData();
+  const [error, setError] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: McAction; methods: StepUpMethod[] } | null>(null);
+
+  const run = async (act: McAction) => {
+    setError(null);
+    try {
+      if (act.kind === 'remove') await remove.mutateAsync(act.keepFills);
+      else await setOn.mutateAsync(act.kind === 'on');
+    } catch (err) {
+      const e = err as { status?: number; title?: string; detail?: string };
+      if (e.status === 403 && e.title === 'Step-up required') {
+        const s = await getStepUp();
+        setStepUp({ act, methods: s.methods });
+      } else {
+        setError(sentence(e.detail ?? e.title) || 'Music Connections could not be changed.');
+      }
+    }
+  };
+
+  const turnOff = async () => {
+    let deleteData = false;
+    let keepFills = false;
+    const ok = await confirmDialog({
+      title: 'Turn off Music Connections?',
+      message: (
+        <>
+          <p>tagave stops pulling from linked apps and stops serving them; the Connections page, wantlist suggestions and linked apps’ critic scores hide. Everything it holds is kept for when you turn it back on, unless you tick the box.</p>
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
+            <span>Also delete its data: revoke every connection and delete what they brought. This cannot be undone. Wantlist entries you accepted stay.</span>
+          </label>
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { keepFills = e.target.checked; }} />
+            <span>When deleting, keep the album IDs it filled in (they become your library’s own).</span>
+          </label>
+        </>
+      ),
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (ok) await run(deleteData ? { kind: 'remove', keepFills } : { kind: 'off' });
+  };
+
+  if (!mc.data) return null;
+  return (
+    <>
+      <McModuleRow view={mc.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
+      {stepUp && (
+        <StepUpDialog
+          action={stepUp.act.kind === 'on' ? 'Turning on Music Connections' : 'Turning off Music Connections'}
+          methods={stepUp.methods}
+          onCancel={() => setStepUp(null)}
+          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
+        />
+      )}
+    </>
+  );
+}
+
+export function SettingsModulesContent() {
+  return (
+    <div className={styles.page}>
+      <CatalogueModules />
+      <McModuleSection />
+    </div>
   );
 }

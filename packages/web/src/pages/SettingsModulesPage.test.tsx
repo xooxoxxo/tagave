@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ModulesView } from '@tagave/shared';
-import { SettingsModulesView, TurnOffChoices } from './SettingsModulesPage';
+import { McModuleRow, SettingsModulesView, TurnOffChoices } from './SettingsModulesPage';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 
 const render = (view: ModulesView, dismissed: string | null = null) =>
@@ -83,5 +83,25 @@ describe('Settings › Modules', () => {
     // a module with no rows in tagave: the one box, as before
     const dummy = renderToStaticMarkup(<TurnOffChoices m={DUMMY} onChange={() => undefined} initial={{ deleteData: true, deleteHistory: false }} />);
     expect((dummy.match(/type="checkbox"/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('the Music Connections row (a setting, not a container)', () => {
+  const row = (enabled: boolean, error: string | null = null) => renderToStaticMarkup(
+    <McModuleRow view={{ enabled, links: 2, landed: 40, fills: 3 }} error={error} onTurnOn={() => undefined} onTurnOff={() => undefined} />,
+  );
+  it('on: says what it holds and offers Turn off', () => {
+    const html = row(true);
+    expect(html).toContain('Music Connections');
+    expect(html).toContain('>On<');
+    expect(html).toContain('2 connections · 40 items received · 3 album IDs it filled in');
+    expect(button(html, 'Turn off')).not.toBe('');
+    expect(button(html, 'Turn on')).toBe('');
+  });
+  it('off: offers Turn on, and shows a refusal', () => {
+    const html = row(false, 'Confirm it is you first.');
+    expect(html).toContain('>Off<');
+    expect(button(html, 'Turn on')).not.toBe('');
+    expect(html).toContain('Confirm it is you first.');
   });
 });

@@ -219,6 +219,12 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
       <dl className={styles.meta}>
         <div><dt>Last sync</dt><dd>{link.lastSyncAt ? when(link.lastSyncAt) : 'Not yet'}</dd></div>
         {link.lastError && !revoked && <div><dt>Last error</dt><dd className={styles.errorText}>{link.lastError}</dd></div>}
+        {(link.parkedDropped ?? 0) > 0 && !revoked && (
+          <div><dt>Not kept</dt><dd>{link.parkedDropped} items for albums not in your library were dropped: the connection held too many waiting at once.</dd></div>
+        )}
+        {(link.identityConflicts ?? 0) > 0 && !revoked && (
+          <div><dt>Disagreements</dt><dd>{link.identityConflicts === 1 ? 'One album ID it sent is' : `${link.identityConflicts} album IDs it sent are`} already another album’s here; left as they are.</dd></div>
+        )}
       </dl>
 
       {editing && (
