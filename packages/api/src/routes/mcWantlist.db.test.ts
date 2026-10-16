@@ -156,7 +156,7 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ id, decision: 'accepted' });
     const post = seen.find((s) => s.method === 'POST')!;
-    const [{ remote_url: origin }] = await sql<Array<{ remote_url: string }>>`select remote_url from mc_links where id = ${l}`;
+    const origin = (await sql<Array<{ remote_url: string }>>`select remote_url from mc_links where id = ${l}`)[0]!.remote_url;
     expect(post).toMatchObject({ url: `${origin}/mc/v1/wantlist-suggestions/neu-75/decision`, auth: 'Bearer acc' });
     expect(JSON.parse(post.body)).toEqual({ decision: 'accepted' });
 
