@@ -47,6 +47,7 @@ describe('route permissions', () => {
     expect(pub).toEqual([
       'GET /api/auth/*',
       'GET /api/v1/auth/setup-required',
+      'GET /api/v1/connect/authorize',
       'GET /api/v1/health',
       'GET /api/v1/internal/updater/versions',
       'GET /api/v1/invites/:token',
@@ -55,6 +56,9 @@ describe('route permissions', () => {
       'POST /api/v1/auth/login',
       'POST /api/v1/auth/logout',
       'POST /api/v1/auth/setup',
+      'POST /api/v1/connect/register',
+      'POST /api/v1/connect/revoke',
+      'POST /api/v1/connect/token',
       'POST /api/v1/invites/:token/accept',
     ]);
   });

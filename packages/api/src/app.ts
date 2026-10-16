@@ -36,6 +36,7 @@ import { createPlayerRoutes } from './routes/player.js';
 import { createPlayerListeningRoutes } from './routes/playerListening.js';
 import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
+import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -77,6 +78,13 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
   // Invite and set-password links: opened before the person has an account
   app.register(createInviteRoutes, { prefix: '/api/v1' });
+
+  // Music Connections: the manifest (outside /api, public) and the OAuth
+  // provider another music app links through. register/authorize/token/revoke
+  // are public (the client authenticates itself; authorize only starts a
+  // request); the consent page's two routes need a session ('self').
+  app.register(createManifestRoute);
+  app.register(createConnectRoutes, { prefix: '/api/v1' });
 
   // Every route below needs a session; what each role may do is in
   // permissions/routeTable.ts, checked by the root hook (middleware/auth.ts).

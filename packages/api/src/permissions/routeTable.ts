@@ -21,6 +21,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/invites/:token': 'public',
   'GET /api/v1/openapi.json': 'public',
   'POST /api/v1/invites/:token/accept': 'public',
+  // Music Connections OAuth (routes/connect.ts): the client authenticates itself at token and revoke; authorize only records a request for the consent page.
+  'POST /api/v1/connect/register': 'public',
+  'GET /api/v1/connect/authorize': 'public',
+  'POST /api/v1/connect/token': 'public',
+  'POST /api/v1/connect/revoke': 'public',
   // self: Any signed-in person, about their own account.
   'GET /api/v1/auth/me': 'self',
   'GET /api/v1/auth/security': 'self',
@@ -31,6 +36,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/auth/step-up/totp': 'self',
   'DELETE /api/v1/auth/trusted-devices/:id': 'self',
   'GET /api/v1/version': 'self',
+  // The consent page: any signed-in person approves or denies a link to their own account.
+  'GET /api/v1/connect/requests/:id': 'self',
+  'POST /api/v1/connect/requests/:id/decision': 'self',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',

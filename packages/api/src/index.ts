@@ -232,6 +232,11 @@ try {
 // app shell; /api and missing /assets files get JSON 404s.
 app.setNotFoundHandler(async (request, reply) => {
   if (servesAppShell(request.method, request.url)) {
+    // The Music Connections consent page approves with one click: never framed.
+    if (request.url.startsWith('/connect/')) {
+      reply.header('x-frame-options', 'DENY');
+      reply.header('content-security-policy', "frame-ancestors 'none'");
+    }
     return reply.sendFile('index.html', webDistPath);
   }
   return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
