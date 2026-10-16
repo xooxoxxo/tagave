@@ -303,6 +303,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     expect(annaServer.map((p: any) => p.title)).toEqual(['Third']);
   });
 
+  it('counts a phone app\'s late report of a song first played after tagave looked, not one from before', async () => {
+    const eve = randomUUID();
+    await sql`insert into users (id, email, display_name, password_hash, role) values (${eve}, ${`eve-${eve}@t.com`}, 'Eve', 'x', 'listener')`;
+    try {
+      await people.syncBundledUsers(sql, backend);
+      expect(await plays.pollPerson(plays_deps(), backend, eve)).toBe(0); // the first look
+      // tagave first looked ten minutes ago; her latest play (the cursor) is now
+      await sql`update player_poll_state set baseline_at = now() - interval '10 minutes', cursor_at = now() where user_id = ${eve}`;
+      // her phone was offline: one song played a minute ago, one long before tagave looked
+      nav.phonePlay('eve', 's-1', Date.now() - 60_000);
+      nav.phonePlay('eve', 's-2', Date.now() - 3_600_000);
+      expect(await plays.pollPerson(plays_deps(), backend, eve)).toBe(1);
+      expect((await playsOf(eve)).map((p: any) => [p.title, p.dedupe_key])).toEqual([['First', 'server:bundled:s-1:1']]);
+      expect(await plays.pollPerson(plays_deps(), backend, eve)).toBe(0);
+    } finally {
+      await sql`delete from users where id = ${eve}`;
+    }
+  });
+
   it('retries a scrobble the service could not take, then sends it once', async () => {
     await scrob.sendDueScrobbles({ sql });
     lfm.state.failNext = 1;

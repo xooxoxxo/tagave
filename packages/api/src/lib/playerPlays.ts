@@ -353,6 +353,7 @@ export async function pollPerson(deps: PlaysDeps, backend: PlayerBackend, userId
     const state = (await tx<{ baseline_at: Date | null; cursor_at: Date | null }[]>`
       select baseline_at, cursor_at from player_poll_state where user_id = ${userId} and server_key = ${backend.key}`)[0];
     const baseline = !state?.baseline_at;
+    const baselineAt = state?.baseline_at ? new Date(state.baseline_at).getTime() : null;
     const albums = await getAlbumList2(person.server, 'recent', { size: baseline ? BASELINE_ALBUMS : POLL_ALBUMS, ...f });
     const cursor = state?.cursor_at ? new Date(state.cursor_at).getTime() : null;
     let newCursor = cursor ?? 0;
@@ -372,8 +373,12 @@ export async function pollPerson(deps: PlaysDeps, backend: PlayerBackend, userId
           let fresh: number;
           let base: number;
           if (prev == null) {
-            // a song tagave has not counted yet: one new play when it was played since the last look
-            fresh = s.played && (cursor == null || (time(s.played) ?? 0) > cursor) ? 1 : 0;
+            // a song tagave has not counted yet: one new play when it was played since tagave
+            // could last have seen it. Not only since the latest play: an app that was offline
+            // reports its plays with the time they happened, which can be before this person's
+            // latest play but still after tagave first looked.
+            const since = cursor == null ? null : Math.min(cursor, baselineAt ?? cursor);
+            fresh = s.played && (since == null || (time(s.played) ?? 0) > since) ? 1 : 0;
             base = pc - fresh;
           } else {
             fresh = Math.max(0, pc - prev);
