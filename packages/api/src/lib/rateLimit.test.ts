@@ -57,6 +57,16 @@ describe('RateLimiter', () => {
     expect(l.allow('k', t0 + 1 + 60_000)).toBe(true);
   });
 
+  it('at the key cap, forgets expired windows first: a live refusal stays refused', () => {
+    const l = new RateLimiter(1, 60_000, 10_000);
+    for (let i = 0; i < 9_999; i++) l.allow(`old-${i}`, 0);
+    l.allow('hot', 70_000);
+    expect(l.allow('hot', 70_001)).toBe(false);
+    for (let i = 0; i < 5; i++) l.allow(`new-${i}`, 70_010);
+    expect(l.size).toBeLessThan(100);
+    expect(l.allow('hot', 70_020)).toBe(false);
+  });
+
   it('says how many seconds are left in the window', () => {
     const l = new RateLimiter(1, 60_000);
     l.allow('k', 0);

@@ -465,6 +465,8 @@ Then relaunch the host workers. Both topologies can coexist, because jobs are cl
 
 Another music app (review-gatherer, for example) can link to one person's tagave account: it registers at `/api/v1/connect/register`, the person approves on tagave's consent page, and the app may then read that person's ratings, collection, listens and identity until the link is revoked. tagave describes itself at `/.well-known/music-connections`. An app may register only with a redirect address on a private network (LAN, the tailnet range 100.64.0.0/10, or localhost), over http or https. To allow an app on a public host, add its host name to `MC_TRUSTED_PUBLIC_HOSTS` in `.env` (comma separated); public hosts must use https. Registrations, approvals, failed refreshes and revocations are written to the audit log (`audit_log`, actions `mc.*`).
 
+A linked app reads the feeds at `/mc/v1/ratings`, `/mc/v1/collection`, `/mc/v1/listens` and `/mc/v1/identity`, each with its own token scope and at most 60 requests a minute per token. They cover the install's first library (the one the web app opens). Ratings and listens are the linked person's own; the collection and the album matches are the library's. Listens are counted per day in UTC, so a play at 01:30 in Amsterdam in summer (23:30 UTC) counts toward the day before. Removals are kept for 90 days. An app that has not synced for longer than that starts again from a full copy. The nightly `mc.purge` job (04:50, on the worker that runs `facets.refresh`) clears what is older.
+
 ## Release gate
 
 `scripts/smoke.sh` runs exactly this topology on a throwaway stack (postgres, app, both workers, a temp music dir, and a `backup` round-trip) and is the release gate for the images.
