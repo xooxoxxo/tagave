@@ -1689,3 +1689,58 @@ export const mcChanges = pgTable(
     opCheck: check('mc_changes_op_check', sql`op in ('upsert', 'delete')`),
   })
 );
+
+// Music Connections, tagave as a client (0049): one row per person and linked
+// remote, and the authorizations in flight. Written by api ›
+// routes/mcConnections.ts and worker › jobs/connectionsPull.ts; tokens and
+// client secrets are sealed (APP_SECRET).
+export const mcLinks = pgTable(
+  'mc_links',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    remoteUrl: text('remote_url').notNull(),
+    manifest: jsonb().notNull(),
+    manifestCheckedAt: tstz('manifest_checked_at'),
+    clientId: text('client_id').notNull(),
+    sealedTokens: text('sealed_tokens').notNull().default(''),
+    scopes: text().array().notNull().default(sql`'{}'`),
+    requestedScopes: text('requested_scopes').array().notNull().default(sql`'{}'`),
+    cursors: jsonb().notNull().default(sql`'{}'::jsonb`),
+    handlerVersions: jsonb('handler_versions').notNull().default(sql`'{}'::jsonb`),
+    state: text().notNull().default('active'),
+    lastSyncAt: tstz('last_sync_at'),
+    lastAttemptAt: tstz('last_attempt_at'),
+    lastError: text('last_error'),
+    failures: integer().notNull().default(0),
+    nextAttemptAt: tstz('next_attempt_at'),
+    lastCounts: jsonb('last_counts'),
+    pullLeaseUntil: tstz('pull_lease_until'),
+    pullLeaseOwner: text('pull_lease_owner'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    userRemote: uniqueIndex('mc_links_user_id_remote_url_key').on(table.userId, table.remoteUrl),
+    dueIdx: index('idx_mc_links_due').on(table.nextAttemptAt).where(sql`state = 'active'`),
+    stateCheck: check('mc_links_state_check', sql`state in ('active', 'needs_reapproval', 'revoked')`),
+  })
+);
+
+export const mcPending = pgTable(
+  'mc_pending',
+  {
+    stateHash: text('state_hash').primaryKey(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    remoteUrl: text('remote_url').notNull(),
+    manifest: jsonb().notNull(),
+    clientId: text('client_id').notNull(),
+    codeVerifierSealed: text('code_verifier_sealed').notNull(),
+    clientSecretSealed: text('client_secret_sealed').notNull(),
+    requestedScopes: text('requested_scopes').array().notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    createdIdx: index('idx_mc_pending_created').on(table.createdAt),
+  })
+);
