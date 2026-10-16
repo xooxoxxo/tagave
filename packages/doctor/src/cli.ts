@@ -75,31 +75,13 @@ async function main() {
 
   // Handle backup subcommand
   if (command === 'backup') {
-    const { runBackup, defaultBackupDir, isSeparateMount, backupMountRequired } = await import('./backup.js');
-    let outDir = defaultBackupDir(process.env);
-    let keep: number | undefined;
-    let jsonOut = false;
-    for (let i = 1; i < args.length; i++) {
-      const arg = args[i];
-      const next = args[i + 1];
-      if (arg === '--json') {
-        jsonOut = true;
-      } else if (arg === '--out' && next !== undefined) {
-        outDir = next;
-        i++;
-      } else if (arg === '--keep' && next !== undefined) {
-        const parsed = parseInt(next, 10);
-        if (!Number.isInteger(parsed) || parsed < 1) {
-          console.error(colorize('ERROR: --keep expects a positive integer (manual dumps to keep, including this one)', 'red'));
-          process.exit(2);
-        }
-        keep = parsed;
-        i++;
-      } else {
-        console.error(colorize(`ERROR: unknown option ${arg}; usage: backup [--out DIR] [--keep N] [--json]`, 'red'));
-        process.exit(2);
-      }
+    const { backupWithRetention, defaultBackupDir, isSeparateMount, backupMountRequired, parseBackupArgs } = await import('./backup.js');
+    const parsedArgs = parseBackupArgs(args.slice(1), defaultBackupDir(process.env));
+    if (!parsedArgs.ok) {
+      console.error(colorize(`ERROR: ${parsedArgs.error}`, 'red'));
+      process.exit(2);
     }
+    const { outDir, keep, kind, json: jsonOut } = parsedArgs;
     if (backupMountRequired(process.env) && isSeparateMount(outDir) === false) {
       console.error(
         colorize(
@@ -109,7 +91,14 @@ async function main() {
       );
     }
     try {
-      const result = await runBackup({ databaseUrl, outDir, ...(keep !== undefined ? { keep } : {}) });
+      const result = await backupWithRetention({
+        databaseUrl,
+        outDir,
+        kind,
+        ...(keep !== undefined ? { keep } : {}),
+        onPruneError: (err) =>
+          console.error(colorize(`WARNING: the backup was written, but older ones could not be removed: ${err.message}`, 'yellow')),
+      });
       if (jsonOut) {
         console.log(JSON.stringify(result, null, 2));
       } else {

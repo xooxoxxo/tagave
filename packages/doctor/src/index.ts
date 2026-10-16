@@ -39,8 +39,15 @@ export {
 } from './premigrate.js';
 export {
   BACKUP_KINDS,
+  CLI_BACKUP_KINDS,
+  KEEP_PRE_UPDATE_DEFAULT,
   SETTINGS_LIMITS,
   applyRetention,
+  kindDeletes,
+  nextNightlyRun,
+  parseCliBackupKind,
+  pruneKind,
+  summarizeKinds,
   defaultBackupDir,
   defaultBackupSettings,
   deleteBackup,
@@ -54,6 +61,7 @@ export {
   writeBackupSettings,
   type BackupEntry,
   type BackupKind,
+  type BackupKindSummary,
   type BackupRunRecord,
   type BackupSettings,
   type BackupStatusFile,

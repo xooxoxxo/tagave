@@ -5,6 +5,7 @@
  * the owner explicitly opts out.
  */
 import { access } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   PreMigrationBackupError,
   isRetryOfUpdate,
@@ -17,8 +18,11 @@ import {
 import {
   backupMountRequired,
   defaultBackupDir,
+  adoptLegacyPreUpdateKeep,
+  envKeepPreUpdate,
   isSeparateMount,
-  pruneBackups,
+  pruneKind,
+  readBackupSettings,
   runBackup,
   type BackupOptions,
   type BackupResult,
@@ -27,7 +31,7 @@ import { tagaveEnv } from '@tagave/shared/env';
 
 /** Kind of the dump the app takes before it migrates: tagave-<time>-pre-migration.pgdump in the backups folder. */
 export const PREMIGRATE_KIND = 'pre-migration' as const;
-export const PREMIGRATE_KEEP_DEFAULT = 5;
+export const PREMIGRATE_KEEP_DEFAULT = 3;
 
 const truthy = (v: string | undefined) => v !== undefined && /^(1|true|yes|on)$/i.test(v.trim());
 
@@ -39,10 +43,13 @@ export function allowSchemaSkew(env: NodeJS.ProcessEnv): boolean {
   return truthy(tagaveEnv('ALLOW_SCHEMA_SKEW', env));
 }
 
-/** How many pre-migration dumps to keep (TAGAVE_PREMIGRATE_BACKUP_KEEP, default 5, at least 1). */
+/**
+ * The default number of before-update dumps to keep when Settings › Backups
+ * has not saved one: TAGAVE_PREMIGRATE_BACKUP_KEEP, default 3, brought into
+ * 2–50. The saved keepPreUpdate wins (readBackupSettings).
+ */
 export function preMigrationKeep(env: NodeJS.ProcessEnv): number {
-  const n = Number.parseInt(tagaveEnv('PREMIGRATE_BACKUP_KEEP', env) ?? '', 10);
-  return Number.isFinite(n) && n >= 1 ? n : PREMIGRATE_KEEP_DEFAULT;
+  return envKeepPreUpdate(env);
 }
 
 export interface PreMigrationBackupOptions {
@@ -146,6 +153,15 @@ export interface MigrateOnBootOptions extends PreMigrationBackupOptions {
 export async function migrateOnBoot(opts: MigrateOnBootOptions): Promise<RunMigrationsResult> {
   const env = opts.env ?? process.env;
   const log = opts.log ?? ((m: string) => console.log(m));
+  // Before this boot writes a dump: an install with dumps from a release that
+  // kept 5 keeps 5 until the owner picks a number (adoptLegacyPreUpdateKeep).
+  try {
+    if (await adoptLegacyPreUpdateKeep(defaultBackupDir(env), env)) {
+      log('kept the earlier default of 5 backups before an update (Settings › Backups changes it)');
+    }
+  } catch (err) {
+    log(`warning: could not save the backup settings: ${(err as Error).message}`);
+  }
   const result = await runMigrations(opts.databaseUrl, {
     appVersion: opts.appVersion,
     allowNewerSchema: allowSchemaSkew(env),
@@ -157,7 +173,9 @@ export async function migrateOnBoot(opts: MigrateOnBootOptions): Promise<RunMigr
   // so restarts after a failure can never push the real pre-update dump out.
   if (result.backup && result.backup.status !== 'skipped') {
     try {
-      const pruned = await pruneBackups(defaultBackupDir(env), preMigrationKeep(env), PREMIGRATE_KIND);
+      const dir = defaultBackupDir(env);
+      const justWritten = result.backup.path ? basename(result.backup.path) : undefined;
+      const pruned = await pruneKind(dir, PREMIGRATE_KIND, await readBackupSettings(dir, env), env['TZ'] || 'UTC', justWritten);
       if (pruned.length > 0) log(`removed ${pruned.length} older pre-migration backup(s): ${pruned.join(', ')}`);
     } catch (err) {
       log(`warning: could not remove older pre-migration backups: ${(err as Error).message}`);
