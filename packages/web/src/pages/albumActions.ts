@@ -3,42 +3,45 @@
  * 2026-10-16 evening: conventions, Qobuz-like).
  *
  * Two places hold them:
- * - the action row under the album's details: plain embossed icons around
- *   one filled Play, read from a slot list (SLOTS). A later per-person
- *   setting only rewrites the list and the row follows; an action gets a
- *   slot once it ships, never a disabled "coming soon" icon.
- * - the ⋮ menu (a bottom drawer on a phone, a dropdown on a desktop): quick
- *   tiles, a list of rows, the Maintenance tools while Maintenance is on, and
- *   the Maintenance switch for library care (albumMenu).
+ * - the action row under the album's details: raised (embossed) icons, Play
+ *   the largest, read from a slot list (SLOTS). A later per-person setting
+ *   only rewrites the list and the row follows; an action gets an icon once
+ *   it ships, never a disabled "coming soon" icon.
+ * - the one ⋮, in the header (a bottom drawer on a phone, a dropdown on a
+ *   desktop): quick tiles, a list of rows, the Maintenance tools while
+ *   Maintenance is on, and the Maintenance switch for library care
+ *   (albumMenu). Owner, 2026-10-17: "only single ... is enough".
  *
  * Play never docks into the header.
  */
 import type { MenuItem } from '../components/ui';
 
-export type AlbumActionId = 'shuffle' | 'play' | 'more' | 'like' | 'playlist' | 'share' | 'radio';
+export type AlbumActionId = 'shuffle' | 'play' | 'like' | 'playlist' | 'share' | 'radio';
 
-/** The action row: Shuffle | Play | ⋮. Planned actions slot in symmetrically around Play. */
-export const SLOTS: readonly AlbumActionId[] = ['shuffle', 'play', 'more'];
+/**
+ * The action row: Shuffle | Play | (like). Like is planned, so its slot is
+ * space: nothing drawn, but it keeps Play on the row's centre line on a
+ * phone until an action ships into it.
+ */
+export const SLOTS: readonly AlbumActionId[] = ['shuffle', 'play', 'like'];
 
 /**
  * Actions that exist in the app. Like, add to playlist, share and radio are
- * planned; they get a slot in the list once they ship.
+ * planned; they get an icon in their slot once they ship.
  */
-export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play', 'more']);
+export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play']);
 
 /** What this person can do on this album right now. */
 export interface AlbumActionContext {
   /** a player module is installed and the role may use it (player.use): Play and Shuffle show */
   player: boolean;
-  /** the ⋮ menu has something in it (Album info is always there, so it always has) */
-  menu: boolean;
   /** the actions that exist (tests and stories can pass the planned set) */
   shipped?: ReadonlySet<AlbumActionId>;
 }
 
 /** The context from role and capabilities. Play and Shuffle need a player and player.use (every role has it today). */
 export function albumActionContext({ canPlay = true, playerInstalled }: { canPlay?: boolean; playerInstalled: boolean }): AlbumActionContext {
-  return { player: playerInstalled && canPlay, menu: true };
+  return { player: playerInstalled && canPlay };
 }
 
 /** Whether an action has an icon in its slot. */
@@ -53,7 +56,6 @@ export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boo
     case 'radio': return ctx.player;
     case 'like':
     case 'share': return true;
-    case 'more': return ctx.menu;
   }
 }
 
@@ -63,11 +65,7 @@ export interface RowSlot {
   filled: boolean;
 }
 
-/**
- * The action row's slots, or null when there is no Play: the row exists for
- * Play, and without a player the ⋮ in the header already holds everything
- * else (a row of one ⋮ would only repeat it).
- */
+/** The action row's slots, or null when there is no Play (no player: no row). */
 export function rowSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): RowSlot[] | null {
   const all = list.map((id) => ({ id, filled: actionAvailable(id, ctx) }));
   return all.some((s) => s.id === 'play' && s.filled) ? all : null;

@@ -3,7 +3,7 @@
  * "tagave - Album Page Flow"; changes 2026-10-16 evening: the conventions of
  * a music app's album page): the album first (cover, "Rock · 2012", title,
  * artist, "tracks · length · format", a two-line excerpt with More, then
- * the action row Shuffle | Play | ⋮) with one TRACKLIST label resting at the
+ * the action row Shuffle | Play, raised icons) with one TRACKLIST label resting at the
  * bottom of a phone's first screen, then the tracks. Back and ⋮ are embossed
  * icons that never move; the header docks around them (AlbumFlowHeader,
  * useAlbumFlow). ⋮ opens the album's drawer (a dropdown on a desktop) with
@@ -865,9 +865,8 @@ export function AlbumDetailPage() {
     onToggleMaintenance: () => setMaintenance(!maintenance),
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
-  const moreButton = (place: 'page' | 'header') => (
-    <AlbumMoreButton place={place} model={menuModel} drawer={drawer} open={sheet === 'actions'} onOpen={openActions} />
-  );
+  // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header
+  const moreButton = <AlbumMoreButton place="header" model={menuModel} drawer={drawer} open={sheet === 'actions'} onOpen={openActions} />;
   const sheetSummary: AlbumSummary = {
     coverUrl: album.coverUrl,
     title: title ?? 'Untitled',
@@ -914,7 +913,7 @@ export function AlbumDetailPage() {
           backLabel={backAct?.label ?? null}
           onBack={() => backAct?.go()}
           onTop={flow.toTop}
-          end={moreButton('header')}
+          end={moreButton}
         />
 
         <section
@@ -974,8 +973,8 @@ export function AlbumDetailPage() {
                 </button>
               </div>
             )}
-            {/* Shuffle | Play | ⋮ */}
-            <AlbumActionRow context={actionContext} play={playState} more={moreButton('page')} />
+            {/* Shuffle | Play (the one ⋮ is in the header) */}
+            <AlbumActionRow context={actionContext} play={playState} />
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}

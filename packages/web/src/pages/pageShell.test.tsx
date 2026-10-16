@@ -102,7 +102,8 @@ describe('Maintenance lives where it changes something', () => {
 
   it('the album header carries ⋮, and ⋮ the Maintenance switch (library care only)', () => {
     const album = source('./AlbumDetailPage.tsx');
-    expect(album).toMatch(/end=\{moreButton\('header'\)\}/);
+    expect(album).toMatch(/end=\{moreButton\}/);
+    expect(album).toMatch(/const moreButton = <AlbumMoreButton place="header"/);
     expect(album).toMatch(/albumMenu\(\{\s*canCare,\s*maintenance,/);
     expect(album).toMatch(/onToggleMaintenance: \(\) => setMaintenance\(!maintenance\)/);
     expect(album).toMatch(/data-album-flow=""/);

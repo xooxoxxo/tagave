@@ -7,19 +7,23 @@ import { albumActionContext, albumMenu, type AlbumMenuInput, type AlbumPlayState
 
 const noop = () => undefined;
 const play = (over: Partial<AlbumPlayState> = {}): AlbumPlayState => ({ mode: 'play', onPlay: noop, onToggle: noop, onShuffle: noop, ...over });
-const more = <button type="button" aria-label="More for this album" data-more="" />;
 const row = (p: AlbumPlayState | null, playerInstalled = true) =>
-  renderToStaticMarkup(<AlbumActionRow context={albumActionContext({ playerInstalled })} play={p} more={more} />);
+  renderToStaticMarkup(<AlbumActionRow context={albumActionContext({ playerInstalled })} play={p} />);
 const buttonsOf = (html: string) => [...html.matchAll(/<button[^>]*aria-label="([^"]+)"[^>]*>/g)].map((m) => m[1]);
 
 describe('the action row', () => {
-  it('Shuffle | Play | ⋮, Play in the middle', () => {
-    expect(buttonsOf(row(play()))).toEqual(['Shuffle', 'Play', 'More for this album']);
+  it('Shuffle | Play, then space: no ⋮ in the row (the one ⋮ is in the header)', () => {
+    const html = row(play());
+    expect(buttonsOf(html)).toEqual(['Shuffle', 'Play']);
+    expect(html).not.toContain('More for this album');
+    // the right slot keeps Play centred and draws nothing
+    expect(html).toMatch(/data-slot="like" data-empty="" aria-hidden="true"><\/span>/);
   });
 
-  it('Play is the one filled control: icon only, its word for screen readers', () => {
+  it('Play is a raised icon like the others: icon only, its word for screen readers', () => {
     const html = renderToStaticMarkup(<PlayButton play={play()} />);
     expect(html).toContain('aria-label="Play"');
+    expect(html).toMatch(/class="[^"]*emboss[^"]*page/);
     expect(html).toContain('<svg');
     expect(html.replace(/<[^>]+>/g, '')).toBe('');
   });
@@ -32,7 +36,7 @@ describe('the action row', () => {
   it('while the player has not reached the album: Play and Shuffle wait, one note says why, no percentage', () => {
     const note = 'On the player after its first scan';
     const html = row(play({ disabled: true, note }));
-    expect(html).toMatch(/<button[^>]*aria-label="Play"[^>]*disabled=""/);
+    expect(html).toMatch(/<button(?=[^>]*aria-label="Play")(?=[^>]*disabled="")[^>]*>/);
     expect(html).toMatch(/<button(?=[^>]*aria-label="Shuffle")(?=[^>]*disabled="")[^>]*>/);
     expect(html).toContain(`id="${PLAY_NOTE_ID}"`);
     expect(html).toContain(`aria-describedby="${PLAY_NOTE_ID}"`);
@@ -51,13 +55,14 @@ describe('the action row', () => {
     expect(row(play(), false)).toBe('');
   });
 
-  it('Play is round and filled; the side icons are embossed, not circles', () => {
-    const css = readFileSync(new URL('./AlbumActionRow.module.css', import.meta.url), 'utf8');
-    expect(css).toMatch(/\.play \{[^}]*border-radius: 50%;[^}]*background: var\(--dew\);/);
-    expect(row(play())).toMatch(/aria-label="Shuffle"[^>]*class="[^"]*emboss/);
+  it('Play is primary by size alone: a larger accent glyph, no fill, no circle', () => {
+    const css = readFileSync(new URL('./AlbumActionRow.module.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const rules = [...css.matchAll(/\.slot \.play[^{]*\{([^}]*)\}/g)].map((m) => m[1]).join('\n');
+    expect(rules).toMatch(/color: var\(--dew\)/);
+    expect(rules).toMatch(/width: 40px/);
+    expect(rules).not.toMatch(/background|border-radius: 50%/);
   });
 });
-
 describe('the ⋮ drawer by role', () => {
   const summary: AlbumSummary = { coverUrl: null, title: 'Live at the Mystic', artist: 'Y&T', kicker: ['Hard Rock', '2012'], format: 'MP3 320 kbps' };
   const input = (over: Partial<AlbumMenuInput> = {}): AlbumMenuInput => ({
