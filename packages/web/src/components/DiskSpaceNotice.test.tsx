@@ -25,7 +25,8 @@ const diskOf = (usedPct: number, status: DiskSpaceView['status']): DiskSpaceView
 });
 
 const owner = { role: 'owner' as const };
-const viewer = { role: 'viewer' as const };
+const listener = { role: 'listener' as const };
+const editor = { role: 'editor' as const };
 
 describe('showDiskNotice', () => {
   it('shows the owner a disk that warns or fails', () => {
@@ -34,7 +35,8 @@ describe('showDiskNotice', () => {
   });
 
   it('never shows anyone else, and nothing while the disk is fine', () => {
-    expect(showDiskNotice(viewer, diskOf(97, 'fail'), '/albums')).toBe(false);
+    expect(showDiskNotice(listener, diskOf(97, 'fail'), '/albums')).toBe(false);
+    expect(showDiskNotice(editor, diskOf(97, 'fail'), '/albums')).toBe(false);
     expect(showDiskNotice(undefined, diskOf(97, 'fail'), '/albums')).toBe(false);
     expect(showDiskNotice(owner, diskOf(40, 'pass'), '/albums')).toBe(false);
     expect(showDiskNotice(owner, null, '/albums')).toBe(false);
@@ -87,7 +89,7 @@ describe('reading the disk', () => {
     expect(diskNoticeText(null, 'error')).toMatchObject({ tone: 'danger', text: expect.stringMatching(/almost full/) });
     expect(diskNoticeText(null, 'ok')).toBeNull();
     expect(showDiskNotice(owner, null, '/albums', 'error')).toBe(true);
-    expect(showDiskNotice(viewer, null, '/albums', 'error')).toBe(false);
+    expect(showDiskNotice(listener, null, '/albums', 'error')).toBe(false);
   });
 });
 

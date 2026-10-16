@@ -12,12 +12,11 @@
 import type { ReactNode } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import type { DiskSpaceView, SessionUser } from '@tagave/shared';
+import { can, type DiskSpaceView, type SessionUser } from '@tagave/shared';
 import { Banner } from './ui';
 import { useMe } from '../hooks';
 import { api } from '../services/api';
 import { formatBytes } from '../utils/format';
-import { canManageSystem } from '../utils/permissions';
 import styles from './DiskSpaceNotice.module.css';
 
 /** The disk status from a /health body (200 or 503): ok, warn or error. */
@@ -66,7 +65,7 @@ export function showDiskNotice(
   pathname: string,
   status?: 'ok' | 'warn' | 'error' | null,
 ): boolean {
-  return canManageSystem(user) && !pathname.startsWith('/settings/storage') && diskNoticeText(disk, status) !== null;
+  return can(user?.role, 'system.manage') && !pathname.startsWith('/settings/storage') && diskNoticeText(disk, status) !== null;
 }
 
 export function DiskSpaceNoticeView({ disk, status, action }: { disk: DiskSpaceView | null | undefined; status?: 'ok' | 'warn' | 'error' | null; action: ReactNode }) {
@@ -116,7 +115,7 @@ export function useDiskSpace(enabled: boolean) {
 export function DiskSpaceNotice() {
   const { data: user } = useMe();
   const { pathname } = useLocation();
-  const { status, disk, loading } = useDiskSpace(canManageSystem(user));
+  const { status, disk, loading } = useDiskSpace(can(user?.role, 'system.manage'));
   // wait for the numbers rather than flash the short text first
   if (loading || !showDiskNotice(user, disk, pathname, status)) return null;
   return (
