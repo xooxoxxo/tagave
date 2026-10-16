@@ -692,11 +692,12 @@ export interface BackupSettings {
   keepWeekly: number;
   /**
    * Before-update dumps to keep (the app's pre-migration dumps, and the
-   * updater's once it passes --kind before-update). At least 2: that updater
-   * change is planned after 0.9.0, and from then one in-app update writes two
-   * dumps of this kind, both needed until the updater has checked the new
-   * version. Until it lands one update writes one. The installer's host-side
-   * backups/pre-update-* dumps are separate (install-tagave.sh keeps 3).
+   * updater's --kind before-update ones). One in-app update writes one dump
+   * of this kind: the app's, or the updater's when the app takes none
+   * (updater rollback-dump.ts). At least 2 still, so the previous update's
+   * dump survives the next one (plan D8 allows 1 now; not changed here). The
+   * installer's host-side backups/pre-update-* dumps are separate
+   * (install-tagave.sh keeps 3).
    */
   keepPreUpdate: number;
   /** Manual dumps to keep; null keeps them until the owner deletes them. */
