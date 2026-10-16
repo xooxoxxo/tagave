@@ -1351,9 +1351,8 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: uuid().primaryKey().defaultRandom(),
-    libraryId: uuid('library_id')
-      .notNull()
-      .references(() => libraries.id, { onDelete: 'cascade' }),
+    // null for per-person events such as Music Connections links (0047)
+    libraryId: uuid('library_id').references(() => libraries.id, { onDelete: 'cascade' }),
     actorUserId: uuid('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
     action: varchar({ length: 50 }).notNull(),
     subjectType: varchar('subject_type', { length: 50 }),
@@ -1610,4 +1609,60 @@ export const playerScrobbles = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({ pk: primaryKey({ columns: [table.playId, table.service] }) })
+);
+
+// Music Connections, phase 1 (0047): tagave as an OAuth 2.0 provider. Only
+// SHA-256 hashes of secrets, codes and tokens are stored (api › lib/mcOAuth.ts).
+const tstz = (name: string) => timestamp(name, { withTimezone: true });
+
+export const mcOauthClients = pgTable('mc_oauth_clients', {
+  clientId: text('client_id').primaryKey(),
+  clientSecretHash: text('client_secret_hash').notNull(),
+  name: text().notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  createdAt: tstz('created_at').notNull().defaultNow(),
+  disabledAt: tstz('disabled_at'),
+});
+
+export const mcOauthRequests = pgTable(
+  'mc_oauth_requests',
+  {
+    id: text().primaryKey(),
+    clientId: text('client_id').notNull().references(() => mcOauthClients.clientId, { onDelete: 'cascade' }),
+    redirectUri: text('redirect_uri').notNull(),
+    scopes: text().array().notNull(),
+    state: text(),
+    codeChallenge: text('code_challenge').notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    expiresAt: tstz('expires_at').notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    decidedAt: tstz('decided_at'),
+    codeHash: text('code_hash').unique(),
+    codeExpiresAt: tstz('code_expires_at'),
+    codeUsedAt: tstz('code_used_at'),
+    familyId: uuid('family_id'),
+  },
+  (table) => ({ expiresIdx: index('idx_mc_oauth_requests_expires').on(table.expiresAt) })
+);
+
+export const mcOauthTokens = pgTable(
+  'mc_oauth_tokens',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    familyId: uuid('family_id').notNull(),
+    clientId: text('client_id').notNull().references(() => mcOauthClients.clientId, { onDelete: 'cascade' }),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    scopes: text().array().notNull(),
+    accessTokenHash: text('access_token_hash').notNull().unique(),
+    accessExpiresAt: tstz('access_expires_at').notNull(),
+    refreshTokenHash: text('refresh_token_hash').unique(),
+    refreshExpiresAt: tstz('refresh_expires_at'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    rotatedAt: tstz('rotated_at'),
+    revokedAt: tstz('revoked_at'),
+  },
+  (table) => ({
+    familyIdx: index('idx_mc_oauth_tokens_family').on(table.familyId),
+    userIdx: index('idx_mc_oauth_tokens_user').on(table.userId),
+  })
 );
