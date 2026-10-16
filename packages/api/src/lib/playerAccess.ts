@@ -1,13 +1,14 @@
 /**
- * Who may do what with the player, in one place. The round-2 permission
- * layer (packages/api/src/permissions) checks the same names centrally from
- * each route's `config.permission`; this inline check keeps the player
- * routes safe on their own until then, and agrees with it:
+ * Who may do what with the player, in one place. The permission layer
+ * (packages/api/src/permissions) checks the same names centrally from each
+ * route's `config.permission`; this inline check is a second line inside the
+ * handlers and reads the same table (@tagave/shared › permissions):
  *
  *   player.use     every signed-in person (owner, editor, listener)
  *   system.manage  the owner only (the server and the Last.fm application)
  */
 import type { FastifyContextConfig, FastifyRequest } from 'fastify';
+import { can } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 
 export type PlayerPermission = 'player.use' | 'system.manage';
@@ -19,9 +20,7 @@ export interface PlayerCaller {
 }
 
 export function hasPlayerPermission(role: string | null | undefined, permission: PlayerPermission): boolean {
-  if (!role) return false;
-  if (permission === 'system.manage') return role === 'owner';
-  return true;
+  return can(role, permission);
 }
 
 /** The signed-in caller when they hold `permission`; 401 / 403 otherwise. */
