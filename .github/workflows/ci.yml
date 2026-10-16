@@ -75,9 +75,22 @@ jobs:
       # storybook job below.
       - run: pnpm --filter @tagave/web test
 
+      # scripts/release-notes.mjs (the notes draft, the version check,
+      # CHANGELOG.md) and scripts/release.sh, against throwaway repositories.
+      - name: Release scripts
+        run: node --test scripts/release-notes.test.mjs
+
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')
         run: ./scripts/check-version-tag.sh "${GITHUB_REF_NAME}"
+
+      # A release ships with notes written for people: release-notes/vX.Y.Z.md,
+      # edited from the draft (no draft marker, no TODO:). Checked here, before
+      # any image is built. Pre-releases (v1.2.3-rc.1) may go without; the
+      # release job then uses a generated draft.
+      - name: Release notes are written
+        if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+        run: node scripts/release-notes.mjs --check "release-notes/${GITHUB_REF_NAME}.md"
 
       # The release gate that already exists and nothing runs: boots the real
       # compose stack, creates the first owner, validates a scan root through
@@ -157,7 +170,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: shellcheck
-        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh
+        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh
 
       # Portainer, Dokploy, Coolify and Unraid templates in deploy/templates/
       - name: App templates
@@ -336,7 +349,11 @@ jobs:
       id-token: write
 
     steps:
+      # Full history and tags: a release without a notes file gets a draft
+      # generated from the commits since the previous tag.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
 
@@ -484,13 +501,24 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The body is shown in the app on Settings › Updates, and a body that
+        # says "requires attention" makes the owner confirm reading it before
+        # updating. It is release-notes/<tag>.md (the gates job refuses a
+        # stable tag without one); for a pre-release without notes, a draft
+        # generated from the commits since the previous stable tag.
         run: |
-          PRERELEASE=""
-          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease" ;; esac
+          set -euo pipefail
+          PRERELEASE=()
+          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE=(--prerelease) ;; esac
+          notes="release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$notes" ]; then
+            notes="$RUNNER_TEMP/release-notes.md"
+            node scripts/release-notes.mjs --version "${GITHUB_REF_NAME#v}" --to "${GITHUB_SHA}" --out "$notes"
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
-            $PRERELEASE
+            --notes-file "$notes" \
+            "${PRERELEASE[@]}"
 
   # The signed release manifest (scripts/release-manifest.mjs): every image of
   # the release by digest per platform, the module catalogue, the installer's
