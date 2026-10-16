@@ -67,8 +67,13 @@ describe('backup routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json<BackupsStatus>()).toMatchObject({
       dir, dedicated: true, timeZone: 'Europe/Amsterdam', running: false, backups: [], totalBytes: 0,
-      settings: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4 },
+      settings: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null },
     });
+    expect(res.json<BackupsStatus>().kinds).toEqual([
+      { kind: 'nightly', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+      { kind: 'pre-migration', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+      { kind: 'manual', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+    ]);
   });
 
   it('starts a backup at once and shows it running, then listed', async () => {
@@ -101,10 +106,39 @@ describe('backup routes', () => {
     const bad = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { enabled: true, hour: 25, keepDaily: 0, keepWeekly: 4 } });
     expect(bad.statusCode).toBe(400);
     expect(onSettingsChanged).not.toHaveBeenCalled();
+    // a page from before the per-kind numbers: they keep their saved values
     const ok = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8 } });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json<BackupsStatus>().settings).toEqual({ enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8 });
+    expect(ok.json<BackupsStatus>().settings).toEqual({ enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8, keepPreUpdate: 3, keepManual: null });
     expect(onSettingsChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps 2 to 50 before-update backups and 1 to 100 manual ones, or all manual ones', async () => {
+    const base = { enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8 };
+    for (const bad of [{ keepPreUpdate: 1 }, { keepPreUpdate: 51 }, { keepManual: 0 }, { keepManual: 101 }, { keepManual: 'all' }]) {
+      const res = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { ...base, ...bad } });
+      expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+    }
+    let res = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { ...base, keepPreUpdate: 5, keepManual: 4 } });
+    expect(res.json<BackupsStatus>().settings).toMatchObject({ keepPreUpdate: 5, keepManual: 4 });
+    res = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { ...base, keepPreUpdate: 5, keepManual: null } });
+    expect(res.json<BackupsStatus>().settings).toMatchObject({ keepPreUpdate: 5, keepManual: null });
+  });
+
+  it('lowering a number deletes nothing on save, and says what goes at the next run', async () => {
+    const pre = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04'].map((d) => `tagave-${d}T00-00-00Z-pre-migration.pgdump`);
+    for (const n of pre) await writeFile(join(dir, n), '1234567890');
+    const res = await app.inject({
+      method: 'PUT', url: '/api/v1/backups/settings',
+      payload: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 2, keepManual: null },
+    });
+    expect(res.statusCode).toBe(200);
+    for (const n of pre) expect(await readdir(dir)).toContain(n);
+    const block = res.json<BackupsStatus>().kinds.find((k) => k.kind === 'pre-migration');
+    expect(block).toMatchObject({ count: 4, bytes: 40, newest: '2026-10-04T00:00:00.000Z' });
+    // the next update writes one more and keeps 2: the three oldest go
+    expect(block?.pendingDelete).toEqual({ count: 3, bytes: 30, names: pre.slice(0, 3) });
+    for (const n of pre) await rm(join(dir, n));
   });
 
   it('deletes a backup and its record', async () => {
@@ -118,11 +152,11 @@ describe('applyBackupSchedule', () => {
   it('schedules the chosen hour in the container time zone, or removes the schedule', async () => {
     const boss = { schedule: vi.fn(async () => undefined), unschedule: vi.fn(async () => undefined) };
     const service = new BackupService({ databaseUrl: 'postgres://unused/db', env: { BACKUP_DIR: '/nonexistent', TZ: 'Europe/Amsterdam' } });
-    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: true, hour: 4, keepDaily: 7, keepWeekly: 4 });
+    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: true, hour: 4, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null });
     expect(boss.schedule).toHaveBeenCalledWith('backup.nightly', '0 4 * * *', {}, expect.objectContaining({ tz: 'Europe/Amsterdam' }));
-    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: false, hour: 4, keepDaily: 7, keepWeekly: 4 });
+    await applyBackupSchedule(boss as unknown as PgBoss, service, { enabled: false, hour: 4, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null });
     expect(boss.unschedule).toHaveBeenCalledWith('backup.nightly');
-    expect(nightlyCron({ enabled: true, hour: 23, keepDaily: 1, keepWeekly: 0 })).toBe('0 23 * * *');
+    expect(nightlyCron({ enabled: true, hour: 23, keepDaily: 1, keepWeekly: 0, keepPreUpdate: 3, keepManual: null })).toBe('0 23 * * *');
   });
 
   it('falls back to the cache folder and says it is not dedicated', () => {

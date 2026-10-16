@@ -106,6 +106,8 @@ export {
   type BackupSettingsView,
   backupRunSchema,
   type BackupRunView,
+  backupKindSummarySchema,
+  type BackupKindSummaryView,
   backupsStatusSchema,
   type BackupsStatus,
 } from './backups.js';

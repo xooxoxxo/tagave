@@ -1,6 +1,8 @@
 /**
- * Settings › Backups: list the dumps in the backups folder, take one now,
- * download or delete one, and change the nightly schedule and retention.
+ * Settings › Backups: list the dumps in the backups folder (with one block
+ * per kind: count, size, newest, and what its next run deletes), take one
+ * now, download or delete one, and change the nightly schedule and the
+ * retention of each kind.
  * Owner only: a dump holds the whole catalog.
  */
 import { createReadStream } from 'node:fs';
@@ -12,10 +14,17 @@ import {
   isSafeBackupName,
   listBackups,
   readBackupStatus,
+  summarizeKinds,
   writeBackupSettings,
   type BackupEntry,
 } from '@tagave/doctor';
 import { backupSettingsSchema, type BackupsStatus } from '@tagave/shared';
+
+/**
+ * PUT /backups/settings: the per-kind numbers may be left out (a page from
+ * before they existed); the saved ones are kept then.
+ */
+const settingsInputSchema = backupSettingsSchema.partial({ keepPreUpdate: true, keepManual: true });
 import { ApiError } from '../middleware/errorHandler.js';
 import type { BackupService } from '../lib/backupService.js';
 
@@ -46,15 +55,17 @@ export async function buildBackupsStatus(service: BackupService): Promise<Backup
     error = `Could not read the backups folder: ${(err as Error).message}`;
   }
   const status = await readBackupStatus(service.dir);
+  const settings = await service.settings();
   return {
     dir: service.dir,
     dedicated: service.dedicated,
     timeZone: service.timeZone,
-    settings: await service.settings(),
+    settings,
     running: service.running,
     lastRun: status.lastRun,
     lastNightly: status.lastNightly,
     backups,
+    kinds: summarizeKinds(backups, settings, service.timeZone),
     totalBytes: backups.reduce((sum, b) => sum + b.bytes, 0),
     error,
   };
@@ -104,11 +115,19 @@ export async function createBackupRoutes(fastify: FastifyInstance, opts: BackupR
 
   fastify.put('/backups/settings', async (request) => {
     requireOwner(request);
-    const parsed = backupSettingsSchema.safeParse(request.body);
+    const parsed = settingsInputSchema.safeParse(request.body);
     if (!parsed.success) {
       throw new ApiError(400, 'Bad Request', parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '));
     }
-    await writeBackupSettings(service.dir, parsed.data);
+    // Saving only writes the numbers: nothing is deleted until the next run of
+    // each kind, and GET /backups says what that run will delete (D5).
+    const current = await service.settings();
+    const { keepPreUpdate, keepManual, ...rest } = parsed.data;
+    await writeBackupSettings(service.dir, {
+      ...rest,
+      keepPreUpdate: keepPreUpdate ?? current.keepPreUpdate,
+      keepManual: keepManual === undefined ? current.keepManual : keepManual,
+    });
     if (opts.onSettingsChanged) {
       try {
         await opts.onSettingsChanged();
