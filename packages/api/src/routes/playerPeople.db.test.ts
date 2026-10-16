@@ -313,7 +313,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     expect(lfm.state.scrobbles.length).toBe(before);
     const [pending] = await sql`select s.status, s.attempts, s.next_attempt_at, s.last_error from player_scrobbles s join player_plays p on p.id = s.play_id
       where p.user_id = ${anna} and s.service = 'lastfm' and s.status <> 'sent'`;
-    expect(pending).toMatchObject({ status: 'pending', attempts: 1, last_error: 'Service Offline' });
+    expect(pending, JSON.stringify(pending)).toMatchObject({ status: 'pending', attempts: 1, last_error: 'Service Offline' });
     expect(new Date(pending.next_attempt_at).getTime()).toBeGreaterThan(Date.now() + 30_000);
     // not due yet: nothing happens
     await scrob.sendDueScrobbles({ sql });

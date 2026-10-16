@@ -90,11 +90,15 @@ export function lastfmAppFrom(settings: LastfmAppSettings | null | undefined, en
   return null;
 }
 
-/** The install's Last.fm application (libraries share it; the first one that has it). */
+/**
+ * The install's Last.fm application. It is one per install, kept in a
+ * library's settings: the named library's when it has one, else the first
+ * library that does, else .env.
+ */
 export async function installLastfmApp(sql: Sql, env: NodeJS.ProcessEnv = process.env, libraryId?: string | null): Promise<LastfmApp | null> {
-  const rows = libraryId
-    ? await sql<{ settings: unknown }[]>`select settings from libraries where id = ${libraryId}`
-    : await sql<{ settings: unknown }[]>`select settings from libraries order by created_at`;
+  const rows = await sql<{ settings: unknown }[]>`
+    select settings from libraries where settings ? 'lastfmApiKey'
+    order by (id = ${libraryId ?? null}::uuid) desc nulls last, created_at`;
   for (const r of rows) {
     const found = lastfmAppFrom(parseSettings(r.settings) as LastfmAppSettings, env);
     if (found?.source === 'settings') return found.app;
@@ -247,7 +251,7 @@ async function claim(sql: Sql, limit: number, now: Date): Promise<DueRow[]> {
   return sql<DueRow[]>`
     with due as (
       select s.play_id, s.service from player_scrobbles s
-      where (s.status = 'pending' and s.next_attempt_at <= ${now.toISOString()})
+      where (s.status = 'pending' and s.next_attempt_at <= greatest(${now.toISOString()}::timestamptz, now()))
          or (s.status = 'sending' and s.claimed_at < ${stuck.toISOString()})
       order by s.next_attempt_at
       limit ${limit}

@@ -42,7 +42,7 @@ export function PlayerQueueView({ album, tracks, index, onPlay, onMove, onRemove
     >
       <header className={styles.head}>
         <div className={styles.headText}>
-          <h2 id="player-queue-title" className={styles.title}>Queue</h2>
+          <h3 id="player-queue-title" className={styles.title}>Queue</h3>
           <p className={styles.where}>Playing on this device · {upcoming === 0 ? 'nothing after this' : `${upcoming} to come`}</p>
         </div>
         <IconButton label="Close the queue" variant="quiet" size="sm" onClick={onClose}><CloseIcon /></IconButton>
