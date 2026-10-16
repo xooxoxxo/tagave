@@ -28,6 +28,9 @@ import {
   type BackupResult,
 } from './backup.js';
 import { tagaveEnv } from '@tagave/shared/env';
+import type { DiskSpaceView } from '@tagave/shared';
+import postgres from 'postgres';
+import { diskSpace, formatDiskBytes, type DiskSpaceOptions } from './diskCheck.js';
 
 /** Kind of the dump the app takes before it migrates: tagave-<time>-pre-migration.pgdump in the backups folder. */
 export const PREMIGRATE_KIND = 'pre-migration' as const;
@@ -62,6 +65,75 @@ export interface PreMigrationBackupOptions {
   isMount?: (dir: string) => boolean | null;
   /** This app's version; a retry of the same failed update reuses its first dump. */
   appVersion?: string;
+  /** Test seam: bytes of cover thumbnails still in images.thumb_bytes. */
+  thumbBytes?: (databaseUrl: string) => Promise<number>;
+  /** Test seam: the free-space reading (diskSpace). */
+  disk?: (opts: DiskSpaceOptions) => Promise<DiskSpaceView>;
+}
+
+/** The migration that moves the cover thumbnails into cover_thumbs (0046). */
+export const COVER_THUMBS_MIGRATION = /^\d{4}_cover_thumbs\.sql$/;
+/** It needs the thumbnails' size this many times over: the new table plus the write-ahead log. */
+export const COVER_THUMBS_SPACE_FACTOR = 3;
+
+async function storedThumbBytes(databaseUrl: string): Promise<number> {
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined });
+  try {
+    const col = await sql`select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'images' and column_name = 'thumb_bytes'`;
+    if (col.length === 0) return 0;
+    const r = await sql`select coalesce(sum(octet_length(thumb_bytes)), 0)::bigint as n from images`;
+    return Number(r[0]?.['n'] ?? 0);
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+/**
+ * Why the pending migrations may not run for lack of disk, or null. Only
+ * the cover thumbnail move (0046) needs notable room: about three times the
+ * thumbnails' size on the database's disk while it runs. Measured where
+ * Postgres keeps its data when that is visible, else on the backups
+ * folder's disk (in Docker the volumes usually share one disk). When nothing
+ * can be measured the migration goes ahead: this check only refuses on a
+ * reading.
+ */
+export async function migrationSpaceProblem(
+  state: SchemaState,
+  opts: Pick<PreMigrationBackupOptions, 'databaseUrl' | 'env' | 'log' | 'thumbBytes' | 'disk'>,
+): Promise<string | null> {
+  const env = opts.env ?? process.env;
+  const log = opts.log ?? ((m: string) => console.log(m));
+  const file = state.pending.find((f) => COVER_THUMBS_MIGRATION.test(f));
+  if (!file || truthy(tagaveEnv('SKIP_MIGRATION_SPACE_CHECK', env))) return null;
+  let bytes: number;
+  let view: DiskSpaceView;
+  try {
+    bytes = await (opts.thumbBytes ?? storedThumbBytes)(opts.databaseUrl);
+    if (bytes <= 0) return null;
+    view = await (opts.disk ?? diskSpace)({ databaseUrl: opts.databaseUrl, env, fresh: true });
+  } catch (err) {
+    log(`warning: could not check the free space ${file} needs (${(err as Error).message}); migrating anyway`);
+    return null;
+  }
+  const need = bytes * COVER_THUMBS_SPACE_FACTOR;
+  const onDb = view.filesystems.find((f) => f.paths.some((p) => p.key === 'database'));
+  const fsView = onDb ?? view.filesystems.find((f) => f.paths.some((p) => p.key === 'backups'));
+  if (!fsView) {
+    log(`warning: could not measure the free space ${file} needs (about ${formatDiskBytes(need)}); migrating anyway`);
+    return null;
+  }
+  const where = onDb ? "the database's disk" : "the backups folder's disk (Postgres's own disk is not visible from here; in Docker it is usually the same one)";
+  if (fsView.freeBytes >= need) {
+    log(`${file} needs about ${formatDiskBytes(need)} free; ${where} has ${formatDiskBytes(fsView.freeBytes)}`);
+    return null;
+  }
+  return (
+    `${file} moves ${formatDiskBytes(bytes)} of cover thumbnails into their own table and needs about ` +
+    `${formatDiskBytes(need)} free while it runs (the thumbnails three times over: the new table and the ` +
+    `write-ahead log), but ${where} has ${formatDiskBytes(fsView.freeBytes)} free. Free space (see "Disk space" ` +
+    'in the operations guide) and start the app again, or set TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1 to migrate anyway'
+  );
 }
 
 /**
@@ -93,6 +165,8 @@ export function preMigrationBackup(
   const backup = opts.backup ?? runBackup;
   return async (state, previous = null) => {
     const outDir = defaultBackupDir(env);
+    const spaceProblem = await migrationSpaceProblem(state, { ...opts, env, log });
+    if (spaceProblem) throw new PreMigrationBackupError(`Not migrating: ${spaceProblem}. Nothing was changed.`);
     if (skipPreMigrationBackup(env)) {
       log(`TAGAVE_SKIP_PREMIGRATE_BACKUP is set: applying ${state.pending.length} migration(s) without a backup`);
       return { status: 'skipped', path: null, bytes: null, note: 'TAGAVE_SKIP_PREMIGRATE_BACKUP' };

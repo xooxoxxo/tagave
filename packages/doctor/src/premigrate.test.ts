@@ -7,6 +7,7 @@ import {
   preMigrationKeep,
   skipPreMigrationBackup,
   PREMIGRATE_KIND,
+  migrationSpaceProblem,
 } from './premigrate.js';
 import type { BackupOptions, BackupResult } from './backup.js';
 
@@ -172,5 +173,50 @@ describe('env knobs', () => {
     expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '3', LINER_PREMIGRATE_BACKUP_KEEP: '7' })).toBe(3);
     // an empty new name (compose passes `${TAGAVE_X:-}`) does not hide the old one
     expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: '', LINER_SKIP_PREMIGRATE_BACKUP: 'yes' })).toBe(true);
+  });
+});
+
+describe('free space for the cover thumbnail move (0046)', () => {
+  const thumbs: SchemaState = { ...state, pending: ['0045_x.sql', '0046_cover_thumbs.sql'] };
+  const MB = 1024 * 1024;
+  const view = (freeMb: number, key: 'database' | 'backups') => ({
+    status: 'pass', warnPct: 85, failPct: 95, checkedAt: '', unmeasured: [],
+    filesystems: [{ totalBytes: 100_000 * MB, usedBytes: 0, freeBytes: freeMb * MB, usedPct: 0, status: 'pass', paths: [{ key, label: key, path: `/${key}` }] }],
+  }) as any;
+  const ok = async (): Promise<BackupResult> => ({ path: '/b/x.pgdump', kind: 'pre-migration', bytes: 1, tocEntries: 1, pruned: [], durationMs: 1 });
+
+  it('refuses before the backup when the disk has less than three times the thumbnails', async () => {
+    let backedUp = false;
+    const hook = preMigrationBackup({
+      databaseUrl: 'postgres://x/y', env: {}, log: quiet,
+      thumbBytes: async () => 300 * MB, disk: async () => view(800, 'database'),
+      backup: async () => { backedUp = true; return ok(); },
+    });
+    const err = await hook(thumbs).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(PreMigrationBackupError);
+    expect((err as Error).message).toMatch(/^Not migrating: 0046_cover_thumbs\.sql moves 300 MB of cover thumbnails .* needs about 900 MB free .* has 800 MB free/);
+    expect((err as Error).message).toMatch(/TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1/);
+    expect(backedUp).toBe(false);
+  });
+
+  it('goes ahead with enough room, measured on the backups disk when the database disk is not visible', async () => {
+    const lines: string[] = [];
+    expect(await migrationSpaceProblem(thumbs, {
+      databaseUrl: 'postgres://x/y', env: {}, log: (l) => lines.push(l),
+      thumbBytes: async () => 300 * MB, disk: async () => view(1000, 'backups'),
+    })).toBeNull();
+    expect(lines.join('\n')).toMatch(/backups folder's disk/);
+  });
+
+  it('asks nothing when 0046 is not pending, and steps aside when told to or when it cannot measure', async () => {
+    let asked = 0;
+    const thumbBytes = async () => { asked++; return 300 * MB; };
+    const small = async () => view(1, 'database');
+    expect(await migrationSpaceProblem(state, { databaseUrl: 'x', env: {}, log: quiet, thumbBytes, disk: small })).toBeNull();
+    expect(asked).toBe(0);
+    expect(await migrationSpaceProblem(thumbs, { databaseUrl: 'x', env: { TAGAVE_SKIP_MIGRATION_SPACE_CHECK: '1' }, log: quiet, thumbBytes, disk: small })).toBeNull();
+    expect(await migrationSpaceProblem(thumbs, { databaseUrl: 'x', env: {}, log: quiet, thumbBytes, disk: async () => ({ ...view(1, 'database'), filesystems: [] }) })).toBeNull();
+    expect(await migrationSpaceProblem(thumbs, { databaseUrl: 'x', env: {}, log: quiet, thumbBytes: async () => { throw new Error('no db'); }, disk: small })).toBeNull();
+    expect(await migrationSpaceProblem(thumbs, { databaseUrl: 'x', env: {}, log: quiet, thumbBytes: async () => 0, disk: small })).toBeNull();
   });
 });

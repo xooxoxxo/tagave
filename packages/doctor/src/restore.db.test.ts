@@ -15,7 +15,8 @@ import { basename, join } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { defaultBackupSettings, listBackups, pgDumpBin, pgRestoreBin, readBackupStatus, runBackup, runRecordedBackup } from './backup.js';
-import { RestoreRefused, checkActivity, runRestore, sideName, stamp, withDatabase } from './restore.js';
+import { PgBoss } from 'pg-boss';
+import { RestoreRefused, checkActivity, queueThumbSweep, runRestore, sideName, stamp, withDatabase } from './restore.js';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -177,5 +178,45 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     await import('node:fs/promises').then((fs) => fs.writeFile(bogus, 'not a dump'));
     await expect(runRestore({ databaseUrl: scratchUrl, file: bogus, mode: 'in-place', backupDir: dir })).rejects.toThrow(/pg_restore/);
     expect(await rows()).toEqual({ values: ['one', 'two'], extraTable: true });
+  }, 60_000);
+
+  it('queues the cover thumbnail rebuild once the restore is done; a queue that cannot take it does not fail the restore', async () => {
+    const asked: string[] = [];
+    // the newest manual dump (the first one was pruned by --keep above)
+    const latest = (await listBackups(dir)).find((e) => e.kind === 'manual' && e.name.startsWith('tagave-'))!;
+    const file = join(dir, latest.name);
+    const ok = await runRestore({
+      databaseUrl: scratchUrl, file, mode: 'in-place', backupDir: dir, now: new Date('2026-09-30T01:00:00Z'),
+      queueThumbSweep: async (u) => { asked.push(u); },
+    });
+    expect(ok.thumbSweepQueued).toBe(true);
+    expect(asked).toEqual([scratchUrl]);
+    const failed = await runRestore({
+      databaseUrl: scratchUrl, file, mode: 'in-place', backupDir: dir, now: new Date('2026-09-30T02:00:00Z'),
+      queueThumbSweep: async () => { throw new Error('no queue'); },
+    });
+    expect(failed.thumbSweepQueued).toBe(false);
+    expect(failed.tocEntries).toBeGreaterThan(0);
+  }, 90_000);
+
+  it('queueThumbSweep sends one art.thumbSweep job through pg-boss', async () => {
+    const qname = `tagave_q_${randomBytes(4).toString('hex')}`;
+    extraDbs.push(qname);
+    await admin.unsafe(`create database ${qname}`);
+    const qurl = withDatabase(url!, qname);
+    const boss = new PgBoss(qurl);
+    boss.on('error', () => undefined);
+    await boss.start();
+    await boss.createQueue('art.thumbSweep', { policy: 'stately' });
+    await boss.stop({ graceful: false });
+    await queueThumbSweep(qurl);
+    await queueThumbSweep(qurl); // deduped by its singleton key
+    const sql = postgres(qurl, { max: 1, onnotice: () => undefined });
+    try {
+      const r = await sql`select count(*)::int as n from pgboss.job where name = 'art.thumbSweep'`;
+      expect(r[0]!['n']).toBe(1);
+    } finally {
+      await sql.end({ timeout: 2 });
+    }
   }, 60_000);
 });

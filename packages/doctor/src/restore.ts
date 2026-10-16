@@ -56,6 +56,11 @@ export interface RestoreOptions {
   pgRestore?: string;
   pgDump?: string;
   log?: (line: string) => void;
+  /**
+   * Test seam: asks worker-files to rebuild every cover thumbnail once the
+   * restore is done (backups hold none). Default: queueThumbSweep.
+   */
+  queueThumbSweep?: (databaseUrl: string) => Promise<void>;
 }
 
 export interface RestoreResult {
@@ -69,6 +74,8 @@ export interface RestoreResult {
   migrationsInDump: number | null;
   latestMigration: string | null;
   durationMs: number;
+  /** Whether art.thumbSweep was queued, so the covers are rebuilt without waiting for a worker restart. */
+  thumbSweepQueued: boolean;
 }
 
 /** Database name from a postgres:// URL. */
@@ -188,7 +195,7 @@ async function emptyDatabase(url: string): Promise<void> {
   }
 }
 
-export async function runRestore(opts: RestoreOptions): Promise<RestoreResult> {
+async function restoreDatabase(opts: RestoreOptions): Promise<Omit<RestoreResult, 'thumbSweepQueued'>> {
   const started = Date.now();
   const log = opts.log ?? (() => undefined);
   const now = opts.now ?? new Date();
@@ -319,4 +326,52 @@ export async function runRestore(opts: RestoreOptions): Promise<RestoreResult> {
     latestMigration: ledger.latest,
     durationMs: Date.now() - started,
   };
+}
+
+/**
+ * Queue art.thumbSweep in the restored database's job queue. Backups hold no
+ * cover thumbnails, so after a restore every cover is a placeholder until
+ * worker-files rebuilds them; the worker also sweeps when it starts, this
+ * just does not wait for that. Only sends a job: no pg-boss schema changes,
+ * no maintenance.
+ */
+export async function queueThumbSweep(databaseUrl: string): Promise<void> {
+  // pg-boss runs its SQL on this one connection, which is closed here
+  // whatever happens: a restore must not leave a session behind.
+  const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined });
+  try {
+    const q = await sql`select to_regclass('pgboss.queue') is not null as has`;
+    if (!q[0]?.['has']) throw new Error('the database has no job queue yet');
+    const { PgBoss } = await import('pg-boss');
+    const boss = new PgBoss({
+      db: { executeSql: async (text: string, values?: unknown[]) => ({ rows: await sql.unsafe(text, (values ?? []) as never[]) }) },
+      supervise: false,
+      schedule: false,
+      migrate: false,
+      createSchema: false,
+    });
+    boss.on('error', () => undefined);
+    await boss.start();
+    try {
+      await boss.send('art.thumbSweep', {}, { singletonKey: 'art.thumbSweep' });
+    } finally {
+      await boss.stop({ graceful: false }).catch(() => undefined);
+    }
+  } finally {
+    await sql.end({ timeout: 2 });
+  }
+}
+
+export async function runRestore(opts: RestoreOptions): Promise<RestoreResult> {
+  const result = await restoreDatabase(opts);
+  const log = opts.log ?? (() => undefined);
+  let thumbSweepQueued = false;
+  try {
+    await (opts.queueThumbSweep ?? queueThumbSweep)(opts.databaseUrl);
+    thumbSweepQueued = true;
+    log('queued the cover thumbnail rebuild (art.thumbSweep)');
+  } catch (err) {
+    log(`could not queue the cover thumbnail rebuild (${(err as Error).message}); worker-files rebuilds them when it starts`);
+  }
+  return { ...result, thumbSweepQueued };
 }

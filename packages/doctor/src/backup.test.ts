@@ -158,6 +158,44 @@ describe('credentials stay out of argv and errors', () => {
   });
 });
 
+describe('rebuildable tables stay out of the dumps', () => {
+  it('cover_thumbs leaves every kind; provider_cache only nightly and manual (rollback dumps keep it)', async () => {
+    const { excludedTableData, EXCLUDED_TABLE_DATA } = await import('./backup.js');
+    expect([...EXCLUDED_TABLE_DATA]).toEqual(['public.cover_thumbs', 'public.provider_cache']);
+    expect(excludedTableData('nightly')).toEqual(['public.cover_thumbs', 'public.provider_cache']);
+    expect(excludedTableData('manual')).toEqual(['public.cover_thumbs', 'public.provider_cache']);
+    expect(excludedTableData('pre-migration')).toEqual(['public.cover_thumbs']);
+    expect(excludedTableData('pre-restore')).toEqual(['public.cover_thumbs']);
+  });
+
+  it('runBackup passes them to pg_dump as --exclude-table-data', async () => {
+    const { mkdtemp, writeFile, chmod, readFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { runBackup } = await import('./backup.js');
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-fakedump-'));
+    try {
+      const fake = join(dir, 'pg_dump');
+      // one argument per line, then fail so nothing else runs
+      await writeFile(fake, `#!/bin/sh\nfor a in "$@"; do echo "$a"; done > "${dir}/argv"\nexit 1\n`);
+      await chmod(fake, 0o755);
+      const argvFor = async (kind: 'nightly' | 'pre-migration') => {
+        await runBackup({ databaseUrl: 'postgres://tagave@db/tagave', outDir: join(dir, 'out'), pgDump: fake, kind }).catch(() => undefined);
+        return (await readFile(join(dir, 'argv'), 'utf8')).trim().split('\n');
+      };
+      const nightly = await argvFor('nightly');
+      expect(nightly).toContain('--format=custom');
+      expect(nightly).toContain('--exclude-table-data=public.cover_thumbs');
+      expect(nightly).toContain('--exclude-table-data=public.provider_cache');
+      const pre = await argvFor('pre-migration');
+      expect(pre).toContain('--exclude-table-data=public.cover_thumbs');
+      expect(pre).not.toContain('--exclude-table-data=public.provider_cache');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('isSeparateMount', () => {
   it('is false for a folder on the same filesystem as the root it is compared with', async () => {
     const { isSeparateMount } = await import('./backup.js');

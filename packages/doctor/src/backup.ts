@@ -243,6 +243,40 @@ export function pgConnection(databaseUrl: string): { dbname: string; env: NodeJS
   return { dbname: u.toString(), env };
 }
 
+/**
+ * Tables whose rows a backup leaves out: the schema is dumped (a restore
+ * gets the empty table) but not the data, because it is rebuilt afterwards.
+ *
+ * cover_thumbs, from every dump: worker-files regenerates each thumbnail
+ * from the original on its cache volume (art.thumb, a few minutes).
+ *
+ * provider_cache, from nightly and manual dumps: answers from MusicBrainz,
+ * Discogs, AcoustID and the rest, asked again as they are needed. The
+ * pre-migration dumps (the app's, and the updater's `--kind before-update`,
+ * filed as one) and the pre-restore dumps keep it: they are what a roll
+ * back restores, and a
+ * cold cache would make the rolled-back app re-ask the slow providers
+ * (AcoustID) and lose its fingerprint statistics.
+ *
+ * The installer's pre-update dump, a roll back point too, keeps the provider
+ * cache; the manual dump commands in the docs and the in-app guide leave both
+ * out.
+ */
+export const EXCLUDED_TABLE_DATA = ['public.cover_thumbs', 'public.provider_cache'] as const;
+
+/** Rollback dumps: they keep the provider cache. */
+const KEEPS_PROVIDER_CACHE: ReadonlySet<BackupKind> = new Set(['pre-migration', 'pre-restore']);
+
+/** The tables a dump of this kind leaves the rows out of. */
+export function excludedTableData(kind: BackupKind): string[] {
+  return KEEPS_PROVIDER_CACHE.has(kind) ? ['public.cover_thumbs'] : [...EXCLUDED_TABLE_DATA];
+}
+
+/** The pg_dump arguments that leave those rows out. */
+export function excludedTableDataArgs(kind: BackupKind): string[] {
+  return excludedTableData(kind).map((t) => `--exclude-table-data=${t}`);
+}
+
 export function pgDumpBin(explicit?: string): string {
   return explicit ?? process.env['PG_DUMP'] ?? 'pg_dump';
 }
@@ -289,7 +323,7 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
 
   try {
     const conn = pgConnection(opts.databaseUrl);
-    await run(pgDumpBin(opts.pgDump), ['--format=custom', '--no-password', `--file=${partial}`, `--dbname=${conn.dbname}`], {
+    await run(pgDumpBin(opts.pgDump), ['--format=custom', '--no-password', ...excludedTableDataArgs(kind), `--file=${partial}`, `--dbname=${conn.dbname}`], {
       maxBuffer: 16 * 1024 * 1024,
       env: conn.env,
     });

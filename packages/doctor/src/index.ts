@@ -41,6 +41,8 @@ export {
   BACKUP_KINDS,
   CLI_BACKUP_KINDS,
   KEEP_PRE_UPDATE_DEFAULT,
+  EXCLUDED_TABLE_DATA,
+  excludedTableData,
   SETTINGS_LIMITS,
   applyRetention,
   kindDeletes,
@@ -53,6 +55,8 @@ export {
   deleteBackup,
   isSafeBackupName,
   listBackups,
+  pgDumpBin,
+  pgRestoreBin,
   readBackupSettings,
   readBackupStatus,
   retentionDeletes,
@@ -67,6 +71,7 @@ export {
   type BackupStatusFile,
   type RetentionPolicy,
 } from './backup.js';
+export { runRestore, type RestoreOptions, type RestoreResult } from './restore.js';
 
 export interface DoctorOptions {
   databaseUrl: string;

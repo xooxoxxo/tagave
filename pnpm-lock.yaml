@@ -185,6 +185,9 @@ importers:
       '@tagave/shared':
         specifier: workspace:*
         version: link:../shared
+      pg-boss:
+        specifier: ^12.37.1
+        version: 12.37.1(@opentelemetry/api@1.9.1)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9

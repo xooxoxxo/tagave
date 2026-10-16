@@ -182,6 +182,7 @@ async function main() {
           console.log(`    docker compose exec postgres dropdb -U <user> ${result.previousDatabase}`);
         }
         if (result.preRestoreBackup) console.log(`  pre-restore backup: ${result.preRestoreBackup}`);
+        console.log('  cover thumbnails are not in backups: covers show a placeholder until worker-files has rebuilt them (a few minutes after it starts)');
         console.log('  start the app and workers again: docker compose up -d');
       }
       process.exit(0);
