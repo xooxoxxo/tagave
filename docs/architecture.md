@@ -69,3 +69,26 @@ pnpm -r build && node packages/worker/dist/index.js
 ```
 
 The worker will claim jobs from all queues by default (when `TAGAVE_QUEUES` is unset).
+
+## Releasing
+
+Each release has notes written for the people who run tagave: `release-notes/vX.Y.Z.md`, shown in the app on Settings › Updates and as the GitHub release text. [`release-notes/v0.9.0.md`](../release-notes/v0.9.0.md) is the model: the release type and a one-sentence summary, then Before you update, New, Improved, Fixed, For self-hosters, and the compare link, with every bullet linking its commits.
+
+**Commit messages feed the draft.** Write them as conventional commits, `type(scope): subject`. `feat` goes under New, `fix` under Fixed, `perf` under Improved; the `deploy`, `installer`, `doctor` and `updater` scopes and `docs(install)` / `docs(operations)` go under For self-hosters; `chore`, `ci`, `test`, `build` and other docs are left out. Two footers matter:
+
+```text
+feat(deploy)!: one compose file for every role
+
+BREAKING CHANGE: split installs must re-run the installer on the music computer.
+Requires-Attention: Stop worker-files on the music computer before updating.
+```
+
+`BREAKING CHANGE:` (or a `!` after the type) marks a breaking change; before 1.0 it needs a minor bump, from 1.0 on a major one. `Requires-Attention:` is anything the owner must do or know before updating. Either one puts a `**Requires attention:**` line in the notes, and the app then asks the owner to confirm reading them before it updates. New migrations and added, removed or renamed settings in `.env.example` and `deploy/compose.yml` are found on their own.
+
+**Cutting a release**, on an up-to-date `main`:
+
+1. `scripts/release.sh X.Y.Z` sets the version in `package.json` and writes a draft of `release-notes/vX.Y.Z.md` from the commits since the last release. It refuses a version that bumps less than the commits need (a feature or a breaking change in a patch release).
+2. Edit the draft: write the summary, merge bullets about the same thing into one, say what changed in plain words, keep the commit links, and remove the `<!-- draft: edit before release -->` line and every `TODO:`.
+3. `scripts/release.sh X.Y.Z` again: it checks the notes, rebuilds [`CHANGELOG.md`](../CHANGELOG.md), commits `chore: X.Y.Z`, tags `vX.Y.Z` and prints the two `git push` commands. Nothing is pushed until you run them.
+
+CI refuses a release tag whose notes file is missing or still a draft, before it builds any image. A pre-release tag (`v1.2.0-rc.1`) may go without notes; its release then carries a generated draft. To see a draft without releasing: `node scripts/release-notes.mjs --version X.Y.Z`.
