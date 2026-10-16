@@ -8,7 +8,7 @@
  *      skips the second factor and lands on Home;
  *   3. the listener's sidebar has Home, Albums, Artists, Physical collection
  *      and Settings but no Library care or Tag changes; Settings shows only
- *      Account, Appearance and Security; direct links to owner and editor
+ *      Account, Appearance, Security and Listening; direct links to owner and editor
  *      pages show "Not available for your account"; the API refuses them;
  *   4. the owner makes the listener an editor; after a reload Library care
  *      and Tag changes appear for them and the pages open.
@@ -122,9 +122,9 @@ try {
   await lp.goto('/settings');
   await lp.getByRole('navigation', { name: 'Settings sections' }).waitFor();
   const sections = await lp.getByRole('navigation', { name: 'Settings sections' }).getByRole('link').allInnerTexts();
-  step('listener Settings: Account, Appearance, Security only', JSON.stringify(sections) === JSON.stringify(['Account', 'Appearance', 'Security']), sections.join(', '));
+  step('listener Settings: Account, Appearance, Security, Listening only', JSON.stringify(sections) === JSON.stringify(['Account', 'Appearance', 'Security', 'Listening']), sections.join(', '));
 
-  for (const url of ['/plans', '/work', '/settings/backups', '/settings/users', '/settings/library', '/onboarding']) {
+  for (const url of ['/plans', '/work', '/settings/backups', '/settings/users', '/settings/playback', '/settings/library', '/onboarding']) {
     await lp.goto(url);
     await lp.getByRole('heading', { name: 'Not available for your account' }).waitFor({ timeout: 10_000 }).catch(() => undefined);
     step(`direct link ${url}: "Not available for your account"`, await lp.getByRole('heading', { name: 'Not available for your account' }).isVisible());
@@ -165,6 +165,9 @@ try {
   await lp.goto('/plans');
   await lp.waitForTimeout(800);
   step('as an editor: Tag changes opens', !(await lp.getByRole('heading', { name: 'Not available for your account' }).isVisible().catch(() => false)));
+  await lp.goto('/work');
+  await lp.waitForTimeout(800);
+  step('as an editor: Library care opens', !(await lp.getByRole('heading', { name: 'Not available for your account' }).isVisible().catch(() => false)));
   await lp.goto('/settings/backups');
   await lp.getByRole('heading', { name: 'Not available for your account' }).waitFor();
   step('as an editor: Backups stays the owner\'s', true);

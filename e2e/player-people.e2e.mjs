@@ -2,15 +2,17 @@
 /**
  * The player per person, end to end, with a real Navidrome and real Chrome:
  *
- *   1. two people (an owner and a listener) sign in; a generated library
+ *   1. two people sign in: an owner, and a listener the owner invited (the
+ *      listener accepts the one-time link in their own browser); a generated library
  *      is scanned by tagave's worker (identification is stubbed: the
  *      release rows are written straight into the database);
  *   2. the owner saves a Last.fm API key (Settings › Playback ›
  *      Scrobbling); each person connects their own Last.fm (web sign-in
  *      through the fake) and ListenBrainz (a token) in Settings › Listening;
- *   3. each person plays a whole album in tagave's web player, at the same
- *      time, in their own browser: tagave makes one Navidrome user each and
- *      streams as them;
+ *   3. the listener's album page is the music only (compact details, the
+ *      Play row, no Maintenance key or ⋯ menu); each person plays a whole
+ *      album in tagave's web player, at the same time, in their own browser:
+ *      tagave makes one Navidrome user each and streams as them;
  *   4. the listener plays an album through Navidrome's Subsonic API as a
  *      phone app would (their own phone-app password);
  *   5. the owner rates an album in tagave;
@@ -92,16 +94,20 @@ async function subsonic(user, password, method, params = {}, client = 'Symfonium
 const run = randomBytes(3).toString('hex');
 const people = {
   anna: { email: `anna-${run}@example.test`, name: 'Anna', password: 'anna e2e password!', role: 'owner', phone: 'anna phone password 1', lb: `lb-anna-${run}token` },
-  ben: { email: `ben-${run}@example.test`, name: 'Ben', password: 'ben e2e password!!', role: 'viewer', phone: 'ben phone password 12', lb: `lb-ben-${run}token` },
+  ben: { email: `ben-${run}@example.test`, name: 'Ben', password: 'ben e2e password!!', role: 'listener', phone: 'ben phone password 12', lb: `lb-ben-${run}token` },
 };
 
+/** The owner is made in the database; the listener comes in through an invite (see below). */
 async function createPeople() {
-  for (const p of Object.values(people)) {
+  for (const p of [people.anna]) {
     const hash = await argon2.hash(p.password, { type: argon2.argon2id });
     const [u] = await sql`insert into users (email, display_name, password_hash, role) values (${p.email}, ${p.name}, ${hash}, ${p.role}) returning id`;
     await sql`insert into auth_accounts (user_id, account_id, provider_id, password) values (${u.id}, ${u.id}::text, 'credential', ${hash})`;
     p.id = u.id;
   }
+  // one install, one shared library: use the one there is (e.g. after users.e2e.mjs), or make it
+  const [existing] = await sql`select id from libraries order by created_at limit 1`;
+  if (existing) return existing.id;
   const [lib] = await sql`insert into libraries (owner_user_id, name, settings)
     values (${people.anna.id}, 'E2E player library', ${sql.json({ contactString: people.anna.email, onboardingCompletedAt: new Date().toISOString() })}) returning id`;
   return lib.id;
@@ -135,8 +141,33 @@ try {
   const ctxA = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1440, height: 900 } });
   const ctxB = await browser.newContext({ baseURL: BASE_URL, viewport: { width: 1440, height: 900 } });
   const anna = await signIn(ctxA, people.anna);
-  const ben = await signIn(ctxB, people.ben);
-  step('both signed in', true);
+  // ---- the owner invites the listener; the listener accepts in their own browser ----
+  const inv = await api(anna).send('POST', '/users/invites', { email: people.ben.email, role: 'listener' });
+  step('the owner made a one-time invite link for a listener', inv.status === 201 && /\/invite\//.test(inv.body?.link ?? ''), String(inv.status));
+  const ben = await ctxB.newPage();
+  await ben.goto(inv.body.link);
+  await ben.getByRole('heading', { name: 'Create your account' }).waitFor();
+  step('the invite page names the role', await ben.getByText('You are invited as a listener').isVisible());
+  await ben.getByLabel(/^Your name/).fill(people.ben.name);
+  const pw = ben.locator('input[autocomplete="new-password"]');
+  await pw.nth(0).fill(people.ben.password);
+  await pw.nth(1).fill(people.ben.password);
+  await ben.getByRole('button', { name: 'Create account' }).click();
+  await ben.getByRole('heading', { name: 'Protect your account' }).waitFor();
+  await ben.getByRole('button', { name: 'Skip for now' }).click();
+  await ben.getByRole('heading', { name: 'Home' }).waitFor();
+  const [benRow] = await sql`select id, role from users where lower(email) = lower(${people.ben.email})`;
+  people.ben.id = benRow.id;
+  step('the listener accepted and is signed in, as a listener', benRow.role === 'listener', people.ben.email);
+  for (const url of ['/settings/users', '/settings/playback']) {
+    await ben.goto(url);
+    await ben.getByRole('heading', { name: 'Not available for your account' }).waitFor({ timeout: 10_000 }).catch(() => undefined);
+    step(`the listener cannot open ${url}`, await ben.getByRole('heading', { name: 'Not available for your account' }).isVisible());
+  }
+  for (const [method, url] of [['GET', '/users'], ['PUT', `/libraries/${libraryId}/player/scrobbling`]]) {
+    const r = await api(ben).send(method, url, method === 'GET' ? undefined : { apiKey: 'x'.repeat(32), secret: 'y'.repeat(32) });
+    step(`the API refuses the listener: ${method} ${url.replace(libraryId, ':id')}`, r.status === 403, String(r.status));
+  }
 
   // ---- the library: scanned by the worker, identification stubbed ----
   const root = await api(anna).send('POST', `/libraries/${libraryId}/scan-roots`, { path: MUSIC_DIR, displayName: 'E2E music', writable: false });
@@ -194,31 +225,33 @@ try {
     return n === 2;
   }, { timeoutMs: 90_000 });
 
+  // ---- the listener's album page: the music, no library care ----
+  await ben.goto(`/albums/${album2.id}`);
+  await ben.locator('[data-album-summary]').waitFor({ timeout: 20000 });
+  await ben.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 20000 });
+  const benPage = {
+    summary: await ben.locator('[data-album-summary] p').count(),
+    play: await ben.getByRole('button', { name: 'Play', exact: true }).isVisible(),
+    maintenanceKey: await ben.getByRole('button', { name: /Maintenance/ }).count(),
+    menu: await ben.getByRole('button', { name: /More for this album|Manage this album/ }).count(),
+    sections: await ben.getByRole('tablist', { name: 'Album sections' }).count(),
+  };
+  summary.listenerAlbumPage = benPage;
+  step('listener album page: compact details and the Play row, no Maintenance key, no ⋯ menu, no sections', benPage.summary >= 1 && benPage.play && benPage.maintenanceKey === 0 && benPage.menu === 0 && benPage.sections === 0, JSON.stringify(benPage));
+  await ben.screenshot({ path: path.join(OUT, 'e2e-listener-album.png') });
+  await anna.goto(`/albums/${album1.id}`);
+  await anna.getByRole('button', { name: 'Play', exact: true }).waitFor({ timeout: 20000 });
+  step('the owner\'s album page keeps the Maintenance key and the ⋯ menu', (await anna.getByRole('button', { name: 'Turn on Maintenance' }).count()) === 1 && (await anna.getByRole('button', { name: 'More for this album' }).count()) === 1);
+
   // ---- both play an album in tagave, at the same time ----
   const playThrough = async (page, album) => {
     await page.goto(`/albums/${album.id}`);
     await page.getByRole('button', { name: 'Play', exact: true }).click();
     await page.getByRole('region', { name: 'Player' }).waitFor({ timeout: 20000 });
   };
-  // The listener plays through the same calls the web player makes (queue,
-  // the stream of each track, now playing, completed), from their own signed-in
-  // browser context: on this branch alone the album page is still the
-  // library owner's (the household change that lets every person open every
-  // album lands with the users-and-roles work).
-  const playAsWebPlayer = async (page, album) => {
-    const queueId = crypto.randomUUID();
-    const queue = await api(page).get(`/player/albums/${album.id}/queue`);
-    for (const t of queue.tracks) {
-      const audio = await page.request.get(`${BASE_URL}/api/v1/player/stream/${t.localTrackId}?format=original`);
-      if (audio.status() !== 200 || (await audio.body()).length < 1000) throw new Error(`stream ${t.title}: ${audio.status()}`);
-      await api(page).send('POST', '/player/events', { kind: 'now_playing', localTrackId: t.localTrackId, queueId, playedMs: 0, positionMs: 0 });
-      await sleep(3000);
-      await api(page).send('POST', '/player/events', { kind: 'completed', localTrackId: t.localTrackId, queueId, playedMs: t.durationMs - 300, positionMs: t.durationMs });
-    }
-  };
   const startedAt = Date.now();
-  await Promise.all([playThrough(anna, album1), playAsWebPlayer(ben, album2)]);
-  step('the owner pressed Play in Chrome; the listener played Album 2 through the web player’s calls', true);
+  await Promise.all([playThrough(anna, album1), playThrough(ben, album2)]);
+  step('both pressed Play in Chrome: the owner Album 1, the listener Album 2', true);
   await sleep(4000);
   await anna.getByRole('button', { name: 'Queue' }).click();
   await anna.getByRole('heading', { name: 'Queue' }).waitFor();
