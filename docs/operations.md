@@ -39,7 +39,7 @@ tagave does not go back to an older version through `update`. Database changes o
 **Without the installer script.** The same steps by hand, in the install folder:
 
 ```sh
-docker compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > pre-update.pgdump
+docker compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exclude-table-data=public.cover_thumbs --exclude-table-data=public.provider_cache' > pre-update.pgdump
 sed -i.bak 's/^TAGAVE_VERSION=.*/TAGAVE_VERSION=0.5.0/' .env
 docker compose pull
 docker compose stop worker-identify worker-files
@@ -176,8 +176,8 @@ A full disk stops Postgres, and with it the app. Updates are the usual cause: ne
 ### What grows
 
 - **Images:** each release brings new app, worker and updater images, about 3 GB together. Updates remove the older ones (see Old images); images from before that, and images you built yourself, stay.
-- **Backups:** each dump is about the size of the database without its indexes. Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). Before-update dumps keep the newest 3 (at least 2). Manual dumps stay until you delete them, unless you set a number; pre-restore dumps stay until you delete them. Each kind has its own number on the Backups page.
-- **Cache:** cover thumbnails and converted audio, in the `cache` volume. It grows with the library.
+- **Backups:** each dump is about the size of the database without its indexes and cover thumbnails, and, for nightly and manual dumps, the provider cache (see [What a backup holds](#what-a-backup-holds)). Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). Before-update dumps keep the newest 3 (at least 2). Manual dumps stay until you delete them, unless you set a number; pre-restore dumps stay until you delete them. Each kind has its own number on the Backups page.
+- **Cache:** full-size cover art and converted audio, in the `cache` volume. It grows with the library. The cover thumbnails the app shows are in the database.
 - **Build cache:** Docker keeps the layers of every image built on the computer. A source install that builds its own images collects gigabytes here.
 - **Logs:** each container keeps at most three 10 MB log files (`docker-compose.prod.yml`). Containers started outside compose have no limit.
 - **Database:** grows with the library and with finished tag changes (Settings › Storage can clean those up).
@@ -262,7 +262,7 @@ Neither touches volumes or the images of running containers.
 
 - **Database:** `pgdata` volume
 - **Backups:** `backups` volume, mounted at `/backups` in the app container (nightly, manual and before-update dumps), or a folder on the host when `TAGAVE_BACKUP_DIR` is set in `.env`
-- **Cache:** `cache` volume (thumbnails, converted audio). The cache is not a backup location.
+- **Cache:** `cache` volume (full-size cover art, converted audio). The cache is not a backup location. Worker-files rebuilds the cover thumbnails from the cover art here after a restore.
 
 The commands below are for an install made with the installer: run them in its folder (`~/tagave` unless you chose another). For a source install, add `-f docker-compose.prod.yml` after `docker compose`.
 
@@ -278,6 +278,29 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 | Manual | "Back up now", or `tagave-doctor backup` | only when you delete it, or after the next manual backup when you set "keep the newest N" on the Backups page |
 | Before update | by the app, before it applies database updates, and by the updater (`tagave-doctor backup --kind before-update`) | after a successful update, keeping the newest 3 (2–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
 | Before restore | by `tagave-doctor restore --in-place` | only when you delete it |
+
+### What a backup holds
+
+A dump holds the whole database except the rows of tables that tagave rebuilds on its own. The tables themselves are in every dump, so a restore needs no extra step: they come back empty and fill again.
+
+| Left out | Of which dumps | After a restore |
+|---|---|---|
+| `cover_thumbs`: the 300 px cover thumbnails, about 11 KB per album (310 MB for 27,000 albums) | all of them | Covers show a placeholder while worker-files rebuilds the thumbnails from the full-size cover art in its `cache` volume. The rebuild starts when `tagave-doctor restore` finishes, when the worker starts, when the app serves a placeholder (at most once every 30 minutes), and every night at 04:30; the page asks again for a placeholder cover after 30 seconds and after 2 minutes. Resizing takes about 3 ms per cover on a recent laptop, so allow 5 to 15 minutes for 27,000 albums on a small server. |
+| `provider_cache`: answers from MusicBrainz, Discogs, AcoustID and the other providers | nightly and manual, and the manual commands in this guide | Providers are asked again as tagave needs an answer, at their rate limits (MusicBrainz once a second; AcoustID is slower to refill), so the first identify and enrich runs after a restore are slower. |
+
+The dumps a roll back restores (before update, including the in-app updater's, before restore, and the installer's `pre-update` dumps) keep the provider cache, so the version you go back to does not start cold. Leaving these rows out made a nightly dump about 45 % smaller (on a library of 27,000 albums, from 754 MB to an estimated 300 MB).
+
+Thumbnails are rebuilt by the worker-files that holds the cover art: it only uses files under its own `CACHE_DIR`. With more than one worker-files (each on its own computer), each rebuilds the covers it holds and leaves the others alone.
+
+A lost original is downloaded again, at most 200 a day for the whole install; covers show a placeholder meanwhile. When cover art is missing from the `cache` volume, worker-files fetches that cover again into `covers/<library>/<album>.jpg` and updates the album's cover in place: a cover from Cover Art Archive or Discogs from the address it came from, otherwise in the usual order (embedded art, a cover file in the album folder, then the providers). Nothing is deleted, so an album whose art cannot be found again keeps its placeholder, and a cover you set yourself is never replaced.
+
+Before it fetches anything, each rebuild run checks that the cache volume is the right one: it looks up the cover art of up to 50 albums in the library that do have a thumbnail. If more than half of those are missing, it fetches nothing and logs a warning such as "40 of 40 sampled originals missing in library …; check that the cache volume is mounted". Check the volume, then wait for the next run. Right after a restore no album has a thumbnail yet; the run then compares the covers it is rebuilding instead and fetches nothing when more of their originals are missing than found. Otherwise it fetches up to 2 % of the library's covers (at least one, at most 50) per run, a few seconds apart and behind other work; an album fetched in the last day is not fetched again, and whatever the run or the daily limit leaves waits for a later run.
+
+A very small library that lost all of its cover art looks the same as a missing volume, so its covers are not fetched again on their own: the thumbnails already built keep showing, and only covers without one show a placeholder. Put the cover art back in the `cache` volume from a copy of it; the next run then rebuilds the rest.
+
+Restoring a dump from this version into a version without migration `0046_cover_thumbs` brings back no covers: that version reads the old thumbnail column, which is empty. Roll back with the backup taken before the update instead, as in [Roll back an update](#roll-back-an-update); it still holds every thumbnail.
+
+The update that brings migration `0046_cover_thumbs` moves the thumbnails into their own table while the app starts, in one transaction. It needs about three times the size of the thumbnails free on the database's disk (the new table and the write-ahead log; Settings › Storage › Album art shows the size): about 0.9 GB for 27,000 albums. Before it migrates, the app checks that room on the database's disk, or on the backups folder's disk when it cannot see the database's (in Docker the volumes usually share one), and refuses with `Not migrating:` and the numbers when it is short. `TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1` skips that check. The old copy's space comes back with the next release, which drops the old column. The pre-update dump of that one update still holds the thumbnails, so it is about the old size.
 
 Files are named `tagave-<UTC time>[-<kind>].pgdump`. Releases before 0.9 named them `liner-<UTC time>[-<kind>].pgdump` (the project's old name); those stay listed, restorable and pruned with the new ones, sorted by time. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings. Lowering a number deletes nothing when you save it: the older backups of that kind go at its next run, and the Backups page lists which ones and how much space that frees. The newest backup of a kind is never deleted, and only files this app named are.
 
@@ -361,6 +384,7 @@ Overrides, for when you know why you need them:
 | `BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
 | `TAGAVE_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
 | `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep until a number is saved on the Backups page (default 3, 2–50). When it is unset and the backups folder already has before-update backups from an earlier release, the app saves 5, that release's default, once. |
+| `TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1` | Migrate even though the free-space check before `0046_cover_thumbs` says the disk is short (see [What a backup holds](#what-a-backup-holds)). |
 
 With the installer, set the `TAGAVE_*` ones in `.env`.
 
@@ -384,6 +408,8 @@ Migrations only go forward, so going back means restoring the backup the update 
    docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore tagave-<time>-pre-migration.pgdump --yes
    ```
 5. `docker compose up -d`.
+
+Cover thumbnails are not in backups. After a restore covers show a placeholder for a few minutes while worker-files rebuilds them (see [What a backup holds](#what-a-backup-holds)).
 
 ## Moving workers into containers
 
