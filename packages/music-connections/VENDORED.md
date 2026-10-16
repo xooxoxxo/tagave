@@ -23,3 +23,12 @@ package.json (dependency ranges aligned to the versions the other Tagave package
 tsconfig.json:
 
 - `compilerOptions.types`: added `["node"]` (same as @tagave/core), for the reason above.
+
+## Build to dist (so the dist-built api and worker can import it)
+
+The source package exported raw TypeScript (`./src/index.ts`), which `node packages/{api,worker}/dist/index.js` cannot load (`.js` specifiers are not rewritten, parameter properties are not strippable). Changed to match @tagave/core:
+
+- package.json: `main` `./src/index.ts` -> `./dist/index.js`; added `types` `./dist/index.d.ts`; `exports` `"."` `./src/index.ts` -> `{ types: ./dist/index.d.ts, default: ./dist/index.js }`; added `"files": ["dist"]`; added script `"build": "tsc -b"`; `typecheck` `tsc --noEmit` -> `tsc --noEmit -p tsconfig.test.json`.
+- tsconfig.json: `outDir` `./dist` -> `dist`; `rootDir` `.` -> `src`; `include` `["src","test"]` -> `["src"]` (composite comes from tsconfig.base.json).
+- tsconfig.test.json: new; extends tsconfig.json with `composite/declaration/declarationMap` off, `rootDir` `.`, `include` `["src","test"]`, used only by `typecheck` so tests are still type-checked.
+- vitest.config.ts unchanged (tests are in test/, not emitted to dist).
