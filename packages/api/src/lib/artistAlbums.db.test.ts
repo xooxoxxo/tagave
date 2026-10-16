@@ -59,8 +59,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artist page albums (db)', () =>
     await addAlbum('notTheirs', name, 'Not Theirs', 2005, 7, rg.othersRg);
     // another artist entirely
     await addAlbum('else', 'Somebody Else', 'Elsewhere', 1999, 5);
-    await client`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, license_note, thumb_bytes)
-                 values (${libraryId}, 'local_album', ${album['demo']!}, ${album['demo']!}, 'front', 'owner', 'test', ${Buffer.from([0xff, 0xd8, 0xff])})`;
+    const [img] = await client`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, license_note)
+                 values (${libraryId}, 'local_album', ${album['demo']!}, ${album['demo']!}, 'front', 'owner', 'test') returning id`;
+    await client`insert into cover_thumbs (image_id, bytes, sha256) values (${img.id}, ${Buffer.from([0xff, 0xd8, 0xff])}, ${Buffer.alloc(32)})`;
     // a followed artist's gaps: one missing, one dismissed
     await client`insert into gaps (library_id, kind, subject_type, subject_id, state) values
       (${libraryId}, 'missing_album', 'release_group', ${rg.missing}, 'open'),

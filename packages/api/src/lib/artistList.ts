@@ -87,7 +87,7 @@ export async function readArtistListPage(
 export const coverKey = (row: Pick<ArtistRow, 'id' | 'name'>) => (row.id ? row.id : `name:${row.name}`);
 
 /**
- * Up to four albums with a stored front-cover thumbnail per artist, oldest
+ * Up to four albums with a front cover per artist, oldest
  * first, for the card mosaic. One query for the whole page.
  */
 export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], perArtist = 4): Promise<Map<string, string[]>> {
@@ -95,8 +95,10 @@ export async function coversFor(db: Db, libraryId: string, rows: ArtistRow[], pe
   const names = rows.filter((r) => !r.id).map((r) => r.name);
   const out = new Map<string, string[]>();
   if (!ids.length && !names.length) return out;
+  // Albums with a front cover, thumbnail built or not: a missing thumbnail
+  // (after a restore) is served as a placeholder and rebuilt on that request.
   const hasThumb = sql`exists (select 1 from images im
-    where im.local_album_id = la.id and im.kind = 'front' and im.thumb_bytes is not null)`;
+    where im.local_album_id = la.id and im.kind = 'front')`;
   const arms = [];
   if (ids.length) {
     const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);

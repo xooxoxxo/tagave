@@ -42,10 +42,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
     await album('Beirut', 'Gulag Orkestar', 2006, '2026-04-01T00:00:00Z');
     // covers for two of Air's three albums
     for (const id of albumIds['Air']!.slice(0, 2)) {
-      await db.insert(images).values({
-        libraryId, entityType: 'local_album', entityId: id, localAlbumId: id, kind: 'front', origin: 'owner',
-        licenseNote: 'test', thumbBytes: Buffer.from([0xff, 0xd8, 0xff]),
-      });
+      const [img] = await db.insert(images).values({
+        libraryId, entityType: 'local_album', entityId: id, localAlbumId: id, kind: 'front', origin: 'owner', licenseNote: 'test',
+      }).returning({ id: images.id });
+      await client`insert into cover_thumbs (image_id, bytes, sha256) values (${img.id}, ${Buffer.from([0xff, 0xd8, 0xff])}, ${Buffer.alloc(32)})`;
     }
   });
 
