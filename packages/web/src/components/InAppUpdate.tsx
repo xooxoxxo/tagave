@@ -33,14 +33,14 @@ function writeDismissed(id: string): void {
 }
 
 /** "the app did not answer" → "The app did not answer." */
-function sentence(text: string | null | undefined): string {
+export function sentence(text: string | null | undefined): string {
   const t = (text ?? '').trim();
   if (!t) return '';
   const s = t[0]!.toUpperCase() + t.slice(1);
   return /[.!?]$/.test(s) ? s : `${s}.`;
 }
 
-function clock(ms: number): string {
+export function clock(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
@@ -49,7 +49,7 @@ function time(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function useNow(active: boolean): number {
+export function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
@@ -67,7 +67,11 @@ const STEP_MARK: Record<UpdateStep['status'], string> = {
   skipped: '–',
 };
 
-function StepList({ run }: { run: UpdateRun }) {
+/** A step of an update or a module run. */
+export type RunStepLike = Pick<UpdateStep, 'label' | 'status' | 'startedAt' | 'finishedAt'> & { id: string };
+
+/** The steps with their marks and times; the roll back only once it ran. Shared with Settings › Modules. */
+export function StepList({ run }: { run: { steps: RunStepLike[] } }) {
   const steps = run.steps.filter((s) => s.id !== 'rollback' || (s.status !== 'pending' && s.status !== 'skipped'));
   return (
     <ol className={styles.steps}>
@@ -82,6 +86,19 @@ function StepList({ run }: { run: UpdateRun }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** The run's log, folded away under its last line (which says what it waits for). */
+export function RunLog({ log }: { log: UpdateRun['log'] }) {
+  const last = log.at(-1);
+  return (
+    <details className={styles.log}>
+      <summary>Log{last ? <span className={styles.lastLine}>{last.message}</span> : null}</summary>
+      <pre className={styles.logText}>
+        {log.map((l) => `${time(l.at)}  ${l.level === 'info' ? '' : `${l.level}: `}${l.message}`).join('\n')}
+      </pre>
+    </details>
   );
 }
 
@@ -153,7 +170,6 @@ function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: Up
   const now = useNow(running);
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
   const current = run.steps.find((s) => s.status === 'running');
-  const last = run.log.at(-1);
 
   let head: { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined };
   switch (run.status) {
@@ -200,12 +216,7 @@ function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: Up
       {restart && !running && <RestartingNote restart={restart} />}
       <StepList run={run} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
-      <details className={styles.log}>
-        <summary>Log{last ? <span className={styles.lastLine}>{last.message}</span> : null}</summary>
-        <pre className={styles.logText}>
-          {run.log.map((l) => `${time(l.at)}  ${l.level === 'info' ? '' : `${l.level}: `}${l.message}`).join('\n')}
-        </pre>
-      </details>
+      <RunLog log={run.log} />
       {!running && (
         <div className={styles.row}>
           <Button size="sm" variant="secondary" onClick={onDismiss}>Done</Button>

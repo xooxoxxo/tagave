@@ -1,5 +1,5 @@
 import { Link, useLocation } from '@tanstack/react-router';
-import { useCurrentLibrary } from '../hooks';
+import { useCurrentLibrary, useMe } from '../hooks';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { UpdateDot } from '../components/UpdateDot';
 import { PageShell, SegmentedControl, ThemeSwitch } from '../components/ui';
@@ -12,6 +12,7 @@ import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
+import { SettingsModulesContent } from './SettingsModulesPage';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
@@ -33,20 +34,24 @@ const sections = [
   { value: 'storage', label: 'Storage' },
   { value: 'backups', label: 'Backups' },
   { value: 'updates', label: 'Updates' },
+  { value: 'modules', label: 'Modules' },
   { value: 'activity', label: 'Background activity' },
   { value: 'setup-checklist', label: 'Setup checklist' },
   { value: 'security', label: 'Security', group: 'Your account' },
 ];
 export function SettingsPage() {
   const raw = useLocation().pathname.split('/')[2] || 'library';
-  const section = sections.some(item => item.value === raw) ? raw : 'library';
+  // Modules change the install: the owner's alone.
+  const owner = useMe().data?.role === 'owner';
+  const visible = sections.filter(item => item.value !== 'modules' || owner);
+  const section = visible.some(item => item.value === raw) ? raw : 'library';
   // On a phone the section list is one scrolling row: the hook brings the
   // current section into it and fades the edge that hides more sections.
   const navRef = useScrollFade<HTMLElement>(section);
   const updateAvailable = useUpdateAvailable(useCurrentLibrary().libraryId);
   return <PageShell title="Settings">
     <div className={styles.layout}>
-      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
+      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
         {section === 'library' && <SettingsScanRootsContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}
@@ -59,6 +64,7 @@ export function SettingsPage() {
         {section === 'storage' && <><h2>Storage</h2><p className={styles.sectionDescription}>How much room tagave takes: the database by kind of data, and the folders it keeps on this server. Your music files are not counted.</p><SettingsStorageContent /></>}
         {section === 'backups' && <><h2>Backups</h2><p className={styles.sectionDescription}>Copies of the database: your catalog, matches, reviews and settings. Your music files are not in them.</p><SettingsBackupsPage /></>}
         {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New releases and the versions this server runs.</p><SettingsUpdatesPage /></>}
+        {section === 'modules' && <><h2>Modules</h2><p className={styles.sectionDescription}>Optional parts of tagave you can turn on and off. Each comes from the signed catalogue of the release this server runs.</p><SettingsModulesContent /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}

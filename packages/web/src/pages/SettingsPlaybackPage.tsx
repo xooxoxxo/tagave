@@ -5,6 +5,7 @@
  * for (kept in this browser). Non-owners see the status and the quality.
  */
 import { useEffect, useState, type FormEvent } from 'react';
+import { Link } from '@tanstack/react-router';
 import { STREAM_BITRATES, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
@@ -55,6 +56,10 @@ export function SettingsPlaybackContent() {
         <Badge tone={status.tone}>{status.label}</Badge>
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
+
+      {owner && cap && !cap.installed && (
+        <p className={styles.hint}>The bundled player is not installed. Turn it on in <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link>, or connect a server of your own below.</p>
+      )}
 
       {owner && cap?.installed && (
         <div className={styles.row}>
