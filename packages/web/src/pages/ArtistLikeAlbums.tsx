@@ -79,7 +79,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
           {facts.map(([k, v, none]) => <div key={k}><dt>{k}</dt><dd className={none ? styles.none : undefined}>{v}</dd></div>)}
         </dl>
         <div className={styles.acts}>
-          <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />
+          {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
         </div>
       </div>
       {lede && <div className={styles.lede}>

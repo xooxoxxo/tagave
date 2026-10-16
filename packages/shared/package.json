@@ -7,6 +7,7 @@
     ".": "./dist/src/index.js",
     "./problem": "./dist/src/problem.js",
     "./auth": "./dist/src/auth.js",
+    "./permissions": "./dist/src/permissions.js",
     "./library": "./dist/src/library.js",
     "./album": "./dist/src/album.js",
     "./job": "./dist/src/job.js",

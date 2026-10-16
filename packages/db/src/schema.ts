@@ -29,8 +29,13 @@ export const users = pgTable('users', {
   // Legacy argon2id hash. Better Auth reads auth_accounts.password; this copy
   // is mirrored for rollback during the bridge release and dropped later.
   passwordHash: varchar({ length: 255 }),
-  role: varchar({ length: 20 }).notNull().default('owner'),
+  // owner | editor | listener (0043); setup names its owner explicitly.
+  role: varchar({ length: 20 }).notNull().default('listener'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  /** Cannot sign in while set (reversible). */
+  disabledAt: timestamp('disabled_at', { withTimezone: true }),
+  /** Account closed with its data kept (0043). */
+  removedAt: timestamp('removed_at', { withTimezone: true }),
   emailVerified: boolean('email_verified').notNull().default(true),
   image: text(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -183,9 +188,11 @@ export const sessions = pgTable('sessions', {
 
 export const libraries = pgTable('libraries', {
   id: uuid().primaryKey().defaultRandom(),
+  // Who created it. Every account reads every library (0043); deleting this
+  // account is refused until the library is handed to someone else.
   ownerUserId: uuid('owner_user_id')
     .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
+    .references(() => users.id, { onDelete: 'restrict' }),
   name: varchar({ length: 255 }).notNull(),
   settings: jsonb().default('{}'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -1222,14 +1229,34 @@ export const savedViews = pgTable(
     libraryId: uuid('library_id')
       .notNull()
       .references(() => libraries.id, { onDelete: 'cascade' }),
+    // Per person since 0043 (null only on rows an older version wrote).
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
     name: varchar({ length: 255 }).notNull(),
     query: jsonb().notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     libraryIdx: index('idx_saved_views_library').on(table.libraryId),
+    userIdx: index('idx_saved_views_user').on(table.libraryId, table.userId),
   })
 );
+
+// Invite and set-password links from Settings › Users (0043). Only the
+// SHA-256 of the token is stored.
+export const userInvites = pgTable('user_invites', {
+  id: uuid().primaryKey().defaultRandom(),
+  tokenHash: text('token_hash').notNull().unique(),
+  purpose: text().notNull(),
+  email: varchar({ length: 255 }).notNull(),
+  role: varchar({ length: 20 }).notNull(),
+  userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  clearSecondFactors: boolean('clear_second_factors').notNull().default(false),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  usedAt: timestamp('used_at', { withTimezone: true }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+});
 
 export const playerLinks = pgTable(
   'player_links',

@@ -69,7 +69,7 @@ export async function buildAuthApp(handle: AuthHandle, protectedRoutes?: Extra, 
     instance.addHook('preHandler', async (request, reply) => {
       if (!request.user) await reply.status(401).send({ status: 401, title: 'Unauthorized' });
     });
-    instance.get('/api/v1/probe', async (request) => ({ user: request.user, sessionId: request.sessionId }));
+    instance.get('/api/v1/probe', { config: { permission: 'self' } }, async (request) => ({ user: request.user, sessionId: request.sessionId }));
     if (protectedRoutes) await protectedRoutes(instance);
   });
   await app.ready();

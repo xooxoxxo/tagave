@@ -60,6 +60,28 @@ The reseal command decrypts all stored credentials with the old secret and encry
 
 Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed out** and signs in again with their password.
 
+## People and roles
+
+An install can have several accounts. Everyone signed in sees the same libraries; what they may do depends on their role. The owner sets roles in **Settings › Users**.
+
+| | Listener | Editor | Owner |
+|---|:-:|:-:|:-:|
+| Browse, search, album and artist pages, play | yes | yes | yes |
+| Their own ratings, reviews, listens, clippings and saved views | yes | yes | yes |
+| Their own Account, Security and Appearance settings | yes | yes | yes |
+| Library care: scans, identify and matching, review queue, gaps, field locks, bulk edits, following artists, physical collection upkeep | | yes | yes |
+| Tag changes (plans, apply, revert), tag preferences, genre mapping, follow rules, Background activity | | yes | yes |
+| Music folders, Integrations (provider keys), Playback server, System status, Storage, Backups, Updates, Setup checklist | | | yes |
+| Settings › Users: invite, change roles, reset sign-in, turn off, remove | | | yes |
+
+- **Per-person data stays per person.** Ratings, reviews, listens, clippings and saved grid views are stored against the account that made them; nobody else can read or change them. Library-level things (albums, tags, tag changes, follows) are shared.
+- **Every API route declares what it needs.** The server checks it before reading the request: anonymous callers get 401, a role without the permission gets 403 "Not available for your account". A route with no declaration refuses everyone, and a test fails CI over it. A second test signs in as each role and calls every route.
+- **Better Auth serves only the endpoints tagave uses** (sign-in, sign-out, the caller's own session, password, authenticator app and passkeys). Open sign-up, account deletion, email change and password-reset email are not served; another person's account is managed only from Settings › Users.
+- **At least one owner.** The last owner who can sign in cannot be demoted, turned off or removed.
+- **Invite and set-password links** are one-time, expire after 7 days and are stored only as a SHA-256 hash; the owner copies the link (no email is sent). A set-password link signs the person out everywhere and can also remove their passkeys and authenticator app (a lost device). Opening links is rate limited per address.
+- **Turning sign-in off** ends every session at once and refuses new sign-ins (password, passkey or code) until the owner turns it back on. **Removing** someone either keeps their ratings, reviews and listens (the account is closed, its email freed, its sign-in methods deleted) or deletes them with the account. Libraries and tag changes they created pass to the owner removing them.
+- **Inviting, changing a role, resetting sign-in and removing** ask the owner to confirm it is them (a passkey, the authenticator app, or the password on an account with neither) unless they signed in within five minutes.
+
 ## Passkeys and security keys
 
 Settings › Security › **Passkeys and security keys** adds a passkey (iCloud Keychain, Google Password Manager, Windows Hello, 1Password, a phone) or a hardware security key such as a **YubiKey**. The sign-in page then offers **Sign in with a passkey**, and browsers that support it list your passkeys in the email field's autofill.

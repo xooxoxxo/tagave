@@ -6,6 +6,7 @@ import {
   sessionCookieNames,
   type AuthHandle,
 } from '@tagave/auth';
+import { enforceRoutePermission } from '../permissions/guard.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -30,6 +31,11 @@ export function getAuthHandle(): AuthHandle {
   return handle;
 }
 
+/** A role as stored; anything unknown is the least (listener). */
+export function toRole(role: unknown): SessionUser['role'] {
+  return role === 'owner' || role === 'editor' ? role : 'listener';
+}
+
 /** Better Auth's user, as every route has always seen it (`request.user`). */
 export function toSessionUser(user: {
   id: string;
@@ -42,7 +48,7 @@ export function toSessionUser(user: {
     id: user.id,
     email: user.email,
     displayName: user.name || user.email,
-    role: user.role === 'viewer' ? 'viewer' : 'owner',
+    role: toRole(user.role),
     createdAt: new Date(user.createdAt).toISOString(),
   };
 }
@@ -142,15 +148,24 @@ export async function resolveSession(request: FastifyRequest, reply: FastifyRepl
   });
   forwardSetCookies(reply, headers);
   if (!response) return;
+  // Turned off or removed: their sessions are deleted at that moment; this
+  // covers a session that raced the change.
+  const u = response.user as { disabledAt?: unknown; removedAt?: unknown };
+  if (u.disabledAt || u.removedAt) return;
   request.sessionId = response.session.id;
   request.user = toSessionUser(response.user);
 }
 
+/**
+ * Root hooks, in order: the legacy-cookie bridge, the session, then the
+ * route's permission (permissions/guard.ts). All before the body is read, so
+ * a refused request never gets that far.
+ */
 export async function authMiddleware(fastify: FastifyInstance) {
   fastify.addHook('onRequest', bridgeLegacySession);
-  fastify.addHook('preHandler', async (request, reply) => {
+  fastify.addHook('onRequest', async (request, reply) => {
     // Better Auth's own routes resolve the session themselves.
-    if (request.url.startsWith('/api/auth/')) return;
-    await resolveSession(request, reply);
+    if (!request.url.startsWith('/api/auth/')) await resolveSession(request, reply);
+    return enforceRoutePermission(request, reply);
   });
 }

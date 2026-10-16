@@ -90,9 +90,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan archive (route)', () =
     expect((await list()).json().items.map((p: { id: string }) => p.id)).toContain(id);
   });
 
-  it('is 404 for another owner and for an unknown plan', async () => {
+  it('is 404 for an unknown plan', async () => {
     const id = await makePlan('applied');
-    expect((await post(id, 'archive', strangerId)).statusCode).toBe(404);
     expect((await post(randomUUID(), 'archive')).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: `/libraries/${libraryId}/tag-plans/${id}/archive` })).statusCode).toBe(401);
   });

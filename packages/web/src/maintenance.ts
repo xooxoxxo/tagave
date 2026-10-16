@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from 'react';
+import { useCan } from './hooks/usePermissions';
 
 /**
  * Maintenance: the app-wide mode that reveals curation UI (album state,
@@ -57,9 +58,14 @@ function subscribe(listener: () => void) {
   };
 }
 
-/** Whether Maintenance is on, plus a setter; every subscriber re-renders on change. */
+/**
+ * Whether Maintenance is on, plus a setter; every subscriber re-renders on
+ * change. Always off for a role without library care (a listener): its
+ * tools would only be refused.
+ */
 export function useMaintenance(): [boolean, (on: boolean) => void] {
-  const on = useSyncExternalStore(subscribe, snapshot, () => false);
+  const allowed = useCan('library.edit');
+  const on = useSyncExternalStore(subscribe, snapshot, () => false) && allowed;
   const set = useCallback((next: boolean) => setMaintenance(next), []);
   return [on, set];
 }

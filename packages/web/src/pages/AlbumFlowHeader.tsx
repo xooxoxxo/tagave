@@ -24,7 +24,8 @@ export interface AlbumFlowHeaderProps {
   /** the middle key's accessible name (the artist page draws this header too) */
   topLabel?: string;
   maintenance: boolean;
-  onToggleMaintenance: () => void;
+  /** Absent for a role without library care: the key keeps its place, unseen. */
+  onToggleMaintenance?: (() => void) | undefined;
 }
 
 /** Touch shows the press too (:active is unreliable on some touch browsers). */
@@ -70,6 +71,8 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
         <button
           type="button"
           className={`${styles.key} ${styles.maintKey} ${maintenance ? styles.on : ''}`}
+          // a listener has no Maintenance: the key holds the header's balance only
+          {...(onToggleMaintenance ? {} : { style: { visibility: 'hidden' as const }, tabIndex: -1, 'aria-hidden': true, disabled: true })}
           aria-label={maintenanceKeyLabel(maintenance)}
           aria-pressed={maintenance}
           title={maintenance ? 'Maintenance is on: curation tools are showing (Shift+M)' : 'Maintenance: show curation tools (Shift+M)'}

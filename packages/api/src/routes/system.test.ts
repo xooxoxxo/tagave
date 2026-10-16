@@ -60,7 +60,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
     await app?.close();
   });
 
-  async function addUser(role: 'owner' | 'viewer'): Promise<SessionUser> {
+  async function addUser(role: 'owner' | 'listener'): Promise<SessionUser> {
     const id = randomUUID();
     const email = `system-test-${id}@test.com`;
     await getDb().insert(users).values({ id, email, displayName: 'System test', passwordHash: 'x', role, createdAt: new Date() });
@@ -86,7 +86,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
     const anonymous = await app.inject({ method: 'GET', url: '/api/v1/system/checks' });
     expect(anonymous.statusCode).toBe(401);
 
-    as = await addUser('viewer');
+    as = await addUser('listener');
     const viewer = await app.inject({ method: 'GET', url: '/api/v1/system/checks' });
     expect(viewer.statusCode).toBe(403);
   });
@@ -138,9 +138,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
         expect(c.detail, c.id).not.toMatch(/\(s\)|--offline|not mounted on this host/);
       }
 
-      // someone else's library is not a scope this owner can ask for
-      const foreign = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${theirs}` });
-      expect(foreign.statusCode).toBe(404);
+      // every library on the install is shared (0043); an unknown one is not a scope
+      expect((await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${theirs}` })).statusCode).toBe(200);
+      const unknown = await app.inject({ method: 'GET', url: `/api/v1/system/checks?libraryId=${randomUUID()}` });
+      expect(unknown.statusCode).toBe(404);
 
       // a malformed id is a bad request, not a database error
       for (const bad of ['not-a-uuid', '1234', `${mine}x`]) {

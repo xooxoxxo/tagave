@@ -108,9 +108,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('gap choices and tasks (db)', ()
     expect(row).toMatchObject({ state: 'dismissed', dismissReason: 'wrong_data', acceptedAt: null });
   });
 
-  it('refuses an unknown reason and a stranger’s gap', async () => {
+  it('refuses an unknown reason and an unknown gap', async () => {
     expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${ids.cover}/dismiss`, payload: { reason: 'meh' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${ids.stranger}/accept`, payload: {} })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${randomUUID()}/accept`, payload: {} })).statusCode).toBe(404);
   });
 
   it('refuses to accept or reopen a gap a scan already resolved', async () => {
@@ -156,7 +156,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('gap choices and tasks (db)', ()
     // put it back as it was for the tests below
     expect((await app.inject({ method: 'POST', url: `/api/v1/gaps/${ids.incomplete}/accept`, payload: { note: 'ask Deniz for the CD' } })).statusCode).toBe(200);
     expect((await counts()).tasks.todo).toBe(before.tasks.todo);
-    expect((await app.inject({ method: 'GET', url: `/api/v1/libraries/${strangerLibraryId}/gaps/counts` })).statusCode).toBe(404);
+    // every library on the install is shared (0043); an unknown one is not found
+    expect((await app.inject({ method: 'GET', url: `/api/v1/libraries/${randomUUID()}/gaps/counts` })).statusCode).toBe(404);
   });
 
   it('edits a note, and reopening clears the decision', async () => {

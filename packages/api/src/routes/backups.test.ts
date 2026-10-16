@@ -16,7 +16,7 @@ import { BackupService, applyBackupSchedule, nightlyCron } from '../lib/backupSe
 import { createBackupRoutes } from './backups.js';
 
 const owner: SessionUser = { id: 'u1', email: 'o@example.com', displayName: 'Owner', role: 'owner', createdAt: new Date().toISOString() };
-const viewer: SessionUser = { ...owner, id: 'u2', role: 'viewer' };
+const viewer: SessionUser = { ...owner, id: 'u2', role: 'listener' };
 
 describe('backup routes', () => {
   let app: FastifyInstance;

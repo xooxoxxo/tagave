@@ -18,7 +18,7 @@ export async function createFingerprintRoutes(fastify: FastifyInstance) {
   const ownedLibrary = async (userId: string, libraryId: string) => {
     const db = getDb();
     const lib = await db.select({ id: libraries.id, settings: libraries.settings }).from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
     return lib[0]!;
   };

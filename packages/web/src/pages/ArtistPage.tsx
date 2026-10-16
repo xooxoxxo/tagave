@@ -15,7 +15,7 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import {
-  useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
+  useCan, useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
   usePatchArtistFollowRules, useResetArtistFollowRules,
 } from '../hooks';
 import { PageShell, Button, IconButton } from '../components/ui';
@@ -34,6 +34,7 @@ const NO_GLIDE = { x: 0, y: 0 };
 
 export function ArtistPage() {
   const [maintenance, setMaintenance] = useMaintenance();
+  const canCare = useCan('library.edit');
   const [{ artistLayout }] = useDisplayPrefs();
   const { libraryId } = useCurrentLibrary();
   const { artistId } = useParams({ from: '/layout/artists/$artistId' });
@@ -77,7 +78,7 @@ export function ArtistPage() {
           onTop={flow.toTop}
           topLabel="Back to the top of the artist page"
           maintenance={maintenance}
-          onToggleMaintenance={() => setMaintenance(!maintenance)}
+          onToggleMaintenance={canCare ? () => setMaintenance(!maintenance) : undefined}
         />
         {isLoading || !artist
           ? (nameFirst ? <ArtistNameFirstSkeleton /> : <ArtistLikeAlbumsSkeleton />)
@@ -87,8 +88,9 @@ export function ArtistPage() {
               follow: { pending: followMutation.isPending, toggle: () => followMutation.mutate(!artist.followed) },
               enrich: { pending: enrichMutation.isPending, run: () => enrichMutation.mutate() },
               onReleaseTypes: () => setShowReleaseTypes(true),
-              onReopen: (gapId: string) => reopenMutation.mutate(gapId),
+              onReopen: canCare ? (gapId: string) => reopenMutation.mutate(gapId) : undefined,
               reopening: reopenMutation.isPending,
+              canFollow: canCare,
             };
             return nameFirst
               ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />

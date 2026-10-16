@@ -53,7 +53,7 @@ export function AlbumCard({ album, onReopen, reopening }: {
   return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}{text}</li>;
 }
 
-export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: (gapId: string) => void; reopening?: boolean }) {
+export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {
   return <ul className={styles.grid}>
     {albums.map((a) => <AlbumCard key={a.key} album={a} onReopen={onReopen} reopening={!!reopening} />)}
   </ul>;

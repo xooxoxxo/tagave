@@ -4,7 +4,7 @@
  * warning in Settings › Security.
  */
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Banner, Button, Card } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
 import { AuthenticatorSetup } from '../components/AuthenticatorSetup';
@@ -16,6 +16,8 @@ import styles from './OnboardingPage.module.css';
 
 export function ProtectAccountPage() {
   const navigate = useNavigate();
+  // after an invite: the same step, without the owner's setup steps
+  const fromInvite = (useSearch({ strict: false }) as { from?: string }).from === 'invite';
   const me = useMe();
   const { data, isLoading, error } = useSecurity();
   const refresh = useRefreshSecurity();
@@ -37,7 +39,7 @@ export function ProtectAccountPage() {
     <div className={styles.container}>
       <header className={styles.header}>
         <h1 className={styles.title}>Protect your account</h1>
-        <SetupSteps current="Protect your account" />
+        {!fromInvite && <SetupSteps current="Protect your account" />}
       </header>
 
       {error && <Banner tone="danger">Could not load your sign-in settings. You can do this later under Settings › Security.</Banner>}
@@ -85,7 +87,7 @@ export function ProtectAccountPage() {
 
       <footer className={styles.footer}>
         <Button onClick={() => navigate({ to: '/' })} variant={factors > 0 ? 'primary' : 'secondary'}>
-          {factors > 0 ? 'Go to my library' : 'Skip for now'}
+          {factors > 0 ? (fromInvite ? 'Go to Home' : 'Go to my library') : 'Skip for now'}
         </Button>
       </footer>
       {factors === 0 && (

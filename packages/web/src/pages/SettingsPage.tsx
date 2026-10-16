@@ -19,40 +19,67 @@ import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
+import { SettingsUsersPage } from './SettingsUsersPage';
+import { SettingsAccountPage } from './SettingsAccountPage';
+import { NotAvailable } from '../components/access/NotAvailable';
+import { useRole } from '../hooks/usePermissions';
+import { can, type Permission } from '@tagave/shared';
 import styles from './SettingsPage.module.css';
 
-const sections = [
-  { value: 'library', label: 'Music folders', group: 'Your library' },
-  { value: 'metadata', label: 'Tag preferences' },
-  { value: 'genre-mapping', label: 'Genre mapping' },
-  { value: 'following', label: 'Follow rules' },
-  { value: 'appearance', label: 'Appearance' },
-  { value: 'providers', label: 'Integrations', group: 'Connections & system' },
-  { value: 'playback', label: 'Playback' },
-  { value: 'system', label: 'System status' },
-  { value: 'storage', label: 'Storage' },
-  { value: 'backups', label: 'Backups' },
-  { value: 'updates', label: 'Updates' },
-  { value: 'activity', label: 'Background activity' },
-  { value: 'setup-checklist', label: 'Setup checklist' },
+/**
+ * Each section names the permission it needs (@tagave/shared › permissions):
+ * a listener sees Account, Security and Appearance; an editor also the
+ * library's tag, genre and follow settings and Background activity; the
+ * owner everything. A direct link to a section the role lacks shows "Not
+ * available for your account" in place of the section.
+ */
+type Section = { value: string; label: string; group: string; permission?: Permission };
+
+const sections: Section[] = [
+  { value: 'library', label: 'Music folders', group: 'Your library', permission: 'system.manage' },
+  { value: 'metadata', label: 'Tag preferences', group: 'Your library', permission: 'library.edit' },
+  { value: 'genre-mapping', label: 'Genre mapping', group: 'Your library', permission: 'library.edit' },
+  { value: 'following', label: 'Follow rules', group: 'Your library', permission: 'library.edit' },
+  { value: 'users', label: 'Users', group: 'Connections & system', permission: 'users.manage' },
+  { value: 'providers', label: 'Integrations', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'playback', label: 'Playback', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'system', label: 'System status', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'storage', label: 'Storage', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'backups', label: 'Backups', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'updates', label: 'Updates', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'activity', label: 'Background activity', group: 'Connections & system', permission: 'library.edit' },
+  { value: 'setup-checklist', label: 'Setup checklist', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'account', label: 'Account', group: 'Your account' },
+  { value: 'appearance', label: 'Appearance', group: 'Your account' },
   { value: 'security', label: 'Security', group: 'Your account' },
 ];
+
 export function SettingsPage() {
-  const raw = useLocation().pathname.split('/')[2] || 'library';
-  const section = sections.some(item => item.value === raw) ? raw : 'library';
+  const role = useRole();
+  const visible = sections.filter((item) => !item.permission || can(role, item.permission));
+  const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
+  const known = sections.find((item) => item.value === raw);
+  const section = known ? raw : visible[0]?.value ?? 'appearance';
+  const allowed = !known?.permission || can(role, known.permission);
   // On a phone the section list is one scrolling row: the hook brings the
   // current section into it and fades the edge that hides more sections.
   const navRef = useScrollFade<HTMLElement>(section);
-  const updateAvailable = useUpdateAvailable(useCurrentLibrary().libraryId);
+  const { libraryId } = useCurrentLibrary();
+  // the release feed is the owner's: nobody else is asked about it
+  const updateAvailable = useUpdateAvailable(can(role, 'system.manage') ? libraryId : undefined);
+  const canMaintain = can(role, 'library.edit');
   return <PageShell title="Settings">
     <div className={styles.layout}>
-      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{sections.map(item => <div key={item.value}>{item.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
+      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
+        {!allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <SettingsScanRootsContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch /><MaintenanceSetting /><DisplaySettings /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
+        {section === 'users' && <><h2>Users</h2><p className={styles.sectionDescription}>Who can sign in to this tagave, and what each of them can do.</p><SettingsUsersPage /></>}
+        {section === 'account' && <><h2>Account</h2><p className={styles.sectionDescription}>Your name, email address and what your account can do here.</p><SettingsAccountPage /></>}
         {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
         {section === 'playback' && <SettingsPlaybackContent />}
         {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails. Versions and connected workers are under <Link to="/settings/$section" params={{ section: 'updates' }}>Updates</Link>.</p><SystemStatus /></>}
@@ -62,6 +89,7 @@ export function SettingsPage() {
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
+        </>}
       </div>
     </div>
   </PageShell>;

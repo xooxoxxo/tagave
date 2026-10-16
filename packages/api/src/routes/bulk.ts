@@ -39,7 +39,7 @@ export async function createBulkRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     const db = getDb();
     const lib = await db.select({ id: libraries.id }).from(libraries)
-      .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+      .where(eq(libraries.id, libraryId));
     if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
     const parsed = bulkAlbumsRequestSchema.safeParse(request.body ?? {});

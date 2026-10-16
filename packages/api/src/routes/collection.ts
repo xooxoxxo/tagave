@@ -67,7 +67,7 @@ export const VIEW_WHERE: Record<string, SQL> = {
 };
 
 async function ownLibrary(db: Db, libraryId: string, userId: string) {
-  const rows = await db.select().from(libraries).where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+  const rows = await db.select().from(libraries).where(eq(libraries.id, libraryId));
   if (rows.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
   return rows[0]!;
 }

@@ -317,7 +317,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -434,7 +434,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -559,7 +559,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -652,7 +652,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -736,7 +736,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
       const plan = await db
         .select({ id: tagPlans.id })
@@ -780,7 +780,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -901,7 +901,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -997,7 +997,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -1049,7 +1049,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -1106,7 +1106,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -1162,7 +1162,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {
@@ -1255,7 +1255,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
@@ -1380,7 +1380,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
 
       const parsed = tagPlanScopeSchema.safeParse((request.body as { scope?: unknown } | null)?.scope);
@@ -1416,7 +1416,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
@@ -1459,7 +1459,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       const lib = await db
         .select({ id: libraries.id })
         .from(libraries)
-        .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+        .where(eq(libraries.id, libraryId));
       if (lib.length === 0) {
         throw new ApiError(404, 'Not Found', 'Library not found');
       }
@@ -1493,7 +1493,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         const lib = await db
           .select({ id: libraries.id })
           .from(libraries)
-          .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id)));
+          .where(eq(libraries.id, libraryId));
         if (lib.length === 0) throw new ApiError(404, 'Not Found', 'Library not found');
         const [plan] = await db
           .select({ status: tagPlans.status })
@@ -1534,7 +1534,7 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
         .select()
         .from(libraries)
         .where(
-          and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, request.user.id))
+          eq(libraries.id, libraryId)
         );
 
       if (lib.length === 0) {

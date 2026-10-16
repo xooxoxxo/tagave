@@ -41,7 +41,7 @@ const NO_LIVE_JOB = sql`not exists (
 async function ownedLibrary(userId: string, libraryId: string) {
   const db = getDb();
   const rows = await db.select().from(libraries)
-    .where(and(eq(libraries.id, libraryId), eq(libraries.ownerUserId, userId)));
+    .where(eq(libraries.id, libraryId));
   const lib = rows[0];
   if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
   return lib;

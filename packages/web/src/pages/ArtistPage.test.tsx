@@ -60,7 +60,7 @@ const layoutProps = (artist: ArtistDetail, maintenance = false, details = detail
   artist, shelves: shelves(artist.albums), details, maintenance,
   nameRef: createRef<HTMLHeadingElement>(), endRef: createRef<HTMLDivElement>(),
   follow: { pending: false, toggle: () => {} }, enrich: { pending: false, run: () => {} },
-  onReleaseTypes: () => {}, onReopen: () => {}, reopening: false,
+  onReleaseTypes: () => {}, onReopen: () => {}, reopening: false, canFollow: true,
 });
 const nameFirst = (artist: ArtistDetail, maintenance = false, details?: ReturnType<typeof detailsState>, active: string | null = null) => {
   const props = layoutProps(artist, maintenance, details);

@@ -35,6 +35,10 @@ whose correct value is unknown is never blanked. Fields can be locked so nothing
 overwrites a decision you made. Files are never converted, never split, never
 deleted.
 
+**Shared with the household.** Invite people from Settings › Users as
+listeners (browse and play), editors (also library care and tag changes) or
+owners. Ratings, reviews and listens stay each person's own.
+
 **Tells you what is wrong or missing.** Incomplete albums, duplicates, missing
 artwork, and gaps in the discography of artists you follow.
 

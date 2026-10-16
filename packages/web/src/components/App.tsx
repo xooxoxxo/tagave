@@ -12,8 +12,10 @@ export function App() {
     // Handle authentication routing
     if (!isLoading) {
       const isAuthPage = location.pathname === '/login' || location.pathname === '/login/2fa' || location.pathname === '/setup';
+      // An invite link works signed out, and tells a signed-in person what to do.
+      const isInvitePage = location.pathname.startsWith('/invite/');
 
-      if (isError && !isAuthPage) {
+      if (isError && !isAuthPage && !isInvitePage) {
         // Not authenticated and not on auth page - redirect to login
         navigate({ to: '/login' });
       } else if (user && isAuthPage) {

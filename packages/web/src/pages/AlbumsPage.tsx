@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@tagave/shared';
-import { useCurrentLibrary, useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
+import { useCan, useCurrentLibrary, useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
 import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';
 import { BulkTagEditor } from '../components/BulkTagEditor';
@@ -64,6 +64,8 @@ function formatLabel(a: AlbumSummary): string {
 export function AlbumsPage() {
   // quality badges and match kinds on covers are curation detail: Maintenance only
   const [maintenance] = useMaintenance();
+  // selecting albums is for bulk library care: a listener just opens them
+  const canCare = useCan('library.edit');
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as AlbumsSearch;
   const { libraryId } = useCurrentLibrary();
@@ -319,8 +321,8 @@ export function AlbumsPage() {
     createView.mutate({ name: name.trim(), query: albumsQueryOf(search) });
   };
   const onCardActivate = (e: React.MouseEvent, album: AlbumSummary, index: number) => {
-    if (e.metaKey || e.ctrlKey) { toggleOne(album.id); return; }
-    if (e.shiftKey) { selectRange(index); return; }
+    if (canCare && (e.metaKey || e.ctrlKey)) { toggleOne(album.id); return; }
+    if (canCare && e.shiftKey) { selectRange(index); return; }
     open(album.id);
   };
   const isSelected = (id: string) => allMatching || selected.has(id);
@@ -328,7 +330,7 @@ export function AlbumsPage() {
   const onItemKey = (e: React.KeyboardEvent, album: AlbumSummary, index: number) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === 'Enter') { open(album.id); return; }
-    if (e.key === ' ') { e.preventDefault(); pick(album.id, index, e.shiftKey); }
+    if (e.key === ' ' && canCare) { e.preventDefault(); pick(album.id, index, e.shiftKey); }
   };
   /* The checkbox: a click toggles, a shift-click selects the range up to it.
      React fires onClick before onChange for the same click, so the label (which
@@ -527,7 +529,7 @@ export function AlbumsPage() {
                         aria-label={album.title}
                         onKeyDown={(e) => onItemKey(e, album, row.index)}
                       >
-                        <label className={styles.rowCheck} onClick={onCheckClick}>
+                        {canCare && <label className={styles.rowCheck} onClick={onCheckClick}>
                           <input
                             type="checkbox"
                             className={styles.rowCheckbox}
@@ -535,7 +537,7 @@ export function AlbumsPage() {
                             onChange={() => onCheckChange(album, row.index)}
                             aria-label={`Select ${album.title}`}
                           />
-                        </label>
+                        </label>}
                         <span className={styles.thumb}><CoverArt src={album.coverUrl} title={album.title} compact /></span>
                         <span className={styles.listTitle} dir="auto">{album.title}</span>
                         <span className={styles.listArtist} dir="auto">{album.artistCredit}</span>
@@ -575,7 +577,7 @@ export function AlbumsPage() {
                             onKeyDown={(e) => onItemKey(e, album, index)}
                           >
                             <div className={styles.albumCover} style={{ height: cardWidth - 32 }}>
-                              <label className={selectedCard ? styles.cardCheckOn : styles.cardCheck} onClick={onCheckClick}>
+                              {canCare && <label className={selectedCard ? styles.cardCheckOn : styles.cardCheck} onClick={onCheckClick}>
                                 <input
                                   type="checkbox"
                                   className={styles.cardCheckbox}
@@ -583,8 +585,8 @@ export function AlbumsPage() {
                                   onChange={() => onCheckChange(album, index)}
                                   aria-label={`Select ${album.title}`}
                                 />
-                              </label>
-                              {(maintenance ? album.needsAttention : album.state === 'needs_review') && <span className={styles.attentionDot} title={maintenance ? 'Needs attention' : 'Needs your review'} />}
+                              </label>}
+                              {canCare && (maintenance ? album.needsAttention : album.state === 'needs_review') && <span className={styles.attentionDot} title={maintenance ? 'Needs attention' : 'Needs your review'} />}
                               {album.hasReview && <span className={styles.reviewedDot} title="Reviewed" />}
                               {album.ownRating != null && (
                                 <span className={styles.ratingBadge} title={`Your rating: ${album.ownRating}`}>★ {album.ownRating}</span>
