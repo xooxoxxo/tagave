@@ -1,11 +1,11 @@
 import path from 'node:path';
 import { access, mkdir, writeFile } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
-import sharp from 'sharp';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
   audioFiles, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles,
 } from '@tagave/db';
+import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname } from '../lib/helpers.js';
@@ -14,14 +14,24 @@ import { libraryProviderSettings, getProviders, discogsCall } from '../lib/provi
 
 export interface ArtFetchJobData {
   localAlbumId: string;
+  /**
+   * The album has its images row but the original is gone from the cache
+   * (art.thumbSweep): fetch the art again into the standard path and update
+   * that same row (its id, and so every link to it, stays) and its
+   * thumbnail. Never deletes.
+   */
+  refresh?: boolean;
 }
+
+/** singletonKey of a refresh, apart from art:<id> (the album page watches that one). */
+export const artRefreshKey = (albumId: string) => `artRefresh:${albumId}`;
 export interface ArtSweepJobData {
   libraryId: string;
   limit?: number;
 }
 
-const CACHE_ROOT = process.env.CACHE_DIR || defaultCacheDir(process.env.HOME || '/tmp');
-const THUMB_SIZE = 300;
+// absolute, so the local_path stored with each image is too
+const CACHE_ROOT = path.resolve(process.env.CACHE_DIR || defaultCacheDir(process.env.HOME || '/tmp'));
 
 /** Cover Art Archive: no rate limit documented; keep modest concurrency via
  * job settings and be a good citizen with a real UA. */
@@ -38,13 +48,6 @@ async function upsertImageSource(ctx: WorkerContext, releaseId: string, provider
     })
     .returning({ id: imageSources.id });
   return rows[0]!.id;
-}
-
-async function toThumb(buf: Buffer): Promise<{ thumb: Buffer; width: number; height: number }> {
-  const img = sharp(buf, { failOn: 'none' });
-  const meta = await img.metadata();
-  const thumb = await img.resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).jpeg({ quality: 82 }).toBuffer();
-  return { thumb, width: meta.width ?? 0, height: meta.height ?? 0 };
 }
 
 async function openVariant(p: string): Promise<string | null> {
@@ -71,11 +74,17 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   if (!album) return;
 
   const existing = await ctx.db
-    .select({ id: images.id })
+    .select({ id: images.id, origin: images.origin, imageSourceId: images.imageSourceId, licenseNote: images.licenseNote })
     .from(images)
     .where(and(eq(images.localAlbumId, album.id), eq(images.kind, 'front')))
     .limit(1);
-  if (existing.length > 0) {
+  if (data.refresh && existing[0]?.origin === 'owner') {
+    // the owner's own cover: never replaced by one found elsewhere
+    ctx.logger.debug({ album: album.titleGuess }, 'art.fetch refresh: the owner\'s cover is left as it is');
+    return;
+  }
+  const refreshId = data.refresh ? existing[0]?.id : undefined;
+  if (existing.length > 0 && !refreshId) {
     // the art is already here: a noCover flag left from before it landed is stale
     await settleCoverGap(ctx, album.libraryId, album.id);
     return;
@@ -109,9 +118,32 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   let sidecarFileId: string | null = null;
   let imageSourceId: string | null = null;
 
+  // 0. a refresh of a provider cover: the same image again, from where it came
+  const prior = refreshId ? existing[0] : undefined;
+  if (prior?.origin === 'provider' && prior.imageSourceId) {
+    try {
+      const [src] = await ctx.db
+        .select({ url: imageSources.sourceUrl })
+        .from(imageSources)
+        .where(eq(imageSources.id, prior.imageSourceId))
+        .limit(1);
+      if (src?.url) {
+        const resp = await fetch(src.url, { headers: { 'User-Agent': CAA_UA }, redirect: 'follow' });
+        if (resp.ok) {
+          source = Buffer.from(await resp.arrayBuffer());
+          origin = 'provider';
+          license = prior.licenseNote;
+          imageSourceId = prior.imageSourceId;
+        }
+      }
+    } catch (err) {
+      ctx.logger.debug({ album: album.titleGuess, err: (err as Error).message }, 'art.fetch refresh: the stored source failed; trying the usual order');
+    }
+  }
+
   // 1. embedded artwork (largest picture of the first art-bearing file)
   const withArt = fileRows.find((f) => f.hasArt);
-  if (withArt) {
+  if (!source && withArt) {
     const abs = await openVariant(path.join(rootPath.get(withArt.scanRootId) ?? '', withArt.relPath));
     if (abs) {
       try {
@@ -262,26 +294,43 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   const localPath = path.join(dir, `${album.id}.jpg`);
   await writeFile(localPath, source);
 
-  await ctx.db
-    .insert(images)
-    .values({
-      libraryId: album.libraryId,
-      entityType: 'local_album',
-      entityId: album.id,
-      localAlbumId: album.id,
-      kind: 'front',
-      origin,
-      audioFileId,
-      sidecarFileId,
-      imageSourceId,
-      localPath,
-      width,
-      height,
-      thumbBytes: thumb,
-      licenseNote: license,
-      fetchedAt: new Date(),
-    })
-    .onConflictDoNothing();
+  // The image row and its thumbnail land together (thumbnails live in
+  // cover_thumbs since 0046; images.thumb_bytes is no longer written).
+  if (refreshId) {
+    // the same row, updated in place: its id and the album's link to it stay
+    await ctx.db.transaction(async (tx) => {
+      await tx.update(images).set({
+        origin, audioFileId, sidecarFileId, imageSourceId, localPath, width, height, licenseNote: license, fetchedAt: new Date(),
+      }).where(eq(images.id, refreshId));
+      await storeThumb(tx, refreshId, thumb);
+    });
+    await settleCoverGap(ctx, album.libraryId, album.id);
+    return;
+  }
+  await ctx.db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(images)
+      .values({
+        libraryId: album.libraryId,
+        entityType: 'local_album',
+        entityId: album.id,
+        localAlbumId: album.id,
+        kind: 'front',
+        origin,
+        audioFileId,
+        sidecarFileId,
+        imageSourceId,
+        localPath,
+        width,
+        height,
+        licenseNote: license,
+        fetchedAt: new Date(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: images.id });
+    // a concurrent run stored this album's art first: keep that one
+    if (inserted[0]) await storeThumb(tx, inserted[0].id, thumb);
+  });
 
   await settleCoverGap(ctx, album.libraryId, album.id);
 }

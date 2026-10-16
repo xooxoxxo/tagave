@@ -7,7 +7,7 @@
 export const WORKER_QUEUES = [
   'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs',
   'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add',
-  'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'gaps.recompute', 'queue.autoaccept',
+  'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'art.thumb', 'art.thumbSweep', 'gaps.recompute', 'queue.autoaccept',
   'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch',
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
@@ -30,6 +30,9 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'cache.purge': 'facets.refresh',
   // a release the owner pasted on Review matches: fetched and scored like identify's
   'edition.add': 'identify.album',
+  // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume
+  'art.thumb': 'art.fetch',
+  'art.thumbSweep': 'art.fetch',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */

@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -15,6 +15,7 @@ import { audioFiles, images, libraries, localAlbums, localTracks, makeDb, scanRo
 import type { WorkerContext } from '../lib/context.js';
 
 const tmp = vi.hoisted(() => ({ dir: '' }));
+const sources: string[] = [];
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover flag (db)', () => {
   let ctx: WorkerContext;
@@ -46,6 +47,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
 
   afterAll(async () => {
     await db.delete(libraries).where(eq(libraries.id, libraryId));
+    if (sources.length) await client`delete from image_sources where id = any(${sources}::uuid[])`;
     await db.delete(users).where(eq(users.id, userId));
     await client.end();
     await rm(tmp.dir, { recursive: true, force: true });
@@ -78,6 +80,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     const art = await db.select().from(images).where(eq(images.localAlbumId, albumId));
     expect(art).toHaveLength(1);
     expect(art[0].origin).toBe('sidecar');
+    // the thumbnail lives in cover_thumbs (0046); images.thumb_bytes is no longer written
+    expect(art[0].thumbBytes).toBeNull();
+    const [thumb] = await client`select size, octet_length(bytes) as n, sha256 = sha256(bytes) as hashed from cover_thumbs where image_id = ${art[0].id}`;
+    expect(thumb).toMatchObject({ size: 300, hashed: true });
+    expect(Number(thumb.n)).toBeGreaterThan(100);
     const flag = await flagState(albumId);
     expect(flag?.state).toBe('resolved');
     expect(flag?.resolved_at).toBeTruthy();
@@ -91,6 +98,83 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     });
     await artFetchJob(ctx, { localAlbumId: albumId });
     expect((await flagState(albumId))?.state).toBe('resolved');
+  });
+
+  /** An image source row for a provider cover (origin 'provider' needs one). */
+  async function source(url: string): Promise<string> {
+    const [r] = await client`insert into image_sources (entity_type, entity_id, kind, provider, source_url, license_note)
+      values ('release', gen_random_uuid(), 'front', 'caa', ${url}, 'Cover Art Archive (test)') returning id`;
+    sources.push(r.id as string);
+    return r.id as string;
+  }
+  async function providerRow(albumId: string, url: string, localPath = path.join(tmp.dir, 'cache', 'covers', libraryId, 'lost.jpg')) {
+    const imageSourceId = await source(url);
+    const [row] = await db.insert(images).values({
+      libraryId, entityType: 'local_album', entityId: albumId, localAlbumId: albumId, kind: 'front', origin: 'provider',
+      imageSourceId, licenseNote: 'Cover Art Archive (test)', localPath,
+    }).returning({ id: images.id });
+    return { id: row.id as string, imageSourceId };
+  }
+  const standardOf = (albumId: string) => path.join(tmp.dir, 'cache', 'covers', libraryId, `${albumId}.jpg`);
+
+  it('refresh of a provider cover: fetched again from its stored source into the same row (id kept), with its thumbnail', async () => {
+    const albumId = await albumWithFlag('R/Refresh/2001 - Provider', { sidecar: true });
+    const old = await providerRow(albumId, 'https://example.test/caa/front.jpg');
+    const jpeg = await sharp({ create: { width: 500, height: 500, channels: 3, background: '#123456' } }).jpeg().toBuffer();
+    const fetchMock = vi.fn(async () => new Response(new Uint8Array(jpeg), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await artFetchJob(ctx, { localAlbumId: albumId, refresh: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((fetchMock.mock.calls[0] as unknown[])[0]).toBe('https://example.test/caa/front.jpg');
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: old.id, origin: 'provider', imageSourceId: old.imageSourceId, localPath: standardOf(albumId) });
+    expect(path.isAbsolute(rows[0].localPath)).toBe(true);
+    await expect(access(standardOf(albumId))).resolves.toBeUndefined();
+    expect(await client`select 1 from cover_thumbs where image_id = ${old.id}`).toHaveLength(1);
+  });
+
+  it('refresh: the stored source fails, so the usual order finds the folder\'s cover; the row id stays', async () => {
+    const albumId = await albumWithFlag('R/Refresh/2002 - Again', { sidecar: true });
+    const old = await providerRow(albumId, 'https://example.test/caa/gone.jpg');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('gone', { status: 404 })));
+    try {
+      await artFetchJob(ctx, { localAlbumId: albumId, refresh: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: old.id, origin: 'sidecar', localPath: standardOf(albumId) });
+    expect(await client`select 1 from cover_thumbs where image_id = ${old.id}`).toHaveLength(1);
+  });
+
+  it('refresh leaves the owner\'s own cover alone', async () => {
+    const albumId = await albumWithFlag('R/Refresh/2004 - Mine', { sidecar: true });
+    const [old] = await db.insert(images).values({
+      libraryId, entityType: 'local_album', entityId: albumId, localAlbumId: albumId, kind: 'front', origin: 'owner', licenseNote: 'mine', localPath: '/mine.jpg',
+    }).returning({ id: images.id });
+    await artFetchJob(ctx, { localAlbumId: albumId, refresh: true });
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows.map((r: any) => [r.id, r.origin, r.localPath])).toEqual([[old.id, 'owner', '/mine.jpg']]);
+    expect(await client`select 1 from cover_thumbs where image_id = ${old.id}`).toHaveLength(0);
+  });
+
+  it('refresh with no art to be found leaves the row as it was', async () => {
+    const albumId = await albumWithFlag('R/Refresh/2003 - Nothing');
+    const old = await providerRow(albumId, 'https://example.test/caa/none.jpg', '/x.jpg');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('gone', { status: 404 })));
+    try {
+      await artFetchJob(ctx, { localAlbumId: albumId, refresh: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows.map((r: any) => [r.id, r.localPath])).toEqual([[old.id, '/x.jpg']]);
   });
 
   it('no art anywhere: the flag stays open', async () => {

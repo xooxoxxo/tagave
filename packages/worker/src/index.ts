@@ -19,6 +19,7 @@ import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichReleas
 import { enrichSweepJob, type EnrichSweepJobData } from './jobs/enrichSweep.js';
 import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetch.js';
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
+import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweepJobData } from './jobs/artThumb.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
@@ -63,6 +64,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'enrich.release': 'stately',
   'enrich.sweep': 'stately',
   'art.fetch': 'stately',
+  'art.thumb': 'stately',
+  'art.thumbSweep': 'stately',
   'identify.album': 'stately',
   'identify.acoustid': 'stately',
   'roots.validate': 'stately',
@@ -96,6 +99,9 @@ const M1_PLACEHOLDER_QUEUES: string[] = [];
 const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: number }> = {
   'scan.root': { expireInSeconds: 23 * 3600, retryLimit: 0 }, // pg-boss asserts < 24 h
   'scan.dir': { expireInSeconds: 6 * 3600, retryLimit: 0 },
+  // checks every cover without a thumbnail (27,000 after a restore); the
+  // next scheduled or requested sweep picks up whatever a failed one left
+  'art.thumbSweep': { expireInSeconds: 2 * 3600, retryLimit: 0 },
 };
 
 /**
@@ -330,9 +336,30 @@ async function main() {
     for (const job of jobs) await enrichSweepJob(ctx, job.data);
   });
 
-  if (wants('art.fetch')) await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
-    await Promise.all(jobs.map((job) => artFetchJob(ctx, job.data)));
-  });
+  if (wants('art.fetch')) {
+    await boss.work<ArtFetchJobData>('art.fetch', { batchSize: 4 }, async (jobs) => {
+      await Promise.all(jobs.map((job) => artFetchJob(ctx, job.data)));
+    });
+    // Cover thumbnails are not in backups (0046): rebuild missing ones from
+    // the originals on this worker's cache volume. Swept at start (after a
+    // restore every one is missing), nightly, and when the api serves a
+    // placeholder for one.
+    await boss.work<ArtThumbJobData>('art.thumb', { batchSize: 4 }, async (jobs) => {
+      await Promise.all(jobs.map((job) => artThumbJob(ctx, job.data)));
+    });
+    // A worker pinned to one library (TAGAVE_LIBRARY_ID) sweeps only that
+    // library's covers. Either way only originals under this worker's own
+    // CACHE_DIR are used, so a worker-files on another computer never takes
+    // a cover it does not hold for lost.
+    const thumbLibrary = pinnedLibraryId();
+    await boss.work<ArtThumbSweepJobData>('art.thumbSweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        await artThumbSweepJob(ctx, { ...(thumbLibrary ? { libraryId: thumbLibrary } : {}), ...(job.data ?? {}) });
+      }
+    });
+    await boss.send('art.thumbSweep', {}, { singletonKey: 'art.thumbSweep' });
+    await boss.schedule('art.thumbSweep', '30 4 * * *', {}, { singletonKey: 'art.thumbSweep' });
+  }
 
   if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await artSweepJob(ctx, job.data);
