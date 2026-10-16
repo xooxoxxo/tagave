@@ -378,4 +378,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
   function plays_deps() {
     return lib.playsDeps(opts());
   }
+
+  it('locks the player account of a person removed with their data, and drops a removed person\'s scrobble accounts', async () => {
+    const { removeUser } = await import('../lib/users.js');
+    const carl = randomUUID();
+    const dora = randomUUID();
+    await sql`insert into users (id, email, display_name, password_hash, role) values
+      (${carl}, ${`carl-${carl}@t.com`}, 'Carl', 'x', 'listener'), (${dora}, ${`dora-${dora}@t.com`}, 'Dora', 'x', 'listener')`;
+    try {
+      await people.syncBundledUsers(sql, backend);
+      const set = await app.inject({ method: 'PUT', url: '/api/v1/me/listening/phone-password', headers: as(carl), payload: { password: 'carl phone password' } });
+      expect(set.statusCode, set.body).toBeLessThan(300);
+      expect(nav.state.users.get('carl')!.password).toBe('carl phone password');
+
+      // removed with their data: the row and its player_users go, the server account is locked on the next sync
+      await removeUser(sql, anna, carl, 'delete');
+      expect(await sql`select 1 from player_users where user_id = ${carl}`).toHaveLength(0);
+      expect(await sql`select username from player_retired_accounts where username = 'carl'`).toHaveLength(1);
+      const r = await people.syncBundledUsers(sql, backend);
+      expect(r.retired).toBe(1);
+      expect(nav.state.users.get('carl')!.password).not.toBe('carl phone password');
+      expect(await sql`select 1 from player_retired_accounts where username = 'carl'`).toHaveLength(0);
+
+      // removed keeping their data: their scrobble accounts go, their player account is locked like a disabled one
+      await sql`insert into scrobble_accounts (user_id, service, account_name, secret_sealed) values (${dora}, 'listenbrainz', 'dora-lb', 'enc:v1:x')`;
+      await removeUser(sql, anna, dora, 'keep');
+      expect(await sql`select 1 from scrobble_accounts where user_id = ${dora}`).toHaveLength(0);
+      expect((await people.syncBundledUsers(sql, backend)).locked).toBe(1);
+      expect((await sql`select state from player_users where user_id = ${dora}`)[0].state).toBe('disabled');
+    } finally {
+      await sql`delete from player_retired_accounts where username in ('carl', 'dora')`;
+      await sql`delete from users where id in (${carl}, ${dora})`;
+    }
+  });
 });

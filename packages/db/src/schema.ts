@@ -1478,6 +1478,20 @@ export const playerUsers = pgTable(
   (table) => ({ pk: primaryKey({ columns: [table.userId, table.serverKey] }) })
 );
 
+/** Bundled-player accounts of people removed with their data, waiting to be locked on the server (0045). */
+export const playerRetiredAccounts = pgTable(
+  'player_retired_accounts',
+  {
+    serverKey: text('server_key').notNull(),
+    username: text().notNull(),
+    serverUserId: text('server_user_id'),
+    retiredAt: timestamp('retired_at', { withTimezone: true }).notNull().defaultNow(),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at', { withTimezone: true }),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.serverKey, table.username] }) })
+);
+
 /** Each person's Last.fm session key / ListenBrainz token (sealed). */
 export const scrobbleAccounts = pgTable(
   'scrobble_accounts',

@@ -156,6 +156,11 @@ export async function createLink(
   return { invite: toInviteView(row), token };
 }
 
+/** Open links someone made (an owner who is demoted, turned off or removed). */
+async function revokeLinksMadeBy(tx: postgres.TransactionSql, userId: string): Promise<void> {
+  await tx`update user_invites set revoked_at = now() where created_by = ${userId} and used_at is null and revoked_at is null`;
+}
+
 export async function revokeInvite(sql: postgres.Sql, inviteId: string): Promise<void> {
   const rows = await sql`update user_invites set revoked_at = now() where id = ${inviteId} and used_at is null and revoked_at is null returning id`;
   if (rows.length === 0) throw new ApiError(404, 'Not Found', 'That link was already used or revoked');
@@ -190,6 +195,10 @@ export async function changeUser(
     if (change.role !== undefined) {
       await tx`update users set role = ${change.role}, updated_at = now() where id = ${userId}`;
     }
+    // links an owner made stop working once they no longer hold users.manage
+    if ((change.role !== undefined && change.role !== 'owner') || change.disabled === true) {
+      await revokeLinksMadeBy(tx, userId);
+    }
     if (change.disabled === true && !user.disabled_at) {
       await tx`update users set disabled_at = now(), updated_at = now() where id = ${userId}`;
       await signOutEverywhere(tx, userId);
@@ -219,7 +228,14 @@ export async function removeUser(sql: postgres.Sql, actorId: string, userId: str
     await tx`update tag_plans set created_by = ${actorId} where created_by = ${userId}`;
     await tx`update field_locks set created_by = ${actorId} where created_by = ${userId}`;
     await tx`update cluster_overrides set created_by = ${actorId} where created_by = ${userId}`;
+    await revokeLinksMadeBy(tx, userId);
     if (data === 'delete') {
+      // their bundled-player account goes with the row (cascade); the people
+      // sync locks it on the server from here, so phone apps lose it too
+      await tx`
+        insert into player_retired_accounts (server_key, username, server_user_id)
+        select server_key, username, server_user_id from player_users where user_id = ${userId} and source = 'managed'
+        on conflict (server_key, username) do nothing`;
       await tx`delete from users where id = ${userId}`;
       return;
     }
@@ -228,6 +244,8 @@ export async function removeUser(sql: postgres.Sql, actorId: string, userId: str
     await tx`delete from auth_passkeys where user_id = ${userId}`;
     await tx`delete from auth_two_factors where user_id = ${userId}`;
     await tx`delete from user_invites where user_id = ${userId}`;
+    // their Last.fm session key and ListenBrainz token: nothing sends for a closed account
+    await tx`delete from scrobble_accounts where user_id = ${userId}`;
     await tx`
       update users
          set removed_at = coalesce(removed_at, now()), disabled_at = coalesce(disabled_at, now()),

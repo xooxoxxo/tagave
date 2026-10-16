@@ -70,7 +70,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
       select column_name, data_type from information_schema.columns
        where table_name = 'users' order by column_name`;
 
-    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql']);
+    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql', '0045_player_retired_accounts.sql']);
     handle = testAuth(db.url);
     app = await buildAuthApp(handle);
   });

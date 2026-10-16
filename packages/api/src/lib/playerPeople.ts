@@ -233,8 +233,8 @@ export function passwordHint(row: PlayerUserRow): string | null {
  * enabled again are unlocked. Runs every minute; one person's failure is
  * recorded on their row and does not stop the others.
  */
-export async function syncBundledUsers(sql: Sql, backend: PlayerBackend, opts: { fetchImpl?: typeof fetch; log?: { warn: (o: object, m: string) => void } } = {}): Promise<{ created: number; locked: number; unlocked: number }> {
-  const out = { created: 0, locked: 0, unlocked: 0 };
+export async function syncBundledUsers(sql: Sql, backend: PlayerBackend, opts: { fetchImpl?: typeof fetch; log?: { warn: (o: object, m: string) => void } } = {}): Promise<{ created: number; locked: number; unlocked: number; retired: number }> {
+  const out = { created: 0, locked: 0, unlocked: 0, retired: 0 };
   if (backend.managed !== 'bundled') return out;
   const f = opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {};
   const people = await sql<{ id: string; disabled: boolean; state: string | null }[]>`
@@ -258,10 +258,42 @@ export async function syncBundledUsers(sql: Sql, backend: PlayerBackend, opts: {
       opts.log?.warn({ userId: p.id, err: message }, 'player account sync');
       await sql`update player_users set last_error = ${message}, last_error_at = now() where user_id = ${p.id} and server_key = ${backend.key}`;
       // the player itself is down: the next minute tries everyone again
+      if (err instanceof NavidromeError && err.httpStatus == null) return out;
+    }
+  }
+  out.retired = await lockRetiredAccounts(sql, backend, f, opts.log);
+  return out;
+}
+
+/**
+ * The accounts of people removed with their data (users.ts › removeUser):
+ * a random password nobody knows, then the row goes. An account the server
+ * no longer has needs nothing.
+ */
+async function lockRetiredAccounts(sql: Sql, backend: PlayerBackend, f: { fetchImpl?: typeof fetch }, log?: { warn: (o: object, m: string) => void }): Promise<number> {
+  const rows = await sql<{ username: string; server_user_id: string | null }[]>`
+    select username, server_user_id from player_retired_accounts where server_key = ${backend.key} order by retired_at`;
+  let done = 0;
+  for (const r of rows) {
+    try {
+      let id = r.server_user_id;
+      if (!id) id = (await listNavidromeUsers(backend.server, f)).find((u) => u.userName.toLowerCase() === r.username.toLowerCase())?.id ?? null;
+      if (id) await updateNavidromeUser(backend.server, id, { password: randomPlayerPassword() }, f);
+      await sql`delete from player_retired_accounts where server_key = ${backend.key} and username = ${r.username}`;
+      done++;
+    } catch (err) {
+      const message = (err as Error).message;
+      log?.warn({ username: r.username, err: message }, 'player account of a removed person');
+      // a 404 from the server: the account is gone already
+      if (err instanceof NavidromeError && err.httpStatus === 404) {
+        await sql`delete from player_retired_accounts where server_key = ${backend.key} and username = ${r.username}`;
+        continue;
+      }
+      await sql`update player_retired_accounts set last_error = ${message}, last_error_at = now() where server_key = ${backend.key} and username = ${r.username}`;
       if (err instanceof NavidromeError && err.httpStatus == null) break;
     }
   }
-  return out;
+  return done;
 }
 
 async function lockOrUnlock(sql: Sql, backend: PlayerBackend, userId: string, state: 'active' | 'disabled', f: { fetchImpl?: typeof fetch }): Promise<void> {

@@ -281,6 +281,41 @@ describe.skipIf(!adminUrl)('Settings › Users and invite links (integration)', 
     expect((await as(owner, 'GET', `/libraries/${libraryId}/settings`)).json()).toMatchObject({ contactString: 'ada@example.com', discogsTokenHint: 'abcd' });
     const editor = await createTestUser(handle, { role: 'editor' });
     expect((await as(editor, 'PATCH', `/libraries/${libraryId}/settings`, { contactString: 'evil@example.com' })).statusCode).toBe(403);
+
+    // the library list carries no install settings for a listener or an editor, and no sealed secrets for anyone
+    await sql`update libraries set settings = ${sql.json({ contactString: 'ada@example.com', discogsToken: 'enc:v1:t', discogsTokenHint: 'abcd', playerUrl: 'http://nd', playerUser: 'admin', playerPassword: 'enc:v1:p', lastfmApiKey: 'enc:v1:k', lastfmSecret: 'enc:v1:s', lastfmApiKeyHint: 'wxyz' })} where id = ${libraryId}`;
+    const listed = async (u: TestUser) => (await as(u, 'GET', '/libraries')).json().data.find((l: { id: string }) => l.id === libraryId).settings;
+    expect(await listed(listener)).toEqual({});
+    expect(await listed(editor)).toEqual({});
+    const ownerList = await listed(owner);
+    expect(ownerList).toMatchObject({ contactString: 'ada@example.com', discogsTokenHint: 'abcd', lastfmApiKeyHint: 'wxyz' });
+    for (const k of ['discogsToken', 'playerPassword', 'lastfmApiKey', 'lastfmSecret']) expect(ownerList).not.toHaveProperty(k);
+
+    // the library's numbers count the caller's own reviews and listens, not everyone's
+    await sql`insert into user_reviews (user_id, library_id, release_group_id, rating, body_md) values (${owner.userId}, ${libraryId}, ${rg}, 4, 'Mine')`;
+    const stats = async (u: TestUser) => (await as(u, 'GET', `/libraries/${libraryId}/stats`)).json().reviews;
+    expect(await stats(owner)).toMatchObject({ written: 1, rated: 1, listens: 1 });
+    expect(await stats(listener)).toMatchObject({ written: 0, rated: 0, listens: 0 });
+  });
+
+  it('links an owner made stop working when they stop being an owner', async () => {
+    const co = await createTestUser(handle, { role: 'owner' });
+    const made = async (email: string) => {
+      const res = await as(co, 'POST', '/users/invites', { email, role: 'owner' });
+      expect(res.statusCode, res.body).toBe(201);
+      return (res.json() as InviteLinkResponse).link.split('/invite/')[1]!;
+    };
+    const open = async (token: string) => (await app.inject({ method: 'GET', url: `/api/v1/invites/${token}` })).statusCode;
+    const a = await made('alt-a@example.com');
+    expect(await open(a)).toBe(200);
+    expect((await as(owner, 'PATCH', `/users/${co.userId}`, { role: 'editor' })).statusCode).toBe(204);
+    expect(await open(a)).toBe(404);
+    expect((await accept(a)).statusCode).toBe(404);
+
+    expect((await as(owner, 'PATCH', `/users/${co.userId}`, { role: 'owner' })).statusCode).toBe(204);
+    const b = await made('alt-b@example.com');
+    expect((await as(owner, 'DELETE', `/users/${co.userId}`, { data: 'delete' })).statusCode).toBe(204);
+    expect(await open(b)).toBe(404);
   });
 
   it('serves only the Better Auth endpoints tagave uses', async () => {
