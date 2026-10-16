@@ -23,6 +23,15 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { RateLimiter } from '../lib/rateLimit.js';
 import {
+  MAX_CLIENT_ID_LENGTH,
+  MAX_CLIENT_NAME_LENGTH,
+  MAX_CLIENT_SECRET_LENGTH,
+  MAX_STATE_LENGTH,
+  MAX_TOKEN_LENGTH,
+  isPkceChallenge,
+  isPkceVerifier,
+} from 'music-connections';
+import {
   ACCESS_TOKEN_TTL_S,
   CODE_TTL_S,
   OFFLINE_ACCESS,
@@ -35,7 +44,7 @@ import {
   TAGAVE_PROVIDES,
   checkRequestedScopes,
   hashToken,
-  isAllowedRedirect,
+  isAllowedRegistration,
   newSecret,
   parseTrustedHosts,
   pkceChallenge,
@@ -61,8 +70,6 @@ export const connectConfig = {
 
 const NO_STORE = { 'cache-control': 'no-store', pragma: 'no-cache' };
 const REQUEST_ID_RE = /^mcq_[A-Za-z0-9_-]{43}$/;
-const CHALLENGE_RE = /^[A-Za-z0-9_-]{43}$/;
-const VERIFIER_RE = /^[A-Za-z0-9._~-]{43,128}$/;
 
 type OAuthError = 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unauthorized_client' | 'unsupported_grant_type' | 'invalid_scope' | 'temporarily_unavailable' | 'server_error';
 
@@ -141,7 +148,7 @@ interface ClientRow {
 }
 
 async function findClient(sql: Sql, clientId: string | undefined): Promise<ClientRow | null> {
-  if (!clientId || clientId.length > 100) return null;
+  if (!clientId || clientId.length > MAX_CLIENT_ID_LENGTH) return null;
   const [row] = await sql<ClientRow[]>`
     select client_id, client_secret_hash, name, redirect_uri from mc_oauth_clients
      where client_id = ${clientId} and disabled_at is null`;
@@ -152,7 +159,7 @@ async function findClient(sql: Sql, clientId: string | undefined): Promise<Clien
 async function authenticateClient(sql: Sql, params: Params): Promise<ClientRow | null> {
   const client = await findClient(sql, params['client_id']);
   const secret = params['client_secret'];
-  if (!client || !secret || secret.length > 200) return null;
+  if (!client || !secret || secret.length > MAX_CLIENT_SECRET_LENGTH) return null;
   return tokenMatches(secret, client.client_secret_hash) ? client : null;
 }
 
@@ -200,7 +207,7 @@ async function codeGrant(sql: postgres.Sql, client: ClientRow, params: Params): 
   const verifier = params['code_verifier'];
   const redirectUri = params['redirect_uri'];
   if (!code || !verifier || !redirectUri) return { ok: false, error: 'invalid_request' };
-  if (code.length > 200 || !VERIFIER_RE.test(verifier)) return { ok: false, error: 'invalid_grant' };
+  if (code.length > MAX_TOKEN_LENGTH || !isPkceVerifier(verifier)) return { ok: false, error: 'invalid_grant' };
   return sql.begin(async (tx): Promise<GrantResult> => {
     const [req] = await tx<Array<{ id: string; client_id: string; redirect_uri: string; scopes: string[]; code_challenge: string;
       user_id: string; family_id: string; code_used_at: Date | null; fresh: boolean; active: boolean }>>`
@@ -238,7 +245,7 @@ class LockTimeout extends Error {}
 async function refreshGrant(sql: postgres.Sql, client: ClientRow, params: Params): Promise<GrantResult> {
   const refresh = params['refresh_token'];
   if (!refresh) return { ok: false, error: 'invalid_request' };
-  if (refresh.length > 200) return { ok: false, error: 'invalid_grant' };
+  if (refresh.length > MAX_TOKEN_LENGTH) return { ok: false, error: 'invalid_grant' };
   const hash = hashToken(refresh);
   // Unknown tokens never take a lock.
   const known = await sql`select 1 from mc_oauth_tokens where refresh_token_hash = ${hash}`;
@@ -299,11 +306,11 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
     const uris = body['redirect_uris'];
     const name = body['client_name'];
     // Exactly one redirect URI: the consent page names its host, so it must be where the code goes.
-    if (!Array.isArray(uris) || uris.length !== 1 || !isAllowedRedirect(uris[0], connectConfig.trustedHosts())) {
+    if (!isAllowedRegistration(uris, connectConfig.trustedHosts())) {
       return reply.status(400).send({ error: 'invalid_redirect_uri', error_description: 'One redirect URI on a private network, or https on a trusted host (MC_TRUSTED_PUBLIC_HOSTS)' });
     }
-    if (typeof name !== 'string' || !name.trim() || name.length > 100 || /[\u0000-\u001f\u007f]/.test(name)) {
-      return reply.status(400).send({ error: 'invalid_client_metadata', error_description: 'client_name: 1 to 100 characters' });
+    if (typeof name !== 'string' || !name.trim() || name.length > MAX_CLIENT_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(name)) {
+      return reply.status(400).send({ error: 'invalid_client_metadata', error_description: `client_name: 1 to ${MAX_CLIENT_NAME_LENGTH} characters` });
     }
     for (const [key, allowed] of [['grant_types', ['authorization_code', 'refresh_token']], ['response_types', ['code']]] as const) {
       const v = body[key];
@@ -318,7 +325,7 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
     const { sql } = getAuthHandle();
     const clientId = newSecret('mcc');
     const secret = newSecret('mcs');
-    const redirectUri = uris[0] as string;
+    const redirectUri = uris[0];
     const clientName = name.trim();
     await sql.begin(async (tx) => {
       await tx`insert into mc_oauth_clients (client_id, client_secret_hash, name, redirect_uri)
@@ -354,9 +361,9 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
     if (q['response_type'] !== 'code') return reply.status(400).send({ error: 'unsupported_response_type' });
     const scopes = checkRequestedScopes(q['scope']);
     if (!scopes.ok) return reply.status(400).send({ error: 'invalid_scope', error_description: scopes.reason });
-    if (q['code_challenge_method'] !== 'S256' || !CHALLENGE_RE.test(q['code_challenge'] ?? '')) return bad('PKCE with S256 is required');
+    if (q['code_challenge_method'] !== 'S256' || !isPkceChallenge(q['code_challenge'])) return bad('PKCE with S256 is required');
     const state = q['state'];
-    if (state !== undefined && state.length > 512) return bad('state is too long');
+    if (state !== undefined && state.length > MAX_STATE_LENGTH) return bad('state is too long');
     const id = newSecret('mcq');
     await sql`delete from mc_oauth_requests where expires_at < now() - interval '1 day'`;
     await sql`insert into mc_oauth_requests (id, client_id, redirect_uri, scopes, state, code_challenge, expires_at)
@@ -463,7 +470,7 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
     if (!client) return invalidClient(reply, request);
     const token = params['token'];
     if (!token) return oauthError(reply, 400, 'invalid_request');
-    if (token.length <= 200) {
+    if (token.length <= MAX_TOKEN_LENGTH) {
       const h = hashToken(token);
       await sql.begin(async (tx) => {
         const [row] = await tx<Array<{ family_id: string; user_id: string }>>`

@@ -36,7 +36,7 @@
  * STUB_HANDLERS (version 0) validate and count, and store nothing.
  */
 import { randomBytes } from 'node:crypto';
-import { FeedTooLarge, ManifestSchema, NeedsReapproval, pull, type Capability, type FeedItem, type Manifest } from 'music-connections';
+import { FeedTooLarge, MAX_CURSOR_LENGTH, ManifestSchema, NeedsReapproval, pull, type Capability, type FeedItem, type Manifest } from 'music-connections';
 import {
   FEED_TIMEOUT_MS,
   LinkError,
@@ -46,6 +46,7 @@ import {
   fetchRemoteManifest,
   networkReason,
   openTokens,
+  pinned,
   pullableCapabilities,
   readJson,
   revokeAtRemote,
@@ -92,8 +93,8 @@ export const STUB_HANDLERS: PullHandlers = {
 export const BACKOFF_MINUTES = [1, 5, 15, 60] as const;
 export const backoffMinutes = (failures: number): number => BACKOFF_MINUTES[Math.min(Math.max(failures, 1), BACKOFF_MINUTES.length) - 1]!;
 
-/** The longest cursor tagave keeps (FeedPageSchema: next ≤ 512). */
-export const MAX_CURSOR_LENGTH = 512;
+/** The longest cursor tagave keeps (the protocol's limit; FeedPageSchema: next ≤ MAX_CURSOR_LENGTH). */
+export { MAX_CURSOR_LENGTH };
 const LEASE = '10 minutes';
 const RUN_BUDGET_MS = 5 * 60_000;
 const MANIFEST_EVERY = '24 hours';
@@ -332,8 +333,8 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
           fetch: ((input: string | URL | Request, init?: RequestInit) => {
             if (Date.now() > deadline) throw new BudgetSpent();
             const url = input instanceof Request ? input.url : String(input);
-            if (new URL(url).origin !== origin) throw new LinkError('endpoint on another host');
-            return rfetch(url, init, { timeoutMs: FEED_TIMEOUT_MS });
+            // every page stays on the link's origin and passes the allow-list
+            return rfetch(pinned(url, origin), init, { timeoutMs: FEED_TIMEOUT_MS });
           }) as typeof fetch,
           getToken: async () => tok!.access_token,
           refreshToken: refreshForPull,

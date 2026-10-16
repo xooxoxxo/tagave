@@ -18,11 +18,11 @@
  * minute on one token: 429 with Retry-After. Every answer is no-store.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { buildFeedPage, capabilityJsonSchema, isCapability, readScope } from 'music-connections';
+import { buildFeedPage, capabilityJsonSchema, feedLimit, isCapability, readScope } from 'music-connections';
 import { getAuthHandle } from '../middleware/auth.js';
 import { RateLimiter } from '../lib/rateLimit.js';
 import { TAGAVE_PROVIDES, bearerToken, lookupAccessToken, type AccessGrant } from '../lib/mcOAuth.js';
-import { MAX_LIMIT, feedLibrary, parseSince, readFeed } from '../lib/mcFeeds.js';
+import { feedLibrary, parseSince, readFeed } from '../lib/mcFeeds.js';
 import { feedPath } from './connect.js';
 
 /** Per access token (feeds) or per address (the public schemas). */
@@ -102,8 +102,7 @@ export async function createMcFeedRoutes(fastify: FastifyInstance, opts: McFeedR
           ? reply.status(410).send(problem(410, 'Gone', 'The cursor is older than the change log keeps; take a fresh snapshot.'))
           : reply.status(400).send(problem(400, 'Bad Request', 'Invalid cursor.'));
       }
-      const rawLimit = Math.trunc(Number(request.query['limit'] ?? MAX_LIMIT));
-      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_LIMIT) : MAX_LIMIT;
+      const limit = feedLimit(request.query['limit']);
       const prev = typeof request.query['since'] === 'string' ? request.query['since'] : '';
 
       const sql = getAuthHandle().sql;

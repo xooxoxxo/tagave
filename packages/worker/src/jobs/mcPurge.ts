@@ -17,9 +17,11 @@
  * statement holds locks or bloats WAL for long. Runs daily on the worker that
  * serves facets.refresh (database upkeep).
  */
+import { TOMBSTONE_DAYS } from 'music-connections';
 import type { WorkerContext } from '../lib/context.js';
 
-export const MC_TOMBSTONE_DAYS = 90;
+/** The protocol's tombstone window (music-connections › TOMBSTONE_DAYS). */
+export const MC_TOMBSTONE_DAYS = TOMBSTONE_DAYS;
 
 export interface McPurgeJobData {
   /** days a tombstone is kept (default 90) */

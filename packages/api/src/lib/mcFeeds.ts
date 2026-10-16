@@ -12,13 +12,13 @@
  * rated_at, never the review's text (user_reviews.body_md).
  */
 import type postgres from 'postgres';
-import { AlbumRefSchema, CAPABILITY_DATA, CursorError, decodeCursor, type Capability } from 'music-connections';
+import { AlbumRefSchema, CAPABILITY_DATA, CURSOR_ID_BIGINT, MAX_FEED_LIMIT, TOMBSTONE_DAYS, parseSince as mcParseSince, type Capability, type Cursor, type SinceCheck } from 'music-connections';
 
 type Sql = postgres.Sql;
 
 /** Tombstones are kept this long (mc.purge); a cursor older than this is 410. */
-export const TOMBSTONE_DAYS = 90;
-export const MAX_LIMIT = 500;
+export { TOMBSTONE_DAYS };
+export const MAX_LIMIT = MAX_FEED_LIMIT;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -356,26 +356,16 @@ export const PERSONAL: ReadonlySet<Capability> = new Set<Capability>(['ratings',
 
 // ── Reading the log ────────────────────────────────────────────────────────
 
-export interface Cursor { t: string; id: string }
+export type { Cursor };
 
-export type CursorCheck = { ok: true; after: Cursor | null } | { ok: false; status: 400 | 410 };
+export type CursorCheck = SinceCheck;
 
-/** The `since` parameter: absent (a full snapshot), bad (400), or older than the tombstones (410). */
+/**
+ * The `since` parameter: absent (a full snapshot), bad (400), or older than
+ * the tombstones (410). The package's rule, with mc_changes' bigint ids.
+ */
 export function parseSince(since: unknown, now = Date.now()): CursorCheck {
-  if (since === undefined || since === '') return { ok: true, after: null };
-  if (typeof since !== 'string') return { ok: false, status: 400 };
-  let c: Cursor;
-  try {
-    c = decodeCursor(since);
-  } catch (e) {
-    if (e instanceof CursorError) return { ok: false, status: 400 };
-    throw e;
-  }
-  // a calendar date that does not exist (JS rolls 02-31 over) and an id that is not a log id
-  const ms = Date.parse(c.t);
-  if (new Date(ms).toISOString().slice(0, 19) !== c.t.slice(0, 19) || !/^\d{1,18}$/.test(c.id)) return { ok: false, status: 400 };
-  if (now - ms > TOMBSTONE_DAYS * 86_400_000) return { ok: false, status: 410 };
-  return { ok: true, after: c };
+  return mcParseSince(since, { id: CURSOR_ID_BIGINT, now, tombstoneDays: TOMBSTONE_DAYS });
 }
 
 export interface FeedRow { id: string; key: string; op: 'upsert' | 'delete'; changed_at: string; data: unknown; skip: boolean }

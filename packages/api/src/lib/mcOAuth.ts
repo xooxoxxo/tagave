@@ -2,7 +2,8 @@
  * Music Connections (spec §2): tagave as an OAuth 2.0 provider. What the
  * endpoints (routes/connect.ts) and the feeds share: the scopes tagave
  * grants, the redirect-host allow-list, the one token hash and the bearer
- * lookup.
+ * lookup. The protocol rules themselves (scope parsing, redirect policy,
+ * limits, bearer parsing) come from the music-connections package.
  *
  * Tokens, codes and client secrets are opaque random strings; only their
  * SHA-256 (hashToken) is stored. None of them is ever logged, put in a URL
@@ -11,21 +12,18 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type postgres from 'postgres';
-import { readScope, type Capability } from 'music-connections';
+import { OFFLINE_ACCESS, isLookupLength, parseScopeRequest, providerScopes, type Capability, type ScopeCheck } from 'music-connections';
 import { TAGAVE_CONSUMES as CORE_CONSUMES, TAGAVE_PROVIDES as CORE_PROVIDES } from '@tagave/core/mc';
 
-export const PROTOCOL = 'music-connections/1';
+export { ACCESS_TOKEN_TTL_S, OFFLINE_ACCESS, PROTOCOL, REFRESH_TOKEN_TTL_S, bearerToken, type ScopeCheck } from 'music-connections';
 
 /** What tagave serves to a linked app, and what it reads from one (@tagave/core/mc). */
 export const TAGAVE_PROVIDES: readonly Capability[] = CORE_PROVIDES;
 export const TAGAVE_CONSUMES: readonly Capability[] = CORE_CONSUMES;
 
-export const OFFLINE_ACCESS = 'offline_access';
 /** The capability scopes tagave grants: `<capability>:read` for each it provides. */
-export const PROVIDER_SCOPES: readonly string[] = TAGAVE_PROVIDES.map(readScope);
+export const PROVIDER_SCOPES: readonly string[] = providerScopes(TAGAVE_PROVIDES);
 
-export const ACCESS_TOKEN_TTL_S = 60 * 60;
-export const REFRESH_TOKEN_TTL_S = 90 * 24 * 60 * 60;
 /** How long an authorize request waits for the person's decision. */
 export const REQUEST_TTL_S = 10 * 60;
 /** How long a code may wait for its exchange. */
@@ -67,26 +65,19 @@ export function pkceChallenge(verifier: string): string {
 // ── Redirect hosts ─────────────────────────────────────────────────────────
 
 // One allow-list for the provider (redirect URIs) and the client (linked
-// remotes): @tagave/core/mc.
-export { isAllowedRedirect, parseTrustedHosts } from '@tagave/core/mc';
+// remotes): @tagave/core/mc, from the package.
+export { isAllowedRedirect, isAllowedRegistration, parseTrustedHosts } from '@tagave/core/mc';
 
 // ── Scopes ─────────────────────────────────────────────────────────────────
 
-export type ScopeCheck = { ok: true; scopes: string[] } | { ok: false; reason: string };
-
 /**
- * The `scope` of an authorize request: space-separated, each one tagave
- * grants or offline_access, at least one capability scope (offline_access
+ * The `scope` of an authorize request (the package's parseScopeRequest over
+ * what tagave grants): space-separated, each one tagave grants or
+ * offline_access, none repeated, at least one capability scope (offline_access
  * alone grants nothing). openid is refused: tagave issues no ID tokens.
  */
 export function checkRequestedScopes(raw: string | undefined): ScopeCheck {
-  const list = [...new Set((raw ?? '').split(' ').filter(Boolean))];
-  if (list.includes('openid')) return { ok: false, reason: 'openid is not offered' };
-  const unknown = list.filter((s) => s !== OFFLINE_ACCESS && !PROVIDER_SCOPES.includes(s));
-  if (unknown.length > 0) return { ok: false, reason: `not offered: ${unknown.join(' ').slice(0, 200)}` };
-  if (!list.some((s) => s !== OFFLINE_ACCESS)) return { ok: false, reason: 'ask for at least one capability scope' };
-  // the order tagave lists them in, offline_access last
-  return { ok: true, scopes: [...PROVIDER_SCOPES.filter((s) => list.includes(s)), ...(list.includes(OFFLINE_ACCESS) ? [OFFLINE_ACCESS] : [])] };
+  return parseScopeRequest(raw, PROVIDER_SCOPES);
 }
 
 // ── Bearer lookup (the /mc/v1 feeds) ───────────────────────────────────────
@@ -109,7 +100,7 @@ export interface AccessGrant {
  * offline_access grants no data.
  */
 export async function lookupAccessToken(sql: postgres.Sql, token: string): Promise<AccessGrant | null> {
-  if (!token || token.length > 200) return null;
+  if (!isLookupLength(token)) return null;
   const rows = await sql<Array<{ id: string; family_id: string; user_id: string; client_id: string; scopes: string[]; access_expires_at: Date }>>`
     select t.id, t.family_id, t.user_id, t.client_id, t.scopes, t.access_expires_at
       from mc_oauth_tokens t
@@ -123,10 +114,4 @@ export async function lookupAccessToken(sql: postgres.Sql, token: string): Promi
   const r = rows[0];
   if (!r) return null;
   return { tokenId: r.id, familyId: r.family_id, userId: r.user_id, clientId: r.client_id, scopes: r.scopes, expiresAt: r.access_expires_at };
-}
-
-/** Bearer token from an Authorization header, or '' (never logged). */
-export function bearerToken(header: string | undefined): string {
-  const m = /^Bearer\s+(\S+)\s*$/i.exec(header ?? '');
-  return m ? m[1]! : '';
 }

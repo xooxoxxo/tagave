@@ -1,7 +1,8 @@
 /**
- * Music Connections client helpers, without a network: scope derivation,
- * origin pinning and the allow-list on every manifest endpoint, the manifest
- * fetch's caps, and sealed tokens.
+ * Music Connections client glue, without a network: tagave's defaults over
+ * the package's rules (consumed capabilities, MC_TRUSTED_PUBLIC_HOSTS), the
+ * manifest fetch, rfetch's test hooks over the pinned transport, and sealed
+ * tokens. The rules themselves are tested in the music-connections package.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Manifest } from 'music-connections';
@@ -24,9 +25,6 @@ import {
   setResolver,
   resolveTarget,
   rfetch,
-  classifyAddress,
-  addressAllowed,
-  pinnedLookup,
   isAllowedRemote,
   isAllowedRedirect,
 } from './index.js';
@@ -65,19 +63,6 @@ describe('scope derivation', () => {
     expect(linkScopes(manifest())).toEqual(['critic-scores:read', 'identity:read', 'wantlist-suggestions:read', 'wantlist-suggestions:write', 'offline_access']);
   });
 
-  it('no wantlist write without wantlist suggestions', () => {
-    expect(linkScopes(manifest({ provides: { 'critic-scores': '/a', ratings: '/r' } }))).toEqual(['critic-scores:read', 'offline_access']);
-  });
-
-  it('never asks for what tagave provides itself (ratings, collection, listens)', () => {
-    // a tagave on the other side provides ratings, collection, listens and identity: only identity is shared
-    expect(linkScopes(manifest({ provides: { ratings: '/r', collection: '/c', listens: '/l', identity: '/i' } }))).toEqual(['identity:read', 'offline_access']);
-  });
-
-  it('nothing shared: no scopes at all (no lone offline_access)', () => {
-    expect(linkScopes(manifest({ provides: { ratings: '/r' } }))).toEqual([]);
-  });
-
   it('pulls only granted capabilities; the rest are available, re-link to grant', () => {
     const m = manifest();
     expect(pullableCapabilities(m, ['critic-scores:read'])).toEqual(['critic-scores']);
@@ -85,50 +70,17 @@ describe('scope derivation', () => {
   });
 });
 
-describe('origin pinning and the allow-list', () => {
-  it('a path or a same-origin URL resolves on the origin', () => {
+describe('origin pinning (the package rules, tagave defaults)', () => {
+  it('pins to the origin with MC_TRUSTED_PUBLIC_HOSTS as the trusted list', () => {
     expect(pinned('/connect/token', RG)).toBe(`${RG}/connect/token`);
-    expect(pinned(`${RG}/x`, RG)).toBe(`${RG}/x`);
-  });
-
-  it('refuses another host, another port and another scheme', () => {
-    for (const u of ['http://192.168.2.51:8080/connect/token', 'http://192.168.2.50:9090/connect/token', 'https://192.168.2.50:8080/t', '//evil.example/t']) {
-      expect(() => pinned(u, RG)).toThrow(LinkError);
-    }
-  });
-
-  it('every feed in the manifest must sit on the origin, not only those tagave reads', () => {
-    expect(() => endpointsOf(manifest({ provides: { 'critic-scores': '/a', ratings: 'http://10.0.0.9/mc/v1/ratings' } }), RG)).toThrow('endpoint on another host');
-    expect(() => endpointsOf(manifest({ auth: { authorize: '/a', token: 'http://10.0.0.9/token', register: '/r' } }), RG)).toThrow(LinkError);
+    expect(() => pinned('http://192.168.2.51:8080/connect/token', RG)).toThrow(LinkError);
     expect(endpointsOf(manifest(), RG).feeds['critic-scores']).toBe(`${RG}/mc/v1/critic-scores`);
-  });
-
-  it('a remote base: private hosts over http, public ones only over https and when trusted', () => {
+    expect(revokeUrlFor('/api/v1/connect/token', RG)).toBe(`${RG}/api/v1/connect/revoke`);
     expect(remoteOrigin('http://192.168.2.50:8080/some/page?x=1')).toBe(RG);
-    expect(remoteOrigin('http://100.101.102.103')).toBe('http://100.101.102.103');
-    // a DNS name passes the gate; where it may connect is decided on what it resolves to
-    expect(remoteOrigin('http://review-gatherer:3000')).toBe('http://review-gatherer:3000');
-    expect(remoteOrigin('https://rg.example.com/')).toBe('https://rg.example.com');
-    for (const u of ['http://localhost.', 'http://rg.localhost', 'http://rg.example.com.', 'http://under_score.lan', 'http://-bad.lan']) {
-      expect(() => remoteOrigin(u), u).toThrow();
-    }
-    expect(() => remoteOrigin('http://user:pw@192.168.2.50')).toThrow('invalid url');
-    expect(() => remoteOrigin('ftp://192.168.2.50')).toThrow('invalid url');
-    expect(() => remoteOrigin('not a url')).toThrow('invalid url');
     expect(() => remoteOrigin('http://8.8.8.8')).toThrow('remote not allowed');
-  });
-
-  it('the client gate is wider than the provider’s: the provider’s redirect URIs still take no LAN names', () => {
+    // the provider's redirect gate stays narrower than the client's
     expect(isAllowedRemote('http://review-gatherer:3000/', [])).toBe(true);
     expect(isAllowedRedirect('http://review-gatherer:3000/', [])).toBe(false);
-    expect(isAllowedRemote('http://rg.localhost/', [])).toBe(false);
-    expect(isAllowedRemote('http://8.8.8.8/', [])).toBe(false);
-  });
-
-  it('the revoke endpoint sits next to the token endpoint, on the origin', () => {
-    expect(revokeUrlFor('/api/v1/connect/token', RG)).toBe(`${RG}/api/v1/connect/revoke`);
-    expect(revokeUrlFor('/oauth/exchange', RG)).toBeNull();
-    expect(revokeUrlFor('http://10.0.0.9/token', RG)).toBeNull();
   });
 });
 
@@ -206,20 +158,6 @@ describe('sealed tokens', () => {
 });
 
 describe('SSRF: resolved addresses', () => {
-  it('classifies the always-blocked ranges, whatever form they take', () => {
-    for (const ip of ['169.254.169.254', '169.254.0.1', '0.0.0.0', '0.1.2.3', '224.0.0.1', '239.255.255.250', '255.255.255.255', '240.0.0.1',
-      '::', 'fe80::1', 'febf::1', 'ff02::1', '::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '::ffff:0.0.0.0', '64:ff9b::a9fe:a9fe', 'not-an-ip']) {
-      expect(classifyAddress(ip), ip).toBe('blocked');
-    }
-    expect(classifyAddress('127.0.0.1')).toBe('loopback');
-    expect(classifyAddress('::1')).toBe('loopback');
-    expect(classifyAddress('::ffff:127.0.0.1')).toBe('loopback');
-    for (const ip of ['10.1.2.3', '172.16.0.1', '172.31.255.255', '192.168.1.1', '100.64.0.1', '100.127.255.254', 'fd12::1', '::ffff:192.168.1.1']) {
-      expect(classifyAddress(ip), ip).toBe('private');
-    }
-    for (const ip of ['8.8.8.8', '172.32.0.1', '100.128.0.1', '2606:4700::1111']) expect(classifyAddress(ip), ip).toBe('public');
-  });
-
   it('a LAN name may reach private addresses only: not loopback, not public, not a mix', async () => {
     const answers: Record<string, string[]> = {
       'review-gatherer': ['192.168.2.50'],
@@ -237,19 +175,6 @@ describe('SSRF: resolved addresses', () => {
     process.env['MC_TRUSTED_PUBLIC_HOSTS'] = 'public.example.com';
     await expect(resolveTarget('https://public.example.com/')).resolves.toBe('93.184.216.34');
     await expect(resolveTarget('http://public.example.com/')).rejects.toThrow('address not allowed');
-  });
-
-  it('loopback only for a literally loopback host, never a name resolving there', () => {
-    expect(addressAllowed('127.0.0.1', '127.0.0.1', false)).toBe(true);
-    expect(addressAllowed('localhost', '127.0.0.1', false)).toBe(true);
-    expect(addressAllowed('[::1]', '::1', false)).toBe(true);
-    expect(addressAllowed('rg.example.com', '127.0.0.1', true)).toBe(false);
-    expect(addressAllowed('localhost', '192.168.1.5', false)).toBe(false);
-    expect(addressAllowed('review-gatherer', '192.168.1.5', false)).toBe(true);
-    expect(addressAllowed('review-gatherer', '127.0.0.1', false)).toBe(false);
-    expect(addressAllowed('rg.example.com', '169.254.169.254', true)).toBe(false);
-    expect(addressAllowed('rg.example.com', '8.8.8.8', true)).toBe(true);
-    expect(addressAllowed('rg.example.com', '8.8.8.8', false)).toBe(false);
   });
 
   it('a trusted name is resolved on every request and each answer checked (DNS rebinding)', async () => {
@@ -277,16 +202,6 @@ describe('SSRF: resolved addresses', () => {
   it('a 3xx answer is an error, never followed', async () => {
     setRemoteFetch(async () => new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/' } }));
     await expect(rfetch(`${RG}/.well-known/music-connections`)).rejects.toThrow('redirect refused');
-  });
-
-  it('the pinned lookup answers any name with the checked address', () => {
-    const lookup = pinnedLookup('192.168.2.50') as unknown as (h: string, o: { all?: boolean }, cb: (...a: unknown[]) => void) => void;
-    const one: unknown[] = [];
-    lookup('evil.example', {}, (...a) => one.push(...a));
-    expect(one).toEqual([null, '192.168.2.50', 4]);
-    const all: unknown[] = [];
-    lookup('evil.example', { all: true }, (...a) => all.push(...a));
-    expect(all).toEqual([null, [{ address: '192.168.2.50', family: 4 }]]);
   });
 
   describe('over a real loopback socket', () => {
