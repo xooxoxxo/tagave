@@ -54,8 +54,8 @@ import { AlbumFiller } from './AlbumFiller';
 import { albumRail, albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
-import { currentTrack, playAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
-import { percentText, scanWaitLine } from '../player/logic';
+import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
+import { scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -99,6 +99,8 @@ export function AlbumDetailPage() {
   const [maintenance, setMaintenance] = useMaintenance();
   // a listener's album page is the music: no Manage menu, decisions or Maintenance key
   const canCare = useCan('library.edit');
+  // Play and Shuffle: every role has player.use today; the strip follows the permission
+  const mayPlay = useCan('player.use');
   const [{ shortAlbumArt }] = useDisplayPrefs();
   // the opt-in player: Play and per-track play exist only while one is installed
   // and answering; installed but silent, Play shows disabled with a word why
@@ -740,6 +742,12 @@ export function AlbumDetailPage() {
 
   // ---- the "⋯" menu ----
 
+  const artistMenuItems: MenuItem[] = (album.artists ?? []).map((a) => ({
+    key: `artist-${a.id}`,
+    label: `Go to ${a.name}`,
+    onSelect: () => void navigate({ to: '/artists/$artistId', params: { artistId: a.id } }),
+  }));
+
   const menuItems: MenuItem[] = maintenance ? [
     { key: 'reidentify', label: reidentify.isPending ? 'Queuing…' : 'Re-identify', hint: requestLive ? 'A request is already queued' : 'Look this album up again', disabled: requestLive || reidentify.isPending, onSelect: () => reidentify.mutate() },
     { key: 'manual', label: 'Match to a release…', hint: 'Paste a MusicBrainz or Discogs link', disabled: requestLive, onSelect: openManual },
@@ -758,9 +766,13 @@ export function AlbumDetailPage() {
     ...(album.state !== 'as_is' ? [{ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() }] : []),
     ...(album.state !== 'ignored' ? [{ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() }] : []),
     { key: 'mode', label: 'Turn off Maintenance', separated: true, onSelect: () => setMaintenance(false) },
-  ] : !canCare ? [] : [
-    ...physicalMenuItem,
-    { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
+  ] : [
+    // every role: the album's artists (a listener's ⋯ holds only these)
+    ...artistMenuItems,
+    ...(!canCare ? [] : [
+      ...physicalMenuItem.map((m, i) => (i === 0 && artistMenuItems.length > 0 ? { ...m, separated: true } : m)),
+      { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0 || artistMenuItems.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
+    ]),
   ];
 
   // The cover-art lookup as it really stands (not a fixed "queued" line):
@@ -839,21 +851,18 @@ export function AlbumDetailPage() {
               : avail.reason === 'not_scanned' ? 'Not on the player yet' : null)
         : null;
   const playDisabled = !canPlay || (!!avail && avail.playable === 0 && (!!playability.scan?.scanning || avail.reason === 'no_file' || avail.reason === 'cue'));
-  // waiting for the player's first scan, the key itself shows how far it got ("34 %")
-  const scan = playability.scan;
-  const playWaitText = playDisabled && scan?.scanning && scan.firstScan && scan.percent != null ? percentText(scan.percent) : null;
-  const playState: AlbumPlayState | null = !playerInstalled ? null : {
+  const playState: AlbumPlayState | null = !playerInstalled || !mayPlay ? null : {
     mode: playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
       : playingHere && playStatus === 'paused' ? 'resume' : 'play',
     loading: queueLoading,
     disabled: playDisabled,
-    waitText: playWaitText,
     note: playNote,
     onPlay: () => void playAlbum(albumRef),
     onToggle: togglePlayback,
+    onShuffle: () => void shuffleAlbum(albumRef),
   };
   // the strip's slots: what this role can do here, from its capabilities
-  const actionContext = albumActionContext({ canCare, playerInstalled, maintenance, menuItems: menuItems.length });
+  const actionContext = albumActionContext({ canPlay: mayPlay, playerInstalled, maintenance, menuItems: menuItems.length });
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';

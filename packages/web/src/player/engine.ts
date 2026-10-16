@@ -15,7 +15,7 @@ import { create } from 'zustand';
 import type { PlayEventKind, PlayerQueueTrack, PlayerQueueView, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
-  FAILURE_TEXT, chooseFormat, classifyFailure, handoffDelayMs, heardDelta, moveUpcoming, nextPlayable, nothingPlayableMessage, orderQueue,
+  FAILURE_TEXT, chooseFormat, classifyFailure, handoffDelayMs, heardDelta, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
   previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, startIndex, streamUrl, transcodeFormat, type CanPlay,
 } from './logic';
 import { getPlayerQuality } from './quality';
@@ -63,7 +63,7 @@ let cur: { trackId: string; index: number; format: StreamFormat; base: number; t
 /** the next track waiting in the other element */
 let preloaded: { index: number; trackId: string; format: StreamFormat } | null = null;
 /** the last Play request, for Retry when the queue itself could not be played */
-let lastRequest: { album: AlbumRef; startTrackId: string | null } | null = null;
+let lastRequest: { album: AlbumRef; startTrackId: string | null; shuffle: boolean } | null = null;
 /** bumped by every load, so a late answer for an old track is ignored */
 let generation = 0;
 let lastPositionState = 0;
@@ -437,10 +437,16 @@ function updatePositionState() {
 
 // ---- actions ----
 
-/** "Play" (the whole album) or "Play from here" (startTrackId). */
-export async function playAlbum(album: AlbumRef, startTrackId: string | null = null): Promise<void> {
+/**
+ * "Play" (the whole album), "Play from here" (startTrackId) or Shuffle (the
+ * album in a random order, drawn once: the queue view shows that order).
+ * Listens do not depend on the order: the server counts the album's distinct
+ * tracks heard within six hours (playerPlays.ts deriveListens).
+ */
+export async function playAlbum(album: AlbumRef, startTrackId: string | null = null, opts: { shuffle?: boolean } = {}): Promise<void> {
   ensureElements();
-  lastRequest = { album, startTrackId };
+  const shuffle = !!opts.shuffle && !startTrackId;
+  lastRequest = { album, startTrackId, shuffle };
   clearHandoff();
   leaveCurrent();
   generation++;
@@ -462,7 +468,7 @@ export async function playAlbum(album: AlbumRef, startTrackId: string | null = n
     return;
   }
   if (gen !== generation) return;
-  const ordered: PlayerQueueView = { ...view, coverUrl: view.coverUrl ?? album.coverUrl, tracks: orderQueue(view.tracks) };
+  const ordered: PlayerQueueView = { ...view, coverUrl: view.coverUrl ?? album.coverUrl, tracks: queueOrder(view.tracks, { shuffle }) };
   const index = startIndex(ordered.tracks, startTrackId);
   set({ queue: ordered, loadingAlbumId: null, index: index < 0 ? -1 : index });
   if (index < 0) {
@@ -470,6 +476,11 @@ export async function playAlbum(album: AlbumRef, startTrackId: string | null = n
     return;
   }
   loadTrack(index);
+}
+
+/** Shuffle: the whole album in a random order. */
+export function shuffleAlbum(album: AlbumRef): Promise<void> {
+  return playAlbum(album, null, { shuffle: true });
 }
 
 export function play() {
@@ -552,7 +563,7 @@ export function setVolume(v: number) {
 /** Retry after an error: the same track from where it stopped, or the album's queue again. */
 export function retry() {
   const s = get();
-  if (s.retry === 'queue' && lastRequest) { void playAlbum(lastRequest.album, lastRequest.startTrackId); return; }
+  if (s.retry === 'queue' && lastRequest) { void playAlbum(lastRequest.album, lastRequest.startTrackId, { shuffle: lastRequest.shuffle }); return; }
   if (s.queue && s.index >= 0) loadTrack(s.index, { offset: s.position, keepSession: true, ...(cur?.format && cur.triedFallback ? { format: cur.format } : {}) });
 }
 

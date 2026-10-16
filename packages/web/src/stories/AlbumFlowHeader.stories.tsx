@@ -25,7 +25,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'The album page\'s header (vault spec "tagave - Album Page Flow"). Docked it is touching keys: back | artist + album | Maintenance; once the action strip has scrolled under it, Play docks as a fourth key, left of Maintenance (64px on a phone, with its word on a desktop). The back and Maintenance icons never move. Without a player the approved three keys stay.',
+        component: 'The album page\'s header (vault spec "tagave - Album Page Flow"). Docked it is touching keys: back | artist + album | Maintenance; once the action strip has scrolled under it, Play docks as a fourth key, left of Maintenance (a 64px icon key). The back and Maintenance icons never move. Without a player the approved three keys stay.',
       },
     },
   },
@@ -36,7 +36,7 @@ type Story = StoryObj<typeof meta>;
 
 export const PhoneAtRest: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { docked: false, playDocked: false } };
 export const PhoneDockedWithPlay: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
-export const PhoneDockedWaiting: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'play', disabled: true, waitText: '34 %' } } };
+export const PhoneDockedWaiting: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'play', disabled: true } } };
 export const PhoneDockedPlaying: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'pause', onToggle: noop } } };
 export const PhoneDockedNoPlayer: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: null } };
 export const DesktopDockedWithPlay: Story = {};

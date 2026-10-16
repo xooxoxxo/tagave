@@ -1,87 +1,87 @@
 import { describe, expect, it } from 'vitest';
-import { SLOTS, actionAvailable, albumActionContext, stripColumns, stripSlots, type AlbumActionId } from './albumActions';
+import { SIDE_KEY, SLOTS, actionAvailable, albumActionContext, playLabel, stripColumns, stripSlots, type AlbumActionId } from './albumActions';
 
 const filledIds = (list: readonly AlbumActionId[], ctx: Parameters<typeof stripSlots>[1]) =>
   (stripSlots(list, ctx) ?? []).filter((s) => s.filled).map((s) => s.id);
 
-/** Roles as the page sees them: owner and editor can care for the library, a listener cannot. */
-const ROLES = { owner: true, editor: true, listener: false } as const;
+/**
+ * What each role's ⋯ holds outside Maintenance (AlbumDetailPage): the
+ * album's artists for everyone, the physical copy and the Maintenance switch
+ * with library care.
+ */
+const MENU = { owner: 3, editor: 3, listener: 1 } as const;
 
 describe('album action strip: slot lists', () => {
-  it('phone: like, playlist, PLAY in the centre, radio, ⋯ pinned last', () => {
-    expect(SLOTS.phone).toEqual(['like', 'playlist', 'play', 'radio', 'more']);
-    expect(SLOTS.phone.indexOf('play')).toBe((SLOTS.phone.length - 1) / 2);
+  it('Shuffle | Play | ⋯ on a phone and a desktop, Play in the middle, ⋯ last', () => {
+    expect(SLOTS.phone).toEqual(['shuffle', 'play', 'more']);
+    expect(SLOTS.desk).toEqual(['shuffle', 'play', 'more']);
   });
 
-  it('desktop: Play first, every action, ⋯ pinned last', () => {
-    expect(SLOTS.desk).toEqual(['play', 'like', 'playlist', 'share', 'radio', 'more']);
+  it('the side keys are as wide as each other; Play fills the phone row, 200px on a desktop', () => {
+    expect(stripColumns(SLOTS.phone, 'phone')).toBe(`${SIDE_KEY.phone}px minmax(0, 1fr) ${SIDE_KEY.phone}px`);
+    expect(stripColumns(SLOTS.desk, 'desk')).toBe(`${SIDE_KEY.desk}px 200px ${SIDE_KEY.desk}px`);
   });
 
-  it('Play is the wide key: 1fr in the phone centre, 200px on a desktop; other slots fixed', () => {
-    expect(stripColumns(SLOTS.phone, 'phone')).toBe('52px 52px minmax(0, 1fr) 52px 52px');
-    expect(stripColumns(SLOTS.desk, 'desk')).toBe('200px 58px 58px 58px 58px 58px');
+  it('a new action is a new key in the list: Play gives up the width', () => {
+    const more: AlbumActionId[] = ['like', 'shuffle', 'play', 'radio', 'more'];
+    expect(stripColumns(more, 'phone')).toBe('56px 56px minmax(0, 1fr) 56px 56px');
+  });
+
+  it('Play\'s word is for screen readers only', () => {
+    expect([playLabel('play'), playLabel('pause'), playLabel('resume')]).toEqual(['Play', 'Pause', 'Resume']);
   });
 });
 
 describe('album action strip: availability by role and player', () => {
-  for (const [role, canCare] of Object.entries(ROLES)) {
-    it(`${role} with a player: Play${canCare ? ' and ⋯' : ' only'}`, () => {
-      const ctx = albumActionContext({ canCare, playerInstalled: true, maintenance: false });
-      expect(filledIds(SLOTS.phone, ctx)).toEqual(canCare ? ['play', 'more'] : ['play']);
-      expect(filledIds(SLOTS.desk, ctx)).toEqual(canCare ? ['play', 'more'] : ['play']);
-    });
-
-    it(`${role} without a player: ${canCare ? 'only ⋯' : 'no strip at all'}`, () => {
-      const ctx = albumActionContext({ canCare, playerInstalled: false, maintenance: false });
-      if (canCare) expect(filledIds(SLOTS.phone, ctx)).toEqual(['more']);
-      else expect(stripSlots(SLOTS.phone, ctx)).toBeNull();
+  for (const [role, items] of Object.entries(MENU)) {
+    it(`${role} with a player: Shuffle, Play and ⋯ (the strip is symmetric)`, () => {
+      const ctx = albumActionContext({ playerInstalled: true, maintenance: false, menuItems: items });
+      expect(filledIds(SLOTS.phone, ctx)).toEqual(['shuffle', 'play', 'more']);
+      expect(filledIds(SLOTS.desk, ctx)).toEqual(['shuffle', 'play', 'more']);
     });
   }
 
-  it('like, playlist, share and radio do not exist yet: their slots are empty, never dead keys', () => {
-    const ctx = albumActionContext({ canCare: true, playerInstalled: true, maintenance: false });
-    for (const id of ['like', 'playlist', 'share', 'radio'] as const) expect(actionAvailable(id, ctx)).toBe(false);
-    const cells = stripSlots(SLOTS.desk, ctx)!;
-    expect(cells.map((c) => c.id)).toEqual(SLOTS.desk);
-    expect(cells.filter((c) => !c.filled).map((c) => c.id)).toEqual(['like', 'playlist', 'share', 'radio']);
+  it('without player.use there is no Play and no Shuffle', () => {
+    const ctx = albumActionContext({ canPlay: false, playerInstalled: true, maintenance: false, menuItems: 1 });
+    expect(filledIds(SLOTS.phone, ctx)).toEqual(['more']);
   });
 
-  it('a player that has not scanned the album keeps the Play slot (the key shows disabled)', () => {
-    // scan state disables the key, not the slot: the strip does not shift while it waits
-    const ctx = albumActionContext({ canCare: false, playerInstalled: true, maintenance: false });
+  it('no player: the owner keeps ⋯ alone, packed (no empty slots); nothing to press, no strip', () => {
+    const owner = stripSlots(SLOTS.phone, albumActionContext({ playerInstalled: false, maintenance: false, menuItems: MENU.owner }))!;
+    expect(owner.map((s) => [s.id, s.filled])).toEqual([['more', true]]);
+    expect(stripSlots(SLOTS.phone, albumActionContext({ playerInstalled: false, maintenance: false, menuItems: 0 }))).toBeNull();
+  });
+
+  it('a player that has not scanned the album keeps Play and Shuffle (the keys show disabled)', () => {
+    const ctx = albumActionContext({ playerInstalled: true, maintenance: false, menuItems: 1 });
     expect(actionAvailable('play', ctx)).toBe(true);
+    expect(actionAvailable('shuffle', ctx)).toBe(true);
+  });
+
+  it('an empty ⋯ (an album with no artist pages, for a listener) keeps its width: Play stays centred', () => {
+    const cells = stripSlots(SLOTS.phone, albumActionContext({ playerInstalled: true, maintenance: false, menuItems: 0 }))!;
+    expect(cells.map((c) => [c.id, c.filled])).toEqual([['shuffle', true], ['play', true], ['more', false]]);
   });
 
   it('in Maintenance the menu moves to the state line: the ⋯ slot is empty', () => {
-    const ctx = albumActionContext({ canCare: true, playerInstalled: true, maintenance: true });
-    expect(filledIds(SLOTS.phone, ctx)).toEqual(['play']);
-    expect(stripSlots(SLOTS.phone, albumActionContext({ canCare: true, playerInstalled: false, maintenance: true }))).toBeNull();
+    const ctx = albumActionContext({ playerInstalled: true, maintenance: true, menuItems: MENU.owner });
+    expect(filledIds(SLOTS.phone, ctx)).toEqual(['shuffle', 'play']);
   });
 
-  it('an empty ⋯ menu leaves its slot empty', () => {
-    expect(actionAvailable('more', albumActionContext({ canCare: true, playerInstalled: true, maintenance: false, menuItems: 0 }))).toBe(false);
-  });
-
-  it('once the planned actions ship they fill their slots; playlist and radio need a player', () => {
-    const shipped = new Set<AlbumActionId>(['play', 'more', 'like', 'playlist', 'share', 'radio']);
-    expect(filledIds(SLOTS.phone, { player: true, menu: true, shipped })).toEqual(['like', 'playlist', 'play', 'radio', 'more']);
-    expect(filledIds(SLOTS.desk, { player: false, menu: true, shipped })).toEqual(['like', 'share', 'more']);
-  });
-
-  it('a person\'s own list only rewrites the slots', () => {
-    const own: AlbumActionId[] = ['radio', 'like', 'play', 'playlist', 'more'];
-    expect(stripSlots(own, { player: true, menu: true })!.map((c) => c.id)).toEqual(own);
+  it('planned actions have no keys until they ship', () => {
+    const ctx = albumActionContext({ playerInstalled: true, maintenance: false, menuItems: 1 });
+    for (const id of ['like', 'playlist', 'share', 'radio'] as const) expect(actionAvailable(id, ctx)).toBe(false);
+    const shipped = new Set<AlbumActionId>(['shuffle', 'play', 'more', 'radio']);
+    expect(filledIds(['shuffle', 'play', 'radio', 'more'], { player: true, menu: true, shipped })).toEqual(['shuffle', 'play', 'radio', 'more']);
+    expect(filledIds(['shuffle', 'play', 'radio', 'more'], { player: false, menu: true, shipped })).toEqual(['more']);
   });
 });
 
-describe('album action strip: runs of touching keys', () => {
-  it('each run of keys gets its own rounded ends; empty slots end a run', () => {
-    const cells = stripSlots(SLOTS.phone, { player: true, menu: true })!;
-    const play = cells.find((c) => c.id === 'play')!;
-    const more = cells.find((c) => c.id === 'more')!;
-    expect([play.runStart, play.runEnd]).toEqual([true, true]);
-    expect([more.runStart, more.runEnd]).toEqual([true, true]);
-    const all = stripSlots(SLOTS.phone, { player: true, menu: true, shipped: new Set(SLOTS.phone) })!;
-    expect(all.map((c) => [c.runStart, c.runEnd])).toEqual([[true, false], [false, false], [false, false], [false, false], [false, true]]);
+describe('album action strip: touching keys', () => {
+  it('one run with rounded outer ends; an empty side slot ends the run at Play', () => {
+    const full = stripSlots(SLOTS.phone, { player: true, menu: true })!;
+    expect(full.map((c) => [c.runStart, c.runEnd])).toEqual([[true, false], [false, false], [false, true]]);
+    const noMenu = stripSlots(SLOTS.phone, { player: true, menu: false })!;
+    expect(noMenu.map((c) => [c.runStart, c.runEnd])).toEqual([[true, false], [false, true], [false, false]]);
   });
 });

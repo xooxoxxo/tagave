@@ -42,6 +42,26 @@ export function startIndex(tracks: readonly PlayerQueueTrack[], startTrackId?: s
   return firstPlayableFrom(tracks, at < 0 ? 0 : at);
 }
 
+/**
+ * The album's tracks in a random order (Fisher-Yates over a copy), for
+ * Shuffle: the order is drawn once when the album starts, so the queue view
+ * shows it and Next follows it. `random` returns values in [0, 1).
+ */
+export function shuffleTracks(tracks: readonly PlayerQueueTrack[], random: () => number = Math.random): PlayerQueueTrack[] {
+  const out = [...tracks];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.min(i, Math.floor(random() * (i + 1)));
+    [out[i], out[j]] = [out[j]!, out[i]!];
+  }
+  return out;
+}
+
+/** The queue as the album starts: disc then track order, or shuffled once. */
+export function queueOrder(tracks: readonly PlayerQueueTrack[], opts: { shuffle?: boolean; random?: () => number } = {}): PlayerQueueTrack[] {
+  const ordered = orderQueue(tracks);
+  return opts.shuffle ? shuffleTracks(ordered, opts.random) : ordered;
+}
+
 /** The queue's tracks in disc, then track order (the API already sends them so; this keeps it true). */
 export function orderQueue(tracks: readonly PlayerQueueTrack[]): PlayerQueueTrack[] {
   return tracks
@@ -56,17 +76,17 @@ const REASON_TEXT: Record<string, string> = {
   cue: 'Tracks inside a CUE image cannot be played yet.',
 };
 
-/** "34 %": a percent as the album page and the bar write it (a thin no-break space before the sign). */
+/** "34 %": a percent as the player bar writes it (a thin no-break space before the sign). */
 export const percentText = (n: number) => `${Math.round(n)}\u202f%`;
 
 /**
  * The quiet line under a disabled Play while the player server has not
- * reached the album yet; null when it is not scanning.
+ * reached the album yet; null when it is not scanning. No percentage (the
+ * owner, 2026-10-16): the album page says why Play waits, not how far.
  */
 export function scanWaitLine(scan: PlayerScanStatus | null | undefined): string | null {
   if (!scan?.scanning) return null;
-  if (scan.firstScan) return scan.percent != null ? `On the player after its first scan (${percentText(scan.percent)})` : 'On the player after its first scan';
-  return 'On the player after the scan it is running';
+  return scan.firstScan ? 'On the player after its first scan' : 'On the player after the scan it is running';
 }
 
 /** The plain sentence shown when nothing in the queue can be played. */

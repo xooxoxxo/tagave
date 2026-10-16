@@ -15,7 +15,7 @@
  */
 import type { CSSProperties, PointerEvent } from 'react';
 import { PauseIcon, PlayIcon } from '../components/ui';
-import type { AlbumPlayState } from './albumActions';
+import { playLabel, type AlbumPlayState } from './albumActions';
 import styles from './AlbumFlowHeader.module.css';
 
 export interface AlbumFlowHeaderProps {
@@ -60,7 +60,7 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
   const playIn = !!play && docked && playDocked;
   const playing = play?.mode === 'pause';
   const playWaits = !!play?.disabled && play.mode === 'play';
-  const playLabel = playing ? 'Pause' : play?.mode === 'resume' ? 'Resume' : 'Play';
+  const label = playLabel(play?.mode ?? 'play');
   return (
     <div className={`${styles.header} ${docked ? styles.docked : ''} ${playIn ? styles.playDocked : ''}`} data-album-header="" data-docked={docked ? '' : undefined} data-play-docked={playIn ? '' : undefined}>
       <div className={styles.box}>
@@ -90,8 +90,8 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
             type="button"
             className={styles.playKey}
             data-header-play=""
-            aria-label={playLabel}
-            title={playLabel}
+            aria-label={label}
+            title={label}
             tabIndex={playIn ? 0 : -1}
             aria-hidden={playIn ? undefined : true}
             disabled={playWaits}
@@ -101,7 +101,6 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
             {...press}
           >
             {playing ? <PauseIcon /> : <PlayIcon />}
-            <span className={styles.playText}>{playWaits && play.waitText ? play.waitText : playLabel}</span>
           </button>
         )}
         <button

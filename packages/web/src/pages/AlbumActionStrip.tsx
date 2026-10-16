@@ -1,18 +1,19 @@
 /**
  * The album's actions: one strip of touching transport keys in the header
  * keys' style (vault spec "tagave - Album Page Flow", changes 2026-10-16,
- * direction B "Transport"). The keys come from a slot list (albumActions.ts);
- * a slot with nothing in it keeps its width and draws nothing (Space), so
- * Play stays put as actions ship: the phone's wide centre key sits on the
- * screen's centre line at every width. Pressed, a key hinges at its top edge
- * like a cassette deck's transport key (rule 10).
+ * direction B "Transport"). The keys come from a slot list (albumActions.ts):
+ * Shuffle | Play | ⋯. Play is icon only and fills the room between the two
+ * side keys, which are as wide as each other, so on a phone it sits on the
+ * screen's centre line at every width. A side slot with nothing in it keeps
+ * its width and draws nothing. Pressed, a key hinges at its top edge like a
+ * cassette deck's transport key (rule 10).
  *
  * When Play has to wait, one quiet line under the strip says why.
  */
 import { useSyncExternalStore, type CSSProperties, type Ref } from 'react';
-import { Menu, PauseIcon, PlayIcon, type MenuItem } from '../components/ui';
+import { Menu, PauseIcon, PlayIcon, ShuffleIcon, type MenuItem } from '../components/ui';
 import { pressHandlers } from './AlbumFlowHeader';
-import { SLOTS, stripColumns, stripSlots, type AlbumActionContext, type AlbumActionId, type AlbumPlayState, type StripLayout } from './albumActions';
+import { SLOTS, playLabel, stripColumns, stripSlots, type AlbumActionContext, type AlbumActionId, type AlbumPlayState, type StripLayout } from './albumActions';
 import styles from './AlbumActionStrip.module.css';
 
 export type { AlbumPlayState };
@@ -58,49 +59,55 @@ export function AlbumActionStrip({ layout, context, play = null, menu = null, sl
   if (!cells) return null;
   const press = pressHandlers(styles.pressed!);
   const runClass = (s: { runStart: boolean; runEnd: boolean }) => [s.runStart ? styles.runStart : '', s.runEnd ? styles.runEnd : ''].filter(Boolean).join(' ');
+  const hasPlay = cells.some((c) => c.id === 'play' && c.filled);
+  const waiting = !!play?.disabled && play.mode === 'play';
+  const busy = !!play?.loading;
 
   const playKey = (cls: string) => {
     if (!play) return null;
-    const busy = !!play.loading;
-    if (play.mode === 'pause') {
-      return (
-        <button type="button" className={`${styles.key} ${styles.play} ${cls}`} data-album-play="" onClick={play.onToggle} {...press}>
-          <PauseIcon /><span>Pause</span><PlayingBars />
-        </button>
-      );
-    }
-    if (play.mode === 'resume') {
-      return (
-        <button type="button" className={`${styles.key} ${styles.play} ${cls}`} data-album-play="" onClick={play.onToggle} {...press}>
-          <PlayIcon /><span>Resume</span>
-        </button>
-      );
-    }
-    const waiting = !!play.disabled;
+    const label = playLabel(play.mode);
     return (
       <button
         type="button"
         className={`${styles.key} ${styles.play} ${cls}`}
         data-album-play=""
+        aria-label={label}
+        title={label}
         disabled={waiting}
         aria-busy={busy || undefined}
-        aria-label={waiting && play.waitText ? 'Play' : undefined}
         aria-describedby={note ? PLAY_NOTE_ID : undefined}
-        onClick={busy ? undefined : play.onPlay}
+        onClick={busy ? undefined : play.mode === 'play' ? play.onPlay : play.onToggle}
         {...press}
       >
-        {busy ? <span className={styles.spinner} aria-hidden="true" /> : <PlayIcon />}
-        <span>{waiting && play.waitText ? play.waitText : 'Play'}</span>
+        {busy && play.mode === 'play' ? <span className={styles.spinner} aria-hidden="true" />
+          : play.mode === 'pause' ? <><PauseIcon /><PlayingBars /></>
+            : <PlayIcon />}
       </button>
     );
   };
+
+  const shuffleKey = (cls: string) => (
+    <button
+      type="button"
+      className={`${styles.key} ${cls}`}
+      data-album-shuffle=""
+      aria-label="Shuffle"
+      title="Shuffle: play the album in a random order"
+      disabled={waiting}
+      aria-describedby={waiting && note ? PLAY_NOTE_ID : undefined}
+      onClick={busy ? undefined : play?.onShuffle}
+      {...press}
+    >
+      <ShuffleIcon />
+    </button>
+  );
 
   return (
     <>
       <div
         ref={stripRef}
-        className={`${styles.strip} ${layout === 'desk' ? styles.desk : ''}`}
-        style={{ gridTemplateColumns: stripColumns(list, layout) } as CSSProperties}
+        className={`${styles.strip} ${layout === 'desk' ? styles.desk : ''} ${hasPlay ? '' : styles.keysOnly}`}
+        style={{ gridTemplateColumns: hasPlay ? stripColumns(list, layout) : stripColumns(cells.map((c) => c.id), layout) } as CSSProperties}
         role="group"
         aria-label="Album actions"
         data-album-strip={layout}
@@ -109,10 +116,11 @@ export function AlbumActionStrip({ layout, context, play = null, menu = null, sl
           const cls = runClass(s);
           if (!s.filled) return <div key={s.id} className={styles.space} data-slot={s.id} data-empty="" aria-hidden="true" />;
           if (s.id === 'play') return <div key={s.id} className={styles.slot} data-slot="play">{playKey(cls)}</div>;
+          if (s.id === 'shuffle' && play) return <div key={s.id} className={styles.slot} data-slot="shuffle">{shuffleKey(cls)}</div>;
           if (s.id === 'more' && menu) {
             return (
               <div key={s.id} className={styles.slot} data-slot="more">
-                <Menu label={menu.label} items={menu.items} className={styles.menuAnchor!}triggerClassName={`${styles.key} ${cls}`} triggerProps={press} />
+                <Menu label={menu.label} items={menu.items} className={styles.menuAnchor!} triggerClassName={`${styles.key} ${cls}`} triggerProps={press} />
               </div>
             );
           }

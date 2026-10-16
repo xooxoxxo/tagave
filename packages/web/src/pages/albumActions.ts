@@ -1,37 +1,34 @@
 /**
  * The album page's action strip (vault spec "tagave - Album Page Flow",
- * changes 2026-10-16, direction B "Transport", empty slots = Space).
+ * changes 2026-10-16, direction B "Transport").
  *
  * The strip is drawn from a slot list and nothing else: a later per-person
- * setting only rewrites the list (reorder, swap an action into a slot) and
- * the layout follows. Every slot keeps its width whether or not a key sits in
- * it, so Play never moves as actions ship. ⋯ is pinned to the last slot and
- * is not part of the customisable set, so it can never be configured away.
+ * setting only rewrites the list (insert an action, reorder) and the layout
+ * follows. Owner, 2026-10-16: Play is icon only and fills the room between
+ * one key on each side, Shuffle on the left and ⋯ on the right, both as wide
+ * as each other, so Play sits on the centre line and the strip is
+ * symmetric. A new action is a new key in the list; Play gives up the width.
  */
 
-export type AlbumActionId = 'play' | 'like' | 'playlist' | 'share' | 'radio' | 'more';
+export type AlbumActionId = 'shuffle' | 'play' | 'more' | 'like' | 'playlist' | 'share' | 'radio';
 export type StripLayout = 'phone' | 'desk';
 
-/**
- * Phone: Play is the wide centre key, two slots each side, ⋯ in the outer
- * right one; Share (which opens a sheet anyway) lives in ⋯ on a phone.
- * Desktop: a wide text Play first, then every action.
- */
+/** Phone and desktop alike: Shuffle | Play | ⋯ (⋯ stays last). */
 export const SLOTS: Readonly<Record<StripLayout, readonly AlbumActionId[]>> = {
-  phone: ['like', 'playlist', 'play', 'radio', 'more'],
-  desk: ['play', 'like', 'playlist', 'share', 'radio', 'more'],
+  phone: ['shuffle', 'play', 'more'],
+  desk: ['shuffle', 'play', 'more'],
 };
 
 /**
  * Actions that exist in the app. Like, add to playlist, share and radio are
- * planned: their slots are reserved but stay empty (never a disabled
- * "coming soon" key). Add one here when it ships.
+ * planned; they get keys in the list once they ship (never a disabled
+ * "coming soon" key).
  */
-export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['play', 'more']);
+export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play', 'more']);
 
 /** What this person can do on this album right now. */
 export interface AlbumActionContext {
-  /** a player module is installed (Play shows, disabled while it cannot play) */
+  /** a player module is installed and the role may use it (player.use): Play and Shuffle show */
   player: boolean;
   /** the ⋯ menu has something in it for this role here */
   menu: boolean;
@@ -40,20 +37,21 @@ export interface AlbumActionContext {
 }
 
 /**
- * The context from role and capabilities. The ⋯ menu outside Maintenance
- * holds "I own this on vinyl/CD" and the Maintenance switch, both library
- * care: an owner or editor has it, a listener does not. In Maintenance the
- * menu moves to the state line, so the strip's ⋯ slot is empty.
+ * The context from role and capabilities. Play and Shuffle need a player and
+ * player.use (every role has it today). ⋯ shows when its menu has real items
+ * for this role: the artist's page for everyone, the physical copy and the
+ * Maintenance switch with library care. In Maintenance the menu moves to the
+ * state line, so the strip's ⋯ slot is empty.
  */
-export function albumActionContext({ canCare, playerInstalled, maintenance, menuItems }: {
-  canCare: boolean;
+export function albumActionContext({ canPlay = true, playerInstalled, maintenance, menuItems }: {
+  /** the role's player.use */
+  canPlay?: boolean;
   playerInstalled: boolean;
   maintenance: boolean;
-  /** how many items the ⋯ menu would show (defaults to what library care gives) */
-  menuItems?: number;
+  /** how many items the ⋯ menu shows */
+  menuItems: number;
 }): AlbumActionContext {
-  const items = menuItems ?? (canCare ? 1 : 0);
-  return { player: playerInstalled, menu: !maintenance && items > 0 };
+  return { player: playerInstalled && canPlay, menu: !maintenance && menuItems > 0 };
 }
 
 /** Whether an action has a key in its slot. */
@@ -61,8 +59,9 @@ export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boo
   const shipped = ctx.shipped ?? SHIPPED;
   if (!shipped.has(id)) return false;
   switch (id) {
-    case 'play': return ctx.player;
     // they start or add to playback: only with a player
+    case 'play':
+    case 'shuffle':
     case 'playlist':
     case 'radio': return ctx.player;
     case 'like':
@@ -80,21 +79,29 @@ export interface StripSlot {
   runEnd: boolean;
 }
 
-/** The strip's slots, or null when no slot holds a key (then there is no strip at all). */
+/**
+ * The strip's slots, or null when no slot holds a key (then there is no
+ * strip at all). With Play, an empty slot keeps its width (nothing drawn),
+ * so Play stays on the centre line. Without Play (no player) only the keys
+ * there are remain, packed together.
+ */
 export function stripSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): StripSlot[] | null {
-  const filled = list.map((id) => actionAvailable(id, ctx));
-  if (!filled.some(Boolean)) return null;
-  return list.map((id, i) => ({
-    id,
-    filled: filled[i]!,
-    runStart: filled[i]! && !filled[i - 1],
-    runEnd: filled[i]! && !filled[i + 1],
+  const all = list.map((id) => ({ id, filled: actionAvailable(id, ctx) }));
+  if (!all.some((s) => s.filled)) return null;
+  const kept = all.some((s) => s.id === 'play' && s.filled) ? all : all.filter((s) => s.filled);
+  return kept.map((s, i) => ({
+    ...s,
+    runStart: s.filled && !kept[i - 1]?.filled,
+    runEnd: s.filled && !kept[i + 1]?.filled,
   }));
 }
 
-/** The grid columns: Play wide (the phone's centre key fills what is left), every other slot fixed. */
+/** The side keys' width (⋯'s), so the keys either side of Play match. */
+export const SIDE_KEY: Readonly<Record<StripLayout, number>> = { phone: 56, desk: 58 };
+
+/** The grid columns: Play wide (on a phone it fills what the side keys leave), every other key one side key wide. */
 export function stripColumns(list: readonly AlbumActionId[], layout: StripLayout): string {
-  return list.map((id) => (id === 'play' ? (layout === 'desk' ? '200px' : 'minmax(0, 1fr)') : layout === 'desk' ? '58px' : '52px')).join(' ');
+  return list.map((id) => (id === 'play' ? (layout === 'desk' ? '200px' : 'minmax(0, 1fr)') : `${SIDE_KEY[layout]}px`)).join(' ');
 }
 
 /** Play's state, shared by the strip and the docked header key. */
@@ -105,10 +112,13 @@ export interface AlbumPlayState {
   loading?: boolean;
   /** Play has to wait (the note says why) */
   disabled?: boolean;
-  /** the key's words while it waits, e.g. the player's first-scan progress "34 %" */
-  waitText?: string | null;
-  /** why Play waits: "On the player after its first scan (34 %)" */
+  /** why Play waits: "On the player after its first scan" */
   note?: string | null;
   onPlay?: () => void;
   onToggle?: () => void;
+  /** the album in a random order (Shuffle) */
+  onShuffle?: () => void;
 }
+
+/** Play's word for screen readers and its tooltip (the key itself shows only the icon). */
+export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? 'Pause' : mode === 'resume' ? 'Resume' : 'Play');

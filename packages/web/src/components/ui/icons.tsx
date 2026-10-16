@@ -32,6 +32,17 @@ export function PauseIcon() {
   );
 }
 
+/** Two crossing arrows: shuffle (the album in a random order). */
+export function ShuffleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M4 7h3.2c1.6 0 3.1.8 4 2.1l1.6 2.3 1.6 2.3c.9 1.3 2.4 2.1 4 2.1H20" />
+      <path d="M4 17h3.2c1.6 0 3.1-.8 4-2.1M14.4 9.1c.9-1.3 2.4-2.1 4-2.1H20" />
+      <path d="M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5" />
+    </svg>
+  );
+}
+
 /** A bar and a triangle pointing left: previous track. */
 export function PreviousIcon() {
   return (

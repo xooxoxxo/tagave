@@ -135,9 +135,9 @@
 
 
 /* Rule 8 amended: Play docks as a fourth key, left of Maintenance, once the
-   album's strip has passed under the header. 64px wide on a phone (the end
-   keys stay 72px, so the back and Maintenance icons never move); on a
-   desktop it carries its word, as the strip's Play does. */
+   album's strip has passed under the header: a 64px icon key, phone and
+   desktop alike (the end keys stay 72px, so the back and Maintenance icons
+   never move). */
 .playKey {
   position: absolute;
   z-index: 8;
@@ -152,13 +152,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
   cursor: pointer;
   pointer-events: none;
   color: var(--dew-ink);
-  font: 600 14px / 1 var(--font-body);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%);
   box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dew-hi) 70%, transparent), inset 0 -1px 0 rgba(var(--key-shade), .3), inset 1px 0 0 rgba(var(--key-shade), .2);
   opacity: 0;
@@ -168,7 +164,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 .playKey svg { width: 20px; height: 20px; flex: none; }
-.playText { display: none; }
 .playDocked .playKey { opacity: 1; transform: none; pointer-events: auto; }
 .playDocked .midKey { right: 136px; }
 .playKey:hover:not(:disabled) { color: var(--dew-ink); background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%); }
@@ -199,9 +194,6 @@
   .docked .midKey { box-shadow: inset 0 -1px 0 var(--line); }
   .docked .backKey { box-shadow: inset -1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
   .docked .maintKey { box-shadow: inset 1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
-  .playKey { width: 132px; }
-  .playText { display: inline; }
-  .playDocked .midKey { right: 204px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

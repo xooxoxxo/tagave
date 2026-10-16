@@ -10,7 +10,7 @@ import {
   scanWaitLine,
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
   handoffDelayMs, moveUpcoming, previousAction, previousPlayable, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
-  transcodeFormat, type CanPlay, type KeyTarget,
+  transcodeFormat, type CanPlay, type KeyTarget, queueOrder, shuffleTracks,
 } from './logic';
 
 const track = (id: string, discNo: number, trackNo: number | null, available = true, extra: Partial<PlayerQueueTrack> = {}): PlayerQueueTrack => ({
@@ -80,7 +80,8 @@ describe('the album page while the player scans', () => {
   it('says when the album will be playable, quietly', () => {
     expect(scanWaitLine(null)).toBeNull();
     expect(scanWaitLine({ scanning: false, firstScan: false, count: 10, total: null, percent: null })).toBeNull();
-    expect(scanWaitLine({ scanning: true, firstScan: true, count: 9500, total: 28000, percent: 34 })).toBe('On the player after its first scan (34\u202f%)');
+    // no percentage on the album page (owner, 2026-10-16)
+    expect(scanWaitLine({ scanning: true, firstScan: true, count: 9500, total: 28000, percent: 34 })).toBe('On the player after its first scan');
     expect(scanWaitLine({ scanning: true, firstScan: true, count: null, total: 28000, percent: null })).toBe('On the player after its first scan');
     expect(scanWaitLine({ scanning: true, firstScan: false, count: 12, total: null, percent: null })).toBe('On the player after the scan it is running');
   });
@@ -245,5 +246,55 @@ describe('near-gapless track changes', () => {
     expect(handoffDelayMs(199.5, 200, true, true)).toBeNull();
     expect(handoffDelayMs(0.5, 0.8, true, false)).toBeNull();
     expect(handoffDelayMs(10, null, true, false)).toBeNull();
+  });
+});
+
+describe('shuffle', () => {
+  const album = Array.from({ length: 12 }, (_, i) => track(`t${i}`, i < 6 ? 1 : 2, (i % 6) + 1, i !== 3));
+  /** a repeatable stream in [0, 1) */
+  const seeded = (seed: number) => () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+
+  it('plays every track once, in a different order, the album itself untouched', () => {
+    const before = album.map((t) => t.localTrackId);
+    const out = shuffleTracks(album, seeded(7));
+    expect(out.map((t) => t.localTrackId).sort()).toEqual([...before].sort());
+    expect(out.map((t) => t.localTrackId)).not.toEqual(before);
+    expect(album.map((t) => t.localTrackId)).toEqual(before);
+  });
+
+  it('the same draw gives the same order; another draw another order', () => {
+    const a = shuffleTracks(album, seeded(42)).map((t) => t.localTrackId);
+    expect(shuffleTracks(album, seeded(42)).map((t) => t.localTrackId)).toEqual(a);
+    expect(shuffleTracks(album, seeded(43)).map((t) => t.localTrackId)).not.toEqual(a);
+  });
+
+  it('is fair enough: every track starts the album about as often', () => {
+    const firsts = new Map<string, number>();
+    const rnd = seeded(1);
+    for (let n = 0; n < 6000; n++) {
+      const id = shuffleTracks(album, rnd)[0]!.localTrackId;
+      firsts.set(id, (firsts.get(id) ?? 0) + 1);
+    }
+    expect(firsts.size).toBe(12);
+    for (const c of firsts.values()) expect(c).toBeGreaterThan(350); // 500 expected
+  });
+
+  it('a random() of 1 never reaches past the end', () => {
+    expect(shuffleTracks(album, () => 0.9999999999).length).toBe(12);
+    expect(shuffleTracks(album, () => 1).every(Boolean)).toBe(true);
+  });
+
+  it('the queue starts in disc order, or shuffled once; it then starts at its first playable track', () => {
+    const reversed = [...album].reverse();
+    expect(queueOrder(reversed).map((t) => t.localTrackId)).toEqual(album.map((t) => t.localTrackId));
+    const shuffled = queueOrder(reversed, { shuffle: true, random: seeded(9) });
+    expect(shuffled.map((t) => t.localTrackId)).toEqual(shuffleTracks(album, seeded(9)).map((t) => t.localTrackId));
+    const first = startIndex(shuffled, null);
+    expect(shuffled[first]!.available).toBe(true);
+    expect(shuffled.slice(0, first).every((t) => !t.available)).toBe(true);
+    // next follows the shuffled order, skipping what the player does not have
+    const n = nextPlayable(shuffled, first);
+    expect(n).toBeGreaterThan(first);
+    expect(shuffled.slice(first + 1, n).every((t) => !t.available)).toBe(true);
   });
 });
