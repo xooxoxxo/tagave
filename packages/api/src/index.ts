@@ -17,6 +17,7 @@ import { BackupService, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
 import { initAuth } from './middleware/auth.js';
 import { registerApiRoutes } from './app.js';
+import { requestSerializer } from './lib/logRedact.js';
 import { servesAppShell, staticCacheControl } from './lib/staticCache.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,7 +54,8 @@ process.on('uncaughtException', (err) => {
 // Create Fastify app
 const app = Fastify({
   // LOG_LEVEL applies to request logs too (was always info).
-  logger: { level: process.env.LOG_LEVEL || 'info' },
+  // the request log never carries one-time link tokens or the Last.fm token (lib/logRedact.ts)
+  logger: { level: process.env.LOG_LEVEL || 'info', serializers: { req: requestSerializer } },
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
 });
