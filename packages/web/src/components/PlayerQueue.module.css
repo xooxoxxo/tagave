@@ -122,6 +122,7 @@
 
 .row[data-state="current"] .main {
   background: var(--dew-tint);
+  cursor: default;
 }
 
 .no {

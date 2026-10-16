@@ -57,8 +57,8 @@ export function PlayerQueueView({ album, tracks, index, onPlay, onMove, onRemove
               <button
                 type="button"
                 className={styles.main}
-                onClick={() => onPlay(i)}
-                disabled={!t.available || state === 'current'}
+                onClick={() => { if (state !== 'current') onPlay(i); }}
+                disabled={!t.available}
                 aria-current={state === 'current' ? 'true' : undefined}
               >
                 <span className={styles.no} aria-hidden="true">{state === 'current' ? <span className={styles.nowMark} /> : t.trackNo ?? i + 1}</span>
