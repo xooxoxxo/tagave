@@ -19,6 +19,7 @@ import { startUpdateSchema, type UpdateRun, type UpdaterStatus, type UpdaterView
 import { SIGNATURE_HEADER, SignatureVerifier, TIME_HEADER, signRequest } from '@tagave/updater/token';
 import { ApiError } from '../middleware/errorHandler.js';
 import { liveWorkers } from './updates.js';
+import { fetchReleaseFiles } from '../lib/releaseFiles.js';
 import { requireFreshStepUp } from './stepUp.js';
 
 const CALL_TIMEOUT_MS = 8000;
@@ -35,12 +36,14 @@ function appSecret(): string {
 }
 
 /** `restarting`: the updater refused because it is replacing itself on a new version (409). */
-type CallResult<T> = { ok: true; status: number; body: T } | { ok: false; status: number; error: string; restarting?: boolean };
+export type CallResult<T> = { ok: true; status: number; body: T } | { ok: false; status: number; error: string; restarting?: boolean; check?: string };
 
 /** The title of the 409 the page shows as "restarting the updater". */
-const UPDATER_RESTARTING_TITLE = 'Updater restarting';
+export const UPDATER_RESTARTING_TITLE = 'Updater restarting';
+/** The title of a 422 the updater sends when a signed release does not check out. */
+export const RELEASE_REFUSED_TITLE = 'Release refused';
 
-async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<CallResult<T>> {
+export async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string, body?: unknown): Promise<CallResult<T>> {
   const text = body === undefined ? '' : JSON.stringify(body);
   try {
     const res = await fetch(`${base}${path}`, {
@@ -49,10 +52,11 @@ async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string
       ...(text ? { body: text } : {}),
       signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
     });
-    const json = (await res.json().catch(() => ({}))) as T & { error?: string; selfReplace?: unknown };
+    const json = (await res.json().catch(() => ({}))) as T & { error?: string; selfReplace?: unknown; check?: string };
     if (!res.ok) {
       const error = json.error ?? `the updater answered ${res.status}`;
-      return res.status === 409 && json.selfReplace ? { ok: false, status: 409, error, restarting: true } : { ok: false, status: res.status, error };
+      if (res.status === 409 && json.selfReplace) return { ok: false, status: 409, error, restarting: true };
+      return { ok: false, status: res.status, error, ...(json.check ? { check: json.check } : {}) };
     }
     return { ok: true, status: res.status, body: json };
   } catch (err) {
@@ -60,7 +64,7 @@ async function callUpdater<T>(base: string, method: 'GET' | 'POST', path: string
   }
 }
 
-function requireOwner(request: FastifyRequest) {
+export function requireOwner(request: FastifyRequest) {
   if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
   if (request.user.role !== 'owner') throw new ApiError(403, 'Forbidden', 'Only the owner can update tagave');
   return request.user;
@@ -84,8 +88,16 @@ export async function createUpdaterRoutes(fastify: FastifyInstance) {
     const base = updaterUrl();
     if (!base) throw new ApiError(409, 'Conflict', 'The updater is not installed on this server');
     await requireFreshStepUp(request);
-    const res = await callUpdater<{ run: UpdateRun }>(base, 'POST', '/v1/update', { version: parsed.data.version });
+    // The signed manifest of the target: the updater checks it before it uses anything.
+    let files: { manifest: string; signature: string };
+    try {
+      files = await fetchReleaseFiles(parsed.data.version);
+    } catch (err) {
+      throw new ApiError(502, 'Bad Gateway', `The signed manifest of ${parsed.data.version} could not be downloaded: ${(err as Error).message}. Nothing was changed.`);
+    }
+    const res = await callUpdater<{ run: UpdateRun }>(base, 'POST', '/v1/update', { version: parsed.data.version, ...files });
     if (!res.ok && res.restarting) throw new ApiError(409, UPDATER_RESTARTING_TITLE, res.error);
+    if (!res.ok && res.status === 422) throw new ApiError(422, RELEASE_REFUSED_TITLE, res.error);
     if (!res.ok) throw new ApiError(res.status === 409 || res.status === 400 ? res.status : 502, res.status === 409 ? 'Conflict' : 'Bad Gateway', res.error);
     request.log.info({ event: 'update.started', userId: user.id, version: parsed.data.version, runId: res.body.run.id }, 'in-app update started');
     return reply.status(202).send(res.body);

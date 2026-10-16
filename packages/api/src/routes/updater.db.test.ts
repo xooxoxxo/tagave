@@ -43,6 +43,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
   /** The stand-in answers POST /v1/update the way an updater replacing itself does. */
   let restarting = false;
   let busy = false;
+  let refuseRelease = false;
 
   const json = (j: Jar = jar) => ({ origin: TEST_PUBLIC_URL, 'content-type': 'application/json', cookie: cookieHeader(j) });
   const get = (path: string, j: Jar = jar) => app.inject({ method: 'GET', url: path, headers: { cookie: cookieHeader(j) } });
@@ -64,6 +65,18 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
       let body = '';
       req.on('data', (c) => { body += c; });
       req.on('end', () => {
+        // The release's signed files, as the release page publishes them.
+        const asset = /^\/v([^/]+)\/(release-manifest\.json(?:\.sig)?)$/.exec(req.url ?? '');
+        if (asset) {
+          if (asset[1] === '0.9.9') { res.writeHead(404).end('Not Found'); return; }
+          res.writeHead(200).end(asset[2]!.endsWith('.sig') ? `sig of ${asset[1]}\n` : `{"version":"${asset[1]}"}\n`);
+          return;
+        }
+        if (refuseRelease && req.method === 'POST') {
+          res.writeHead(422, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: 'the release manifest does not match its signature: it was changed after tagave signed it (key 0123456789abcdef). Nothing was changed.', check: 'signature' }));
+          return;
+        }
         const h = (n: string) => req.headers[n] as string | undefined;
         const verified = verifier.verify({ method: req.method!, path: req.url!, body, time: h(TIME_HEADER), signature: h(SIGNATURE_HEADER) }).ok;
         received.push({ method: req.method!, path: req.url!, body, verified });
@@ -85,6 +98,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     });
     await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
     process.env.TAGAVE_UPDATER_URL = `http://127.0.0.1:${(fake.address() as AddressInfo).port}`;
+    process.env.TAGAVE_RELEASE_ASSETS_URL = process.env.TAGAVE_UPDATER_URL;
 
     app = await buildAuthApp(handle, async (instance) => {
       await instance.register(createUpdaterRoutes, { prefix: '/api/v1' });
@@ -104,6 +118,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     received = [];
     restarting = false;
     busy = false;
+    refuseRelease = false;
     resetStepUpFailures();
     const res = await app.inject({ method: 'POST', url: '/api/auth/sign-in/email', headers: { origin: TEST_PUBLIC_URL, 'content-type': 'application/json' }, payload: { email: EMAIL, password: PASSWORD } });
     jar = cookieJar(res.headers['set-cookie']);
@@ -111,6 +126,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
 
   afterAll(async () => {
     delete process.env.TAGAVE_UPDATER_URL;
+    delete process.env.TAGAVE_RELEASE_ASSETS_URL;
     await app?.close();
     await handle?.close();
     await new Promise((r) => fake?.close(r));
@@ -130,7 +146,19 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     expect(status).toMatchObject({ fresh: true, methods: ['password'] });
     const res = await post('/api/v1/updater/update', { version: '0.8.0' });
     expect(res.statusCode).toBe(202);
-    expect(received.at(-1)).toMatchObject({ method: 'POST', path: '/v1/update', body: '{"version":"0.8.0"}', verified: true });
+    expect(received.at(-1)).toMatchObject({ method: 'POST', path: '/v1/update', verified: true });
+    expect(JSON.parse(received.at(-1)!.body)).toEqual({ version: '0.8.0', manifest: '{"version":"0.8.0"}\n', signature: 'sig of 0.8.0\n' });
+  });
+
+  it('passes on the updater refusing the signed manifest, and a release without one', async () => {
+    refuseRelease = true;
+    const refused = await post('/api/v1/updater/update', { version: '0.8.0' });
+    expect(refused.statusCode).toBe(422);
+    expect(refused.json()).toMatchObject({ title: 'Release refused', detail: expect.stringMatching(/changed after tagave signed it/) });
+    refuseRelease = false;
+    const missing = await post('/api/v1/updater/update', { version: '0.9.9' });
+    expect(missing.statusCode).toBe(502);
+    expect(missing.json().detail).toMatch(/signed manifest of 0\.9\.9 could not be downloaded.*publishes no signed manifest. Nothing was changed\./);
   });
 
   it('refuses to start an update on a sign-in older than five minutes, until the owner re-verifies', async () => {
