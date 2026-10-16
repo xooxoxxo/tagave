@@ -1,8 +1,11 @@
 -- Music Connections, phases 2-3: the change log the /mc/v1 feeds page
--- through (routes/mcFeeds.ts). One row per (capability, key, library, person)
--- that changed; the feed builds each item's data from the current rows when
--- it is read, so the log only says "look at this key again". A key that no
--- longer has data is a tombstone (op 'delete'), kept 90 days (mc.purge).
+-- through (routes/mcFeeds.ts). A row per (capability, key, library, person)
+-- each time a statement changed that key; the log is append-only (no row is
+-- ever updated or locked by a writer). The feed builds each item's data from
+-- the current rows when it is read, and the op it serves (upsert when the key
+-- has data then, else delete) is decided then too: the op stored here is only
+-- the writer's view, which a concurrent writer can make stale. mc.purge drops
+-- rows a newer row of the same key supersedes, and delete rows after 90 days.
 --
 -- Who a row belongs to: ratings and listens are one person's (user_id set);
 -- collection and identity describe the library, which every account reads
@@ -23,8 +26,8 @@ create table if not exists mc_changes (
 );
 -- The feed: one capability, one person (or the library's null), in order.
 create index if not exists idx_mc_changes_feed on mc_changes (capability, user_id, changed_at, id);
--- Compaction: a key's older rows go when it changes again.
-create index if not exists idx_mc_changes_key on mc_changes (capability, key);
+-- Superseded rows (mc.purge) and the audio_files trigger's once-per-statement check.
+create index if not exists idx_mc_changes_key on mc_changes (capability, key, changed_at, id);
 -- mc.purge: tombstones by age.
 create index if not exists idx_mc_changes_tombstones on mc_changes (changed_at) where op = 'delete';
 
@@ -36,12 +39,12 @@ language sql immutable as $$
 $$;
 
 create or replace function mc_listen_key(rg uuid, at timestamptz) returns text
-language sql immutable as $$
+language sql stable as $$
   select rg::text || ':' || to_char(at at time zone 'UTC', 'YYYY-MM-DD')
 $$;
 
--- Whether a key has data now (upsert) or not (delete). The feed decides again
--- when it reads, so this only picks the op the log stores.
+-- Whether a key has data in the writer's snapshot (upsert) or not (delete).
+-- Only a hint: the feed decides the op when it reads.
 create or replace function mc_present(cap text, lib uuid, usr uuid, k text) returns boolean
 language plpgsql stable as $$
 declare
@@ -87,8 +90,10 @@ begin
   return false;
 end $$;
 
--- Log the keys one statement touched: at most one row per (key, library,
--- person), the key's older rows removed (the newest row says all there is).
+-- Log the keys one statement touched: one row per (key, library, person).
+-- Append-only on purpose: removing a key's older rows here would row-lock
+-- them, so two writers touching one album (a rating save and a sync) would
+-- wait on each other, and multi-key statements could deadlock.
 -- libs, usrs and keys are parallel arrays; a null key or library is skipped.
 create or replace function mc_log(cap text, libs uuid[], usrs uuid[], keys text[]) returns void
 language plpgsql as $$
@@ -101,9 +106,6 @@ begin
        -- (their rows go with them), and the foreign keys would refuse it
        and exists (select 1 from libraries lib where lib.id = t.l)
        and (t.u is null or exists (select 1 from users usr where usr.id = t.u))
-  ), gone as (
-    delete from mc_changes m using x
-     where m.capability = cap and m.key = x.k and m.library_id = x.l and m.user_id is not distinct from x.u
   )
   insert into mc_changes (capability, key, op, user_id, library_id)
   select cap, x.k, case when mc_present(cap, x.l, x.u, x.k) then 'upsert' else 'delete' end, x.u, x.l
@@ -348,8 +350,11 @@ create trigger mc_release_groups_del after delete on release_groups referencing 
 -- every row of every scan update (241k files, tags_raw and all) only to find
 -- nothing changed. The WHEN clause is checked in the executor, so a scan that
 -- leaves status and codec alone never calls the function; a statement that
--- does change them logs each album once (an album already logged in this
--- statement is skipped).
+-- does change them logs each album once: an album that already has a row
+-- from at or after this statement's start is skipped. That is safe even when
+-- the row is another transaction's: the feed reads no row newer than the
+-- start of the oldest transaction still writing (this one), and decides the
+-- op and data when it reads, so this statement's change is in what it serves.
 create or replace function mc_trg_audio_files() returns trigger language plpgsql as $$
 declare l uuid[]; k text[];
 begin
