@@ -434,6 +434,13 @@ backup="$(find "$work/upd/backups" -mindepth 1 -maxdepth 1 -type d -name 'pre-up
 [ "$(env_value TAGAVE_VERSION "$backup/.env")" = "0.4.1" ] || fail "update: the saved .env is not the 0.4.1 one"
 [ "$(mode_of "$backup")" = "700" ] || fail "update: the backup folder is not private"
 dump_at="$(grep -n 'pg_dump' "$work/docker.log" | head -n 1 | cut -d: -f1)"
+if ! grep -q -- 'pg_dump.*--exclude-table-data=public.cover_thumbs' "$work/docker.log"; then
+  cat "$work/docker.log" >&2; fail "update: the pre-update dump does not leave out the cover thumbnails"
+fi
+# a roll back point: the provider cache stays in
+if grep -q -- '--exclude-table-data=public.provider_cache' "$work/docker.log"; then
+  cat "$work/docker.log" >&2; fail "update: the pre-update dump leaves out the provider cache"
+fi
 stop_at="$(line_of 'compose stop worker-files worker-identify')"
 [ -n "$stop_at" ] || stop_at="$(line_of 'compose stop worker-identify worker-files')"
 app_at="$(line_of 'compose up -d app')"
@@ -446,7 +453,7 @@ if ! { [ "$dump_at" -lt "$stop_at" ] && [ "$stop_at" -lt "$app_at" ] && [ "$app_
 fi
 grep -q 'How to roll back to 0.4.1' "$work/update.log" || fail "update: no roll back instructions"
 grep -q 'pg_restore' "$work/update.log" || fail "update: roll back does not restore the database"
-pass "update backs up, pins 0.5.0, restarts the app before the workers, prints the roll back"
+pass "update backs up (without thumbnails, with the provider cache), pins 0.5.0, restarts the app before the workers, prints the roll back"
 
 # D6: the newest 3 pre-update dumps stay (this update's and the two before it);
 # older dumps go, but every folder keeps its .env and compose copy.

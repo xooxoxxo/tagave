@@ -1805,6 +1805,10 @@ save_configuration() {
 
 # A pg_dump in custom format, taken by the database container itself (its
 # pg_dump always matches the server), then read back with pg_restore --list.
+# Cover thumbnails are left out, as in every app backup: worker-files rebuilds
+# them after a restore (the table comes back empty). The provider cache stays
+# in: this dump is a roll back point, and the older version should not start
+# with a cold cache (AcoustID is slow to refill).
 backup_database() {
   local dump="$UPDATE_BACKUP_DIR/database.pgdump" entries size
   if [ "$(container_health postgres)" != "healthy" ]; then
@@ -1813,7 +1817,7 @@ backup_database() {
   fi
   say "  Backing up the database (this can take a while on a large library)..."
   # shellcheck disable=SC2016 # $POSTGRES_USER and $POSTGRES_DB expand inside the container
-  if ! ( umask 077; compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"' >"$dump" ); then
+  if ! ( umask 077; compose exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB" --exclude-table-data=public.cover_thumbs' >"$dump" ); then
     die "the database backup failed (see above). Nothing was changed."
   fi
   entries="$(compose_in exec -T postgres pg_restore --list <"$dump" 2>/dev/null | grep -vc '^;' || true)"
