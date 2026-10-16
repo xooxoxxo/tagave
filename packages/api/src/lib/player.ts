@@ -9,7 +9,7 @@
  */
 import type { PgBoss } from 'pg-boss';
 import type postgres from 'postgres';
-import type { PlayerCapability, PlayerQueueTrack, PlayerQueueView, UnplayableReason } from '@tagave/shared';
+import type { PlayerAlbumAvailability, PlayerCapability, PlayerQueueTrack, PlayerQueueView, PlayerScanStatus, UnplayableReason } from '@tagave/shared';
 import {
   getAlbum,
   getMusicFolders,
@@ -77,9 +77,12 @@ export async function ownedLibrary(sql: Sql, libraryId: string, userId: string):
 const CAPABILITY_TTL_MS = 30_000;
 const CAPABILITY_FAIL_TTL_MS = 10_000;
 const capabilityCache = new Map<string, { at: number; value: PlayerCapability }>();
+const PING_TIMEOUT_MS = 8000;
 
 export function clearCapabilityCache(): void {
   capabilityCache.clear();
+  scanCache.clear();
+  totalCache.clear();
 }
 
 export const NOT_INSTALLED: PlayerCapability = { installed: false, managed: null, backend: null, version: null, reachable: false, error: null };
@@ -91,13 +94,64 @@ export async function capabilityOf(backend: PlayerBackend | null, opts: { fetchI
   if (!opts.fresh && cached && now - cached.at < (cached.value.reachable ? CAPABILITY_TTL_MS : CAPABILITY_FAIL_TTL_MS)) return cached.value;
   let value: PlayerCapability;
   try {
-    const p = await ping(backend.server, { timeoutMs: 4000, ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
+    // A server reading a big library (Navidrome's first scan) can be slow to
+    // answer; a short timeout here hid every Play button while it scanned.
+    const p = await ping(backend.server, { timeoutMs: PING_TIMEOUT_MS, ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) });
     value = { installed: true, managed: backend.managed, backend: p.type ?? 'subsonic', version: p.serverVersion, reachable: true, error: null };
   } catch (err) {
     value = { installed: true, managed: backend.managed, backend: null, version: null, reachable: false, error: (err as Error).message };
   }
   capabilityCache.set(backend.key, { at: now, value });
   return value;
+}
+
+// -- the server's own scan ----------------------------------------------------------
+
+const SCAN_TTL_MS = 5_000;
+const TOTAL_TTL_MS = 5 * 60_000;
+const scanCache = new Map<string, { at: number; value: { scanning: boolean; count: number | null; lastScan: string | null } }>();
+const totalCache = new Map<string, { at: number; value: number }>();
+
+/** A lastScan the server has really recorded (Navidrome reports the zero time before its first scan ends). */
+export function hasScanned(lastScan: string | null): boolean {
+  if (!lastScan) return false;
+  const t = Date.parse(lastScan);
+  return Number.isFinite(t) && new Date(t).getUTCFullYear() >= 2000;
+}
+
+/** count / total as a whole percent, held under 100 while the scan runs. */
+export function scanPercent(count: number | null, total: number | null): number | null {
+  if (count == null || !total || total <= 0) return null;
+  return Math.max(0, Math.min(99, Math.floor((count / total) * 100)));
+}
+
+/** The audio files tagave knows in this library: what a first scan works through. */
+async function libraryFileCount(sql: Sql, libraryId: string): Promise<number> {
+  const cached = totalCache.get(libraryId);
+  if (cached && Date.now() - cached.at < TOTAL_TTL_MS) return cached.value;
+  const rows = await sql<{ n: number }[]>`
+    select count(*)::int as n from audio_files af
+    join scan_roots sr on sr.id = af.scan_root_id
+    where sr.library_id = ${libraryId} and af.status = 'present'`;
+  const value = rows[0]?.n ?? 0;
+  totalCache.set(libraryId, { at: Date.now(), value });
+  return value;
+}
+
+/**
+ * Is the player server scanning, and how far is it? One getScanStatus,
+ * cached for a few seconds so several open pages cost one call.
+ */
+export async function playerScanStatus(sql: Sql, backend: PlayerBackend, libraryId: string, opts: { fetchImpl?: typeof fetch } = {}): Promise<PlayerScanStatus> {
+  let raw = scanCache.get(backend.key);
+  if (!raw || Date.now() - raw.at >= SCAN_TTL_MS) {
+    raw = { at: Date.now(), value: await getScanStatus(backend.server, opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}) };
+    scanCache.set(backend.key, raw);
+  }
+  const { scanning, count, lastScan } = raw.value;
+  const firstScan = !hasScanned(lastScan);
+  const total = scanning && firstScan ? await libraryFileCount(sql, libraryId) : null;
+  return { scanning, firstScan, count, total, percent: scanning && firstScan ? scanPercent(count, total) : null };
 }
 
 // -- scan requests --------------------------------------------------------------
@@ -322,7 +376,7 @@ export interface QueueDeps {
  * (and cached); what the server does not have yet triggers a scan of those
  * folders and comes back as not_scanned.
  */
-export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album: AlbumRow): Promise<PlayerQueueView> {
+export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album: AlbumRow, opts: { requestScan?: boolean } = {}): Promise<PlayerQueueView> {
   const root = musicRoot();
   let rows = await albumTracks(deps.sql, album.id, backend.key);
   const needs = rows.filter((t) => !t.song_id && unplayableReason(t) === null);
@@ -339,7 +393,7 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
           matched_by = excluded.matched_by, resolved_at = now()`;
     }
     const missing = refs.filter((r) => !matches.has(r.id));
-    if (missing.length > 0) {
+    if (missing.length > 0 && opts.requestScan !== false) {
       await requestPlayerScan(deps.sql, deps.boss, album.library_id, missing.map((r) => folderOf(r.relPath)));
       scanRequested = true;
     }
@@ -366,6 +420,11 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
       reason,
     };
   });
+  // what is not on the server yet waits for its scan: say how far that is
+  let scan: PlayerScanStatus | null = null;
+  if (tracks.some((t) => t.reason === 'not_scanned')) {
+    scan = await playerScanStatus(deps.sql, backend, album.library_id, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}).catch(() => null);
+  }
   return {
     albumId: album.id,
     album: albumTitle,
@@ -373,6 +432,24 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
     coverUrl: album.has_art ? `/api/v1/images/album/${album.id}` : null,
     tracks,
     scanRequested,
+    scan,
+  };
+}
+
+/**
+ * Can Play start on this album now? The queue's matching without its side
+ * effect: an album page asks this on every visit, and a visit must not make
+ * the server scan.
+ */
+export async function albumAvailability(deps: QueueDeps, backend: PlayerBackend, album: AlbumRow): Promise<PlayerAlbumAvailability> {
+  const q = await albumQueue(deps, backend, album, { requestScan: false });
+  const playable = q.tracks.filter((t) => t.available).length;
+  return {
+    albumId: album.id,
+    tracks: q.tracks.length,
+    playable,
+    reason: playable > 0 ? null : q.tracks.find((t) => t.reason)?.reason ?? null,
+    scan: q.scan ?? null,
   };
 }
 

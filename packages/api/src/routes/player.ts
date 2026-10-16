@@ -7,6 +7,8 @@
  *   PUT    /api/v1/libraries/:libraryId/player/server   owner: bring your own server (tested before it is saved)
  *   DELETE /api/v1/libraries/:libraryId/player/server   owner: forget it
  *   POST   /api/v1/libraries/:libraryId/player/scan     owner: ask the server to look for changes now
+ *   GET    /api/v1/libraries/:libraryId/player/scan-status  is the server scanning, and how far (first scan: a percent)
+ *   GET    /api/v1/player/albums/:albumId/availability  can Play start on this album now (read-only, never scans)
  *   GET    /api/v1/player/albums/:albumId/queue         the album as a play queue (tracks matched to songs)
  *   GET    /api/v1/player/stream/:localTrackId          the audio, proxied (ranges for the original file)
  *   POST   /api/v1/player/events                        now playing / completed / skipped, stored for later
@@ -32,6 +34,7 @@ import { getBoss } from '../boss.js';
 import {
   StreamLimiter,
   WindowLimiter,
+  albumAvailability,
   albumForUser,
   albumQueue,
   backendFor,
@@ -40,6 +43,7 @@ import {
   forgetSong,
   ownedLibrary,
   parseSettings,
+  playerScanStatus,
   requestPlayerScan,
   songIdFor,
   trackForUser,
@@ -171,6 +175,39 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     if (!backendFor(lib.settings)) throw notInstalled();
     await requestPlayerScan(sql, await getBoss(), libraryId, [''], 0);
     return reply.status(202).send({ requested: true });
+  });
+
+  fastify.get('/libraries/:libraryId/player/scan-status', async (request: FastifyRequest) => {
+    const user = requireUser(request);
+    const { libraryId } = request.params as { libraryId: string };
+    const sql = getSql();
+    const lib = await ownedLibrary(sql, libraryId, user.id);
+    if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
+    const backend = backendFor(lib.settings);
+    if (!backend) throw notInstalled();
+    try {
+      return await playerScanStatus(sql, backend, libraryId);
+    } catch (err) {
+      if (err instanceof SubsonicError) throw new ApiError(502, 'Bad Gateway', err.message);
+      throw err;
+    }
+  });
+
+  fastify.get('/player/albums/:albumId/availability', async (request: FastifyRequest) => {
+    const user = requireUser(request);
+    const { albumId } = request.params as { albumId: string };
+    const sql = getSql();
+    const album = await albumForUser(sql, albumId, user.id);
+    if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+    const lib = await ownedLibrary(sql, album.library_id, user.id);
+    const backend = backendFor(lib?.settings);
+    if (!backend) throw notInstalled();
+    try {
+      return await albumAvailability({ sql, boss: null }, backend, album);
+    } catch (err) {
+      if (err instanceof SubsonicError) throw new ApiError(502, 'Bad Gateway', err.message);
+      throw err;
+    }
   });
 
   fastify.get('/player/albums/:albumId/queue', async (request: FastifyRequest) => {

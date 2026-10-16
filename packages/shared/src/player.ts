@@ -102,6 +102,41 @@ export interface PlayerQueueView {
   tracks: PlayerQueueTrack[];
   /** some files were not on the server yet, so tagave asked it to scan */
   scanRequested: boolean;
+  /** the server's scan, when some tracks are not on it yet (absent from an older API) */
+  scan?: PlayerScanStatus | null;
+}
+
+/**
+ * The player server's own scan (Subsonic getScanStatus): while it runs, the
+ * albums it has not reached are not playable yet. Navidrome reads a new
+ * library in folder order, so a big first scan takes a while.
+ */
+export interface PlayerScanStatus {
+  scanning: boolean;
+  /** the server has never finished a scan (no lastScan): this is its first */
+  firstScan: boolean;
+  /** files the server has read in this scan, as it reports them */
+  count: number | null;
+  /** the audio files tagave knows in this library, the scan's goal */
+  total: number | null;
+  /** count / total while a first scan runs (never 100 before it ends); null otherwise */
+  percent: number | null;
+}
+
+/**
+ * GET /api/v1/player/albums/:albumId/availability: can Play start on this
+ * album now? Read-only: it matches tracks to songs like the queue does, but
+ * never asks the server to scan.
+ */
+export interface PlayerAlbumAvailability {
+  albumId: string;
+  tracks: number;
+  /** tracks the player can stream now */
+  playable: number;
+  /** why the first unplayable track is not playable, when none is */
+  reason: UnplayableReason | null;
+  /** the server's scan, when some tracks are not on it yet */
+  scan: PlayerScanStatus | null;
 }
 
 /** Stream formats. `original` passes the file through untouched (seekable with HTTP ranges). */

@@ -267,7 +267,7 @@ async function onError(a: HTMLAudioElement) {
     const tracks = get().queue?.tracks ?? [];
     const next = nextPlayable(tracks, failing.index);
     if (next >= 0) { loadTrack(next); return; }
-    showError(nothingPlayableMessage({ scanRequested: true, tracks }), 'queue');
+    showError(nothingPlayableMessage({ scanRequested: true, tracks, scan: get().queue?.scan ?? null }), 'queue');
     return;
   }
   if (kind === 'fallback') {

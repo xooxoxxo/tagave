@@ -1,17 +1,19 @@
 /**
  * Album page (spec BRW-2), laid out as the album page flow (vault spec
  * "tagave - Album Page Flow", approved prototype album-flow-prototype.html):
- * the album first (cover, artist above album, the album's details) with
- * one TRACKLIST label resting at the bottom of a phone's first screen, then
- * the tracks. Back and Maintenance are keys that never move; the header
+ * the album first (cover, artist above album, two quiet lines of details,
+ * Play) with one TRACKLIST label resting at the bottom of a phone's first
+ * screen, then the tracks. Back and Maintenance are keys that never move; the header
  * docks around them (AlbumFlowHeader, useAlbumFlow). Upkeep stays out of
  * sight unless something needs a decision (see utils/albumAttention.ts);
  * Maintenance (maintenance.ts) reveals the state, provider links, every
  * library issue, the Manage menu and per-track marks.
  *
- * Sections: Tracks, Editions, About, Activity, kept in ?tab; the strip
- * follows the tracks. The old "Library health" face lives in the attention
- * strip; its old links (?tab=care) open the strip with Maintenance on.
+ * Sections: Tracks, Editions, About, Activity, kept in ?tab. The switcher
+ * shows only with Maintenance on: it takes TRACKLIST's place under the
+ * header (phone and desktop alike); without Maintenance the page is the
+ * album and its tracks. A ?tab link to another section turns Maintenance
+ * on, as the old "Library health" links (?tab=care) do for the strip.
  */
 import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { IdentifyRequestView } from '@tagave/shared';
@@ -37,7 +39,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, PlayIcon, PauseIcon, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, Collapse, CoverArt, LinkButton, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -45,11 +47,13 @@ import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
+import { AlbumPlayRow } from './AlbumPlayRow';
 import { AlbumFiller } from './AlbumFiller';
-import { albumFacts, caretPath, fillerHeight, wantsFiller } from './albumFlow';
+import { albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
-import { usePlaybackAvailable } from '../hooks/usePlayer';
+import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
+import { scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -92,13 +96,19 @@ export function AlbumDetailPage() {
   const queryClient = useQueryClient();
   const [maintenance, setMaintenance] = useMaintenance();
   const [{ shortAlbumArt }] = useDisplayPrefs();
-  // the opt-in player: Play and per-track play exist only while one is installed and answering
-  const canPlay = usePlaybackAvailable();
+  // the opt-in player: Play and per-track play exist only while one is installed
+  // and answering; installed but silent, Play shows disabled with a word why
+  const player = useCapabilities().data?.player;
+  const canPlay = playbackAvailable(player);
+  const playerInstalled = !!player?.installed;
+  const playability = useAlbumPlayability(albumId, canPlay);
   const playingHere = usePlayerStore((s) => s.queue?.albumId === albumId && s.index >= 0);
   const playStatus = usePlayerStore((s) => s.status);
   const playingTrackId = usePlayerStore((s) => (s.queue?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
-  const tab: AlbumTab = search.tab ?? 'tracks';
+  // the sections switcher is a Maintenance tool: without it, the page is the tracks
+  const sections = maintenance;
+  const tab: AlbumTab = sections ? search.tab ?? 'tracks' : 'tracks';
   const setTab = (next: AlbumTab) =>
     void navigate({ to: '/albums/$albumId', params: { albumId }, search: next === 'tracks' ? {} : { tab: next }, replace: true, resetScroll: false });
 
@@ -240,17 +250,28 @@ export function AlbumDetailPage() {
   }), []);
   const footRef = useRef<HTMLDivElement>(null);
   const flow = useAlbumFlow(flowRefs, !!album);
-  // a section opened from elsewhere on the page (or a ?tab link) is brought into view
+  // a section opened from elsewhere on the page (or a ?tab link) is brought into view;
+  // the sections live in Maintenance, so opening one turns it on
   const openSection = (next: AlbumTab) => {
+    if (next !== 'tracks' && !maintenance) setMaintenance(true);
     setTab(next);
     requestAnimationFrame(() => (next === 'tracks' ? flow.toTracklist() : flow.toElement(footRef.current)));
   };
+  // a link to another section (?tab=about…) opens it, in Maintenance
+  useEffect(() => {
+    if (search.tab && search.tab !== 'tracks' && !maintenance) setMaintenance(true);
+  }, [search.tab]); // eslint-disable-line react-hooks/exhaustive-deps
   const sectionShown = useRef(false);
   useEffect(() => {
     if (!album || sectionShown.current) return;
     sectionShown.current = true;
-    if (tab !== 'tracks') requestAnimationFrame(() => flow.toElement(footRef.current));
+    if (search.tab && search.tab !== 'tracks') requestAnimationFrame(() => flow.toElement(footRef.current));
   }, [album]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a Play that found nothing to play may have asked the server to scan: look again
+  const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.albumId === albumId);
+  useEffect(() => {
+    if (playFailedHere) void queryClient.invalidateQueries({ queryKey: albumAvailabilityKey(albumId) });
+  }, [playFailedHere, albumId, queryClient]);
 
   const pending = album?.pendingIdentify ?? null;
   // The request as it really stands (API ≥ 0.4.2); an older API sends only
@@ -752,11 +773,11 @@ export function AlbumDetailPage() {
   const dismissNote = () => { setNote(null); setArtAsked(false); };
 
   const facts: Array<[string, ReactNode]> = [
-    ['Released', album.release?.date ?? (album.year ? String(album.year) : null)],
+    ['Released', formatReleased(album.release?.date, album.year)],
     ['Label', album.release?.labels?.length ? album.release.labels.map((l) => (l.catno ? `${l.name} · ${l.catno}` : l.name)).join(', ') : null],
-    ['Country', album.release?.country ?? null],
+    ['Country', countryName(album.release?.country)],
     ['Tracks', [trackCountText, album.discCount && album.discCount > 1 ? `${album.discCount} discs` : null, dur(album.totalDurationMs)].filter(Boolean).join(' · ')],
-    ['Format', album.formats?.join(', ') || null],
+    ['Format', formatLine(album.tracks, album.formats) || album.formats?.join(', ') || null],
     ['Genres & styles', genreLabels.join(', ') || null],
     ['Physical copy', ownsPhysical ? album.discogsCollectionItems!.map((i) => [i.format, i.folder, i.mediaCondition && `media ${i.mediaCondition}`, i.sleeveCondition && `sleeve ${i.sleeveCondition}`, i.pushState === 'pending' ? 'adding to Discogs…' : i.pushState === 'failed' ? `failed: ${i.pushError}` : null].filter(Boolean).join(' · ')).join('; ') : null],
     ['Local folder', album.dirPaths?.length ? <AlbumFolders folders={album.folders ?? album.dirPaths.map((path) => ({ path, scanRootId: null, link: null }))} /> : null],
@@ -767,7 +788,8 @@ export function AlbumDetailPage() {
     ['CUE sheet', album.isCueImage ? album.cueRelPath || 'CUE image album' : null],
   ];
 
-  const details = albumFacts({
+  // two quiet lines under the names; every detail stays in About (Maintenance)
+  const summary = albumSummary({
     date: album.release?.date,
     year: album.year,
     labels: album.release?.labels,
@@ -779,17 +801,39 @@ export function AlbumDetailPage() {
     formats: album.formats,
     tracks: album.tracks,
   });
+  const summaryLine = (parts: ReactNode[]) => parts.flatMap((part, i) => [
+    ...(i > 0 ? [<span key={`dot${i}`} className={styles.dot} aria-hidden="true"> · </span>] : []),
+    <span key={`part${i}`} className={styles.part}>{part}</span>,
+  ]);
+  const lineOne: ReactNode[] = [
+    ...summary.when,
+    ...(ownsPhysical ? [<Link to="/collection" title="In your physical collection" className={styles.physicalLink}>{`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}</Link>] : []),
+  ];
   const artistLine = albumArtist ?? 'Unknown artist';
   const playVariant = items.some((i) => i.tone === 'attention') ? 'secondary' as const : 'primary' as const;
   const albumRef = { albumId, title: title ?? 'Untitled', artist: artistLine, coverUrl: album.coverUrl };
-  const manageMenu = <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} />;
+  const manageMenu = <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} {...(maintenance ? {} : { size: 'sm' as const })} />;
+  // Play: on as soon as the player can stream something here; disabled, with
+  // a quiet line, while it cannot (not answering, its scan has not reached
+  // the album, the files are missing). An album the player simply has not
+  // seen keeps Play: pressing it asks the player to look for the files.
+  const avail = playability.availability;
+  const playNote: string | null = !playerInstalled ? null
+    : !canPlay ? 'The player is not answering right now'
+      : avail && avail.playable === 0
+        ? scanWaitLine(playability.scan)
+          ?? (avail.reason === 'no_file' ? 'The files are missing or could not be read'
+            : avail.reason === 'cue' ? 'Tracks inside a CUE image cannot be played yet'
+              : avail.reason === 'not_scanned' ? 'Not on the player yet' : null)
+        : null;
+  const playDisabled = !canPlay || (!!avail && avail.playable === 0 && (!!playability.scan?.scanning || avail.reason === 'no_file' || avail.reason === 'cue'));
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
 
   return (
     <PageShell bare>
-      <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="" data-album-tab={tab}>
+      <div ref={(el) => { flowRefs.root.current = el; }} className={styles.flow} data-album-flow="" data-album-tab={tab} data-sections={sections ? '' : undefined}>
         <AlbumFlowHeader
           docked={flow.docked}
           artist={artistLine}
@@ -830,36 +874,27 @@ export function AlbumDetailPage() {
               </span>
               <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
             </div>
-            {/* the album's details in the space below the names */}
-            <dl className={styles.details}>
-              {details.map(([k, v]) => (
-                <div key={k} className={styles.detail}><dt>{k}</dt><dd>{v}</dd></div>
-              ))}
-              {ownsPhysical && (
-                <div className={styles.detail}>
-                  <dt>Physical</dt>
-                  <dd>
-                    <Link to="/collection" title="In your physical collection">{physicalFormats || 'In your collection'}</Link>
-                    {physicalPending && <span className={styles.physicalNote}> · adding to Discogs…</span>}
-                  </dd>
-                </div>
-              )}
+            {/* the album's details: two quiet lines under the names (all of them in About) */}
+            <div className={styles.summary} data-album-summary="">
+              {lineOne.length > 0 && <p className={styles.summaryLine}>{summaryLine(lineOne)}</p>}
+              {summary.what.length > 0 && <p className={styles.summaryLine}>{summaryLine(summary.what)}</p>}
               {genreLabels.length > 0 && (
                 <div className={styles.genres}>{genreLabels.map((g) => <span key={g}>{g}</span>)}</div>
               )}
-            </dl>
-            {canPlay && (
-              // Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view)
-              <div className={styles.playRow}>
-                {playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? (
-                  <Button variant={playVariant} onClick={togglePlayback}><PauseIcon />Pause</Button>
-                ) : playingHere && playStatus === 'paused' ? (
-                  <Button variant={playVariant} onClick={togglePlayback}><PlayIcon />Resume</Button>
-                ) : (
-                  <Button variant={playVariant} loading={queueLoading} onClick={() => void playAlbum(albumRef)}><PlayIcon />Play</Button>
-                )}
-              </div>
-            )}
+            </div>
+            {/* Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view) */}
+            <AlbumPlayRow
+              mode={!playerInstalled ? null
+                : playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
+                  : playingHere && playStatus === 'paused' ? 'resume' : 'play'}
+              variant={playVariant}
+              loading={queueLoading}
+              disabled={playDisabled}
+              note={playNote}
+              onPlay={() => void playAlbum(albumRef)}
+              onToggle={togglePlayback}
+              menu={maintenance ? null : manageMenu}
+            />
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
@@ -910,18 +945,19 @@ export function AlbumDetailPage() {
           </div>
         </section>
 
-        {/* one TRACKLIST label: rests at the bottom of the first screen, sticks under the header */}
-        <button ref={(el) => { flowRefs.tl.current = el; }} type="button" className={styles.tl} onClick={() => { if (!tracksPanel) setTab('tracks'); flow.toTracklist(); }} aria-label="Go to the tracklist">
+        {/* one TRACKLIST label: rests at the bottom of the first screen, sticks under the header
+            (with Maintenance on, the sections switcher takes its place) */}
+        {!sections && <button ref={(el) => { flowRefs.tl.current = el; }} type="button" className={styles.tl} onClick={() => { if (!tracksPanel) setTab('tracks'); flow.toTracklist(); }} aria-label="Go to the tracklist">
           <span className={styles.tlLabel}>Tracklist</span>
           <svg className={styles.caret} viewBox="0 0 346 16" preserveAspectRatio="none" aria-hidden="true">
             <path ref={(el) => { flowRefs.caret.current = el; }} d={caretPath(0)} fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
           </svg>
-        </button>
+        </button>}
 
         <div
           ref={(el) => { flowRefs.tracks.current = el; }}
           className={styles.tracksArea}
-          {...(tracksPanel ? { id: TAB_PANEL_ID, role: 'tabpanel', 'aria-labelledby': tabIdFor(TAB_PANEL_ID, 'tracks') } : {})}
+          {...(sections && tracksPanel ? { id: TAB_PANEL_ID, role: 'tabpanel', 'aria-labelledby': tabIdFor(TAB_PANEL_ID, 'tracks') } : {})}
         >
           <AlbumTracks
             tracks={album.tracks}
@@ -930,7 +966,7 @@ export function AlbumDetailPage() {
             albumArtists={[album.artistCredit, albumArtist, Array.isArray(album.release?.artistCredit) ? album.release.artistCredit.join(', ') : album.release?.artistCredit]}
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
-            player={canPlay ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
+            player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
           />
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}
@@ -938,9 +974,9 @@ export function AlbumDetailPage() {
           <AlbumFiller title={title ?? 'Untitled'} height={fillerHeight(flow.pane.height, flow.pane.tlHeight, flow.pane.tracksHeight)} />
         )}
 
-        {/* the album's other sections, after its tracks */}
+        {/* the album's other sections (Maintenance): the switcher sticks under the header in TRACKLIST's place */}
         <div ref={footRef} className={styles.foot}>
-          <div className={styles.footBar}>
+          {sections && <div ref={(el) => { flowRefs.tl.current = el; }} className={styles.footBar}>
             <Tabs
               label="Album sections"
               panelId={TAB_PANEL_ID}
@@ -951,10 +987,9 @@ export function AlbumDetailPage() {
                 label: key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label,
               }))}
             />
-            {!maintenance && manageMenu}
-          </div>
+          </div>}
 
-          {!tracksPanel && (
+          {sections && !tracksPanel && (
           <div id={TAB_PANEL_ID} role="tabpanel" aria-labelledby={tabIdFor(TAB_PANEL_ID, tab)} className={styles.tabPanel}>
           {tab === 'editions' && (<>
             {showCandidates && (

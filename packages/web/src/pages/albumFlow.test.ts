@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   A_HDR, A_REST, B_HDR, B_REST, B_TOP, HEADER,
-  albumFacts, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, wantsFiller,
+  albumSummary, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, shortFormat, wantsFiller,
 } from './albumFlow';
 import type { DetailTrack } from './albumDetailTypes';
 
@@ -180,20 +180,25 @@ describe('album flow: the details', () => {
     expect(formatLine([], [])).toBeNull();
   });
 
-  it('whatever exists, in the prototype order', () => {
-    const facts = albumFacts({
-      date: '2002-09-24', year: 2002, labels: [{ name: 'Lava Records', catno: '83604-2' }], country: 'US',
-      totalDurationMs: 68 * 60000, trackCount: 12, discCount: 1, isCueImage: false, formats: ['FLAC'], tracks: [track()],
+  it('two quiet lines, each value whole', () => {
+    const s = albumSummary({
+      date: '2012-11-23', year: 2012, labels: [{ name: 'Frontiers Records', catno: 'FR CD 590' }], country: 'IT',
+      totalDurationMs: 118 * 60000, trackCount: 22, discCount: 2, isCueImage: false, formats: ['mp3'],
+      tracks: [track({ codec: 'MPEG 1 Layer 3', lossless: false, bitrateKbps: 320 })],
     });
-    expect(facts).toEqual([
-      ['Released', '24 Sep 2002'],
-      ['Label', 'Lava Records'],
-      ['Length', '1 hr 8 min · 12 tracks'],
-      ['Format', 'FLAC · 16-bit / 44.1 kHz'],
-      ['Country', 'United States'],
-      ['Catalogue', '83604-2'],
-    ]);
-    const bare = albumFacts({ date: null, year: null, labels: null, country: null, totalDurationMs: null, trackCount: 1, discCount: null, isCueImage: false, formats: [], tracks: [] });
-    expect(bare).toEqual([['Length', '1 track']]);
+    expect(s).toEqual({ when: ['2012', 'Frontiers Records'], what: ['1 hr 58 min', '22 tracks', '2 discs', 'MP3 320 kbps'] });
+    const flac = albumSummary({
+      date: null, year: 2002, labels: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'A' }], country: null,
+      totalDurationMs: 68 * 60000, trackCount: 1, discCount: 1, isCueImage: true, formats: ['FLAC'], tracks: [track({ bitDepth: 24, sampleRate: 96000 })],
+    });
+    expect(flac).toEqual({ when: ['2002', 'A, B +1'], what: ['1 hr 8 min', '1 audio file', 'FLAC 24-bit/96 kHz'] });
+    const bare = albumSummary({ date: null, year: null, labels: null, country: null, totalDurationMs: null, trackCount: 1, discCount: null, isCueImage: false, formats: [], tracks: [] });
+    expect(bare).toEqual({ when: [], what: ['1 track'] });
+  });
+
+  it('short formats', () => {
+    expect(shortFormat([], ['mp3'])).toBe('MP3');
+    expect(shortFormat([track(), track({ codec: 'MPEG-4/AAC', lossless: false })], [])).toBe('FLAC / AAC');
+    expect(shortFormat([track({ codec: 'Vorbis I', lossless: false, bitrateKbps: null })], [])).toBe('Vorbis');
   });
 });

@@ -44,3 +44,6 @@ export const LongLabels: Story = {
     await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More for this album' }));
   },
 };
+
+/** The small trigger (36px; 44px on touch), beside a small button such as the album's Play. No baseline yet: render it on CI and drop `no-shot`. */
+export const Small: Story = { tags: ['no-shot'], args: { size: 'sm' } };

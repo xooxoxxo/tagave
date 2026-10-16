@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerQueueTrack } from '@tagave/shared';
 import {
+  scanWaitLine,
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
   previousAction, previousPlayable, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
   transcodeFormat, type CanPlay, type KeyTarget,
@@ -58,10 +59,30 @@ describe('the queue', () => {
 
   it('says plainly why nothing can be played', () => {
     expect(nothingPlayableMessage({ scanRequested: true, tracks: [track('a', 1, 1, false)] }))
-      .toBe('None of these tracks are on the player yet; tagave asked it to scan. Try again in a minute.');
+      .toBe('Not on the player yet — tagave asked it to look for these files. Try again in a minute.');
+    const first = { scanning: true, firstScan: true, count: 9500, total: 28000, percent: 33 };
+    expect(nothingPlayableMessage({ scanRequested: true, tracks: [track('a', 1, 1, false)], scan: first }))
+      .toBe('Not on the player yet — its first scan is at 33\u202f%.');
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false)], scan: { ...first, percent: null } }))
+      .toBe('Not on the player yet — its first scan is still running.');
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false)], scan: { ...first, firstScan: false, total: null, percent: null } }))
+      .toBe('Not on the player yet — it is scanning for new files.');
+    // missing files are not a scan's business
+    expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false, { reason: 'no_file' })], scan: first }))
+      .toBe('The files for these tracks are missing or could not be read.');
     expect(nothingPlayableMessage({ scanRequested: false, tracks: [track('a', 1, 1, false, { reason: 'cue' })] }))
       .toBe('Tracks inside a CUE image cannot be played yet.');
     expect(nothingPlayableMessage({ scanRequested: false, tracks: [] })).toBe('This album has no tracks to play.');
+  });
+});
+
+describe('the album page while the player scans', () => {
+  it('says when the album will be playable, quietly', () => {
+    expect(scanWaitLine(null)).toBeNull();
+    expect(scanWaitLine({ scanning: false, firstScan: false, count: 10, total: null, percent: null })).toBeNull();
+    expect(scanWaitLine({ scanning: true, firstScan: true, count: 9500, total: 28000, percent: 34 })).toBe('On the player after its first scan (34\u202f%)');
+    expect(scanWaitLine({ scanning: true, firstScan: true, count: null, total: 28000, percent: null })).toBe('On the player after its first scan');
+    expect(scanWaitLine({ scanning: true, firstScan: false, count: 12, total: null, percent: null })).toBe('On the player after the scan it is running');
   });
 });
 

@@ -65,4 +65,4 @@ export const LongTitles: Story = {
 export const NoCover: Story = { args: { coverUrl: null } };
 export const AtTheEnd: Story = { args: { canNext: false, position: 296 } };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
-export const PhoneError: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { status: 'error', message: 'None of these tracks are on the player yet; tagave asked it to scan. Try again in a minute.' } };
+export const PhoneError: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { status: 'error', message: 'Not on the player yet — its first scan is at 34\u202f%.' } };

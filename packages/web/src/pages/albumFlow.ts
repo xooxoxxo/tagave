@@ -277,21 +277,46 @@ export interface AlbumFactsInput {
   tracks: readonly DetailTrack[];
 }
 
-/** The details under the names: whatever exists, in the prototype's order. */
-export function albumFacts(a: AlbumFactsInput): Array<[string, string]> {
+/** Short codec names for the line under the album ("MPEG 1 Layer 3" reads as MP3). */
+const SHORT_CODEC: Record<string, string> = {
+  'MPEG 1 Layer 3': 'MP3', 'MPEG 2 Layer 3': 'MP3', 'MPEG 2.5 Layer 3': 'MP3', 'MPEG 1 Layer 2': 'MP2',
+  'MPEG-4/AAC': 'AAC', 'MPEG-4/AAC+MP4S': 'AAC', 'Vorbis I': 'Vorbis', 'DSD (not compressed)': 'DSD',
+};
+const shortCodec = (c: string) => SHORT_CODEC[c] ?? c;
+
+/** "MP3 320 kbps", "FLAC 24-bit/96 kHz", or the codecs when the files differ: one short, unbreakable value. */
+export function shortFormat(tracks: readonly DetailTrack[], formats: readonly string[] | null | undefined): string | null {
+  const codecs = [...new Set(tracks.map((t) => t.file.codec).filter((c): c is string => !!c).map(shortCodec))];
+  const names = codecs.length ? codecs : [...new Set((formats ?? []).map((f) => shortCodec(f.toUpperCase() === f ? f : f.toUpperCase())))];
+  if (names.length === 0) return null;
+  if (names.length > 1 || tracks.length === 0) return names.join(' / ');
+  const one = <T,>(values: T[]) => (new Set(values).size === 1 ? values[0] : undefined);
+  if (one(tracks.map((t) => !!t.file.lossless))) {
+    const depth = one(tracks.map((t) => t.file.bitDepth));
+    const rate = one(tracks.map((t) => t.file.sampleRate));
+    return depth && rate ? `${names[0]} ${depth}-bit/${Number((rate / 1000).toFixed(1))} kHz` : names[0]!;
+  }
+  const kbps = one(tracks.map((t) => t.file.bitrateKbps));
+  return kbps ? `${names[0]} ${kbps} kbps` : names[0]!;
+}
+
+/**
+ * The album's details as two quiet lines under the names (the owner found
+ * the labelled grid took too much room, 2026-10-15): when and who
+ * ("2012 · Frontiers Records"), then what ("1 hr 58 min · 22 tracks ·
+ * 2 discs · MP3 320 kbps"). Each value is one unbreakable piece; the full
+ * date, country and catalogue numbers stay in About.
+ */
+export function albumSummary(a: AlbumFactsInput): { when: string[]; what: string[] } {
+  const year = (a.date ?? '').match(/^(\d{4})/)?.[1] ?? (a.year ? String(a.year) : null);
   const labelNames = [...new Set((a.labels ?? []).map((l) => l.name).filter(Boolean))];
-  const catnos = [...new Set((a.labels ?? []).map((l) => l.catno ?? '').filter((c) => c && c.toLowerCase() !== '[none]'))];
+  const labels = labelNames.length > 2 ? `${labelNames.slice(0, 2).join(', ')} +${labelNames.length - 2}` : labelNames.join(', ');
   const count = a.trackCount == null ? null : a.isCueImage
     ? `${a.trackCount} audio ${a.trackCount === 1 ? 'file' : 'files'}`
     : `${a.trackCount} ${a.trackCount === 1 ? 'track' : 'tracks'}`;
-  const length = [totalLength(a.totalDurationMs), count, (a.discCount ?? 1) > 1 ? `${a.discCount} discs` : null].filter(Boolean).join(' · ');
-  const facts: Array<[string, string | null]> = [
-    ['Released', formatReleased(a.date, a.year)],
-    ['Label', labelNames.join(', ') || null],
-    ['Length', length || null],
-    ['Format', formatLine(a.tracks, a.formats)],
-    ['Country', countryName(a.country)],
-    ['Catalogue', catnos.join(', ') || null],
-  ];
-  return facts.filter((f): f is [string, string] => !!f[1]);
+  return {
+    when: [year, labels || null].filter((v): v is string => !!v),
+    what: [totalLength(a.totalDurationMs), count, (a.discCount ?? 1) > 1 ? `${a.discCount} discs` : null, shortFormat(a.tracks, a.formats)]
+      .filter((v): v is string => !!v),
+  };
 }
