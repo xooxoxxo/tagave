@@ -84,6 +84,46 @@ export function nothingPlayableMessage(view: Pick<PlayerQueueView, 'scanRequeste
   return (reason && REASON_TEXT[reason]) || 'None of these tracks can be played right now.';
 }
 
+// ---- editing the queue ----
+
+/**
+ * The queue view edits what comes after the playing track only: moving an
+ * upcoming track to another upcoming place, or taking one out. Anything
+ * else (the playing track, one already played, a place out of range) gives
+ * the same array back.
+ */
+export function moveUpcoming<T>(tracks: readonly T[], current: number, from: number, to: number): readonly T[] {
+  if (from === to || from <= current || to <= current || from >= tracks.length || to >= tracks.length || from < 0 || to < 0) return tracks;
+  const next = [...tracks];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved!);
+  return next;
+}
+
+export function removeUpcoming<T>(tracks: readonly T[], current: number, at: number): readonly T[] {
+  if (at <= current || at >= tracks.length) return tracks;
+  return tracks.filter((_, i) => i !== at);
+}
+
+// ---- track changes ----
+
+/**
+ * Near-gapless: the next track, already loaded in the other element, starts
+ * this many seconds before the current one ends, so the browser's start-up
+ * delay falls inside the old track's last moment instead of after it.
+ */
+export const HANDOFF_LEAD_SEC = 0.05;
+/** within this much of the end, the switch is timed instead of left to `ended` */
+export const HANDOFF_WINDOW_SEC = 0.6;
+
+/** How long to wait before starting the next track; null when it is not time (or it is not ready). */
+export function handoffDelayMs(positionSec: number, durationSec: number | null, nextReady: boolean, paused: boolean): number | null {
+  if (!nextReady || paused || durationSec == null || !Number.isFinite(durationSec) || durationSec <= 1) return null;
+  const left = durationSec - positionSec;
+  if (left <= 0 || left > HANDOFF_WINDOW_SEC) return null;
+  return Math.max(0, Math.round((left - HANDOFF_LEAD_SEC) * 1000));
+}
+
 // ---- formats ----
 
 /** HTMLMediaElement.canPlayType, or a stand-in for it. */
@@ -174,10 +214,10 @@ export function heardDelta(previousSec: number | null, nowSec: number): number {
   return d > 0 && d < 2 ? d : 0;
 }
 
-/** Preload the next track once the current one is within 20 s of its end (or at once when it is shorter than that). */
+/** Preload the next track once the current one is within 30 s of its end (or at once when it is shorter than that). */
 export function shouldPreload(positionSec: number, durationSec: number | null): boolean {
   if (durationSec == null || !Number.isFinite(durationSec) || durationSec <= 0) return false;
-  return durationSec <= 20 || durationSec - positionSec <= 20;
+  return durationSec <= 30 || durationSec - positionSec <= 30;
 }
 
 /** "1:23", or "1:02:03" past an hour. */

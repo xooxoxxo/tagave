@@ -124,6 +124,11 @@ services:
       TAGAVE_PLAYER_URL: ${TAGAVE_PLAYER_URL:-}
       TAGAVE_PLAYER_USER: ${TAGAVE_PLAYER_USER:-}
       TAGAVE_PLAYER_PASSWORD: ${TAGAVE_PLAYER_PASSWORD:-}
+      # Optional: a Last.fm API key and shared secret for scrobbling. Settings
+      # > Playback > Scrobbling stores them in tagave instead (no restart);
+      # those win over these.
+      TAGAVE_LASTFM_API_KEY: ${TAGAVE_LASTFM_API_KEY:-}
+      TAGAVE_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
     networks:
       - default
       - updater
@@ -253,7 +258,8 @@ services:
   # it on a local Docker volume, never on NFS. The file watcher is off
   # (inotify does not work over NFS); tagave asks for a scan after it writes
   # tags, and a full scan runs every 24 hours. Sharing, the Jellyfin API,
-  # Deezer lookups and Navidrome's anonymous usage reports are off.
+  # Deezer and Last.fm lookups, Navidrome's own scrobbling and its anonymous
+  # usage reports are off. tagave makes one Navidrome user per tagave person.
   #
   # The image is pinned per tagave release to the newest Navidrome release
   # that is at least 30 days old. 0.64.0 (2026-09-12) is that today; 0.64.1
@@ -294,11 +300,13 @@ services:
       ND_ENABLESHARING: "false"
       ND_ENABLEINSIGHTSCOLLECTOR: "false"
       ND_JELLYFIN_ENABLED: "false"
-      # no artist and album lookups at Deezer; Last.fm only with a key of the
-      # owner's in .env (empty: that agent stays off)
+      # No artist and album lookups at Deezer or Last.fm. Scrobbling is
+      # tagave's: it sends each person's plays (from its own player and from
+      # phone apps through this server) to their Last.fm and ListenBrainz,
+      # so Navidrome's own scrobblers stay off and nothing is sent twice.
       ND_DEEZER_ENABLED: "false"
-      ND_LASTFM_APIKEY: ${TAGAVE_LASTFM_API_KEY:-}
-      ND_LASTFM_SECRET: ${TAGAVE_LASTFM_SECRET:-}
+      ND_LASTFM_ENABLED: "false"
+      ND_LISTENBRAINZ_ENABLED: "false"
       # tagave matches tracks to its files by path
       ND_SUBSONIC_DEFAULTREPORTREALPATH: "true"
       # Creates the user "admin" with this password on the first start,

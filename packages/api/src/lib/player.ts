@@ -64,11 +64,21 @@ export function parseSettings(raw: unknown): PlayerLibrarySettings {
   return raw as PlayerLibrarySettings;
 }
 
-/** The library row when this user owns it (libraries are per owner). */
-export async function ownedLibrary(sql: Sql, libraryId: string, userId: string): Promise<{ id: string; settings: PlayerLibrarySettings } | null> {
+/**
+ * The library row. Every signed-in person on an install reads every library
+ * (round 2's household model); what they may change is the route's
+ * permission, and their own data is keyed by their user id.
+ */
+export async function libraryById(sql: Sql, libraryId: string): Promise<{ id: string; settings: PlayerLibrarySettings } | null> {
   if (!/^[0-9a-f-]{36}$/i.test(libraryId)) return null;
   const rows = await sql<{ id: string; settings: unknown }[]>`
-    select id, settings from libraries where id = ${libraryId} and owner_user_id = ${userId}`;
+    select id, settings from libraries where id = ${libraryId}`;
+  return rows[0] ? { id: rows[0].id, settings: parseSettings(rows[0].settings) } : null;
+}
+
+/** The install's first library (the one Settings › Playback shows when none is named). */
+export async function firstLibrary(sql: Sql): Promise<{ id: string; settings: PlayerLibrarySettings } | null> {
+  const rows = await sql<{ id: string; settings: unknown }[]>`select id, settings from libraries order by created_at limit 1`;
   return rows[0] ? { id: rows[0].id, settings: parseSettings(rows[0].settings) } : null;
 }
 
@@ -273,14 +283,13 @@ export interface AlbumRow {
   has_art: boolean;
 }
 
-export async function albumForUser(sql: Sql, albumId: string, userId: string): Promise<AlbumRow | null> {
+export async function albumById(sql: Sql, albumId: string): Promise<AlbumRow | null> {
   if (!/^[0-9a-f-]{36}$/i.test(albumId)) return null;
   const rows = await sql<AlbumRow[]>`
     select la.id, la.library_id, la.title_guess, la.artist_guess, la.release_id,
            r.title as release_title, r.mbid as release_mbid, la.embedded_mbid,
            exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front') as has_art
     from local_albums la
-    join libraries l on l.id = la.library_id and l.owner_user_id = ${userId}
     left join releases r on r.id = la.release_id
     where la.id = ${albumId}`;
   return rows[0] ?? null;
@@ -465,14 +474,14 @@ export interface TrackForUser {
   settings: PlayerLibrarySettings;
 }
 
-export async function trackForUser(sql: Sql, localTrackId: string, userId: string): Promise<TrackForUser | null> {
+export async function trackById(sql: Sql, localTrackId: string): Promise<TrackForUser | null> {
   if (!/^[0-9a-f-]{36}$/i.test(localTrackId)) return null;
   const rows = await sql<(Omit<TrackForUser, 'settings'> & { settings: unknown })[]>`
     select lt.id, lt.local_album_id, la.library_id, la.release_id, lt.duration_ms,
            coalesce(ct.recording_mbid, rec.mbid) as recording_mbid, l.settings
     from local_tracks lt
     join local_albums la on la.id = lt.local_album_id
-    join libraries l on l.id = la.library_id and l.owner_user_id = ${userId}
+    join libraries l on l.id = la.library_id
     left join canonical_tracks ct on ct.id = lt.canonical_track_id
     left join recordings rec on rec.id = lt.recording_id
     where lt.id = ${localTrackId}`;

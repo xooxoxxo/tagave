@@ -9,7 +9,8 @@
     "./matching": "./dist/matching/index.js",
     "./providers": "./dist/providers/index.js",
     "./tags": "./dist/tags/mapping.js",
-    "./player": "./dist/player/index.js"
+    "./player": "./dist/player/index.js",
+    "./scrobble": "./dist/scrobble/index.js"
   },
   "files": [
     "dist"

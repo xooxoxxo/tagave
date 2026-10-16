@@ -9,7 +9,7 @@ import type { PlayerQueueTrack } from '@tagave/shared';
 import {
   scanWaitLine,
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
-  previousAction, previousPlayable, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
+  handoffDelayMs, moveUpcoming, previousAction, previousPlayable, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
   transcodeFormat, type CanPlay, type KeyTarget,
 } from './logic';
 
@@ -153,10 +153,11 @@ describe('seeking', () => {
     expect(heardDelta(70, 10)).toBe(0);
   });
 
-  it('preloads the next track in the last 20 s, or at once for a short track', () => {
+  it('preloads the next track in the last 30 s, or at once for a short track', () => {
     expect(shouldPreload(100, 200)).toBe(false);
-    expect(shouldPreload(181, 200)).toBe(true);
-    expect(shouldPreload(0, 15)).toBe(true);
+    expect(shouldPreload(171, 200)).toBe(true);
+    expect(shouldPreload(169, 200)).toBe(false);
+    expect(shouldPreload(0, 25)).toBe(true);
     expect(shouldPreload(0, null)).toBe(false);
   });
 
@@ -215,5 +216,34 @@ describe('Space', () => {
 
   it('keeps Space on the seek and volume sliders for the player', () => {
     expect(spaceTogglesPlayback(space, el('INPUT', { type: 'range' }), true)).toBe(true);
+  });
+});
+
+describe('editing the queue', () => {
+  const q = ['a', 'b', 'c', 'd', 'e'];
+  it('moves only upcoming tracks, within the upcoming ones', () => {
+    expect(moveUpcoming(q, 1, 4, 2)).toEqual(['a', 'b', 'e', 'c', 'd']);
+    expect(moveUpcoming(q, 1, 2, 3)).toEqual(['a', 'b', 'd', 'c', 'e']);
+    // the playing track and the ones before it stay put
+    expect(moveUpcoming(q, 1, 1, 3)).toBe(q);
+    expect(moveUpcoming(q, 1, 3, 0)).toBe(q);
+    expect(moveUpcoming(q, 1, 3, 9)).toBe(q);
+  });
+  it('removes only upcoming tracks', () => {
+    expect(removeUpcoming(q, 1, 3)).toEqual(['a', 'b', 'c', 'e']);
+    expect(removeUpcoming(q, 1, 1)).toBe(q);
+    expect(removeUpcoming(q, 1, 0)).toBe(q);
+  });
+});
+
+describe('near-gapless track changes', () => {
+  it('starts the next track just before the end, once it is loaded and playing', () => {
+    expect(handoffDelayMs(199.5, 200, true, false)).toBe(450);
+    expect(handoffDelayMs(199.97, 200, true, false)).toBe(0);
+    expect(handoffDelayMs(190, 200, true, false)).toBeNull();
+    expect(handoffDelayMs(199.5, 200, false, false)).toBeNull();
+    expect(handoffDelayMs(199.5, 200, true, true)).toBeNull();
+    expect(handoffDelayMs(0.5, 0.8, true, false)).toBeNull();
+    expect(handoffDelayMs(10, null, true, false)).toBeNull();
   });
 });

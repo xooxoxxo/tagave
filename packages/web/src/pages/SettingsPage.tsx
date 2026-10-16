@@ -16,6 +16,7 @@ import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
+import { SettingsListeningContent } from './SettingsListeningPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
@@ -28,7 +29,7 @@ import styles from './SettingsPage.module.css';
 
 /**
  * Each section names the permission it needs (@tagave/shared › permissions):
- * a listener sees Account, Security and Appearance; an editor also the
+ * a listener sees Account, Appearance, Security and Listening; an editor also the
  * library's tag, genre and follow settings and Background activity; the
  * owner everything. A direct link to a section the role lacks shows "Not
  * available for your account" in place of the section.
@@ -52,6 +53,7 @@ const sections: Section[] = [
   { value: 'account', label: 'Account', group: 'Your account' },
   { value: 'appearance', label: 'Appearance', group: 'Your account' },
   { value: 'security', label: 'Security', group: 'Your account' },
+  { value: 'listening', label: 'Listening', group: 'Your account' },
 ];
 
 export function SettingsPage() {
@@ -88,6 +90,7 @@ export function SettingsPage() {
         {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New releases and the versions this server runs.</p><SettingsUpdatesPage /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
+        {section === 'listening' && <SettingsListeningContent />}
         {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
         </>}
       </div>

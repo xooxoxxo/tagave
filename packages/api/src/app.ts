@@ -32,6 +32,7 @@ import { createTagPlansRoutes } from './routes/tagPlans.js';
 import { createBackupRoutes } from './routes/backups.js';
 import { createStorageRoutes } from './routes/storage.js';
 import { createPlayerRoutes } from './routes/player.js';
+import { createPlayerListeningRoutes } from './routes/playerListening.js';
 import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
@@ -147,6 +148,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // The opt-in player: capabilities, Settings › Playback, queue, stream proxy, play events
     instance.register(createPlayerRoutes, { prefix: '/api/v1' });
+    // The player per person: listening history, Last.fm and ListenBrainz, phone-app passwords
+    instance.register(createPlayerListeningRoutes, { prefix: '/api/v1' });
 
     // Settings › Users: people, roles, invites (owner)
     instance.register(createUserRoutes, { prefix: '/api/v1' });

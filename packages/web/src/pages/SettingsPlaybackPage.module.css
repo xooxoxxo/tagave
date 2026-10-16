@@ -79,3 +79,23 @@
   font-size: 0.875rem;
   color: var(--ink-2);
 }
+
+.scrobbling {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  max-width: 40rem;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.steps li + li {
+  margin-top: 2px;
+}

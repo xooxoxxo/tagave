@@ -153,6 +153,12 @@ export interface ServerSong {
   contentType: string | null;
   /** OpenSubsonic: the recording MBID */
   musicBrainzId: string | null;
+  /** this user's plays of it (absent until the first) */
+  playCount?: number | null;
+  /** OpenSubsonic: when this user last played it (ISO) */
+  played?: string | null;
+  starred?: string | null;
+  userRating?: number | null;
 }
 
 export interface ServerAlbum {
@@ -162,6 +168,10 @@ export interface ServerAlbum {
   songCount: number | null;
   /** OpenSubsonic: the release MBID */
   musicBrainzId: string | null;
+  playCount?: number | null;
+  /** OpenSubsonic: when this user last played a song of it (ISO) */
+  played?: string | null;
+  userRating?: number | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
@@ -181,6 +191,10 @@ export function toServerSong(raw: Record<string, unknown>): ServerSong {
     suffix: str(raw['suffix']),
     contentType: str(raw['contentType']),
     musicBrainzId: str(raw['musicBrainzId']),
+    playCount: num(raw['playCount']),
+    played: str(raw['played']),
+    starred: str(raw['starred']),
+    userRating: num(raw['userRating']),
   };
 }
 
@@ -191,6 +205,9 @@ function toServerAlbum(raw: Record<string, unknown>): ServerAlbum {
     artist: str(raw['artist']),
     songCount: num(raw['songCount']),
     musicBrainzId: str(raw['musicBrainzId']),
+    playCount: num(raw['playCount']),
+    played: str(raw['played']),
+    userRating: num(raw['userRating']),
   };
 }
 
@@ -261,4 +278,60 @@ export function streamUrl(
     ...(opts.format !== 'raw' && opts.maxBitRate ? { maxBitRate: opts.maxBitRate } : {}),
     ...(opts.format !== 'raw' && opts.timeOffset ? { timeOffset: opts.timeOffset } : {}),
   });
+}
+
+type CallOpts = { fetchImpl?: typeof fetch; timeoutMs?: number };
+
+/**
+ * Tells the server about a play as this user: `submission` false is "now
+ * playing", true counts the play (Navidrome then bumps this user's play
+ * count and sets `played` to `time`, exactly). Navidrome does not dedupe:
+ * two submissions with the same time count twice.
+ */
+export async function scrobble(server: SubsonicServer, songId: string, opts: { submission: boolean; time?: number } & CallOpts): Promise<void> {
+  await subsonicCall(server, 'scrobble', { id: songId, submission: opts.submission, ...(opts.time ? { time: Math.round(opts.time) } : {}) }, opts);
+}
+
+export interface NowPlayingEntry {
+  song: ServerSong;
+  username: string;
+  minutesAgo: number;
+  playerName: string | null;
+}
+
+/** What every user is playing right now (Navidrome lists all users to anyone who asks). */
+export async function getNowPlaying(server: SubsonicServer, opts: CallOpts = {}): Promise<NowPlayingEntry[]> {
+  const r = await subsonicCall(server, 'getNowPlaying', {}, opts);
+  const list = ((r['nowPlaying'] ?? {}) as { entry?: Array<Record<string, unknown>> }).entry ?? [];
+  return list.map((e) => ({
+    song: toServerSong(e),
+    username: str(e['username']) ?? '',
+    minutesAgo: num(e['minutesAgo']) ?? 0,
+    playerName: str(e['playerName']),
+  }));
+}
+
+/** Albums of one list type for this user ("recent": by the time this user last played them, newest first). */
+export async function getAlbumList2(server: SubsonicServer, type: 'recent' | 'frequent' | 'alphabeticalByName' | 'newest', opts: { size?: number; offset?: number } & CallOpts = {}): Promise<ServerAlbum[]> {
+  const r = await subsonicCall(server, 'getAlbumList2', { type, size: opts.size ?? 20, offset: opts.offset ?? 0 }, opts);
+  const list = ((r['albumList2'] ?? {}) as { album?: Array<Record<string, unknown>> }).album ?? [];
+  return list.map(toServerAlbum);
+}
+
+export async function getSong(server: SubsonicServer, id: string, opts: CallOpts = {}): Promise<ServerSong> {
+  const r = await subsonicCall(server, 'getSong', { id }, opts);
+  return toServerSong((r['song'] ?? {}) as Record<string, unknown>);
+}
+
+/** 1 to 5; 0 clears this user's rating. */
+export async function setRating(server: SubsonicServer, id: string, rating: number, opts: CallOpts = {}): Promise<void> {
+  await subsonicCall(server, 'setRating', { id, rating: Math.max(0, Math.min(5, Math.round(rating))) }, opts);
+}
+
+export async function star(server: SubsonicServer, ids: string[], opts: CallOpts = {}): Promise<void> {
+  if (ids.length) await subsonicCall(server, 'star', { id: ids }, opts);
+}
+
+export async function unstar(server: SubsonicServer, ids: string[], opts: CallOpts = {}): Promise<void> {
+  if (ids.length) await subsonicCall(server, 'unstar', { id: ids }, opts);
 }

@@ -199,7 +199,9 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **The port.** Navidrome is published on port 4533 of this computer (`--player-port N` picks another), so phone apps on your network can reach it. Keep it inside your home network, or reach it from outside through a VPN or your HTTPS reverse proxy. Never forward it from your router. See [Security: the player](security.md#the-player).
 
-**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Give each person their own Navidrome user: open `http://<this computer>:4533`, sign in as `admin` with the password from `.env`, and add users under Settings › Users. Then enter the server address, user name and password in the app.
+**One account per person.** tagave gives everyone on the install their own Navidrome user (made the first time they play, or within a minute of being added; locked when their tagave account is disabled). Their plays, play counts, ratings and stars are theirs, and tagave streams as them, never as the admin. The passwords are random, sealed with `APP_SECRET`, and never shown.
+
+**Phone apps.** Symfonium, Amperfy, play:Sub, Substreamer and Tempus log in to Navidrome directly, not through tagave. Each person sets a password for apps in **Settings › Listening** (tagave shows their Navidrome user name there), then enters this computer's address, port 4533, that user name and that password in the app. Plays from the app come back to tagave as theirs within a minute or two, and are scrobbled like plays in tagave.
 
 **The first scan.** Navidrome scans the whole library once when it first starts, and again every 24 hours. The file watcher is off, because it does not work over NFS; instead tagave asks Navidrome for a scan after it writes tags. On a large library on a NAS the first scan can take hours. Albums play once Navidrome has scanned them; the installer does not wait for it. Until then an album's Play is greyed out with how far the first scan is, and it turns on by itself when the scan reaches the album.
 
@@ -207,7 +209,20 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **Turning it off.** `disable-player` stops and removes the Navidrome container, removes `player` from `COMPOSE_PROFILES`, clears `TAGAVE_PLAYER_URL` and restarts the app. It keeps the password and the key in `.env`, so `enable-player` later reopens the same Navidrome data. It then asks whether to delete the `player-data` volume (Navidrome's own plays, stars and users); the answer defaults to no. With `--yes`, or without a terminal, it keeps the volume and prints the command to delete it later (`docker volume rm tagave_player-data`).
 
-**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Playback**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
+**Listens and scrobbling.** When someone has heard at least half of an album's tracks within six hours, in tagave or in a phone app, tagave adds a listen of that release to the album page (only for them). Each play also goes to the person's own Last.fm and ListenBrainz, once: tagave sends every scrobble itself, and Navidrome's own scrobbling is turned off in `compose.yml` so nothing is counted twice. A track counts when it is longer than 30 seconds and half of it (or four minutes) was heard.
+
+- **ListenBrainz** needs nothing from the owner: each person pastes their user token (listenbrainz.org › Settings) in **Settings › Listening**.
+- **Last.fm** needs an API key for your server, made once by the owner:
+  1. Open https://www.last.fm/api/account/create and sign in with any Last.fm account.
+  2. Under **Application name**, type a name (for example "tagave at home"). Leave every other field empty.
+  3. Press **Submit**. Last.fm shows an **API key** and a **Shared secret**.
+  4. In tagave, open **Settings › Playback › Scrobbling**, paste both, and press **Save**. tagave checks them with Last.fm and stores them sealed with `APP_SECRET`. No restart is needed.
+
+  Then each person presses **Connect Last.fm** in **Settings › Listening**, allows tagave on last.fm and comes back. (`TAGAVE_LASTFM_API_KEY` and `TAGAVE_LASTFM_SECRET` in `.env` also work; the ones saved in Settings win.)
+
+To check it for real after setting it up: play one album through to the end in tagave, wait a minute, and look at your profile on last.fm and listenbrainz.org; **Settings › Listening › Recently played** shows each play with "Scrobbled to …" or the reason it was not.
+
+**Your own server instead.** If you already run Navidrome (or another Subsonic-compatible server), leave the module off and enter its address, a user name and a password under **Settings › Playback**. tagave stores the password sealed with `APP_SECRET`, like the other provider secrets. Everyone plays through that account unless they add their own login on that server in **Settings › Listening** (then their plays, ratings and phone-app plays are theirs; if that server already scrobbles for them, they say so there and tagave sends nothing). tagave finds the file behind each track by its path. For exact matching, open Navidrome's **Players** page and turn on **Report real path** for the player named `tagave` (it appears after tagave first connects). The bundled player does this for you.
 
 **Split installs.** For now the bundled player works only when everything runs on one computer (`--role all`): it has to run next to both the music and the app. On a split install the installer refuses `--with-player` and `enable-player`; run your own Navidrome on the music computer and point Settings › Playback at it.
 

@@ -11,6 +11,7 @@ import { readBuildInfo } from '@tagave/core';
 import { migrateOnBoot } from '@tagave/doctor';
 import { startUpdateChecks } from './routes/updates.js';
 import { startPlayerScanWorker } from './lib/player.js';
+import { startPlayerPeopleWorker } from './lib/playerSync.js';
 import { getSql } from './db.js';
 import { BackupService, startBackupScheduler } from './lib/backupService.js';
 import { getBoss, setBossLogger } from './boss.js';
@@ -265,6 +266,8 @@ const start = async () => {
     } catch (err) {
       logger.error({ err }, 'could not start the player scan worker');
     }
+    // Plays → listens, accounts on the player server, scrobbles, ratings out.
+    startPlayerPeopleWorker({ sql: getSql(), log: logger });
   } catch (err) {
     logger.error(err);
     process.exit(1);

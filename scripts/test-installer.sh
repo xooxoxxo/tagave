@@ -183,7 +183,7 @@ music = [v for v in p["volumes"] if v["target"] == "/music"][0]
 data = [v for v in p["volumes"] if v["target"] == "/data"][0]
 print(p["image"], [x["published"] for x in p["ports"]], music.get("read_only", False), data["type"], data["source"],
       p["environment"]["ND_ENABLESHARING"], p["environment"]["ND_ENABLEINSIGHTSCOLLECTOR"], p["environment"]["ND_JELLYFIN_ENABLED"],
-      p["environment"]["ND_DEEZER_ENABLED"], repr(p["environment"]["ND_LASTFM_APIKEY"]), repr(p["environment"]["ND_LASTFM_SECRET"]),
+      p["environment"]["ND_DEEZER_ENABLED"], p["environment"]["ND_LASTFM_ENABLED"], p["environment"]["ND_LISTENBRAINZ_ENABLED"],
       sorted(n for n, s in c["services"].items() if sys.argv[1] and sys.argv[1] in (s.get("environment") or {}).values()))' \
     "$(env_value TAGAVE_PLAYER_PASSWORD "$1/.env")"
 }
@@ -204,8 +204,8 @@ grep -qF "$player_pw" "$work/player.log" && fail "--with-player: the installer p
 config="$(render "$work/player")"
 printf '%s' "$config" | grep -q '"TAGAVE_PLAYER_URL": "http://player:4533"' || fail "--with-player: the app does not get TAGAVE_PLAYER_URL"
 got="$(player_json "$work/player")"
-[ "$got" = "deluan/navidrome:0.64.0 ['4533'] True volume player-data false false false false '' '' ['app', 'player']" ] \
-  || fail "--with-player: the player must run the pinned image on port 4533, read the music read-only, keep its data in the player-data volume, with sharing, insights, Jellyfin and Deezer off and no Last.fm key unless .env has one, and only the app and the player may get the password (got: $got)"
+[ "$got" = "deluan/navidrome:0.64.0 ['4533'] True volume player-data false false false false false false ['app', 'player']" ] \
+  || fail "--with-player: the player must run the pinned image on port 4533, read the music read-only, keep its data in the player-data volume, with sharing, insights, Jellyfin, Deezer, Last.fm and ListenBrainz off (tagave scrobbles), and only the app and the player may get the password (got: $got)"
 # Without the profile the same compose file is valid, has no player, and the app no URL.
 [ "$(services "$work/all")" = "app postgres worker-files worker-identify " ] || fail "player: present without the profile"
 render "$work/all" | grep -q '"TAGAVE_PLAYER_URL": ""' || fail "player: the app has a player URL without the profile"
