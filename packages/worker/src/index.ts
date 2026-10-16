@@ -24,6 +24,7 @@ import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecomput
 import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
+import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -87,6 +88,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'fingerprint.sweep': 'stately',
   'acoustid.lookup': 'stately',
   'tracks.link': 'stately',
+  // one queued per link (singletonKey connections.pull:<link id>) behind the running one
+  'connections.pull': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -281,6 +284,15 @@ async function main() {
       const job = jobs[0]!;
       return withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `edition.add ${job.data.localAlbumId}`, () => addEditionJob(ctx, job.data));
     });
+  }
+  // Music Connections pulls from linked apps (Settings › Connections), on the
+  // identify worker (spec §4). The tick every 15 minutes queues each due link;
+  // Sync now and backoff retries send a link's own job.
+  if (wants('identify.album')) {
+    await boss.work<ConnectionsPullJobData>('connections.pull', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await connectionsPullJob(ctx, job.data);
+    });
+    await boss.schedule('connections.pull', '*/15 * * * *', {}, { singletonKey: 'connections.pull:tick' });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));

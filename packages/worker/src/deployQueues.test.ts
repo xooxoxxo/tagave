@@ -74,6 +74,11 @@ describe('queues riding with another', () => {
     expect(src).toMatch(new RegExp(`boss\\.work(<[^(]*>)?\\('${queue.replace('.', '\\.')}'`));
   });
 
+  it('Music Connections pulls ride with identify.album, the tick every 15 minutes', () => {
+    expect(QUEUES_RIDING_WITH['connections.pull']).toBe('identify.album');
+    expect(src).toMatch(/boss\.schedule\('connections\.pull', '\*\/15 \* \* \* \*'/);
+  });
+
   it('the Music Connections tombstone purge rides with facets.refresh, daily', () => {
     expect(QUEUES_RIDING_WITH['mc.purge']).toBe('facets.refresh');
     expect(src).toMatch(/boss\.schedule\('mc\.purge', '\d+ \d+ \* \* \*'/);
