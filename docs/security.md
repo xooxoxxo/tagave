@@ -124,7 +124,7 @@ Anyone who can read `.env` can sign requests, so keep `.env` private (the instal
 
 ## Signed releases
 
-Every release publishes `release-manifest.json` next to its images: every image the release runs (tagave's own and the third-party ones, Postgres and Navidrome) pinned to a `sha256:` digest per architecture, the module catalogue, and the sha256 of `install-tagave.sh` and the compose files. CI signs its exact bytes with the project's Ed25519 release key (`release-manifest.json.sig`) and attaches both to the GitHub release, with the installer, its sha256 and its own signature. The private key exists only as a secret of the repository's `release` environment, which only `v*` tags can use; the public keys are in [`deploy/release-keys/`](../deploy/release-keys/), inside the updater and app images, and inside `install-tagave.sh`.
+Every release publishes `release-manifest.json` next to its images: every image the release runs (tagave's own and the third-party ones, Postgres and Navidrome) pinned to a `sha256:` digest per architecture, the module catalogue, and the sha256 of `install-tagave.sh` and the compose files. CI signs its exact bytes with the project's Ed25519 release key (`release-manifest.json.sig`) and attaches both to the GitHub release, with the installer, its sha256 and its own signature. The private key exists only as a secret of the repository's `release` environment, which only `v*` tags can use (`scripts/set-release-key.sh` puts the public half in place); the public keys are in [`deploy/release-keys/`](../deploy/release-keys/), inside the updater and app images, and inside `install-tagave.sh`.
 
 **What the updater checks** before it uses anything of a release, for an update and for every module run, in this order:
 
