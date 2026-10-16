@@ -23,6 +23,19 @@ import { normalizeFolderLinkBase } from '@tagave/shared';
 /** Library settings only an owner (system.manage) may change. */
 const SYSTEM_SETTING_KEYS = ['contactString', 'discogsToken', 'acoustidKey', 'onboardingCompletedAt'] as const;
 
+/**
+ * The settings blob as GET /libraries lists it. Libraries are shared, so a
+ * listener or editor sees this list too: they get none of the install's
+ * settings (each section reads its own route). The owner gets them without
+ * the sealed secrets (passwords, tokens, keys, the player's admin login),
+ * which never need to reach a browser; the hints stay.
+ */
+const SECRET_SETTING = /(password|token|secret|apikey|key)$/i;
+export function listedSettings(settings: Record<string, unknown>, manages: boolean): Record<string, unknown> {
+  if (!manages) return {};
+  return Object.fromEntries(Object.entries(settings).filter(([k]) => !SECRET_SETTING.test(k)));
+}
+
 export async function createLibraryRoutes(fastify: FastifyInstance) {
   // Adding, editing, removing or rescanning a music folder drops the cached
   // per-folder counts, so the owner sees the change on the next read.
@@ -440,12 +453,14 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
              coalesce(sum(duration_ms), 0)::bigint as duration_ms,
              count(*) filter (where lossless)::int as lossless
       from audio_files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
-    // "Reviews written" is one of the four promise counters (spec §14.2)
+    // "Reviews written" is one of the four promise counters (spec §14.2);
+    // reviews and listens are per person, so these are the caller's own
+    const userId = request.user.id;
     const [reviewStats] = await db.execute(sql`
       select count(*) filter (where coalesce(body_md, '') <> '')::int as written,
              count(*) filter (where rating is not null)::int as rated,
-             (select count(*)::int from listens where library_id = ${libraryId}) as listens
-      from user_reviews where library_id = ${libraryId}`) as unknown as [Record<string, number>];
+             (select count(*)::int from listens where library_id = ${libraryId} and user_id = ${userId}) as listens
+      from user_reviews where library_id = ${libraryId} and user_id = ${userId}`) as unknown as [Record<string, number>];
 
     reply.send({
       reviews: {
@@ -482,16 +497,19 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       .from(libraries)
       .orderBy(asc(libraries.createdAt));
 
+    const manages = callerCan(request, 'system.manage');
     reply.status(200).send({
       data: userLibraries.map((lib) =>
         librarySchema.parse({
           id: lib.id,
           ownerUserId: lib.ownerUserId,
           name: lib.name,
-          settings:
+          settings: listedSettings(
             typeof lib.settings === 'string'
               ? JSON.parse(lib.settings)
               : (lib.settings ?? {}),
+            manages,
+          ),
           createdAt: lib.createdAt.toISOString(),
           updatedAt: lib.createdAt.toISOString(),
         })
