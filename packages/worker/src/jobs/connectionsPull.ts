@@ -33,7 +33,17 @@
  *                version): forget or mark what this link landed for the
  *                capability, then reconcile by key as the snapshot arrives.
  *
- * STUB_HANDLERS (version 0) validate and count, and store nothing.
+ *   sweep        a snapshot (from no cursor) was read to its end: remove the
+ *                link's rows it did not resend (the snapshot's start is kept
+ *                in mc_links.snapshot_since, so a run that stops half way
+ *                sweeps when a later one finishes);
+ *   after        follow-up work once the capability is pulled.
+ *
+ * The handlers are mcLanding.ts's (LANDING_VERSION). STUB_HANDLERS (version
+ * 0) validate and count, and store nothing (tests).
+ *
+ * Music Connections off (Settings › Modules): the tick queues nothing and a
+ * queued run does nothing; links, cursors and landed rows stay.
  */
 import { randomBytes } from 'node:crypto';
 import { FeedTooLarge, MAX_CURSOR_LENGTH, ManifestSchema, NeedsReapproval, pull, type Capability, type FeedItem, type Manifest } from 'music-connections';
@@ -49,29 +59,44 @@ import {
   pinned,
   pullableCapabilities,
   readJson,
-  revokeAtRemote,
   rfetch,
   sealTokens,
   type LinkTokens,
 } from '@tagave/core/mc';
-import { mcLinkAudit } from '@tagave/db';
+import { mcEnabled, mcLinkAudit, refreshLinkTokensLocked } from '@tagave/db';
+import { registry } from '@tagave/core/facets';
 import type { WorkerContext } from '../lib/context.js';
+import { attachParked, capParked, defaultLandingDeps, landingHandlers, type LandingDeps } from './mcLanding.js';
 
 export interface ConnectionsPullJobData {
   linkId?: string;
 }
 
 export interface HandlerContext {
+  /** inside a pull: the page's transaction, which holds the link's row */
   sql: WorkerContext['sql'];
   logger: WorkerContext['logger'];
   link: { id: string; userId: string; remoteUrl: string; service: string };
   capability: Capability;
+  /**
+   * Run `fn` in a transaction of its own that holds the link's row while the
+   * link is still active and this run's (after() uses it around each write,
+   * so no network call holds a lock). Throws when the link was revoked.
+   */
+  inLinkTx?: <T>(fn: (sql: WorkerContext['sql']) => Promise<T>) => Promise<T>;
 }
 
 export interface CapabilityHandler {
   version: number;
   apply(items: FeedItem[], ctx: HandlerContext): Promise<{ applied: number; skipped: number }>;
   resnapshot?(ctx: HandlerContext): Promise<void>;
+  /**
+   * A snapshot that started at `since` has been read to its end: remove
+   * this link's rows of the capability it did not resend.
+   */
+  sweep?(ctx: HandlerContext, since: string): Promise<number>;
+  /** After the capability's pull (also when nothing came): follow-up work, such as fetching what a suggestion needs. */
+  after?(ctx: HandlerContext): Promise<void>;
 }
 
 export type PullHandlers = Partial<Record<Capability, CapabilityHandler>>;
@@ -107,6 +132,8 @@ export type LinkPullResult = { status: 'ok' | 'needs_reapproval' | 'error' | 'bu
 
 export interface PullOptions {
   handlers?: PullHandlers;
+  /** what the default (landing) handlers fetch with */
+  landing?: LandingDeps;
   appSecret?: string | undefined;
   sleep?: (ms: number) => Promise<void>;
   budgetMs?: number;
@@ -128,6 +155,7 @@ interface LinkRow {
   scopes: string[];
   cursors: Record<string, unknown>;
   handler_versions: Record<string, unknown>;
+  snapshot_since: Record<string, unknown>;
   state: string;
   failures: number;
 }
@@ -146,13 +174,26 @@ export function safeMessage(e: unknown): string {
   return 'sync failed';
 }
 
+/** Whether the Music Connections module is on (registry: the setting in Settings › Modules). */
+export async function mcIsOn(ctx: Pick<WorkerContext, 'sql'>): Promise<boolean> {
+  return registry.isEnabled('mc', { settings: { mcEnabled: await mcEnabled(ctx.sql) }, playerUrl: process.env['TAGAVE_PLAYER_URL'] || null });
+}
+
 export async function connectionsPullJob(ctx: WorkerContext, data: ConnectionsPullJobData = {}, opts: PullOptions = {}): Promise<unknown> {
+  if (!(await mcIsOn(ctx))) return { skipped: 'music connections is off' };
   if (data.linkId) return runLinkPull(ctx, data.linkId, opts);
-  return connectionsTick(ctx);
+  return connectionsTick(ctx, opts);
 }
 
 /** The 15-minute tick: daily manifest re-reads, then one queued job per due link. */
-export async function connectionsTick(ctx: WorkerContext): Promise<{ manifests: number; queued: number }> {
+export async function connectionsTick(ctx: WorkerContext, opts: PullOptions = {}): Promise<{ manifests: number; queued: number }> {
+  // items parked for want of an album: attach what identify runs matched since (D4)
+  try {
+    const attached = await attachParked(ctx.sql);
+    if (attached) ctx.logger.info({ attached }, 'connections.pull: parked items attached');
+  } catch (e) {
+    ctx.logger.error({ error: e instanceof Error ? e.name : 'unknown' }, 'connections.pull: attaching parked items failed');
+  }
   const stale = await ctx.sql<Array<{ id: string }>>`
     select id from mc_links
      where state = 'active' and (manifest_checked_at is null or manifest_checked_at < now() - ${MANIFEST_EVERY}::interval)
@@ -210,12 +251,12 @@ export async function runLinkPull(ctx: WorkerContext, linkId: string, opts: Pull
 
 async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opts: PullOptions): Promise<LinkPullResult> {
   const sql = ctx.sql;
-  const handlers = opts.handlers ?? STUB_HANDLERS;
+  const handlers = opts.handlers ?? landingHandlers(opts.landing ?? defaultLandingDeps(ctx));
   const appSecret = opts.appSecret ?? process.env['APP_SECRET'];
   const sleep = opts.sleep ?? realSleep;
   const deadline = Date.now() + (opts.budgetMs ?? RUN_BUDGET_MS);
   const [link] = await sql<LinkRow[]>`
-    select id, user_id, remote_url, manifest, client_id, sealed_tokens, scopes, cursors, handler_versions, state, failures
+    select id, user_id, remote_url, manifest, client_id, sealed_tokens, scopes, cursors, handler_versions, snapshot_since, state, failures
       from mc_links where id = ${linkId}`;
   if (!link || link.state !== 'active') return { status: 'error', counts: {} };
   const counts: Record<string, CapCounts> = {};
@@ -224,10 +265,10 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
   // Unreadable (APP_SECRET changed): only a fresh approval fixes it.
   if (!tok) return needsReapproval(ctx, link, counts, 'tokens unreadable');
 
-  const saveCursor = async (cap: string, cursor: string | null, version: number | null): Promise<void> => {
+  const saveCursor = async (cap: string, cursor: string | null, version: number | null, db: WorkerContext['sql'] = sql): Promise<void> => {
     // The feed schema caps a cursor at 512 characters; pull() hands next on as sent.
     if (cursor !== null && cursor.length > MAX_CURSOR_LENGTH) throw new LinkError('feed cursor too long');
-    const rows = await sql`
+    const rows = await db`
       update mc_links
          set cursors = ${cursor === null ? sql`cursors - ${cap}::text` : sql`cursors || jsonb_build_object(${cap}::text, ${cursor}::text)`},
              handler_versions = ${version === null ? sql`handler_versions - ${cap}::text` : sql`handler_versions || jsonb_build_object(${cap}::text, ${version}::int)`},
@@ -236,6 +277,31 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
       returning id`;
     if (rows.length === 0) throw new LinkGone();
   };
+  // A snapshot of `cap` starts now (null: it has been swept).
+  const markSnapshot = async (cap: string, start: boolean, db: WorkerContext['sql'] = sql): Promise<string | null> => {
+    const [r] = await db<Array<{ since: string | null }>>`
+      update mc_links
+         set snapshot_since = ${start
+           ? sql`snapshot_since || jsonb_build_object(${cap}::text, to_char(now() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'))`
+           : sql`snapshot_since - ${cap}::text`}
+       where id = ${link.id} and state = 'active' and pull_lease_owner = ${owner}
+      returning snapshot_since->>${cap}::text as since`;
+    if (!r) throw new LinkGone();
+    return r.since;
+  };
+  /**
+   * One transaction holding the link's row (for no key update: the same
+   * transaction moves the cursor) while the link is active and this run's.
+   * A revoke or a removal takes the row for update: it waits for a page in
+   * flight and then deletes what it landed; once it has committed, the next
+   * page finds no row and writes nothing (LinkGone).
+   */
+  const inLinkTx = <T>(fn: (db: WorkerContext['sql']) => Promise<T>): Promise<T> =>
+    sql.begin(async (tx) => {
+      const [l] = await tx`select id from mc_links where id = ${link.id} and state = 'active' and pull_lease_owner = ${owner} for no key update`;
+      if (!l) throw new LinkGone();
+      return fn(tx as unknown as WorkerContext['sql']);
+    }) as Promise<T>;
 
   try {
     const parsed = ManifestSchema.safeParse(link.manifest);
@@ -245,8 +311,10 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
     // Re-pinned on every run: every endpoint on the link's origin, through the allow-list.
     const endpoints = endpointsOf(manifest, origin);
 
-    const refresh = async (): Promise<string> => {
-      const t = tok!;
+    // The sealed pair this run holds; a refresher that finds another pair
+    // there takes that one instead of spending a refresh token again.
+    let heldSealed = link.sealed_tokens;
+    const exchange = async (t: LinkTokens): Promise<LinkTokens> => {
       if (!t.refresh_token) throw new RefreshRejected();
       let res: Response;
       try {
@@ -268,22 +336,26 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
       }
       const j = (await readJson(res)) as { access_token?: unknown; refresh_token?: unknown; expires_in?: unknown };
       if (typeof j.access_token !== 'string' || !j.access_token) throw new TransientRefresh('token refresh answer invalid');
-      tok = {
+      return {
         ...t,
         access_token: j.access_token,
         refresh_token: typeof j.refresh_token === 'string' && j.refresh_token ? j.refresh_token : t.refresh_token,
         access_expires_at: expiryFrom(j.expires_in),
       };
-      // The old refresh token is spent: keep the new pair before using it, only
-      // while the link is still active at this address. A revoke or address
-      // change that raced this refresh gets the new tokens revoked instead.
-      const saved = await sql`update mc_links set sealed_tokens = ${sealTokens(tok, appSecret)}, updated_at = now()
-                               where id = ${link.id} and state = 'active' and remote_url = ${link.remote_url} returning id`;
-      if (saved.length === 0) {
-        await revokeAtRemote({ remoteUrl: link.remote_url, manifest: link.manifest, clientId: link.client_id }, tok);
-        throw new LinkGone();
-      }
-      return tok.access_token;
+    };
+    // One refresher at a time per link (refreshLinkTokensLocked): the row is
+    // held while the refresh token is spent and the new pair saved, only
+    // while the link is active at this address; a revoke waits for it.
+    const refresh = async (): Promise<string> => {
+      const t = tok!;
+      const r = await refreshLinkTokensLocked(sql, { id: link.id, remoteUrl: link.remote_url }, heldSealed,
+        async () => sealTokens(await exchange(t), appSecret));
+      if (!r) throw new LinkGone();
+      const next = openTokens(r.sealed, appSecret);
+      if (!next) throw new RefreshRejected();
+      heldSealed = r.sealed;
+      tok = next;
+      return next.access_token;
     };
 
     // pull() turns any refresh failure into NeedsReapproval; keep the real
@@ -306,29 +378,44 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
       const handler = handlers[cap];
       const feedUrl = endpoints.feeds[cap];
       if (!handler || !feedUrl) continue;
-      const hctx: HandlerContext = { sql, logger: ctx.logger, capability: cap, link: { id: link.id, userId: link.user_id, remoteUrl: link.remote_url, service: manifest.service } };
+      const hctx: HandlerContext = { sql, logger: ctx.logger, capability: cap, inLinkTx, link: { id: link.id, userId: link.user_id, remoteUrl: link.remote_url, service: manifest.service } };
+      const inTx = (db: WorkerContext['sql']): HandlerContext => ({ ...hctx, sql: db });
       const acc: CapCounts = (counts[cap] = { applied: 0, skipped: 0 });
       let start = typeof cursors[cap] === 'string' && cursors[cap] ? (cursors[cap] as string) : null;
       // A cursor written under another handler version (none recorded: 0, the
       // stubs): start this capability afresh.
       if (start !== null && (typeof versions[cap] === 'number' ? versions[cap] : 0) !== handler.version) {
-        await saveCursor(cap, null, null);
-        await handler.resnapshot?.(hctx);
+        await inLinkTx(async (db) => { await saveCursor(cap, null, null, db); await handler.resnapshot?.(inTx(db)); });
         start = null;
       }
+      // From no cursor: a snapshot, swept once read to its end.
+      let snapshotSince = typeof link.snapshot_since?.[cap] === 'string' ? (link.snapshot_since[cap] as string) : null;
+      if (start === null) snapshotSince = await markSnapshot(cap, true);
+      // a page's items wait for its cursor: both land in one transaction (inLinkTx)
+      let pageItems: FeedItem[] = [];
       try {
         const r = await pull({
           url: feedUrl,
           capability: cap,
           cursor: start,
-          apply: async (items) => {
-            const x = await handler.apply(items, hctx);
-            acc.applied += x.applied;
-            acc.skipped += x.skipped;
+          apply: async (items) => { pageItems = items; },
+          onPage: async (cursor) => {
+            const items = pageItems;
+            pageItems = [];
+            await inLinkTx(async (db) => {
+              if (items.length > 0) {
+                const x = await handler.apply(items, inTx(db));
+                acc.applied += x.applied;
+                acc.skipped += x.skipped;
+                await capParked(db, link.id);
+              }
+              await saveCursor(cap, cursor, handler.version, db);
+            });
           },
-          onPage: async (cursor) => { await saveCursor(cap, cursor, handler.version); },
           // The guarded reset first: a link that is no longer active is never cleared.
-          onResnapshot: async () => { await saveCursor(cap, null, null); await handler.resnapshot?.(hctx); },
+          onResnapshot: async () => {
+            snapshotSince = await inLinkTx(async (db) => { await saveCursor(cap, null, null, db); await handler.resnapshot?.(inTx(db)); return markSnapshot(cap, true, db); });
+          },
         }, {
           fetch: ((input: string | URL | Request, init?: RequestInit) => {
             if (Date.now() > deadline) throw new BudgetSpent();
@@ -341,6 +428,11 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
           sleep,
         });
         acc.skipped += r.skipped;
+        if (snapshotSince && !r.truncated) {
+          const since = snapshotSince;
+          await inLinkTx(async (db) => { if (handler.sweep) await handler.sweep(inTx(db), since); await markSnapshot(cap, false, db); });
+        }
+        await handler.after?.(hctx);
       } catch (e) {
         if (e instanceof NeedsReapproval && refreshError && !(refreshError instanceof RefreshRejected)) throw refreshError;
         if (e instanceof BudgetSpent) break; // cursors are saved; the next run continues
@@ -348,6 +440,8 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
       }
     }
 
+    // what this pull brought that has an album now, and parked items it can place
+    await attachParked(sql, { linkId: link.id, h: { sql, logger: ctx.logger, capability: 'identity', inLinkTx, link: { id: link.id, userId: link.user_id, remoteUrl: link.remote_url, service: '' } } });
     await sql`update mc_links set last_sync_at = now(), last_attempt_at = now(), last_error = null, failures = 0, next_attempt_at = null,
                                   last_counts = ${JSON.stringify(counts)}::text::jsonb, updated_at = now()
                where id = ${link.id} and state = 'active'`;

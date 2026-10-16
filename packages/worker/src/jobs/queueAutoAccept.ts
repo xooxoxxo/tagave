@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, notLike } from 'drizzle-orm';
 import { albumMatches, localAlbums, matchCandidates, releases } from '@tagave/db';
 import { chipCounts, pickByChipRule, MATCHING_THRESHOLDS } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
@@ -46,7 +46,9 @@ export async function queueAutoAcceptJob(ctx: WorkerContext, data: QueueAutoAcce
     const cands = await ctx.db
       .select()
       .from(matchCandidates)
-      .where(and(eq(matchCandidates.localAlbumId, a.id), eq(matchCandidates.excluded, false)));
+      .where(and(eq(matchCandidates.localAlbumId, a.id), eq(matchCandidates.excluded, false),
+        // a linked app's suggestion (mc:<link>) is only ever accepted by a person
+        notLike(matchCandidates.source, 'mc:%')));
     const inBand = cands
       .map((c) => ({ ...c, dist: Number(c.distance) }))
       .filter((c) => c.dist <= MATCHING_THRESHOLDS.medium);

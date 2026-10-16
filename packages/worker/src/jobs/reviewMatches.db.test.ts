@@ -53,6 +53,7 @@ vi.mock('../lib/providerCache.js', async (importOriginal) => ({
 
 const { identifyAlbumJob } = await import('./identifyAlbum.js');
 const { addEditionJob } = await import('./addEdition.js');
+const { queueAutoAcceptJob } = await import('./queueAutoAccept.js');
 
 const TITLES = ['Kiertää', 'Kuuhun', 'Tyhjä', 'Valo'];
 
@@ -158,6 +159,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     const id = await album();
     await identifyAlbumJob(ctx, { localAlbumId: id });
     expect((await stateOf(id)).state).toBe('needs_review');
+  });
+
+  it('a linked app’s suggestion is never auto-accepted: not by the rules on a re-identify, not by the queue sweep', async () => {
+    heldForReview();
+    const id = await album();
+    expect(await identifyAlbumJob(ctx, { localAlbumId: id })).toMatchObject({ outcome: 'needs_review' });
+    // an mc:<link> candidate as sure as can be: distance 0, an official release
+    const [rg] = await client`insert into release_groups (mbid, title) values (${randomUUID()}, 'Hook Album') returning id`;
+    const [rel] = await client`insert into releases (release_group_id, mbid, title, status, track_count) values (${rg.id}, ${randomUUID()}, 'Hook Album', 'Official', ${TITLES.length}) returning id`;
+    await client`insert into match_candidates (local_album_id, release_id, distance, breakdown, source)
+                 values (${id}, ${rel.id}, 0, ${JSON.stringify({ mc: { key: 'k', confidence: 1 } })}::text::jsonb, ${`mc:${randomUUID()}`})`;
+    // rules strict enough that the searched edition fails them; before the fix the mc candidate passed
+    await setRules({ minMatch: 99 });
+    const outcome = await identifyAlbumJob(ctx, { localAlbumId: id, force: true });
+    expect(outcome).toMatchObject({ outcome: 'needs_review' });
+    expect(await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id))).toEqual([]);
+    // the mc candidate survived the re-identify, still waiting for a person
+    expect((await client`select 1 from match_candidates where local_album_id = ${id} and source like 'mc:%'`).length).toBe(1);
+    // the chip-rule sweep: whatever it takes, never the mc candidate
+    await queueAutoAcceptJob(ctx, { libraryId });
+    await queueAutoAcceptJob(ctx, { libraryId, mode: 'rules' });
+    const taken = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
+    expect(taken.filter((m: { releaseId: string }) => m.releaseId === rel.id)).toEqual([]);
   });
 
   it('edition.add scores a pasted release like a searched one and only adds it', async () => {

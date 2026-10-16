@@ -63,7 +63,9 @@ export async function fetchRulesInputs(db: Db, libraryId: string, albumIds?: str
       join local_albums la on la.id = mc.local_album_id
       join releases r on r.id = mc.release_id
       join release_groups rg on rg.id = r.release_group_id
-     where la.library_id = ${libraryId} and la.state = 'needs_review' and mc.excluded is not true ${only}
+     where la.library_id = ${libraryId} and la.state = 'needs_review' and mc.excluded is not true
+       -- a linked app's suggestion (mc:<link>) is only ever accepted by a person
+       and mc.source not like 'mc:%' ${only}
      order by mc.distance asc`) as Array<Record<string, unknown>>;
 
   const byAlbum = new Map<string, RulesInputCandidate[]>();

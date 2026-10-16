@@ -16,6 +16,7 @@ import { makeDb } from '@tagave/db';
 import { openTokens, sealTokens, setRemoteFetch } from '@tagave/core/mc';
 import type { FeedItem } from 'music-connections';
 import type { WorkerContext } from '../lib/context.js';
+import { LANDING_VERSION } from './mcLanding.js';
 import { BACKOFF_MINUTES, STUB_HANDLERS, backoffMinutes, connectionsTick, refreshLinkManifest, runLinkPull, type PullHandlers } from './connectionsPull.js';
 
 const SECRET = 'c'.repeat(64);
@@ -93,6 +94,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('connections.pull (db)', () => {
     const tokens = sealTokens({ access_token: r.access, refresh_token: 'ref-0', client_secret: 'sec', access_expires_at: new Date(Date.now() + 3600_000).toISOString() }, SECRET);
     await client`insert into mc_links (id, user_id, remote_url, manifest, client_id, sealed_tokens, scopes, requested_scopes, state)
                  values (${id}, ${userId}, ${origin}, ${JSON.stringify(r.manifest)}::jsonb, 'cid', ${tokens}, ${['critic-scores:read', 'identity:read']}, ${['critic-scores:read', 'identity:read']}, 'active')`;
+    // a stored cursor belongs to the landing version that wrote it (another version re-snapshots)
+    if (over['cursors'] && !over['handler_versions']) {
+      over = { ...over, handler_versions: JSON.stringify(Object.fromEntries(Object.keys(JSON.parse(over['cursors'] as string)).map((c) => [c, LANDING_VERSION]))) };
+    }
     for (const [k, v] of Object.entries(over)) {
       // this client reads and writes timestamps as text (makeDb), json as text too
       const cast = v instanceof Date ? '::text::timestamptz' : k === 'cursors' || k === 'handler_versions' || k === 'manifest' ? '::text::jsonb' : '';
@@ -154,7 +159,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('connections.pull (db)', () => {
     expect(r.pull_lease_owner).toBeNull();
     // the next run resumes from the cursors
     rg.seen.length = 0;
-    await runLinkPull(ctx, id, opts);
+    await runLinkPull(ctx, id, { ...opts, handlers });
     expect(rg.seen.map((s) => new URL(s.url).searchParams.get('since'))).toEqual(['c2', 'i1']);
   });
 

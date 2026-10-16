@@ -1,4 +1,4 @@
-import { eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, notLike } from 'drizzle-orm';
 import {
   albumMatches, audioFiles, localAlbums, localTracks, matchCandidates, releases,
 } from '@tagave/db';
@@ -524,7 +524,9 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   for (const r of fetched) {
     releaseDbIds.set(r.id, (await persistFetched(ctx, r)).releaseId);
   }
-  await ctx.db.delete(matchCandidates).where(eq(matchCandidates.localAlbumId, album.id));
+  // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
+  // its own: a re-identification leaves them; revoking the link removes them.
+  await ctx.db.delete(matchCandidates).where(and(eq(matchCandidates.localAlbumId, album.id), notLike(matchCandidates.source, 'mc:%')));
   for (const s of scored) {
     const relDb = releaseDbIds.get(s.id);
     if (!relDb) continue;
