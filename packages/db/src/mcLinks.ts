@@ -22,5 +22,5 @@ export async function mcLinkAudit(
   entry: { action: McLinkAuditAction; userId: string; linkId: string | null; payload: Record<string, unknown> },
 ): Promise<void> {
   await sql`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id, payload)
-            values (null, ${entry.userId}, ${entry.action}, 'mc_link', ${entry.linkId}, ${JSON.stringify(entry.payload)}::jsonb)`;
+            values (null, ${entry.userId}, ${entry.action}, 'mc_link', ${entry.linkId}, ${JSON.stringify(entry.payload)}::text::jsonb)`;
 }

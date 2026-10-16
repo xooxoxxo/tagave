@@ -348,7 +348,7 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
     }
 
     await sql`update mc_links set last_sync_at = now(), last_attempt_at = now(), last_error = null, failures = 0, next_attempt_at = null,
-                                  last_counts = ${JSON.stringify(counts)}::jsonb, updated_at = now()
+                                  last_counts = ${JSON.stringify(counts)}::text::jsonb, updated_at = now()
                where id = ${link.id} and state = 'active'`;
     ctx.logger.info({ linkId: link.id, counts }, 'connections.pull: link pulled');
     return { status: 'ok', counts };
@@ -361,7 +361,7 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
     if (message === 'sync failed') ctx.logger.error({ linkId: link.id, error: e instanceof Error ? e.name : 'unknown' }, 'connections.pull: unexpected failure');
     else ctx.logger.warn({ linkId: link.id, reason: message, failures, retryInMinutes: minutes }, 'connections.pull: link failed');
     const rows = await sql`update mc_links set failures = ${failures}, next_attempt_at = now() + make_interval(mins => ${minutes}),
-                                               last_attempt_at = now(), last_error = ${message}, last_counts = ${JSON.stringify(counts)}::jsonb, updated_at = now()
+                                               last_attempt_at = now(), last_error = ${message}, last_counts = ${JSON.stringify(counts)}::text::jsonb, updated_at = now()
                             where id = ${link.id} and state = 'active' returning id`;
     // The retry itself: the 15-minute tick alone could not keep 1 and 5 minutes.
     if (rows.length > 0) {
@@ -375,7 +375,7 @@ async function pullLeased(ctx: WorkerContext, linkId: string, owner: string, opt
 async function needsReapproval(ctx: WorkerContext, link: LinkRow, counts: Record<string, CapCounts>, reason: string): Promise<LinkPullResult> {
   // Cursors are kept so a re-approved link resumes where it stopped.
   const changed = await ctx.sql`update mc_links set state = 'needs_reapproval', last_error = 'needs re-approval', last_attempt_at = now(),
-                                                    last_counts = ${JSON.stringify(counts)}::jsonb, updated_at = now()
+                                                    last_counts = ${JSON.stringify(counts)}::text::jsonb, updated_at = now()
                                  where id = ${link.id} and state = 'active' returning id`;
   // Only the run that flipped the state records it.
   if (changed.length > 0) {
@@ -411,7 +411,7 @@ export async function refreshLinkManifest(ctx: WorkerContext, linkId: string): P
     await ctx.sql`update mc_links set manifest_checked_at = now() where id = ${linkId}`;
     return false;
   }
-  await ctx.sql`update mc_links set manifest = ${JSON.stringify(next)}::jsonb, manifest_checked_at = now(), updated_at = now() where id = ${linkId}`;
+  await ctx.sql`update mc_links set manifest = ${JSON.stringify(next)}::text::jsonb, manifest_checked_at = now(), updated_at = now() where id = ${linkId}`;
   const before = new Set<string>(prev.success ? availableUngranted(prev.data, link.scopes) : []);
   const added = availableUngranted(next, link.scopes).filter((c) => !before.has(c));
   if (added.length > 0) {
