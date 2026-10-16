@@ -12,7 +12,7 @@
  * rated_at, never the review's text (user_reviews.body_md).
  */
 import type postgres from 'postgres';
-import { facetLogHorizon, readFacetChanges, type LoggedFacet } from '@tagave/db';
+import { facetLogHorizon, readFacetChanges, unconfirmedFilledGroups, type LoggedFacet } from '@tagave/db';
 import { AlbumRefSchema, CAPABILITY_DATA, CURSOR_ID_BIGINT, MAX_FEED_LIMIT, TOMBSTONE_DAYS, parseSince as mcParseSince, type Capability, type Cursor, type SinceCheck } from 'music-connections';
 
 type Sql = postgres.Sql;
@@ -330,6 +330,9 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
                 m.distance nulls last, a.created_at, a.id`,
     albumRefs(sql, scope.libraryId, ids),
   ]);
+  // The echo rule: an MBID a linked app filled (and nobody has confirmed since)
+  // goes out as provenance 'auto', never as stronger evidence than it came in.
+  const filled = await unconfirmedFilledGroups(sql, rows.map((r) => r.key));
   for (const r of rows) {
     const base = refs.get(r.key);
     if (!base) continue;
@@ -340,6 +343,7 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
       album,
       local_key: r.key,
       ...identityProvenance({ status: r.status, decidedBy: r.decided_by, source: r.source, distance: r.distance, embeddedMbid: r.embedded_mbid, releaseMbid: r.release_mbid }),
+      ...(filled.has(r.key) ? { provenance: 'auto' as const } : {}),
     });
   }
   return out;

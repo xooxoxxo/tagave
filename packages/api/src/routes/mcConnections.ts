@@ -41,7 +41,7 @@ import {
   sealTokens,
   sharedCapabilities,
 } from '@tagave/core/mc';
-import { mcLinkAudit } from '@tagave/db';
+import { mcEnabled, mcLinkAudit, unplugLinkTx } from '@tagave/db';
 import { mcRemoteUrlSchema, type McCapabilityView, type McConnectionsView, type McLinkErrorCode, type McLinkView, type McStartView } from '@tagave/shared';
 import { readScope } from 'music-connections';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -132,7 +132,7 @@ function hostOf(url: string): string {
 }
 
 /** A mutating call from a browser must come from tagave's own page. */
-function sameSite(request: FastifyRequest): void {
+export function sameSite(request: FastifyRequest): void {
   const origin = request.headers.origin;
   if (origin !== undefined && !getAuthHandle().env.trustedOrigins.includes(origin)) {
     throw new ApiError(403, 'Forbidden', 'Change your connections on tagave itself.');
@@ -144,6 +144,11 @@ async function ownLink(sql: Sql, userId: string, id: string): Promise<LinkRow> {
   const [row] = await sql<LinkRow[]>`select * from mc_links where id = ${id} and user_id = ${userId}`;
   if (!row) throw new ApiError(404, 'Not Found', 'No such connection.');
   return row;
+}
+
+/** Music Connections off (Settings › Modules): nothing new is linked or pulled; the links stay. */
+async function requireOn(): Promise<void> {
+  if (!(await mcEnabled(getAuthHandle().sql))) throw new ApiError(409, 'Conflict', 'Music Connections is turned off. The owner turns it on in Settings › Modules.');
 }
 
 export const COULD_NOT_REACH = 'Could not reach a Music Connections service at that address.';
@@ -276,8 +281,10 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
   fastify.get('/me/connections', async (request): Promise<McConnectionsView> => {
     const user = request.user!;
     const { sql, env } = getAuthHandle();
-    const rows = await sql<LinkRow[]>`select * from mc_links where user_id = ${user.id} order by created_at, id`;
-    return { links: rows.map((r) => linkView(r)), ownUrl: env.publicUrl.origin };
+    const rows = await sql<Array<LinkRow & { identity_conflicts: number; parked_dropped: number }>>`
+      select l.*, (select count(*)::int from mc_identity i where i.link_id = l.id and i.state = 'conflict') as identity_conflicts
+        from mc_links l where l.user_id = ${user.id} order by l.created_at, l.id`;
+    return { links: rows.map((r) => ({ ...linkView(r), identityConflicts: r.identity_conflicts, parkedDropped: r.parked_dropped })), ownUrl: env.publicUrl.origin };
   });
 
   fastify.post('/me/connections', async (request): Promise<McStartView> => {
@@ -286,6 +293,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     starts.check(`user:${user.id}`);
     const parsed = mcRemoteUrlSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'url is required');
+    await requireOn();
     return startLink(getAuthHandle().sql, user.id, parsed.data.url, request.log);
   });
 
@@ -295,6 +303,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     starts.check(`user:${user.id}`);
     const { sql } = getAuthHandle();
     const link = await ownLink(sql, user.id, (request.params as { id: string }).id);
+    await requireOn();
     return startLink(sql, user.id, link.remote_url, request.log);
   });
 
@@ -409,6 +418,7 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     sameSite(request);
     const link = await ownLink(getAuthHandle().sql, user.id, (request.params as { id: string }).id);
     if (link.state !== 'active') throw new ApiError(409, 'Conflict', 'This connection needs approval again before it can sync.');
+    await requireOn();
     syncs.check(`link:${link.id}`, Date.now(), 'Synced a moment ago. Try again in a minute.');
     const queued = await mcConnectionsConfig.enqueuePull(link.id);
     if (!queued.queued) {
@@ -486,19 +496,26 @@ export async function createMcConnectionRoutes(fastify: FastifyInstance) {
     // Revoke here first, in one statement that also returns what it cleared:
     // a pull refreshing at the same moment can no longer write tokens back
     // (its save requires state 'active'). A later re-link starts afresh.
-    const rows = await sql<Array<{ remote_url: string; manifest: unknown; client_id: string; sealed_tokens: string; scopes: string[] }>>`
-      with old as (select id, remote_url, manifest, client_id, sealed_tokens, scopes from mc_links
-                    where id = ${link.id} and user_id = ${user.id} for update)
-      update mc_links m
-         set state = 'revoked', sealed_tokens = '', cursors = '{}'::jsonb, handler_versions = '{}'::jsonb,
-             failures = 0, next_attempt_at = null, last_counts = null, updated_at = now()
-        from old where m.id = old.id
-      returning old.remote_url, old.manifest, old.client_id, old.sealed_tokens, old.scopes`;
+    // The same transaction deletes what the link brought (design §8): its rows
+    // in every module table, its unconfirmed MBID fills and its undecided
+    // identify-queue candidates. Accepted wantlist entries and confirmed
+    // matches are the person's and stay.
+    const { rows, removed } = await sql.begin(async (tx) => {
+      const r = await tx<Array<{ remote_url: string; manifest: unknown; client_id: string; sealed_tokens: string; scopes: string[] }>>`
+        with old as (select id, remote_url, manifest, client_id, sealed_tokens, scopes from mc_links
+                      where id = ${link.id} and user_id = ${user.id} for update)
+        update mc_links m
+           set state = 'revoked', sealed_tokens = '', cursors = '{}'::jsonb, handler_versions = '{}'::jsonb,
+               failures = 0, next_attempt_at = null, last_counts = null, updated_at = now()
+          from old where m.id = old.id
+        returning old.remote_url, old.manifest, old.client_id, old.sealed_tokens, old.scopes`;
+      return { rows: r, removed: r.length > 0 ? await unplugLinkTx(tx, link.id, user.id) : null };
+    });
     const old = rows[0];
     if (!old) throw new ApiError(404, 'Not Found', 'No such connection.');
     const tokens = openTokens(old.sealed_tokens, appSecret());
     if (tokens) await revokeAtRemote({ remoteUrl: old.remote_url, manifest: old.manifest, clientId: old.client_id }, tokens);
-    await mcLinkAudit(sql, { action: 'mc.consumer.revoke', userId: user.id, linkId: link.id, payload: { remote_host: hostOf(old.remote_url), scopes: old.scopes } });
+    await mcLinkAudit(sql, { action: 'mc.consumer.revoke', userId: user.id, linkId: link.id, payload: { remote_host: hostOf(old.remote_url), scopes: old.scopes, removed } });
     request.log.info({ event: 'mc.link.revoked', userId: user.id, linkId: link.id }, 'music connections link revoked');
     return { ok: true, removed: false };
   });

@@ -151,6 +151,28 @@ export const reviewLinkSchema = z.object({
 
 export type ReviewLink = z.infer<typeof reviewLinkSchema>;
 
+/**
+ * One source of critic scores for an album (the album.critic-scores@1
+ * facet): CritiqueBrainz from the reviews module, or a linked app such as
+ * review-gatherer (Music Connections). Scores are 0–10; no review text.
+ */
+export const criticScoreSchema = z.object({
+  source: z.object({ module: z.string(), ref: z.string().nullable(), label: z.string() }),
+  aggregate: z.object({ score: z.number().nullable(), tier: z.string().nullable(), reviewCount: z.number() }).nullable(),
+  reviews: z.array(z.object({
+    /** "Pitchfork (via review-gatherer)" */
+    label: z.string(),
+    score: z.number().nullable(),
+    scoreRaw: z.string().nullable(),
+    url: z.string().nullable(),
+    publishedAt: z.string().nullable(),
+  })),
+  criticRatings: z.array(z.object({ label: z.string(), score: z.number().nullable(), scoreRaw: z.string() })),
+  updatedAt: z.string().nullable(),
+}).strict();
+
+export type CriticScore = z.infer<typeof criticScoreSchema>;
+
 export const reviewsBundleSchema = z.object({
   releaseGroupId: z.string().uuid(),
   fetchedAt: z.string().datetime().nullable().describe('Last external fetch; null while gathering'),
@@ -160,6 +182,8 @@ export const reviewsBundleSchema = z.object({
   clippings: z.array(clippingSchema),
   own: ownReviewSchema.nullable(),
   listens: z.array(listenSchema),
+  /** The critic-scores facet: every source, labelled; unavailable when no provider is on. */
+  criticScores: z.object({ available: z.boolean(), values: z.array(criticScoreSchema) }).optional(),
 }).strict();
 
 export type ReviewsBundle = z.infer<typeof reviewsBundleSchema>;

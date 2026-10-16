@@ -182,6 +182,8 @@ export {
   reviewLinkSchema,
   type ReviewLink,
   reviewsBundleSchema,
+  criticScoreSchema,
+  type CriticScore,
   type ReviewsBundle,
 } from './review.js';
 
@@ -498,3 +500,18 @@ export {
   type McStartView,
   type McLinkErrorCode,
 } from './connections.js';
+
+// Facets and modules (GET /api/v1/facets), the Music Connections module row, wantlist suggestions
+export {
+  type FacetStateView,
+  type ModuleStateView,
+  type FacetsView,
+  type McModuleView,
+  mcModuleSchema,
+  mcRemoveDataSchema,
+  type WantlistSuggestionView,
+  type WantlistEntryView,
+  type WantlistView,
+  wantlistDecisionSchema,
+  type WantlistDecision,
+} from './facets.js';

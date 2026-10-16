@@ -22,6 +22,8 @@ import {
 import { getDb } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { getAuthHandle } from '../middleware/auth.js';
+import { criticScoresFor } from '../lib/facets.js';
 
 /** External reviews are refreshed weekly (REV-1) … */
 const REVIEWS_TTL_MS = 7 * 24 * 3600 * 1000;
@@ -207,7 +209,11 @@ export async function createReviewRoutes(fastify: FastifyInstance) {
       .where(and(eq(listens.libraryId, libraryId), eq(listens.userId, user.id), eq(listens.releaseGroupId, rgId)))
       .orderBy(desc(listens.listenedAt));
 
+    // The critic-scores facet: CritiqueBrainz and every linked app's, each labelled (D1)
+    const criticScores = await criticScoresFor(getAuthHandle().sql, { userId: user.id, libraryId }, rgId);
+
     const bundle: ReviewsBundle = {
+      criticScores,
       releaseGroupId: rgId,
       fetchedAt: iso(rg.reviewsFetchedAt),
       gathering,

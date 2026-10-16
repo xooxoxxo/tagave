@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import { readBuildInfo } from '@tagave/core';
+import { mcEnabled } from '@tagave/db';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { RateLimiter } from '../lib/rateLimit.js';
@@ -499,6 +500,8 @@ export const feedPath = (capability: string): string => `/mc/v1/${capability}`;
  */
 export async function createManifestRoute(fastify: FastifyInstance) {
   fastify.get('/.well-known/music-connections', async (_request, reply) => {
+    // Music Connections off (Settings › Modules): this tagave offers nothing
+    if (!(await mcEnabled(getAuthHandle().sql))) return reply.status(404).send({ type: 'about:blank', status: 404, title: 'Not Found', detail: 'Music Connections is turned off here.' });
     const origin = getAuthHandle().env.publicUrl.origin;
     reply.header('cache-control', 'public, max-age=300');
     return {

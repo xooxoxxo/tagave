@@ -38,6 +38,10 @@ export interface McLinkView {
   nextAttemptAt: string | null;
   /** True when pulls have failed for more than a day: the remote looks down. */
   down: boolean;
+  /** Identity facts this link sent that disagree with an MBID another album here has (no review screen yet). */
+  identityConflicts?: number;
+  /** Items held for an album tagave does not have, dropped because the link held too many (oldest first). */
+  parkedDropped?: number;
   createdAt: string;
 }
 

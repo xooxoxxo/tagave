@@ -434,4 +434,49 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
       await sql`delete from users where id in (${carl}, ${dora})`;
     }
   });
+
+  // ── the round trip (Module Composition Principle rule 5; design §10 4.7, D2) ──
+
+  /** This library's core and built-in rows in primary-key order, the player's own listens left out (person history, D2). */
+  const coreSnapshot = async () => JSON.stringify({
+    albums: await sql`select * from local_albums where library_id = ${libraryId} order by id`,
+    tracks: await sql`select t.* from local_tracks t join local_albums a on a.id = t.local_album_id where a.library_id = ${libraryId} order by t.id`,
+    files: await sql`select id, rel_path, status, codec from audio_files where library_id = ${libraryId} order by id`,
+    groups: await sql`select * from release_groups where id = ${rgId}`,
+    releases: await sql`select * from releases where id = ${releaseId}`,
+    matches: await sql`select * from album_matches where library_id = ${libraryId} order by id`,
+    reviews: await sql`select * from user_reviews where library_id = ${libraryId} order by id`,
+    collection: await sql`select * from collection_items where library_id = ${libraryId} order by id`,
+    listens: await sql`select * from listens where library_id = ${libraryId} and source is distinct from 'player' order by id`,
+  });
+
+  it('plug → use → unplug: core rows are unchanged, and the plays stay as the person’s listens (D2)', async () => {
+    const { registry } = await import('@tagave/core/facets');
+    const before = await coreSnapshot();
+    const playerListens = async () => (await sql`select count(*)::int as n from listens where user_id = ${ben} and source = 'player'`)[0].n as number;
+    const had = await playerListens();
+    // use: Ben plays the album through
+    const q = randomUUID();
+    await event(ben, 'completed', t.one, 199_000, q);
+    await event(ben, 'completed', t.two, 199_000, q);
+    await lib.runPlayerFastSync(opts());
+    await plays.deriveListens(sql, ben);
+    expect(await playerListens()).toBe(had + 1);
+    // unplug: the player goes (TAGAVE_PLAYER_URL unset); its jobs and facets are off
+    const url = process.env['TAGAVE_PLAYER_URL'];
+    delete process.env['TAGAVE_PLAYER_URL'];
+    try {
+      expect(registry.isEnabled('player', { settings: { mcEnabled: true }, playerUrl: process.env['TAGAVE_PLAYER_URL'] || null })).toBe(false);
+      expect(await coreSnapshot()).toBe(before);
+      // the plays are the person's listening history: kept
+      expect(await playerListens()).toBe(had + 1);
+    } finally {
+      process.env['TAGAVE_PLAYER_URL'] = url;
+    }
+  });
+
+  // Not built yet: Settings › Modules "Delete its data" for the player removes only
+  // the Navidrome volume; tagave's own player_* rows stay, and there is no
+  // "also delete play history" choice (design D2) to remove listens with source 'player'.
+  it.todo('uninstalling the player with "also delete play history" removes its listens and every player_* row');
 });

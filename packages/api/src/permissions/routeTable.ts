@@ -47,6 +47,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/connections/:id/reapprove': 'self',
   'PATCH /api/v1/me/connections/:id': 'self',
   'DELETE /api/v1/me/connections/:id': 'self',
+  // Wantlist suggestions (routes/mcWantlist.ts): each person's own, from their own links.
+  'GET /api/v1/me/wantlist': 'self',
+  'POST /api/v1/me/wantlist-suggestions/:id/decision': 'self',
+  // Facets (routes/facets.ts): which facets and modules are on, for the app to hide what is off.
+  'GET /api/v1/facets': 'self',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',
@@ -197,6 +202,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/libraries/:libraryId/updates/skip': 'system.manage',
   'GET /api/v1/modules': 'system.manage',
   'POST /api/v1/modules/:id/:action': 'system.manage',
+  // Settings › Modules, the Music Connections row (routes/facets.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/music-connections': 'system.manage',
+  'PUT /api/v1/settings/music-connections': 'system.manage',
+  'POST /api/v1/settings/music-connections/remove-data': 'system.manage',
   'GET /api/v1/storage': 'system.manage',
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',

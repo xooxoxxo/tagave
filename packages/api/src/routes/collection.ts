@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { eq, and, sql, inArray, desc, type SQL } from 'drizzle-orm';
+import { eq, and, ne, sql, inArray, desc, type SQL } from 'drizzle-orm';
 import {
   libraries, collectionSources, collectionItems, releases, releaseGroups, localAlbums,
 } from '@tagave/db';
@@ -141,7 +141,8 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     const db = getDb();
     await ownLibrary(db, lib, user.id);
 
-    const sources = await db.select().from(collectionSources).where(eq(collectionSources.libraryId, lib));
+    // tagave's own source (provider 'tagave') holds wantlist entries only: not a collection to show
+    const sources = await db.select().from(collectionSources).where(and(eq(collectionSources.libraryId, lib), ne(collectionSources.provider, 'tagave')));
     const counts = sources.length
       ? await db
           .select({

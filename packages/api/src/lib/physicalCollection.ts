@@ -90,7 +90,8 @@ function isUnplaced(r: ActiveRow): boolean {
 }
 
 export async function ensureCollectionSource(db: Db, libraryId: string): Promise<string> {
-  const rows = await db.execute(sql`select id from collection_sources where library_id = ${libraryId} order by created_at limit 1`) as unknown as Array<{ id: string }>;
+  // the Discogs source: tagave's own (provider 'tagave') holds only wantlist entries
+  const rows = await db.execute(sql`select id from collection_sources where library_id = ${libraryId} and provider = 'discogs' order by created_at limit 1`) as unknown as Array<{ id: string }>;
   if (rows[0]) return rows[0].id;
   const [created] = await db.insert(collectionSources).values({ libraryId, provider: 'discogs' }).returning({ id: collectionSources.id });
   return created!.id;

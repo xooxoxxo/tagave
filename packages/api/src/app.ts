@@ -39,6 +39,8 @@ import { createInviteRoutes } from './routes/invites.js';
 import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
 import { createMcFeedRoutes } from './routes/mcFeeds.js';
 import { createMcConnectionRoutes } from './routes/mcConnections.js';
+import { createMcWantlistRoutes } from './routes/mcWantlist.js';
+import { createFacetRoutes } from './routes/facets.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -172,5 +174,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // Settings › Connections: Music Connections links this person made to other apps ('self')
     instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });
+    // Wantlist suggestions from linked apps, Accept / Dismiss ('self')
+    instance.register(createMcWantlistRoutes, { prefix: '/api/v1' });
+    // Facets (what is on, for the app to hide what is off) and the Music Connections module row
+    instance.register(createFacetRoutes, { prefix: '/api/v1' });
   });
 }

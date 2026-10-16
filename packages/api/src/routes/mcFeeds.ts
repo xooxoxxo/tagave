@@ -19,6 +19,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { buildFeedPage, capabilityJsonSchema, feedLimit, isCapability, readScope } from 'music-connections';
+import { mcEnabled } from '@tagave/db';
 import { getAuthHandle } from '../middleware/auth.js';
 import { RateLimiter } from '../lib/rateLimit.js';
 import { TAGAVE_PROVIDES, bearerToken, lookupAccessToken, type AccessGrant } from '../lib/mcOAuth.js';
@@ -59,9 +60,11 @@ function forbidden(reply: FastifyReply, scope: string | undefined): FastifyReply
   return reply.status(403).send(problem(403, 'Forbidden', scope ? `This link was not granted ${scope}.` : 'Not available to a linked app.'));
 }
 
-/** The bearer gate: no-store, then public, or token → rate limit → scope. */
+/** The bearer gate: no-store, off (404), then public, or token → rate limit → scope. */
 async function bearerGate(request: FastifyRequest, reply: FastifyReply) {
   reply.header('cache-control', 'no-store');
+  // Music Connections off (Settings › Modules): nothing is served; the data stays
+  if (!(await mcEnabled(getAuthHandle().sql))) return reply.status(404).send(problem(404, 'Not Found', 'Music Connections is turned off here.'));
   const config = request.routeOptions.config;
   if (config?.mcPublic === true) return;
   const token = bearerToken(request.headers.authorization);
