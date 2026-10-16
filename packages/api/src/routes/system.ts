@@ -72,6 +72,8 @@ export async function createSystemRoutes(fastify: FastifyInstance) {
         status: c.status,
         detail: c.detail,
         remediation: remediationFor(c),
+        // owner only: the disk check's numbers per filesystem, paths included
+        ...(c.disk ? { disk: c.disk } : {}),
       })),
     });
   });

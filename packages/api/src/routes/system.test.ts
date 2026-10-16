@@ -153,6 +153,53 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first-run and system check rout
     }
   });
 
+  it('public health says only how the disks are, never their paths or sizes, and a full disk never makes it 503', async () => {
+    as = undefined;
+    const res = await app.inject({ method: 'GET', url: '/api/v1/health' });
+    expect(res.statusCode).toBe(200);
+    type Body = { disk: string; checks: Array<Record<string, unknown> & { id: string; status: string }> };
+    const body = res.json() as Body;
+    const check = body.checks.find((c) => c.id === 'disk')!;
+    expect(check).toBeDefined();
+    expect(body.disk).toBe(check.status === 'pass' ? 'ok' : check.status === 'warn' ? 'warn' : 'error');
+    const noHostDetails = (c: Record<string, unknown>) => {
+      expect(Object.keys(c).sort()).toEqual(['detail', 'id', 'remediation', 'status', 'title']);
+      for (const v of Object.values(c)) if (typeof v === 'string') expect(v, String(c.id)).not.toContain('/');
+      expect(JSON.stringify(c)).not.toMatch(/Bytes|unmeasured|filesystems/);
+    };
+    noHostDetails(check);
+
+    // past the warn level: the check warns with a fix, the probe still answers 200
+    process.env.TAGAVE_DISK_WARN_PCT = '0.1';
+    try {
+      const warned = await app.inject({ method: 'GET', url: '/api/v1/health' });
+      expect(warned.statusCode).toBe(200);
+      const w = warned.json() as Body;
+      const disk = w.checks.find((c) => c.id === 'disk')!;
+      expect(disk).toMatchObject({ status: 'warn', detail: 'A disk is filling up (0.1% or more used)' });
+      expect(w.disk).toBe('warn');
+      expect(disk.remediation).toMatch(/docker image prune -f/);
+      noHostDetails(disk);
+    } finally {
+      delete process.env.TAGAVE_DISK_WARN_PCT;
+    }
+  });
+
+  it('system checks give the owner the disk numbers per filesystem, paths included', async () => {
+    as = await addUser('owner');
+    const res = await app.inject({ method: 'GET', url: '/api/v1/system/checks' });
+    expect(res.statusCode).toBe(200);
+    const check = (res.json() as { checks: Array<{ id: string; detail: string; disk?: { warnPct: number; failPct: number; filesystems: Array<{ totalBytes: number; freeBytes: number; usedPct: number; paths: Array<{ key: string; path: string }> }> } }> })
+      .checks.find((c) => c.id === 'disk')!;
+    expect(check.disk).toMatchObject({ warnPct: 85, failPct: 95 });
+    const fs = check.disk!.filesystems;
+    expect(fs.length).toBeGreaterThan(0);
+    expect(fs.flatMap((f) => f.paths.map((p) => p.key))).toEqual(expect.arrayContaining(['backups', 'cache']));
+    expect(fs.flatMap((f) => f.paths.map((p) => p.path))).toContain(process.env.CACHE_DIR);
+    for (const f of fs) expect(f.totalBytes).toBeGreaterThan(0);
+    expect(check.detail).toMatch(/% used, .* free of /);
+  });
+
   it('the unauthenticated path probe and system/health are gone', async () => {
     as = undefined;
     const res = await app.inject({ method: 'POST', url: '/api/v1/system/test-path', payload: { path: '/etc' } });
