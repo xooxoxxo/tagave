@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ConsentCard, type ConsentRequestView } from './ConnectConsentPage';
+import { ConsentCard, isFramed, type ConsentRequestView } from './ConnectConsentPage';
 
 const view: ConsentRequestView = {
   client: { name: 'review-gatherer', redirectHost: '192.168.2.50:8080', secure: false },
@@ -46,5 +46,22 @@ describe('ConsentCard', () => {
   it('renders a client name as text, never markup', () => {
     const html = render({ ...view, client: { ...view.client, name: '<img src=x onerror=alert(1)>' } });
     expect(html).not.toContain('<img');
+  });
+});
+
+describe('framed', () => {
+  it('shows no Approve or Deny inside a frame, only a notice', () => {
+    const html = renderToStaticMarkup(<ConsentCard view={view} account={null} pending={null} error={null} framed onDecide={() => undefined} />);
+    expect(html).not.toContain('<button');
+    expect(html).not.toContain('Approve');
+    expect(html).toContain('inside another site');
+  });
+
+  it('tells a frame from the top window, and assumes a frame when the browser will not say', () => {
+    const self = {};
+    expect(isFramed({ top: self, self })).toBe(false);
+    expect(isFramed({ top: {}, self })).toBe(true);
+    const crossOrigin = { self, get top(): unknown { throw new Error('SecurityError'); } };
+    expect(isFramed(crossOrigin)).toBe(true);
   });
 });

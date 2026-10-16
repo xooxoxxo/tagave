@@ -1,6 +1,5 @@
 import Fastify from 'fastify';
 import fastifyCookie from '@fastify/cookie';
-import fastifyStatic from '@fastify/static';
 import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -18,7 +17,7 @@ import { getBoss, setBossLogger } from './boss.js';
 import { initAuth } from './middleware/auth.js';
 import { registerApiRoutes } from './app.js';
 import { requestSerializer } from './lib/logRedact.js';
-import { servesAppShell, staticCacheControl } from './lib/staticCache.js';
+import { registerWebApp } from './lib/appShell.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -212,35 +211,10 @@ app.register(async (fastify) => {
 
 // OpenAPI and its docs page are registered with the API routes (app.ts).
 
-// Static file serving (web frontend)
+// Static file serving (web frontend) and the SPA fallback; no HTML page is
+// ever framed (lib/appShell.ts).
 const webDistPath = path.join(__dirname, '../../web/dist');
-try {
-  await app.register(fastifyStatic, {
-    root: webDistPath,
-    prefix: '/',
-    // dist/ carries .br/.gz written at build (web/scripts/precompress.mjs);
-    // served by Accept-Encoding, with Vary set by the plugin.
-    preCompressed: true,
-    cacheControl: false,
-    setHeaders: (reply, filePath) => { reply.header('cache-control', staticCacheControl(filePath)); },
-  });
-} catch (err) {
-  logger.warn({ err }, 'Web frontend not found; running API-only mode');
-}
-
-// SPA history-mode fallback: deep links (/albums, /queue) must serve the
-// app shell; /api and missing /assets files get JSON 404s.
-app.setNotFoundHandler(async (request, reply) => {
-  if (servesAppShell(request.method, request.url)) {
-    // The Music Connections consent page approves with one click: never framed.
-    if (request.url.startsWith('/connect/')) {
-      reply.header('x-frame-options', 'DENY');
-      reply.header('content-security-policy', "frame-ancestors 'none'");
-    }
-    return reply.sendFile('index.html', webDistPath);
-  }
-  return reply.status(404).send({ status: 404, title: 'Not Found', detail: `Route ${request.method}:${request.url} not found` });
-});
+await registerWebApp(app, webDistPath, (err) => logger.warn({ err }, 'Web frontend not found; running API-only mode'));
 
 // Error handler, session + permission hooks and every /api route (app.ts):
 // the same wiring the route-permission tests build.

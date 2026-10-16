@@ -77,6 +77,8 @@ const inviteRoute = new Route({
 const connectConsentRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/connect/consent',
+  // only this exact path: the server's frame headers cover every page, this keeps the address canonical too
+  caseSensitive: true,
   component: ConnectConsentPage,
   validateSearch: (search: Record<string, unknown>): { request?: string } =>
     typeof search['request'] === 'string' && search['request'] ? { request: search['request'] } : {},

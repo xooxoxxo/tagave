@@ -19,6 +19,15 @@ export interface ConsentRequestView {
   scopes: Array<{ scope: string; label: string }>;
 }
 
+/** True inside a frame (or when the browser will not say): then nothing can be approved. */
+export function isFramed(win: { top: unknown; self: unknown } = window): boolean {
+  try {
+    return win.top !== win.self;
+  } catch {
+    return true;
+  }
+}
+
 export function ConnectConsentPage() {
   const { request } = useSearch({ from: '/connect/consent' });
   const { data: user } = useMe();
@@ -68,7 +77,7 @@ export function ConnectConsentPage() {
   }
   return (
     <ConsentShell>
-      <ConsentCard view={view.data} account={user?.email ?? null} pending={pending} error={error} onDecide={(d) => void decide(d)} />
+      <ConsentCard view={view.data} account={user?.email ?? null} pending={pending} error={error} framed={isFramed()} onDecide={(d) => void decide(d)} />
     </ConsentShell>
   );
 }
@@ -87,12 +96,15 @@ export function ConsentCard({
   account,
   pending,
   error,
+  framed = false,
   onDecide,
 }: {
   view: ConsentRequestView;
   account: string | null;
   pending: 'approve' | 'deny' | null;
   error: string | null;
+  /** Shown inside another page's frame: no buttons, only a notice (clickjacking). */
+  framed?: boolean;
   onDecide: (decision: 'approve' | 'deny') => void;
 }) {
   const grants = view.scopes.filter((s) => s.scope !== 'offline_access');
@@ -119,6 +131,11 @@ export function ConsentCard({
           {error}
         </div>
       )}
+      {framed ? (
+        <p className={styles.error} role="alert">
+          This page is shown inside another site. Open tagave directly to approve or deny the link.
+        </p>
+      ) : (
       <div className={styles.actions}>
         <Button onClick={() => onDecide('approve')} loading={pending === 'approve'} disabled={pending !== null}>
           Approve
@@ -127,6 +144,7 @@ export function ConsentCard({
           Deny
         </Button>
       </div>
+      )}
     </>
   );
 }
