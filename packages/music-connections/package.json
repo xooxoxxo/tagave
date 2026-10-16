@@ -1,0 +1,12 @@
+{
+  "name": "music-connections",
+  "version": "0.1.0",
+  "description": "Music Connections v1: link music apps by capability (critic scores, ratings, collection, listens, identity, wantlist suggestions).",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "zod": "^4.6.5" },
+  "devDependencies": { "@types/node": "^24.19.2", "typescript": "^7.0.2", "vitest": "^5.0.3" }
+}
