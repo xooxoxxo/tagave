@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { GATED_QUEUES, unservedWork } from '@tagave/core';
+import { GATED_QUEUES, QUEUES_RIDING_WITH, WORKER_QUEUES, unservedWork } from '@tagave/core';
 
 // Every compose file that splits the worker into TAGAVE_QUEUES roles must, taken
 // together, give each queue the worker can run to some worker. A queue left
@@ -62,5 +62,20 @@ describe.each([
 describe('worker check queue list', () => {
   it('names exactly the queues index.ts gates on', () => {
     expect([...GATED_QUEUES].sort()).toEqual(gatedQueues());
+  });
+});
+
+describe('queues riding with another', () => {
+  const src = readFileSync(path.join(here, 'index.ts'), 'utf8');
+
+  it.each(Object.entries(QUEUES_RIDING_WITH))('%s is worked by the worker that serves %s', (queue, host) => {
+    expect(WORKER_QUEUES as readonly string[]).toContain(queue);
+    expect(GATED_QUEUES).toContain(host);
+    expect(src).toMatch(new RegExp(`boss\\.work(<[^(]*>)?\\('${queue.replace('.', '\\.')}'`));
+  });
+
+  it('the Music Connections tombstone purge rides with facets.refresh, daily', () => {
+    expect(QUEUES_RIDING_WITH['mc.purge']).toBe('facets.refresh');
+    expect(src).toMatch(/boss\.schedule\('mc\.purge', '\d+ \d+ \* \* \*'/);
   });
 });

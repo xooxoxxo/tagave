@@ -12,7 +12,7 @@ export const WORKER_QUEUES = [
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
-  'cache.purge',
+  'cache.purge', 'mc.purge',
 ] as const;
 
 /**
@@ -28,6 +28,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'collection.remove': 'enrich.release',
   // nightly provider_cache cleanup: database-only upkeep, on the facets worker
   'cache.purge': 'facets.refresh',
+  // daily Music Connections tombstone cleanup: database-only, same worker
+  'mc.purge': 'facets.refresh',
   // a release the owner pasted on Review matches: fetched and scored like identify's
   'edition.add': 'identify.album',
   // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume

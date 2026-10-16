@@ -23,6 +23,7 @@ import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweep
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
 import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
+import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -451,6 +452,12 @@ async function main() {
       for (const job of jobs) await cachePurgeJob(ctx, job.data);
     });
     await boss.schedule('cache.purge', '45 4 * * *', {}, { singletonKey: 'cache.purge' });
+
+    // Daily Music Connections tombstone cleanup (90 days), same worker: 04:50.
+    await boss.work<McPurgeJobData>('mc.purge', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await mcPurgeJob(ctx, job.data);
+    });
+    await boss.schedule('mc.purge', '50 4 * * *', {}, { singletonKey: 'mc.purge' });
   }
 
   if (wants('gaps.recompute')) {
