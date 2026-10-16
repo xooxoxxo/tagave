@@ -111,7 +111,11 @@ export class UpdaterService {
         const step = run.steps.find((s) => s.status === 'running');
         run.status = 'interrupted';
         run.finishedAt = new Date().toISOString();
-        run.reason = `The updater stopped during "${step?.label ?? 'the update'}". Check TAGAVE_VERSION in .env and run docker compose up -d in the install folder; the backup from before the update is ${run.backup ?? 'not taken yet'}.`;
+        run.reason = `The updater stopped during "${step?.label ?? 'the update'}". Check TAGAVE_VERSION in .env and run docker compose up -d in the install folder; ${run.backup
+          ? `the backup from before the update is ${run.backup}`
+          : `if the new version changed the database, the backup to restore is the first one under Before update in Settings › Backups taken after ${run.startedAt}`}.`;
+        run.progress = null;
+        run.stall = null;
         if (step) step.status = 'failed';
         run.log.push({ at: run.finishedAt, level: 'error', message: 'the updater restarted in the middle of this update' });
         await this.save(run);

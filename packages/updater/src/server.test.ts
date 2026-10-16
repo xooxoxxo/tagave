@@ -112,6 +112,18 @@ describe('updater HTTP API', () => {
     expect(status.run.reason).toMatch(/Restart the app, then the workers.*\/backups\/x\.pgdump/);
   });
 
+  it('points an interrupted run without a backup yet at the first one taken after it started', async () => {
+    const run = newRun('r2', '0.7.0', '0.8.0', new Date('2026-10-16T10:00:00Z'));
+    run.steps[4]!.status = 'running';
+    run.progress = { step: 'restart', message: 'waiting for the app: database recovering', at: run.startedAt };
+    await mkdir(join(dir, STATE_DIR), { recursive: true });
+    await writeFile(join(dir, STATE_DIR, 'state.json'), JSON.stringify(run));
+    await service.load();
+    const status = (await (await call('GET', '/v1/status')).json()) as { run: UpdateRun };
+    expect(status.run.reason).toContain('the first one under Before update in Settings › Backups taken after 2026-10-16T10:00:00.000Z');
+    expect(status.run.progress).toBeNull();
+  });
+
   describe('while it restarts itself on a new version', () => {
     const writeState = async (state: unknown) => {
       await mkdir(join(dir, STATE_DIR), { recursive: true });
