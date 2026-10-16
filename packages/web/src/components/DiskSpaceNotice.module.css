@@ -1,0 +1,4 @@
+/* The disk-space notice: a Banner in the page's content column, above the page. */
+.region {
+  padding: var(--space-md) var(--shell-gutter) 0;
+}

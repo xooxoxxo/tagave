@@ -15,6 +15,7 @@ import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
+import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { stop as stopPlayback } from '../player/engine';
 import styles from './Layout.module.css';
 
@@ -171,6 +172,8 @@ export function Layout() {
           )}
           <PageBackContext.Provider value={renderInlineBack}>
             <PageBackActionContext.Provider value={backAct}>
+              {/* the owner only, while a disk tagave writes is filling up */}
+              <DiskSpaceNotice />
               <div className={styles.page}><Outlet /></div>
             </PageBackActionContext.Provider>
           </PageBackContext.Provider>
