@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 import { authClient, type AuthClientError } from '../services/authClient';
 import { SessionUser, SetupRequest, LoginRequest } from '@tagave/shared';
+import { setCurrentRole } from './usePermissions';
 
 export const AUTH_QUERY_KEY = ['auth', 'me'];
 
@@ -15,10 +16,17 @@ export function useMe() {
   return useQuery({
     queryKey: AUTH_QUERY_KEY,
     queryFn: async () => {
-      const response = await api.get<{ user: SessionUser }>('/auth/me');
-      return response.user;
+      try {
+        const response = await api.get<{ user: SessionUser }>('/auth/me');
+        setCurrentRole(response.user.role);
+        return response.user;
+      } catch (err) {
+        if ((err as { status?: number })?.status === 401) setCurrentRole(null);
+        throw err;
+      }
     },
-    staleTime: 1000 * 60 * 60, // 1 hour
+    // A minute: an owner's role change reaches an open tab soon after.
+    staleTime: 60 * 1000,
     retry: (failureCount, error: any) => {
       // Don't retry on 401 (not logged in)
       if (error?.status === 401) return false;
@@ -33,6 +41,7 @@ export function useSetup() {
   return useMutation({
     mutationFn: (data: SetupRequest) => api.post<{ user: SessionUser }>('/auth/setup', data),
     onSuccess: (data) => {
+      setCurrentRole(data.user.role);
       queryClient.setQueryData(AUTH_QUERY_KEY, data.user);
     },
   });
@@ -62,6 +71,7 @@ export function useLogin() {
 
 export async function signOut(): Promise<void> {
   await authClient().signOut();
+  setCurrentRole(null);
 }
 
 export function useLogout() {

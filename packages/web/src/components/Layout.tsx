@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/react-router';
-import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts } from '../hooks';
+import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { Button, IconButton } from './ui';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
@@ -39,11 +39,15 @@ export function Layout() {
   // the back button leads the page's title row and, once the title scrolls
   // away, a slim bar fades in over the page with both.
   const parent = parentPath(pathname);
-  useJobEvents(user && libraryId ? libraryId : undefined);
+  // What this person's role includes (Settings › Users): a listener has no
+  // library care, tag changes or install settings, so none of it is asked for.
+  const canCare = useCan('library.edit');
+  const canSystem = useCan('system.manage');
+  useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
-  const taskCount = useGapCounts(user ? libraryId : undefined).data?.tasks?.todo ?? 0;
+  const taskCount = useGapCounts(user && canCare ? libraryId : undefined).data?.tasks?.todo ?? 0;
   // a newer release (not skipped) shows as a quiet dot on Settings
-  const updateAvailable = useUpdateAvailable(user ? libraryId : undefined);
+  const updateAvailable = useUpdateAvailable(user && canSystem ? libraryId : undefined);
   // While albums are selected, "Albums" leads back to that list, selection intact.
   const albumsReturnSearch = useAlbumsReturnSearch();
 
@@ -60,7 +64,7 @@ export function Layout() {
   }, [menuOpen]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (isMaintenanceShortcut(e, e.target)) {
+      if (canCare && isMaintenanceShortcut(e, e.target)) {
         e.preventDefault();
         setMaintenance(!maintenance);
         return;
@@ -72,7 +76,7 @@ export function Layout() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [maintenance, setMaintenance]);
+  }, [maintenance, setMaintenance, canCare]);
 
   if (!user) return <Outlet />;
   const linkClass = (active: boolean) => active ? styles.navLinkActive : styles.navLink;
@@ -145,8 +149,8 @@ export function Layout() {
           <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
-          <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>
-          <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>
+          {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
+          {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>}
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings{updateAvailable && <UpdateDot />}</Link>
         </nav>
         <div className={styles.navUser}>

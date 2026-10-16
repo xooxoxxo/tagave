@@ -27,6 +27,7 @@ import {
   useLinkCollectionItem,
   isAlreadyOwned,
 } from '../hooks';
+import { useCan } from '../hooks/usePermissions';
 import {
   Banner, Button, Collapse, CoverArt, EmptyState, LinkButton, Menu, PageShell, Tabs, confirmDialog, showToast, updateToast, type MenuItem,
 } from '../components/ui';
@@ -98,6 +99,9 @@ const titleOf = (item: CollectionItem) => item.basicInfo?.title ?? `Discogs rele
 
 export function CollectionPage() {
   const { libraryId } = useCurrentLibrary();
+  // keeping the collection is library care; a listener browses it
+  const canCare = useCan('library.edit');
+  const canConnect = useCan('system.manage');
   const [view, setView] = useState<View>('physical_only');
   const [showAddForm, setShowAddForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -175,7 +179,7 @@ export function CollectionPage() {
     <PageShell
       title="Physical collection"
       subtitle={subtitle}
-      actions={source && (
+      actions={source && canCare && (
         <>
           {source.status === 'syncing' && <span className={styles.statusChip} role="status">Syncing…</span>}
           <Button variant="secondary" onClick={() => setShowAddForm(!showAddForm)} aria-expanded={showAddForm}>Add a record</Button>
@@ -190,7 +194,7 @@ export function CollectionPage() {
         <EmptyState
           title="No collection connected yet"
           text="Connect your Discogs account and tagave lists the vinyl and CDs you own, shows which of them are also on disk, and which are only on the shelf."
-          action={<LinkButton to="/settings/providers">Connect Discogs</LinkButton>}
+          action={canConnect ? <LinkButton to="/settings/providers">Connect Discogs</LinkButton> : undefined}
         />
       ) : (
         <>
@@ -273,6 +277,7 @@ export function CollectionPage() {
 }
 
 function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: View; libraryId: string | undefined }) {
+  const canCare = useCan('library.edit');
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkInput, setLinkInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -348,13 +353,14 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   // one primary action per row
   let primary: React.ReactNode = null;
   if (removing) primary = <span className={styles.status}>Removing…</span>;
+  else if (!canCare) primary = album && view !== 'removed' ? <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton> : discogsLink;
   else if (isExtraCopy) primary = <Button size="sm" variant="quiet-danger" onClick={() => void remove()}>Remove duplicate</Button>;
   else if (item.pushState === 'failed') primary = <Button size="sm" variant="secondary" loading={retryPush.isPending} onClick={() => retryPush.mutate(item.id)}>Retry</Button>;
   else if (album && view !== 'removed') primary = <LinkButton size="sm" variant="secondary" to="/albums/$albumId" params={{ albumId: album.id }}>Open album</LinkButton>;
   else if (isUnmapped) primary = <Button size="sm" variant="secondary" loading={linkItem.isPending && !!linkItem.variables?.notInLibrary} onClick={() => void link({ notInLibrary: true }, `${title} stays in Physical only`)}>Not in my library</Button>;
   else primary = discogsLink;
 
-  const menu: MenuItem[] = [
+  const menu: MenuItem[] = !canCare ? [{ key: 'discogs', label: 'Open on Discogs', href: item.discogsUrl }] : [
     ...(isExtraCopy && !removing ? [{ key: 'keep-both', label: 'I own both', hint: 'Keep both copies; this is not a duplicate', disabled: keepBoth.isPending, onSelect: () => void ownBoth() }] : []),
     ...(isUnmapped ? [{ key: 'by-url', label: 'Link by URL or ID…', hint: 'Paste a MusicBrainz or Discogs address', onSelect: () => setLinkOpen(true) }] : []),
     { key: 'discogs', label: 'Open on Discogs', href: item.discogsUrl },

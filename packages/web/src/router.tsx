@@ -19,8 +19,10 @@ const PlansPage = lazyRouteComponent(() => import('./pages/PlansPage'), 'PlansPa
 const PlanPage = lazyRouteComponent(() => import('./pages/PlanPage'), 'PlanPage');
 const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage');
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
+const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 import { signOut } from './hooks/useAuth';
+import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
 import { albumSearchRedirect, parseAlbumSearch } from './utils/albumAttention';
 
@@ -61,6 +63,13 @@ const loginTwoFactorRoute = new Route({
   component: TwoFactorPage,
 });
 
+// An invite or set-password link (Settings › Users): opened signed out
+const inviteRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/invite/$token',
+  component: InvitePage,
+});
+
 // Protected routes (require auth)
 const layoutRoute = new Route({
   getParentRoute: () => rootRoute,
@@ -77,7 +86,7 @@ const dashboardRoute = new Route({
 const onboardingRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/onboarding',
-  component: OnboardingPage,
+  component: guarded('system.manage', OnboardingPage),
 });
 
 // Setup wizard, last step: passkey / authenticator (skippable)
@@ -85,6 +94,8 @@ const protectAccountRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/onboarding/protect',
   component: ProtectAccountPage,
+  // ?from=invite: the last step after accepting an invite (no setup steps shown)
+  validateSearch: (search: Record<string, unknown>): { from?: 'invite' } => (search['from'] === 'invite' ? { from: 'invite' } : {}),
 });
 
 const albumsRoute = new Route({
@@ -111,7 +122,7 @@ const artistDetailRoute = new Route({
 const plansRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/plans',
-  component: PlansPage,
+  component: guarded('library.edit', PlansPage),
   // ?album=<localAlbumId> opens the wizard scoped to that album (album page "Fix tags").
   validateSearch: (search: Record<string, unknown>): { album?: string } =>
     typeof search['album'] === 'string' && search['album'] ? { album: search['album'] } : {},
@@ -120,7 +131,7 @@ const plansRoute = new Route({
 const planRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/plans/$planId',
-  component: PlanPage,
+  component: guarded('library.edit', PlanPage),
 });
 
 const albumDetailRoute = new Route({
@@ -146,7 +157,7 @@ const settingsProvidersRoute = new Route({
 const workRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/work',
-  component: WorkPage,
+  component: guarded('library.edit', WorkPage),
   validateSearch: (search: Record<string, unknown>) => parseWorkSearch(search),
 });
 
@@ -256,6 +267,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
   loginTwoFactorRoute,
+  inviteRoute,
   layoutRoute.addChildren([
     dashboardRoute,
     onboardingRoute,

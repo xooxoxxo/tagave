@@ -19,7 +19,7 @@ const rule = (text: string, selector: string) =>
 
 const router = source('../router.tsx');
 /** Components routed under the app frame (getParentRoute: layoutRoute). */
-const framed = [...router.matchAll(/getParentRoute: \(\) => layoutRoute,[^}]*?component: (\w+)/g)].map((m) => m[1]!);
+const framed = [...router.matchAll(/getParentRoute: \(\) => layoutRoute,[^}]*?component: (?:guarded\('[\w.]+', )?(\w+)/g)].map((m) => m[1]!);
 /** Not pages in the frame's rhythm: the narrow, centred first-run wizard steps. */
 const EXEMPT = new Set(['OnboardingPage', 'ProtectAccountPage']);
 const fileFor = (component: string) => `./${component}.tsx`;
@@ -102,7 +102,8 @@ describe('Maintenance lives where it changes something', () => {
 
   it('the album header carries the Maintenance key', () => {
     const album = source('./AlbumDetailPage.tsx');
-    expect(album).toMatch(/onToggleMaintenance=\{\(\) => setMaintenance\(!maintenance\)\}/);
+    // (only for a role with library care: a listener's key keeps its place, unseen)
+    expect(album).toMatch(/onToggleMaintenance=\{canCare \? \(\) => setMaintenance\(!maintenance\) : undefined\}/);
     expect(album).toMatch(/data-album-flow=""/);
   });
 });

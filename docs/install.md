@@ -274,6 +274,16 @@ Open http://localhost:3100. A fresh install opens the setup wizard, which walks 
 
 Afterwards, **Settings › System status** runs the same checks at any time, each with a fix for anything that fails. From a shell, `tagave-doctor doctor` prints the same checks and fixes. The worker check passes when the running workers together take every kind of work (music folders, identification, album details, tag changes); on a split install it names the work no running worker takes. Set `EXPECT_WORKERS=0` in the app environment only while you run no worker on purpose.
 
+### Adding people
+
+Everyone in the household can have their own account. As the owner, open **Settings › Users**, enter the person's email address, pick a role and choose **Make invite link**:
+
+- **Listener**: browse, search and play, with their own ratings, reviews and listens.
+- **Editor**: also library care and tag changes, but no install settings.
+- **Owner**: everything, including settings, updates, backups and people.
+
+tagave does not send email: copy the link and send it yourself. It works once, for 7 days. The person opens it, sets their name and a password (at least 12 characters), and can add a passkey or an authenticator app straight away. Someone who forgot their password or lost their phone gets a new **set-password link** from the menu next to their name. See [Security › People and roles](security.md#people-and-roles) for what each role can do.
+
 ## Connect your music
 
 Scanning, identification, and tag writing happen in a **worker**: a separate process that must see your music files on the filesystem. The app container usually cannot, so the worker runs elsewhere.

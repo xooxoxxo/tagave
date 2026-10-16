@@ -27,8 +27,11 @@ export interface ArtistLayoutProps {
   follow: { pending: boolean; toggle: () => void };
   enrich: { pending: boolean; run: () => void };
   onReleaseTypes: () => void;
-  onReopen: (gapId: string) => void;
+  /** Absent for a role without library care (a listener). */
+  onReopen?: ((gapId: string) => void) | undefined;
   reopening: boolean;
+  /** Following an artist is library care: hidden for a listener. */
+  canFollow: boolean;
 }
 
 export interface NameFirstProps extends ArtistLayoutProps {
@@ -96,7 +99,7 @@ export function ArtistNameFirst(p: NameFirstProps) {
         {sub.length > 0 && <p className={styles.sub}>{sub.map((x, i) => <span key={i}>{i > 0 && '. '}{x}</span>)}</p>}
         <DetailsNote state={details} maintenance={maintenance} onRetry={p.enrich.run} retrying={p.enrich.pending} />
         <div className={styles.bandActs}>
-          <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />
+          {p.canFollow && <FollowButton followed={artist.followed} pending={p.follow.pending} onToggle={p.follow.toggle} />}
         </div>
       </div>
     </section>

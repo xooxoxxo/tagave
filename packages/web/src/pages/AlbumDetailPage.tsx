@@ -17,7 +17,7 @@ import { lazy, Suspense, useContext, useEffect, useMemo, useRef, useState, type 
 import type { IdentifyRequestView } from '@tagave/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
-import { useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
+import { useCan, useCurrentLibrary, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useAddAlbumToCollection, useInvalidatePhysical, isAlreadyOwned, type PreviousPhysicalLink } from '../hooks';
 import { useMergeAlbums, useUnmergeAlbum } from '../hooks/useCompilations';
 import { api } from '../services/api';
 // Reviews render markdown (react-markdown + micromark, ~100 KB) and show on
@@ -91,6 +91,8 @@ export function AlbumDetailPage() {
   const { libraryId } = useCurrentLibrary();
   const queryClient = useQueryClient();
   const [maintenance, setMaintenance] = useMaintenance();
+  // a listener's album page is the music: no Manage menu, decisions or Maintenance key
+  const canCare = useCan('library.edit');
   const [{ shortAlbumArt }] = useDisplayPrefs();
   // the opt-in player: Play and per-track play exist only while one is installed and answering
   const canPlay = usePlaybackAvailable();
@@ -287,7 +289,7 @@ export function AlbumDetailPage() {
     hasRelease: !!album.release,
     match: album.match,
   }, { request, dismissedRequestKey: dismissedRequest, ackedTaskIds: acked }) : []), [album, request, dismissedRequest, acked]);
-  const items = maintenance ? allItems : allItems.filter((i) => i.interrupts);
+  const items = !canCare ? [] : maintenance ? allItems : allItems.filter((i) => i.interrupts);
 
   useEffect(() => {
     if (!pendingIssues || !album) return;
@@ -731,7 +733,7 @@ export function AlbumDetailPage() {
     ...(album.state !== 'as_is' ? [{ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() }] : []),
     ...(album.state !== 'ignored' ? [{ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() }] : []),
     { key: 'mode', label: 'Turn off Maintenance', separated: true, onSelect: () => setMaintenance(false) },
-  ] : [
+  ] : !canCare ? [] : [
     ...physicalMenuItem,
     { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
   ];
@@ -799,7 +801,7 @@ export function AlbumDetailPage() {
           onBack={() => backAct?.go()}
           onTop={flow.toTop}
           maintenance={maintenance}
-          onToggleMaintenance={() => setMaintenance(!maintenance)}
+          onToggleMaintenance={canCare ? () => setMaintenance(!maintenance) : undefined}
         />
 
         <section
@@ -951,7 +953,7 @@ export function AlbumDetailPage() {
                 label: key === 'activity' && requestLive ? <>{label}<span className={styles.liveDot} aria-label=" (a request is running)" /></> : label,
               }))}
             />
-            {!maintenance && manageMenu}
+            {!maintenance && menuItems.length > 0 && manageMenu}
           </div>
 
           {!tracksPanel && (

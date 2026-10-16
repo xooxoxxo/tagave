@@ -1,4 +1,6 @@
 export { useMe, useSetup, useLogin, useLogout } from './useAuth';
+export { useCan, useRole, setCurrentRole } from './usePermissions';
+export { useUsers, useInviteUser, useRevokeInvite, useChangeUser, useResetSignIn, useRemoveUser, useInviteLookup, useAcceptInvite, USERS_KEY } from './useUsers';
 export { useLibraries, useLibrary, useAlbums, useAlbum, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot, useAlbumEditions, useRefreshEditions, useMatchAnyEdition, useClearAnyEdition, useCollectionSources, useCollection, useReconciliation, useSyncCollection, useRemapCollection, useMapCollectionItem, useUnmapCollectionItem, useCollectionOptions, useAddCollectionItem, useRemoveCollectionItem, useRetryPush, useKeepBothCopies, useAddAlbumToCollection, useCollectionSuggestions, useLinkCollectionItem, useInvalidatePhysical, isAlreadyOwned, type CollectionSuggestion, type AlreadyOwnedError, type AddPhysicalResponse, type PreviousPhysicalLink, type Edition, type EditionsData } from './useLibrary';
 export { useCurrentLibrary } from './useCurrentLibrary';
 export { useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from './useViews';
