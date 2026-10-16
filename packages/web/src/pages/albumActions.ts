@@ -1,28 +1,28 @@
 /**
- * The album page's action strip (vault spec "tagave - Album Page Flow",
- * changes 2026-10-16, direction B "Transport").
+ * The album page's actions (vault spec "tagave - Album Page Flow", changes
+ * 2026-10-16 evening: conventions, Qobuz-like).
  *
- * The strip is drawn from a slot list and nothing else: a later per-person
- * setting only rewrites the list (insert an action, reorder) and the layout
- * follows. Owner, 2026-10-16: Play is icon only and fills the room between
- * one key on each side, Shuffle on the left and ⋯ on the right, both as wide
- * as each other, so Play sits on the centre line and the strip is
- * symmetric. A new action is a new key in the list; Play gives up the width.
+ * Two places hold them:
+ * - the action row under the album's details: plain embossed icons around
+ *   one filled Play, read from a slot list (SLOTS). A later per-person
+ *   setting only rewrites the list and the row follows; an action gets a
+ *   slot once it ships, never a disabled "coming soon" icon.
+ * - the ⋮ menu (a bottom drawer on a phone, a dropdown on a desktop): quick
+ *   tiles, a list of rows, the Maintenance tools while Maintenance is on, and
+ *   the Maintenance switch for library care (albumMenu).
+ *
+ * Play never docks into the header.
  */
+import type { MenuItem } from '../components/ui';
 
 export type AlbumActionId = 'shuffle' | 'play' | 'more' | 'like' | 'playlist' | 'share' | 'radio';
-export type StripLayout = 'phone' | 'desk';
 
-/** Phone and desktop alike: Shuffle | Play | ⋯ (⋯ stays last). */
-export const SLOTS: Readonly<Record<StripLayout, readonly AlbumActionId[]>> = {
-  phone: ['shuffle', 'play', 'more'],
-  desk: ['shuffle', 'play', 'more'],
-};
+/** The action row: Shuffle | Play | ⋮. Planned actions slot in symmetrically around Play. */
+export const SLOTS: readonly AlbumActionId[] = ['shuffle', 'play', 'more'];
 
 /**
  * Actions that exist in the app. Like, add to playlist, share and radio are
- * planned; they get keys in the list once they ship (never a disabled
- * "coming soon" key).
+ * planned; they get a slot in the list once they ship.
  */
 export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuffle', 'play', 'more']);
 
@@ -30,31 +30,18 @@ export const SHIPPED: ReadonlySet<AlbumActionId> = new Set<AlbumActionId>(['shuf
 export interface AlbumActionContext {
   /** a player module is installed and the role may use it (player.use): Play and Shuffle show */
   player: boolean;
-  /** the ⋯ menu has something in it for this role here */
+  /** the ⋮ menu has something in it (Album info is always there, so it always has) */
   menu: boolean;
   /** the actions that exist (tests and stories can pass the planned set) */
   shipped?: ReadonlySet<AlbumActionId>;
 }
 
-/**
- * The context from role and capabilities. Play and Shuffle need a player and
- * player.use (every role has it today). ⋯ shows when its menu has real items
- * for this role: the artist's page for everyone, the physical copy and the
- * Maintenance switch with library care. In Maintenance the menu moves to the
- * state line, so the strip's ⋯ slot is empty.
- */
-export function albumActionContext({ canPlay = true, playerInstalled, maintenance, menuItems }: {
-  /** the role's player.use */
-  canPlay?: boolean;
-  playerInstalled: boolean;
-  maintenance: boolean;
-  /** how many items the ⋯ menu shows */
-  menuItems: number;
-}): AlbumActionContext {
-  return { player: playerInstalled && canPlay, menu: !maintenance && menuItems > 0 };
+/** The context from role and capabilities. Play and Shuffle need a player and player.use (every role has it today). */
+export function albumActionContext({ canPlay = true, playerInstalled }: { canPlay?: boolean; playerInstalled: boolean }): AlbumActionContext {
+  return { player: playerInstalled && canPlay, menu: true };
 }
 
-/** Whether an action has a key in its slot. */
+/** Whether an action has an icon in its slot. */
 export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boolean {
   const shipped = ctx.shipped ?? SHIPPED;
   if (!shipped.has(id)) return false;
@@ -70,41 +57,23 @@ export function actionAvailable(id: AlbumActionId, ctx: AlbumActionContext): boo
   }
 }
 
-export interface StripSlot {
+export interface RowSlot {
   id: AlbumActionId;
-  /** a key sits here; otherwise the slot is space (no key drawn, not focusable) */
+  /** an icon sits here; otherwise the slot keeps its width and draws nothing (Play stays centred) */
   filled: boolean;
-  /** the outer corners of each unbroken run of keys are rounded */
-  runStart: boolean;
-  runEnd: boolean;
 }
 
 /**
- * The strip's slots, or null when no slot holds a key (then there is no
- * strip at all). With Play, an empty slot keeps its width (nothing drawn),
- * so Play stays on the centre line. Without Play (no player) only the keys
- * there are remain, packed together.
+ * The action row's slots, or null when there is no Play: the row exists for
+ * Play, and without a player the ⋮ in the header already holds everything
+ * else (a row of one ⋮ would only repeat it).
  */
-export function stripSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): StripSlot[] | null {
+export function rowSlots(list: readonly AlbumActionId[], ctx: AlbumActionContext): RowSlot[] | null {
   const all = list.map((id) => ({ id, filled: actionAvailable(id, ctx) }));
-  if (!all.some((s) => s.filled)) return null;
-  const kept = all.some((s) => s.id === 'play' && s.filled) ? all : all.filter((s) => s.filled);
-  return kept.map((s, i) => ({
-    ...s,
-    runStart: s.filled && !kept[i - 1]?.filled,
-    runEnd: s.filled && !kept[i + 1]?.filled,
-  }));
+  return all.some((s) => s.id === 'play' && s.filled) ? all : null;
 }
 
-/** The side keys' width (⋯'s), so the keys either side of Play match. */
-export const SIDE_KEY: Readonly<Record<StripLayout, number>> = { phone: 56, desk: 58 };
-
-/** The grid columns: Play wide (on a phone it fills what the side keys leave), every other key one side key wide. */
-export function stripColumns(list: readonly AlbumActionId[], layout: StripLayout): string {
-  return list.map((id) => (id === 'play' ? (layout === 'desk' ? '200px' : 'minmax(0, 1fr)') : `${SIDE_KEY[layout]}px`)).join(' ');
-}
-
-/** Play's state, shared by the strip and the docked header key. */
+/** Play's state. */
 export interface AlbumPlayState {
   /** what Play does now: start the album, pause it, or carry on */
   mode: 'play' | 'pause' | 'resume';
@@ -120,5 +89,96 @@ export interface AlbumPlayState {
   onShuffle?: () => void;
 }
 
-/** Play's word for screen readers and its tooltip (the key itself shows only the icon). */
+/** Play's word for screen readers and its tooltip (the button itself shows only the icon). */
 export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? 'Pause' : mode === 'resume' ? 'Resume' : 'Play');
+
+/* ---------------- the ⋮ menu ---------------- */
+
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance';
+
+export interface AlbumMenuAction {
+  key: string;
+  label: string;
+  /** one quiet line under the label */
+  hint?: string | undefined;
+  icon: AlbumMenuIcon;
+  disabled?: boolean | undefined;
+  /** a hairline above it (a new group of tools) */
+  separated?: boolean | undefined;
+  onSelect: () => void;
+}
+
+export interface AlbumMenuModel {
+  /** large square quick actions at the top of the drawer */
+  tiles: AlbumMenuAction[];
+  /** icon + label rows */
+  rows: AlbumMenuAction[];
+  /** the Maintenance tools: only with library care, only while Maintenance is on */
+  tools: AlbumMenuAction[];
+  /** the Maintenance switch, for library care only */
+  maintenance: { on: boolean; onToggle: () => void } | null;
+}
+
+export interface AlbumMenuInput {
+  /** library.edit: owners and editors */
+  canCare: boolean;
+  maintenance: boolean;
+  /** Shuffle, when it can play now (a player, and the album on it) */
+  shuffle?: (() => void) | null | undefined;
+  artists: ReadonlyArray<{ id: string; name: string; go: () => void }>;
+  /** "I own this on vinyl/CD": the album can be added to the physical collection and is not in it yet */
+  ownPhysical?: { pending: boolean; onSelect: () => void } | null | undefined;
+  /** the album info drawer (About, reviews) */
+  onInfo: () => void;
+  tools?: readonly AlbumMenuAction[] | undefined;
+  onToggleMaintenance: () => void;
+}
+
+/**
+ * What the ⋮ menu holds for this person. Only real actions: a listener gets
+ * Shuffle, the artist and Album info; library care adds the physical copy,
+ * the Maintenance switch and, while Maintenance is on, its tools. One artist
+ * is a tile; several are rows, one each.
+ */
+export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
+  const artist = (a: AlbumMenuInput['artists'][number]): AlbumMenuAction => ({ key: `artist-${a.id}`, label: `Go to ${a.name}`, icon: 'artist', onSelect: a.go });
+  const one = i.artists.length === 1 ? i.artists[0]! : null;
+  const tiles: AlbumMenuAction[] = [
+    ...(i.shuffle ? [{ key: 'shuffle', label: 'Shuffle', icon: 'shuffle' as const, onSelect: i.shuffle }] : []),
+    ...(one ? [artist(one)] : []),
+    ...(i.canCare && i.ownPhysical
+      ? [{ key: 'own', label: i.ownPhysical.pending ? 'Adding…' : 'I own this on vinyl/CD', hint: 'Adds it to your physical collection and Discogs', icon: 'disc' as const, disabled: i.ownPhysical.pending, onSelect: i.ownPhysical.onSelect }]
+      : []),
+  ];
+  const rows: AlbumMenuAction[] = [
+    { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
+    ...(one ? [] : i.artists.map(artist)),
+  ];
+  return {
+    tiles,
+    rows,
+    tools: i.canCare && i.maintenance ? [...(i.tools ?? [])] : [],
+    maintenance: i.canCare ? { on: i.maintenance, onToggle: i.onToggleMaintenance } : null,
+  };
+}
+
+export const maintenanceLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 'Turn on Maintenance');
+
+/** The same menu as a desktop dropdown's items, in the drawer's order. */
+export function albumMenuItems(m: AlbumMenuModel): MenuItem[] {
+  const item = (a: AlbumMenuAction): MenuItem => ({
+    key: a.key, label: a.label, onSelect: a.onSelect,
+    ...(a.hint ? { hint: a.hint } : {}), ...(a.disabled ? { disabled: true } : {}), ...(a.separated ? { separated: true } : {}),
+  });
+  const tools = m.tools.map((t, n) => ({ ...item(t), separated: n === 0 || !!t.separated }));
+  return [
+    ...m.tiles.map(item),
+    ...m.rows.map(item),
+    ...tools,
+    ...(m.maintenance ? [{
+      key: 'mode', label: maintenanceLabel(m.maintenance.on), separated: true,
+      ...(m.maintenance.on ? {} : { hint: 'Show match state, library issues and tools' }),
+      onSelect: m.maintenance.onToggle,
+    }] : []),
+  ];
+}

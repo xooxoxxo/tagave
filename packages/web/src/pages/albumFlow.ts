@@ -4,23 +4,27 @@
  * album details, kept free of the DOM so they can be tested.
  *
  * As the page scrolls: the cover fades in place (gone as its bottom passes
- * the header); the artist and album lines shrink with the page and reach
- * header size exactly as the artist line meets the header's lower edge, when
- * the header docks; TRACKLIST's caret straightens from the first scroll and
- * is a flat line by the time the label sticks under the header.
+ * the header); the album title and the artist line under it shrink with the
+ * page and reach header size exactly as the title's top meets the header's
+ * lower edge, when the header docks; TRACKLIST's caret straightens from the
+ * first scroll and is a flat line by the time the label sticks under the
+ * header.
  */
 import type { DetailTrack } from './albumDetailTypes';
 import { totalLength } from './albumFormat';
 
-/** the docked header's height (the keys' full height) */
+/** the docked header's height */
 export const HEADER = 64;
-/** artist line: 17px at rest, 13px in the header */
-export const A_REST = 17;
-export const A_HDR = 13;
-/** album line: 34px at rest, 17px in the header; it rests 23px below the artist line */
-export const B_REST = 34;
+/**
+ * The names (owner, 2026-10-16 evening: conventions): the album title on
+ * top, the artist under it. The rest sizes are the phone's (the page passes
+ * its measured sizes); in the header the title is 17px and the artist 13px,
+ * 1px under the title's 1.2 line.
+ */
+export const B_REST = 28;
 export const B_HDR = 17;
-export const B_TOP = 23;
+export const A_REST = 16;
+export const A_HDR = 13;
 /** the caret's drawing width (its viewBox; the svg stretches it across the label) */
 export const CARET_W = 346;
 
@@ -31,42 +35,54 @@ export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 export interface FlowGeometry {
   /** the cover's bottom edge */
   coverBottom: number;
-  /** the artist line's top edge */
+  /** the names' top edge (the album title's top) */
   namesTop: number;
   /** TRACKLIST's top edge (in flow, before it sticks) */
   tlTop: number;
-  /** the action strip's bottom edge; absent without a strip */
-  stripBottom?: number | null;
+  /** the title's height at rest (one or more lines) */
+  titleHeight?: number;
+  /** the artist line's top, from the names' top, at rest */
+  artistTop?: number;
+  /** the title's and the artist's font sizes at rest (px) */
+  titleSize?: number;
+  artistSize?: number;
 }
 
 export interface FlowState {
   coverOpacity: number;
-  /** 0 at rest, 1 when the artist line meets the header's lower edge */
+  /** 0 at rest, 1 when the title's top meets the header's lower edge */
   nameProgress: number;
-  artistScale: number;
   albumScale: number;
-  /** the album line's shift up toward the artist line (px, ≤ 0) */
-  albumShift: number;
+  artistScale: number;
+  /** the artist line's shift up as the title above it shrinks (px, ≤ 0) */
+  artistShift: number;
   docked: boolean;
   /** 0 a wide caret, 1 a flat separator (TRACKLIST stuck) */
   caretProgress: number;
-  /** the strip has passed under the docked header: Play docks there as a fourth key (rule 8 amended) */
-  playDocked: boolean;
 }
 
+/**
+ * The scroll-linked state. The names move only with the page, vertically:
+ * each shrinks from its top centre and the artist line stays right under the
+ * shrinking title, so on a phone their centres stay on the page's centre line.
+ */
 export function flowState(y: number, geo: FlowGeometry, header = HEADER): FlowState {
   const coverOpacity = 1 - clamp01(y / Math.max(1, geo.coverBottom - header));
   const t = clamp01(y / Math.max(1, geo.namesTop - header));
-  const albumTop = lerp(B_TOP, A_HDR * 1.2 + 1, t);
+  const bRest = geo.titleSize || B_REST;
+  const aRest = geo.artistSize || A_REST;
+  const albumScale = lerp(1, B_HDR / bRest, t);
+  const titleHeight = geo.titleHeight ?? bRest * 1.15;
+  const artistTop = geo.artistTop ?? titleHeight + 4;
+  const gap = artistTop - titleHeight;
   return {
     coverOpacity,
     nameProgress: t,
-    artistScale: lerp(1, A_HDR / A_REST, t),
-    albumScale: lerp(1, B_HDR / B_REST, t),
-    albumShift: albumTop - B_TOP,
+    albumScale,
+    artistScale: lerp(1, A_HDR / aRest, t),
+    artistShift: titleHeight * albumScale + lerp(gap, 1, t) - artistTop,
     docked: t >= 1,
     caretProgress: clamp01(y / Math.max(1, geo.tlTop - header)),
-    playDocked: t >= 1 && geo.stripBottom != null && y > geo.stripBottom - header,
   };
 }
 
@@ -306,55 +322,46 @@ export function shortFormat(tracks: readonly DetailTrack[], formats: readonly st
 }
 
 /**
- * The album's details as two quiet lines under the names (the owner found
- * the labelled grid took too much room, 2026-10-15): when and who
- * ("2012 · Frontiers Records"), then what ("1 hr 58 min · 22 tracks ·
- * 2 discs · MP3 320 kbps"). Each value is one unbreakable piece; the full
- * date, country and catalogue numbers stay in About.
+ * The album's text for the two-line excerpt under the names: the first
+ * paragraph of its Wikipedia text, or else of a CritiqueBrainz review, as
+ * plain text (Markdown marks taken out). Null when neither is stored.
  */
-export function albumSummary(a: AlbumFactsInput): { when: string[]; what: string[] } {
-  const year = (a.date ?? '').match(/^(\d{4})/)?.[1] ?? (a.year ? String(a.year) : null);
-  const labelNames = [...new Set((a.labels ?? []).map((l) => l.name).filter(Boolean))];
-  const labels = labelNames.length > 2 ? `${labelNames.slice(0, 2).join(', ')} +${labelNames.length - 2}` : labelNames.join(', ');
+export function aboutExcerpt(external: ReadonlyArray<{ source: string; bodyText: string | null; excerpt: string | null }>): string | null {
+  const has = (e: { bodyText: string | null; excerpt: string | null }) => !!(e.bodyText?.trim() || e.excerpt?.trim());
+  const pick = external.find((e) => e.source === 'wikipedia' && has(e)) ?? external.find((e) => e.source === 'critiquebrainz' && has(e));
+  if (!pick) return null;
+  const first = (pick.bodyText?.trim() || pick.excerpt?.trim() || '').split(/\n\s*\n/)[0] ?? '';
+  const plain = first
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|>)\s*/gm, '')
+    .replace(/(\*\*|__|\*|_|`)(.+?)\1/g, '$2')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return plain || null;
+}
+
+/** The release year: the date's, or the album's own. */
+export function releaseYear(date: string | null | undefined, year: number | null | undefined): string | null {
+  return (date ?? '').match(/^(\d{4})/)?.[1] ?? (year ? String(year) : null);
+}
+
+/**
+ * The album's details as two short centred lines around the names (owner,
+ * 2026-10-16 evening: conventions, "stack more information on a single
+ * screen"): "Rock · 2012" above the title, and "22 tracks · 2 discs ·
+ * 1 hr 58 min · MP3 320 kbps" under the artist. Each value is one
+ * unbreakable piece; the label, full date, country and catalogue numbers are
+ * in the album info.
+ */
+export function albumLines(a: Pick<AlbumFactsInput, 'date' | 'year' | 'totalDurationMs' | 'trackCount' | 'discCount' | 'isCueImage' | 'formats' | 'tracks'> & { genres: readonly string[] }): { kicker: string[]; facts: string[] } {
   const count = a.trackCount == null ? null : a.isCueImage
     ? `${a.trackCount} audio ${a.trackCount === 1 ? 'file' : 'files'}`
     : `${a.trackCount} ${a.trackCount === 1 ? 'track' : 'tracks'}`;
   return {
-    when: [year, labels || null].filter((v): v is string => !!v),
-    what: [totalLength(a.totalDurationMs), count, (a.discCount ?? 1) > 1 ? `${a.discCount} discs` : null, shortFormat(a.tracks, a.formats)]
+    kicker: [a.genres[0] ?? null, releaseYear(a.date, a.year)].filter((v): v is string => !!v),
+    facts: [count, (a.discCount ?? 1) > 1 ? `${a.discCount} discs` : null, totalLength(a.totalDurationMs), shortFormat(a.tracks, a.formats)]
       .filter((v): v is string => !!v),
   };
 }
 
-export interface RailCell {
-  key: 'tracks' | 'discs' | 'minutes' | 'format';
-  /** the number or name, set large */
-  value: string;
-  /** the small letter-spaced word under it */
-  label: string;
-}
-
-/**
- * The readout rail under "2012 · Frontiers Records" (direction B, 2026-10-16):
- * tracks | discs | minutes | format, each a large value over a small word.
- * Discs only when there is more than one; the format splits into its codec
- * (the value) and its detail ("320 kbps", "24-bit/96 kHz") as the word.
- */
-export function albumRail(a: Pick<AlbumFactsInput, 'totalDurationMs' | 'trackCount' | 'discCount' | 'isCueImage' | 'formats' | 'tracks'>): RailCell[] {
-  const cells: RailCell[] = [];
-  if (a.trackCount != null) {
-    cells.push({ key: 'tracks', value: String(a.trackCount), label: a.isCueImage ? (a.trackCount === 1 ? 'audio file' : 'audio files') : a.trackCount === 1 ? 'track' : 'tracks' });
-  }
-  if ((a.discCount ?? 1) > 1) cells.push({ key: 'discs', value: String(a.discCount), label: 'discs' });
-  if (a.totalDurationMs != null && a.totalDurationMs > 0) {
-    const minutes = Math.max(1, Math.round(a.totalDurationMs / 60000));
-    cells.push({ key: 'minutes', value: String(minutes), label: minutes === 1 ? 'minute' : 'minutes' });
-  }
-  const format = shortFormat(a.tracks, a.formats);
-  if (format) {
-    // "MP3 320 kbps" → MP3 over "320 kbps"; mixed codecs ("MP3 / FLAC") over "format"
-    const m = format.includes(' / ') ? null : format.match(/^(\S+)\s+(.+)$/);
-    cells.push(m ? { key: 'format', value: m[1]!, label: m[2]! } : { key: 'format', value: format, label: 'format' });
-  }
-  return cells;
-}

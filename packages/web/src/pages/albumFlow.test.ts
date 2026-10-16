@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  A_HDR, A_REST, B_HDR, B_REST, B_TOP, HEADER,
-  albumRail, albumSummary, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, shortFormat, wantsFiller,
+  A_HDR, A_REST, B_HDR, B_REST, HEADER,
+  aboutExcerpt, albumLines, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, releaseYear, seededRandom, shortFormat, wantsFiller,
 } from './albumFlow';
 import type { DetailTrack } from './albumDetailTypes';
 
@@ -16,7 +16,7 @@ describe('album flow: scroll progress', () => {
     expect(s.nameProgress).toBe(0);
     expect(s.artistScale).toBe(1);
     expect(s.albumScale).toBe(1);
-    expect(s.albumShift).toBe(0);
+    expect(s.artistShift).toBeCloseTo(0, 9);
     expect(s.docked).toBe(false);
     expect(s.caretProgress).toBe(0);
   });
@@ -28,7 +28,7 @@ describe('album flow: scroll progress', () => {
     expect(flowState(fadeEnd + 200, geo).coverOpacity).toBe(0);
   });
 
-  it('the lines shrink gradually and reach header size exactly as the artist line meets the header', () => {
+  it('the lines shrink gradually and reach header size exactly as the title meets the header', () => {
     const half = flowState(dockAt / 2, geo);
     expect(half.artistScale).toBeCloseTo((1 + A_HDR / A_REST) / 2, 5);
     expect(half.docked).toBe(false);
@@ -39,9 +39,27 @@ describe('album flow: scroll progress', () => {
     expect(at.docked).toBe(true);
     expect(at.artistScale * A_REST).toBeCloseTo(13, 5);
     expect(at.albumScale * B_REST).toBeCloseTo(17, 5);
-    // the album line sits right under the shrunken artist line: 13px × 1.2 + 1
-    expect(B_TOP + at.albumShift).toBeCloseTo(A_HDR * 1.2 + 1, 5);
     expect(B_HDR).toBe(17);
+  });
+
+  it('the artist line follows the shrinking title down to 1px under it (the header title)', () => {
+    // a one-line 28px title, 32px tall, the artist 6px under it
+    const g = { ...geo, titleHeight: 32, artistTop: 38, titleSize: 28, artistSize: 16 };
+    expect(flowState(0, g).artistShift).toBeCloseTo(0, 9);
+    const at = flowState(dockAt, g);
+    // the title's 32px at 17/28, then 1px
+    expect(38 + at.artistShift).toBeCloseTo(32 * (17 / 28) + 1, 5);
+    // in between, never under the title: its top stays below the title's shrunken bottom
+    for (let y = 0; y <= dockAt; y += 7) {
+      const s = flowState(y, g);
+      expect(38 + s.artistShift).toBeGreaterThanOrEqual(32 * s.albumScale + 1 - 1e-9);
+    }
+  });
+
+  it('a desktop page passes its own rest sizes', () => {
+    const at = flowState(dockAt, { ...geo, titleSize: 40, artistSize: 18 });
+    expect(at.albumScale * 40).toBeCloseTo(17, 5);
+    expect(at.artistScale * 18).toBeCloseTo(13, 5);
   });
 
   it('shrinking is monotonic and never overshoots', () => {
@@ -180,54 +198,41 @@ describe('album flow: the details', () => {
     expect(formatLine([], [])).toBeNull();
   });
 
-  it('two quiet lines, each value whole', () => {
-    const s = albumSummary({
-      date: '2012-11-23', year: 2012, labels: [{ name: 'Frontiers Records', catno: 'FR CD 590' }], country: 'IT',
+  it('two short lines around the names, each value whole', () => {
+    const s = albumLines({
+      date: '2012-11-23', year: 2012, genres: ['Hard Rock', 'Heavy Metal'],
       totalDurationMs: 118 * 60000, trackCount: 22, discCount: 2, isCueImage: false, formats: ['mp3'],
       tracks: [track({ codec: 'MPEG 1 Layer 3', lossless: false, bitrateKbps: 320 })],
     });
-    expect(s).toEqual({ when: ['2012', 'Frontiers Records'], what: ['1 hr 58 min', '22 tracks', '2 discs', 'MP3 320 kbps'] });
-    const flac = albumSummary({
-      date: null, year: 2002, labels: [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'A' }], country: null,
-      totalDurationMs: 68 * 60000, trackCount: 1, discCount: 1, isCueImage: true, formats: ['FLAC'], tracks: [track({ bitDepth: 24, sampleRate: 96000 })],
+    expect(s).toEqual({ kicker: ['Hard Rock', '2012'], facts: ['22 tracks', '2 discs', '1 hr 58 min', 'MP3 320 kbps'] });
+    const cue = albumLines({
+      date: null, year: 2002, genres: [], totalDurationMs: 48 * 60000, trackCount: 1, discCount: 1, isCueImage: true,
+      formats: ['FLAC'], tracks: [track({ bitDepth: 24, sampleRate: 96000 })],
     });
-    expect(flac).toEqual({ when: ['2002', 'A, B +1'], what: ['1 hr 8 min', '1 audio file', 'FLAC 24-bit/96 kHz'] });
-    const bare = albumSummary({ date: null, year: null, labels: null, country: null, totalDurationMs: null, trackCount: 1, discCount: null, isCueImage: false, formats: [], tracks: [] });
-    expect(bare).toEqual({ when: [], what: ['1 track'] });
+    expect(cue).toEqual({ kicker: ['2002'], facts: ['1 audio file', '48 min', 'FLAC 24-bit/96 kHz'] });
+    const bare = albumLines({ date: null, year: null, genres: [], totalDurationMs: null, trackCount: 1, discCount: null, isCueImage: false, formats: [], tracks: [] });
+    expect(bare).toEqual({ kicker: [], facts: ['1 track'] });
+  });
+
+  it('the excerpt: Wikipedia first, then a CritiqueBrainz review, first paragraph, plain text', () => {
+    const cb = { source: 'critiquebrainz', bodyText: 'A **great** live record.\n\nMore.', excerpt: null };
+    const wiki = { source: 'wikipedia', bodyText: 'Live at the Mystic is a [live album](https://x) by Y&T.\n\nRecorded in 2012.', excerpt: null };
+    expect(aboutExcerpt([cb, wiki])).toBe('Live at the Mystic is a live album by Y&T.');
+    expect(aboutExcerpt([cb])).toBe('A great live record.');
+    expect(aboutExcerpt([{ source: 'musicbrainz', bodyText: 'x', excerpt: null }])).toBeNull();
+    expect(aboutExcerpt([{ source: 'wikipedia', bodyText: '  ', excerpt: null }])).toBeNull();
+    expect(aboutExcerpt([])).toBeNull();
+  });
+
+  it('the year from the date first', () => {
+    expect(releaseYear('1999-03-01', 2004)).toBe('1999');
+    expect(releaseYear(null, 2004)).toBe('2004');
+    expect(releaseYear(null, null)).toBeNull();
   });
 
   it('short formats', () => {
     expect(shortFormat([], ['mp3'])).toBe('MP3');
     expect(shortFormat([track(), track({ codec: 'MPEG-4/AAC', lossless: false })], [])).toBe('FLAC / AAC');
     expect(shortFormat([track({ codec: 'Vorbis I', lossless: false, bitrateKbps: null })], [])).toBe('Vorbis');
-  });
-});
-
-describe('album flow: the readout rail', () => {
-  it('tracks | discs | minutes | format, the format split into codec and detail', () => {
-    const rail = albumRail({ totalDurationMs: 118 * 60000, trackCount: 22, discCount: 2, isCueImage: false, formats: ['mp3'], tracks: [track({ codec: 'MPEG 1 Layer 3', lossless: false, bitrateKbps: 320 })] });
-    expect(rail).toEqual([
-      { key: 'tracks', value: '22', label: 'tracks' },
-      { key: 'discs', value: '2', label: 'discs' },
-      { key: 'minutes', value: '118', label: 'minutes' },
-      { key: 'format', value: 'MP3', label: '320 kbps' },
-    ]);
-  });
-
-  it('one disc has no discs cell; mixed codecs read as the format; a CUE image counts audio files', () => {
-    const rail = albumRail({ totalDurationMs: null, trackCount: 1, discCount: 1, isCueImage: true, formats: [], tracks: [track(), track({ codec: 'MPEG-4/AAC', lossless: false })] });
-    expect(rail).toEqual([{ key: 'tracks', value: '1', label: 'audio file' }, { key: 'format', value: 'FLAC / AAC', label: 'format' }]);
-  });
-});
-
-describe('album flow: Play docks into the header (rule 8 amended)', () => {
-  const withStrip = { ...geo, stripBottom: 640 };
-  it('only once the header has docked and the strip has passed under it', () => {
-    expect(flowState(dockAt, withStrip).playDocked).toBe(false);
-    expect(flowState(withStrip.stripBottom - HEADER, withStrip).playDocked).toBe(false);
-    expect(flowState(withStrip.stripBottom - HEADER + 1, withStrip).playDocked).toBe(true);
-  });
-  it('never without a strip', () => {
-    expect(flowState(5000, geo).playDocked).toBe(false);
   });
 });

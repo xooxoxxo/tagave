@@ -154,11 +154,12 @@ describe('album page wiring', () => {
     expect(tsx).toMatch(/id=\{TAB_PANEL_ID\} role="tabpanel" aria-labelledby=\{tabIdFor\(TAB_PANEL_ID, tab\)\}/);
   });
 
-  it('the Maintenance line: state and provider links first, "⋯" trailing', () => {
+  it('the Maintenance line: state and provider links; its tools are in ⋮ (2026-10-16 evening)', () => {
     const tsx = readFileSync(new URL('./AlbumDetailPage.tsx', import.meta.url), 'utf8');
-    const tools = tsx.slice(tsx.indexOf('<div className={styles.statusLine}>'));
-    expect(tools.indexOf('Master ↗')).toBeGreaterThan(-1);
-    expect(tools.indexOf('Master ↗')).toBeLessThan(tools.indexOf('{manageMenu}'));
+    const line = tsx.slice(tsx.indexOf('<div className={styles.statusLine}>'), tsx.indexOf('{/* a passing status'));
+    expect(line.indexOf('Master ↗')).toBeGreaterThan(-1);
+    expect(line).not.toMatch(/<Menu\b/);
+    expect(tsx).toMatch(/albumMenu\(\{[\s\S]*?\btools,/);
   });
 
   it('the back button keeps a clear pill over artwork until the bar has its own glass', () => {

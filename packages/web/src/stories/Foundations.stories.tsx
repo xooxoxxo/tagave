@@ -173,15 +173,15 @@ export const MotionStory: Story = { name: 'Motion', tags: ['no-shot'], render: (
 
 function Keys() {
   return <div className={styles.page}>
-    <p className={styles.lede}>Two pressable systems. The drop (Button, IconButton, LinkButton): a glossy primary drop, a clear secondary bubble, quiet text buttons, and danger. The transport keys of the album header (AlbumFlowHeader): raised round keys at rest that dock into touching cassette-deck keys over a dark cavity, faces from the --key-* tokens.</p>
+    <p className={styles.lede}>Two pressable systems. The drop (Button, IconButton, LinkButton): a glossy primary drop, a clear secondary bubble, quiet text buttons, and danger. The embossed icon (EmbossIconButton): the glyph alone, raised by a fine highlight and shade (--emboss-* tokens), a thin niche outline on hover on the page, none in a header; the album header (AlbumFlowHeader) uses it.</p>
     <Group title="Drops">
       <Row><Button>Apply plan</Button><Button variant="secondary">Preview</Button><Button variant="secondary"><UndoIcon />Revert</Button><Button variant="quiet">Cancel</Button><Button variant="quiet-danger">Delete</Button><Button variant="danger">Delete (dialog)</Button></Row>
       <Row><IconButton label="Play" variant="primary"><PlayIcon /></IconButton><IconButton label="Edit tags"><EditIcon /></IconButton><IconButton label="Revert" variant="quiet"><UndoIcon /></IconButton><Button size="sm">Small</Button><Button size="sm" variant="secondary">Small</Button></Row>
     </Group>
-    <Group title="Transport keys: at rest">
+    <Group title="Album header: at rest">
       <div className={styles.keys}><AlbumFlowHeader docked={false} artist="Miles Davis" title="Kind of Blue" glide={{ x: 0, y: 0 }} backLabel="Back to albums" onBack={() => undefined} onTop={() => undefined} maintenance={false} onToggleMaintenance={() => undefined} /></div>
     </Group>
-    <Group title="Transport keys: docked, Maintenance on">
+    <Group title="Album header: docked (artist page, Maintenance on)">
       <div className={styles.keys}><AlbumFlowHeader docked artist="Miles Davis" title="Kind of Blue" glide={{ x: 0, y: 0 }} backLabel="Back to albums" onBack={() => undefined} onTop={() => undefined} maintenance onToggleMaintenance={() => undefined} /></div>
     </Group>
   </div>;

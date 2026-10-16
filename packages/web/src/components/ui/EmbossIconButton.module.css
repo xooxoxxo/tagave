@@ -1,0 +1,75 @@
+/* The embossed icon button (EmbossIconButton.tsx). The glyph is raised by
+   two drop-shadows on the svg itself: a fine highlight above it and a soft
+   shade under it (--emboss-hi / --emboss-lo, per theme). No fill, no circle:
+   the button's own area shows only as a niche on hover and focus. */
+.emboss {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  /* the niche: a rounded square, never a circle */
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--dur) ease, box-shadow var(--dur) ease;
+}
+
+.emboss svg {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 -0.5px 0 var(--emboss-hi)) drop-shadow(0 1px 1px var(--emboss-lo));
+  transition: filter var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+
+/* every state keeps the button clear: the global button baseline paints a fill */
+.emboss:hover:not(:disabled),
+.emboss:active:not(:disabled) {
+  background: transparent;
+  transform: none;
+}
+
+@media (hover: hover) {
+  .emboss:hover:not(:disabled) { color: var(--ink); }
+  /* on the page: a thin recessed outline around the icon's area */
+  .page:hover:not(:disabled) { box-shadow: var(--emboss-niche); }
+}
+
+/* pressed: the glyph sinks into its niche */
+.emboss:active:not(:disabled) svg {
+  filter: drop-shadow(0 0.5px 0 var(--emboss-hi));
+  transform: translateY(0.5px);
+}
+.page:active:not(:disabled) { box-shadow: var(--emboss-niche-pressed); }
+
+/* keyboard focus: a clear ring everywhere, the header included */
+.emboss:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+.page:focus-visible { box-shadow: var(--emboss-niche); }
+
+/* on: a switch that is on (aria-pressed) takes the accent */
+.emboss[aria-pressed="true"] { color: var(--dew); }
+
+.emboss:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emboss, .emboss svg { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .emboss { border: 0; }
+  .emboss svg { filter: none; }
+  .emboss:hover:not(:disabled), .page:focus-visible { outline: 1px solid ButtonText; }
+  .emboss:focus-visible { outline: 2px solid Highlight; }
+}

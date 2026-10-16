@@ -108,8 +108,16 @@
   min-width: 0;
 }
 
-/* artist (top) and album (below it): they move only with the page and
-   shrink from the top-left corner (useAlbumFlow writes the transforms) */
+/* "Rock · 2012": a small line above the title */
+.kicker {
+  margin: 0 0 6px;
+  font: 500 13px / 1.35 var(--font-body);
+  color: var(--ink-3);
+}
+
+/* the album title over the artist: they move only with the page and shrink
+   from their top edge (useAlbumFlow writes the transforms) into the header's
+   title. On a phone they are centred and shrink from their top centre. */
 .names {
   position: relative;
   min-width: 0;
@@ -122,12 +130,18 @@
   will-change: transform;
 }
 
+.nameB {
+  margin: 0;
+  font: 600 40px / 1.1 var(--font-display);
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
 .nameA {
-  position: absolute;
-  top: 0;
-  left: 0;
+  margin-top: 6px;
   max-width: 100%;
-  font: 500 17px / 1.25 var(--font-body);
+  font: 500 18px / 1.3 var(--font-body);
   color: var(--dew);
   white-space: nowrap;
   overflow: hidden;
@@ -144,26 +158,14 @@
   text-underline-offset: 3px;
 }
 
-.nameB {
-  margin: 23px 0 0;
-  font: 300 34px / 1.08 var(--font-display);
-  letter-spacing: -0.015em;
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
-
-/* the album's details: two quiet lines (when and who; what), genres as
-   soft chips. A line breaks only between values, never inside one. */
-.summary {
+/* what it is: "22 tracks · 1 hr 58 min · MP3 320 kbps", and your copy.
+   A line breaks only between values, never inside one. */
+.factsLine {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 14px 0 0;
-  max-width: 40rem;
-}
-
-.summaryLine {
-  margin: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 0;
+  margin: 10px 0 0;
   font: 400 14px / 1.45 var(--font-body);
   color: var(--ink-2);
 }
@@ -174,75 +176,22 @@
 
 .dot {
   color: var(--ink-3);
+  white-space: pre;
 }
 
-/* the readout rail: tracks | discs | minutes | format, a large value over a
-   small letter-spaced word, hairlines between the cells (direction B) */
-.rail {
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  margin: 12px 0 0;
-  border-block: 1px solid var(--line);
-  max-width: 560px;
-}
-.rail > div {
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-  gap: 6px;
-  padding: 11px 0 10px 12px;
-  box-shadow: inset 1px 0 0 var(--line);
-  min-width: 0;
-}
-.rail > div:first-child {
-  padding-left: 0;
-  box-shadow: none;
-}
-.rail dd {
-  margin: 0;
-  font: 300 25px / 1 var(--font-display);
-  letter-spacing: -.01em;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.rail dt {
-  font: 500 10px / 1.2 var(--font-body);
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.genres {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-
-/* genres and your copy: soft chips */
-.chip {
+/* your copy: a quiet outlined chip at the end of the facts line */
+.ownChip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 11px;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 3px 9px;
   border-radius: var(--r-pill);
-  background: var(--dew-tint);
-  color: var(--chip-on-ink);
-  font: 500 12px / 1 var(--font-body);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+  color: var(--ink-2);
+  font: 500 12px / 1.2 var(--font-body);
   white-space: nowrap;
   text-decoration: none;
-}
-.ownChip {
-  background: transparent;
-  color: var(--ink-2);
-  box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 .ownChip svg {
   width: 13px;
@@ -256,8 +205,47 @@
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* the album's text: two lines, then More */
+.excerpt {
+  margin: 12px 0 0;
+  max-width: 40rem;
+}
+.excerptText {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  font: 400 14px / 1.5 var(--font-body);
+  color: var(--ink-2);
+}
+.more {
+  min-height: 32px;
+  margin: 2px 0 0 -8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--dew);
+  font: 600 12px / 1 var(--font-body);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.more:hover:not(:disabled),
+.more:active:not(:disabled) {
+  background: transparent;
+  color: var(--dew-lo);
+  transform: none;
+}
+.more:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+}
+
 @media (forced-colors: active) {
-  .chip { border: 1px solid CanvasText; }
+  .ownChip { border: 1px solid CanvasText; }
 }
 
 /* what needs a decision (and, in Maintenance, the state and tools): under
@@ -272,10 +260,6 @@
 
 .upkeep[hidden] {
   display: none;
-}
-
-.statusMenu {
-  margin-left: auto;
 }
 
 /* one TRACKLIST label: rests at the bottom of the first screen (phone),
@@ -1022,27 +1006,57 @@ td.cellOff {
   .flow {
     --flow-gutter: 22px;
   }
+  /* centred, like a music app's album page: cover, "Rock · 2012", title,
+     artist, facts, the excerpt, then the action row */
   .hero {
     display: flex;
     flex-direction: column;
-    /* the desktop grid's align-items: end would push a narrow column right */
     align-items: stretch;
     gap: 0;
-    padding: 72px var(--flow-gutter) 0;
+    /* clear of the header icons (44px from the top) */
+    padding: 64px var(--flow-gutter) 20px;
+    text-align: center;
   }
-  .hero {
-    /* room under Play for its shadow: the stuck TRACKLIST label (opaque)
-       follows right after the album and used to cut it flat */
-    padding-bottom: 24px;
+  .coverBox {
+    width: min(100%, 74vw, 320px);
+    align-self: center;
   }
-  .names {
-    margin-top: 20px;
+  .headInfo {
+    align-items: stretch;
   }
-  .summary {
+  .kicker {
+    margin: 18px 0 6px;
+  }
+  .nameA,
+  .nameB {
+    transform-origin: 50% 0;
+  }
+  .nameB {
+    font-size: 28px;
+    line-height: 1.15;
+  }
+  .nameA {
+    margin-top: 4px;
+    font-size: 16px;
+  }
+  .factsLine {
+    justify-content: center;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+  .excerpt {
     max-width: none;
+    margin-top: 10px;
+  }
+  .excerptText {
+    font-size: 13px;
+  }
+  .more {
+    margin-left: 0;
   }
   .upkeep {
-    margin: 1.5rem 0;
+    margin: 1.5rem 0 0;
+    text-align: left;
   }
 }
 

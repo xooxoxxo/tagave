@@ -100,10 +100,11 @@ describe('Maintenance lives where it changes something', () => {
     expect(layout).toMatch(/isMaintenanceShortcut\(e, e\.target\)/);
   });
 
-  it('the album header carries the Maintenance key', () => {
+  it('the album header carries ⋮, and ⋮ the Maintenance switch (library care only)', () => {
     const album = source('./AlbumDetailPage.tsx');
-    // (only for a role with library care: a listener's key keeps its place, unseen)
-    expect(album).toMatch(/onToggleMaintenance=\{canCare \? \(\) => setMaintenance\(!maintenance\) : undefined\}/);
+    expect(album).toMatch(/end=\{moreButton\('header'\)\}/);
+    expect(album).toMatch(/albumMenu\(\{\s*canCare,\s*maintenance,/);
+    expect(album).toMatch(/onToggleMaintenance: \(\) => setMaintenance\(!maintenance\)/);
     expect(album).toMatch(/data-album-flow=""/);
   });
 });

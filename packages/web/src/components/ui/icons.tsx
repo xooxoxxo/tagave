@@ -101,6 +101,66 @@ export function ChevronUpIcon() {
   );
 }
 
+/* The album page's icon buttons and its ⋮ drawer (2026-10-16 evening). */
+
+/** Three dots stacked: more actions (⋮). */
+export function KebabIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="5.5" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="12" cy="18.5" r="1.9" />
+    </svg>
+  );
+}
+
+/** A chevron pointing left: back. */
+export function BackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M15 5.5 8.5 12l6.5 6.5" />
+    </svg>
+  );
+}
+
+/** A letter i in a ring: information about the thing. */
+export function InfoIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5.5" />
+      <circle cx="12" cy="7.8" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+/** A head and shoulders: a person (the artist). */
+export function PersonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="8.5" r="3.6" />
+      <path d="M4.8 19.5c1.2-3.3 3.9-5 7.2-5s6 1.7 7.2 5" />
+    </svg>
+  );
+}
+
+/** A record with its label: a physical copy. */
+export function DiscIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="2.4" />
+    </svg>
+  );
+}
+
+/** A wrench: Maintenance and its tools. */
+export function WrenchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L4 16.7V20h3.3l5.3-5.3a4 4 0 0 0 5.1-5.4l-2.5 2.5-2.4-.6-.6-2.4Z" />
+    </svg>
+  );
+}
+
 /** A chevron pointing down: move later. */
 export function ChevronDownIcon() {
   return (

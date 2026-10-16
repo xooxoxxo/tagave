@@ -1,7 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { AlbumFlowHeader } from '../pages/AlbumFlowHeader';
+import { EmbossIconButton, KebabIcon } from '../components/ui';
 
 const noop = () => undefined;
+const more = <EmbossIconButton place="header" label="More for this album"><KebabIcon /></EmbossIconButton>;
 
 const meta = {
   title: 'Album/Header',
@@ -14,10 +16,7 @@ const meta = {
     backLabel: 'Back to Albums',
     onBack: noop,
     onTop: noop,
-    maintenance: false,
-    onToggleMaintenance: noop,
-    play: { mode: 'play', onPlay: noop, onToggle: noop },
-    playDocked: true,
+    end: more,
   },
   // the header is a zero-height sticky layer; give it its band to draw in
   decorators: [(Story) => <div style={{ position: 'relative', height: 64 }}><Story /></div>],
@@ -25,7 +24,7 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'The album page\'s header (vault spec "tagave - Album Page Flow"). Docked it is touching keys: back | artist + album | Maintenance; once the action strip has scrolled under it, Play docks as a fourth key, left of Maintenance (a 64px icon key). The back and Maintenance icons never move. Without a player the approved three keys stay.',
+        component: 'The album page\'s header: back | album title over the artist | ⋮. Back and ⋮ are embossed header icons (EmbossIconButton, no hover outline) whose centres never move; docked, a band rises behind them and the names glide in. Play never docks here. The artist page draws the same header with its kind line over the name and Maintenance on the right.',
       },
     },
   },
@@ -33,11 +32,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-
-export const PhoneAtRest: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { docked: false, playDocked: false } };
-export const PhoneDockedWithPlay: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
-export const PhoneDockedWaiting: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'play', disabled: true } } };
-export const PhoneDockedPlaying: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: { mode: 'pause', onToggle: noop } } };
-export const PhoneDockedNoPlayer: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { play: null } };
-export const DesktopDockedWithPlay: Story = {};
-export const DesktopDockedPlaying: Story = { args: { play: { mode: 'pause', onToggle: noop } } };
+export const PhoneAtRest: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { docked: false } };
+export const PhoneDocked: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };
+export const PhoneDockedLongTitle: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { title: 'The Rise and Fall of Ziggy Stardust and the Spiders from Mars', artist: 'David Bowie' } };
+export const DesktopDocked: Story = {};
+export const ArtistPageMaintenanceOn: Story = { args: { end: undefined, artist: 'Band', title: 'Y&T', titleFirst: false, maintenance: true, onToggleMaintenance: noop } };

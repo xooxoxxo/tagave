@@ -1,11 +1,14 @@
 /**
  * Album page (spec BRW-2), laid out as the album page flow (vault spec
- * "tagave - Album Page Flow", approved prototype album-flow-prototype.html):
- * the album first (cover, artist above album, "year · label", the readout
- * rail, genres, then the transport strip of AlbumActionStrip, whose Play
- * docks into the header once it scrolls under it) with one TRACKLIST label resting at the bottom of a phone's first
- * screen, then the tracks. Back and Maintenance are keys that never move; the header
- * docks around them (AlbumFlowHeader, useAlbumFlow). Upkeep stays out of
+ * "tagave - Album Page Flow"; changes 2026-10-16 evening: the conventions of
+ * a music app's album page): the album first (cover, "Rock · 2012", title,
+ * artist, "tracks · length · format", a two-line excerpt with More, then
+ * the action row Shuffle | Play | ⋮) with one TRACKLIST label resting at the
+ * bottom of a phone's first screen, then the tracks. Back and ⋮ are embossed
+ * icons that never move; the header docks around them (AlbumFlowHeader,
+ * useAlbumFlow). ⋮ opens the album's drawer (a dropdown on a desktop) with
+ * every album action, Album info, and the Maintenance switch; Play never
+ * docks into the header. Upkeep stays out of
  * sight unless something needs a decision (see utils/albumAttention.ts);
  * Maintenance (maintenance.ts) reveals the state, provider links, every
  * library issue, the Manage menu and per-track marks.
@@ -40,7 +43,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, Menu, PageShell, Tabs, tabIdFor, type MenuItem, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
@@ -48,11 +51,16 @@ import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
-import { AlbumActionStrip, PLAY_NOTE_ID, useStripLayout } from './AlbumActionStrip';
-import { albumActionContext, type AlbumPlayState } from './albumActions';
+import { AlbumActionRow } from './AlbumActionRow';
+import { AlbumMoreButton, useAlbumDrawer, type AlbumInfoTab, type AlbumSummary } from './AlbumMenu';
+// The drawers (Base UI Drawer) load when one first opens: their own chunk.
+const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumActionsSheet })));
+const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumInfoSheet })));
+import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
-import { albumRail, albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
+import { aboutExcerpt, albumLines, caretPath, countryName, fillerHeight, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
+import { useReviews } from '../hooks/useReviews';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
 import { scanWaitLine } from '../player/logic';
@@ -253,11 +261,20 @@ export function AlbumDetailPage() {
     tl: { current: null as HTMLElement | null },
     caret: { current: null as SVGPathElement | null },
     tracks: { current: null as HTMLElement | null },
-    strip: { current: null as HTMLElement | null },
   }), []);
-  const stripLayout = useStripLayout();
   const footRef = useRef<HTMLDivElement>(null);
   const flow = useAlbumFlow(flowRefs, !!album);
+  // ⋮: a bottom drawer on a phone or tablet, a dropdown on a desktop; the album info
+  // is a drawer too (a side sheet on a desktop). Focus goes back to what opened it.
+  const drawer = useAlbumDrawer();
+  const [sheet, setSheet] = useState<'actions' | 'info' | null>(null);
+  const [infoTab, setInfoTab] = useState<string>('about');
+  // the drawers' code loads on the first open and stays (so they can animate closed)
+  const [sheetsWanted, setSheetsWanted] = useState(false);
+  if (sheet && !sheetsWanted) setSheetsWanted(true);
+  const opener = useRef<HTMLElement | null>(null);
+  // the excerpt under the names: the album's Wikipedia text or a review, when one is stored
+  const reviews = useReviews(libraryId, album?.releaseGroupId ?? null);
   // a section opened from elsewhere on the page (or a ?tab link) is brought into view;
   // the sections live in Maintenance, so opening one turns it on
   const openSection = (next: AlbumTab) => {
@@ -428,10 +445,6 @@ export function AlbumDetailPage() {
       addingPhysical.current = false;
     }
   };
-  const physicalMenuItem: MenuItem[] = !ownsPhysical && canOwnPhysical
-    ? [{ key: 'own', label: addPhysical.isPending ? 'Adding…' : 'I own this on vinyl/CD', hint: 'Adds it to your physical collection and Discogs', disabled: addPhysical.isPending, onSelect: () => void ownPhysical() }]
-    : [];
-
   // The bulk editor covers this album, or everything in its folder (or the
   // folder above it, where a compilation filed one folder per track lives).
   const parentOf = (d: string) => (d.includes('/') ? d.slice(0, d.lastIndexOf('/')) : '');
@@ -740,39 +753,25 @@ export function AlbumDetailPage() {
     }
   };
 
-  // ---- the "⋯" menu ----
+  // ---- the Maintenance tools (in ⋮ while Maintenance is on) ----
 
-  const artistMenuItems: MenuItem[] = (album.artists ?? []).map((a) => ({
-    key: `artist-${a.id}`,
-    label: `Go to ${a.name}`,
-    onSelect: () => void navigate({ to: '/artists/$artistId', params: { artistId: a.id } }),
-  }));
-
-  const menuItems: MenuItem[] = maintenance ? [
-    { key: 'reidentify', label: reidentify.isPending ? 'Queuing…' : 'Re-identify', hint: requestLive ? 'A request is already queued' : 'Look this album up again', disabled: requestLive || reidentify.isPending, onSelect: () => reidentify.mutate() },
-    { key: 'manual', label: 'Match to a release…', hint: 'Paste a MusicBrainz or Discogs link', disabled: requestLive, onSelect: openManual },
-    ...(album.state !== 'matched' ? [{ key: 'fp', label: 'Fingerprint', hint: 'Identify by sound (AcoustID)', disabled: fingerprint.isPending, onSelect: () => fingerprint.mutate(albumId, { onSuccess: () => { setNote('Fingerprinting queued.'); refresh(3000); } }) }] : []),
-    { key: 'art', label: album.coverUrl ? 'Refetch cover art' : 'Fetch cover art', disabled: fetchArt.isPending, onSelect: () => fetchArt.mutate() },
-    { key: 'values', label: 'Set album values…', hint: 'Artist, title, year, genre for every track', onSelect: () => setEditingTags(true) },
-    ...(album.match ? [{ key: 'any', label: album.match.releaseGroupOnly ? 'Pin one edition again' : 'Accept any edition', hint: 'Keep the release group without one edition', onSelect: () => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId)) }] : []),
-    { key: 'rescan', label: 'Rescan folder', separated: true, disabled: !folder.canRescan || folder.busy, onSelect: () => void folder.rescan() },
+  const tool = (a: Omit<AlbumMenuAction, 'icon'>): AlbumMenuAction => ({ ...a, icon: 'tool' });
+  const tools: AlbumMenuAction[] = [
+    tool({ key: 'reidentify', label: reidentify.isPending ? 'Queuing…' : 'Re-identify', hint: requestLive ? 'A request is already queued' : 'Look this album up again', disabled: requestLive || reidentify.isPending, onSelect: () => reidentify.mutate() }),
+    tool({ key: 'manual', label: 'Match to a release…', hint: 'Paste a MusicBrainz or Discogs link', disabled: requestLive, onSelect: openManual }),
+    ...(album.state !== 'matched' ? [tool({ key: 'fp', label: 'Fingerprint', hint: 'Identify by sound (AcoustID)', disabled: fingerprint.isPending, onSelect: () => fingerprint.mutate(albumId, { onSuccess: () => { setNote('Fingerprinting queued.'); refresh(3000); } }) })] : []),
+    tool({ key: 'art', label: album.coverUrl ? 'Refetch cover art' : 'Fetch cover art', disabled: fetchArt.isPending, onSelect: () => fetchArt.mutate() }),
+    tool({ key: 'values', label: 'Set album values…', hint: 'Artist, title, year, genre for every track', onSelect: () => setEditingTags(true) }),
+    ...(album.match ? [tool({ key: 'any', label: album.match.releaseGroupOnly ? 'Pin one edition again' : 'Accept any edition', hint: 'Keep the release group without one edition', onSelect: () => (album.match?.releaseGroupOnly ? clearAnyEdition.mutate(albumId) : matchAnyEdition.mutate(albumId)) })] : []),
+    tool({ key: 'rescan', label: 'Rescan folder', separated: true, disabled: !folder.canRescan || folder.busy, onSelect: () => void folder.rescan() }),
     ...(folder.canSplit ? [
-      { key: 'split-lossy', label: 'Split off lossy copies', hint: 'Lossless stays here', disabled: folder.busy, onSelect: () => void folder.split('lossless') },
-      { key: 'split-lossless', label: 'Split off lossless copies', hint: 'Lossy stays here', disabled: folder.busy, onSelect: () => void folder.split('lossy') },
+      tool({ key: 'split-lossy', label: 'Split off lossy copies', hint: 'Lossless stays here', disabled: folder.busy, onSelect: () => void folder.split('lossless') }),
+      tool({ key: 'split-lossless', label: 'Split off lossless copies', hint: 'Lossy stays here', disabled: folder.busy, onSelect: () => void folder.split('lossy') }),
     ] : []),
-    ...(folder.canMergeBack ? [{ key: 'merge-back', label: 'Merge back', hint: 'Return these files to the album they came from', disabled: folder.busy, onSelect: () => void folder.mergeBack() }] : []),
-    ...physicalMenuItem,
-    ...(ownsPhysical && canOwnPhysical ? [{ key: 'own-more', label: 'Add another physical copy', hint: 'Only if you own two', disabled: addPhysical.isPending, onSelect: () => void ownPhysical(true) }] : []),
-    ...(album.state !== 'as_is' ? [{ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() }] : []),
-    ...(album.state !== 'ignored' ? [{ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() }] : []),
-    { key: 'mode', label: 'Turn off Maintenance', separated: true, onSelect: () => setMaintenance(false) },
-  ] : [
-    // every role: the album's artists (a listener's ⋯ holds only these)
-    ...artistMenuItems,
-    ...(!canCare ? [] : [
-      ...physicalMenuItem.map((m, i) => (i === 0 && artistMenuItems.length > 0 ? { ...m, separated: true } : m)),
-      { key: 'mode', label: 'Turn on Maintenance', separated: physicalMenuItem.length > 0 || artistMenuItems.length > 0, hint: 'Show match state, library issues and tools', onSelect: () => setMaintenance(true) },
-    ]),
+    ...(folder.canMergeBack ? [tool({ key: 'merge-back', label: 'Merge back', hint: 'Return these files to the album they came from', disabled: folder.busy, onSelect: () => void folder.mergeBack() })] : []),
+    ...(ownsPhysical && canOwnPhysical ? [tool({ key: 'own-more', label: 'Add another physical copy', hint: 'Only if you own two', disabled: addPhysical.isPending, onSelect: () => void ownPhysical(true) })] : []),
+    ...(album.state !== 'as_is' ? [tool({ key: 'asis', label: 'Keep as-is', hint: 'Keep your tags; stop identifying', separated: true, disabled: keepAsIs.isPending, onSelect: () => keepAsIs.mutate() })] : []),
+    ...(album.state !== 'ignored' ? [tool({ key: 'ignore', label: 'Ignore', hint: 'Leave out of the queue and gap counts', separated: album.state === 'as_is', disabled: ignore.isPending, onSelect: () => ignore.mutate() })] : []),
   ];
 
   // The cover-art lookup as it really stands (not a fixed "queued" line):
@@ -783,7 +782,7 @@ export function AlbumDetailPage() {
   const artNote: { text: string; live: boolean } | null =
     artLive && (artAsked || maintenance) ? { text: artState === 'running' ? 'Looking for cover art…' : 'Cover art lookup queued…', live: true }
       : artAsked && !album.coverUrl && artState === 'done' ? { text: 'No cover art found: none in the files or the folder, and none on Cover Art Archive or Discogs.', live: false }
-        : artAsked && artState === 'failed' ? { text: 'The cover art lookup failed. Try again from the ⋯ menu.', live: false }
+        : artAsked && artState === 'failed' ? { text: 'The cover art lookup failed. Try again from the ⋮ menu.', live: false }
           : null;
   const plainNote = note ?? folder.note ?? (fingerprint.isError ? errorDetail(fingerprint) : null)
     ?? (reidentify.isError ? errorDetail(reidentify) : null) ?? (fetchArt.isError ? errorDetail(fetchArt) : null);
@@ -806,12 +805,11 @@ export function AlbumDetailPage() {
     ['CUE sheet', album.isCueImage ? album.cueRelPath || 'CUE image album' : null],
   ];
 
-  // two quiet lines under the names; every detail stays in About (Maintenance)
-  const summary = albumSummary({
+  // two short centred lines around the names: "Rock · 2012" above, "22 tracks · 1 hr 58 min · MP3 320 kbps" below
+  const lines = albumLines({
     date: album.release?.date,
     year: album.year,
-    labels: album.release?.labels,
-    country: album.release?.country,
+    genres: genreLabels,
     totalDurationMs: album.totalDurationMs,
     trackCount: album.trackCount,
     discCount: album.discCount,
@@ -819,24 +817,13 @@ export function AlbumDetailPage() {
     formats: album.formats,
     tracks: album.tracks,
   });
-  const summaryLine = (parts: ReactNode[]) => parts.flatMap((part, i) => [
+  const dotted = (parts: ReactNode[]) => parts.flatMap((part, i) => [
     ...(i > 0 ? [<span key={`dot${i}`} className={styles.dot} aria-hidden="true"> · </span>] : []),
     <span key={`part${i}`} className={styles.part}>{part}</span>,
   ]);
-  // "2012 · Frontiers Records", then the readout rail (tracks | discs | minutes | format)
-  const lineOne: ReactNode[] = summary.when;
-  const rail = albumRail({
-    totalDurationMs: album.totalDurationMs,
-    trackCount: album.trackCount,
-    discCount: album.discCount,
-    isCueImage: album.isCueImage,
-    formats: album.formats,
-    tracks: album.tracks,
-  });
   const artistLine = albumArtist ?? 'Unknown artist';
   const albumRef = { albumId, title: title ?? 'Untitled', artist: artistLine, coverUrl: album.coverUrl };
-  // in Maintenance the menu lives on the state line; otherwise it is the strip's ⋯ key
-  const manageMenu = <Menu label="Manage this album" heading="Manage" items={menuItems} />;
+  const excerpt = aboutExcerpt(reviews.data?.external ?? []);
   // Play: on as soon as the player can stream something here; disabled, with
   // a quiet line, while it cannot (not answering, its scan has not reached
   // the album, the files are missing). An album the player simply has not
@@ -861,8 +848,57 @@ export function AlbumDetailPage() {
     onToggle: togglePlayback,
     onShuffle: () => void shuffleAlbum(albumRef),
   };
-  // the strip's slots: what this role can do here, from its capabilities
-  const actionContext = albumActionContext({ canPlay: mayPlay, playerInstalled, maintenance, menuItems: menuItems.length });
+  // the action row's slots: what this role can do here, from its capabilities
+  const actionContext = albumActionContext({ canPlay: mayPlay, playerInstalled });
+
+  // ⋮: everything for this album, for this role (albumMenu); the info drawer from "Album info" and "More"
+  const openInfo = (tabName: string) => { setInfoTab(tabName); setSheet('info'); };
+  const menuModel = albumMenu({
+    canCare,
+    maintenance,
+    shuffle: playState && !playState.disabled && playState.onShuffle ? playState.onShuffle : null,
+    artists: (album.artists ?? []).map((a) => ({ id: a.id, name: a.name, go: () => void navigate({ to: '/artists/$artistId', params: { artistId: a.id } }) })),
+    ownPhysical: !ownsPhysical && canOwnPhysical ? { pending: addPhysical.isPending, onSelect: () => void ownPhysical() } : null,
+    // from the drawer, focus goes back to the ⋮ that opened it; the dropdown has just put it back on its own ⋮
+    onInfo: () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; openInfo('about'); },
+    tools,
+    onToggleMaintenance: () => setMaintenance(!maintenance),
+  });
+  const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
+  const moreButton = (place: 'page' | 'header') => (
+    <AlbumMoreButton place={place} model={menuModel} drawer={drawer} open={sheet === 'actions'} onOpen={openActions} />
+  );
+  const sheetSummary: AlbumSummary = {
+    coverUrl: album.coverUrl,
+    title: title ?? 'Untitled',
+    artist: artistLine,
+    kicker: lines.kicker,
+    format: shortFormat(album.tracks, album.formats),
+  };
+  // About for everyone (the folder and CUE paths with library care); reviews once the album has a release group
+  const aboutFacts = facts.filter(([k, v]) => v !== null && v !== '' && v !== undefined && (canCare || (k !== 'Local folder' && k !== 'CUE sheet' && k !== 'Physical copy')));
+  // "Your CD": the owner's physical copy, for library care (a listener's page is the music)
+  const showOwnChip = ownsPhysical && canCare;
+  const infoTabs: AlbumInfoTab[] = [
+    {
+      value: 'about',
+      label: 'About',
+      content: (
+        <dl className={styles.facts}>
+          {aboutFacts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
+        </dl>
+      ),
+    },
+    ...(album.releaseGroupId ? [{
+      value: 'reviews',
+      label: 'Reviews',
+      content: (
+        <Suspense fallback={null}>
+          <ReviewsSection libraryId={libraryId} releaseGroupId={album.releaseGroupId} editions={editions?.editions} />
+        </Suspense>
+      ),
+    }] : []),
+  ];
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
@@ -878,11 +914,7 @@ export function AlbumDetailPage() {
           backLabel={backAct?.label ?? null}
           onBack={() => backAct?.go()}
           onTop={flow.toTop}
-          maintenance={maintenance}
-          onToggleMaintenance={canCare ? () => setMaintenance(!maintenance) : undefined}
-          play={playState}
-          playDocked={flow.playDocked}
-          playNoteId={PLAY_NOTE_ID}
+          end={moreButton('header')}
         />
 
         <section
@@ -899,8 +931,11 @@ export function AlbumDetailPage() {
             <CoverArt src={album.coverUrl} title={title ?? 'Untitled'} loading="eager" className={styles.cover} />
           </div>
           <div className={styles.headInfo}>
-            {/* artist above album; they move only with the page and shrink toward the header */}
+            {/* "Rock · 2012" */}
+            {lines.kicker.length > 0 && <p className={styles.kicker} data-album-kicker="">{dotted(lines.kicker)}</p>}
+            {/* the title over the artist; they move only with the page and shrink into the header title */}
             <div ref={(el) => { flowRefs.names.current = el; }} className={styles.names}>
+              <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
               <span ref={(el) => { flowRefs.nameA.current = el; }} className={styles.nameA}>
                 {album.artists && album.artists.length > 0
                   ? album.artists.map((artist, idx) => (
@@ -911,36 +946,36 @@ export function AlbumDetailPage() {
                   ))
                   : artistLine}
               </span>
-              <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
             </div>
-            {/* the album's details: when and who, the readout rail, genres and your copy as chips (all of them in About) */}
-            <div className={styles.summary} data-album-summary="">
-              {lineOne.length > 0 && <p className={styles.summaryLine}>{summaryLine(lineOne)}</p>}
-              {rail.length > 0 && (
-                <dl className={styles.rail} data-album-rail="">
-                  {rail.map((c) => <div key={c.key}><dt>{c.label}</dt><dd title={c.value}>{c.value}</dd></div>)}
-                </dl>
-              )}
-              {(genreLabels.length > 0 || ownsPhysical) && (
-                <div className={styles.genres}>
-                  {genreLabels.map((g) => <span key={g} className={styles.chip}>{g}</span>)}
-                  {ownsPhysical && (
-                    <Link to="/collection" title="In your physical collection" className={`${styles.chip} ${styles.ownChip}`}>
-                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10" cy="10" r="7" /><circle cx="10" cy="10" r="2" /></svg>
-                      {`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-            {/* the transport strip: Play and the album's actions, drawn from the slot list */}
-            <AlbumActionStrip
-              layout={stripLayout}
-              context={actionContext}
-              play={playState}
-              menu={maintenance || menuItems.length === 0 ? null : { label: 'More for this album', items: menuItems }}
-              stripRef={(el) => { flowRefs.strip.current = el; }}
-            />
+            {/* what it is: tracks · length · format, and your copy (everything else is in Album info) */}
+            {(lines.facts.length > 0 || showOwnChip) && (
+              <p className={styles.factsLine} data-album-facts="">
+                {dotted(lines.facts)}
+                {showOwnChip && (
+                  <Link to="/collection" title="In your physical collection" className={styles.ownChip}>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10" cy="10" r="7" /><circle cx="10" cy="10" r="2" /></svg>
+                    {`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}
+                  </Link>
+                )}
+              </p>
+            )}
+            {/* the album's text, two lines; More opens the album info */}
+            {excerpt && (
+              <div className={styles.excerpt} data-album-excerpt="">
+                <p className={styles.excerptText} dir="auto">{excerpt}</p>
+                <button
+                  type="button"
+                  className={styles.more}
+                  aria-haspopup="dialog"
+                  aria-label="More about this album"
+                  onClick={(e) => { opener.current = e.currentTarget; openInfo('reviews'); }}
+                >
+                  More
+                </button>
+              </div>
+            )}
+            {/* Shuffle | Play | ⋮ */}
+            <AlbumActionRow context={actionContext} play={playState} more={moreButton('page')} />
           </div>
 
           {/* Upkeep: only what needs a decision, everything in Maintenance */}
@@ -955,7 +990,6 @@ export function AlbumDetailPage() {
                 {album.release?.mbid && <a className={styles.pillLink} href={`https://musicbrainz.org/release/${album.release.mbid}`} target="_blank" rel="noreferrer">MusicBrainz ↗</a>}
                 {album.release?.discogsReleaseId && <a className={styles.pillLink} href={`https://www.discogs.com/release/${album.release.discogsReleaseId}`} target="_blank" rel="noreferrer">Discogs ↗</a>}
                 {album.release?.discogsMasterId && <a className={styles.pillLink} href={`https://www.discogs.com/master/${album.release.discogsMasterId}`} target="_blank" rel="noreferrer">Master ↗</a>}
-                <span className={styles.statusMenu}>{manageMenu}</span>
               </div>
             )}
             {/* a passing status: quiet, inline, gone when the thing it is about is done */}
@@ -1199,6 +1233,31 @@ export function AlbumDetailPage() {
             title={`Set album values · ${title ?? 'this album'}`}
             onClose={() => setEditingTags(false)}
           />
+        )}
+        {/* the drawers, loaded the first time one opens */}
+        {sheetsWanted && (
+          <Suspense fallback={null}>
+            {/* ⋮ on a phone or tablet: the album's drawer */}
+            {drawer && (
+              <AlbumActionsSheet
+                open={sheet === 'actions'}
+                onOpenChange={(open) => setSheet(open ? 'actions' : null)}
+                returnFocus={opener}
+                summary={sheetSummary}
+                model={menuModel}
+              />
+            )}
+            {/* Album info (About, Reviews): from "Album info" in ⋮ and from More */}
+            <AlbumInfoSheet
+              open={sheet === 'info'}
+              onOpenChange={(open) => setSheet(open ? 'info' : null)}
+              returnFocus={opener}
+              summary={sheetSummary}
+              tabs={infoTabs}
+              initialTab={infoTab}
+              side={drawer ? 'bottom' : 'right'}
+            />
+          </Suspense>
         )}
       </div>
     </PageShell>

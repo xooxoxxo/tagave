@@ -82,6 +82,11 @@
   --key-sheen: rgba(255, 255, 255, 0.75);
   --key-sheen-docked: rgba(255, 255, 255, 0.6);
   --key-cavity: rgba(8, 14, 20, 0.8);
+  /* embossed icon buttons (EmbossIconButton): the glyph's highlight and shade, the niche on hover */
+  --emboss-hi: rgba(255, 255, 255, 0.95);
+  --emboss-lo: rgba(18, 38, 58, 0.32);
+  --emboss-niche: inset 0 0 0 1px var(--line-strong), inset 0 1px 2px rgba(18, 38, 58, 0.1);
+  --emboss-niche-pressed: inset 0 0 0 1px var(--line-strong), inset 0 1.5px 3px rgba(18, 38, 58, 0.18);
 
   /* ---- 2. Scale ---- */
   --font-display: 'Urbanist', 'Avenir Next', 'Segoe UI Variable Display', 'Helvetica Neue', sans-serif;
@@ -270,6 +275,11 @@
     --key-sheen: rgba(255, 255, 255, 0.75);
     --key-sheen-docked: rgba(255, 255, 255, 0.6);
     --key-cavity: rgba(8, 14, 20, 0.8);
+    /* embossed icon buttons (EmbossIconButton): the glyph's highlight and shade, the niche on hover */
+    --emboss-hi: rgba(255, 255, 255, 0.16);
+    --emboss-lo: rgba(0, 0, 0, 0.75);
+    --emboss-niche: inset 0 0 0 1px var(--line-strong), inset 0 1px 2px rgba(0, 0, 0, 0.45);
+    --emboss-niche-pressed: inset 0 0 0 1px var(--line-strong), inset 0 1.5px 3px rgba(0, 0, 0, 0.6);
   }
 }
 
@@ -330,4 +340,9 @@
   --key-sheen: rgba(255, 255, 255, 0.75);
   --key-sheen-docked: rgba(255, 255, 255, 0.6);
   --key-cavity: rgba(8, 14, 20, 0.8);
+  /* embossed icon buttons (EmbossIconButton): the glyph's highlight and shade, the niche on hover */
+  --emboss-hi: rgba(255, 255, 255, 0.16);
+  --emboss-lo: rgba(0, 0, 0, 0.75);
+  --emboss-niche: inset 0 0 0 1px var(--line-strong), inset 0 1px 2px rgba(0, 0, 0, 0.45);
+  --emboss-niche-pressed: inset 0 0 0 1px var(--line-strong), inset 0 1.5px 3px rgba(0, 0, 0, 0.6);
 }

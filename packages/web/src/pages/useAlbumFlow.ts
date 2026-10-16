@@ -18,8 +18,6 @@ export interface AlbumFlowRefs {
   tl: RefObject<HTMLElement | null>;
   caret: RefObject<SVGPathElement | null>;
   tracks: RefObject<HTMLElement | null>;
-  /** the action strip, when there is one: Play docks into the header once it has passed under it */
-  strip?: RefObject<HTMLElement | null>;
 }
 
 /** Phone layout: the first screen is the album, TRACKLIST resting at its bottom. */
@@ -28,9 +26,7 @@ const reducedMotion = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: 
 
 export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
   const [docked, setDocked] = useState(false);
-  const [playDocked, setPlayDocked] = useState(false);
-  const playDockedRef = useRef(false);
-  const [glide, setGlide] = useState({ x: -64, y: 51 });
+  const [glide, setGlide] = useState({ x: 0, y: 51 });
   /** the scroll pane's height, for the hero's floor and the filler */
   const [pane, setPane] = useState({ height: 0, phone: false, tlHeight: 0, tracksHeight: 0 });
   const geo = useRef<FlowGeometry | null>(null);
@@ -43,17 +39,14 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     if (!g || !sc) return;
     const s = flowState(sc.scrollTop, g, HEADER);
     if (refs.cover.current) refs.cover.current.style.opacity = String(s.coverOpacity);
-    if (refs.nameA.current) refs.nameA.current.style.transform = `scale(${s.artistScale})`;
-    if (refs.nameB.current) refs.nameB.current.style.transform = `translateY(${s.albumShift}px) scale(${s.albumScale})`;
+    // the title (nameB) on top, the artist (nameA) under it, both shrinking from their top centre
+    if (refs.nameB.current) refs.nameB.current.style.transform = `scale(${s.albumScale})`;
+    if (refs.nameA.current) refs.nameA.current.style.transform = `translateY(${s.artistShift}px) scale(${s.artistScale})`;
     if (refs.names.current) refs.names.current.style.visibility = s.docked ? 'hidden' : 'visible';
     refs.caret.current?.setAttribute('d', caretPath(s.caretProgress));
     if (s.docked !== dockedRef.current) {
       dockedRef.current = s.docked;
       setDocked(s.docked);
-    }
-    if (s.playDocked !== playDockedRef.current) {
-      playDockedRef.current = s.playDocked;
-      setPlayDocked(s.playDocked);
     }
   }, [refs]);
 
@@ -64,20 +57,30 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     const scRect = sc.getBoundingClientRect();
     const st = sc.scrollTop;
     const top = (el: Element) => el.getBoundingClientRect().top - scRect.top + st;
+    const b = refs.nameB.current;
+    const a = refs.nameA.current;
     geo.current = {
       coverBottom: top(cover.current) + cover.current.offsetHeight,
       namesTop: top(names.current),
       // TRACKLIST follows the hero; measured from the hero, since a stuck label is not where it flows
       tlTop: top(hero.current) + hero.current.offsetHeight,
-      stripBottom: refs.strip?.current ? top(refs.strip.current) + refs.strip.current.offsetHeight : null,
+      // offsetTop/offsetHeight ignore the transforms the scroll writes
+      ...(b ? { titleHeight: b.offsetHeight, titleSize: parseFloat(getComputedStyle(b).fontSize) || 0 } : {}),
+      ...(a ? { artistTop: a.offsetTop - (b?.offsetTop ?? 0), artistSize: parseFloat(getComputedStyle(a).fontSize) || 0 } : {}),
     };
-    // where the lines meet the header, relative to the title's spot in the middle key
+    // where the lines meet the header, relative to the title's spot in the header: centred
+    // lines (a phone) glide straight down; left-aligned ones from their left edge
     const mid = root.current.querySelector<HTMLElement>('[data-album-header] [data-top-key]');
-    const a = root.current.querySelector<HTMLElement>('[data-header-artist]');
-    if (mid && a) {
-      const pad = parseFloat(getComputedStyle(mid).paddingLeft) || 0;
-      const x = Math.round(names.current.getBoundingClientRect().left - (mid.getBoundingClientRect().left + pad));
-      const y = Math.round(HEADER - a.offsetTop);
+    const first = mid?.querySelector<HTMLElement>('[data-header-title], [data-header-artist]');
+    if (mid && first) {
+      const midStyle = getComputedStyle(mid);
+      const m = mid.getBoundingClientRect();
+      const n = names.current.getBoundingClientRect();
+      const pad = parseFloat(midStyle.paddingLeft) || 0;
+      const x = midStyle.textAlign === 'center'
+        ? Math.round((n.left + n.width / 2) - (m.left + m.width / 2))
+        : Math.round(n.left - (m.left + pad));
+      const y = Math.round(HEADER - first.offsetTop);
       setGlide((cur) => (cur.x === x && cur.y === y ? cur : { x, y }));
     }
     const next = {
@@ -132,5 +135,5 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     glideTo(t - HEADER - (refs.tl.current?.offsetHeight ?? 0));
   }, [glideTo, refs]);
 
-  return { docked, playDocked, glide, pane, toTop, toTracklist, toElement, measure };
+  return { docked, glide, pane, toTop, toTracklist, toElement, measure };
 }

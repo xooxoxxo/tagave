@@ -1,0 +1,92 @@
+/* The album's action row (AlbumActionRow.tsx): plain embossed icons around
+   one filled round Play. Every side slot is one icon wide, so Play sits on
+   the row's centre line. */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 18px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+}
+
+.slot,
+.space {
+  display: flex;
+  justify-content: center;
+  width: 44px;
+  flex: none;
+}
+.slot[data-slot="play"] { width: 56px; }
+
+/* Play: the one filled control, a round accent button with the icon only */
+.play {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--dew);
+  color: var(--dew-ink);
+  box-shadow: 0 10px 22px -12px rgba(var(--shadow-tint), 0.6), inset 0 1px 0 color-mix(in srgb, var(--dew-hi) 60%, transparent);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur) ease, transform var(--dur-fast) ease;
+}
+.play svg { width: 26px; height: 26px; }
+/* the triangle's weight sits left of its box: nudge it onto the centre */
+.play svg path { transform: translateX(-0.6px); }
+.play:hover:not(:disabled) { background: var(--dew-lo); }
+.play:active:not(:disabled) { background: var(--dew-press); transform: scale(0.96); }
+.play:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.play:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  background: var(--mist);
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+.play[aria-busy="true"] { cursor: progress; }
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-top-color: currentColor;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* why Play waits: one quiet line under the row */
+.note {
+  margin: 10px 0 0;
+  font: 400 13px / 1.35 var(--font-body);
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* wider screens: the row sits under the details, from their left edge */
+@media (min-width: 721px) {
+  .wrap { align-items: flex-start; margin-top: 20px; }
+  .row { justify-content: flex-start; gap: 20px; }
+  .note { text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .play { transition: none; }
+  .spinner { animation-duration: 2.4s; }
+}
+@media (forced-colors: active) {
+  .play { forced-color-adjust: none; background: Highlight; color: HighlightText; border: 1px solid Highlight; }
+  .play:disabled { background: ButtonFace; color: GrayText; border-color: GrayText; }
+  .play:focus-visible { outline-color: Highlight; }
+}
