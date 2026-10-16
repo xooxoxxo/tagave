@@ -432,7 +432,9 @@ RELEASE_ASSETS_URL="${TAGAVE_RELEASE_ASSETS_URL:-https://github.com/$TAGAVE_REPO
 REQUIRE_SIGNATURE="${TAGAVE_REQUIRE_SIGNATURE:-0}"
 # The project's public release key (deploy/release-keys/*.pem); empty until
 # the project has one. A checkout's deploy/release-keys wins over it.
-RELEASE_PUBLIC_KEY=''
+RELEASE_PUBLIC_KEY='-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEANb8LY6SWAf5kUVVnNYNZOU9zAaFEsuUIQJ9w5WtrgHo=
+-----END PUBLIC KEY-----'
 RELEASE_DIR=""      # temp folder with the checked manifest and signature
 RELEASE_VERSION=""  # the version they are for
 RELEASE_WHY=""      # why they could not be checked
