@@ -24,7 +24,7 @@ Move to the newest release, or to a given one:
 `update` does this, in order, and stops at the first step that fails:
 
 1. Compares the version in `.env`, the version the app reports, and the target, and shows the release notes link. Read the notes before you go on: a release that changes how tagave is set up says so there.
-2. Copies `.env`, the compose files and a verified `pg_dump` of the database to `backups/pre-update-<old version>-<time>/` in the install folder. The dump is taken by the database container and read back with `pg_restore --list` before anything changes.
+2. Copies `.env`, the compose files and a verified `pg_dump` of the database to `backups/pre-update-<old version>-<UTC time>/` in the install folder. The dump is taken by the database container and read back with `pg_restore --list` before anything changes. The dumps of the newest 3 such folders are kept and older ones deleted; every folder keeps its `.env` and compose copies.
 3. Writes the new `TAGAVE_VERSION`, fetches the compose files of that release and pulls its images.
 4. Stops the workers, starts the new app and waits until it is healthy. The app applies database changes when it starts, so this can take a few minutes on a large library.
 5. Starts the workers and waits until `/api/v1/health` reports the database and migrations as ok, the app on the new version, and every worker on the same build.
@@ -174,7 +174,7 @@ A full disk stops Postgres, and with it the app. Updates are the usual cause: ne
 ### What grows
 
 - **Images:** each release brings new app, worker and updater images, about 3 GB together. Updates remove the older ones (see Old images); images from before that, and images you built yourself, stay.
-- **Backups:** each dump is about the size of the database without its indexes. Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). The app keeps the newest 5 dumps it takes before an update (`TAGAVE_PREMIGRATE_BACKUP_KEEP`). Manual and pre-restore dumps stay until you delete them.
+- **Backups:** each dump is about the size of the database without its indexes. Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). Before-update dumps keep the newest 3 (at least 2). Manual dumps stay until you delete them, unless you set a number; pre-restore dumps stay until you delete them. Each kind has its own number on the Backups page.
 - **Cache:** cover thumbnails and converted audio, in the `cache` volume. It grows with the library.
 - **Build cache:** Docker keeps the layers of every image built on the computer. A source install that builds its own images collects gigabytes here.
 - **Logs:** each container keeps at most three 10 MB log files (`docker-compose.prod.yml`). Containers started outside compose have no limit.
@@ -273,13 +273,13 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 | Kind | Taken | Deleted |
 |---|---|---|
 | Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
-| Manual | "Back up now", or `tagave-doctor backup` | only when you delete it |
-| Before update | by the app, before it applies database updates | after a successful update, keeping the newest 5 (`TAGAVE_PREMIGRATE_BACKUP_KEEP`) |
+| Manual | "Back up now", or `tagave-doctor backup` | only when you delete it, or after the next manual backup when you set "keep the newest N" on the Backups page |
+| Before update | by the app, before it applies database updates, and by the updater (`tagave-doctor backup --kind before-update`) | after a successful update, keeping the newest 3 (2–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
 | Before restore | by `tagave-doctor restore --in-place` | only when you delete it |
 
-Files are named `tagave-<UTC time>[-<kind>].pgdump`. Releases before 0.9 named them `liner-<UTC time>[-<kind>].pgdump` (the project's old name); those stay listed, restorable and pruned with the new ones, sorted by time. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings.
+Files are named `tagave-<UTC time>[-<kind>].pgdump`. Releases before 0.9 named them `liner-<UTC time>[-<kind>].pgdump` (the project's old name); those stay listed, restorable and pruned with the new ones, sorted by time. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings. Lowering a number deletes nothing when you save it: the older backups of that kind go at its next run, and the Backups page lists which ones and how much space that frees. The newest backup of a kind is never deleted, and only files this app named are.
 
-Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
+Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52), `TAGAVE_PREMIGRATE_BACKUP_KEEP` (before update, 2–50). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
 
 ### Take a backup by hand
 
@@ -340,7 +340,7 @@ When the app starts, it updates the database to match its version (migrations). 
 1. **One at a time.** The app holds a database lock for the whole update. A second app that starts at the same moment waits ("another tagave process is migrating the database"), then finds nothing left to do.
 2. **Never onto a newer database.** If a newer version of tagave has already updated the database, an older app refuses to start. Update the app, or roll back as below.
 3. **Backup first.** If an existing database has updates to apply, the app writes `tagave-<time>-pre-migration.pgdump` into `/backups` (listed under "Before update" in Settings › Backups), checks it with `pg_restore --list`, and records it. If the backup fails, the app does not touch the database and exits with a message starting `Not migrating:` that says why (usually a full disk, a folder it cannot write, a missing `pg_dump`, or a `/backups` that is not a mounted volume). A new, empty database needs no backup.
-4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 5 (`TAGAVE_PREMIGRATE_BACKUP_KEEP`).
+4. **Then the migrations**, each in its own transaction. Only when all of them have applied does the app delete older pre-update backups, keeping the newest 3, or the number saved on the Backups page.
 
 If a migration fails, the app exits and Docker restarts it. The database now has some of the update's migrations and not others. On the restart the app does not take a new backup, because that backup would hold the half-updated database. It keeps the first backup of this update as the rollback point (the log says "keeping its backup") and deletes nothing.
 
@@ -358,7 +358,7 @@ Overrides, for when you know why you need them:
 | `TAGAVE_ALLOW_SCHEMA_SKEW=1` | Let an app or worker run on a database a newer version updated. |
 | `BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
 | `TAGAVE_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
-| `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep (default 5). |
+| `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep until a number is saved on the Backups page (default 3, 2–50). When it is unset and the backups folder already has before-update backups from an earlier release, the app saves 5, that release's default, once. |
 
 With the installer, set the `TAGAVE_*` ones in `.env`.
 
