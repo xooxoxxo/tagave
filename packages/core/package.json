@@ -11,7 +11,8 @@
     "./tags": "./dist/tags/mapping.js",
     "./player": "./dist/player/index.js",
     "./scrobble": "./dist/scrobble/index.js",
-    "./mc": "./dist/mc/index.js"
+    "./mc": "./dist/mc/index.js",
+    "./facets": "./dist/facets/index.js"
   },
   "files": [
     "dist"
