@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { DEFAULT_CONFIG } from './update.js';
 import { dockerRunner, httpAppProbe } from './runner.js';
 import { UpdaterService } from './server.js';
+import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 
 function num(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -33,7 +34,11 @@ async function main(): Promise<void> {
   const appUrl = process.env['TAGAVE_UPDATER_APP_URL'] || 'http://app:3000';
   const port = num('TAGAVE_UPDATER_PORT', 8080);
 
+  // The public release keys travel inside this image; with none, every release is refused.
+  const keys = await loadTrustedKeys(IMAGE_KEYS_DIR);
+  if (keys.length === 0) console.error(JSON.stringify({ msg: `no release key in ${IMAGE_KEYS_DIR}: every update and module is refused` }));
   const service = new UpdaterService({
+    keys,
     installDir,
     appSecret,
     // TAGAVE_BUILD_VERSION; LINER_VERSION is its pre-0.9 name (read until 0.10).
@@ -48,7 +53,7 @@ async function main(): Promise<void> {
   });
   await service.load();
   const server = service.listen(port);
-  console.log(JSON.stringify({ msg: 'updater ready', port, installDir }));
+  console.log(JSON.stringify({ msg: 'updater ready', port, installDir, releaseKeys: keys.map((k) => k.id) }));
   const stop = () => server.close(() => process.exit(0));
   process.on('SIGTERM', stop);
   process.on('SIGINT', stop);

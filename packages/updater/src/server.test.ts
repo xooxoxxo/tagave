@@ -8,6 +8,13 @@ import type { UpdateRun } from '@tagave/shared/updater';
 import { SignatureVerifier, signRequest, SIGNATURE_HEADER, TIME_HEADER } from './token.js';
 import { UpdaterService, STATE_DIR } from './server.js';
 import { DEFAULT_CONFIG, newRun } from './update.js';
+import { signed, testKey, testManifest } from './release.testkit.js';
+
+const KEY = testKey();
+const release = (version: string) => {
+  const { text, signature } = signed(KEY, testManifest(version));
+  return JSON.stringify({ version, manifest: text, signature });
+};
 
 const SECRET = 'a'.repeat(44);
 
@@ -46,6 +53,7 @@ describe('updater HTTP API', () => {
     service = new UpdaterService({
       installDir: dir,
       appSecret: SECRET,
+      keys: [KEY.trusted],
       version: '0.7.0',
       // a docker that cannot do anything: an update fails at preflight
       docker: async (args) => (args.join(' ') === 'compose config --services' ? { code: 0, stdout: 'postgres\napp\nupdater\n', stderr: '' } : { code: 1, stdout: '', stderr: 'no' }),
@@ -79,7 +87,10 @@ describe('updater HTTP API', () => {
 
   it('starts a run, keeps its state on disk, and refuses a bad version', async () => {
     expect((await call('POST', '/v1/update', '{"version":"latest"}')).status).toBe(400);
-    const res = await call('POST', '/v1/update', '{"version":"0.8.0"}');
+    const unsigned = await call('POST', '/v1/update', '{"version":"0.8.0"}');
+    expect(unsigned.status).toBe(422);
+    expect(await unsigned.json()).toMatchObject({ check: 'unsigned' });
+    const res = await call('POST', '/v1/update', release('0.8.0'));
     expect(res.status).toBe(202);
     await service.idle();
     const state = JSON.parse(await readFile(join(dir, STATE_DIR, 'state.json'), 'utf8')) as UpdateRun;
@@ -114,7 +125,7 @@ describe('updater HTTP API', () => {
       await service.load();
       await service['selfReplace'].begin('0.8.0', 'r1');
       expect((await readState())['selfReplace']).toMatchObject({ expectedVersion: '0.8.0', fromVersion: '0.7.0', runId: 'r1' });
-      const res = await call('POST', '/v1/update', '{"version":"0.8.0"}');
+      const res = await call('POST', '/v1/update', release('0.8.0'));
       expect(res.status).toBe(409);
       const body = (await res.json()) as { error: string; selfReplace: { expectedVersion: string } };
       expect(body.error).toBe('the updater is restarting itself on version 0.8.0; try again in a minute');
@@ -128,7 +139,7 @@ describe('updater HTTP API', () => {
       const { fresh, logs } = await startWith('0.6.0', new Date(), new Date(), 'ho1\n');
       expect(logs[0]).toMatch(/^warn: restarted on 0\.6\.0 while the hand-over to 0\.7\.0 still runs/);
       expect((await readState())['selfReplace']).toMatchObject({ expectedVersion: '0.7.0' });
-      expect((await fresh.start('0.7.0')).ok).toBe(false);
+      expect((await fresh.start('0.7.0', signed(KEY, testManifest('0.7.0')).text, signed(KEY, testManifest('0.7.0')).signature)).ok).toBe(false);
     });
 
     const startWith = async (version: string, since: Date, now = new Date(), handoverPs = '') => {
@@ -137,6 +148,7 @@ describe('updater HTTP API', () => {
       const fresh = new UpdaterService({
         installDir: dir,
         appSecret: SECRET,
+      keys: [KEY.trusted],
         version,
         docker: async (args) => (args.join(' ') === 'ps -q --filter label=tagave.updater.handover' ? { code: 0, stdout: handoverPs, stderr: '' } : { code: 1, stdout: '', stderr: 'no' }),
         app: { health: async () => ({ ok: false, detail: 'down' }), versions: async () => null },

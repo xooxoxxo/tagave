@@ -152,10 +152,10 @@ export function describeCheck(c: FsCheck): string {
 }
 
 /** null when every filesystem has room; else the reason the update refuses. */
-export function spaceShortMessage(checks: FsCheck[]): string | null {
+export function spaceShortMessage(checks: FsCheck[], what = 'the update'): string | null {
   const short = checks.filter((c) => !c.ok);
   if (short.length === 0) return null;
-  const lines = short.map((c) => `${c.label} on ${c.where} has ${formatBytes(c.freeBytes)} free and the update needs ${formatBytes(c.requiredBytes)}`);
+  const lines = short.map((c) => `${c.label} on ${c.where} has ${formatBytes(c.freeBytes)} free and ${what} needs ${formatBytes(c.requiredBytes)}`);
   const missing = short.map((c) => formatBytes(c.requiredBytes - c.freeBytes)).join(' and ');
   return `not enough free disk space: ${lines.join('; ')}. Free at least ${missing}; safe to delete: ${FREE_SPACE_HINTS.join('; ')}`;
 }
@@ -404,8 +404,15 @@ class RegistryTimeout extends Error {}
  * reads share one time budget; past it, every missing image counts 1 GB.
  * `fallbackCount` is how many images to assume when compose cannot list them.
  */
-export async function imageDownloadBytes(d: SpaceProbeDeps, target: string, fallbackCount: number): Promise<number> {
-  const wanted = await imageRefs(d, { TAGAVE_VERSION: target });
+export async function imageDownloadBytes(
+  d: SpaceProbeDeps,
+  target: string,
+  fallbackCount: number,
+  want: { env?: Record<string, string>; refs?: string[] } = {},
+): Promise<number> {
+  // `refs`: exactly these images (a module's); else what compose runs with
+  // TAGAVE_VERSION=<target> and the release's digest pins (`env`).
+  const wanted = want.refs ? [...new Set(want.refs)] : await imageRefs(d, { TAGAVE_VERSION: target, ...(want.env ?? {}) });
   if (!wanted) {
     const bytes = fallbackCount * SPACE_RULES.defaultImageBytes;
     d.log('warn', `space: docker compose did not list the ${target} images; counting ${formatBytes(SPACE_RULES.defaultImageBytes)} for each of ${fallbackCount}`);
@@ -476,20 +483,33 @@ export interface SpaceResult {
  */
 export async function checkSpace(
   d: SpaceProbeDeps,
-  opts: { target: string | null; imageCount: number; dockerHeadroom: number; backupsOnHost?: boolean },
+  opts: {
+    target: string | null;
+    imageCount: number;
+    dockerHeadroom: number;
+    backupsOnHost?: boolean;
+    /** The release's digest pins, for compose to list the target images by. */
+    targetEnv?: Record<string, string>;
+    /** Exactly these images instead (a module's), and no backups: turning a module on dumps nothing. */
+    images?: string[];
+    /** Who needs the room, for the refusal: "the update" by default. */
+    what?: string;
+  },
 ): Promise<SpaceResult> {
   const docker = await dockerFs(d);
-  const b = await backupsProbe(d);
-  if (!b.fs) d.log('warn', `space: could not measure the backups folder from the app container; counting the backups on Docker's filesystem`);
-  const backup = await backupBytes(d, b.newest, b.dir);
-  const images = opts.target === null ? 0 : await imageDownloadBytes(d, opts.target, opts.imageCount);
+  const moduleOnly = opts.images !== undefined;
+  const b = moduleOnly ? { fs: null, newest: null, dir: '' } : await backupsProbe(d);
+  if (!b.fs && !moduleOnly) d.log('warn', `space: could not measure the backups folder from the app container; counting the backups on Docker's filesystem`);
+  const backup = moduleOnly ? 0 : await backupBytes(d, b.newest, b.dir);
+  const want = opts.images ? { refs: opts.images } : { ...(opts.targetEnv ? { env: opts.targetEnv } : {}) };
+  const images = opts.target === null ? 0 : await imageDownloadBytes(d, opts.target, opts.imageCount, want);
   const backupsOnHost = opts.backupsOnHost ?? false;
   if (b.fs && filesystemRelation(docker, b.fs, backupsOnHost) === 'unsure') {
     d.log('info', `space: cannot tell whether ${b.fs.where} is on Docker's filesystem; counting the backups on both`);
   }
   const checks = planSpace(docker, b.fs, { imageBytes: images, backupBytes: backup }, opts.dockerHeadroom, backupsOnHost);
   for (const c of checks) d.log(c.ok ? 'info' : 'warn', `space: ${describeCheck(c)}`);
-  return { checks, problem: spaceShortMessage(checks) };
+  return { checks, problem: spaceShortMessage(checks, opts.what) };
 }
 
 /** A TAGAVE_BACKUP_DIR (LINER_BACKUP_DIR before 0.9) with a slash is a host folder; without, a volume name. */

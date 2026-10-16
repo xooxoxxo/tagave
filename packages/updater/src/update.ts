@@ -44,7 +44,11 @@
 import { statfs } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
-import { envGet, envSet, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
+import { unlink } from 'node:fs/promises';
+import { envGet, envKeys, envSet, envUnset, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
+import { MODULES_DIR, isOn, moduleComposeFile, pullVerified, renderModuleCompose, withRegistry } from './modules.js';
+import { MANIFEST_FILE, ReleaseRefused, SIGNATURE_FILE, digestFor, envPins, imageForService, type VerifiedRelease } from './release.js';
+import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
@@ -130,7 +134,16 @@ export interface UpdateDeps {
   layers?: (ref: string, signal?: AbortSignal) => Promise<Layer[]>;
   /** Told before and (on failure) after the updater hands over to its replacement (self-replace.ts). */
   selfReplace?: SelfReplaceHooks;
+  /**
+   * The target's signed manifest, verified (release.ts), and this computer's
+   * platform: every image is pulled by its digest and checked, and .env pins
+   * them. The updater service never starts a run without it.
+   */
+  release?: { verified: VerifiedRelease; platform: string };
 }
+
+/** The newest release this install has run, remembered for downgrade protection (release.ts). */
+export const RELEASE_FLOOR_FILE = '.updater/release-floor';
 
 class StepFailed extends Error {}
 
@@ -158,6 +171,11 @@ export function newRun(id: string, from: string, target: string, now: Date): Upd
   };
 }
 
+/** repository:tag of a pinned reference (repository:tag@sha256:…): pulled images are tagged so too. */
+function withoutDigest(ref: string | null): string | null {
+  return ref === null ? null : ref.replace(/@sha256:[0-9a-f]+$/, '');
+}
+
 function tail(text: string, lines = 6): string {
   return text.trim().split('\n').slice(-lines).join(' | ');
 }
@@ -182,6 +200,8 @@ export class Update {
   /** The player may have started on the new image. */
   private playerStarted = false;
   private saving: Promise<void> = Promise.resolve();
+  /** Files the config step created (they are deleted again on a roll back). */
+  private created: string[] = [];
   /** Handed over to the replacement: this process writes nothing more to state.json unless the hand-over fails. */
   private handedOver = false;
   /** Settles when the hand-over watch ends (the replacement kills this process first when it works). For tests. */
@@ -363,7 +383,27 @@ export class Update {
     const health = await this.deps.app.health();
     if (!health.ok) this.fail(`the install is not healthy now, so an update would be hard to judge: ${health.detail}`);
 
+    const release = this.deps.release;
+    if (release && envGet(env, 'TAGAVE_PLAYER_IMAGE')) {
+      this.fail('.env sets TAGAVE_PLAYER_IMAGE, which replaces the player image the release pins; remove that line and start the update again');
+    }
     await this.checkSpace(this.run.target);
+
+    if (release) {
+      const { manifest } = release.verified;
+      this.log('info', `signed manifest of ${manifest.version} checks out (key ${release.verified.keyId}); pulling every image by its digest for ${release.platform}`);
+      const wanted = [...this.services, ...(this.hasUpdaterService(svc.stdout) ? ['updater'] : [])];
+      const images = new Set<string>();
+      for (const service of wanted) {
+        const image = imageForService(manifest, service);
+        if (!image) this.fail(`the signed manifest of ${manifest.version} pins no image for the service ${service}`);
+        images.add(image);
+      }
+      for (const image of images) {
+        await pullVerified(this.deps.docker, manifest, image, release.platform, (l, m) => this.log(l, m), this.deps.config.commandTimeoutMs, this.registry);
+      }
+      return;
+    }
 
     const pull = await this.compose(['pull', ...this.services, ...(this.hasUpdaterService(svc.stdout) ? ['updater'] : [])], {
       env: { TAGAVE_VERSION: this.run.target },
@@ -393,6 +433,7 @@ export class Update {
       {
         target,
         imageCount: this.services.length + 1,
+        ...(this.deps.release && target !== null ? { targetEnv: envPins(this.deps.release.verified.manifest, this.deps.release.platform) } : {}),
         dockerHeadroom: this.deps.config.minFreeBytes,
         backupsOnHost: backupsOnHostFolder(envGet(env, 'TAGAVE_BACKUP_DIR') || envGet(env, 'LINER_BACKUP_DIR')),
       },
@@ -425,7 +466,12 @@ export class Update {
       if (text !== null) this.originals.set(name, text);
     }
     this.changed = true;
-    const image = `${this.registry}/tagave-updater:${this.run.target}`;
+    // With a signed manifest: the updater image preflight pulled and checked, by digest.
+    const release = this.deps.release;
+    const updaterKey = release ? imageForService(release.verified.manifest, 'updater') : null;
+    const image = release && updaterKey
+      ? `${withRegistry(release.verified.manifest.images[updaterKey]!.ref, this.registry)}@${digestFor(release.verified.manifest, updaterKey, release.platform)}`
+      : `${this.registry}/tagave-updater:${this.run.target}`;
     for (const name of COMPOSE_FILES) {
       if (!this.originals.has(name)) continue;
       const res = await this.docker(['run', '--rm', '--network', 'none', '--entrypoint', 'cat', image, `${IMAGE_DEPLOY_DIR}/${name}`], {
@@ -453,16 +499,76 @@ export class Update {
         this.log('info', `renamed the pre-0.9 settings in .env: ${migrated.notes.join(', ')}`);
       }
     }
-    await writeFileAtomic(this.envPath, envSet(env, 'TAGAVE_VERSION', this.run.target));
+    env = envSet(env, 'TAGAVE_VERSION', this.run.target);
+    if (this.deps.release) env = await this.pinRelease(env);
+    await writeFileAtomic(this.envPath, env);
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
     const check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
     if (check.code !== 0) this.fail(`docker compose rejects the new configuration: ${tail(check.stderr, 3)}`);
+    if (this.deps.release) await this.checkPinned();
     this.playerImageAfter = await this.playerImage();
     if (this.playerImageBefore !== null) {
       this.log('info', this.playerImageChanges()
         ? `player image: ${this.playerImageBefore} -> ${this.playerImageAfter}`
         : `player image unchanged (${this.playerImageBefore})`);
     }
+  }
+
+  /** Keeps a file as it is now (or notes it is new), so a roll back puts it back. */
+  private async keep(name: string): Promise<void> {
+    if (this.originals.has(name) || this.created.includes(name)) return;
+    const text = await readText(join(this.deps.installDir, name));
+    if (text === null) this.created.push(name);
+    else this.originals.set(name, text);
+  }
+
+  /**
+   * The release's digests in .env (and stale pins out), the module compose
+   * files of the modules that are on rendered for the new release, and the
+   * signed manifest kept next to the install for Settings › Modules.
+   */
+  private async pinRelease(envIn: string): Promise<string> {
+    const { verified, platform } = this.deps.release!;
+    const { manifest } = verified;
+    let env = envIn;
+    const pins = envPins(manifest, platform);
+    for (const key of envKeys(env, /^TAGAVE_DIGEST_/)) if (!(key in pins)) env = envUnset(env, key);
+    for (const [key, digest] of Object.entries(pins)) env = envSet(env, key, digest);
+    this.log('info', `pinned ${Object.keys(pins).length} images by digest in .env (${Object.keys(pins).join(', ')})`);
+    for (const entry of manifest.modules) {
+      if (!entry.compose || !isOn(envIn, entry)) continue;
+      const file = moduleComposeFile(entry);
+      await this.keep(file);
+      await mkdirKeepingOwner(join(this.deps.installDir, MODULES_DIR), 0o755);
+      await writeFileKeepingOwner(join(this.deps.installDir, file), renderModuleCompose(manifest, entry, platform), { fallbackMode: 0o644 });
+      this.log('info', `${file} written for ${manifest.version}`);
+    }
+    await this.keep(MANIFEST_FILE);
+    await this.keep(SIGNATURE_FILE);
+    await writeFileKeepingOwner(join(this.deps.installDir, MANIFEST_FILE), verified.text, { fallbackMode: 0o644 });
+    await writeFileKeepingOwner(join(this.deps.installDir, SIGNATURE_FILE), verified.signature, { fallbackMode: 0o644 });
+    return env;
+  }
+
+  /** Every service runs exactly the image the signed manifest pins: no floating tag. */
+  private async checkPinned(): Promise<void> {
+    const { manifest } = this.deps.release!.verified;
+    const res = await this.compose(['config', '--format', 'json'], { quiet: true, timeoutMs: 60_000 });
+    let services: Record<string, { image?: string }> = {};
+    try {
+      services = (JSON.parse(res.stdout) as { services?: Record<string, { image?: string }> }).services ?? {};
+    } catch {
+      this.fail('docker compose did not print the new configuration');
+    }
+    for (const [name, svc] of Object.entries(services)) {
+      const image = imageForService(manifest, name);
+      if (!image) this.fail(`the service ${name} is not in the signed manifest of ${manifest.version}`);
+      const want = digestFor(manifest, image, this.deps.release!.platform);
+      if (!(svc.image ?? '').endsWith(`@${want}`)) {
+        this.fail(`the service ${name} would run ${svc.image ?? 'no image'}, not ${manifest.images[image]!.ref}@${want} as the signed manifest pins (the compose files here do not read TAGAVE_DIGEST_*?)`);
+      }
+    }
+    this.log('info', 'every service runs the image the signed manifest pins');
   }
 
   private async pull(): Promise<void> {
@@ -531,6 +637,7 @@ export class Update {
       for (const [name, text] of this.originals) {
         await writeFileAtomic(join(this.deps.installDir, name), text, false);
       }
+      for (const name of this.created) await unlink(join(this.deps.installDir, name)).catch(() => undefined);
       this.log('info', `put back .env (TAGAVE_VERSION=${envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from}) and the compose files`);
 
       if (needsRestore) {
@@ -592,7 +699,7 @@ export class Update {
         (args, opts) => this.docker(args, { ...opts, quiet: true }),
         (images) => [
           ...tagaveGroups(this.registry, this.run.from, this.run.target, images),
-          ...playerGroups(this.playerImageBefore, this.playerImageAfter),
+          ...playerGroups(withoutDigest(this.playerImageBefore), withoutDigest(this.playerImageAfter)),
         ],
       );
       if (res.removed.length > 0) {
@@ -727,8 +834,13 @@ export class Update {
       this.end('rollback', 'skipped');
       this.run.status = 'succeeded';
       this.log('info', `tagave ${this.run.target} runs and reports healthy`);
+      if (this.deps.release) {
+        await mkdirKeepingOwner(join(this.deps.installDir, '.updater'), 0o700).catch(() => undefined);
+        await writeFileKeepingOwner(join(this.deps.installDir, RELEASE_FLOOR_FILE), `${this.run.target}\n`, { fallbackMode: 0o600 })
+          .catch((err: Error) => this.log('warn', `could not note ${this.run.target} as the newest release run here: ${err.message}`));
+      }
     } catch (err) {
-      const reason = err instanceof StepFailed ? err.message : `unexpected error: ${(err as Error).message}`;
+      const reason = err instanceof StepFailed || err instanceof ReleaseRefused ? err.message : `unexpected error: ${(err as Error).message}`;
       this.end(current, 'failed');
       this.log('error', reason);
       for (const s of this.run.steps) if (s.status === 'pending' && s.id !== 'rollback') s.status = 'skipped';
