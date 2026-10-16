@@ -27,6 +27,7 @@ services:
       ALLOW_INSECURE_HTTP: "true"
       PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3000}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      MC_TRUSTED_PUBLIC_HOSTS: ${MC_TRUSTED_PUBLIC_HOSTS:-}
       BACKUP_DIR: /backups
     volumes:
       - cache:/cache

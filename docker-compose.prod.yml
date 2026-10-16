@@ -84,6 +84,8 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
       # true when a reverse proxy sets X-Forwarded-For (sign-in rate limits per client)
       TRUST_PROXY: ${TRUST_PROXY:-}
+      # Music Connections: public https hosts another music app may link from (docs/operations.md)
+      MC_TRUSTED_PUBLIC_HOSTS: ${MC_TRUSTED_PUBLIC_HOSTS:-}
       NODE_ENV: production
       # Nightly, manual and pre-update database backups (Settings › Backups).
       # Before every database update the app writes a checked pg_dump here and

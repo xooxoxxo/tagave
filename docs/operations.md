@@ -461,6 +461,10 @@ docker compose -f docker-compose.prod.yml stop worker-files worker-identify
 
 Then relaunch the host workers. Both topologies can coexist, because jobs are claimed from the same queue, but keep the builds at the same sha, or `Build Versions` will warn until you do.
 
+## Music Connections
+
+Another music app (review-gatherer, for example) can link to one person's tagave account: it registers at `/api/v1/connect/register`, the person approves on tagave's consent page, and the app may then read that person's ratings, collection, listens and identity until the link is revoked. tagave describes itself at `/.well-known/music-connections`. An app may register only with a redirect address on a private network (LAN, the tailnet range 100.64.0.0/10, or localhost), over http or https. To allow an app on a public host, add its host name to `MC_TRUSTED_PUBLIC_HOSTS` in `.env` (comma separated); public hosts must use https. Registrations, approvals, failed refreshes and revocations are written to the audit log (`audit_log`, actions `mc.*`).
+
 ## Release gate
 
 `scripts/smoke.sh` runs exactly this topology on a throwaway stack (postgres, app, both workers, a temp music dir, and a `backup` round-trip) and is the release gate for the images.
