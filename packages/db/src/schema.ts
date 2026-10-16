@@ -8,6 +8,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -810,6 +811,7 @@ export const images = pgTable(
     width: integer(),
     height: integer(),
     bytes: text(),
+    /** Unused since 0046 (thumbnails live in cover_thumbs); dropped in the next release. */
     thumbBytes: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('thumb_bytes'),
     localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'cascade' }),
     licenseNote: text('license_note').notNull(),
@@ -819,6 +821,42 @@ export const images = pgTable(
   (table) => ({
     libraryIdx: index('idx_images_library').on(table.libraryId),
     entityIdx: index('idx_images_entity').on(table.entityType, table.entityId),
+  })
+);
+
+/**
+ * 300px JPEG thumbnail of an image (0046). Left out of every backup
+ * (pg_dump --exclude-table-data): the worker rebuilds missing ones from the
+ * originals on its cache volume (art.thumb).
+ */
+export const coverThumbs = pgTable(
+  'cover_thumbs',
+  {
+    imageId: uuid('image_id')
+      .notNull()
+      .references(() => images.id, { onDelete: 'cascade' }),
+    size: smallint().notNull().default(300),
+    bytes: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('bytes').notNull(),
+    /** Content hash; the api's ETag. */
+    sha256: customType<{ data: Buffer }>({ dataType: () => 'bytea' })('sha256').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.imageId, table.size] }),
+  })
+);
+
+/** Limits of the cover rebuild across sweeps (0046): refetches a day, api sweep requests. */
+export const coverRebuildLog = pgTable(
+  'cover_rebuild_log',
+  {
+    id: bigint({ mode: 'number' }).primaryKey(),
+    kind: text().notNull(),
+    albumId: uuid('album_id'),
+    at: timestamp('at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    kindAtIdx: index('idx_cover_rebuild_log_kind_at').on(table.kind, table.at),
   })
 );
 
