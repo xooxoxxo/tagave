@@ -89,16 +89,23 @@ export type Provenance = 'manual' | 'embedded' | 'auto';
 /**
  * How sure tagave is of an album's release: confirmed by a person (manual),
  * read from the files' own MusicBrainz tags (embedded), or matched by the
- * identifier (auto, confidence 1 − distance).
+ * identifier (auto, confidence 1 − distance). local_albums.embedded_mbid is
+ * the tags' MUSICBRAINZ_ALBUMID, a release MBID (identifyAlbum.ts), so it is
+ * compared with the matched release, not the release group.
  */
 export function identityProvenance(m: {
   status: string | null;
+  decidedBy?: string | null;
   source: string | null;
   distance: number | string | null;
   embeddedMbid: string | null;
   releaseMbid: string | null;
 }): { provenance: Provenance; confidence: number } {
-  if (m.status === 'confirmed') return { provenance: 'manual', confidence: 1 };
+  // a person's decision: accepted in the review queue, or an MBID / Discogs id
+  // they typed (both store status 'confirmed', decided_by 'user')
+  if (m.status === 'confirmed' || m.decidedBy === 'user' || m.source === 'user_mbid' || m.source === 'user_discogs') {
+    return { provenance: 'manual', confidence: 1 };
+  }
   const embedded = m.embeddedMbid && m.releaseMbid && m.embeddedMbid.toLowerCase() === m.releaseMbid.toLowerCase();
   if (m.source === 'mbid' || embedded) return { provenance: 'embedded', confidence: 1 };
   const d = m.distance === null ? NaN : Number(m.distance);
@@ -311,9 +318,9 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
   const ids = uuidKeys(keys);
   if (ids.length === 0) return out;
   const [rows, refs] = await Promise.all([
-    sql<Array<{ key: string; embedded_mbid: string | null; release_mbid: string | null; status: string | null; source: string | null; distance: string | null }>>`
+    sql<Array<{ key: string; embedded_mbid: string | null; release_mbid: string | null; status: string | null; decided_by: string | null; source: string | null; distance: string | null }>>`
       select distinct on (a.release_group_id) a.release_group_id::text as key, a.embedded_mbid, r.mbid as release_mbid,
-             m.status, m.source, m.distance::text as distance
+             m.status, m.decided_by, m.source, m.distance::text as distance
         from local_albums a
         left join album_matches m on m.local_album_id = a.id and m.status in ('auto', 'confirmed')
         left join releases r on r.id = coalesce(m.release_id, a.release_id)
@@ -331,7 +338,7 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
     out.set(r.key, {
       album,
       local_key: r.key,
-      ...identityProvenance({ status: r.status, source: r.source, distance: r.distance, embeddedMbid: r.embedded_mbid, releaseMbid: r.release_mbid }),
+      ...identityProvenance({ status: r.status, decidedBy: r.decided_by, source: r.source, distance: r.distance, embeddedMbid: r.embedded_mbid, releaseMbid: r.release_mbid }),
     });
   }
   return out;
@@ -379,11 +386,24 @@ export async function feedLibrary(sql: Sql): Promise<string | null> {
   return rows[0]?.id ?? null;
 }
 
+/** How far behind the clock the read horizon may fall before it is worth a warning (tests lower it). */
+export const feedTuning = { horizonLagWarnMs: 5 * 60_000 };
+let horizonLagging = false;
+
 /**
  * The next `limit` changes after the cursor (plus one more, so the page knows
- * whether there is more), with data. An upsert whose key has no data now is
- * served as a delete; one whose data fails the capability's schema is left
- * out of the items (the cursor still moves past it).
+ * whether there is more), with data.
+ *
+ * The op served is decided here, not taken from the log: a key that has data
+ * now is an upsert, one that has none is a delete, whatever the writer
+ * stored. A writer decides its op in its own snapshot, so two concurrent
+ * writers can leave a delete as a live album's newest row.
+ *
+ * The log is append-only, so one key can appear more than once in a page;
+ * only its last row in the page is served (the earlier ones say nothing the
+ * last does not). The page's last row is always some key's last, so the
+ * cursor is the last row served. An item whose data fails the capability's
+ * schema is left out too (the cursor still moves past it).
  *
  * Rows only count once every transaction that could still add an earlier one
  * has finished: the log is ordered by changed_at, and a transaction that
@@ -399,11 +419,21 @@ export async function readFeed(
   limit: number,
   log?: (msg: string) => void,
 ): Promise<FeedRow[]> {
-  const [horizon] = await sql<Array<{ t: string }>>`
-    select to_char(least(clock_timestamp(),
-             (select min(xact_start) from pg_stat_activity
-               where datname = current_database() and backend_xid is not null and pid <> pg_backend_pid()))
-           at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as t`;
+  const [horizon] = await sql<Array<{ t: string; lag_ms: number }>>`
+    select to_char(h at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as t,
+           (extract(epoch from (clock_timestamp() - h)) * 1000)::float8 as lag_ms
+      from (select least(clock_timestamp(),
+                     (select min(xact_start) from pg_stat_activity
+                       where datname = current_database() and backend_xid is not null and pid <> pg_backend_pid())) as h) s`;
+  if (horizon!.lag_ms > feedTuning.horizonLagWarnMs) {
+    // once per episode, not once per read
+    if (!horizonLagging) {
+      horizonLagging = true;
+      log?.(`mc feed: a transaction open for ${Math.round(horizon!.lag_ms / 60_000)} min holds the feeds back; changes made since it began wait until it ends`);
+    }
+  } else {
+    horizonLagging = false;
+  }
   // ::text first: postgres.js would serialise a timestamptz parameter through
   // a JS Date and drop the microseconds the cursor carries.
   const t = after?.t ?? '1970-01-01T00:00:00Z';
@@ -420,17 +450,23 @@ export async function readFeed(
      limit ${limit + 1}`;
 
   const head = rows.slice(0, limit);
+  const lastIndex = new Map<string, number>();
+  head.forEach((r, i) => lastIndex.set(r.key.toLowerCase(), i));
   const build = BUILDERS[cap];
-  const built = build ? await build(sql, scope, head.filter((r) => r.op === 'upsert').map((r) => r.key)) : new Map<string, unknown>();
+  // every key of the page, whatever op the writer stored
+  const built = build ? await build(sql, scope, [...lastIndex.keys()]) : new Map<string, unknown>();
   const schema = CAPABILITY_DATA[cap];
   return rows.map((r, i): FeedRow => {
-    if (i >= limit || r.op === 'delete') return { ...r, data: null, skip: false };
-    const data = built.get(r.key.toLowerCase());
+    if (i >= limit) return { ...r, data: null, skip: false };
+    const key = r.key.toLowerCase();
+    // an earlier row of a key this page serves again later
+    if (lastIndex.get(key) !== i) return { ...r, data: null, skip: true };
+    const data = built.get(key);
     if (data === undefined) return { ...r, op: 'delete', data: null, skip: false };
     if (!schema.safeParse(data).success) {
       log?.(`mc feed: ${cap} item ${r.key} does not match its schema; left out`);
       return { ...r, data: null, skip: true };
     }
-    return { ...r, data, skip: false };
+    return { ...r, op: 'upsert', data, skip: false };
   });
 }

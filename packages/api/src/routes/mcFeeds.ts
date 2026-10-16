@@ -6,13 +6,19 @@
  *   GET /mc/v1/schema/<capability>.json                      each one's JSON Schema (public)
  *
  * Outside /api, so the route guard (permissions/guard.ts) never sees these:
- * the bearer check below is their only gate, and it refuses by default.
+ * the bearer gate below is their only gate. It is one onRequest hook for
+ * every route of this plugin, and it refuses by default:
+ *
+ *   config.mcPublic: true    no token needed (the schemas)
+ *   config.mcScope: '<s>'    a live token granted scope <s>
+ *   neither                  refused (401 without a token, 403 with one)
+ *
  * Missing, unknown, expired or revoked token, a disabled client or person:
- * 401. A live token without `<capability>:read`: 403. More than 60 calls a
+ * 401. A live token without the route's scope: 403. More than 60 calls a
  * minute on one token: 429 with Retry-After. Every answer is no-store.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { buildFeedPage, capabilityJsonSchema, isCapability, readScope, type Capability } from 'music-connections';
+import { buildFeedPage, capabilityJsonSchema, isCapability, readScope } from 'music-connections';
 import { getAuthHandle } from '../middleware/auth.js';
 import { RateLimiter } from '../lib/rateLimit.js';
 import { TAGAVE_PROVIDES, bearerToken, lookupAccessToken, type AccessGrant } from '../lib/mcOAuth.js';
@@ -30,8 +36,14 @@ export function resetMcFeedLimits(): void {
 
 declare module 'fastify' {
   interface FastifyRequest {
-    /** The access grant behind the bearer token (/mc/v1 feeds only). */
+    /** The access grant behind the bearer token (/mc/v1 routes only). */
     mcGrant?: AccessGrant | undefined;
+  }
+  interface FastifyContextConfig {
+    /** /mc/v1: the scope a token must carry (see routes/mcFeeds.ts). */
+    mcScope?: string;
+    /** /mc/v1: served without a token. */
+    mcPublic?: boolean;
   }
 }
 
@@ -42,29 +54,36 @@ function unauthorized(reply: FastifyReply, invalid: boolean): FastifyReply {
   return reply.status(401).send(problem(401, 'Unauthorized', invalid ? 'The access token is not valid.' : 'An access token is required.'));
 }
 
-/** The bearer gate for one capability's feed: token, rate limit, then scope. */
-function requireScope(cap: Capability) {
-  return async (request: FastifyRequest, reply: FastifyReply) => {
-    const token = bearerToken(request.headers.authorization);
-    if (!token) return unauthorized(reply, false);
-    const grant = await lookupAccessToken(getAuthHandle().sql, token);
-    if (!grant) return unauthorized(reply, true);
-    feedCalls.check(`token:${grant.tokenId}`, Date.now(), 'Too many requests on this access token.');
-    if (!grant.scopes.includes(readScope(cap))) {
-      reply.header('www-authenticate', `Bearer realm="music-connections", error="insufficient_scope", scope="${readScope(cap)}"`);
-      return reply.status(403).send(problem(403, 'Forbidden', `This link was not granted ${readScope(cap)}.`));
-    }
-    request.mcGrant = grant;
-  };
+function forbidden(reply: FastifyReply, scope: string | undefined): FastifyReply {
+  reply.header('www-authenticate', `Bearer realm="music-connections", error="insufficient_scope"${scope ? `, scope="${scope}"` : ''}`);
+  return reply.status(403).send(problem(403, 'Forbidden', scope ? `This link was not granted ${scope}.` : 'Not available to a linked app.'));
 }
 
-export async function createMcFeedRoutes(fastify: FastifyInstance) {
-  // First, so the refusals (401, 403, 429, 400, 410) carry it too.
-  fastify.addHook('onRequest', async (_request, reply) => {
-    reply.header('cache-control', 'no-store');
-  });
+/** The bearer gate: no-store, then public, or token → rate limit → scope. */
+async function bearerGate(request: FastifyRequest, reply: FastifyReply) {
+  reply.header('cache-control', 'no-store');
+  const config = request.routeOptions.config;
+  if (config?.mcPublic === true) return;
+  const token = bearerToken(request.headers.authorization);
+  if (!token) return unauthorized(reply, false);
+  const grant = await lookupAccessToken(getAuthHandle().sql, token);
+  if (!grant) return unauthorized(reply, true);
+  feedCalls.check(`token:${grant.tokenId}`, Date.now(), 'Too many requests on this access token.');
+  const scope = config?.mcScope;
+  // a route that declares no scope is open to no token
+  if (typeof scope !== 'string' || !grant.scopes.includes(scope)) return forbidden(reply, scope);
+  request.mcGrant = grant;
+}
 
-  fastify.get<{ Params: { file: string } }>('/mc/v1/schema/:file', async (request, reply) => {
+export interface McFeedRouteOptions {
+  /** Tests: register more routes inside the plugin, behind the same gate. */
+  extraRoutes?: (fastify: FastifyInstance) => void | Promise<void>;
+}
+
+export async function createMcFeedRoutes(fastify: FastifyInstance, opts: McFeedRouteOptions = {}) {
+  fastify.addHook('onRequest', bearerGate);
+
+  fastify.get<{ Params: { file: string } }>('/mc/v1/schema/:file', { config: { mcPublic: true } }, async (request, reply) => {
     schemaCalls.check(`ip:${request.ip}`);
     const cap = request.params.file.replace(/\.json$/, '');
     if (!request.params.file.endsWith('.json') || !isCapability(cap) || !TAGAVE_PROVIDES.includes(cap)) {
@@ -74,9 +93,9 @@ export async function createMcFeedRoutes(fastify: FastifyInstance) {
   });
 
   for (const cap of TAGAVE_PROVIDES) {
-    fastify.get<{ Querystring: Record<string, unknown> }>(feedPath(cap), { onRequest: requireScope(cap) }, async (request, reply) => {
+    fastify.get<{ Querystring: Record<string, unknown> }>(feedPath(cap), { config: { mcScope: readScope(cap) } }, async (request, reply) => {
       const grant = request.mcGrant;
-      if (!grant) return unauthorized(reply, true); // the hook always sets it; never serve without
+      if (!grant) return unauthorized(reply, true); // the gate always sets it; never serve without
       const since = parseSince(request.query['since']);
       if (!since.ok) {
         return since.status === 410
@@ -93,9 +112,12 @@ export async function createMcFeedRoutes(fastify: FastifyInstance) {
       const rows = await readFeed(sql, cap, { userId: grant.userId, libraryId }, since.after, limit, (msg) => request.log.warn(msg));
       const page = buildFeedPage(rows, limit, prev);
       // buildFeedPage maps the first `limit` rows one to one: drop the skipped
-      // ones afterwards, so the cursor still moves past them.
+      // ones (a key's earlier rows, invalid data) afterwards, so the cursor
+      // still moves past them.
       page.items = page.items.filter((_, i) => !rows[i]?.skip);
       return page;
     });
   }
+
+  if (opts.extraRoutes) await opts.extraRoutes(fastify);
 }

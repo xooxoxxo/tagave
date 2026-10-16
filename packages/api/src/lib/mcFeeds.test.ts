@@ -86,6 +86,14 @@ describe('album identity', () => {
       .toEqual({ provenance: 'embedded', confidence: 1 });
     expect(identityProvenance({ status: 'auto', source: 'mb_search', distance: '0.1250', embeddedMbid: null, releaseMbid: MBID }))
       .toEqual({ provenance: 'auto', confidence: 0.875 });
+    // a person's decision is manual whatever its status says
+    expect(identityProvenance({ status: 'auto', decidedBy: 'user', source: null, distance: '0.4', embeddedMbid: null, releaseMbid: MBID }))
+      .toEqual({ provenance: 'manual', confidence: 1 });
+    expect(identityProvenance({ status: 'auto', source: 'user_mbid', distance: '0.4', embeddedMbid: null, releaseMbid: MBID }))
+      .toEqual({ provenance: 'manual', confidence: 1 });
+    // embedded_mbid is a release MBID: one that differs from the matched release is not "embedded"
+    expect(identityProvenance({ status: 'auto', decidedBy: 'system', source: 'mb_search', distance: '0.5', embeddedMbid: '0b11f4ce-a62d-471e-81fc-a69a8278c7da', releaseMbid: MBID }))
+      .toEqual({ provenance: 'auto', confidence: 0.5 });
     expect(identityProvenance({ status: null, source: null, distance: null, embeddedMbid: null, releaseMbid: null }))
       .toEqual({ provenance: 'auto', confidence: 0 });
   });

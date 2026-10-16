@@ -17,7 +17,9 @@ import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { hashToken } from '../lib/mcOAuth.js';
-import { resetMcFeedLimits } from './mcFeeds.js';
+import { createMcFeedRoutes, resetMcFeedLimits } from './mcFeeds.js';
+import { errorHandler } from '../middleware/errorHandler.js';
+import { feedTuning, readFeed } from '../lib/mcFeeds.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const ALL = ['ratings:read', 'collection:read', 'listens:read', 'identity:read', 'offline_access'];
@@ -202,8 +204,9 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     const since = await tail('ratings');
     await sql`delete from user_reviews where release_group_id = ${rg}`;
     expect((await all('ratings', since)).items).toEqual([{ key: rg, op: 'delete', updated_at: expect.any(String), data: null }]);
-    // the snapshot holds one row per key: the delete replaced the upsert
-    expect(await logRows('ratings', rg)).toBe(1);
+    // the log only appends (both rows stay until mc.purge), and a snapshot serves the key once
+    expect(await logRows('ratings', rg)).toBe(2);
+    expect((await all('ratings')).items.filter((i) => i.key === rg)).toEqual([{ key: rg, op: 'delete', updated_at: expect.any(String), data: null }]);
   });
 
   it('collection: Discogs copies and local files, aggregated per album', async () => {
@@ -266,10 +269,10 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
       local_key: rgA, provenance: 'manual', confidence: 1,
     });
     const since = (await all('identity')).next;
-    await sql`update album_matches set status = 'auto' where local_album_id = ${albumA}`;
+    await sql`update album_matches set status = 'auto', decided_by = 'system' where local_album_id = ${albumA}`;
     const p = await all('identity', since);
     expect(p.items.map((i) => [i.key, i.data?.provenance, i.data?.confidence])).toEqual([[rgA, 'auto', 0.92]]);
-    await sql`update album_matches set status = 'confirmed' where local_album_id = ${albumA}`;
+    await sql`update album_matches set status = 'confirmed', decided_by = 'user' where local_album_id = ${albumA}`;
   });
 
   it('a release group’s MBID change reaches every feed that names it', async () => {
@@ -341,13 +344,118 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     await sql`update user_reviews set rating = 3.5 where user_id = ${person.userId} and release_group_id = ${rgA}`;
   });
 
+  // ── the op is the reader's, not the writer's ─────────────────────────────
+
+  it('a delete row whose key has data when read is served as an upsert', async () => {
+    const since = await tail('collection');
+    await sql`insert into mc_changes (capability, key, op, user_id, library_id) values ('collection', ${rgA}, 'delete', null, ${libraryId})`;
+    const p = await all('collection', since);
+    expect(p.items.map((i) => [i.key, i.op])).toEqual([[rgA, 'upsert']]);
+    expect(p.items[0]!.data.formats.length).toBeGreaterThan(0);
+  });
+
+  it('two writers racing on one album: the live album is served, not the stale delete', async () => {
+    // K has one Discogs copy and no files. A removes the copy while B adds a
+    // matched album with a file; each logs K in its own snapshot: B (upsert,
+    // it still sees the copy) first, then A (delete, it cannot see B's album).
+    const k = randomUUID();
+    const copy = randomUUID();
+    const album = randomUUID();
+    const file = randomUUID();
+    await sql`insert into release_groups (id, mbid, title) values (${k}, ${randomUUID()}, 'Raced')`;
+    await sql`insert into collection_items (id, library_id, collection_source_id, provider_item_id, release_group_id, formats)
+              values (${copy}, ${libraryId}, ${sourceId}, ${`race-${copy}`}, ${k}, ${sql.json([{ name: 'Vinyl', descriptions: [] }])})`;
+    const since = await tail('collection');
+    const a = await sql.reserve();
+    const b = await sql.reserve();
+    try {
+      await b`begin`;
+      await b`insert into audio_files (id, library_id, scan_root_id, rel_path, codec) values (${file}, ${libraryId}, ${rootId}, ${`race/${file}.flac`}, 'FLAC')`;
+      await b`insert into local_albums (id, library_id, cluster_key, state, release_group_id) values (${album}, ${libraryId}, ${`race-${album}`}, 'matched', ${k})`;
+      await b`insert into local_tracks (local_album_id, audio_file_id) values (${album}, ${file})`;
+      await a`begin`;
+      await a`update collection_items set removed_at = now() where id = ${copy}`;
+      await b`commit`;
+      await a`commit`;
+    } finally {
+      await a`rollback`.catch(() => undefined);
+      await b`rollback`.catch(() => undefined);
+      a.release();
+      b.release();
+    }
+    const ops = (await sql<Array<{ op: string }>>`select op from mc_changes where capability = 'collection' and key = ${k} order by changed_at, id`).map((r) => r.op);
+    expect(ops.at(-1)).toBe('delete'); // the race left a stale delete as the newest row
+    const p = await all('collection', since);
+    expect(p.items.filter((i) => i.key === k).map((i) => [i.op, i.data?.formats])).toEqual([['upsert', [{ kind: 'digital', detail: 'FLAC' }]]]);
+  });
+
+  it('two writers logging one key never wait on each other', async () => {
+    const a = await sql.reserve();
+    const b = await sql.reserve();
+    try {
+      await a`begin`;
+      await a`insert into collection_items (library_id, collection_source_id, provider_item_id, release_group_id) values (${libraryId}, ${sourceId}, ${`w1-${randomUUID()}`}, ${rgA})`;
+      await b`begin`;
+      await b`set local lock_timeout = '100ms'`;
+      await b`insert into collection_items (library_id, collection_source_id, provider_item_id, release_group_id) values (${libraryId}, ${sourceId}, ${`w2-${randomUUID()}`}, ${rgA})`;
+      await b`update user_reviews set rating = 3.0 where user_id = ${other.userId} and release_group_id = ${rgA}`;
+      await b`commit`;
+      await a`commit`;
+    } finally {
+      await a`rollback`.catch(() => undefined);
+      await b`rollback`.catch(() => undefined);
+      a.release();
+      b.release();
+    }
+    await sql`delete from collection_items where provider_item_id like 'w_-%'`;
+    await sql`update user_reviews set rating = 1.0 where user_id = ${other.userId}`;
+  });
+
+  it('a key logged many times appears once per page, and the cursor is the last row served', async () => {
+    const since = await tail('ratings');
+    for (const r of [2, 2.5, 3, 4]) await sql`update user_reviews set rating = ${r} where user_id = ${person.userId} and release_group_id = ${rgA}`;
+    const res = await get(`/mc/v1/ratings?since=${since}`);
+    const p = res.json() as Page;
+    expect(p.items.map((i) => [i.key, i.data?.rating])).toEqual([[rgA, 8]]);
+    // nothing after that cursor: it is the last row, not an earlier duplicate
+    expect((await all('ratings', p.next)).items).toEqual([]);
+    // paged one row at a time, every row is its own page and the newest value comes last
+    const one = await all('ratings', since, 1);
+    expect(one.items.at(-1)?.data?.rating).toBe(8);
+    await sql`update user_reviews set rating = 3.5 where user_id = ${person.userId} and release_group_id = ${rgA}`;
+  });
+
+  it('warns once while a long transaction holds the feeds back', async () => {
+    const warnings: string[] = [];
+    const scope = { userId: person.userId, libraryId };
+    const saved = feedTuning.horizonLagWarnMs;
+    try {
+      feedTuning.horizonLagWarnMs = -1; // any lag counts
+      await readFeed(sql, 'ratings', scope, null, 10, (m) => warnings.push(m));
+      await readFeed(sql, 'ratings', scope, null, 10, (m) => warnings.push(m));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/holds the feeds back/);
+      feedTuning.horizonLagWarnMs = 60 * 60_000; // caught up: the episode ends
+      await readFeed(sql, 'ratings', scope, null, 10, (m) => warnings.push(m));
+      feedTuning.horizonLagWarnMs = -1;
+      await readFeed(sql, 'ratings', scope, null, 10, (m) => warnings.push(m));
+      expect(warnings).toHaveLength(2);
+    } finally {
+      feedTuning.horizonLagWarnMs = saved;
+    }
+  });
+
   // ── paging and cursors ───────────────────────────────────────────────────
 
   it('pages with an advancing cursor and ends with more: false', async () => {
     const one = await all('listens', '', 1);
     const whole = await all('listens');
     expect(one.pages).toBeGreaterThan(2);
-    expect(one.items).toEqual(whole.items);
+    // a key logged again shows once per page, so paging smaller may serve it
+    // more often, but the newest item of every key is the same either way
+    const newest = (items: Item[]) => Object.fromEntries(items.map((i) => [i.key, i]));
+    expect(newest(one.items)).toEqual(newest(whole.items));
+    expect(new Set(whole.items.map((i) => i.key)).size).toBe(whole.items.length);
     // the end cursor is stable: nothing new, nothing served
     expect((await all('listens', whole.next)).items).toEqual([]);
   });
@@ -411,6 +519,32 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     expect(res.headers['cache-control']).toBe('no-store');
     // another token is counted on its own
     expect((await get('/mc/v1/identity?limit=1')).statusCode).toBe(200);
+  });
+
+  it('the gate is the plugin’s: a route there that declares nothing is refused', async () => {
+    const gated = Fastify({ logger: false });
+    await errorHandler(gated);
+    await gated.register(createMcFeedRoutes, {
+      extraRoutes: (f: FastifyInstance) => {
+        f.get('/mc/v1/dummy', async () => ({ leaked: true }));
+        f.get('/mc/v1/dummy-public', { config: { mcPublic: true } }, async () => ({ ok: true }));
+        f.get('/mc/v1/dummy-scoped', { config: { mcScope: 'listens:read' } }, async () => ({ ok: true }));
+      },
+    });
+    await gated.ready();
+    try {
+      const anon = await gated.inject({ method: 'GET', url: '/mc/v1/dummy' });
+      expect(anon.statusCode).toBe(401);
+      expect(anon.headers['cache-control']).toBe('no-store');
+      const withToken = await gated.inject({ method: 'GET', url: '/mc/v1/dummy', headers: { authorization: `Bearer ${token}` } });
+      expect(withToken.statusCode).toBe(403);
+      expect(withToken.body).not.toContain('leaked');
+      expect((await gated.inject({ method: 'GET', url: '/mc/v1/dummy-public' })).statusCode).toBe(200);
+      expect((await gated.inject({ method: 'GET', url: '/mc/v1/dummy-scoped' })).statusCode).toBe(401);
+      expect((await gated.inject({ method: 'GET', url: '/mc/v1/dummy-scoped', headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+    } finally {
+      await gated.close();
+    }
   });
 
   it('serves each provided capability’s JSON Schema, publicly', async () => {
