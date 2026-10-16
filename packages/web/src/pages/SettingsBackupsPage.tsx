@@ -262,7 +262,7 @@ export function SettingsBackupsPage() {
           A backup on the same disk does not help if that disk fails. Copy the folder somewhere else from time to time: download a backup here,
           or copy the whole folder out of the container and then onto another computer, a NAS or cloud storage (rsync, rclone, or a file sync app):
         </p>
-        <pre className={styles.code}>{COPY_CMD}</pre>
+        <pre className={styles.code} tabIndex={0}>{COPY_CMD}</pre>
         <p className={styles.hint}>
           Keep the <code>APP_SECRET</code> from your <code>.env</code> in a password manager as well. A backup restored without it still has all your
           music data, but saved Discogs and AcoustID keys have to be entered again.
@@ -272,7 +272,7 @@ export function SettingsBackupsPage() {
           Restoring replaces everything in the database. Stop the app and workers, restore, and start them again. The current database is kept
           under another name until you drop it, so you can go back.
         </p>
-        <pre className={styles.code}>{RESTORE_CMD}</pre>
+        <pre className={styles.code} tabIndex={0}>{RESTORE_CMD}</pre>
       </section>
     </div>
   );

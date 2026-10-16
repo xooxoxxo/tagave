@@ -1661,11 +1661,11 @@ prune_update_dumps() {
     fi
   done <<EOF_DUMPS
 $(for folder in "$dir"/pre-update-*; do
-    [ -d "$folder" ] && [ ! -L "$folder" ] || continue
+    if [ ! -d "$folder" ] || [ -L "$folder" ]; then continue; fi
     name="${folder##*/}"
     stamp="$(printf '%s\n' "$name" | sed -n 's/^pre-update-.*-\([0-9]\{8\}-[0-9]\{6\}\)$/\1/p')"
     [ -n "$stamp" ] || continue
-    [ -f "$folder/database.pgdump" ] && [ ! -L "$folder/database.pgdump" ] || continue
+    if [ ! -f "$folder/database.pgdump" ] || [ -L "$folder/database.pgdump" ]; then continue; fi
     printf '%s\t%s\n' "$stamp" "$folder"
   done | sort -r)
 EOF_DUMPS
