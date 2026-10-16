@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { RateLimiter } from './rateLimit.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import { errorHandler } from '../middleware/errorHandler.js';
+import { RateLimitError, RateLimiter } from './rateLimit.js';
 
 describe('RateLimiter', () => {
   it('refuses past max within a window and allows again after it', () => {
@@ -44,5 +46,68 @@ describe('RateLimiter', () => {
     rl.allow('a', 120); // a restarts: now newer than b
     rl.allow('c', 140); // cap: b (start 50, still open) is the oldest and goes
     expect(rl.allow('a', 150)).toBe(false);
+  });
+
+  it('allows max calls per window, then refuses until the window ends', () => {
+    const l = new RateLimiter(3, 60_000);
+    const t0 = 1_000_000;
+    expect([1, 2, 3].map((i) => l.allow('k', t0 + i))).toEqual([true, true, true]);
+    expect(l.allow('k', t0 + 10)).toBe(false);
+    expect(l.allow('other', t0 + 10)).toBe(true);
+    expect(l.allow('k', t0 + 1 + 60_000)).toBe(true);
+  });
+
+  it('says how many seconds are left in the window', () => {
+    const l = new RateLimiter(1, 60_000);
+    l.allow('k', 0);
+    expect(l.retryAfterS('k', 0)).toBe(60);
+    expect(l.retryAfterS('k', 59_100)).toBe(1);
+    expect(l.retryAfterS('k', 30_500)).toBe(30);
+    expect(l.retryAfterS('unknown', 0)).toBe(1);
+  });
+
+  it('check throws a 429 that carries the seconds', () => {
+    const l = new RateLimiter(1, 60_000);
+    l.check('k', 0);
+    let err: unknown;
+    try {
+      l.check('k', 20_000);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(RateLimitError);
+    expect((err as RateLimitError).status).toBe(429);
+    expect((err as RateLimitError).retryAfterS).toBe(40);
+  });
+});
+
+describe('a refused call over HTTP', () => {
+  let app: FastifyInstance;
+  const limit = new RateLimiter(2, 60_000);
+
+  beforeAll(async () => {
+    app = Fastify({ logger: false });
+    await errorHandler(app);
+    app.get('/limited', async () => {
+      limit.check('one');
+      return { ok: true };
+    });
+    await app.ready();
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('answers 429 with Retry-After in whole seconds', async () => {
+    expect((await app.inject({ method: 'GET', url: '/limited' })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'GET', url: '/limited' })).statusCode).toBe(200);
+    const res = await app.inject({ method: 'GET', url: '/limited' });
+    expect(res.statusCode).toBe(429);
+    const s = Number(res.headers['retry-after']);
+    expect(Number.isInteger(s)).toBe(true);
+    expect(s).toBeGreaterThanOrEqual(1);
+    expect(s).toBeLessThanOrEqual(60);
+    expect(res.json()).toMatchObject({ status: 429, title: 'Too Many Requests' });
   });
 });

@@ -43,6 +43,9 @@ export async function errorHandler(fastify: FastifyInstance) {
 
     // Handle API errors
     if (error instanceof ApiError) {
+      // a rate limit's refusal (lib/rateLimit.ts RateLimitError) says when to come back
+      const retryAfterS = (error as { retryAfterS?: unknown }).retryAfterS;
+      if (typeof retryAfterS === 'number') reply.header('retry-after', String(retryAfterS));
       return reply.status(error.status).send(error.toJSON());
     }
 

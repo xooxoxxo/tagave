@@ -1,10 +1,20 @@
 /**
- * A fixed-window counter per key (a user id or a client address), in
- * memory: enough for one api process. Used where a person, not Better Auth,
- * is the unit: Settings › Users changes and the public invite links.
+ * A fixed-window counter per key (a user id, a client address or an access
+ * token), in memory: enough for one api process. Used where a person, not
+ * Better Auth, is the unit: Settings › Users changes, the public invite
+ * links, the Music Connections endpoints and feeds.
+ *
+ * A refusal says when to come back: the 429 carries Retry-After, the seconds
+ * left in the key's window (errorHandler sets it from RateLimitError).
  */
 import type { FastifyRequest } from 'fastify';
 import { ApiError } from '../middleware/errorHandler.js';
+
+export class RateLimitError extends ApiError {
+  constructor(readonly retryAfterS: number, detail = 'Too many tries. Wait a minute and try again.') {
+    super(429, 'Too Many Requests', detail);
+  }
+}
 
 export class RateLimiter {
   /** Insertion order is window-start order: a key is re-inserted when its window restarts. */
@@ -23,11 +33,16 @@ export class RateLimiter {
     return h.n <= this.max;
   }
 
-  /** Throws 429 past the limit. */
-  check(key: string, now = Date.now()): void {
-    if (!this.allow(key, now)) {
-      throw new ApiError(429, 'Too Many Requests', 'Too many tries. Wait a minute and try again.');
-    }
+  /** Whole seconds until the key's window resets (at least 1). */
+  retryAfterS(key: string, now = Date.now()): number {
+    const h = this.hits.get(key);
+    if (!h) return 1;
+    return Math.max(1, Math.ceil((h.start + this.windowMs - now) / 1000));
+  }
+
+  /** Throws 429 (with Retry-After) past the limit. */
+  check(key: string, now = Date.now(), detail?: string): void {
+    if (!this.allow(key, now)) throw new RateLimitError(this.retryAfterS(key, now), detail);
   }
 
   /**
