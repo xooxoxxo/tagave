@@ -179,8 +179,10 @@ describe.skipIf(!url)('module routes (integration)', () => {
   });
 
   it('refuses a non-owner', async () => {
-    await handle.sql`update users set role = 'viewer'`;
-    expect((await get('/api/v1/modules')).statusCode).toBe(403);
-    expect((await post('/api/v1/modules/player/enable', {})).statusCode).toBe(403);
+    for (const role of ['editor', 'listener']) {
+      await handle.sql`update users set role = ${role}`;
+      expect((await get('/api/v1/modules')).statusCode).toBe(403);
+      expect((await post('/api/v1/modules/player/enable', {})).statusCode).toBe(403);
+    }
   });
 });
