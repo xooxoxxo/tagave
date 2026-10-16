@@ -56,9 +56,11 @@ export function backupLocation(method: InstallMethod, version: string | null): s
 }
 
 // $POSTGRES_USER and $POSTGRES_DB expand inside the postgres container, so a
-// renamed database user works too.
+// renamed database user works too. Cover thumbnails and the provider cache
+// are left out, as in the app's own backups: both are rebuilt after a restore.
 function dumpCommand(compose: string, file: string): string {
-  return `${compose} exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB"' > ${file}`;
+  return `${compose} exec -T postgres sh -c 'pg_dump -Fc -U "$POSTGRES_USER" -d "$POSTGRES_DB" ` +
+    `--exclude-table-data=public.cover_thumbs --exclude-table-data=public.provider_cache' > ${file}`;
 }
 
 /** Empties the database and loads the dump; --exit-on-error stops at the first problem. */

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import styles from './CoverArt.module.css';
 
 export type CoverChipTone = 'neutral' | 'accent' | 'warn';
@@ -58,6 +58,31 @@ export function coverHue(title: string): number {
 }
 
 /**
+ * The api answers a cover whose thumbnail is still being rebuilt (after a
+ * restore: backups hold no thumbnails) with a 1×1 px stand-in and an
+ * X-Tagave-Placeholder header. An <img> cannot read headers, so the size
+ * is the signal: real thumbnails are 300 px.
+ */
+export const isRebuildPlaceholder = (img: Pick<HTMLImageElement, 'naturalWidth'>) => img.naturalWidth > 0 && img.naturalWidth <= 1;
+
+/** When to ask again for a cover that came back as the stand-in: twice, then the own placeholder stays. */
+export const COVER_RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000];
+
+/** The cover URL for a retry; the query param gets past the browser's copy of the stand-in. */
+export function coverRetrySrc(src: string, attempt: number): string {
+  if (attempt <= 0) return src;
+  return `${src}${src.includes('?') ? '&' : '?'}retry=${attempt}`;
+}
+
+interface CoverLoadState {
+  src: string | null | undefined;
+  attempt: number;
+  /** The last load was the rebuild stand-in: show the own placeholder until the next attempt. */
+  waiting: boolean;
+  failed: boolean;
+}
+
+/**
  * A square album cover. Without art it draws a quiet placeholder in the
  * design language: a field tinted with the album's own hue (coverHue), a
  * thin groove mark drawn in close around the centre and large initials in
@@ -66,11 +91,34 @@ export function coverHue(title: string): number {
  */
 export function CoverArt({ src, title, alt = '', dimmed, compact = false, fill = false, loading = 'lazy', interactive = false, className, children }: CoverArtProps) {
   const t = tilt(title);
+  // A cover that fails to load (gone since the list was fetched) falls back
+  // to the placeholder rather than a broken image; one that is being rebuilt
+  // shows the placeholder and is asked for again (COVER_RETRY_DELAYS_MS).
+  const [load, setLoad] = useState<CoverLoadState>({ src, attempt: 0, waiting: false, failed: false });
+  const current = load.src === src ? load : { src, attempt: 0, waiting: false, failed: false };
+  if (current !== load) setLoad(current);
+  useEffect(() => {
+    if (!current.waiting) return;
+    const delay = COVER_RETRY_DELAYS_MS[current.attempt];
+    if (delay === undefined) return;
+    const timer = setTimeout(() => setLoad((s) => (s.src === src ? { ...s, attempt: s.attempt + 1, waiting: false } : s)), delay);
+    return () => clearTimeout(timer);
+  }, [current.waiting, current.attempt, src]);
+  const showImage = Boolean(src) && !current.failed && !current.waiting;
   const classes = [styles.cover, fill ? styles.fill : undefined, compact ? styles.compact : undefined, interactive ? styles.interactive : undefined, dimmed ? styles[dimmed] : undefined, className].filter(Boolean).join(' ');
   return (
     <div className={classes} style={{ '--cover-tilt': `${t}deg`, '--cover-x': `${20 + (t % 60)}%`, '--cover-hue': coverHue(title) } as React.CSSProperties}>
-      {src ? (
-        <img className={styles.art} src={src} alt={alt} loading={loading} />
+      {showImage ? (
+        <img
+          className={styles.art}
+          src={coverRetrySrc(src!, current.attempt)}
+          alt={alt}
+          loading={loading}
+          onError={() => setLoad((s) => (s.src === src ? { ...s, failed: true } : s))}
+          onLoad={(e) => {
+            if (isRebuildPlaceholder(e.currentTarget)) setLoad((s) => (s.src === src ? { ...s, waiting: true } : s));
+          }}
+        />
       ) : (
         <div className={`${styles.art} ${styles.placeholder}`} aria-hidden="true">
           <svg className={styles.groove} viewBox="0 0 100 100" focusable="false">

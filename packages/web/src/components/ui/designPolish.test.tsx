@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { Button } from './Button';
-import { CoverArt, CoverChip, coverInitials } from './CoverArt';
+import { COVER_RETRY_DELAYS_MS, CoverArt, CoverChip, coverInitials, coverRetrySrc, isRebuildPlaceholder } from './CoverArt';
 
 const stripComments = (source: string) => source.replace(/\/\*[\s\S]*?\*\//g, '');
 const read = (rel: string) => stripComments(readFileSync(new URL(rel, import.meta.url), 'utf8'));
@@ -97,5 +97,25 @@ describe('CoverArt', () => {
     expect(html).toMatch(/<img[^>]*src="\/x\.jpg"/);
     expect(html).toMatch(/class="[^"]*missing[^"]*"/);
     expect(html).toContain('Missing</span>');
+  });
+});
+
+describe('CoverArt while a thumbnail is being rebuilt', () => {
+  it('tells the 1 px stand-in the api serves from a real cover', () => {
+    expect(isRebuildPlaceholder({ naturalWidth: 1 })).toBe(true);
+    expect(isRebuildPlaceholder({ naturalWidth: 300 })).toBe(false);
+    expect(isRebuildPlaceholder({ naturalWidth: 0 })).toBe(false); // not decoded: not a signal
+  });
+
+  it('asks again twice, after 30 s and 2 min, past the browser\'s copy', () => {
+    expect(COVER_RETRY_DELAYS_MS).toEqual([30_000, 120_000]);
+    expect(coverRetrySrc('/api/v1/images/album/a', 0)).toBe('/api/v1/images/album/a');
+    expect(coverRetrySrc('/api/v1/images/album/a', 1)).toBe('/api/v1/images/album/a?retry=1');
+    expect(coverRetrySrc('/x?v=2', 2)).toBe('/x?v=2&retry=2');
+  });
+
+  it('renders the image first, with its own URL', () => {
+    const html = renderToStaticMarkup(<CoverArt src="/api/v1/images/album/a" title="Album" />);
+    expect(html).toContain('src="/api/v1/images/album/a"');
   });
 });

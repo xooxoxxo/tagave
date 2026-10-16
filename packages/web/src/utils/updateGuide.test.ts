@@ -108,6 +108,13 @@ describe('update commands stop at the first failure', () => {
     expect(lines.slice(0, -1).every((l) => l.endsWith(' &&'))).toBe(true);
   });
 
+  it('leaves cover thumbnails and the provider cache out of the dump, as the app\'s backups do', () => {
+    for (const how of ['compose', 'source'] as const) {
+      const cmds = updateGuide(how, { role: null }, '0.5.0').steps.map((s) => s.command ?? '').join('\n');
+      expect(cmds).toContain('--exclude-table-data=public.cover_thumbs --exclude-table-data=public.provider_cache');
+    }
+  });
+
   it('does not assume the installer lives in ~/tagave', () => {
     const g = updateGuide('installer', { role: null }, '0.5.0');
     expect(g.steps[0]!.command).not.toContain('cd ~/tagave');

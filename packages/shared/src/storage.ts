@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const STORAGE_CATEGORIES = [
   { key: 'library', label: 'Music file index', description: 'Every scanned file, track, album folder and sidecar, plus the search index built from them.' },
   { key: 'catalogue', label: 'Catalogue', description: 'Matched releases, artists, labels, credits and provider IDs.' },
-  { key: 'artwork', label: 'Album art', description: 'Cover thumbnails stored in the database and where each cover came from.' },
+  { key: 'artwork', label: 'Album art', description: 'Cover thumbnails stored in the database and where each cover came from. Thumbnails are not in backups: they are rebuilt from the originals after a restore.' },
   { key: 'providerCache', label: 'Provider cache', description: 'Answers from MusicBrainz, Discogs and other providers, kept so they are not asked twice.' },
   { key: 'tagChanges', label: 'Tag changes', description: 'Plans with their previews and the old tags Revert puts back.' },
   { key: 'care', label: 'Library care and collection', description: 'Gaps, identification runs, reviews, listens and your physical collection.' },
@@ -25,7 +25,7 @@ const TABLE_CATEGORY: Record<string, StorageCategoryKey> = {
   artists: 'catalogue', labels: 'catalogue', credits: 'catalogue', external_ids: 'catalogue',
   album_matches: 'catalogue', match_candidates: 'catalogue', release_group_artists: 'catalogue',
   entity_tags: 'catalogue', external_reviews: 'catalogue', review_links: 'catalogue',
-  images: 'artwork', image_sources: 'artwork',
+  images: 'artwork', image_sources: 'artwork', cover_thumbs: 'artwork', cover_rebuild_log: 'artwork',
   provider_cache: 'providerCache', provider_state: 'providerCache',
   tag_plans: 'tagChanges', tag_plan_items: 'tagChanges',
   gaps: 'care', identify_runs: 'care', field_locks: 'care', followed_artists: 'care',
