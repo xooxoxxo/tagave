@@ -138,6 +138,9 @@ importers:
       '@tagave/shared':
         specifier: workspace:*
         version: link:../shared
+      music-connections:
+        specifier: workspace:*
+        version: link:../music-connections
       zod:
         specifier: ^4.6.5
         version: 4.6.5
@@ -372,6 +375,9 @@ importers:
       drizzle-orm:
         specifier: ^0.45.4
         version: 0.45.4(@opentelemetry/api@1.9.1)(kysely@0.29.6)(pg@8.23.1)(postgres@3.4.9)
+      music-connections:
+        specifier: workspace:*
+        version: link:../music-connections
       music-metadata:
         specifier: ^12.1.0
         version: 12.1.0

@@ -10,7 +10,8 @@
     "./providers": "./dist/providers/index.js",
     "./tags": "./dist/tags/mapping.js",
     "./player": "./dist/player/index.js",
-    "./scrobble": "./dist/scrobble/index.js"
+    "./scrobble": "./dist/scrobble/index.js",
+    "./mc": "./dist/mc/index.js"
   },
   "files": [
     "dist"
@@ -23,6 +24,7 @@
   },
   "dependencies": {
     "@tagave/shared": "workspace:*",
+    "music-connections": "workspace:*",
     "zod": "^4.6.5"
   },
   "devDependencies": {
