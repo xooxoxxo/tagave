@@ -1666,3 +1666,26 @@ export const mcOauthTokens = pgTable(
     userIdx: index('idx_mc_oauth_tokens_user').on(table.userId),
   })
 );
+
+// Music Connections, phases 2-3 (0048): the change log the /mc/v1 feeds page
+// through. Written only by triggers (see the migration); read by api ›
+// lib/mcFeeds.ts, tombstones purged after 90 days by mc.purge.
+export const mcChanges = pgTable(
+  'mc_changes',
+  {
+    id: bigint({ mode: 'number' }).primaryKey().generatedAlwaysAsIdentity(),
+    capability: text().notNull(),
+    key: text().notNull(),
+    op: text().notNull(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    changedAt: tstz('changed_at').notNull().default(sql`clock_timestamp()`),
+  },
+  (table) => ({
+    feedIdx: index('idx_mc_changes_feed').on(table.capability, table.userId, table.changedAt, table.id),
+    keyIdx: index('idx_mc_changes_key').on(table.capability, table.key),
+    tombstonesIdx: index('idx_mc_changes_tombstones').on(table.changedAt).where(sql`op = 'delete'`),
+    capabilityCheck: check('mc_changes_capability_check', sql`capability in ('ratings', 'collection', 'listens', 'identity')`),
+    opCheck: check('mc_changes_op_check', sql`op in ('upsert', 'delete')`),
+  })
+);
