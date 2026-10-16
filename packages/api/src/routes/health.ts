@@ -65,11 +65,13 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
 
       reply.status(down ? 503 : 200).send(health);
     } catch (err) {
+      // public: a fixed message; what failed goes to the server log
+      request.log.error({ err }, 'health check failed');
       return reply.status(503).send({
         status: 'error',
         timestamp: new Date().toISOString(),
         database: 'error',
-        error: (err as any).message,
+        error: 'Health check failed',
       });
     }
   });
