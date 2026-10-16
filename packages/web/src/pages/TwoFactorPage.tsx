@@ -11,6 +11,7 @@ import { Button } from '../components/ui';
 import { authClient, type AuthClientError } from '../services/authClient';
 import { AUTH_QUERY_KEY } from '../hooks/useAuth';
 import { signInErrorMessage } from './loginErrors';
+import { afterSignIn } from './connectReturn';
 import styles from './LoginPage.module.css';
 
 export function TwoFactorPage() {
@@ -40,7 +41,7 @@ export function TwoFactorPage() {
       return;
     }
     await queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
-    navigate({ to: '/' });
+    afterSignIn(navigate);
   };
 
   const switchMode = () => {

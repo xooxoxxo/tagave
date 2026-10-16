@@ -21,6 +21,7 @@ const WorkPage = lazyRouteComponent(() => import('./pages/WorkPage'), 'WorkPage'
 const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'SettingsPage');
 const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
+const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
@@ -68,6 +69,17 @@ const inviteRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/invite/$token',
   component: InvitePage,
+});
+
+// Music Connections consent: another app asks to read this person's data.
+// Outside the app frame, like sign-in; needs a session (App sends to /login
+// and back).
+const connectConsentRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/connect/consent',
+  component: ConnectConsentPage,
+  validateSearch: (search: Record<string, unknown>): { request?: string } =>
+    typeof search['request'] === 'string' && search['request'] ? { request: search['request'] } : {},
 });
 
 // Protected routes (require auth)
@@ -268,6 +280,7 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   loginTwoFactorRoute,
   inviteRoute,
+  connectConsentRoute,
   layoutRoute.addChildren([
     dashboardRoute,
     onboardingRoute,

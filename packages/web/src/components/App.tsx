@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from '@tanstack/react-router';
 import { useMe } from '../hooks';
+import { rememberConsentRequest, signInTarget } from '../pages/connectReturn';
 import styles from './App.module.css';
 
 export function App() {
@@ -16,16 +17,18 @@ export function App() {
       const isInvitePage = location.pathname.startsWith('/invite/');
 
       if (isError && !isAuthPage && !isInvitePage) {
-        // Not authenticated and not on auth page - redirect to login
+        // Not authenticated and not on auth page - redirect to login. A
+        // Music Connections consent page comes back after signing in.
+        if (location.pathname === '/connect/consent') rememberConsentRequest((location.search as { request?: unknown }).request);
         navigate({ to: '/login' });
       } else if (user && isAuthPage) {
         // Authenticated and on an auth page. The account was just created on
         // /setup: first-run setup continues on /onboarding (music folder,
-        // first scan). From /login, the dashboard.
-        navigate({ to: location.pathname === '/setup' ? '/onboarding' : '/' });
+        // first scan). From /login, the consent page that sent them there, or the dashboard.
+        navigate(location.pathname === '/setup' ? { to: '/onboarding' } : signInTarget());
       }
     }
-  }, [user, isLoading, isError, location.pathname, navigate]);
+  }, [user, isLoading, isError, location.pathname, location.search, navigate]);
 
   // Show loading state while checking authentication
   if (isLoading) {

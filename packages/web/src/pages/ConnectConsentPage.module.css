@@ -1,0 +1,88 @@
+/* The consent card: the sign-in card's frame, wider for the scope list. */
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100dvh;
+  background: transparent;
+  padding: var(--space-md);
+}
+
+.card {
+  background-color: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  padding: var(--space-2xl) var(--space-xl);
+  width: 100%;
+  max-width: 480px;
+  box-shadow: var(--shadow-card);
+}
+
+.eyebrow {
+  font: var(--type-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: var(--space-sm);
+}
+
+.title {
+  margin-bottom: var(--space-md);
+  overflow-wrap: anywhere;
+}
+
+.lede {
+  color: var(--ink-2);
+  margin-bottom: var(--space-sm);
+  overflow-wrap: anywhere;
+}
+
+.lede strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.host {
+  font: var(--type-mono);
+  color: var(--ink);
+}
+
+.scopes {
+  margin: 0 0 var(--space-lg);
+  padding-left: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.note {
+  font-size: var(--font-size-sm);
+  color: var(--ink-3);
+  margin-bottom: var(--space-lg);
+}
+
+.error {
+  background-color: var(--surface-danger);
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 0.75rem 1rem;
+  border-radius: var(--r-inner);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-md);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.actions > * {
+  flex: 1 1 160px;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: var(--space-xl) var(--space-lg);
+  }
+}

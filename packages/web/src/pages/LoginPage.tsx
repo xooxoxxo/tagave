@@ -10,6 +10,7 @@ import { conditionalUiAvailable, endPasskeyRequest, signInWithPasskey } from '..
 import type { AuthClientError } from '../services/authClient';
 import { useSetupRequired } from '../hooks/useSystem';
 import { signInErrorMessage } from './loginErrors';
+import { afterSignIn } from './connectReturn';
 import { Button } from '../components/ui';
 import styles from './LoginPage.module.css';
 
@@ -22,7 +23,7 @@ export function LoginPage() {
 
   const passkeyDone = async () => {
     await queryClient.invalidateQueries({ queryKey: AUTH_QUERY_KEY });
-    navigate({ to: '/' });
+    afterSignIn(navigate);
   };
 
   // Conditional UI: the browser offers saved passkeys in the email field's
@@ -79,7 +80,8 @@ export function LoginPage() {
       { email: formData.email.trim(), password: formData.password },
       {
         onSuccess: (outcome) => {
-          navigate({ to: outcome.status === 'two-factor' ? '/login/2fa' : '/' });
+          if (outcome.status === 'two-factor') navigate({ to: '/login/2fa' });
+          else afterSignIn(navigate);
         },
       },
     );
