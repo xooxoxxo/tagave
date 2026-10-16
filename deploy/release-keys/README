@@ -1,0 +1,6 @@
+The public Ed25519 keys that sign tagave releases (release-manifest.json.sig),
+one PEM file each. They are copied into the updater and app images, and the
+first one is also embedded in install-tagave.sh (RELEASE_PUBLIC_KEY). The
+private key lives only in the "release" environment of the GitHub repository
+(secret TAGAVE_RELEASE_SIGNING_KEY). docs/security.md, "Signed releases",
+explains how to check a release with them and how a key is replaced.

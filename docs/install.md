@@ -16,6 +16,8 @@ It asks where your music is, generates the app secret and database password, wri
 
 The same script is in the repository, so from a clone `./install-tagave.sh` does the same with the same options.
 
+**Check the script before you run it.** Each release attaches `install-tagave.sh` with its sha256 and its signature (the same Ed25519 release key that signs the release manifest). Download it from the release page instead of piping it, and check it first; [Security: Signed releases](security.md#signed-releases) has the commands. When the installer can check signatures itself (openssl 3), it also checks the release it installs and pins every image by digest; otherwise it says so and pulls by tag.
+
 On a Mac, keep the music folder inside your home folder, or add its folder to Docker's file sharing settings first. Docker runs in a virtual machine there and only sees the folders it shares (colima shares just your home folder); any other folder reaches the worker empty and scans find nothing. The installer checks this after it starts and says so.
 
 Every question has a flag, so it also runs unattended (`--help` lists them all). Options go after a placeholder word:
@@ -166,9 +168,9 @@ With the updater on, the page offers **Update to x.y.z** (and a list of the newe
 
 The updater then works through these steps, and the page shows each one with the time it took and a log:
 
-1. **Check**: the install is healthy now, there is room on disk for the new images and two backups with 3 GB to spare (see [Free space before updates](operations.md#free-space-before-updates)), and the new images download for this computer's architecture. Nothing has changed yet.
+1. **Check**: the release's signed manifest checks out (signed with the tagave release key, for exactly this version, not older than what runs here; see [Security: Signed releases](security.md#signed-releases)), the install is healthy now, there is room on disk for the new images and two backups with 3 GB to spare (see [Free space before updates](operations.md#free-space-before-updates)), and every image downloads by the digest the manifest pins for this computer's architecture, each one checked after the pull. Nothing has changed yet; a manifest or image that does not check out ends the run here with the check that failed.
 2. **Back up**: the free space is measured again, then `tagave-doctor backup` writes a checked dump to the backups folder, as the app does before it updates the database.
-3. **Switch**: `TAGAVE_VERSION` in `.env` and the compose files are set to the new release. The old files stay next to them as `.env.bak` and `compose.yml.bak`.
+3. **Switch**: `TAGAVE_VERSION`, the image digests (`TAGAVE_DIGEST_*`) in `.env` and the compose files are set to the new release, and the signed manifest is kept next to them (`release-manifest.json`). The old files stay next to them as `.env.bak` and `compose.yml.bak`.
 4. **Pull** and **restart**: the workers stop, the new app starts (and updates the database), then the workers start again.
 5. **Check every part**: `/api/v1/health` answers ok, the app reports the new version, and every worker on this computer sends heartbeats from it. It waits up to 10 minutes (`TAGAVE_UPDATER_HEALTH_TIMEOUT`, in seconds).
 
@@ -178,9 +180,24 @@ The run is kept by the updater, not by the app, so the page keeps following it w
 
 On a split install the updater updates the app computer; run `install-tagave.sh update` on the music computer afterwards, as before.
 
+### Optional modules (Settings › Modules)
+
+Optional parts of tagave (the player is the first) are listed in **Settings › Modules**, owner only. The list is the module catalogue in the signed manifest of the release this server runs, so a module that arrives in a later release shows up once you update to it; nothing else needs installing. Each module shows what it adds, how much memory and disk it takes, and whether it is off, being turned on or off, on, failed (with the reason), or waiting for an update to bring in a new image.
+
+With the updater, **Turn on** asks you to confirm it is you (like an update), then shows each step: the signature and the disk are checked and its images are pulled by digest and checked; its settings go into `.env` (generated secrets once, kept when it is turned off); it starts; it must report healthy. If any step fails, the updater rolls back and the page says why. **Turn off** stops it and takes it out of the configuration; its data stays unless you tick **Also delete its data**.
+
+Without the updater, each module shows the command that does the same from the install folder:
+
+```sh
+./install-tagave.sh enable-module player
+./install-tagave.sh disable-module player            # asks before deleting its data; --delete-data deletes it
+```
+
+It runs the same steps, with the release's own updater image as a one-off container. Only modules in tagave's signed catalogue can be installed; there are no third-party or community modules.
+
 ## Play your music (optional player)
 
-tagave can play your albums. The player module is [Navidrome](https://www.navidrome.org), an open-source music server, run unmodified next to tagave. tagave plays albums through it in the browser, and phone apps can use the same Navidrome to stream your library. It is off unless you ask for it.
+tagave can play your albums. The player module is [Navidrome](https://www.navidrome.org), an open-source music server, run unmodified next to tagave. tagave plays albums through it in the browser, and phone apps can use the same Navidrome to stream your library. It is off unless you ask for it: **Settings › Modules › Player › Turn on** (with the updater), or from the install folder:
 
 ```sh
 ./install-tagave.sh --with-player ...      # when installing (role all)

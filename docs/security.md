@@ -137,12 +137,45 @@ The updater is an optional service (compose profile `updater`) that lets **Setti
 - The updater mounts the socket and the install folder (compose files and `.env`, at the same path as on the host) and nothing else. It has no access to your music, and no published port.
 - It sits on its own internal Docker network, `updater`, together with the app and nothing else. That network has no route out; Docker itself downloads the images.
 - It acts only on requests from the app. Every request is signed with HMAC-SHA256 using a key derived from `APP_SECRET` (`HMAC(APP_SECRET, "tagave/updater/v1")`), over the time, a nonce, the method, the path and the body. The updater refuses unsigned requests, signatures older than 60 seconds and replayed signatures, and compares in constant time. The updater signs its own calls back to the app the same way.
-- It does one job: move this install to a release number the app names (`0.8.0`, `0.8.0-rc.1`). It never runs commands it is sent.
+- It does two jobs: move this install to a release the app names, and turn modules of that release's catalogue on and off, both only after the release's signed manifest checks out (see [Signed releases](#signed-releases)). It never runs commands it is sent.
 - In the app, only the owner can start an update, and only with a fresh verification: a sign-in or a re-verification (passkey or security key, then the authenticator app, then the password for an account with neither) within the last five minutes. The server enforces this; re-verification pauses for 15 minutes after five wrong answers. Each update and re-verification is logged.
 
 Anyone who can read `.env` can sign requests, so keep `.env` private (the installer writes it with mode 600), as you already must for the database password.
 
 **Turn it off** with `./install-tagave.sh disable-updater` in the install folder. By hand: remove `updater` from `COMPOSE_PROFILES` in `.env`, clear `TAGAVE_UPDATER_URL`, then run `docker compose rm --stop --force updater` and `docker compose up -d`.
+
+## Signed releases
+
+Every release publishes `release-manifest.json` next to its images: every image the release runs (tagave's own and the third-party ones, Postgres and Navidrome) pinned to a `sha256:` digest per architecture, the module catalogue, and the sha256 of `install-tagave.sh` and the compose files. CI signs its exact bytes with the project's Ed25519 release key (`release-manifest.json.sig`) and attaches both to the GitHub release, with the installer, its sha256 and its own signature. The private key exists only as a secret of the repository's `release` environment, which only `v*` tags can use (`scripts/set-release-key.sh` puts the public half in place); the public keys are in [`deploy/release-keys/`](../deploy/release-keys/), inside the updater and app images, and inside `install-tagave.sh`.
+
+**What the updater checks** before it uses anything of a release, for an update and for every module run, in this order:
+
+1. the signature verifies with a release key carried in its own image (the updater has no network access of its own, so nothing is fetched to check it);
+2. the key that signed it is a tagave release key (a signature by any other key is refused, naming that key);
+3. the manifest is for exactly the version asked for;
+4. it is not older than the version that runs, nor than any release this install has run before (`.updater/release-floor`), so an old signed manifest replayed to force a downgrade is refused;
+5. every image is pulled by the digest the manifest pins for this computer's architecture, and Docker's record of the pulled image must show that digest.
+
+Each refusal names the check that failed and leaves the install untouched. Afterwards `.env` pins every image (`TAGAVE_DIGEST_*`, read by `compose.yml`), so a later `docker compose pull` cannot swap in something else under the same tag, and the updater refuses to update while `TAGAVE_PLAYER_IMAGE` replaces a pinned image.
+
+**Checking a release yourself.** Download `install-tagave.sh`, `install-tagave.sh.sig`, `install-tagave.sh.sha256` and the release key (`tagave-release.pem`, attached to the release and in `deploy/release-keys/`) from the release page, then:
+
+```sh
+sha256sum -c install-tagave.sh.sha256
+sed -n 's/^sig //p' install-tagave.sh.sig | base64 -d > install-tagave.sh.sig.bin
+openssl pkeyutl -verify -pubin -inkey tagave-release.pem -rawin -in install-tagave.sh -sigfile install-tagave.sh.sig.bin
+# Signature Verified Successfully
+```
+
+The same three lines check `release-manifest.json` with `release-manifest.json.sig`. Compare the key with the one in the repository rather than trusting a single download. The GitHub build provenance is a second, independent check: `gh attestation verify install-tagave.sh --repo xooxoxxo/tagave`, and `gh attestation verify oci://ghcr.io/xooxoxxo/tagave-app:<version> --repo xooxoxxo/tagave` for an image.
+
+**The installer.** When it can (it carries the key and the computer has openssl 3, which verifies Ed25519), `install-tagave.sh` checks the manifest of the release it installs or updates to, refuses one that does not check out before it writes anything, pins the images by digest and keeps the manifest for the updater. When it cannot (no openssl 3, or a version without a manifest such as `edge`), it says so and pulls by tag, as releases before signing did; `TAGAVE_REQUIRE_SIGNATURE=1` turns that into an error.
+
+**Why a pinned key and not Sigstore keyless.** Keyless signing ties a signature to the CI run's GitHub identity and records it in a public log, with no long-lived key to guard. Checking it needs the Sigstore trust root and, to be current, the network; the updater sits on a network with no route out, and checking a bundle offline means shipping and refreshing a trust root and a sizeable verification library inside the image. A pinned Ed25519 key is checked by Node and by openssl with nothing added, offline. The keyless provenance is still attached for auditing (above).
+
+**Replacing the key.** A new key is added to `deploy/release-keys/` (and to the installer) one release before CI signs with it, so every updater already trusts it; the old key is removed one release later. A key that leaks is removed in a release signed with the new key; installs that skipped that release need one manual `install-tagave.sh update`.
+
+**Modules.** Only modules in the signed official catalogue can be installed; there are no third-party or community modules. A module's compose file comes from the signed manifest, its images are pinned like the rest, and the updater refuses a catalogue entry that would mount the Docker socket, run privileged or touch tagave's own settings.
 
 ## The player
 

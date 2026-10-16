@@ -20,6 +20,14 @@
 # DB_HOST pointing at the first one.
 #
 # Building from source instead? Use docker-compose.prod.yml at the repo root.
+#
+# Images are pinned by digest: the in-app updater (and the installer, when it
+# can check the release's signature) writes TAGAVE_DIGEST_* to .env from the
+# release's signed manifest, and each image below becomes
+# name:tag@sha256:<digest>, exactly what the tagave project published for
+# this computer's architecture. Without them the tags are used. Optional
+# modules that are not in this file live in modules/<id>.yml, which the
+# updater writes and lists in COMPOSE_FILE.
 
 name: ${COMPOSE_PROJECT_NAME:-tagave}
 
@@ -60,7 +68,7 @@ x-logging: &logging
 services:
   postgres:
     profiles: ["app"]
-    image: postgres:16
+    image: postgres:16${TAGAVE_DIGEST_POSTGRES:+@${TAGAVE_DIGEST_POSTGRES}}
     command: postgres -c max_connections=300
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-tagave}
@@ -79,7 +87,7 @@ services:
 
   app:
     profiles: ["app"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-app:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}${TAGAVE_DIGEST_APP:+@${TAGAVE_DIGEST_APP}}
     labels: *watch-labels
     environment:
       NODE_ENV: production
@@ -112,6 +120,9 @@ services:
       TAGAVE_INSTALL_METHOD: ${TAGAVE_INSTALL_METHOD:-}
       TAGAVE_ROLE: ${TAGAVE_ROLE:-}
       TAGAVE_UPDATE_FEED: ${TAGAVE_UPDATE_FEED:-}
+      # Where a release's signed manifest is downloaded from (empty: the
+      # release on GitHub); the updater checks its signature either way.
+      TAGAVE_RELEASE_ASSETS_URL: ${TAGAVE_RELEASE_ASSETS_URL:-}
       # Set (by install-tagave.sh --with-updater or enable-updater) when the
       # "updater" profile runs: Settings > Updates then offers the update
       # button. Empty: the page shows the command to run instead.
@@ -161,7 +172,7 @@ services:
   # the database.
   worker-identify:
     profiles: ["app"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}${TAGAVE_DIGEST_WORKER:+@${TAGAVE_DIGEST_WORKER}}
     labels: *watch-labels
     environment:
       <<: *worker-env
@@ -187,7 +198,7 @@ services:
   # checks that.
   worker-files:
     profiles: ["files"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-worker:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}${TAGAVE_DIGEST_WORKER:+@${TAGAVE_DIGEST_WORKER}}
     labels: *watch-labels
     environment:
       <<: *worker-env
@@ -226,7 +237,7 @@ services:
   # --remove-orphans. docs/security.md has the details.
   updater:
     profiles: ["updater"]
-    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-updater:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}
+    image: ${TAGAVE_REGISTRY:-ghcr.io/xooxoxxo}/tagave-updater:${TAGAVE_VERSION:?TAGAVE_VERSION is missing from .env}${TAGAVE_DIGEST_UPDATER:+@${TAGAVE_DIGEST_UPDATER}}
     environment:
       APP_SECRET: ${APP_SECRET:?APP_SECRET is missing from .env}
       # The absolute path of this install folder; install-tagave.sh
@@ -266,17 +277,18 @@ services:
   # (security fixes, including throttling of Subsonic login attempts) becomes
   # eligible on 2026-10-21 and 0.64.2 (fixes for "database is locked" on slow
   # storage) on 2026-10-24: bump the pin then. TAGAVE_PLAYER_IMAGE overrides
-  # it (unsupported). Navidrome migrates its database forward only, so
+  # it (unsupported; the updater refuses to update while it is set, since it
+  # replaces the pinned image). Navidrome migrates its database forward only, so
   # install-tagave.sh update and the in-app updater copy it to
   # /data/snapshots/pre-update before a new image starts.
   #
-  # Turn it on with install-tagave.sh --with-player or enable-player, off
-  # with disable-player. The port is published on this computer's network
+  # Turn it on in Settings > Modules (with the updater), or with
+  # install-tagave.sh --with-player or enable-player; off the same way. The port is published on this computer's network
   # for phone apps; put it behind your HTTPS reverse proxy or VPN and never
   # forward it from your router (docs/security.md).
   player:
     profiles: ["player"]
-    image: ${TAGAVE_PLAYER_IMAGE:-deluan/navidrome:0.64.0}
+    image: ${TAGAVE_PLAYER_IMAGE:-deluan/navidrome:0.64.0${TAGAVE_DIGEST_PLAYER:+@${TAGAVE_DIGEST_PLAYER}}}
     # Refuse to start without the admin password and the encryption key:
     # a Navidrome without an admin lets whoever reaches its port first
     # create one. The image itself is unchanged.

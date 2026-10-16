@@ -20,6 +20,11 @@ ARG GIT_SHA=unknown
 ARG TAGAVE_BUILD_VERSION=
 RUN pnpm -r build
 
+# The public release keys, as in the updater image (Settings › Modules
+# checks the release's catalogue with them when there is no updater).
+FROM scratch AS releasekeys
+COPY deploy/release-keys/ /
+
 # Runtime stage
 FROM node:24-slim
 
@@ -45,6 +50,7 @@ RUN npm install -g pnpm@10.34.6
 # pnpm's per-package node_modules symlink farms make selective copies
 # fragile; ship the whole built workspace.
 COPY --from=builder /app ./
+COPY --from=releasekeys / /opt/tagave/release-keys/
 
 # Build identity (XO-313): deploy.sh passes the commit; readBuildInfo() reads it.
 ARG GIT_SHA=unknown

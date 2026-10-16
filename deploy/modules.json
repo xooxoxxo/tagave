@@ -1,0 +1,27 @@
+{
+  "comment": "The module catalogue. scripts/release-manifest.mjs copies it into each release's signed manifest, with every image pinned by digest. Images of services in compose.yml come from compose.yml; a module with its own compose block lists its images under images.",
+  "images": {},
+  "modules": [
+    {
+      "id": "player",
+      "name": "Player",
+      "purpose": "Plays your albums in tagave and serves phone apps, with a bundled Navidrome.",
+      "minVersion": "0.8.0",
+      "profile": "player",
+      "services": [{ "name": "player", "image": "player" }],
+      "compose": null,
+      "settings": [
+        { "key": "TAGAVE_PLAYER_PASSWORD", "kind": "secret" },
+        { "key": "TAGAVE_PLAYER_ENCRYPTION_KEY", "kind": "secret" },
+        { "key": "TAGAVE_PLAYER_URL", "kind": "value", "value": "http://player:4533", "clearOnDisable": true },
+        { "key": "TAGAVE_PLAYER_USER", "kind": "value", "value": "admin" },
+        { "key": "TAGAVE_PLAYER_PORT", "kind": "port", "default": 4533 }
+      ],
+      "restarts": ["app"],
+      "volumes": ["player-data"],
+      "keepsOnRemoval": "Navidrome's database (its plays, stars and users) in the player-data volume, and its password and key in .env",
+      "estimate": { "memoryMb": 512, "diskMb": 260 },
+      "roles": ["all"]
+    }
+  ]
+}

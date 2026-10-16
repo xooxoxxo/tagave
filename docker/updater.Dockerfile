@@ -17,6 +17,11 @@ COPY packages ./packages
 RUN pnpm install --frozen-lockfile --filter @tagave/updater...
 RUN pnpm --filter @tagave/updater... build
 
+# The public release keys (deploy/release-keys/*.pem). A test build swaps
+# them with --build-context releasekeys=<folder>; a release build never does.
+FROM scratch AS releasekeys
+COPY deploy/release-keys/ /
+
 # Runtime: the official Docker CLI image (docker + compose plugin) plus Node.
 FROM docker:29-cli
 
@@ -29,6 +34,10 @@ COPY --from=builder /app/packages/updater/dist ./dist
 # The compose files of this release: an update copies them into the install
 # folder, as install-tagave.sh update does.
 COPY deploy/compose.yml deploy/compose.db-published.yml /opt/tagave/deploy/
+
+# The keys every release manifest must be signed with (release.ts): an
+# update or a module is refused unless its manifest verifies against one.
+COPY --from=releasekeys / /opt/tagave/release-keys/
 
 ARG GIT_SHA=unknown
 ARG BUILT_AT=unknown

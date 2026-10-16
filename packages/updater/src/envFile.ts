@@ -17,9 +17,14 @@ export function envGet(text: string, key: string): string | null {
   return m ? m[1]! : value;
 }
 
-/** Replaces the last KEY= line (or appends one). */
+/**
+ * Replaces the last KEY= line (or appends one). Values are written bare, so
+ * only characters that need no quoting are taken: a version, a digest
+ * (sha256:…), a URL, a profile list; empty clears the setting.
+ */
 export function envSet(text: string, key: string, value: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(value)) throw new Error(`refusing to write ${key}=${value}: unexpected characters`);
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error(`refusing to write the setting ${key}: not a name`);
+  if (!/^[A-Za-z0-9._:/@,-]*$/.test(value)) throw new Error(`refusing to write ${key}: unexpected characters in its value`);
   const lines = text.split('\n');
   let idx = -1;
   lines.forEach((line, i) => { if (line.startsWith(`${key}=`)) idx = i; });
@@ -29,6 +34,21 @@ export function envSet(text: string, key: string, value: string): string {
   }
   const sep = text === '' || text.endsWith('\n') ? '' : '\n';
   return `${text}${sep}${key}=${value}\n`;
+}
+
+/** Drops every KEY= line. */
+export function envUnset(text: string, key: string): string {
+  return text.split('\n').filter((line) => !line.startsWith(`${key}=`)).join('\n');
+}
+
+/** Every KEY of `text` whose name matches `re`. */
+export function envKeys(text: string, re: RegExp): string[] {
+  const keys = new Set<string>();
+  for (const line of text.split('\n')) {
+    const k = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line)?.[1];
+    if (k && re.test(k)) keys.add(k);
+  }
+  return [...keys];
 }
 
 /**

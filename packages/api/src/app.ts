@@ -11,6 +11,7 @@ import { createViewRoutes } from './routes/views.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes } from './routes/updates.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
+import { createModuleRoutes } from './routes/modules.js';
 import { createAuthRoutes } from './routes/auth.js';
 import { createBetterAuthRoutes } from './routes/betterAuth.js';
 import { createLibraryRoutes } from './routes/library.js';
@@ -99,6 +100,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createUpdateRoutes, { prefix: '/api/v1' });
     // The opt-in updater: start an update, follow its run (owner, step-up)
     instance.register(createUpdaterRoutes, { prefix: '/api/v1' });
+    // Settings › Modules: optional parts from the signed catalogue (owner, step-up)
+    instance.register(createModuleRoutes, { prefix: '/api/v1' });
 
     // Album routes
     instance.register(createAlbumRoutes, { prefix: '/api/v1' });

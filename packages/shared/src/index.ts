@@ -400,6 +400,30 @@ export {
   type StepUpStatus,
 } from './updater.js';
 
+// Optional modules (Settings › Modules) and the signed release manifest
+export {
+  MODULE_ENABLE_STEPS,
+  MODULE_DISABLE_STEPS,
+  MODULE_ID_RE,
+  DEFAULT_RELEASE_ASSETS_URL,
+  MANIFEST_FILE,
+  MANIFEST_SIGNATURE_FILE,
+  moduleActionSchema,
+  moduleCommand,
+  type ModuleAction,
+  type ReleaseImage,
+  type ReleaseManifest,
+  type ModuleSetting,
+  type ModuleEntry,
+  type ModuleStepId,
+  type ModuleStep,
+  type ModuleRun,
+  type ModuleState,
+  type ModuleStatus,
+  type UpdaterModules,
+  type ModulesView,
+} from './modules.js';
+
 // The opt-in player module (Navidrome or another Subsonic-compatible server)
 export {
   playerManagedSchema,

@@ -7,6 +7,10 @@
     "./token": {
       "types": "./dist/token.d.ts",
       "default": "./dist/token.js"
+    },
+    "./release": {
+      "types": "./dist/release.d.ts",
+      "default": "./dist/release.js"
     }
   },
   "files": [

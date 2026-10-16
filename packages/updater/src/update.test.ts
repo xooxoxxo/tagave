@@ -8,6 +8,8 @@ import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
 import { SelfReplaceGate, parseState, serializeState } from './self-replace.js';
+import { verifyRelease } from './release.js';
+import { digest, signed, testKey, testManifest } from './release.testkit.js';
 
 const ENV = `# tagave
 COMPOSE_PROJECT_NAME=tagave
@@ -232,12 +234,12 @@ let fake: FakeInstall;
 let saved: UpdateRun[];
 let lastUpdate: Update;
 
-async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace'] } = {}) {
+async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace']; release?: UpdateDeps['release']; docker?: Runner } = {}) {
   let clock = fake.now;
   const u = new Update(
     {
       installDir: dir,
-      docker: fake.runner,
+      docker: seams.docker ?? fake.runner,
       app: fake.app,
       config: { ...DEFAULT_CONFIG, pollMs: 1000, healthTimeoutMs: 30_000, selfUpdate: true, ...overrides },
       save: async (r) => { saved.push(r); },
@@ -246,6 +248,7 @@ async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> 
       statfs: fake.statfs,
       layers: seams.layers ?? fake.layers,
       ...(seams.selfReplace ? { selfReplace: seams.selfReplace } : {}),
+      ...(seams.release ? { release: seams.release } : {}),
     },
     newRun('run-1', '0.7.0', target, new Date(clock)),
   );
@@ -736,5 +739,90 @@ describe('old images after an update', () => {
       expect((await update('0.8.0', { selfUpdate: false }, { selfReplace: old.gate })).status).toBe('succeeded');
       expect(old.gate.current).toBeNull();
     });
+  });
+});
+
+describe('an update with a signed manifest', () => {
+  const key = testKey();
+  const verified = () => {
+    const { text, signature } = signed(key, testManifest('0.8.0'));
+    return { verified: verifyRelease(text, signature, [key.trusted], { version: '0.8.0' }), platform: 'linux/arm64' };
+  };
+  /** The pretend install, plus pulls by digest and compose reading the pins from .env. */
+  const pinning = (o: { pulled?: (wanted: string) => string; composeIgnoresPins?: boolean } = {}) => {
+    const calls: string[] = [];
+    const docker: Runner = async (args, opts) => {
+      const a = args.join(' ');
+      calls.push(a);
+      if (args[0] === 'pull') return { code: 0, stdout: '', stderr: '' };
+      if (args[0] === 'tag') return { code: 0, stdout: '', stderr: '' };
+      if (args[0] === 'image' && args[1] === 'inspect' && args.includes('{{json .RepoDigests}}') && args.at(-1)!.includes('@')) {
+        const [ref, wanted] = args.at(-1)!.split('@') as [string, string];
+        return { code: 0, stdout: JSON.stringify([`${ref.replace(/:[^:/]+$/, '')}@${o.pulled ? o.pulled(wanted) : wanted}`]), stderr: '' };
+      }
+      if (a === 'compose config --format json') {
+        const env = await readFile(join(dir, '.env'), 'utf8');
+        const pin = (k: string) => (o.composeIgnoresPins ? '' : `@${envGet(env, k) ?? ''}`);
+        const v = envGet(env, 'TAGAVE_VERSION');
+        return {
+          code: 0,
+          stdout: JSON.stringify({ services: {
+            postgres: { image: `postgres:16${pin('TAGAVE_DIGEST_POSTGRES')}` },
+            app: { image: `ghcr.io/xooxoxxo/tagave-app:${v}${pin('TAGAVE_DIGEST_APP')}` },
+            'worker-identify': { image: `ghcr.io/xooxoxxo/tagave-worker:${v}${pin('TAGAVE_DIGEST_WORKER')}` },
+            'worker-files': { image: `ghcr.io/xooxoxxo/tagave-worker:${v}${pin('TAGAVE_DIGEST_WORKER')}` },
+            updater: { image: `ghcr.io/xooxoxxo/tagave-updater:${v}${pin('TAGAVE_DIGEST_UPDATER')}` },
+          } }),
+          stderr: '',
+        };
+      }
+      return fake.runner(args, opts);
+    };
+    return { docker, calls };
+  };
+
+  it('pulls every image by digest, pins them in .env and keeps the signed manifest next to the install', async () => {
+    const d = pinning();
+    const run = await update('0.8.0', {}, { release: verified(), docker: d.docker });
+    expect(run.status).toBe('succeeded');
+    for (const [name, c] of [['app', 'a2'], ['worker', 'b2'], ['updater', 'c2']] as const) {
+      expect(d.calls).toContain(`pull ghcr.io/xooxoxxo/tagave-${name}:0.8.0@${digest(c)}`);
+    }
+    expect(d.calls).toContain(`pull postgres:16@${digest('d2')}`);
+    expect(d.calls.some((c) => c.startsWith('compose pull app'))).toBe(false);
+    const env = await readFile(join(dir, '.env'), 'utf8');
+    expect(envGet(env, 'TAGAVE_DIGEST_APP')).toBe(digest('a2'));
+    expect(envGet(env, 'TAGAVE_DIGEST_PLAYER')).toBe(digest('e2'));
+    expect(await readFile(join(dir, 'release-manifest.json'), 'utf8')).toContain('"version": "0.8.0"');
+    expect((await readFile(join(dir, '.updater/release-floor'), 'utf8')).trim()).toBe('0.8.0');
+    // the compose files come out of the updater image the manifest pins
+    expect(d.calls.some((c) => c.startsWith('run --rm --network none --entrypoint cat') && c.includes(`tagave-updater:0.8.0@${digest('c2')}`))).toBe(true);
+  });
+
+  it('refuses an image whose pulled digest differs, before anything changes', async () => {
+    const d = pinning({ pulled: (w) => (w === digest('b2') ? digest('66') : w) });
+    const run = await update('0.8.0', {}, { release: verified(), docker: d.docker });
+    expect(run.status).toBe('failed');
+    expect(run.reason).not.toMatch(/unexpected/);
+    expect(run.reason).toMatch(/the image pulled for ghcr\.io\/xooxoxxo\/tagave-worker:0\.8\.0 is sha256:6{64}, not sha256:(b2)+ as the signed manifest pins/);
+    expect(await envNow()).toBe('0.7.0');
+    await expect(stat(join(dir, 'release-manifest.json'))).rejects.toThrow();
+  });
+
+  it('rolls back when the compose files would run an image without its pin', async () => {
+    const d = pinning({ composeIgnoresPins: true });
+    const run = await update('0.8.0', {}, { release: verified(), docker: d.docker });
+    expect(run.status).toBe('rolled_back');
+    expect(run.reason).toMatch(/would run postgres:16, not postgres:16@sha256:(d2)+ as the signed manifest pins/);
+    expect(await envNow()).toBe('0.7.0');
+    expect(envGet(await readFile(join(dir, '.env'), 'utf8'), 'TAGAVE_DIGEST_APP')).toBeNull();
+    await expect(stat(join(dir, 'release-manifest.json'))).rejects.toThrow();
+  });
+
+  it('refuses a TAGAVE_PLAYER_IMAGE override', async () => {
+    await writeFile(join(dir, '.env'), `${ENV}TAGAVE_PLAYER_IMAGE=deluan/navidrome:latest\n`);
+    const run = await update('0.8.0', {}, { release: verified(), docker: pinning().docker });
+    expect(run.status).toBe('failed');
+    expect(run.reason).toMatch(/TAGAVE_PLAYER_IMAGE/);
   });
 });

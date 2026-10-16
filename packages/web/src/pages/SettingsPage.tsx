@@ -12,6 +12,7 @@ import { SettingsGenresContent } from './SettingsGenresPage';
 import { SettingsFollowRulesContent } from './SettingsFollowRulesPage';
 import { SettingsProvidersPage } from './SettingsProvidersPage';
 import { SettingsUpdatesPage } from './SettingsUpdatesPage';
+import { SettingsModulesContent } from './SettingsModulesPage';
 import { SettingsPlaybackContent } from './SettingsPlaybackPage';
 import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
@@ -48,6 +49,8 @@ const sections: Section[] = [
   { value: 'storage', label: 'Storage', group: 'Connections & system', permission: 'system.manage' },
   { value: 'backups', label: 'Backups', group: 'Connections & system', permission: 'system.manage' },
   { value: 'updates', label: 'Updates', group: 'Connections & system', permission: 'system.manage' },
+  // Modules change the install: system.manage is the owner's alone.
+  { value: 'modules', label: 'Modules', group: 'Connections & system', permission: 'system.manage' },
   { value: 'activity', label: 'Background activity', group: 'Connections & system', permission: 'library.edit' },
   { value: 'setup-checklist', label: 'Setup checklist', group: 'Connections & system', permission: 'system.manage' },
   { value: 'account', label: 'Account', group: 'Your account' },
@@ -88,6 +91,7 @@ export function SettingsPage() {
         {section === 'storage' && <><h2>Storage</h2><p className={styles.sectionDescription}>How much room tagave takes: the database by kind of data, and the folders it keeps on this server. Your music files are not counted.</p><SettingsStorageContent /></>}
         {section === 'backups' && <><h2>Backups</h2><p className={styles.sectionDescription}>Copies of the database: your catalog, matches, reviews and settings. Your music files are not in them.</p><SettingsBackupsPage /></>}
         {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New releases and the versions this server runs.</p><SettingsUpdatesPage /></>}
+        {section === 'modules' && <><h2>Modules</h2><p className={styles.sectionDescription}>Optional parts of tagave you can turn on and off. Each comes from the signed catalogue of the release this server runs.</p><SettingsModulesContent /></>}
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}

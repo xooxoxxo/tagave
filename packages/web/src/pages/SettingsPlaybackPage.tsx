@@ -60,6 +60,10 @@ export function SettingsPlaybackContent() {
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
 
+      {owner && cap && !cap.installed && (
+        <p className={styles.hint}>The bundled player is not installed. Turn it on in <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link>, or connect a server of your own below.</p>
+      )}
+
       {owner && cap?.installed && (
         <div className={styles.row}>
           <Button variant="secondary" size="sm" loading={scan.isPending} onClick={() => scan.mutate()}>Scan now</Button>

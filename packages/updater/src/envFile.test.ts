@@ -26,3 +26,20 @@ describe('migrateLegacyEnv', () => {
     expect(migrateLegacyEnv(env)).toEqual({ text: env, notes: [] });
   });
 });
+
+describe('envSet, envUnset', () => {
+  it('writes digests, URLs, profile lists and empty values bare', async () => {
+    const { envSet, envUnset, envKeys, envGet } = await import('./envFile.js');
+    let t = 'A=1\n';
+    t = envSet(t, 'TAGAVE_DIGEST_APP', `sha256:${'a'.repeat(64)}`);
+    t = envSet(t, 'TAGAVE_PLAYER_URL', 'http://player:4533');
+    t = envSet(t, 'COMPOSE_PROFILES', 'app,files,player');
+    t = envSet(t, 'TAGAVE_PLAYER_URL', '');
+    expect(envGet(t, 'TAGAVE_PLAYER_URL')).toBe('');
+    expect(envKeys(t, /^TAGAVE_DIGEST_/)).toEqual(['TAGAVE_DIGEST_APP']);
+    expect(envUnset(t, 'TAGAVE_DIGEST_APP')).toBe('A=1\nTAGAVE_PLAYER_URL=\nCOMPOSE_PROFILES=app,files,player\n');
+    expect(() => envSet(t, 'X', "it's")).toThrow(/unexpected characters/);
+    expect(() => envSet(t, 'X', 'a b')).toThrow(/unexpected characters/);
+    expect(() => envSet(t, 'X=Y', 'a')).toThrow(/not a name/);
+  });
+});

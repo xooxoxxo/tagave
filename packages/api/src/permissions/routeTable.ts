@@ -179,6 +179,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/updates/check': 'system.manage',
   'PUT /api/v1/libraries/:libraryId/updates/feed': 'system.manage',
   'PUT /api/v1/libraries/:libraryId/updates/skip': 'system.manage',
+  'GET /api/v1/modules': 'system.manage',
+  'POST /api/v1/modules/:id/:action': 'system.manage',
   'GET /api/v1/storage': 'system.manage',
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',

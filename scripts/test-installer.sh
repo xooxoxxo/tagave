@@ -718,4 +718,122 @@ fi
 grep -q '^LINER_' "$work/all/.env" && fail "new install: .env has LINER_* keys"
 pass "a new install uses the tagave database names and no LINER_* settings"
 
+# --- signed releases ------------------------------------------------------------
+# The installer carries the release key; a key in deploy/release-keys must be
+# the one embedded in install-tagave.sh too.
+first_key="$(find "$repo/deploy/release-keys" -name '*.pem' 2>/dev/null | sort | head -n 1)"
+if [ -n "$first_key" ]; then
+  embedded="$(sed -n "/^RELEASE_PUBLIC_KEY='/,/'\$/p" "$installer" | sed "s/^RELEASE_PUBLIC_KEY='//; s/'\$//")"
+  [ "$embedded" = "$(cat "$first_key")" ] || fail "RELEASE_PUBLIC_KEY in install-tagave.sh is not $first_key"
+fi
+pass "the installer's release key matches deploy/release-keys"
+
+if openssl pkeyutl -help 2>&1 | grep -q -- '-rawin'; then
+  # A copy of the installer and deploy/ with a test key (never trusted anywhere else).
+  signed_src="$work/signed-src"
+  mkdir -p "$signed_src/deploy/release-keys" "$work/assets/v0.10.0" "$work/assets/v0.10.1"
+  cp "$installer" "$signed_src/install-tagave.sh"
+  cp "$repo/deploy/compose.yml" "$repo/deploy/compose.db-published.yml" "$signed_src/deploy/"
+  openssl genpkey -algorithm ed25519 -out "$work/test-release.key" 2>/dev/null
+  openssl pkey -in "$work/test-release.key" -pubout -out "$signed_src/deploy/release-keys/test.pem" 2>/dev/null
+  openssl genpkey -algorithm ed25519 -out "$work/other.key" 2>/dev/null
+  key_id() { openssl pkey -in "$1" -pubout -outform DER 2>/dev/null | { sha256sum 2>/dev/null || shasum -a 256; } | cut -c1-16; }
+  d() { printf 'sha256:%s' "$(printf '%s' "$1" | { sha256sum 2>/dev/null || shasum -a 256; } | cut -d' ' -f1)"; }
+  manifest() {
+    cat <<JSON
+{
+  "schema": 1,
+  "project": "tagave",
+  "version": "$1",
+  "publishedAt": "2026-10-16T00:00:00Z",
+  "commit": "test",
+  "images": {
+    "app": {
+      "ref": "ghcr.io/xooxoxxo/tagave-app:$1",
+      "env": "TAGAVE_DIGEST_APP",
+      "index": "$(d app-index)",
+      "platforms": {
+        "linux/amd64": "$(d app-amd64)",
+        "linux/arm64": "$(d app-arm64)"
+      },
+      "services": [
+        "app"
+      ]
+    },
+    "dummy": {
+      "ref": "example.test/dummy:1.0",
+      "env": null,
+      "index": null,
+      "platforms": {
+        "linux/amd64": "$(d dummy-amd64)",
+        "linux/arm64": "$(d dummy-arm64)"
+      },
+      "services": []
+    }
+  },
+  "modules": [],
+  "files": {}
+}
+JSON
+  }
+  sign() { # sign MANIFEST KEY > SIG
+    openssl pkeyutl -sign -inkey "$2" -rawin -in "$1" -out "$1.bin" 2>/dev/null
+    printf 'tagave-release-signature v1\nkey %s\nsig %s\n' "$(key_id "$2")" "$(base64 <"$1.bin" | tr -d '\n')"
+  }
+  manifest 0.10.0 >"$work/assets/v0.10.0/release-manifest.json"
+  sign "$work/assets/v0.10.0/release-manifest.json" "$work/test-release.key" >"$work/assets/v0.10.0/release-manifest.json.sig"
+  signed_run() {
+    TAGAVE_SKIP_IMAGE_CHECK=1 TAGAVE_RELEASE_ASSETS_URL="file://$work/assets" "$signed_src/install-tagave.sh" \
+      --yes --no-start --timezone UTC --role all --music "$work/music" "$@" </dev/null
+  }
+  signed_run --dir "$work/signed" --version 0.10.0 >"$work/signed.log" 2>&1 || { cat "$work/signed.log" >&2; fail "signed: install"; }
+  platform="$(DOCKER_DEFAULT_PLATFORM='' docker info --format '{{.Architecture}}' 2>/dev/null)"
+  case "$platform" in x86_64|amd64) arch=amd64 ;; *) arch=arm64 ;; esac
+  [ "$(env_value TAGAVE_DIGEST_APP "$work/signed/.env")" = "$(d "app-$arch")" ] || fail "signed: TAGAVE_DIGEST_APP is not the $arch digest"
+  grep -q '^TAGAVE_DIGEST_DUMMY' "$work/signed/.env" && fail "signed: an image without an env key got a pin"
+  cmp -s "$work/signed/release-manifest.json" "$work/assets/v0.10.0/release-manifest.json" || fail "signed: the manifest is not kept next to the install"
+  render "$work/signed" | grep -q "\"image\": \"ghcr.io/xooxoxxo/tagave-app:0.10.0@$(d "app-$arch")\"" || fail "signed: compose does not run the pinned app image"
+  grep -q 'signature checks out; 1 images pinned by digest' "$work/signed.log" || fail "signed: no word about the signature"
+  pass "a signed release pins its images by digest and keeps the manifest"
+
+  # Changed after signing, signed by another key, or for another version: refused, nothing written.
+  manifest 0.10.0 | sed "s|$(d app-arm64)|$(d evil)|; s|$(d app-amd64)|$(d evil)|" >"$work/assets/v0.10.0/release-manifest.json.tampered"
+  cp "$work/assets/v0.10.0/release-manifest.json" "$work/good.json"
+  cp "$work/assets/v0.10.0/release-manifest.json.tampered" "$work/assets/v0.10.0/release-manifest.json"
+  if signed_run --dir "$work/tampered" --version 0.10.0 >"$work/tampered.log" 2>&1; then fail "signed: a tampered manifest was accepted"; fi
+  grep -q 'does not match its signature: it was changed after tagave signed it' "$work/tampered.log" || { cat "$work/tampered.log" >&2; fail "signed: the tampered refusal does not say why"; }
+  [ -f "$work/tampered/.env" ] && fail "signed: a tampered manifest still wrote .env"
+  cp "$work/good.json" "$work/assets/v0.10.0/release-manifest.json"
+  sign "$work/assets/v0.10.0/release-manifest.json" "$work/other.key" >"$work/assets/v0.10.0/release-manifest.json.sig"
+  if signed_run --dir "$work/forged" --version 0.10.0 >"$work/forged.log" 2>&1; then fail "signed: another key's signature was accepted"; fi
+  grep -q "signed by key $(key_id "$work/other.key"), which is not the tagave release key" "$work/forged.log" || { cat "$work/forged.log" >&2; fail "signed: the wrong-signer refusal does not say why"; }
+  manifest 0.10.0 >"$work/assets/v0.10.1/release-manifest.json"
+  sign "$work/assets/v0.10.1/release-manifest.json" "$work/test-release.key" >"$work/assets/v0.10.1/release-manifest.json.sig"
+  if signed_run --dir "$work/replayed" --version 0.10.1 >"$work/replayed.log" 2>&1; then fail "signed: the manifest of another version was accepted"; fi
+  grep -q 'describes another release' "$work/replayed.log" || { cat "$work/replayed.log" >&2; fail "signed: the version refusal does not say why"; }
+  sign "$work/assets/v0.10.0/release-manifest.json" "$work/test-release.key" >"$work/assets/v0.10.0/release-manifest.json.sig"
+  pass "a tampered manifest, another signer and another version's manifest are refused before anything is written"
+
+  # No manifest: tags, with a warning; TAGAVE_REQUIRE_SIGNATURE=1 refuses.
+  signed_run --dir "$work/unsigned" --version 0.9.5 >"$work/unsigned.log" 2>&1 || { cat "$work/unsigned.log" >&2; fail "unsigned: install"; }
+  grep -q 'is not checked against its signature (release 0.9.5 publishes no signed manifest)' "$work/unsigned.log" || fail "unsigned: no warning"
+  grep -q '^TAGAVE_DIGEST_' "$work/unsigned/.env" && fail "unsigned: pins without a manifest"
+  if TAGAVE_REQUIRE_SIGNATURE=1 signed_run --dir "$work/unsigned2" --version 0.9.5 >"$work/unsigned2.log" 2>&1; then fail "unsigned: TAGAVE_REQUIRE_SIGNATURE=1 went ahead"; fi
+  pass "a release without a manifest is pulled by tag with a warning, or refused with TAGAVE_REQUIRE_SIGNATURE=1"
+
+  # Modules turned on in Settings > Modules survive a re-run of the installer.
+  mkdir -p "$work/signed/modules"
+  printf '{"services":{"dummy":{"image":"example.test/dummy:1.0","profiles":["dummy"]}}}\n' >"$work/signed/modules/dummy.yml"
+  sed -i.orig -e 's/^COMPOSE_PROFILES=.*/&,dummy/' -e 's|^COMPOSE_FILE=.*|&:modules/dummy.yml|' "$work/signed/.env" && rm -f "$work/signed/.env.orig"
+  printf 'TAGAVE_MODULE_DUMMY_TOKEN=abc\n' >>"$work/signed/.env"
+  signed_run --dir "$work/signed" --version 0.10.0 >"$work/signed2.log" 2>&1 || { cat "$work/signed2.log" >&2; fail "signed: re-run"; }
+  [ "$(env_value COMPOSE_PROFILES "$work/signed/.env")" = "app,files,dummy" ] || fail "re-run: the module profile was dropped ($(env_value COMPOSE_PROFILES "$work/signed/.env"))"
+  [ "$(env_value COMPOSE_FILE "$work/signed/.env")" = "compose.yml:modules/dummy.yml" ] || fail "re-run: the module compose file was dropped"
+  [ "$(env_value TAGAVE_MODULE_DUMMY_TOKEN "$work/signed/.env")" = "abc" ] || fail "re-run: the module's secret was dropped"
+  [ "$(services "$work/signed")" = "app dummy postgres worker-files worker-identify " ] || fail "re-run: services are $(services "$work/signed")"
+  pass "re-running the installer keeps the modules that are on, their compose files and secrets"
+else
+  echo "test-installer: skip signed releases (this openssl cannot check Ed25519 signatures)"
+fi
+
 echo "test-installer: all roles pass"

@@ -44,6 +44,12 @@
 #   ./install-tagave.sh enable-player          on an existing install
 #   ./install-tagave.sh disable-player         turn it off again
 #
+# Any module of the release's signed catalogue (the player is one), the same
+# way Settings > Modules does it, for installs without the updater:
+#
+#   ./install-tagave.sh enable-module ID
+#   ./install-tagave.sh disable-module ID [--delete-data]
+#
 # Run with --help for every option.
 
 set -euo pipefail
@@ -87,6 +93,8 @@ VERSION_FROM_ENV_FILE=0
 APP_URL="${TAGAVE_APP_URL:-}"
 DRY_RUN=0
 COMMAND="install"
+MODULE_ID=""
+DELETE_DATA=0
 
 PROJECT_NAME="tagave"
 COMPOSE_MAIN="compose.yml"
@@ -126,7 +134,8 @@ die() {
 usage() {
   cat <<'EOF'
 Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
-                          enable-player|disable-player] [options]
+                          enable-player|disable-player|enable-module ID|
+                          disable-module ID] [options]
 
   install                  set up or reconfigure tagave here (the default)
   update                   move this install to a new release: back up the
@@ -148,6 +157,13 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
                            the app.
   disable-player           remove the player again (asks before deleting its
                            data)
+  enable-module ID         turn on a module of the release's signed catalogue
+                           (Settings > Modules lists them): the release's
+                           updater image checks the signature, pulls its
+                           images by digest, adds its settings, starts it and
+                           rolls back if it does not come up healthy
+  disable-module ID        turn it off again; its data stays unless
+                           --delete-data (or you say yes when asked)
 
   --role all|app|files     what runs on this computer (default: all)
   --dir PATH               install directory (default: ~/tagave)
@@ -187,6 +203,9 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
   update only:
   --dry-run                show what the update would do; change nothing
 
+  disable-module only:
+  --delete-data            also delete the module's data (cannot be undone)
+
   --yes, -y                never ask; use flags, environment and defaults
   --no-start               write the configuration and check it, start nothing
   --help, -h               this text
@@ -208,6 +227,12 @@ need_arg() { if [ "$#" -lt 2 ] || [ -z "$2" ]; then die "$1 needs a value (see -
 
 case "${1:-}" in
   install|update|status|enable-updater|disable-updater|enable-player|disable-player) COMMAND="$1"; shift ;;
+  enable-module|disable-module)
+    COMMAND="$1"
+    case "${2:-}" in ''|-*) die "$1 needs the module's id, e.g. $1 player (Settings > Modules lists them)" ;; esac
+    MODULE_ID="$2"
+    shift 2
+    ;;
 esac
 
 while [ "$#" -gt 0 ]; do
@@ -225,6 +250,7 @@ while [ "$#" -gt 0 ]; do
     --from)              need_arg "$@"; FROM_FILE="$2"; shift 2 ;;
     --app-url)           need_arg "$@"; APP_URL="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=1; shift ;;
+    --delete-data)       DELETE_DATA=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
     --with-updater)      WITH_UPDATER=1; shift ;;
     --with-player)       WITH_PLAYER=1; shift ;;
@@ -386,6 +412,138 @@ latest_release() {
 }
 
 release_notes_url() { printf 'https://github.com/%s/releases/tag/v%s' "$TAGAVE_REPO" "$1"; }
+
+# ---------------------------------------------------------------------------
+# Signed releases
+#
+# Every release publishes release-manifest.json (every image by digest per
+# platform, the module catalogue, the installer's sha256) and its Ed25519
+# signature. When this installer can check that signature (it carries the
+# project's public key and openssl 3 can verify Ed25519), it pins every image
+# in .env by digest (TAGAVE_DIGEST_*, read by compose.yml) and keeps the
+# manifest next to the install for the in-app updater. When it cannot (no
+# key yet, an older openssl, a version without a manifest such as edge), it
+# says so and the images are pulled by tag, as before; TAGAVE_REQUIRE_SIGNATURE=1
+# makes that an error. A manifest that does not match its signature, or that
+# names another version, is always an error.
+# ---------------------------------------------------------------------------
+
+RELEASE_ASSETS_URL="${TAGAVE_RELEASE_ASSETS_URL:-https://github.com/$TAGAVE_REPO/releases/download}"
+REQUIRE_SIGNATURE="${TAGAVE_REQUIRE_SIGNATURE:-0}"
+# The project's public release key (deploy/release-keys/*.pem); empty until
+# the project has one. A checkout's deploy/release-keys wins over it.
+RELEASE_PUBLIC_KEY='-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEANb8LY6SWAf5kUVVnNYNZOU9zAaFEsuUIQJ9w5WtrgHo=
+-----END PUBLIC KEY-----'
+RELEASE_DIR=""      # temp folder with the checked manifest and signature
+RELEASE_VERSION=""  # the version they are for
+RELEASE_WHY=""      # why they could not be checked
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
+
+# release_key_file DIR: writes the public key to DIR/key.pem; fails when there is none.
+release_key_file() {
+  local src="" pem
+  if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "${BASH_SOURCE[0]}" ]; then
+    for pem in "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"/deploy/release-keys/*.pem; do
+      [ -f "$pem" ] && { src="$pem"; break; }
+    done
+  fi
+  if [ -n "$src" ]; then cp "$src" "$1/key.pem"
+  elif [ -n "$RELEASE_PUBLIC_KEY" ]; then printf '%s\n' "$RELEASE_PUBLIC_KEY" >"$1/key.pem"
+  else return 1
+  fi
+}
+
+# check_release VERSION: downloads and checks the signed manifest of VERSION.
+# Returns 1 (RELEASE_WHY says why) when it cannot be checked; dies when it
+# does not check out.
+check_release() {
+  local version="$1" dir key_id signed_by
+  [ "$RELEASE_VERSION" != "$version" ] || [ -z "$RELEASE_DIR" ] || return 0
+  RELEASE_WHY=""
+  if ! is_release "$version"; then RELEASE_WHY="$version is not a release"; return 1; fi
+  command -v openssl >/dev/null 2>&1 || { RELEASE_WHY="openssl is not installed"; return 1; }
+  openssl pkeyutl -help 2>&1 | grep -q -- '-rawin' || { RELEASE_WHY="this openssl cannot check Ed25519 signatures (openssl 3 can)"; return 1; }
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/tagave-release.XXXXXX")"
+  if ! release_key_file "$dir"; then rm -rf "$dir"; RELEASE_WHY="this installer carries no release key yet"; return 1; fi
+  if ! download "$RELEASE_ASSETS_URL/v$version/release-manifest.json" "$dir/manifest" 2>/dev/null \
+     || ! download "$RELEASE_ASSETS_URL/v$version/release-manifest.json.sig" "$dir/sig" 2>/dev/null; then
+    rm -rf "$dir"; RELEASE_WHY="release $version publishes no signed manifest"; return 1
+  fi
+  key_id="$(openssl pkey -pubin -in "$dir/key.pem" -outform DER 2>/dev/null >"$dir/key.der" && sha256_of "$dir/key.der" | cut -c1-16)"
+  signed_by="$(sed -n 's/^key //p' "$dir/sig" | head -n 1)"
+  [ "$(head -n 1 "$dir/sig")" = "tagave-release-signature v1" ] \
+    || { rm -rf "$dir"; die "the signature file of release $version is not one tagave writes; nothing was changed."; }
+  [ "$signed_by" = "$key_id" ] \
+    || { rm -rf "$dir"; die "the manifest of release $version is signed by key $signed_by, which is not the tagave release key ($key_id); nothing was changed."; }
+  sed -n 's/^sig //p' "$dir/sig" | { base64 -d 2>/dev/null || base64 -D; } >"$dir/sig.bin"
+  openssl pkeyutl -verify -pubin -inkey "$dir/key.pem" -rawin -in "$dir/manifest" -sigfile "$dir/sig.bin" >/dev/null 2>&1 \
+    || { rm -rf "$dir"; die "the manifest of release $version does not match its signature: it was changed after tagave signed it. Nothing was changed."; }
+  grep -qx "  \"version\": \"$version\"," "$dir/manifest" \
+    || { rm -rf "$dir"; die "the signed manifest downloaded for $version describes another release; nothing was changed."; }
+  [ -z "$RELEASE_DIR" ] || rm -rf "$RELEASE_DIR"
+  RELEASE_DIR="$dir"
+  RELEASE_VERSION="$version"
+}
+
+# The platform whose digests this computer pulls: DOCKER_DEFAULT_PLATFORM, else Docker's.
+release_platform() {
+  local p arch
+  p="$(env_get DOCKER_DEFAULT_PLATFORM "$INSTALL_DIR/.env")"
+  [ -z "$PLATFORM" ] || p="$PLATFORM"
+  if [ -n "$p" ]; then printf '%s' "$p"; return 0; fi
+  arch="$(docker info --format '{{.Architecture}}' 2>/dev/null || true)"
+  [ -n "$arch" ] || arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) printf 'linux/amd64' ;;
+    aarch64|arm64) printf 'linux/arm64' ;;
+    *) printf 'linux/%s' "$arch" ;;
+  esac
+}
+
+# release_pins FILE PLATFORM: KEY=sha256:… for each image compose.yml pins.
+# The manifest is written two-space indented, one value per line, "env"
+# before "platforms" (scripts/release-manifest.mjs).
+release_pins() {
+  awk -v plat="\"$2\":" '
+    /^  "modules":/ { exit }
+    /^      "env": / { cur = $2; gsub(/[",]/, "", cur); if (cur == "null") cur = "" }
+    $1 == plat && cur != "" { d = $2; gsub(/[",]/, "", d); print cur "=" d }
+  ' "$1"
+}
+
+# apply_release_pins VERSION: TAGAVE_DIGEST_* in .env from the checked
+# manifest (or none, with a warning, when it cannot be checked), and the
+# manifest kept next to the install.
+apply_release_pins() {
+  local version="$1" env_file="$INSTALL_DIR/.env" platform pins=""
+  [ -f "$env_file" ] || return 0
+  rm -f "$INSTALL_DIR/release-manifest.json" "$INSTALL_DIR/release-manifest.json.sig"
+  if check_release "$version"; then
+    platform="$(release_platform)"
+    pins="$(release_pins "$RELEASE_DIR/manifest" "$platform")"
+    [ -n "$pins" ] || die "release $version has no images for this computer ($platform)."
+  else
+    [ "$REQUIRE_SIGNATURE" != "1" ] || die "cannot check the signature of release $version: $RELEASE_WHY (TAGAVE_REQUIRE_SIGNATURE=1)."
+    warn "Release $version is not checked against its signature ($RELEASE_WHY); its images are pulled by tag."
+  fi
+  # One write: the old pins out, the new ones (if any) in.
+  if [ -n "$pins" ] || grep -q '^TAGAVE_DIGEST_' "$env_file"; then
+    { grep -v -e '^TAGAVE_DIGEST_' -e '^# images by digest, from the signed manifest' "$env_file" || true
+      if [ -n "$pins" ]; then printf '# images by digest, from the signed manifest of %s (install-tagave.sh)\n%s\n' "$version" "$pins"; fi
+    } | write_private "$env_file" >/dev/null
+  fi
+  [ -n "$pins" ] || return 0
+  cp "$RELEASE_DIR/manifest" "$INSTALL_DIR/release-manifest.json"
+  cp "$RELEASE_DIR/sig" "$INSTALL_DIR/release-manifest.json.sig"
+  ok "Release $version: signature checks out; $(printf '%s\n' "$pins" | wc -l | tr -d ' ') images pinned by digest for $platform"
+  rm -rf "$RELEASE_DIR"
+  RELEASE_DIR=""
+  RELEASE_VERSION=""
+}
 
 is_port() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 
@@ -960,11 +1118,31 @@ KEPT_SETTINGS="TAGAVE_LIBRARY_ID TAGAVE_PREMIGRATE_BACKUP_KEEP TAGAVE_SKIP_PREMI
 carry_over_settings() {
   local file="$1" key header=0
   [ -f "$file" ] || return 0
-  for key in $KEPT_SETTINGS; do
+  # and the settings of modules turned on in Settings > Modules (TAGAVE_MODULE_*)
+  for key in $KEPT_SETTINGS $(grep -o '^TAGAVE_MODULE_[A-Z0-9_]*=' "$file" | tr -d '=' | sort -u); do
     grep -q "^$key=" "$file" || continue
     [ "$header" = 1 ] || { printf '\n# kept from the previous .env\n'; header=1; }
     printf '%s=%s\n' "$key" "$(env_get "$key" "$file")"
   done
+}
+
+# Modules turned on from Settings > Modules (or enable-module) stay on when
+# the installer runs again: their profiles, and their compose files in
+# modules/ (listed in COMPOSE_FILE). Each prints ",x" / ":x" per entry.
+module_profiles() {
+  local p
+  [ -f "$1" ] || return 0
+  for p in $(env_get COMPOSE_PROFILES "$1" | tr ',' ' '); do
+    case "$p" in app|files|updater|player) ;; *) printf ',%s' "$p" ;; esac
+  done
+}
+module_compose_files() {
+  local f
+  [ -f "$1" ] || return 0
+  for f in $(env_get COMPOSE_FILE "$1" | tr ':' ' '); do
+    case "$f" in modules/*) [ -f "$INSTALL_DIR/$f" ] && printf ':%s' "$f" ;; esac
+  done
+  return 0
 }
 
 write_env() {
@@ -979,6 +1157,8 @@ write_env() {
   fi
   if [ "$WITH_UPDATER" = "1" ] && [ "$ROLE" != "files" ]; then profiles="$profiles,updater"; fi
   if [ "$WITH_PLAYER" = "1" ] && [ "$ROLE" = "all" ]; then profiles="$profiles,player"; fi
+  profiles="$profiles$(module_profiles "$env_file")"
+  files="$files$(module_compose_files "$env_file")"
   insecure="true"
   if [ "$BEHIND_HTTPS" = "1" ]; then insecure="false"; fi
   local public_url="$PUBLIC_URL" local_origin=""
@@ -1294,10 +1474,13 @@ main() {
   collect_answers
   check_music_dir
   resolve_version
+  # A signed manifest that does not check out stops here, before anything is written.
+  check_release "$VERSION" || true
   fetch_compose_files
   [ ! -f "$INSTALL_DIR/.env" ] || migrate_install_env
   settle_secrets
   write_env
+  apply_release_pins "$VERSION"
   validate_compose
 
   if [ "$NO_START" = "1" ]; then
@@ -1736,6 +1919,7 @@ pin_in_place() {
   fi
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   set_env_version "$INSTALL_DIR/$WORKER_ENV_NAME" "$TARGET"
+  apply_release_pins "$TARGET"
   ok "$TARGET already runs here; pinned TAGAVE_VERSION=$TARGET in .env (it said '${CURRENT:-nothing}'), so a pull stays on it."
 }
 
@@ -1913,6 +2097,8 @@ update_app_computer() {
     die "$TARGET is older than $FROM_VERSION, which runs here. tagave's database changes only go forward, so going back means restoring the backup taken before the update: see docs/operations.md, section Roll back."
   fi
   check_target_images
+  # A manifest that does not check out stops the update here, before the backup.
+  check_release "$TARGET" || true
 
   workers="$(local_workers)"
   step "Update ${FROM_VERSION:-unknown} -> $TARGET"
@@ -1954,6 +2140,7 @@ update_app_computer() {
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   set_env_version "$INSTALL_DIR/$WORKER_ENV_NAME" "$TARGET"
   ok "TAGAVE_VERSION=$TARGET"
+  apply_release_pins "$TARGET"
   validate_compose
   PLAYER_IMAGE_AFTER="$(player_image)"
   compose pull || die "downloading the $TARGET images failed (see above)."
@@ -2044,6 +2231,7 @@ update_files_computer() {
   migrate_install_env
   set_env_version "$INSTALL_DIR/.env" "$TARGET"
   ok "TAGAVE_VERSION=$TARGET"
+  apply_release_pins "$TARGET"
   validate_compose
   compose pull || die "downloading the $TARGET worker image failed (see above)."
   compose up -d || die "docker compose could not start the file worker (see above)."
@@ -2335,8 +2523,63 @@ run_disable_player() {
   esac
 }
 
+# ---------------------------------------------------------------------------
+# enable-module and disable-module
+# ---------------------------------------------------------------------------
+
+# Runs the module state machine of the release's own updater image
+# (packages/updater/src/modules.ts, the one Settings > Modules uses) as a
+# one-off container: the Docker socket and this folder mounted, on the
+# install's network so it can ask the app for its health. A module added in
+# a later release needs nothing new here: the catalogue comes with the
+# release, signed.
+run_module() {
+  local action="$1" env_file project image digest answer="" extra="" onoff=on
+  [ "$action" = "enable-module" ] || onoff=off
+  say "${C_BOLD}tagave: turn $onoff the module $MODULE_ID${C_OFF}"
+  case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
+  load_install
+  migrate_install_env
+  [ "$ROLE" != "files" ] || die "this computer runs only the file worker; turn modules on on the app computer"
+  case "$MODULE_ID" in *[!a-z0-9-]*) die "'$MODULE_ID' is not a module id" ;; esac
+  case "$INSTALL_DIR" in *[[:space:]]*) die "the install directory cannot contain spaces for this command" ;; esac
+  env_file="$INSTALL_DIR/.env"
+  check_docker
+  is_release "$CURRENT" || die "modules come from the signed catalogue of a release, and this install runs '$CURRENT'. Update to a release first."
+  if [ ! -f "$INSTALL_DIR/release-manifest.json" ]; then
+    apply_release_pins "$CURRENT"
+    [ -f "$INSTALL_DIR/release-manifest.json" ] \
+      || die "modules need the signed manifest of $CURRENT, and it cannot be checked here ($RELEASE_WHY)."
+  fi
+  digest="$(env_get TAGAVE_DIGEST_UPDATER "$env_file")"
+  image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
+  if [ "$action" = "disable-module" ]; then
+    if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
+      printf '%s' "Also delete the data of $MODULE_ID? This cannot be undone. (y/N): " >"$TTY"
+      IFS= read -r answer <"$TTY" || answer=""
+      case "$answer" in y|Y|yes|Yes|YES) DELETE_DATA=1 ;; esac
+    fi
+    [ "$DELETE_DATA" != "1" ] || extra="--delete-data"
+  fi
+  [ "$action" = "disable-module" ] || confirm "Turn on $MODULE_ID now?"
+  project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
+  project="${project:-$PROJECT_NAME}"
+  docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null \
+    || die "could not download $image (see above)."
+  docker run --rm \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -v "$INSTALL_DIR:$INSTALL_DIR" -w "$INSTALL_DIR" \
+    -e TAGAVE_INSTALL_DIR="$INSTALL_DIR" \
+    --network "${project}_default" \
+    --entrypoint node "$image" /opt/tagave/updater/dist/cli.js module "${action%-module}" "$MODULE_ID" ${extra:+"$extra"} \
+    || die "$MODULE_ID was not turned $onoff; the lines above say why (the configuration is as it was unless they say otherwise)."
+  ok "$MODULE_ID is $onoff"
+}
+
 case "$COMMAND" in
   install) main ;;
+  enable-module)   run_module enable-module ;;
+  disable-module)  run_module disable-module ;;
   update)  run_update ;;
   status)  run_status ;;
   enable-updater)  run_enable_updater ;;
