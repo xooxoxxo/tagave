@@ -1,11 +1,11 @@
 /**
  * Settings › Backups: every database dump in the backups folder (nightly,
  * manual, before an update, before a restore), "Back up now", download and
- * delete, the nightly schedule and how many are kept, and where the files
- * live and how to get a copy off this computer.
+ * delete, the nightly schedule, how many of each kind are kept, and where
+ * the files live and how to get a copy off this computer.
  */
 import { useState } from 'react';
-import type { BackupEntryView, BackupKindView, BackupSettingsView } from '@tagave/shared';
+import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Input, SegmentedControl, Select, buttonClassName, confirmDialog, type BadgeTone } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
@@ -26,6 +26,35 @@ function when(iso: string): string {
 
 function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`;
+}
+
+function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "3 backups, 1.2 GB, newest 16 Oct 2026, 03:00" for one kind. */
+function kindSummary(k: BackupKindSummaryView | undefined): string {
+  if (!k || k.count === 0) return 'None yet.';
+  return `${plural(k.count, 'backup')}, ${formatBytes(k.bytes)}, newest ${when(k.newest ?? '')}.`;
+}
+
+/**
+ * What the next run of a kind deletes under the saved settings (D5: lowering
+ * a number deletes nothing on save). The dates are the ones in the list above.
+ */
+function PendingDelete({ kind, backups, edited }: { kind: BackupKindSummaryView | undefined; backups: BackupEntryView[]; edited: boolean }) {
+  if (edited) return <p className={styles.muted}>Save to see which backups go at the next run.</p>;
+  if (!kind || kind.pendingDelete.count === 0) return null;
+  const byName = new Map(backups.map((b) => [b.name, b]));
+  const dates = kind.pendingDelete.names.map((n) => byName.get(n)).filter((b): b is BackupEntryView => !!b);
+  const shown = dates.slice(0, 3).map((b) => when(b.createdAt));
+  const more = dates.length - shown.length;
+  return (
+    <p className={styles.hint}>
+      {plural(kind.pendingDelete.count, 'older backup')} ({formatBytes(kind.pendingDelete.bytes)}) {kind.pendingDelete.count === 1 ? 'goes' : 'go'} at the next run:{' '}
+      <span title={kind.pendingDelete.names.join('\n')}>{shown.join('; ')}{more > 0 ? `; and ${more} more` : ''}.</span>
+    </p>
+  );
 }
 
 const COPY_CMD = 'cd ~/tagave\ndocker compose cp app:/backups ./tagave-backups';
@@ -63,10 +92,15 @@ export function SettingsBackupsPage() {
     if (ok) remove.mutate(b.name);
   };
 
-  const setNumber = (field: 'keepDaily' | 'keepWeekly', raw: string, min: number, max: number) => {
+  const setNumber = (field: 'keepDaily' | 'keepWeekly' | 'keepPreUpdate' | 'keepManual', raw: string, min: number, max: number) => {
     const n = parseInt(raw, 10);
     setDraft({ ...draft, [field]: Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : min });
   };
+  const saved = data.settings;
+  const kinds = data.kinds;
+  const kind = (k: BackupKindView) => kinds.find((b) => b.kind === k);
+  const nightlyEdited = draft.enabled !== saved.enabled || draft.hour !== saved.hour || draft.keepDaily !== saved.keepDaily || draft.keepWeekly !== saved.keepWeekly;
+  const restore = kind('pre-restore');
 
   return (
     <div className={styles.page}>
@@ -130,7 +164,14 @@ export function SettingsBackupsPage() {
       </section>
 
       <section className={styles.section} aria-labelledby="backups-schedule">
-        <h3 id="backups-schedule" className={styles.title}>Nightly backup</h3>
+        <h3 id="backups-schedule" className={styles.title}>Keeping backups</h3>
+        <p className={styles.hint}>
+          Each kind of backup has its own number. Lowering one deletes nothing when you save: older backups of that kind go at its next run,
+          and the newest backup of a kind is never deleted.
+        </p>
+
+        <h4 className={styles.subTitle}>Nightly</h4>
+        <p className={styles.muted}>{kindSummary(kind('nightly'))}</p>
         <div className={styles.fields}>
           <div className={styles.field}>
             <span className={styles.label}>Nightly backup</span>
@@ -152,10 +193,57 @@ export function SettingsBackupsPage() {
           </label>
         </div>
         <p className={styles.hint}>
-          Keeps the newest nightly backup of each of the last {draft.keepDaily} day{draft.keepDaily === 1 ? '' : 's'}
-          {draft.keepWeekly > 0 ? `, and the newest of each of the last ${draft.keepWeekly} week${draft.keepWeekly === 1 ? '' : 's'}` : ''}. Older nightly backups are deleted after each night's run.
-          Manual backups and the ones taken before a restore are kept until you delete them. Take one with Back up now before you update, so you can go back.
+          Keeps the newest nightly backup of each of the last {plural(draft.keepDaily, 'day')}
+          {draft.keepWeekly > 0 ? `, and the newest of each of the last ${plural(draft.keepWeekly, 'week')}` : ''}. Older nightly backups are deleted after each night's run.
         </p>
+        <PendingDelete kind={kind('nightly')} backups={data.backups} edited={nightlyEdited} />
+
+        <h4 className={styles.subTitle}>Before update</h4>
+        <p className={styles.muted}>{kindSummary(kind('pre-migration'))}</p>
+        <div className={styles.fields}>
+          <label className={styles.field}>
+            <span className={styles.label}>Keep the newest</span>
+            <Input type="number" inputMode="numeric" min={2} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 2, 50)} />
+          </label>
+        </div>
+        <p className={styles.hint}>
+          Taken before an update changes the database, so you can go back. At least 2 are kept. Older ones are deleted after the next
+          update succeeds.
+        </p>
+        <PendingDelete kind={kind('pre-migration')} backups={data.backups} edited={draft.keepPreUpdate !== saved.keepPreUpdate} />
+
+        <h4 className={styles.subTitle}>Manual</h4>
+        <p className={styles.muted}>{kindSummary(kind('manual'))}</p>
+        <div className={styles.fields}>
+          <div className={styles.field}>
+            <span className={styles.label}>Keep</span>
+            <SegmentedControl
+              label="Keep manual backups"
+              value={draft.keepManual === null ? 'all' : 'newest'}
+              onChange={(v) => setDraft({ ...draft, keepManual: v === 'all' ? null : (saved.keepManual ?? Math.max(1, kind('manual')?.count ?? 1)) })}
+              options={[{ value: 'all', label: 'All' }, { value: 'newest', label: 'Newest' }]}
+            />
+          </div>
+          <label className={styles.field}>
+            <span className={styles.label}>Number to keep</span>
+            <Input type="number" inputMode="numeric" min={1} max={100} disabled={draft.keepManual === null} value={draft.keepManual ?? ''} onChange={(e) => setNumber('keepManual', e.target.value, 1, 100)} />
+          </label>
+        </div>
+        <p className={styles.hint}>
+          {draft.keepManual === null
+            ? 'Back up now and backups taken by hand are kept until you delete them.'
+            : `Keeps the newest ${plural(draft.keepManual, 'manual backup')}. Older ones are deleted after the next Back up now.`}
+        </p>
+        <PendingDelete kind={kind('manual')} backups={data.backups} edited={draft.keepManual !== saved.keepManual} />
+
+        {restore && (
+          <>
+            <h4 className={styles.subTitle}>Before restore</h4>
+            <p className={styles.muted}>{kindSummary(restore)}</p>
+            <p className={styles.hint}>Taken before a restore replaces the data. Kept until you delete them.</p>
+          </>
+        )}
+
         <div className={styles.row}>
           <Button onClick={() => save.mutate(draft, { onSuccess: () => setEdits(null) })} disabled={!dirty} loading={save.isPending}>Save</Button>
           {dirty && <Button variant="quiet" onClick={() => setEdits(null)}>Cancel</Button>}

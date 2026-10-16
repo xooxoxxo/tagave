@@ -8,11 +8,16 @@ const status = (over: Partial<BackupsStatus> = {}): BackupsStatus => ({
   dir: '/backups',
   dedicated: true,
   timeZone: 'UTC',
-  settings: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4 },
+  settings: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null },
   running: false,
   lastRun: null,
   lastNightly: null,
   backups: [],
+  kinds: [
+    { kind: 'nightly', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+    { kind: 'pre-migration', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+    { kind: 'manual', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+  ],
   totalBytes: 0,
   error: null,
   ...over,
@@ -60,5 +65,45 @@ describe('SettingsBackupsPage', () => {
 
   it('shows "Backing up…" while a backup runs', () => {
     expect(render(status({ running: true }))).toContain('Backing up…');
+  });
+
+  it('shows each kind with its count, size, newest date and its own retention control', () => {
+    const pre = (d: string) => ({ name: `tagave-2026-10-0${d}T10-00-00Z-pre-migration.pgdump`, kind: 'pre-migration' as const, createdAt: `2026-10-0${d}T10:00:00.000Z`, bytes: 1024 * 1024, verified: true });
+    const html = render(status({
+      backups: [pre('4'), pre('3'), pre('2'), pre('1')],
+      totalBytes: 4 * 1024 * 1024,
+      settings: { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 2, keepManual: null },
+      kinds: [
+        { kind: 'nightly', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+        { kind: 'pre-migration', count: 4, bytes: 4 * 1024 * 1024, newest: '2026-10-04T10:00:00.000Z', pendingDelete: { count: 3, bytes: 3 * 1024 * 1024, names: [pre('1').name, pre('2').name, pre('3').name] } },
+        { kind: 'manual', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
+      ],
+    }));
+    for (const title of ['Keeping backups', '>Nightly</h4>', '>Before update</h4>', '>Manual</h4>']) expect(html).toContain(title);
+    expect(html).toContain('4 backups, 4.0 MB, newest');
+    expect(html).toContain('Keep the newest');
+    expect(html).toContain('min="2"');
+    expect(html).toContain('Back up now and backups taken by hand are kept until you delete them.');
+    // what goes at the next update, with the total size and which backups
+    expect(html).toContain('3 older backups (3.0 MB) go at the next run:');
+    expect(html).toContain(pre('1').name);
+    // no restore block until there is a pre-restore backup
+    expect(html).not.toContain('>Before restore</h4>');
+  });
+
+  it('shows the before-restore block only when there is one, without a retention control', () => {
+    const html = render(status({
+      kinds: [
+        ...status().kinds,
+        { kind: 'pre-restore', count: 1, bytes: 2048, newest: '2026-10-01T10:00:00.000Z', pendingDelete: { count: 0, bytes: 0, names: [] } },
+      ],
+    }));
+    expect(html).toContain('>Before restore</h4>');
+    expect(html).toContain('1 backup, 2.0 KB, newest');
+    expect(html).toContain('Kept until you delete them.');
+  });
+
+  it('says nothing goes when the saved numbers keep everything', () => {
+    expect(render(status())).not.toContain('at the next run:');
   });
 });
