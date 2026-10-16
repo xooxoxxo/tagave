@@ -4,8 +4,9 @@
  * the folders the app owns, and the cleanup of finished tag changes.
  */
 import { useRef, useState } from 'react';
-import { PROBLEM_TYPES, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
-import { Banner, Button, SegmentedControl, confirmDialog, showToast } from '../components/ui';
+import { PROBLEM_TYPES, type DiskSpaceView, type TagChangeCleanupPreview, type TagChangeCleanupScope } from '@tagave/shared';
+import { Badge, Banner, Button, SegmentedControl, confirmDialog, showToast } from '../components/ui';
+import { diskNoticeText, pathsLabel } from '../components/DiskSpaceNotice';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
 import styles from './SettingsStoragePage.module.css';
@@ -56,6 +57,8 @@ export function SettingsStorageContent() {
         </div>
       </div>
 
+      <DiskSpace disk={data.disk} />
+
       <section className={styles.section} aria-labelledby="storage-db">
         <div className={styles.head}>
           <h3 id="storage-db" className={styles.title}>Database</h3>
@@ -101,6 +104,45 @@ export function SettingsStorageContent() {
 
       <TagChangeCleanup />
     </div>
+  );
+}
+
+const DISK_BADGE = { warn: { tone: 'warning', label: 'Filling up' }, fail: { tone: 'danger', label: 'Almost full' } } as const;
+
+/**
+ * Free space on each disk tagave writes (the doctor's disk check): the
+ * fullest first, with the folders on it. Bars show how full each disk is.
+ */
+export function DiskSpace({ disk }: { disk: DiskSpaceView | null | undefined }) {
+  const notice = diskNoticeText(disk);
+  return (
+    <section className={styles.section} aria-labelledby="storage-disk">
+      <div className={styles.head}>
+        <h3 id="storage-disk" className={styles.title}>Free space on this server</h3>
+      </div>
+      {!disk ? <p className={styles.muted}>The free space of this server’s disks could not be read.</p> : <>
+        {notice && <Banner tone={notice.tone}>{notice.text} “Disk space” in the operations guide says what is safe to delete. Never delete Docker volumes.</Banner>}
+        <ul className={styles.rows}>
+          {disk.filesystems.map((f) => (
+            <li key={f.paths.map((p) => p.key).join('+')} className={styles.row}>
+              <div className={styles.rowHead}>
+                <span className={styles.label}>
+                  {pathsLabel(f.paths.map((p) => p.label))}
+                  {f.status !== 'pass' && <> <Badge tone={DISK_BADGE[f.status].tone}>{DISK_BADGE[f.status].label}</Badge></>}
+                </span>
+                <span className={styles.size}>{formatBytes(f.freeBytes)} free of {formatBytes(f.totalBytes)}</span>
+              </div>
+              <Bar share={f.usedPct / 100} />
+              <p className={styles.description}>
+                {Math.floor(f.usedPct)}% used · {f.paths.map((p, i) => <span key={p.key}>{i > 0 && ', '}<code className={styles.path}>{p.path}</code></span>)}
+              </p>
+            </li>
+          ))}
+        </ul>
+        {disk.unmeasured.map((u) => <p key={u.key} className={styles.muted}>{u.label}: {u.reason}.</p>)}
+        <p className={styles.muted}>Bars show how full each disk is. tagave warns at {disk.warnPct}% used and calls a disk almost full at {disk.failPct}%.</p>
+      </>}
+    </section>
   );
 }
 
