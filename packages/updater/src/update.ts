@@ -42,6 +42,13 @@
  * old version must never run on a database a newer one migrated, so the new
  * version stays in place and the run says what to do by hand.
  *
+ * Every step keeps a sub-state in the run (progress.ts): the download in
+ * bytes, what the app does while it comes up, how many workers report the
+ * target. A step whose sub-state does not move for config.stallMs is
+ * diagnosed from the containers' state and last log lines, and the cause
+ * and what to do are shown with the run; the step's own timeout still
+ * decides when to give up.
+ *
  * After a successful run the images older than the version it came from
  * are removed (image-hygiene.ts); a failure there is a warning in the log.
  *
@@ -56,7 +63,20 @@ import { unlink } from 'node:fs/promises';
 import { envGet, envKeys, envSet, envUnset, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
 import { MODULES_DIR, isOn, moduleComposeFile, pullVerified, renderModuleCompose, withRegistry } from './modules.js';
 import { MANIFEST_FILE, ReleaseRefused, SIGNATURE_FILE, digestFor, envPins, imageForService, type VerifiedRelease } from './release.js';
+import {
+  DEFAULT_STALL_MS,
+  INSPECT_FORMAT,
+  PullProgress,
+  ComposePullProgress,
+  diagnoseStall,
+  parseInspect,
+  stallNeedsAction,
+  waitingFor,
+  type Observation,
+  type Readings,
+} from './progress.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
+import { redact } from './redact.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
 import { IMAGE_MIGRATIONS_DIR, pendingHeavy } from './heavy-migrations.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
@@ -88,6 +108,8 @@ const COMPOSE_FILES = ['compose.yml', 'compose.db-published.yml'];
 export const IMAGE_DEPLOY_DIR = '/opt/tagave/deploy';
 const DOCTOR = ['node', 'packages/doctor/dist/cli.js'];
 const MAX_LOG_LINES = 400;
+/** Sub-state changes are saved at most this often (persistSoon). */
+const PROGRESS_SAVE_MS = 1000;
 const PLAYER = 'player';
 /**
  * Run in a one-off player container: copy Navidrome's data folder to
@@ -126,6 +148,12 @@ export interface UpdateConfig {
   playerHealthTimeoutMs: number;
   /** How long this process may outlive the hand-over to its replacement before it takes it as failed. */
   handoverBackstopMs: number;
+  /** A step whose sub-state does not move for this long is diagnosed (TAGAVE_UPDATER_STALL_SECONDS). */
+  stallMs: number;
+  /** How often the containers are inspected while waiting for them. */
+  observeEveryMs: number;
+  /** How often a long command (a pull, a dump, a restore) is checked for a stall. */
+  stallCheckMs: number;
 }
 
 export const DEFAULT_CONFIG: UpdateConfig = {
@@ -136,6 +164,9 @@ export const DEFAULT_CONFIG: UpdateConfig = {
   selfUpdate: true,
   playerHealthTimeoutMs: 2 * 60_000,
   handoverBackstopMs: 150_000,
+  stallMs: DEFAULT_STALL_MS,
+  observeEveryMs: 10_000,
+  stallCheckMs: 15_000,
 };
 
 export interface UpdateDeps {
@@ -164,6 +195,13 @@ export interface UpdateDeps {
 export const RELEASE_FLOOR_FILE = '.updater/release-floor';
 
 class StepFailed extends Error {}
+
+/** What waitFor watches while it polls: the containers to inspect, and how to word the sub-state. */
+interface Watch {
+  services: string[];
+  /** `detail`: what the check said; `seen`: what the containers say (waitingFor), or null. */
+  describe: (detail: string, seen: string | null) => string;
+}
 /** The roll back stops before it changes anything: the new version stays, matching the database it changed. */
 class KeepNewVersion extends Error {}
 
@@ -232,6 +270,17 @@ export class Update {
   private handedOver = false;
   /** Settles when the hand-over watch ends (the replacement kills this process first when it works). For tests. */
   handover: Promise<void> = Promise.resolve();
+  /** Restart counts of the containers when the running step first saw them. */
+  private restartsAt = new Map<string, number>();
+  private lastObserved = 0;
+  private lastDiagnosed = 0;
+  private diagnosing = false;
+  private lastProgressSave = -Infinity;
+  private progressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The tail of a running command's output (a pull), for the stall check. */
+  private commandOutput = '';
+  /** Free bytes on Docker's disk at the last check during a download: docker pull prints nothing while a layer comes down. */
+  private downloadFree: number | null = null;
 
   constructor(private readonly deps: UpdateDeps, run: UpdateRun) {
     this.run = run;
@@ -243,6 +292,10 @@ export class Update {
   // -- bookkeeping ---------------------------------------------------------
 
   private persist(): Promise<void> {
+    if (this.progressTimer) {
+      clearTimeout(this.progressTimer);
+      this.progressTimer = null;
+    }
     if (this.handedOver) return this.saving;
     const snapshot = structuredClone(this.run);
     this.saving = this.saving.then(() => this.deps.save(snapshot)).catch(() => undefined);
@@ -250,7 +303,7 @@ export class Update {
   }
 
   private log(level: UpdateLogLine['level'], message: string): void {
-    this.run.log.push({ at: this.now().toISOString(), level, message });
+    this.run.log.push({ at: this.now().toISOString(), level, message: redact(message) });
     if (this.run.log.length > MAX_LOG_LINES) this.run.log.splice(0, this.run.log.length - MAX_LOG_LINES);
     void this.persist();
   }
@@ -263,7 +316,145 @@ export class Update {
     const s = this.step(id);
     s.status = 'running';
     s.startedAt = this.now().toISOString();
+    this.restartsAt.clear();
+    this.lastObserved = 0;
+    this.run.stall = null;
+    this.run.progress = { step: id, message: s.label.toLowerCase(), at: s.startedAt };
     this.log('info', `${s.label}`);
+  }
+
+  // -- progress and stalls (progress.ts) -------------------------------------
+
+  /** The running step's sub-state; a change counts as progress and clears a stall. */
+  private progress(message: string): void {
+    const step = this.run.steps.find((s) => s.status === 'running')?.id ?? this.run.progress?.step ?? 'preflight';
+    if (this.run.progress?.message === redact(message) && this.run.progress.step === step) return;
+    this.run.progress = { step, message: redact(message), at: this.now().toISOString() };
+    if (this.run.stall) {
+      this.run.stall = null;
+      this.log('info', `moving again: ${message}`);
+      return;
+    }
+    this.persistSoon();
+  }
+
+  /**
+   * A sub-state change is written at most about once a second (a pull can
+   * change it many times a second); the latest one is written when the
+   * second is up, and any other write (a log line, the end of the run)
+   * carries it too.
+   */
+  private persistSoon(): void {
+    const now = this.now().getTime();
+    if (now - this.lastProgressSave >= PROGRESS_SAVE_MS && !this.progressTimer) {
+      this.lastProgressSave = now;
+      void this.persist();
+      return;
+    }
+    if (this.progressTimer) return;
+    this.progressTimer = setTimeout(() => {
+      this.progressTimer = null;
+      this.lastProgressSave = this.now().getTime();
+      void this.persist();
+    }, PROGRESS_SAVE_MS);
+    this.progressTimer.unref?.();
+  }
+
+  /** The services' containers as docker sees them now, with their last log lines. */
+  private async observe(services: string[]): Promise<Readings> {
+    const observations: Observation[] = [];
+    for (const service of services) {
+      const ps = await this.compose(['ps', '-a', '-q', service], { quiet: true, timeoutMs: 30_000 });
+      const id = ps.code === 0 ? ps.stdout.trim().split('\n')[0]?.trim() : '';
+      if (!id) {
+        observations.push({ service, state: null, logs: '', restartsBefore: this.restartsAt.get(service) ?? 0 });
+        continue;
+      }
+      const inspect = await this.docker(['inspect', '--format', INSPECT_FORMAT, id], { quiet: true, timeoutMs: 30_000 });
+      const state = inspect.code === 0 ? parseInspect(inspect.stdout) : null;
+      const logs = await this.docker(['logs', '--tail', '40', id], { quiet: true, timeoutMs: 30_000 });
+      if (state && !this.restartsAt.has(service)) this.restartsAt.set(service, state.restarts);
+      observations.push({ service, state, logs: logs.code === 0 ? `${logs.stdout}\n${logs.stderr}` : '', restartsBefore: this.restartsAt.get(service) ?? state?.restarts ?? 0 });
+    }
+    let dockerFreeBytes: number | null = null;
+    try {
+      const st = await (this.deps.statfs ?? statfs)('/');
+      dockerFreeBytes = st.bavail * st.bsize;
+    } catch {
+      /* unknown */
+    }
+    this.lastObserved = this.now().getTime();
+    return { observations, dockerFreeBytes, commandOutput: this.commandOutput };
+  }
+
+  /**
+   * When the running step has not moved for config.stallMs: inspect the
+   * containers it waits on and put the likely cause on the run. `readings`:
+   * taken just now by the caller.
+   */
+  private async checkStall(services: string[], downloading: boolean, readings?: Readings): Promise<void> {
+    const p = this.run.progress;
+    if (!p || this.diagnosing || this.run.status !== 'running') return;
+    if (downloading && (await this.downloadMoved())) return;
+    const nowMs = this.now().getTime();
+    const stalledMs = nowMs - Date.parse(p.at);
+    if (stalledMs < this.deps.config.stallMs) return;
+    if (this.run.stall && nowMs - this.lastDiagnosed < this.deps.config.observeEveryMs) return;
+    this.diagnosing = true;
+    try {
+      const r = readings ?? (await this.observe(services.filter((s) => s === 'postgres' || this.services.includes(s))));
+      if (this.run.progress !== p) return;
+      const stall = diagnoseStall(r, { progress: p.message, stalledMs, since: p.at, downloading });
+      this.lastDiagnosed = nowMs;
+      if (this.run.stall?.cause === stall.cause && this.run.stall.message === redact(stall.message)) return;
+      this.run.stall = { ...stall, message: redact(stall.message), advice: redact(stall.advice) };
+      this.log(stallNeedsAction(stall.cause) ? 'warn' : 'info', `no progress since ${p.at.slice(11, 19)} (${p.message}): ${stall.message}. ${stall.advice}`);
+    } finally {
+      this.diagnosing = false;
+    }
+  }
+
+  /**
+   * Off a terminal, docker pull says nothing while a layer downloads, so a
+   * download counts as moving while Docker's disk fills (by 1 MB or more
+   * since the last check).
+   */
+  private async downloadMoved(): Promise<boolean> {
+    let free: number;
+    try {
+      const st = await (this.deps.statfs ?? statfs)('/');
+      free = st.bavail * st.bsize;
+    } catch {
+      return false;
+    }
+    const before = this.downloadFree;
+    this.downloadFree = free;
+    if (before === null || before - free < 1024 ** 2 || !this.run.progress) return false;
+    this.run.progress = { ...this.run.progress, at: this.now().toISOString() };
+    if (this.run.stall) {
+      this.run.stall = null;
+      this.log('info', `moving again: ${this.run.progress.message}`);
+    }
+    return true;
+  }
+
+  /** Runs a long command with a stall check every config.stallCheckMs. */
+  private async watched<T>(services: string[], downloading: boolean, work: Promise<T>): Promise<T> {
+    this.downloadFree = null;
+    // The disk's free space now, for the first check to compare with.
+    if (downloading) void this.downloadMoved();
+    const timer = setInterval(() => { void this.checkStall(services, downloading); }, this.deps.config.stallCheckMs);
+    timer.unref?.();
+    try {
+      return await work;
+    } finally {
+      clearInterval(timer);
+    }
+  }
+
+  /** Keeps the last few KB of a command's output for the stall check. */
+  private keepOutput(chunk: string): void {
+    this.commandOutput = (this.commandOutput + chunk).slice(-4096);
   }
 
   private end(id: UpdateStepId, status: 'done' | 'failed' | 'skipped'): void {
@@ -279,17 +470,18 @@ export class Update {
 
   // -- docker --------------------------------------------------------------
 
-  private async docker(args: string[], opts: { env?: Record<string, string>; timeoutMs?: number; quiet?: boolean } = {}): Promise<CommandResult> {
+  private async docker(args: string[], opts: { env?: Record<string, string>; timeoutMs?: number; quiet?: boolean; onOutput?: (chunk: string) => void } = {}): Promise<CommandResult> {
     if (!opts.quiet) this.log('info', `$ docker ${args.join(' ')}`);
     const res = await this.deps.docker(args, {
       ...(opts.env ? { env: opts.env } : {}),
+      ...(opts.onOutput ? { onOutput: opts.onOutput } : {}),
       timeoutMs: opts.timeoutMs ?? this.deps.config.commandTimeoutMs,
     });
     if (res.code !== 0 && !opts.quiet) this.log('warn', `exit ${res.code}: ${tail(res.stderr || res.stdout)}`);
     return res;
   }
 
-  private compose(args: string[], opts: { env?: Record<string, string>; timeoutMs?: number; quiet?: boolean } = {}) {
+  private compose(args: string[], opts: { env?: Record<string, string>; timeoutMs?: number; quiet?: boolean; onOutput?: (chunk: string) => void } = {}) {
     return this.docker(['compose', ...args], opts);
   }
 
@@ -369,11 +561,16 @@ export class Update {
     return out === null ? null : parseLastBackup(out);
   }
 
-  /** Polls until `check` returns null (good) or the time runs out; returns the last complaint. */
-  private async waitFor(check: () => Promise<string | null>, timeoutMs: number): Promise<string | null> {
+  /**
+   * Polls until `check` returns null (good) or the time runs out; returns
+   * the last complaint. With `watch`: the containers are inspected every
+   * config.observeEveryMs for the sub-state, and a stall is diagnosed.
+   */
+  private async waitFor(check: () => Promise<string | null>, timeoutMs: number, watch?: Watch): Promise<string | null> {
     const deadline = this.now().getTime() + timeoutMs;
     let last: string | null = 'not checked';
     let lastLogged = '';
+    let seen: string | null = null;
     for (;;) {
       last = await check();
       if (last === null) return null;
@@ -381,9 +578,23 @@ export class Update {
         this.log('info', `waiting: ${last}`);
         lastLogged = last;
       }
+      if (watch) {
+        let readings: Readings | undefined;
+        if (this.now().getTime() - this.lastObserved >= this.deps.config.observeEveryMs) {
+          readings = await this.observe(watch.services.filter((s) => s === 'postgres' || this.services.includes(s)));
+          seen = waitingFor(readings);
+        }
+        this.progress(watch.describe(last, seen));
+        await this.checkStall(watch.services, false, readings);
+      }
       if (this.now().getTime() >= deadline) return last;
       await this.sleep(this.deps.config.pollMs);
     }
+  }
+
+  /** Waiting for an app to answer: what the containers say, else what the health check says. */
+  private appWatch(who: string): Watch {
+    return { services: ['app', 'postgres'], describe: (detail, seen) => `waiting for ${who}: ${seen ?? detail}` };
   }
 
   private appOn(version: string | null, since: Date | null, requireWorkers: boolean): () => Promise<string | null> {
@@ -441,20 +652,44 @@ export class Update {
         if (!image) this.fail(`the signed manifest of ${manifest.version} pins no image for the service ${service}`);
         images.add(image);
       }
-      for (const image of images) {
-        await pullVerified(this.deps.docker, manifest, image, release.platform, (l, m) => this.log(l, m), this.deps.config.commandTimeoutMs, this.registry);
+      const tracker = new PullProgress();
+      const list = [...images];
+      for (const [i, image] of list.entries()) {
+        tracker.beginImage(i + 1, list.length, await this.layerSizes(`${withRegistry(manifest.images[image]!.ref, this.registry)}@${digestFor(manifest, image, release.platform)}`));
+        this.progress(tracker.summary());
+        this.commandOutput = '';
+        await this.watched([], true, pullVerified(this.deps.docker, manifest, image, release.platform, (l, m) => this.log(l, m), this.deps.config.commandTimeoutMs, this.registry, (chunk) => {
+          this.keepOutput(chunk);
+          if (tracker.feed(chunk)) this.progress(tracker.summary());
+        }));
       }
       return;
     }
 
-    const pull = await this.compose(['pull', ...this.services, ...(this.hasUpdaterService(svc.stdout) ? ['updater'] : [])], {
+    const wanted = [...this.services, ...(this.hasUpdaterService(svc.stdout) ? ['updater'] : [])];
+    const pulling = new ComposePullProgress(wanted.length);
+    this.progress(pulling.summary());
+    const pull = await this.watched([], true, this.compose(['pull', ...wanted], {
       env: { TAGAVE_VERSION: this.run.target },
-    });
+      onOutput: (chunk) => {
+        this.keepOutput(chunk);
+        if (pulling.feed(chunk)) this.progress(pulling.summary());
+      },
+    }));
     if (pull.code !== 0) {
       const text = `${pull.stderr}\n${pull.stdout}`;
       if (/no matching manifest|platform/i.test(text)) this.fail(`${this.run.target} has no image for this computer's architecture`);
       if (/not found|manifest unknown|does not exist/i.test(text)) this.fail(`${this.run.target} is not published (${this.registry})`);
       this.fail(`downloading the ${this.run.target} images failed: ${tail(text, 3)}`);
+    }
+  }
+
+  /** The compressed layers of an image, for the download's byte count; null when the registry does not say within 10 s. */
+  private async layerSizes(ref: string): Promise<Layer[] | null> {
+    try {
+      return await (this.deps.layers ?? registryClient(fetch))(ref, AbortSignal.timeout(10_000));
+    } catch {
+      return null;
     }
   }
 
@@ -537,11 +772,12 @@ export class Update {
       return;
     }
     this.log('info', `the updater backs the database up itself: ${this.ownDump}`);
-    let res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--kind', 'before-update', '--json']);
+    this.progress('the updater backs up the database');
+    let res = await this.watched(['app', 'postgres'], false, this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--kind', 'before-update', '--json']));
     if (res.code !== 0 && /unknown option --kind/.test(`${res.stderr}${res.stdout}`)) {
       // The running app's doctor is from before --kind (0.8 or older): its dump is filed as manual.
       this.log('info', 'the running app does not know --kind yet; its dump is listed under Manual in Settings › Backups');
-      res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']);
+      res = await this.watched(['app', 'postgres'], false, this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']));
     }
     if (res.code !== 0) this.fail(`the backup failed: ${tail(res.stderr || res.stdout, 3)}`);
     let path: string | undefined;
@@ -735,7 +971,14 @@ export class Update {
   }
 
   private async pull(): Promise<void> {
-    const res = await this.compose(['pull', ...this.services]);
+    const pulling = new ComposePullProgress(this.services.length);
+    this.progress(pulling.summary());
+    const res = await this.watched([], true, this.compose(['pull', ...this.services], {
+      onOutput: (chunk) => {
+        this.keepOutput(chunk);
+        if (pulling.feed(chunk)) this.progress(pulling.summary());
+      },
+    }));
     if (res.code !== 0) this.fail(`docker compose pull failed: ${tail(res.stderr, 3)}`);
   }
 
@@ -748,26 +991,36 @@ export class Update {
     if (this.playerImageChanges()) await this.snapshotPlayer();
     this.newAppStarted = true;
     const startedAt = this.now();
+    this.progress('starting the new app');
     // The updater's own dump is the rollback point: the new app takes none on
     // this boot, so the update writes one before-update dump. The next
     // `up -d` (the workers) starts it again without the setting.
     const skip = this.ownDumpPath ? { env: { TAGAVE_SKIP_PREMIGRATE_BACKUP: '1' } } : {};
     if (this.ownDumpPath) this.log('info', 'the new app starts without a backup of its own this once (TAGAVE_SKIP_PREMIGRATE_BACKUP=1): the updater took one');
-    const up = await this.compose(['up', '-d', 'app'], skip);
+    const up = await this.watched(['postgres', 'app'], false, this.compose(['up', '-d', 'app'], skip));
     if (up.code !== 0) this.fail(`the new app did not start: ${tail(up.stderr, 3)}`);
     this.log('info', 'waiting for the new app (it backs up and updates the database before it answers)');
-    const appIssue = await this.waitFor(this.appOn(this.run.target, null, false), this.deps.config.healthTimeoutMs);
+    const appIssue = await this.waitFor(this.appOn(this.run.target, null, false), this.deps.config.healthTimeoutMs, this.appWatch('the app'));
     if (appIssue) this.fail(`the app did not answer healthy on ${this.run.target}: ${appIssue}`);
     await this.noteAppDump();
     if (this.hasPlayer()) this.playerStarted = true;
-    const rest = await this.compose(['up', '-d', ...this.services]);
+    this.progress('starting the workers');
+    const rest = await this.watched(this.workers(), false, this.compose(['up', '-d', ...this.services]));
     if (rest.code !== 0) this.fail(`docker compose could not start the workers: ${tail(rest.stderr, 3)}`);
     return startedAt;
   }
 
   private async verify(since: Date): Promise<void> {
-    const issue = await this.waitFor(this.appOn(this.run.target, since, true), this.deps.config.healthTimeoutMs);
-    if (issue) this.fail(`not every part reports ${this.run.target}: ${issue}`);
+    const target = this.run.target;
+    const issue = await this.waitFor(this.appOn(target, since, true), this.deps.config.healthTimeoutMs, {
+      services: ['app', ...this.workers()],
+      describe: (detail, seen) => {
+        const m = /^(\d+) of (\d+) workers report/.exec(detail);
+        if (m) return `workers: ${m[1]} of ${m[2]} on the new version`;
+        return `waiting for the app: ${seen ?? detail}`;
+      },
+    });
+    if (issue) this.fail(`not every part reports ${target}: ${issue}`);
     if (this.hasPlayer()) await this.checkPlayer();
   }
 
@@ -842,7 +1095,8 @@ export class Update {
 
       if (restoreFrom) {
         this.log('warn', `the new version changed the database; restoring ${restoreFrom}, the backup from before it did`);
-        const res = await this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', restoreFrom, '--yes', '--json']);
+        this.progress(`restoring ${restoreFrom}`);
+        const res = await this.watched(['postgres'], false, this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', restoreFrom, '--yes', '--json']));
         if (res.code !== 0) throw new Error(`tagave-doctor restore failed: ${tail(res.stderr || res.stdout, 3)}`);
         restored = true;
         let kept = 'under another name';
@@ -860,14 +1114,14 @@ export class Update {
       const up = await this.compose(['up', '-d', 'app']);
       if (up.code !== 0) throw new Error(`the old app did not start: ${tail(up.stderr, 3)}`);
       const from = /^\d+\.\d+\.\d+/.test(this.run.from) ? this.run.from : null;
-      const issue = await this.waitFor(this.appOn(from, null, false), this.deps.config.healthTimeoutMs);
+      const issue = await this.waitFor(this.appOn(from, null, false), this.deps.config.healthTimeoutMs, this.appWatch(`${this.run.from}`));
       if (issue) throw new Error(`the old version did not answer healthy: ${issue}`);
       const rest = await this.compose(['up', '-d', ...this.services]);
       if (rest.code !== 0) throw new Error(`the workers did not start: ${tail(rest.stderr, 3)}`);
       healthy = true;
       this.end('rollback', 'done');
       this.run.status = 'rolled_back';
-      this.run.reason = reason;
+      this.run.reason = redact(reason);
       this.log('warn', `rolled back to ${this.run.from}${restored ? ' with the database restored' : ''}`);
     } catch (err) {
       this.end('rollback', 'failed');
@@ -876,12 +1130,12 @@ export class Update {
         // Nothing was put back: the new version matches the database it changed.
         const up = await this.compose(['up', '-d', ...this.services]);
         const named = await this.dumpToName().catch(() => null);
-        this.run.reason = `${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${
-          named ? `To go back by hand, restore ${named}` : 'No backup from before the update could be looked up'} (docs/operations.md, Roll back an update)`;
+        this.run.reason = redact(`${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${
+          named ? `To go back by hand, restore ${named}` : 'No backup from before the update could be looked up'} (docs/operations.md, Roll back an update)`);
         this.log('error', `not rolled back: ${err.message}`);
         this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app, or restore a backup from before the update by hand and set TAGAVE_VERSION=${this.run.from} (docs/operations.md, Roll back an update)`);
       } else {
-        this.run.reason = `${reason}. The roll back did not finish: ${(err as Error).message}`;
+        this.run.reason = redact(`${reason}. The roll back did not finish: ${(err as Error).message}`);
         this.log('error', `roll back failed: ${(err as Error).message}`);
         this.log('error', restoreFrom && !restored && filesBack
           ? `the app and workers are stopped, and the database is still the one ${this.run.target} changed: do not start ${this.run.from} on it. By hand, in the install folder: restore ${restoreFrom} with tagave-doctor restore (docs/operations.md, Roll back an update), then docker compose up -d; or set TAGAVE_VERSION=${this.run.target} in .env again and docker compose up -d`
@@ -1059,10 +1313,12 @@ export class Update {
       } else {
         this.end('rollback', 'skipped');
         this.run.status = 'failed';
-        this.run.reason = `${reason}. Nothing was changed.`;
+        this.run.reason = redact(`${reason}. Nothing was changed.`);
       }
     }
     if (this.run.status === 'succeeded') await this.cleanOldImages();
+    this.run.progress = null;
+    this.run.stall = null;
     this.run.finishedAt = this.now().toISOString();
     await this.persist();
     // replaceSelf writes the run once more before it hands over, and not after.

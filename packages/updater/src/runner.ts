@@ -16,6 +16,8 @@ export interface RunOptions {
   /** Extra environment for this call (overrides the install's .env in compose interpolation). */
   env?: Record<string, string>;
   timeoutMs?: number;
+  /** Told each piece of stdout and stderr as it arrives (download progress). */
+  onOutput?: (chunk: string) => void;
 }
 
 /** Runs `docker <args>` in the install directory. */
@@ -33,8 +35,9 @@ export function dockerRunner(cwd: string): Runner {
       });
       let stdout = '';
       let stderr = '';
-      child.stdout.on('data', (d: Buffer) => { if (stdout.length < MAX_OUTPUT) stdout += d.toString(); });
-      child.stderr.on('data', (d: Buffer) => { if (stderr.length < MAX_OUTPUT) stderr += d.toString(); });
+      const seen = (d: Buffer) => { try { opts.onOutput?.(d.toString()); } catch { /* progress only */ } };
+      child.stdout.on('data', (d: Buffer) => { seen(d); if (stdout.length < MAX_OUTPUT) stdout += d.toString(); });
+      child.stderr.on('data', (d: Buffer) => { seen(d); if (stderr.length < MAX_OUTPUT) stderr += d.toString(); });
       const timer = opts.timeoutMs
         ? setTimeout(() => { stderr += `\ntimed out after ${Math.round(opts.timeoutMs! / 1000)} s`; child.kill('SIGTERM'); }, opts.timeoutMs)
         : null;

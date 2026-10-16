@@ -46,6 +46,55 @@ export interface UpdateRollback {
   healthy: boolean;
 }
 
+/**
+ * Where the running step is, in a few words: "downloading image 2 of 4
+ * (340 MB of 1.1 GB)", "waiting for the app: database recovering",
+ * "workers: 1 of 2 on 0.9.1". `at` moves only when the message (or the
+ * byte count in it) changes, so it says when the step last moved.
+ */
+export interface UpdateProgress {
+  step: string;
+  message: string;
+  at: string;
+}
+
+/**
+ * Why a step stalled, once it made no progress for the stall time (2 min by
+ * default; TAGAVE_UPDATER_STALL_SECONDS):
+ *
+ * disk_full          a container or the download hit "no space left on device"
+ * oom                a container was killed for want of memory
+ * port_conflict      a port the container wants is taken
+ * crash_loop         a container keeps exiting and restarting
+ * migration_refused  the new app refuses to update the database (its "Not migrating:" line)
+ * unhealthy          a container's health check fails
+ * db_recovering      Postgres is replaying its log after an unclean stop (wait)
+ * download           the image download does not move
+ * slow               nothing looks wrong; the step is just slow
+ */
+export type UpdateStallCause =
+  | 'disk_full'
+  | 'oom'
+  | 'port_conflict'
+  | 'crash_loop'
+  | 'migration_refused'
+  | 'unhealthy'
+  | 'db_recovering'
+  | 'download'
+  | 'slow';
+
+export interface UpdateStall {
+  cause: UpdateStallCause;
+  /** What is wrong, in a sentence. */
+  message: string;
+  /** What to do about it. */
+  advice: string;
+  /** The container it is about, if one. */
+  service: string | null;
+  /** When the step last moved. */
+  since: string;
+}
+
 export interface UpdateRun {
   id: string;
   from: string;
@@ -64,6 +113,10 @@ export interface UpdateRun {
    */
   backup: string | null;
   rollback: UpdateRollback | null;
+  /** The running step's sub-state (absent from updaters before 0.9.1; null once the run ends). */
+  progress?: UpdateProgress | null;
+  /** Set while the running step makes no progress, with the likely cause; cleared when it moves again. */
+  stall?: UpdateStall | null;
 }
 
 /**

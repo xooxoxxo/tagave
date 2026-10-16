@@ -64,6 +64,8 @@ class FakeInstall {
   appliedMigrations = ['0044_player_people.sql', '0045_player_retired_accounts.sql'];
   /** What images.thumb_bytes holds. */
   thumbBytes = 0;
+  /** docker inspect of a service's container, per call (the last one repeats), and its log. */
+  containers = new Map<string, { states: object[]; restarts: number[]; logs: string; calls: number }>();
   /** The install runs the player (compose service "player", Navidrome). */
   withPlayer = false;
   /** What the target's updater image ships as compose.yml. */
@@ -140,6 +142,14 @@ class FakeInstall {
       this.waitedOn.push(args[1]!);
       return this.handoverExit;
     }
+    if (a.startsWith('compose ps -a -q ')) return ok(this.containers.has(args[4]!) ? `${args[4]}-c1\n` : '');
+    if (args[0] === 'inspect' && args[2] === '{{json .State}}|{{.RestartCount}}') {
+      const c = this.containers.get(args[3]!.replace(/-c1$/, ''));
+      if (!c) return bad('No such object');
+      const n = c.calls++;
+      return ok(`${JSON.stringify(c.states[Math.min(n, c.states.length - 1)])}|${c.restarts[Math.min(n, c.restarts.length - 1)]}\n`);
+    }
+    if (args[0] === 'logs' && args[1] === '--tail') return ok(this.containers.get(args[3]!.replace(/-c1$/, ''))?.logs ?? '');
     if (args[0] === 'logs') return ok('Error response from daemon: pull access denied\n');
     if (a === 'compose ps -q player') return ok(this.playerImage ? 'pl1\n' : '');
     if (args[0] === 'inspect' && args.at(-1) === 'pl1') return ok(`${this.playerHealth}\n`);
@@ -302,7 +312,7 @@ let appStartEnvs: Array<Record<string, string> | null> = [];
 let saved: UpdateRun[];
 let lastUpdate: Update;
 
-async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace']; release?: UpdateDeps['release']; docker?: Runner } = {}) {
+async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> = {}, seams: { layers?: (ref: string) => Promise<Layer[]>; selfReplace?: UpdateDeps['selfReplace']; release?: UpdateDeps['release']; docker?: Runner; statfs?: UpdateDeps['statfs'] } = {}) {
   let clock = fake.now;
   const u = new Update(
     {
@@ -313,7 +323,7 @@ async function update(target: string, overrides: Partial<typeof DEFAULT_CONFIG> 
       save: async (r) => { saved.push(r); },
       now: () => new Date(clock),
       sleep: async (ms) => { clock += ms; },
-      statfs: fake.statfs,
+      statfs: seams.statfs ?? fake.statfs,
       layers: seams.layers ?? fake.layers,
       ...(seams.selfReplace ? { selfReplace: seams.selfReplace } : {}),
       ...(seams.release ? { release: seams.release } : {}),
@@ -539,6 +549,120 @@ describe('update state machine', () => {
     expect(await envNow()).toBe('0.7.0');
     // the old version was never started on the changed database
     expect(fake.appUp).toBe(false);
+  });
+
+  describe('progress and stalls', () => {
+    const states = (n: number, over: object = {}) => Array.from({ length: n }, () => ({ Status: 'running', Restarting: false, OOMKilled: false, ExitCode: 0, Error: '', ...over }));
+    const stallOf = () => saved.map((r) => r.stall).find((x) => x);
+
+    it('says what the new app does while it comes up, and clears the sub-state at the end', async () => {
+      fake.containers.set('app', { states: states(1), restarts: [0], logs: 'backing up the database to /backups before applying 1 migration(s)...\napplying 0046_cover_thumbs.sql...', calls: 0 });
+      const inner = fake.app.health;
+      let polls = 0;
+      fake.app.health = async () => (fake.appVersion === '0.8.0' && polls++ < 3 ? { ok: false, detail: 'the app does not answer' } : inner());
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(saved.some((r) => r.progress?.step === 'restart' && r.progress.message === 'waiting for the app: updating the database (0046_cover_thumbs.sql)')).toBe(true);
+      expect(saved.some((r) => r.progress?.step === 'verify')).toBe(true);
+      expect(run.progress).toBeNull();
+      expect(run.stall).toBeNull();
+    });
+
+    it('counts the workers on the new version', async () => {
+      const inner = fake.app.versions;
+      let polls = 0;
+      fake.app.versions = async () => {
+        const v = await inner();
+        if (v && fake.appVersion === '0.8.0' && fake.workers.size === 2 && polls++ < 2) return { ...v, workers: v.workers.slice(0, 1) };
+        return v;
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(saved.some((r) => r.progress?.message === 'workers: 1 of 2 on the new version')).toBe(true);
+    });
+
+    it('shows a crash loop within the stall time, with what to do, and rolls back at the timeout', async () => {
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('app', {
+        states: states(1, { Status: 'restarting', Restarting: true, ExitCode: 1 }),
+        restarts: Array.from({ length: 400 }, (_, i) => i),
+        logs: 'Error: Cannot find module /app/packages/api/dist/index.js',
+        calls: 0,
+      });
+      const run = await update('0.8.0', { healthTimeoutMs: 5 * 60_000 });
+      expect(run.status).toBe('rolled_back');
+      const stall = stallOf()!;
+      expect(stall.cause).toBe('crash_loop');
+      expect(stall.message).toMatch(/^app keeps stopping \(restarted \d+ times?, last exit code 1\): Error: Cannot find module/);
+      expect(stall.advice).toMatch(/docker compose logs app/);
+      // found once the step had not moved for 2 minutes, not later
+      const at = saved.find((r) => r.stall)!;
+      const found = Date.parse(at.log.find((l) => l.message.startsWith('no progress since'))!.at);
+      expect(found - Date.parse(stall.since)).toBeLessThanOrEqual(2 * 60_000 + 1000);
+      expect(run.log.some((l) => l.level === 'warn' && /no progress since .*app keeps stopping/.test(l.message))).toBe(true);
+    });
+
+    it('shows a full disk', async () => {
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('app', { states: states(1), restarts: [0], logs: 'waiting for the database', calls: 0 });
+      fake.containers.set('postgres', { states: states(1), restarts: [0], logs: 'PANIC:  could not write to file "pg_wal/xlogtemp.31": No space left on device', calls: 0 });
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000 });
+      expect(saved.some((r) => r.progress?.message === 'waiting for the app: no space left on device')).toBe(true);
+      expect(stallOf()).toMatchObject({ cause: 'disk_full', service: 'postgres', message: 'postgres has no space left on its disk' });
+      expect(run.status).toBe('rolled_back');
+    });
+
+    it('asks for patience while Postgres recovers', async () => {
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('postgres', { states: states(1), restarts: [0], logs: 'LOG:  database system was interrupted; last known up at 2026-10-16 09:58:01 UTC\nLOG:  redo starts at 0/2D4F1A8', calls: 0 });
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000 });
+      expect(saved.some((r) => r.progress?.message === 'waiting for the app: database recovering')).toBe(true);
+      expect(stallOf()).toMatchObject({ cause: 'db_recovering' });
+      expect(run.log.some((l) => l.level === 'info' && l.message.includes('Postgres is recovering'))).toBe(true);
+    });
+
+    it('keeps secrets from container logs out of the run', async () => {
+      fake.unhealthy.add('0.8.0');
+      fake.containers.set('app', {
+        states: states(1, { Status: 'restarting', Restarting: true, ExitCode: 1 }),
+        restarts: Array.from({ length: 400 }, (_, i) => i),
+        logs: 'Error: password authentication failed for postgres://tagave:Sup3rS3cret@postgres:5432/tagave (APP_SECRET=deadbeef)',
+        calls: 0,
+      });
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000 });
+      expect(stallOf()!.message).toContain('postgres://tagave:***@postgres:5432/tagave (APP_SECRET=***)');
+      const everything = JSON.stringify(saved);
+      expect(everything).not.toContain('Sup3rS3cret');
+      expect(everything).not.toContain('deadbeef');
+      expect(run.log.some((l) => l.message.includes('tagave:***@postgres'))).toBe(true);
+    });
+
+    it('takes the stall time from the config', async () => {
+      fake.unhealthy.add('0.8.0');
+      const run = await update('0.8.0', { healthTimeoutMs: 3 * 60_000, stallMs: 10 * 60_000 });
+      expect(run.status).toBe('rolled_back');
+      expect(stallOf()).toBeUndefined();
+    });
+
+    it('checks a download that does not move, and counts a filling disk as moving', async () => {
+      let free = 50 * GB;
+      const slowPull: Runner = async (args, opts) => {
+        if (args[0] === 'compose' && args[1] === 'pull' && opts?.env) {
+          await new Promise((r) => setTimeout(r, 120));
+          return fake.runner(args, opts);
+        }
+        return fake.runner(args, opts);
+      };
+      // stall time 0: the first check finds the download stuck
+      const stuck = await update('0.8.0', { stallMs: 0, stallCheckMs: 20 }, { docker: slowPull, statfs: async () => ({ bsize: 4096, bavail: free / 4096, blocks: (100 * GB) / 4096 }) });
+      expect(stuck.status).toBe('succeeded');
+      expect(stuck.log.some((l) => /no progress since .*downloading the images \(0 of 5 done\).*the download has not moved/.test(l.message))).toBe(true);
+      saved = [];
+      fake.appVersion = '0.7.0';
+      await writeFile(join(dir, '.env'), ENV);
+      const filling = await update('0.8.0', { stallMs: 0, stallCheckMs: 20 }, { docker: slowPull, statfs: async () => { free -= 50 * MB; return { bsize: 4096, bavail: free / 4096, blocks: (100 * GB) / 4096 }; } });
+      expect(filling.log.some((l) => /the download has not moved/.test(l.message))).toBe(false);
+    });
   });
 
   describe('one database dump per update', () => {
@@ -1116,6 +1240,34 @@ describe('an update with a signed manifest', () => {
     expect(await envNow()).toBe('0.7.0');
     expect(envGet(await readFile(join(dir, '.env'), 'utf8'), 'TAGAVE_DIGEST_APP')).toBeNull();
     await expect(stat(join(dir, 'release-manifest.json'))).rejects.toThrow();
+  });
+
+  it('shows the download image by image, in bytes, from the registry sizes and the pull output', async () => {
+    const d = pinning();
+    const hex = (ref: string) => [...ref].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7).toString(16).padStart(12, '0').slice(0, 12);
+    const layers = async (ref: string): Promise<Layer[]> => [
+      { digest: `sha256:${'ab'.repeat(6)}${'0'.repeat(52)}`, size: 100 * MB },
+      { digest: `sha256:${hex(ref)}${'0'.repeat(52)}`, size: 200 * MB },
+    ];
+    const docker: Runner = async (args, opts) => {
+      if (args[0] === 'pull') {
+        const own = hex(args[1]!);
+        opts?.onOutput?.(`${args[1]}: Pulling from x\n${'ab'.repeat(6)}: Pulling fs layer\n${own}: Pulling fs layer\n`);
+        opts?.onOutput?.(`${'ab'.repeat(6)}: Download complete\n${own}: Download complete\n`);
+      }
+      return d.docker(args, opts);
+    };
+    const run = await update('0.8.0', {}, { release: verified(), docker, layers });
+    expect(run.status).toBe('succeeded');
+    const seen = [...new Set(saved.filter((r) => r.progress?.step === 'preflight').map((r) => r.progress!.message).filter((m) => m.startsWith('downloading')))];
+    expect(seen[0]).toMatch(/^downloading image 1 of \d \(0 MB of 300 MB\)$/);
+    // sub-state changes are saved at most once a second (the clock stands still here): only the
+    // first one and those a log line carries, not every layer event
+    const downloadSaves = saved.filter((r) => r.progress?.step === 'preflight' && r.progress.message.startsWith('downloading')).length;
+    // 12 changes (4 images: the start and two layer events each); the log's own writes carry some
+    expect(downloadSaves).toBeLessThanOrEqual(6);
+    // the shared layer counts once: 100 MB + 4 × 200 MB in all
+    expect(seen.at(-1)).toBe('downloading image 4 of 4 (900 MB of 900 MB)');
   });
 
   it('refuses a TAGAVE_PLAYER_IMAGE override', async () => {

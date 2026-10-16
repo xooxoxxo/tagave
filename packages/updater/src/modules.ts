@@ -45,6 +45,7 @@ import { checkSpace, registryClient, type Layer, type StatfsLike } from './prefl
 import { ReleaseRefused, digestFor, moduleImages, pinnedRef, type VerifiedRelease } from './release.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
+import { redact } from './redact.js';
 import { unlink } from 'node:fs/promises';
 
 export const MODULE_STEP_LABELS: Record<'enable' | 'disable', Partial<Record<ModuleStepId, string>>> = {
@@ -274,7 +275,7 @@ export class ModuleOperation {
   }
 
   private log(level: UpdateLogLine['level'], message: string): void {
-    this.run.log.push({ at: this.now().toISOString(), level, message });
+    this.run.log.push({ at: this.now().toISOString(), level, message: redact(message) });
     if (this.run.log.length > MAX_LOG_LINES) this.run.log.splice(0, this.run.log.length - MAX_LOG_LINES);
     void this.persist();
   }
@@ -569,7 +570,7 @@ export class ModuleOperation {
     }
     if (failed.length) {
       this.end('data', 'failed');
-      this.run.reason = `${this.entry.name} is off, but deleting its data failed: ${failed.join(', ')}. Delete it with docker volume rm.`;
+      this.run.reason = redact(`${this.entry.name} is off, but deleting its data failed: ${failed.join(', ')}. Delete it with docker volume rm.`);
       this.log('warn', this.run.reason);
       return;
     }
@@ -606,12 +607,12 @@ export class ModuleOperation {
       if (issue) throw new Error(`the app did not answer healthy: ${issue}`);
       this.end('rollback', 'done');
       this.run.status = 'rolled_back';
-      this.run.reason = reason;
+      this.run.reason = redact(reason);
       this.log('warn', `rolled back: ${this.entry.name} is ${this.run.action === 'enable' ? 'off' : 'on'} as before`);
     } catch (err) {
       this.end('rollback', 'failed');
       this.run.status = 'rollback_failed';
-      this.run.reason = `${reason}. The roll back did not finish: ${(err as Error).message}`;
+      this.run.reason = redact(`${reason}. The roll back did not finish: ${(err as Error).message}`);
       this.log('error', `roll back failed: ${(err as Error).message}`);
       this.log('error', `by hand, in the install folder: put .env.bak back as .env if COMPOSE_PROFILES ${this.run.action === 'enable' ? 'lists' : 'lacks'} ${this.entry.profile}, then docker compose up -d --remove-orphans`);
     }
@@ -645,7 +646,7 @@ export class ModuleOperation {
       } else {
         this.end('rollback', 'skipped');
         this.run.status = 'failed';
-        this.run.reason = `${reason}. Nothing was changed.`;
+        this.run.reason = redact(`${reason}. Nothing was changed.`);
       }
     }
     this.run.finishedAt = this.now().toISOString();
@@ -665,6 +666,8 @@ export async function pullVerified(
   log: (level: 'info' | 'warn', message: string) => void,
   timeoutMs: number,
   registry?: string | null,
+  /** Each piece of docker pull's output as it comes (update.ts turns it into download progress). */
+  onOutput?: (chunk: string) => void,
 ): Promise<void> {
   const img = manifest.images[image];
   if (!img) throw new ReleaseRefused('format', `the ${manifest.version} manifest does not pin the image ${image}`);
@@ -672,7 +675,7 @@ export async function pullVerified(
   const ref = withRegistry(img.ref, registry);
   const pinned = `${ref}@${digest}`;
   log('info', `$ docker pull ${pinned}`);
-  const pull = await docker(['pull', pinned], { timeoutMs });
+  const pull = await docker(['pull', pinned], { timeoutMs, ...(onOutput ? { onOutput } : {}) });
   if (pull.code !== 0) {
     const text = `${pull.stderr}\n${pull.stdout}`;
     if (/not found|manifest unknown|does not exist/i.test(text)) throw new ReleaseRefused('digest', `${pinned} is not in its registry: the registry does not hold the image the release pins`);

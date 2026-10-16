@@ -9,6 +9,7 @@
  *   TAGAVE_UPDATER_PORT            listen port inside the network (default 8080)
  *   TAGAVE_UPDATER_HEALTH_TIMEOUT  seconds the new version may take to answer healthy (default 600)
  *   TAGAVE_UPDATER_MIN_FREE_MB     free space left on Docker's disk after an update's images and backups (default 3072)
+ *   TAGAVE_UPDATER_STALL_SECONDS   a step that does not move for this long is diagnosed and the cause shown (default 120)
  */
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -49,6 +50,7 @@ async function main(): Promise<void> {
       ...DEFAULT_CONFIG,
       healthTimeoutMs: num('TAGAVE_UPDATER_HEALTH_TIMEOUT', DEFAULT_CONFIG.healthTimeoutMs / 1000) * 1000,
       minFreeBytes: num('TAGAVE_UPDATER_MIN_FREE_MB', DEFAULT_CONFIG.minFreeBytes / 1024 ** 2) * 1024 ** 2,
+      stallMs: num('TAGAVE_UPDATER_STALL_SECONDS', DEFAULT_CONFIG.stallMs / 1000) * 1000,
     },
   });
   await service.load();
