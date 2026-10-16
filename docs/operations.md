@@ -86,6 +86,8 @@ On a split install, roll the music computer back too: copy its saved `.env` back
 
 Anything the app did between the update and the roll back (new scans, edits, accepted matches) is lost with the restore. Scans can be run again.
 
+**From 0.9 back to 0.8.** Always restore the database, as above; never start 0.8 on a database that 0.9 migrated: 0.8 knows only owners and viewers, and reads an editor or a listener as an owner. People invited after the update are gone with the restore. With the player on, the Navidrome accounts 0.9 made for each person stay in Navidrome unless its data was restored too; a phone app signed in with one of them keeps working. Remove them in Navidrome (Settings › Users) if they should not.
+
 ## Restore
 
 To restore any dump (one from `update`, or one from the `backup` command below) into an installer install:
