@@ -65,6 +65,10 @@ jobs:
 
       - run: pnpm --filter @tagave/db migrate
 
+      # packages/music-connections is generated from a tag of its own
+      # repository; core checks VENDORED.md's tag against its package.json.
+      - run: pnpm --filter music-connections test
+      - run: ./scripts/sync-music-connections.test.sh
       - run: pnpm --filter @tagave/core test
       - run: pnpm --filter @tagave/worker test
       - run: pnpm --filter @tagave/api test
@@ -170,7 +174,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: shellcheck
-        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh
+        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh scripts/sync-music-connections.sh scripts/sync-music-connections.test.sh
 
       # Portainer, Dokploy, Coolify and Unraid templates in deploy/templates/
       - name: App templates

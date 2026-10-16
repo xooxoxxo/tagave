@@ -1,14 +1,41 @@
 {
   "name": "music-connections",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Music Connections v1: link music apps by capability (critic scores, ratings, collection, listens, identity, wantlist suggestions).",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
-  "files": ["dist"],
-  "scripts": { "build": "tsc -b", "test": "vitest run", "typecheck": "tsc --noEmit -p tsconfig.test.json" },
-  "dependencies": { "zod": "^4.6.5" },
-  "devDependencies": { "@types/node": "^24.19.2", "typescript": "^7.0.2", "vitest": "^5.0.3" }
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.34.6",
+  "scripts": {
+    "build": "tsc -b",
+    "prepare": "tsc -b",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json"
+  },
+  "dependencies": {
+    "zod": "^3.25.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0 || ^24.19.2",
+    "typescript": "^5.9.0 || ^7.0.2",
+    "vitest": "^2.1.0 || ^5.0.3"
+  }
 }

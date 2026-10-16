@@ -1,5 +1,6 @@
 import { CAPABILITY_DATA, FeedPageSchema } from "./schemas.js";
 import type { Capability } from "./capabilities.js";
+import { MAX_FEED_LIMIT, MAX_FEED_PAGE_BYTES } from "./limits.js";
 
 export class NeedsReapproval extends Error {}
 /** A feed page exceeded the byte cap; the body was not fully read. */
@@ -9,7 +10,6 @@ export class FeedTooLarge extends Error {
 export type FeedItem = { key: string; op: "upsert" | "delete"; updated_at: string; data: unknown };
 export type PullDeps = { fetch: typeof fetch; getToken(): Promise<string>; refreshToken(): Promise<string>; sleep(ms: number): Promise<void> };
 export type PullResult = { cursor: string; applied: number; skipped: number; resnapshot: boolean; truncated: boolean };
-export const MAX_FEED_PAGE_BYTES = 5_000_000;
 
 /** Read a response body incrementally, aborting as soon as it exceeds `max` bytes. */
 async function readCappedText(res: Response, max: number): Promise<string> {
@@ -50,7 +50,7 @@ export async function pull(
   for (;;) {
     if (++pages > (opts.maxPages ?? 1000)) { truncated = true; break; }
     const u = new URL(opts.url);
-    u.searchParams.set("limit", String(opts.limit ?? 500));
+    u.searchParams.set("limit", String(opts.limit ?? MAX_FEED_LIMIT));
     if (cursor) u.searchParams.set("since", cursor);
     const res = await deps.fetch(u, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
 

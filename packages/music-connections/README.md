@@ -142,6 +142,31 @@ import {
 - `buildFeedPage(rows, limit)`: pass up to `limit + 1` change rows ordered by `(changed_at, id)`; it builds the page, computes `next` and sets `more`.
 - `pull(options, deps)`: consumer loop with paging, one token refresh on `401`, re-snapshot on `410`, `Retry-After` handling, per-item validation and a page cap (`truncated` is set when the cap is hit). `NeedsReapproval` is thrown when the token family is dead.
 
+### Protocol rules
+
+The rules both sides of a link enforce, as small pure functions, so every service applies the same ones:
+
+- Scopes: `providerScopes(provides)` lists what a provider offers. `parseScopeRequest(scope, offered)` checks an authorize request: only offered scopes and `offline_access`, no scope twice, `offline_access` only alongside a capability scope, `openid` refused. On the client side, `linkScopes(remote, consumes)`, `pullableCapabilities` and `availableUngranted`.
+- Hosts: `isAllowedRedirect(uri, trustedHosts)` (http(s) on a private, CGNAT or loopback host, or https on a trusted host; canonical form only), `isAllowedRegistration(redirectUris, trustedHosts)` (exactly one allowed redirect URI), `isAllowedRemote(uri, trustedHosts)` (also a DNS name, checked on what it resolves to) and `parseTrustedHosts(setting)`.
+- Resolved addresses: `classifyAddress(ip)` (`blocked`, `loopback`, `private` or `public`), `addressAllowed(host, ip, trustedName)` and `checkResolvedAddresses(url, addresses, trustedHosts)`, over addresses the caller already resolved.
+- Same origin: `remoteOrigin(input, trustedHosts)`, `pinToOrigin(url, origin, trustedHosts)`, `endpointsOf(manifest, origin, trustedHosts)` (every endpoint a manifest names must sit on its origin) and `revokeUrlFor(tokenUrl, origin, trustedHosts)`.
+- Feeds: `parseSince(since, { id })` (400 for a malformed cursor, 410 past the tombstones) and `feedLimit(limit)`.
+- Input shapes: `bearerToken(header)`, `isPkceChallenge`, `isPkceVerifier`, `isLookupLength`, and the limits as named constants (`MAX_TOKEN_LENGTH`, `MAX_CURSOR_LENGTH`, `MAX_FEED_LIMIT`, `MAX_MANIFEST_BYTES`, `TOMBSTONE_DAYS` and the rest).
+- `readCapped(response, maxBytes)` reads a body with a byte cap. Every rule throws `LinkError`, whose message is a fixed string safe to log.
+
+### Node: the pinned transport
+
+```ts
+import { pinnedFetch, resolveTarget, nodeTransport } from "music-connections/node";
+
+const res = await pinnedFetch(url, { headers: { accept: "application/json" } }, {
+  trustedPublicHosts: parseTrustedHosts(process.env.MC_TRUSTED_PUBLIC_HOSTS),
+  userAgent: userAgentFor("example-service", "1.0.0"),
+});
+```
+
+`pinnedFetch` checks the URL against `isAllowedRemote`, resolves the host once, checks every address, then connects to that exact address on a fresh socket (Host header and TLS server name unchanged), so DNS rebinding cannot swap the target after the check. A 3xx answer is refused, and every request has a timeout. Pass `resolver` and `transport` to test without a network.
+
 ### Run the conformance suite
 
 `runConformance` checks a running server against the rules above: the manifest parses; each provided feed answers `401` without a token and a valid page with one; an invalid `since` cursor gets `400`; following `next` (500 items per page) advances and terminates; the page walk stops after 50 pages and reports a note rather than a failure if data is still advancing; and the schema endpoint returns HTTP 200 with a JSON Schema object.

@@ -1,5 +1,6 @@
 import { z } from "zod/v4";
 import { isCapability, type Capability } from "./capabilities.js";
+import { MAX_CURSOR_LENGTH, MAX_FEED_LIMIT, MAX_URL_LENGTH } from "./limits.js";
 
 export const isHttpUrlOrPath = (u: string): boolean => {
   if (/^\/(?!\/)/.test(u)) {
@@ -17,7 +18,7 @@ export const isHttpUrlOrPath = (u: string): boolean => {
     return false;
   }
 };
-const httpUrl = z.string().max(2048).refine(isHttpUrlOrPath, "http(s) URL with host, or absolute path only");
+const httpUrl = z.string().max(MAX_URL_LENGTH).refine(isHttpUrlOrPath, "http(s) URL with host, or absolute path only");
 const iso = z.string().datetime({ offset: true });
 const score10 = z.number().min(0).max(10);
 const shortText = (n: number) => z.string().max(n);
@@ -85,7 +86,7 @@ export const FeedPageSchema = <T extends z.ZodTypeAny>(data: T) => z.object({
   items: z.array(z.discriminatedUnion("op", [
     z.object({ key: shortText(256), op: z.literal("upsert"), updated_at: iso, data }),
     z.object({ key: shortText(256), op: z.literal("delete"), updated_at: iso, data: z.null() }),
-  ])).max(500),
-  next: z.string().max(512),
+  ])).max(MAX_FEED_LIMIT),
+  next: z.string().max(MAX_CURSOR_LENGTH),
   more: z.boolean(),
 });
