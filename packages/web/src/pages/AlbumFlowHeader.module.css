@@ -115,7 +115,7 @@
   transform-origin: 50% 0%;
   opacity: 0;
   pointer-events: none;
-  transition: opacity .2s ease, transform .09s ease-out, background .2s ease;
+  transition: opacity .2s ease, transform .09s ease-out, background .2s ease, right .34s var(--rise);
 }
 .midKey:hover:not(:disabled) { background: linear-gradient(180deg, var(--key-hi), var(--key-lo)); }
 .docked .midKey { opacity: 1; pointer-events: auto; }
@@ -133,6 +133,60 @@
 .titleA { font: 500 13px/1.2 var(--font-body); color: var(--dew); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .titleB { font: 400 17px/1.2 var(--font-display); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+
+/* Rule 8 amended: Play docks as a fourth key, left of Maintenance, once the
+   album's strip has passed under the header. 64px wide on a phone (the end
+   keys stay 72px, so the back and Maintenance icons never move); on a
+   desktop it carries its word, as the strip's Play does. */
+.playKey {
+  position: absolute;
+  z-index: 8;
+  top: 0;
+  right: 72px;
+  width: 64px;
+  height: 64px;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  pointer-events: none;
+  color: var(--dew-ink);
+  font: 600 14px / 1 var(--font-body);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--dew-hi) 70%, transparent), inset 0 -1px 0 rgba(var(--key-shade), .3), inset 1px 0 0 rgba(var(--key-shade), .2);
+  opacity: 0;
+  transform: translateY(-64px);
+  transform-origin: 50% 0;
+  transition: transform .34s var(--rise), opacity .18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.playKey svg { width: 20px; height: 20px; flex: none; }
+.playText { display: none; }
+.playDocked .playKey { opacity: 1; transform: none; pointer-events: auto; }
+.playDocked .midKey { right: 136px; }
+.playKey:hover:not(:disabled) { color: var(--dew-ink); background: linear-gradient(180deg, var(--dew) 0%, var(--dew) 45%, var(--dew-lo) 100%); }
+.playDocked .playKey:active:not(:disabled), .playDocked .playKey.pressed:not(:disabled) {
+  transform: perspective(260px) rotateX(-6deg);
+  background: linear-gradient(180deg, var(--dew-lo), var(--dew-press));
+}
+.playKey:disabled {
+  cursor: not-allowed;
+  color: var(--ink-3);
+  background: linear-gradient(180deg, var(--key-hi), var(--key-lo));
+  box-shadow: inset 1px 0 0 rgba(var(--key-shade), .18), inset 0 -1px 0 rgba(var(--key-shade), .22), inset 0 1px 0 var(--key-sheen-docked);
+}
+.playKey:disabled svg { opacity: .6; }
+.playKey[aria-busy="true"] { cursor: progress; }
+.playKey:focus-visible { outline: 2px solid var(--dew-ink); outline-offset: -4px; }
+.playKey:disabled:focus-visible { outline-color: var(--dew); }
+
 /* Desktop: the docked strip takes the sidebar's surface so the top of the
    page reads as one band, and the wide middle key barely tips when pressed. */
 @media (min-width: 901px) {
@@ -145,11 +199,16 @@
   .docked .midKey { box-shadow: inset 0 -1px 0 var(--line); }
   .docked .backKey { box-shadow: inset -1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
   .docked .maintKey { box-shadow: inset 1px 0 0 var(--line), inset 0 -1px 0 var(--line); }
+  .playKey { width: 132px; }
+  .playText { display: inline; }
+  .playDocked .midKey { right: 204px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .key, .midKey, .title, .cavity { transition: none !important; }
+  .playKey { transition: none !important; }
 }
 @media (forced-colors: active) {
-  .key, .midKey { border: 1px solid ButtonText; }
+  .key, .midKey, .playKey { border: 1px solid ButtonText; }
+  .playKey:disabled { border-color: GrayText; color: GrayText; }
 }

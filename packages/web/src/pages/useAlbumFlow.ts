@@ -18,6 +18,8 @@ export interface AlbumFlowRefs {
   tl: RefObject<HTMLElement | null>;
   caret: RefObject<SVGPathElement | null>;
   tracks: RefObject<HTMLElement | null>;
+  /** the action strip, when there is one: Play docks into the header once it has passed under it */
+  strip?: RefObject<HTMLElement | null>;
 }
 
 /** Phone layout: the first screen is the album, TRACKLIST resting at its bottom. */
@@ -26,6 +28,8 @@ const reducedMotion = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: 
 
 export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
   const [docked, setDocked] = useState(false);
+  const [playDocked, setPlayDocked] = useState(false);
+  const playDockedRef = useRef(false);
   const [glide, setGlide] = useState({ x: -64, y: 51 });
   /** the scroll pane's height, for the hero's floor and the filler */
   const [pane, setPane] = useState({ height: 0, phone: false, tlHeight: 0, tracksHeight: 0 });
@@ -47,6 +51,10 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
       dockedRef.current = s.docked;
       setDocked(s.docked);
     }
+    if (s.playDocked !== playDockedRef.current) {
+      playDockedRef.current = s.playDocked;
+      setPlayDocked(s.playDocked);
+    }
   }, [refs]);
 
   const measure = useCallback(() => {
@@ -61,6 +69,7 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
       namesTop: top(names.current),
       // TRACKLIST follows the hero; measured from the hero, since a stuck label is not where it flows
       tlTop: top(hero.current) + hero.current.offsetHeight,
+      stripBottom: refs.strip?.current ? top(refs.strip.current) + refs.strip.current.offsetHeight : null,
     };
     // where the lines meet the header, relative to the title's spot in the middle key
     const mid = root.current.querySelector<HTMLElement>('[data-album-header] [data-top-key]');
@@ -123,5 +132,5 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
     glideTo(t - HEADER - (refs.tl.current?.offsetHeight ?? 0));
   }, [glideTo, refs]);
 
-  return { docked, glide, pane, toTop, toTracklist, toElement, measure };
+  return { docked, playDocked, glide, pane, toTop, toTracklist, toElement, measure };
 }

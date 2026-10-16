@@ -1,8 +1,9 @@
 /**
  * Album page (spec BRW-2), laid out as the album page flow (vault spec
  * "tagave - Album Page Flow", approved prototype album-flow-prototype.html):
- * the album first (cover, artist above album, two quiet lines of details,
- * Play) with one TRACKLIST label resting at the bottom of a phone's first
+ * the album first (cover, artist above album, "year · label", the readout
+ * rail, genres, then the transport strip of AlbumActionStrip, whose Play
+ * docks into the header once it scrolls under it) with one TRACKLIST label resting at the bottom of a phone's first
  * screen, then the tracks. Back and Maintenance are keys that never move; the header
  * docks around them (AlbumFlowHeader, useAlbumFlow). Upkeep stays out of
  * sight unless something needs a decision (see utils/albumAttention.ts);
@@ -47,13 +48,14 @@ import { AlbumAttention } from './AlbumAttention';
 import { CandidateTable, TrackComparison } from './AlbumMatchTable';
 import { STATE_LABEL, artPollMs, dur } from './albumFormat';
 import { AlbumFlowHeader } from './AlbumFlowHeader';
-import { AlbumPlayRow } from './AlbumPlayRow';
+import { AlbumActionStrip, PLAY_NOTE_ID, useStripLayout } from './AlbumActionStrip';
+import { albumActionContext, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
-import { albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
+import { albumRail, albumSummary, caretPath, countryName, fillerHeight, formatLine, formatReleased, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
-import { scanWaitLine } from '../player/logic';
+import { percentText, scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
 const TABS: ReadonlyArray<readonly [AlbumTab, string]> = [
@@ -249,7 +251,9 @@ export function AlbumDetailPage() {
     tl: { current: null as HTMLElement | null },
     caret: { current: null as SVGPathElement | null },
     tracks: { current: null as HTMLElement | null },
+    strip: { current: null as HTMLElement | null },
   }), []);
+  const stripLayout = useStripLayout();
   const footRef = useRef<HTMLDivElement>(null);
   const flow = useAlbumFlow(flowRefs, !!album);
   // a section opened from elsewhere on the page (or a ?tab link) is brought into view;
@@ -807,14 +811,20 @@ export function AlbumDetailPage() {
     ...(i > 0 ? [<span key={`dot${i}`} className={styles.dot} aria-hidden="true"> · </span>] : []),
     <span key={`part${i}`} className={styles.part}>{part}</span>,
   ]);
-  const lineOne: ReactNode[] = [
-    ...summary.when,
-    ...(ownsPhysical ? [<Link to="/collection" title="In your physical collection" className={styles.physicalLink}>{`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}</Link>] : []),
-  ];
+  // "2012 · Frontiers Records", then the readout rail (tracks | discs | minutes | format)
+  const lineOne: ReactNode[] = summary.when;
+  const rail = albumRail({
+    totalDurationMs: album.totalDurationMs,
+    trackCount: album.trackCount,
+    discCount: album.discCount,
+    isCueImage: album.isCueImage,
+    formats: album.formats,
+    tracks: album.tracks,
+  });
   const artistLine = albumArtist ?? 'Unknown artist';
-  const playVariant = items.some((i) => i.tone === 'attention') ? 'secondary' as const : 'primary' as const;
   const albumRef = { albumId, title: title ?? 'Untitled', artist: artistLine, coverUrl: album.coverUrl };
-  const manageMenu = <Menu label={maintenance ? 'Manage this album' : 'More for this album'} heading={maintenance ? 'Manage' : undefined} items={menuItems} {...(maintenance ? {} : { size: 'sm' as const })} />;
+  // in Maintenance the menu lives on the state line; otherwise it is the strip's ⋯ key
+  const manageMenu = <Menu label="Manage this album" heading="Manage" items={menuItems} />;
   // Play: on as soon as the player can stream something here; disabled, with
   // a quiet line, while it cannot (not answering, its scan has not reached
   // the album, the files are missing). An album the player simply has not
@@ -829,6 +839,21 @@ export function AlbumDetailPage() {
               : avail.reason === 'not_scanned' ? 'Not on the player yet' : null)
         : null;
   const playDisabled = !canPlay || (!!avail && avail.playable === 0 && (!!playability.scan?.scanning || avail.reason === 'no_file' || avail.reason === 'cue'));
+  // waiting for the player's first scan, the key itself shows how far it got ("34 %")
+  const scan = playability.scan;
+  const playWaitText = playDisabled && scan?.scanning && scan.firstScan && scan.percent != null ? percentText(scan.percent) : null;
+  const playState: AlbumPlayState | null = !playerInstalled ? null : {
+    mode: playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
+      : playingHere && playStatus === 'paused' ? 'resume' : 'play',
+    loading: queueLoading,
+    disabled: playDisabled,
+    waitText: playWaitText,
+    note: playNote,
+    onPlay: () => void playAlbum(albumRef),
+    onToggle: togglePlayback,
+  };
+  // the strip's slots: what this role can do here, from its capabilities
+  const actionContext = albumActionContext({ canCare, playerInstalled, maintenance, menuItems: menuItems.length });
   // Settings › Appearance can turn the short-album artwork off
   const showFiller = shortAlbumArt && wantsFiller(album.tracks.length);
   const tracksPanel = tab === 'tracks';
@@ -846,6 +871,9 @@ export function AlbumDetailPage() {
           onTop={flow.toTop}
           maintenance={maintenance}
           onToggleMaintenance={canCare ? () => setMaintenance(!maintenance) : undefined}
+          play={playState}
+          playDocked={flow.playDocked}
+          playNoteId={PLAY_NOTE_ID}
         />
 
         <section
@@ -876,26 +904,33 @@ export function AlbumDetailPage() {
               </span>
               <h1 ref={(el) => { flowRefs.nameB.current = el; }} className={styles.nameB} dir="auto">{title}</h1>
             </div>
-            {/* the album's details: two quiet lines under the names (all of them in About) */}
+            {/* the album's details: when and who, the readout rail, genres and your copy as chips (all of them in About) */}
             <div className={styles.summary} data-album-summary="">
               {lineOne.length > 0 && <p className={styles.summaryLine}>{summaryLine(lineOne)}</p>}
-              {summary.what.length > 0 && <p className={styles.summaryLine}>{summaryLine(summary.what)}</p>}
-              {genreLabels.length > 0 && (
-                <div className={styles.genres}>{genreLabels.map((g) => <span key={g}>{g}</span>)}</div>
+              {rail.length > 0 && (
+                <dl className={styles.rail} data-album-rail="">
+                  {rail.map((c) => <div key={c.key}><dt>{c.label}</dt><dd title={c.value}>{c.value}</dd></div>)}
+                </dl>
+              )}
+              {(genreLabels.length > 0 || ownsPhysical) && (
+                <div className={styles.genres}>
+                  {genreLabels.map((g) => <span key={g} className={styles.chip}>{g}</span>)}
+                  {ownsPhysical && (
+                    <Link to="/collection" title="In your physical collection" className={`${styles.chip} ${styles.ownChip}`}>
+                      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10" cy="10" r="7" /><circle cx="10" cy="10" r="2" /></svg>
+                      {`Your ${physicalFormats || 'copy'}`}{physicalPending ? ' (adding to Discogs…)' : ''}
+                    </Link>
+                  )}
+                </div>
               )}
             </div>
-            {/* Play is the view's primary, unless a decision above the tracks already holds it (DESIGN.md: one primary per view) */}
-            <AlbumPlayRow
-              mode={!playerInstalled ? null
-                : playingHere && (playStatus === 'playing' || playStatus === 'buffering' || playStatus === 'loading') ? 'pause'
-                  : playingHere && playStatus === 'paused' ? 'resume' : 'play'}
-              variant={playVariant}
-              loading={queueLoading}
-              disabled={playDisabled}
-              note={playNote}
-              onPlay={() => void playAlbum(albumRef)}
-              onToggle={togglePlayback}
-              menu={maintenance || menuItems.length === 0 ? null : manageMenu}
+            {/* the transport strip: Play and the album's actions, drawn from the slot list */}
+            <AlbumActionStrip
+              layout={stripLayout}
+              context={actionContext}
+              play={playState}
+              menu={maintenance || menuItems.length === 0 ? null : { label: 'More for this album', items: menuItems }}
+              stripRef={(el) => { flowRefs.strip.current = el; }}
             />
           </div>
 

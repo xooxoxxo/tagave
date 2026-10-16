@@ -7,8 +7,15 @@
  * border) and three touching keys fill it: back | artist + album |
  * Maintenance. Pressed, a key hinges at its top edge and its bottom tips in,
  * like a cassette deck's transport keys.
+ *
+ * Rule 8 amended (2026-10-16): once the album's action strip has scrolled
+ * under the header, Play docks as a fourth key between the title and
+ * Maintenance: back | artist + album | ▶ | Maintenance. It follows the
+ * strip's Play (disabled while the player waits, Pause while playing).
  */
 import type { CSSProperties, PointerEvent } from 'react';
+import { PauseIcon, PlayIcon } from '../components/ui';
+import type { AlbumPlayState } from './albumActions';
 import styles from './AlbumFlowHeader.module.css';
 
 export interface AlbumFlowHeaderProps {
@@ -26,6 +33,12 @@ export interface AlbumFlowHeaderProps {
   maintenance: boolean;
   /** Absent for a role without library care: the key keeps its place, unseen. */
   onToggleMaintenance?: (() => void) | undefined;
+  /** the album's Play, when a player is installed: it docks here once the strip is under the header */
+  play?: AlbumPlayState | null | undefined;
+  /** the action strip has scrolled under the header */
+  playDocked?: boolean;
+  /** the id of the line saying why Play waits */
+  playNoteId?: string | undefined;
 }
 
 /** Touch shows the press too (:active is unreliable on some touch browsers). */
@@ -42,10 +55,14 @@ export function pressHandlers(pressedClass: string) {
 
 export const maintenanceKeyLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 'Turn on Maintenance');
 
-export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBack, onTop, topLabel = 'Back to the top of the album', maintenance, onToggleMaintenance }: AlbumFlowHeaderProps) {
+export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBack, onTop, topLabel = 'Back to the top of the album', maintenance, onToggleMaintenance, play = null, playDocked = false, playNoteId }: AlbumFlowHeaderProps) {
   const press = pressHandlers(styles.pressed!);
+  const playIn = !!play && docked && playDocked;
+  const playing = play?.mode === 'pause';
+  const playWaits = !!play?.disabled && play.mode === 'play';
+  const playLabel = playing ? 'Pause' : play?.mode === 'resume' ? 'Resume' : 'Play';
   return (
-    <div className={`${styles.header} ${docked ? styles.docked : ''}`} data-album-header="" data-docked={docked ? '' : undefined}>
+    <div className={`${styles.header} ${docked ? styles.docked : ''} ${playIn ? styles.playDocked : ''}`} data-album-header="" data-docked={docked ? '' : undefined} data-play-docked={playIn ? '' : undefined}>
       <div className={styles.box}>
         <div className={styles.cavity} aria-hidden="true" />
         {backLabel && (
@@ -68,6 +85,25 @@ export function AlbumFlowHeader({ docked, artist, title, glide, backLabel, onBac
             <span className={styles.titleB} dir="auto">{title}</span>
           </span>
         </button>
+        {play && (
+          <button
+            type="button"
+            className={styles.playKey}
+            data-header-play=""
+            aria-label={playLabel}
+            title={playLabel}
+            tabIndex={playIn ? 0 : -1}
+            aria-hidden={playIn ? undefined : true}
+            disabled={playWaits}
+            aria-busy={play.loading || undefined}
+            aria-describedby={playWaits && playNoteId && play.note ? playNoteId : undefined}
+            onClick={play.loading ? undefined : play.mode === 'play' ? play.onPlay : play.onToggle}
+            {...press}
+          >
+            {playing ? <PauseIcon /> : <PlayIcon />}
+            <span className={styles.playText}>{playWaits && play.waitText ? play.waitText : playLabel}</span>
+          </button>
+        )}
         <button
           type="button"
           className={`${styles.key} ${styles.maintKey} ${maintenance ? styles.on : ''}`}

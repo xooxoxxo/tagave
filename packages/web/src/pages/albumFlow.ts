@@ -35,6 +35,8 @@ export interface FlowGeometry {
   namesTop: number;
   /** TRACKLIST's top edge (in flow, before it sticks) */
   tlTop: number;
+  /** the action strip's bottom edge; absent without a strip */
+  stripBottom?: number | null;
 }
 
 export interface FlowState {
@@ -48,6 +50,8 @@ export interface FlowState {
   docked: boolean;
   /** 0 a wide caret, 1 a flat separator (TRACKLIST stuck) */
   caretProgress: number;
+  /** the strip has passed under the docked header: Play docks there as a fourth key (rule 8 amended) */
+  playDocked: boolean;
 }
 
 export function flowState(y: number, geo: FlowGeometry, header = HEADER): FlowState {
@@ -62,6 +66,7 @@ export function flowState(y: number, geo: FlowGeometry, header = HEADER): FlowSt
     albumShift: albumTop - B_TOP,
     docked: t >= 1,
     caretProgress: clamp01(y / Math.max(1, geo.tlTop - header)),
+    playDocked: t >= 1 && geo.stripBottom != null && y > geo.stripBottom - header,
   };
 }
 
@@ -319,4 +324,37 @@ export function albumSummary(a: AlbumFactsInput): { when: string[]; what: string
     what: [totalLength(a.totalDurationMs), count, (a.discCount ?? 1) > 1 ? `${a.discCount} discs` : null, shortFormat(a.tracks, a.formats)]
       .filter((v): v is string => !!v),
   };
+}
+
+export interface RailCell {
+  key: 'tracks' | 'discs' | 'minutes' | 'format';
+  /** the number or name, set large */
+  value: string;
+  /** the small letter-spaced word under it */
+  label: string;
+}
+
+/**
+ * The readout rail under "2012 · Frontiers Records" (direction B, 2026-10-16):
+ * tracks | discs | minutes | format, each a large value over a small word.
+ * Discs only when there is more than one; the format splits into its codec
+ * (the value) and its detail ("320 kbps", "24-bit/96 kHz") as the word.
+ */
+export function albumRail(a: Pick<AlbumFactsInput, 'totalDurationMs' | 'trackCount' | 'discCount' | 'isCueImage' | 'formats' | 'tracks'>): RailCell[] {
+  const cells: RailCell[] = [];
+  if (a.trackCount != null) {
+    cells.push({ key: 'tracks', value: String(a.trackCount), label: a.isCueImage ? (a.trackCount === 1 ? 'audio file' : 'audio files') : a.trackCount === 1 ? 'track' : 'tracks' });
+  }
+  if ((a.discCount ?? 1) > 1) cells.push({ key: 'discs', value: String(a.discCount), label: 'discs' });
+  if (a.totalDurationMs != null && a.totalDurationMs > 0) {
+    const minutes = Math.max(1, Math.round(a.totalDurationMs / 60000));
+    cells.push({ key: 'minutes', value: String(minutes), label: minutes === 1 ? 'minute' : 'minutes' });
+  }
+  const format = shortFormat(a.tracks, a.formats);
+  if (format) {
+    // "MP3 320 kbps" → MP3 over "320 kbps"; mixed codecs ("MP3 / FLAC") over "format"
+    const m = format.includes(' / ') ? null : format.match(/^(\S+)\s+(.+)$/);
+    cells.push(m ? { key: 'format', value: m[1]!, label: m[2]! } : { key: 'format', value: format, label: 'format' });
+  }
+  return cells;
 }

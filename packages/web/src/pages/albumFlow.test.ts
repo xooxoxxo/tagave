@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   A_HDR, A_REST, B_HDR, B_REST, B_TOP, HEADER,
-  albumSummary, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, shortFormat, wantsFiller,
+  albumRail, albumSummary, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, seededRandom, shortFormat, wantsFiller,
 } from './albumFlow';
 import type { DetailTrack } from './albumDetailTypes';
 
@@ -200,5 +200,34 @@ describe('album flow: the details', () => {
     expect(shortFormat([], ['mp3'])).toBe('MP3');
     expect(shortFormat([track(), track({ codec: 'MPEG-4/AAC', lossless: false })], [])).toBe('FLAC / AAC');
     expect(shortFormat([track({ codec: 'Vorbis I', lossless: false, bitrateKbps: null })], [])).toBe('Vorbis');
+  });
+});
+
+describe('album flow: the readout rail', () => {
+  it('tracks | discs | minutes | format, the format split into codec and detail', () => {
+    const rail = albumRail({ totalDurationMs: 118 * 60000, trackCount: 22, discCount: 2, isCueImage: false, formats: ['mp3'], tracks: [track({ codec: 'MPEG 1 Layer 3', lossless: false, bitrateKbps: 320 })] });
+    expect(rail).toEqual([
+      { key: 'tracks', value: '22', label: 'tracks' },
+      { key: 'discs', value: '2', label: 'discs' },
+      { key: 'minutes', value: '118', label: 'minutes' },
+      { key: 'format', value: 'MP3', label: '320 kbps' },
+    ]);
+  });
+
+  it('one disc has no discs cell; mixed codecs read as the format; a CUE image counts audio files', () => {
+    const rail = albumRail({ totalDurationMs: null, trackCount: 1, discCount: 1, isCueImage: true, formats: [], tracks: [track(), track({ codec: 'MPEG-4/AAC', lossless: false })] });
+    expect(rail).toEqual([{ key: 'tracks', value: '1', label: 'audio file' }, { key: 'format', value: 'FLAC / AAC', label: 'format' }]);
+  });
+});
+
+describe('album flow: Play docks into the header (rule 8 amended)', () => {
+  const withStrip = { ...geo, stripBottom: 640 };
+  it('only once the header has docked and the strip has passed under it', () => {
+    expect(flowState(dockAt, withStrip).playDocked).toBe(false);
+    expect(flowState(withStrip.stripBottom - HEADER, withStrip).playDocked).toBe(false);
+    expect(flowState(withStrip.stripBottom - HEADER + 1, withStrip).playDocked).toBe(true);
+  });
+  it('never without a strip', () => {
+    expect(flowState(5000, geo).playDocked).toBe(false);
   });
 });

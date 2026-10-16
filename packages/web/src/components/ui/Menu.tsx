@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { IconButton, type ButtonSize } from './Button';
 import styles from './Menu.module.css';
@@ -28,6 +28,13 @@ export interface MenuProps {
   /** the trigger's size: md (48px) by default, sm (36px; 44px on touch) beside a small button */
   size?: ButtonSize;
   className?: string;
+  /**
+   * A plain trigger styled by the caller instead of the clear bubble (the
+   * album page's transport strip draws ⋯ as one of its keys).
+   */
+  triggerClassName?: string;
+  /** extra props for that plain trigger (pointer handlers for a press feel) */
+  triggerProps?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'onKeyDown' | 'className' | 'type'>;
 }
 
 export function MoreIcon() {
@@ -46,7 +53,7 @@ export function MoreIcon() {
  * and closes when the page scrolls under it. It renders into <body>, so no
  * stacking context on the page can cover it.
  */
-export function Menu({ label, items, heading, icon, size, className }: MenuProps) {
+export function Menu({ label, items, heading, icon, size, className, triggerClassName, triggerProps }: MenuProps) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   // phones: a sheet from the bottom edge, like a music app's track menu
@@ -130,22 +137,43 @@ export function Menu({ label, items, heading, icon, size, className }: MenuProps
     item.onSelect?.();
   };
 
+  const toggleOpen = () => (open ? close() : setOpen(true));
+  const openByArrow = (e: React.KeyboardEvent) => {
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOpen(true); }
+  };
+
   return (
     <span className={[styles.anchor, className].filter(Boolean).join(' ')}>
-      <IconButton
-        ref={trigger}
-        label={label}
-        {...(size ? { size } : {})}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? id : undefined}
-        onClick={() => (open ? close() : setOpen(true))}
-        onKeyDown={(e) => {
-          if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); setOpen(true); }
-        }}
-      >
-        {icon ?? <MoreIcon />}
-      </IconButton>
+      {triggerClassName ? (
+        <button
+          {...triggerProps}
+          ref={trigger}
+          type="button"
+          className={triggerClassName}
+          aria-label={label}
+          title={label}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={toggleOpen}
+          onKeyDown={openByArrow}
+        >
+          {icon ?? <MoreIcon />}
+        </button>
+      ) : (
+        <IconButton
+          ref={trigger}
+          label={label}
+          {...(size ? { size } : {})}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? id : undefined}
+          onClick={toggleOpen}
+          onKeyDown={openByArrow}
+        >
+          {icon ?? <MoreIcon />}
+        </IconButton>
+      )}
       {open && typeof document !== 'undefined' && createPortal(
         <>
         {sheet && <div className={styles.scrim} aria-hidden="true" />}
