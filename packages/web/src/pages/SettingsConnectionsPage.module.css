@@ -1,0 +1,162 @@
+/* Settings › Connections: the rhythm of Settings › Playback; cards are flat with hairlines. */
+.description {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.9375rem;
+}
+
+.subTitle {
+  margin: var(--space-lg) 0 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.muted {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+.errorText {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  min-width: 0;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 34rem;
+  min-width: 0;
+}
+
+.linkBack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.address {
+  font: var(--type-mono);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.links {
+  list-style: none;
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.cardTitle {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.service {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.remote {
+  font: var(--type-mono);
+  font-size: 0.8125rem;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.caps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--line);
+}
+
+.cap {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px var(--space-md);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.9375rem;
+  color: var(--ink);
+}
+
+.capOn {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.capOff {
+  color: var(--ink-3);
+  font-size: 0.875rem;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-xl);
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.meta dt {
+  color: var(--ink-3);
+}
+
+.meta dd {
+  margin: 0;
+  color: var(--ink);
+}
