@@ -31,3 +31,7 @@ export async function makeDb(databaseUrl: string) {
   };
 }
 export * from './facetLog.js';
+export * from './identityFills.js';
+export * from './mcUnplug.js';
+export * from './identifyQueue.js';
+export * from './wantlist.js';

@@ -1159,6 +1159,13 @@ export const wantlistItems = pgTable(
     dateAdded: timestamp('date_added', { withTimezone: true }),
     removedAt: timestamp('removed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // 0050, owned by the wantlist (@tagave/db › wantlist.ts, wantlist.add): an
+    // entry for an album with no release group here carries its names, and origin
+    // records the module that added it (mc:<link id>)
+    releaseGroupMbid: varchar('release_group_mbid', { length: 36 }),
+    title: varchar({ length: 300 }),
+    artist: varchar({ length: 300 }),
+    origin: text(),
   },
   (table) => ({
     libraryIdx: index('idx_wantlist_items_library').on(table.libraryId),
@@ -1724,6 +1731,9 @@ export const mcLinks = pgTable(
     requestedScopes: text('requested_scopes').array().notNull().default(sql`'{}'`),
     cursors: jsonb().notNull().default(sql`'{}'::jsonb`),
     handlerVersions: jsonb('handler_versions').notNull().default(sql`'{}'::jsonb`),
+    // 0050: a snapshot in progress per capability; parked rows dropped over the cap
+    snapshotSince: jsonb('snapshot_since').notNull().default(sql`'{}'::jsonb`),
+    parkedDropped: integer('parked_dropped').notNull().default(0),
     state: text().notNull().default('active'),
     lastSyncAt: tstz('last_sync_at'),
     lastAttemptAt: tstz('last_attempt_at'),
@@ -1740,6 +1750,80 @@ export const mcLinks = pgTable(
     userRemote: uniqueIndex('mc_links_user_id_remote_url_key').on(table.userId, table.remoteUrl),
     dueIdx: index('idx_mc_links_due').on(table.nextAttemptAt).where(sql`state = 'active'`),
     stateCheck: check('mc_links_state_check', sql`state in ('active', 'needs_reapproval', 'revoked')`),
+  })
+);
+
+// The gap-fill ledger (0050, core): a core fact a module filled; @tagave/db › identityFills.ts.
+export const identityFills = pgTable(
+  'identity_fills',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    kind: text().notNull(),
+    entityId: uuid('entity_id').notNull().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    field: text().notNull(),
+    value: text().notNull(),
+    module: text().notNull(),
+    sourceRef: uuid('source_ref'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    confirmedAt: tstz('confirmed_at'),
+    confirmedBy: uuid('confirmed_by').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (table) => ({
+    entityField: uniqueIndex('identity_fills_kind_entity_id_field_key').on(table.kind, table.entityId, table.field),
+    sourceIdx: index('idx_identity_fills_source').on(table.module, table.sourceRef),
+    kindCheck: check('identity_fills_kind_check', sql`kind in ('album')`),
+    fieldCheck: check('identity_fills_field_check', sql`field in ('mbid')`),
+  })
+);
+
+// Music Connections, landed data (0050): one row per (link, remote key); the
+// release group is null while parked. Written by worker › jobs/mcLanding.ts.
+const mcLanded = {
+  id: uuid().primaryKey().defaultRandom(),
+  linkId: uuid('link_id').notNull().references(() => mcLinks.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  key: text().notNull(),
+  releaseGroupId: uuid('release_group_id').references(() => releaseGroups.id, { onDelete: 'set null' }),
+  album: jsonb().notNull(),
+  data: jsonb().notNull(),
+  remoteUpdatedAt: tstz('remote_updated_at').notNull(),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+  lastTriedAt: tstz('last_tried_at'),
+};
+
+export const mcCriticScores = pgTable(
+  'mc_critic_scores',
+  { ...mcLanded },
+  (table) => ({
+    linkKey: uniqueIndex('mc_critic_scores_link_id_key_key').on(table.linkId, table.key),
+    rgIdx: index('idx_mc_critic_scores_rg').on(table.releaseGroupId, table.userId),
+    parkedIdx: index('idx_mc_critic_scores_parked').on(table.lastTriedAt).where(sql`release_group_id is null`),
+  })
+);
+
+export const mcIdentity = pgTable(
+  'mc_identity',
+  { ...mcLanded, state: text().notNull() },
+  (table) => ({
+    linkKey: uniqueIndex('mc_identity_link_id_key_key').on(table.linkId, table.key),
+    stateIdx: index('idx_mc_identity_state').on(table.state, table.lastTriedAt).where(sql`state in ('parked', 'awaiting_release')`),
+    stateCheck: check('mc_identity_state_check', sql`state in ('parked', 'agrees', 'filled', 'conflict', 'suggested', 'awaiting_release', 'unresolved')`),
+  })
+);
+
+export const mcWantlistSuggestions = pgTable(
+  'mc_wantlist_suggestions',
+  {
+    ...mcLanded,
+    decision: text(),
+    decidedAt: tstz('decided_at'),
+    wantlistItemId: uuid('wantlist_item_id').references(() => wantlistItems.id, { onDelete: 'set null' }),
+  },
+  (table) => ({
+    linkKey: uniqueIndex('mc_wantlist_suggestions_link_id_key_key').on(table.linkId, table.key),
+    userIdx: index('idx_mc_wantlist_user').on(table.userId, table.decision),
+    parkedIdx: index('idx_mc_wantlist_parked').on(table.lastTriedAt).where(sql`release_group_id is null`),
+    decisionCheck: check('mc_wantlist_suggestions_decision_check', sql`decision in ('accepted', 'dismissed')`),
   })
 );
 
