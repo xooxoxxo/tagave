@@ -100,7 +100,7 @@ function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePa
         <PhonePasswordForm
           key={a.phonePassword ? 'set' : 'unset'}
           hasOne={a.phonePassword}
-          disabled={!a.username || a.state === 'disabled'}
+          disabled={a.state === 'disabled'}
           busy={!!busy?.phone}
           error={errors?.phone ?? null}
           onSave={onSetPhonePassword}
