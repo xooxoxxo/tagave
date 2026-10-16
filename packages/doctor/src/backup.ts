@@ -573,9 +573,11 @@ export function kindDeletes(
   /** As if a dump of this kind had been written at this time: what the next run deletes. */
   nextRun?: Date,
 ): string[] {
-  // One phantom per run. For before-update that is one per update today; once
-  // the updater passes --kind before-update (planned after 0.9.0), one in-app
-  // update writes two dumps of this kind and the page's line becomes one short.
+  // One phantom per run. For before-update that is one per update: the new
+  // app's pre-migration dump, or the updater's own (--kind before-update),
+  // and then the updater starts the new app with
+  // TAGAVE_SKIP_PREMIGRATE_BACKUP=1 for that boot (updater rollback-dump.ts).
+  // An in-app update never writes two of this kind.
   const phantom = nextRun ? backupFileName(nextRun, kind) : null;
   const all = phantom && !entries.some((e) => e.name === phantom)
     ? [...entries, { name: phantom, kind, createdAt: nextRun!.toISOString() }]

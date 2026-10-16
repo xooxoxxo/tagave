@@ -203,12 +203,12 @@ Never delete Docker volumes, and never prune them (`docker system prune --volume
 Before the in-app updater pulls anything, it works out what the update will write and checks each filesystem it writes to:
 
 - **Docker's data** (`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`): the new images, unpacked (about 2.5 × their download size).
-- **The backups folder** (`/backups` in the app container): two dumps, the updater's own and the one the new app takes before it migrates. A dump is counted at the size of the newest one there, or, when there is none yet, at the database's size without its indexes.
+- **The backups folder** (`/backups` in the app container): one dump, the one the new app takes right before it migrates. A dump is counted at the size of the newest one there, or, when there is none yet, at the database's size without its indexes. Two are counted only when the updater takes a dump of its own as well (see [In-app updates](#in-app-updates)).
 
 When the backups are a volume (the default), both loads are on Docker's filesystem. A backups folder that reports the same size or the same free space as Docker's counts as the same disk; a host folder (`TAGAVE_BACKUP_DIR`) with other numbers counts as another disk; when it cannot tell, the backups are counted on both. The rule is:
 
 ```
-needed = (images unpacked + 2 × backup) × 1.2 + 3 GB
+needed = (images unpacked + backup) × 1.2 + 3 GB
 ```
 
 The 3 GB is what is left free once the update has written everything: Postgres and the logs need room to run. `TAGAVE_UPDATER_MIN_FREE_MB` in `.env` changes it (default 3072). A backups folder on another disk (`TAGAVE_BACKUP_DIR`) is checked on its own, with 512 MB left free. Image sizes come from the registry; layers the running images already have are not counted. When the registry does not answer within 30 s or a measurement is out of reach, the updater counts 1 GB per image and 2 GB per backup, and the log says so.
@@ -276,7 +276,7 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 |---|---|---|
 | Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
 | Manual | "Back up now", or `tagave-doctor backup` | only when you delete it, or after the next manual backup when you set "keep the newest N" on the Backups page |
-| Before update | by the app, before it applies database updates, and by the updater (`tagave-doctor backup --kind before-update`) | after a successful update, keeping the newest 3 (2–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
+| Before update | by the app, before it applies database updates; by the in-app updater (`tagave-doctor backup --kind before-update`) only when the app takes none (see [In-app updates](#in-app-updates)) | after a successful update, keeping the newest 3 (2–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
 | Before restore | by `tagave-doctor restore --in-place` | only when you delete it |
 
 ### What a backup holds
@@ -389,6 +389,12 @@ Overrides, for when you know why you need them:
 With the installer, set the `TAGAVE_*` ones in `.env`.
 
 Outside Docker (a source checkout), the app needs `pg_dump` and `pg_restore` of the same major version as the server on its `PATH` (or `PG_DUMP` and `PG_RESTORE` pointing at them) before it will apply an update. On a throwaway development database you can set `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` instead.
+
+### In-app updates
+
+Settings › Updates writes one dump per update: the one the new app takes right before it migrates, after the workers have stopped. The updater takes none of its own, except when the app's cannot be counted on: `TAGAVE_SKIP_PREMIGRATE_BACKUP=1` is set, the newest record in `_migration_backups` is an earlier attempt at the same version (the app would reuse that older dump), or that record or the migration count cannot be read. Then it runs `tagave-doctor backup --kind before-update` first and starts the new app once with `TAGAVE_SKIP_PREMIGRATE_BACKUP=1`, so the update still writes one dump; the workers' start right after starts the app again without it.
+
+When the new version fails, the updater first stops the app and workers, then restores a dump only if the migration count moved (and the app recorded a backup or a skip during this update, which it does before its first migration). It restores the first dump the new app recorded during this update (a restart after a failed migration reuses it), or else its own, whichever reads back with `pg_restore --list`. If the database changed and no readable dump from before the update exists, it does not roll back: the old version must not run on a database a newer one migrated, so the new version stays and the page names the backup to restore by hand. Look at `docker compose logs app`, or restore a backup by hand as below.
 
 ### Roll back an update
 

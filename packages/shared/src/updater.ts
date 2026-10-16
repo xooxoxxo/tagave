@@ -57,7 +57,11 @@ export interface UpdateRun {
   log: UpdateLogLine[];
   /** Why the run failed or rolled back, in one sentence. */
   reason: string | null;
-  /** The verified dump taken before anything changed. */
+  /**
+   * The dump a roll back restores: the one the new app took right before it
+   * migrated (known once it answered), or the updater's own when the app
+   * takes none. null: no database change needed one.
+   */
   backup: string | null;
   rollback: UpdateRollback | null;
 }

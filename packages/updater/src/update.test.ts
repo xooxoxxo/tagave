@@ -43,6 +43,22 @@ class FakeInstall {
   missingTags = new Set<string>();
   failRestore = false;
   restored = false;
+  /** _migration_backups: what the app records before it migrates (null: the table does not exist yet). */
+  backupRows: Array<{ id: number; status: string; path: string | null; to: string }> | null = [];
+  /** psql in the postgres container fails (the database does not answer). */
+  psqlFails = false;
+  /** Versions whose app migrates without recording its backup (as if the record were lost). */
+  migratesUnrecorded = new Set<string>();
+  /** Dumps pg_restore --list can read. */
+  dumps = new Set<string>(['/backups/tagave-manual-20261011.pgdump']);
+  /** The running app's doctor is from before --kind. */
+  oldDoctor = false;
+  /** TAGAVE_SKIP_PREMIGRATE_BACKUP reaches the app. */
+  skipPremigrate = false;
+  /** What the restore was given. */
+  restoredFrom: string | null = null;
+  /** Versions whose app commits a migration (and records its dump) as it is stopped. */
+  commitsOnStop = new Set<string>();
   /** The install runs the player (compose service "player", Navidrome). */
   withPlayer = false;
   /** What the target's updater image ships as compose.yml. */
@@ -143,8 +159,27 @@ class FakeInstall {
       for (const n of ['app', 'worker', 'updater']) this.localImages.add(`ghcr.io/xooxoxxo/tagave-${n}:${v}`);
       return ok();
     }
+    if (a.startsWith('compose exec -T postgres') && this.psqlFails) return bad('service "postgres" is not running');
     if (a.includes('select count(*) from _migrations')) return ok(`${this.migrations}\n`);
+    if (a.includes("to_regclass('public._migration_backups')")) return ok(this.backupRows ? 't\n' : 'f\n');
+    if (a.includes('select max(id) from _migration_backups')) {
+      const rows = this.backupRows ?? [];
+      const last = rows.at(-1);
+      return ok(`${rows.reduce((m, r) => Math.max(m, r.id), 0)}|${last ? `${last.status}|${last.to}` : '|'}\n`);
+    }
+    if (a.includes("where status = 'ok' and path is not null order by id desc limit 1")) {
+      return ok(`${[...(this.backupRows ?? [])].reverse().find((r) => r.status === 'ok' && r.path)?.path ?? ''}\n`);
+    }
+    const since = /where id > (\d+) order by id limit 1/.exec(a);
+    if (since) {
+      const row = (this.backupRows ?? []).find((r) => r.id > Number(since[1]));
+      return ok(row ? `${row.id}|${row.status}|${row.path ?? ''}\n` : '');
+    }
+    if (a.startsWith('compose run --rm --no-deps -T --entrypoint pg_restore app --list')) {
+      return this.dumps.has(args.at(-1)!) ? ok('; Archive created at …\n1; 2615 2200 SCHEMA - public\n') : bad(`pg_restore: error: could not open input file "${args.at(-1)}": No such file or directory`);
+    }
     if (a.startsWith('compose exec -T app node packages/doctor/dist/cli.js backup')) {
+      if (this.oldDoctor && args.includes('--kind')) return bad('ERROR: unknown option --kind; usage: backup [--out DIR] [--keep N] [--json]');
       return ok(JSON.stringify({ path: '/backups/tagave-manual-20261011.pgdump', tocEntries: 412 }));
     }
     if (args[0] === 'run' && args.includes('cat')) {
@@ -152,18 +187,37 @@ class FakeInstall {
     }
     if (args[0] === 'compose' && args[1] === 'stop') {
       for (const s of args.slice(2)) {
+        if (s === 'app' && this.appUp && this.commitsOnStop.has(this.appVersion)) {
+          this.backupRows ??= [];
+          const id = this.backupRows.reduce((m, r) => Math.max(m, r.id), 0) + 1;
+          const path = `/backups/tagave-2026-10-11T10-0${id}-00Z-pre-migration.pgdump`;
+          this.backupRows.push({ id, status: 'ok', path, to: this.appVersion });
+          this.dumps.add(path);
+          this.migrations += 1;
+        }
         if (s === 'app') this.appUp = false;
         if (s.startsWith('worker-')) for (const k of [...this.workers.keys()]) if (k.startsWith(`w-${s.slice(7)}`)) this.workers.delete(k);
       }
       return ok();
     }
     if (args[0] === 'compose' && args[1] === 'up') {
+      if (args.join(' ') === 'compose up -d app') appStartEnvs.push(opts?.env ?? null);
       const v = await this.envVersion();
       const services = args.slice(3);
       if (services.includes('app') && (!this.appUp || this.appVersion !== v)) {
         this.appVersion = v;
         this.appUp = true;
-        if (this.migratesOn.has(v)) this.migrations += 1;
+        if (this.migratesOn.has(v)) {
+          this.migrations += 1;
+          if (!this.migratesUnrecorded.has(v)) {
+            // The new app records its pre-migration dump before it migrates.
+            this.backupRows ??= [];
+            const id = this.backupRows.reduce((m, r) => Math.max(m, r.id), 0) + 1;
+            const path = this.skipPremigrate ? null : `/backups/tagave-2026-10-11T10-0${id}-00Z-pre-migration.pgdump`;
+            this.backupRows.push({ id, status: this.skipPremigrate ? 'skipped' : 'ok', path, to: v });
+            if (path) this.dumps.add(path);
+          }
+        }
       }
       if (services.includes('player')) {
         const m = /navidrome:(\S+)/.exec(await readFile(join(this.dir, 'compose.yml'), 'utf8'));
@@ -180,6 +234,7 @@ class FakeInstall {
     if (a.includes('tagave-doctor') || a.includes('cli.js restore')) {
       if (this.failRestore) return bad('pg_restore: error: could not connect');
       this.restored = true;
+      this.restoredFrom = args[args.indexOf('restore') + 1] ?? null;
       this.migrations = 38;
       return ok('{"database":"tagave"}');
     }
@@ -231,6 +286,8 @@ class FakeInstall {
 
 let dir: string;
 let fake: FakeInstall;
+/** The extra environment of each `compose up -d app`. */
+let appStartEnvs: Array<Record<string, string> | null> = [];
 let saved: UpdateRun[];
 let lastUpdate: Update;
 
@@ -265,6 +322,7 @@ beforeEach(async () => {
   await writeFile(join(dir, 'compose.yml'), COMPOSE);
   fake = new FakeInstall(dir);
   saved = [];
+  appStartEnvs = [];
 });
 
 afterEach(async () => {
@@ -281,13 +339,15 @@ describe('update state machine', () => {
     expect((await stat(join(dir, '.env'))).mode & 0o777).toBe(0o600);
     // the compose file came from the target's updater image
     expect(await readFile(join(dir, 'compose.yml'), 'utf8')).toContain('# new');
-    expect(run.backup).toBe('/backups/tagave-manual-20261011.pgdump');
+    // no migrations to apply: the new app took no dump, and the updater none of its own
+    expect(run.backup).toBeNull();
+    expect(fake.calls.some((c) => c.includes('backup') && c.includes('packages/doctor/dist/cli.js'))).toBe(false);
     expect(fake.appVersion).toBe('0.8.0');
     expect([...fake.workers.values()].map((w) => w.version)).toEqual(['0.8.0', '0.8.0']);
     // the target images were pulled with the version overridden before .env changed
     const firstPull = fake.calls.findIndex((c) => c[1] === 'pull');
-    const backup = fake.calls.findIndex((c) => c.includes('backup'));
-    expect(firstPull).toBeLessThan(backup);
+    const config = fake.calls.findIndex((c) => c[0] === 'run' && c.includes('cat'));
+    expect(firstPull).toBeLessThan(config);
     // the updater is never restarted by the update itself, only replaced at the end by a one-off
     const ups = fake.calls.filter((c) => c[1] === 'up');
     expect(ups.every((c) => !c.includes('updater'))).toBe(true);
@@ -319,15 +379,15 @@ describe('update state machine', () => {
 
   describe('free space', () => {
     // 0.8.0 brings three new tagave images: 3 × 200 MB of their own layers
-    // (the base layer is here already) unpack to 1500 MB; two 700 MB dumps;
-    // (1500 + 1400) MB × 1.2 + 3 GB headroom = 6552 MB.
-    const NEEDED = Math.ceil(2900 * MB * 1.2) + 3 * GB;
+    // (the base layer is here already) unpack to 1500 MB; one 700 MB dump,
+    // the new app's; (1500 + 700) MB × 1.2 + 3 GB headroom = 5712 MB.
+    const NEEDED = Math.ceil(2200 * MB * 1.2) + 3 * GB;
 
     it('refuses just below the requirement, says where and what to delete, and changes nothing', async () => {
       fake.dockerFree = [NEEDED - 10 * MB];
       const run = await update('0.8.0');
       expect(run.status).toBe('failed');
-      expect(run.reason).toMatch(/^not enough free disk space: Docker's data on \/var\/lib\/docker has 6\.4 GB free and the update needs 6\.4 GB\. Free at least 10 MB;/);
+      expect(run.reason).toMatch(/^not enough free disk space: Docker's data on \/var\/lib\/docker has 5\.6 GB free and the update needs 5\.6 GB\. Free at least 10 MB;/);
       expect(run.reason).toContain('docker builder prune');
       expect(run.reason).toContain('old backups');
       expect(run.reason).toMatch(/Nothing was changed\.$/);
@@ -343,11 +403,11 @@ describe('update state machine', () => {
 
     it('measures again before the backup, after the images came down', async () => {
       // Plenty at first; the pull eats it.
-      fake.dockerFree = [50 * GB, 3 * GB];
+      fake.dockerFree = [50 * GB, 3.5 * GB];
       const run = await update('0.8.0');
       expect(run.status).toBe('failed');
       expect(stepStatus(run)).toMatchObject({ preflight: 'done', backup: 'failed', config: 'skipped' });
-      expect(run.reason).toMatch(/has 3\.0 GB free and the update needs 4\.6 GB.*measured again after the new images were downloaded.*Nothing was changed/);
+      expect(run.reason).toMatch(/has 3\.5 GB free and the update needs 3\.8 GB.*measured again after the new images were downloaded.*Nothing was changed/);
       expect(fake.calls.some((c) => c.includes('backup'))).toBe(false);
     });
 
@@ -356,8 +416,8 @@ describe('update state machine', () => {
       fake.backupsDisk = { free: 1 * GB, total: 2000 * GB };
       const run = await update('0.8.0');
       expect(run.status).toBe('failed');
-      // 1.4 GB × 1.2 + 512 MB
-      expect(run.reason).toMatch(/the backups on \/backups in the app container has 1\.0 GB free and the update needs 2\.1 GB/);
+      // 700 MB × 1.2 + 512 MB
+      expect(run.reason).toMatch(/the backups on \/backups in the app container has 1\.0 GB free and the update needs 1\.3 GB/);
       expect(run.reason).not.toMatch(/Docker's data on/);
     });
 
@@ -395,7 +455,15 @@ describe('update state machine', () => {
     expect(run.rollback).toEqual({ version: '0.7.0', restoredDatabase: true, healthy: true });
     expect(fake.restored).toBe(true);
     const restore = fake.calls.find((c) => c.includes('restore'))!;
-    expect(restore).toEqual(['compose', 'run', '--rm', '--no-deps', '-T', 'app', 'node', 'packages/doctor/dist/cli.js', 'restore', '/backups/tagave-manual-20261011.pgdump', '--yes', '--json']);
+    // the dump the new app took right before it migrated, read back before anything was put back
+    const appDump = '/backups/tagave-2026-10-11T10-01-00Z-pre-migration.pgdump';
+    expect(restore).toEqual(['compose', 'run', '--rm', '--no-deps', '-T', 'app', 'node', 'packages/doctor/dist/cli.js', 'restore', appDump, '--yes', '--json']);
+    expect(run.backup).toBe(appDump);
+    expect(fake.calls.some((c) => c.includes('backup') && c.includes('packages/doctor/dist/cli.js'))).toBe(false);
+    const verified = fake.calls.findIndex((c) => c.includes('pg_restore') && c.at(-1) === appDump);
+    expect(verified).toBeGreaterThan(-1);
+    expect(verified).toBeLessThan(fake.calls.indexOf(restore));
+    expect(run.log.some((l) => l.message === `the new app backed the database up before it changed it: ${appDump}`)).toBe(true);
     // the app and workers were stopped before the restore, and .env pointed at the old version
     const restoreIdx = fake.calls.indexOf(restore);
     const stopIdx = fake.calls.findLastIndex((c, i) => i < restoreIdx && c[1] === 'stop');
@@ -426,8 +494,198 @@ describe('update state machine', () => {
     const run = await update('0.8.0');
     expect(run.status).toBe('rollback_failed');
     expect(run.reason).toMatch(/tagave-doctor restore failed/);
-    expect(run.log.at(-1)!.message).toMatch(/by hand/);
+    expect(run.log.at(-1)!.message).toMatch(/do not start 0\.7\.0 on it\. By hand.*restore \/backups\/tagave-2026-10-11T10-01-00Z-pre-migration\.pgdump/);
     expect(await envNow()).toBe('0.7.0');
+    // the old version was never started on the changed database
+    expect(fake.appUp).toBe(false);
+  });
+
+  describe('one database dump per update', () => {
+    const appDump = '/backups/tagave-2026-10-11T10-01-00Z-pre-migration.pgdump';
+    const ownBackups = () => fake.calls.filter((c) => c.includes('packages/doctor/dist/cli.js') && c.includes('backup'));
+
+    it('notes the dump the new app took when it migrated, and takes none itself', async () => {
+      fake.migratesOn.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(run.backup).toBe(appDump);
+      expect(ownBackups()).toEqual([]);
+      expect(run.log.some((l) => /space: Docker's data .*a database backup ~700 MB/.test(l.message))).toBe(true);
+    });
+
+    it('takes its own, filed as before-update, when TAGAVE_SKIP_PREMIGRATE_BACKUP is set, and restores that one', async () => {
+      await writeFile(join(dir, '.env'), `${ENV}TAGAVE_SKIP_PREMIGRATE_BACKUP=1\n`);
+      fake.skipPremigrate = true;
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(ownBackups()).toEqual([['compose', 'exec', '-T', 'app', 'node', 'packages/doctor/dist/cli.js', 'backup', '--kind', 'before-update', '--json']]);
+      expect(run.status).toBe('rolled_back');
+      expect(fake.restoredFrom).toBe('/backups/tagave-manual-20261011.pgdump');
+      expect(run.log.some((l) => l.message.includes("the updater's /backups/tagave-manual-20261011.pgdump is the backup from before it"))).toBe(true);
+      // the app takes none, so still one dump in the space check
+      expect(run.log.some((l) => /space: Docker's data .*a database backup ~700 MB/.test(l.message))).toBe(true);
+    });
+
+    it('takes its own when the app would reuse the dump of an earlier attempt at the same version', async () => {
+      fake.backupRows = [{ id: 7, status: 'ok', path: '/backups/tagave-2026-09-01T10-00-00Z-pre-migration.pgdump', to: '0.8.0' }];
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(ownBackups()).toHaveLength(1);
+      expect(run.log.some((l) => l.message.includes('an earlier attempt at 0.8.0 left a backup the new app would reuse'))).toBe(true);
+      // the new app is told to take none this once: one dump in the space check, one written
+      expect(run.log.some((l) => /space: Docker's data .*a database backup ~700 MB/.test(l.message))).toBe(true);
+      expect(fake.calls.find((c) => c.join(' ') === 'compose up -d app')).toBeDefined();
+      expect(appStartEnvs[0]).toEqual({ TAGAVE_SKIP_PREMIGRATE_BACKUP: '1' });
+    });
+
+    it('takes its own when the record of the app backups cannot be read', async () => {
+      fake.psqlFails = true;
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(ownBackups()).toHaveLength(1);
+    });
+
+    it('needs no table yet: the new app creates it and records its dump there', async () => {
+      fake.backupRows = null;
+      fake.migratesOn.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(ownBackups()).toEqual([]);
+      expect(run.backup).toBe('/backups/tagave-2026-10-11T10-01-00Z-pre-migration.pgdump');
+    });
+
+    it('asks an older doctor without --kind', async () => {
+      fake.psqlFails = true;
+      fake.oldDoctor = true;
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      expect(ownBackups().map((c) => c.includes('--kind'))).toEqual([true, false]);
+      expect(run.backup).toBe('/backups/tagave-manual-20261011.pgdump');
+    });
+
+    it('restores the first dump of this run, not one a restart wrote after a part-way migration', async () => {
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        const res = await inner(args, opts);
+        // a second boot of the new app recorded a dump of the half-migrated database
+        if (args.join(' ') === 'compose up -d app' && fake.backupRows?.length === 1) {
+          fake.backupRows.push({ id: 2, status: 'ok', path: '/backups/late.pgdump', to: '0.8.0' });
+          fake.dumps.add('/backups/late.pgdump');
+        }
+        return res;
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(fake.restoredFrom).toBe(appDump);
+    });
+
+    it('does not roll back onto a changed database without its dump: the new version stays', async () => {
+      // TAGAVE_SKIP_PREMIGRATE_BACKUP reaches the app some other way than .env
+      fake.skipPremigrate = true;
+      fake.backupRows = [{ id: 3, status: 'ok', path: '/backups/tagave-2026-09-01T10-00-00Z-pre-migration.pgdump', to: '0.7.0' }];
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toMatch(/Not rolled back: the database may have been changed, and there is no backup from before the update to restore: the new app migrated without a backup \(TAGAVE_SKIP_PREMIGRATE_BACKUP\)\. 0\.7\.0 must not run on a database 0\.8\.0 changed, so 0\.8\.0 stays in place and was started again\. To go back by hand, restore \/backups\/tagave-2026-09-01T10-00-00Z-pre-migration\.pgdump/);
+      expect(fake.restored).toBe(false);
+      expect(await envNow()).toBe('0.8.0');
+      expect(fake.appVersion).toBe('0.8.0');
+      expect(run.rollback).toEqual({ version: '0.8.0', restoredDatabase: false, healthy: false });
+      expect(run.log.at(-1)!.message).toMatch(/0\.8\.0 stays in place/);
+    });
+
+    it('does not roll back onto a changed database when its dump cannot be read', async () => {
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        if (args.includes('pg_restore')) fake.dumps.clear();
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toMatch(/its backup from before the update cannot be read: \/backups\/tagave-2026-10-11T10-01-00Z-pre-migration\.pgdump \(pg_restore: error: could not open input file/);
+      // the one this run recorded is named for a restore by hand
+      expect(run.reason).toMatch(/To go back by hand, restore \/backups\/tagave-2026-10-11T10-01-00Z-pre-migration\.pgdump/);
+      expect(fake.restored).toBe(false);
+      expect(await envNow()).toBe('0.8.0');
+    });
+
+    it('stops the new app before it reads the migration count: a file committed late is seen', async () => {
+      fake.commitsOnStop.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(run.rollback?.restoredDatabase).toBe(true);
+      const stop = fake.calls.findIndex((c) => c.join(' ') === 'compose stop app worker-identify worker-files');
+      const count = fake.calls.findIndex((c, i) => i > stop && c.join(' ').includes('select count(*) from _migrations'));
+      expect(stop).toBeGreaterThan(-1);
+      expect(count).toBeGreaterThan(stop);
+    });
+
+    it('takes its own dump when the database cannot be read right before the update', async () => {
+      const inner = fake.runner;
+      let preflightDone = false;
+      fake.runner = async (args, opts) => {
+        if (args[0] === 'compose' && args[1] === 'pull') preflightDone = true;
+        if (preflightDone && args.join(' ').startsWith('compose exec -T postgres') && !fake.calls.some((c) => c.includes('backup') && c.includes('packages/doctor/dist/cli.js'))) {
+          fake.calls.push(args);
+          return { code: 1, stdout: '', stderr: 'container is restarting' };
+        }
+        return inner(args, opts);
+      };
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.log.some((l) => l.message.includes('the database could not be read just before the update'))).toBe(true);
+      expect(fake.calls.some((c) => c.includes('backup') && c.includes('packages/doctor/dist/cli.js'))).toBe(true);
+      expect(run.status).toBe('rolled_back');
+      expect(fake.restoredFrom).toBe('/backups/tagave-manual-20261011.pgdump');
+    });
+
+    it("tries the updater's own dump when the app's cannot be read", async () => {
+      fake.psqlFails = true;
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      let pulled = false;
+      fake.runner = async (args, opts) => {
+        // the database answers again from the restart on, and the app's dump is gone
+        if (args.join(' ') === 'compose up -d app' && !pulled) { pulled = true; fake.psqlFails = false; }
+        if (args.includes('pg_restore') && args.at(-1)!.includes('pre-migration')) return { code: 1, stdout: '', stderr: 'pg_restore: error: input file is too short' };
+        return inner(args, opts);
+      };
+      // a row the new app records although the updater took its own (a skip that did not reach it)
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(fake.restoredFrom).toBe('/backups/tagave-manual-20261011.pgdump');
+    });
+
+    it('takes no record above the one read before as proof nothing migrated', async () => {
+      fake.migratesOn.add('0.8.0');
+      fake.migratesUnrecorded.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rolled_back');
+      expect(fake.restored).toBe(false);
+    });
+
+    it('does not roll back when the database does not answer and nothing says it was not changed', async () => {
+      fake.migratesOn.add('0.8.0');
+      fake.brokenWorkers.add('0.8.0');
+      const inner = fake.runner;
+      fake.runner = async (args, opts) => {
+        if (args.includes('verify') || fake.calls.some((c) => c[1] === 'up' && c.length > 4)) fake.psqlFails = true;
+        return inner(args, opts);
+      };
+      const run = await update('0.8.0');
+      expect(run.status).toBe('rollback_failed');
+      expect(run.reason).toMatch(/the database does not answer, so the backup the new app took cannot be looked up/);
+      expect(await envNow()).toBe('0.8.0');
+    });
   });
 
   describe('with the player', () => {

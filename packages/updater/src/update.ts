@@ -6,16 +6,20 @@
  *              preflight-space.ts), the target images pulled for this machine's
  *              architecture (a pull with TAGAVE_VERSION overridden, so a
  *              missing tag fails here and nothing has changed yet)
- *   backup     free space measured again; count applied migrations;
- *              `tagave-doctor backup` in the app
- *              container (pg_dump, read back with pg_restore --list)
+ *   backup     free space measured again; count applied migrations and
+ *              note the app's backup record (rollback-dump.ts). The new
+ *              app dumps the database itself right before it migrates, so
+ *              the updater takes no dump of its own unless the app's
+ *              cannot be counted on; then `tagave-doctor backup --kind
+ *              before-update` in the app container
  *   config     compose files from the target's updater image (when it has
  *              them), then TAGAVE_VERSION=<target> in .env; each written
  *              atomically, the old one kept as .bak
  *   pull       docker compose pull (quick: preflight pulled already)
  *   restart    stop the workers, `up -d app` (it backs up and migrates as
  *              it starts), wait for it to answer healthy on the target,
- *              then `up -d` for everything else
+ *              then `up -d` for everything else; the dump the app recorded
+ *              becomes the run's backup
  *   verify     health ok, the app on the target, and every local worker
  *              sending heartbeats from the target since the restart
  *
@@ -30,9 +34,13 @@
  * A failure in preflight or backup ends the run as `failed`: nothing was
  * changed. A failure from config on rolls back: the old .env and compose
  * files go back; if the migration count moved (or cannot be read), the app
- * and workers are stopped and the backup is restored with `tagave-doctor
- * restore` (the swap restore: the changed database is kept under another
- * name); then the old version is started and checked.
+ * and workers are stopped and the dump the new app recorded before it
+ * migrated (or the updater's own) is restored with `tagave-doctor restore`
+ * (the swap restore: the changed database is kept under another name); then
+ * the old version is started and checked. When the database changed and no
+ * readable dump from before the update exists, nothing is rolled back: the
+ * old version must never run on a database a newer one migrated, so the new
+ * version stays in place and the run says what to do by hand.
  *
  * After a successful run the images older than the version it came from
  * are removed (image-hygiene.ts); a failure there is a warning in the log.
@@ -51,12 +59,21 @@ import { MANIFEST_FILE, ReleaseRefused, SIGNATURE_FILE, digestFor, envPins, imag
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
+import {
+  BACKUPS_TABLE_SQL,
+  LAST_BACKUP_SQL,
+  firstBackupSinceSql,
+  ownDumpReason,
+  parseLastBackup,
+  parseRecordedDump,
+  type LastBackup,
+} from './rollback-dump.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { HANDOVER_LABEL, type SelfReplaceHooks } from './self-replace.js';
 
 export const STEP_LABELS: Record<UpdateStepId, string> = {
   preflight: 'Check the install and download the new images',
-  backup: 'Back up the database',
+  backup: 'Check the database before its backup',
   config: 'Switch the configuration to the new version',
   pull: 'Pull the images',
   restart: 'Restart the app, then the workers',
@@ -146,6 +163,8 @@ export interface UpdateDeps {
 export const RELEASE_FLOOR_FILE = '.updater/release-floor';
 
 class StepFailed extends Error {}
+/** The roll back stops before it changes anything: the new version stays, matching the database it changed. */
+class KeepNewVersion extends Error {}
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -189,6 +208,12 @@ export class Update {
   private services: string[] = [];
   private registry = 'ghcr.io/xooxoxxo';
   private migrationsBefore: number | null = null;
+  /** Why the updater takes a dump of its own (rollback-dump.ts); null: the new app's is the rollback point. */
+  private ownDump: string | null = null;
+  /** The highest _migration_backups id before the new app started (null: unknown); the app's dump of this run is above it. */
+  private backupsMaxId: number | null = null;
+  /** The dump the updater took itself, when it took one. */
+  private ownDumpPath: string | null = null;
   /** The new app may have started, so it may have migrated the database. */
   private newAppStarted = false;
   private changed = false;
@@ -319,13 +344,28 @@ export class Update {
     return `the player reports ${state || 'nothing'}`;
   }
 
-  private async migrationCount(): Promise<number | null> {
+  /** One query in the database container; null when psql fails. The query may not contain double quotes. */
+  private async psql(query: string): Promise<string | null> {
     const res = await this.compose(
-      ['exec', '-T', 'postgres', 'sh', '-c', 'psql -X -q -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "select count(*) from _migrations"'],
+      ['exec', '-T', 'postgres', 'sh', '-c', `psql -X -q -tA -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "${query}"`],
       { quiet: true, timeoutMs: 30_000 },
     );
-    const n = Number(res.stdout.trim());
-    return res.code === 0 && res.stdout.trim() !== '' && Number.isInteger(n) ? n : null;
+    return res.code === 0 ? res.stdout.trim() : null;
+  }
+
+  private async migrationCount(): Promise<number | null> {
+    const out = await this.psql('select count(*) from _migrations');
+    const n = Number(out);
+    return out !== null && out !== '' && Number.isInteger(n) ? n : null;
+  }
+
+  /** The newest backup record; undefined: no table yet (the new app creates it); null: unreadable. */
+  private async lastBackupRecord(): Promise<LastBackup | null | undefined> {
+    const table = await this.psql(BACKUPS_TABLE_SQL);
+    if (table === 'f') return undefined;
+    if (table !== 't') return null;
+    const out = await this.psql(LAST_BACKUP_SQL);
+    return out === null ? null : parseLastBackup(out);
   }
 
   /** Polls until `check` returns null (good) or the time runs out; returns the last complaint. */
@@ -387,6 +427,7 @@ export class Update {
     if (release && envGet(env, 'TAGAVE_PLAYER_IMAGE')) {
       this.fail('.env sets TAGAVE_PLAYER_IMAGE, which replaces the player image the release pins; remove that line and start the update again');
     }
+    this.ownDump = ownDumpReason(env, await this.lastBackupRecord(), this.run.target);
     await this.checkSpace(this.run.target);
 
     if (release) {
@@ -436,16 +477,36 @@ export class Update {
         ...(this.deps.release && target !== null ? { targetEnv: envPins(this.deps.release.verified.manifest, this.deps.release.platform) } : {}),
         dockerHeadroom: this.deps.config.minFreeBytes,
         backupsOnHost: backupsOnHostFolder(envGet(env, 'TAGAVE_BACKUP_DIR') || envGet(env, 'LINER_BACKUP_DIR')),
+        // One dump per update: the new app's, or the updater's own, and then
+        // the new app is started with TAGAVE_SKIP_PREMIGRATE_BACKUP=1.
+        backupCopies: 1,
       },
     );
     if (space.problem) this.fail(target === null ? `${space.problem} (measured again after the new images were downloaded)` : space.problem);
   }
 
   private async backup(): Promise<void> {
-    await this.checkSpace(null);
     this.migrationsBefore = await this.migrationCount();
     this.log('info', `migrations applied: ${this.migrationsBefore ?? 'unknown'}`);
-    const res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']);
+    const last = await this.lastBackupRecord();
+    this.backupsMaxId = last === undefined ? 0 : last?.maxId ?? null;
+    // Without both readings a roll back could not tell whether the database
+    // changed, or find the app's dump: the updater's own is the rollback point.
+    if (this.ownDump === null && (this.migrationsBefore === null || this.backupsMaxId === null)) {
+      this.ownDump = 'the database could not be read just before the update, so the backup the new app takes could not be found afterwards';
+    }
+    await this.checkSpace(null);
+    if (this.ownDump === null) {
+      this.log('info', 'no dump of its own: the new app backs the database up right before it changes it, and a roll back restores that backup');
+      return;
+    }
+    this.log('info', `the updater backs the database up itself: ${this.ownDump}`);
+    let res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--kind', 'before-update', '--json']);
+    if (res.code !== 0 && /unknown option --kind/.test(`${res.stderr}${res.stdout}`)) {
+      // The running app's doctor is from before --kind (0.8 or older): its dump is filed as manual.
+      this.log('info', 'the running app does not know --kind yet; its dump is listed under Manual in Settings › Backups');
+      res = await this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']);
+    }
     if (res.code !== 0) this.fail(`the backup failed: ${tail(res.stderr || res.stdout, 3)}`);
     let path: string | undefined;
     try {
@@ -456,7 +517,73 @@ export class Update {
       /* handled below */
     }
     if (!path) this.fail('the backup did not say where it wrote the dump');
+    this.ownDumpPath = path;
     this.run.backup = path;
+  }
+
+  /**
+   * The dump a roll back restores: the first one the new app recorded during
+   * this run (a restart after a failed migration reuses it and records
+   * nothing new), else the updater's own. `why` says why there is none.
+   */
+  private async rollbackDump(): Promise<{ paths: string[] } | { why: string }> {
+    const paths: string[] = [];
+    let why = 'the record of the backups the app takes before it migrates could not be read before the update';
+    if (this.backupsMaxId !== null) {
+      const out = await this.psql(firstBackupSinceSql(this.backupsMaxId));
+      const rec = out === null ? null : parseRecordedDump(out);
+      if (rec?.status === 'ok' && rec.path) paths.push(rec.path);
+      if (out === null) why = 'the database does not answer, so the backup the new app took cannot be looked up';
+      else if (rec?.status === 'skipped') why = 'the new app migrated without a backup (TAGAVE_SKIP_PREMIGRATE_BACKUP)';
+      else why = 'the new app recorded no backup during this update';
+    }
+    if (this.ownDumpPath) paths.push(this.ownDumpPath);
+    return paths.length > 0 ? { paths } : { why };
+  }
+
+  /**
+   * True when the record proves the new app applied nothing: runMigrations
+   * records its backup (or its skip) before the first file, so no row above
+   * the one read before the update means no file ran. Only without a dump
+   * of the updater's own, which a roll back would then not need either.
+   */
+  private async provenUnmigrated(): Promise<boolean> {
+    if (this.backupsMaxId === null || this.ownDumpPath) return false;
+    const out = await this.psql(firstBackupSinceSql(this.backupsMaxId));
+    return out !== null && parseRecordedDump(out) === null && out.trim() === '';
+  }
+
+  /** A dump to name for a restore by hand: this run's first record, else the newest recorded one. */
+  private async dumpToName(): Promise<string | null> {
+    if (this.backupsMaxId !== null) {
+      const first = parseRecordedDump((await this.psql(firstBackupSinceSql(this.backupsMaxId))) ?? '');
+      if (first?.path) return first.path;
+    }
+    const newest = await this.psql("select coalesce((select path from _migration_backups where status = 'ok' and path is not null order by id desc limit 1), '')");
+    return newest ? newest : this.ownDumpPath;
+  }
+
+  /** Reads the dump back with pg_restore --list (in a one-off app container), as the restore will. */
+  private async dumpReadable(path: string): Promise<string | null> {
+    const res = await this.compose(['run', '--rm', '--no-deps', '-T', '--entrypoint', 'pg_restore', 'app', '--list', path], { quiet: true, timeoutMs: 10 * 60_000 });
+    if (res.code === 0 && res.stdout.trim() !== '') return null;
+    return tail(res.stderr || res.stdout || `pg_restore exited ${res.code}`, 2);
+  }
+
+  /** After the new app answered: the dump it took before it migrated is the run's backup. */
+  private async noteAppDump(): Promise<void> {
+    if (this.backupsMaxId === null) return;
+    const out = await this.psql(firstBackupSinceSql(this.backupsMaxId));
+    const rec = out === null ? null : parseRecordedDump(out);
+    if (rec?.status === 'ok' && rec.path) {
+      this.run.backup = rec.path;
+      this.log('info', `the new app backed the database up before it changed it: ${rec.path}`);
+    } else if (rec?.status === 'skipped') {
+      if (this.ownDumpPath) this.log('info', `the new app changed the database; the updater's ${this.ownDumpPath} is the backup from before it`);
+      else this.log('warn', 'the new app changed the database without a backup (TAGAVE_SKIP_PREMIGRATE_BACKUP)');
+    } else if (rec === null && out !== null) {
+      this.log('info', 'the new app had no database changes to apply, so it took no backup');
+    }
   }
 
   private async config(): Promise<void> {
@@ -585,11 +712,17 @@ export class Update {
     if (this.playerImageChanges()) await this.snapshotPlayer();
     this.newAppStarted = true;
     const startedAt = this.now();
-    const up = await this.compose(['up', '-d', 'app']);
+    // The updater's own dump is the rollback point: the new app takes none on
+    // this boot, so the update writes one before-update dump. The next
+    // `up -d` (the workers) starts it again without the setting.
+    const skip = this.ownDumpPath ? { env: { TAGAVE_SKIP_PREMIGRATE_BACKUP: '1' } } : {};
+    if (this.ownDumpPath) this.log('info', 'the new app starts without a backup of its own this once (TAGAVE_SKIP_PREMIGRATE_BACKUP=1): the updater took one');
+    const up = await this.compose(['up', '-d', 'app'], skip);
     if (up.code !== 0) this.fail(`the new app did not start: ${tail(up.stderr, 3)}`);
     this.log('info', 'waiting for the new app (it backs up and updates the database before it answers)');
     const appIssue = await this.waitFor(this.appOn(this.run.target, null, false), this.deps.config.healthTimeoutMs);
     if (appIssue) this.fail(`the app did not answer healthy on ${this.run.target}: ${appIssue}`);
+    await this.noteAppDump();
     if (this.hasPlayer()) this.playerStarted = true;
     const rest = await this.compose(['up', '-d', ...this.services]);
     if (rest.code !== 0) this.fail(`docker compose could not start the workers: ${tail(rest.stderr, 3)}`);
@@ -629,22 +762,51 @@ export class Update {
     this.begin('rollback');
     let restored = false;
     let healthy = false;
+    let filesBack = false;
+    let restoreFrom: string | null = null;
     try {
+      if (this.newAppStarted) {
+        // Stop the new app (and the workers) before reading anything: a
+        // running app may be dumping, migrating or crash-looping into its
+        // next attempt, and a file it commits after the reading would leave
+        // the old version on a partly migrated database.
+        const stop = await this.compose(['stop', 'app', ...this.workers()]);
+        if (stop.code !== 0) throw new KeepNewVersion(`the new app could not be stopped to check whether it changed the database (${tail(stop.stderr || stop.stdout, 2)})`);
+      }
       const after = this.newAppStarted ? await this.migrationCount() : this.migrationsBefore;
-      const needsRestore = this.newAppStarted && (after === null || this.migrationsBefore === null || after !== this.migrationsBefore);
+      const moved = after === null || this.migrationsBefore === null || after !== this.migrationsBefore;
+      const needsRestore = this.newAppStarted && moved && !(await this.provenUnmigrated());
       this.log('info', `migrations before ${this.migrationsBefore ?? 'unknown'}, now ${after ?? 'unknown'}`);
+
+      if (needsRestore) {
+        // Find and read the dump before anything is put back: without one,
+        // the old version must not start on the changed database.
+        const dump = await this.rollbackDump();
+        if ('why' in dump) throw new KeepNewVersion(`the database may have been changed, and there is no backup from before the update to restore: ${dump.why}`);
+        const problems: string[] = [];
+        for (const path of dump.paths) {
+          const unreadable = await this.dumpReadable(path);
+          if (!unreadable) {
+            restoreFrom = path;
+            break;
+          }
+          problems.push(`${path} (${unreadable})`);
+          this.log('warn', `${path} cannot be read back: ${unreadable}`);
+        }
+        if (!restoreFrom) throw new KeepNewVersion(`the database may have been changed, and its backup from before the update cannot be read: ${problems.join('; ')}`);
+        this.run.backup = restoreFrom;
+      }
 
       for (const [name, text] of this.originals) {
         await writeFileAtomic(join(this.deps.installDir, name), text, false);
       }
       for (const name of this.created) await unlink(join(this.deps.installDir, name)).catch(() => undefined);
+      filesBack = true;
       this.log('info', `put back .env (TAGAVE_VERSION=${envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from}) and the compose files`);
 
-      if (needsRestore) {
-        if (!this.run.backup) throw new Error('the database changed but there is no backup to restore');
-        this.log('warn', 'the new version changed the database; restoring the backup');
-        await this.compose(['stop', 'app', ...this.workers()]);
-        const res = await this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', this.run.backup, '--yes', '--json']);
+      if (restoreFrom) {
+        this.log('warn', `the new version changed the database; restoring ${restoreFrom}, the backup from before it did`);
+        const res = await this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', restoreFrom, '--yes', '--json']);
         if (res.code !== 0) throw new Error(`tagave-doctor restore failed: ${tail(res.stderr || res.stdout, 3)}`);
         restored = true;
         let kept = 'under another name';
@@ -654,7 +816,7 @@ export class Update {
         } catch {
           /* keep the generic wording */
         }
-        this.log('info', `restored ${this.run.backup}; the changed database is kept ${kept}`);
+        this.log('info', `restored ${restoreFrom}; the changed database is kept ${kept}`);
       }
 
       if (this.playerSnapshot && this.playerStarted) await this.restorePlayer();
@@ -674,13 +836,25 @@ export class Update {
     } catch (err) {
       this.end('rollback', 'failed');
       this.run.status = 'rollback_failed';
-      this.run.reason = `${reason}. The roll back did not finish: ${(err as Error).message}`;
-      this.log('error', `roll back failed: ${(err as Error).message}`);
-      this.log('error', `by hand, in the install folder: check TAGAVE_VERSION in .env is ${this.run.from}, then docker compose up -d${
-        this.run.backup ? `; if the app refuses the database, restore ${this.run.backup} with tagave-doctor restore (docs/operations.md, Roll back)` : ''}`);
+      if (err instanceof KeepNewVersion) {
+        // Nothing was put back: the new version matches the database it changed.
+        const up = await this.compose(['up', '-d', ...this.services]);
+        const named = await this.dumpToName().catch(() => null);
+        this.run.reason = `${reason}. Not rolled back: ${err.message}. ${this.run.from} must not run on a database ${this.run.target} changed, so ${this.run.target} stays in place${up.code === 0 ? ' and was started again' : ''}. ${
+          named ? `To go back by hand, restore ${named}` : 'No backup from before the update could be looked up'} (docs/operations.md, Roll back an update)`;
+        this.log('error', `not rolled back: ${err.message}`);
+        this.log('error', `${this.run.target} stays in place (TAGAVE_VERSION=${this.run.target} in .env). Look at docker compose logs app, or restore a backup from before the update by hand and set TAGAVE_VERSION=${this.run.from} (docs/operations.md, Roll back an update)`);
+      } else {
+        this.run.reason = `${reason}. The roll back did not finish: ${(err as Error).message}`;
+        this.log('error', `roll back failed: ${(err as Error).message}`);
+        this.log('error', restoreFrom && !restored && filesBack
+          ? `the app and workers are stopped, and the database is still the one ${this.run.target} changed: do not start ${this.run.from} on it. By hand, in the install folder: restore ${restoreFrom} with tagave-doctor restore (docs/operations.md, Roll back an update), then docker compose up -d; or set TAGAVE_VERSION=${this.run.target} in .env again and docker compose up -d`
+          : `by hand, in the install folder: check TAGAVE_VERSION in .env is ${this.run.from}, then docker compose up -d${
+            this.run.backup ? `; if the app refuses the database, restore ${this.run.backup} with tagave-doctor restore (docs/operations.md, Roll back)` : ''}`);
+      }
     }
     this.run.rollback = {
-      version: envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from,
+      version: filesBack ? envGet(this.originals.get('.env') ?? '', 'TAGAVE_VERSION') ?? this.run.from : this.run.target,
       restoredDatabase: restored,
       healthy,
     };

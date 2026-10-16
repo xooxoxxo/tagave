@@ -8,9 +8,12 @@
  * What lands where:
  *
  *   Docker's data root   the new images, unpacked; the database volume
- *                        (Postgres must keep room to run)
- *   the backups folder   the updater's dump, then the new app's own
- *                        pre-migration dump (two copies)
+ *                        (Postgres must keep room to run, and a heavy
+ *                        migration of the target writes there: see
+ *                        heavy-migrations.ts)
+ *   the backups folder   one dump: the new app's own, right before it
+ *                        migrates (rollback-dump.ts). Two only when the
+ *                        updater must take one too and the app may as well.
  *
  * The backups folder is often a volume inside Docker's data root, and then
  * both loads share one filesystem. The two count as one when they report
@@ -26,7 +29,7 @@
  *
  * The rule, per filesystem:
  *
- *   required = (images × UNPACK_FACTOR + backup × BACKUP_COPIES) × 1.2 + headroom
+ *   required = (images × UNPACK_FACTOR + backup × copies + migration) × 1.2 + headroom
  *
  * with headroom = TAGAVE_UPDATER_MIN_FREE_MB (3 GB by default) on the Docker
  * filesystem and 512 MB on a separate backups filesystem. The headroom is
@@ -52,8 +55,8 @@ export const SPACE_RULES = {
   backupHeadroomBytes: 512 * MB,
   /** Unpacked image layers take about this many times their compressed size. */
   unpackFactor: 2.5,
-  /** The updater's dump, then the new app's pre-migration dump. */
-  backupCopies: 2,
+  /** Dumps per update: the new app's pre-migration dump (the updater takes none of its own). */
+  backupCopies: 1,
   /** Compressed size assumed for an image the registry does not describe. */
   defaultImageBytes: 1 * GB,
   /** Dump size assumed when neither a dump nor the database can be measured. */
@@ -75,6 +78,12 @@ export interface SpaceNeeds {
   imageBytes: number;
   /** One dump. */
   backupBytes: number;
+  /** How many dumps the update writes (default SPACE_RULES.backupCopies). */
+  backupCopies?: number;
+  /** What the target's migrations write to the database while they run (heavy-migrations.ts); on Docker's filesystem. */
+  migrationBytes?: number;
+  /** Says what the migration bytes are for, in the check's parts. */
+  migrationWhat?: string;
 }
 
 export interface FsCheck {
@@ -116,7 +125,10 @@ export function requiredBytes(load: number, headroom: number, margin: number = S
  */
 export function planSpace(docker: FsReading, backups: FsReading | null, needs: SpaceNeeds, dockerHeadroom: number, backupsOnHost = false): FsCheck[] {
   const images = { what: 'the new images, unpacked', bytes: Math.ceil(needs.imageBytes * SPACE_RULES.unpackFactor) };
-  const dumps = { what: `${SPACE_RULES.backupCopies} database backups`, bytes: needs.backupBytes * SPACE_RULES.backupCopies };
+  const copies = needs.backupCopies ?? SPACE_RULES.backupCopies;
+  const dumps = { what: copies === 1 ? 'a database backup' : `${copies} database backups`, bytes: needs.backupBytes * copies };
+  // Postgres's volume is a named volume on Docker's filesystem.
+  const migration = { what: needs.migrationWhat ?? 'the database changes of the new version', bytes: Math.ceil(needs.migrationBytes ?? 0) };
   const check = (label: string, fs: FsReading, parts: FsCheck['parts'], headroom: number): FsCheck => {
     const kept = parts.filter((p) => p.bytes > 0);
     const required = requiredBytes(kept.reduce((n, p) => n + p.bytes, 0), headroom);
@@ -124,10 +136,10 @@ export function planSpace(docker: FsReading, backups: FsReading | null, needs: S
   };
   const relation = backups ? filesystemRelation(docker, backups, backupsOnHost) : 'same';
   if (!backups || relation === 'same') {
-    return [check("Docker's data", docker, [images, dumps], dockerHeadroom)];
+    return [check("Docker's data", docker, [images, dumps, migration], dockerHeadroom)];
   }
   return [
-    check("Docker's data", docker, relation === 'unsure' ? [images, dumps] : [images], dockerHeadroom),
+    check("Docker's data", docker, relation === 'unsure' ? [images, dumps, migration] : [images, migration], dockerHeadroom),
     check('the backups', backups, [dumps], SPACE_RULES.backupHeadroomBytes),
   ];
 }
@@ -494,6 +506,10 @@ export async function checkSpace(
     images?: string[];
     /** Who needs the room, for the refusal: "the update" by default. */
     what?: string;
+    /** Dumps the update writes (default SPACE_RULES.backupCopies). */
+    backupCopies?: number;
+    /** Extra room a heavy migration of the target needs in the database (heavy-migrations.ts). */
+    migration?: { bytes: number; what: string };
   },
 ): Promise<SpaceResult> {
   const docker = await dockerFs(d);
@@ -507,7 +523,13 @@ export async function checkSpace(
   if (b.fs && filesystemRelation(docker, b.fs, backupsOnHost) === 'unsure') {
     d.log('info', `space: cannot tell whether ${b.fs.where} is on Docker's filesystem; counting the backups on both`);
   }
-  const checks = planSpace(docker, b.fs, { imageBytes: images, backupBytes: backup }, opts.dockerHeadroom, backupsOnHost);
+  const needs: SpaceNeeds = {
+    imageBytes: images,
+    backupBytes: backup,
+    ...(opts.backupCopies !== undefined ? { backupCopies: opts.backupCopies } : {}),
+    ...(opts.migration && !moduleOnly ? { migrationBytes: opts.migration.bytes, migrationWhat: opts.migration.what } : {}),
+  };
+  const checks = planSpace(docker, b.fs, needs, opts.dockerHeadroom, backupsOnHost);
   for (const c of checks) d.log(c.ok ? 'info' : 'warn', `space: ${describeCheck(c)}`);
   return { checks, problem: spaceShortMessage(checks, opts.what) };
 }

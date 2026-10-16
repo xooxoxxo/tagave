@@ -285,7 +285,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
       title: `Update to ${picked}?`,
       message: (
         <>
-          <p>The updater backs up the database, switches this install to {picked} and restarts tagave. It is unavailable for a minute or two.</p>
+          <p>The updater switches this install to {picked} and restarts tagave; the new version backs up the database before it changes it. tagave is unavailable for a minute or two.</p>
           <p>If {picked} does not come up healthy, the updater goes back to {current} and restores the backup when the database was changed.</p>
         </>
       ),

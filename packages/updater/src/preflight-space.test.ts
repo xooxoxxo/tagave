@@ -29,35 +29,55 @@ describe('the arithmetic', () => {
     expect(requiredBytes(0, 3 * GB)).toBe(3 * GB);
   });
 
-  it('counts unpacked images and two dumps on one filesystem when the backups share it', () => {
+  it('counts unpacked images and one dump on one filesystem when the backups share it', () => {
     const [c, ...rest] = planSpace(docker(20 * GB), { where: '/backups', freeBytes: 20 * GB, totalBytes: 100 * GB }, { imageBytes: 1 * GB, backupBytes: 1 * GB }, 3 * GB);
     expect(rest).toEqual([]);
-    // (2.5 + 2) × 1.2 + 3
-    expect(c!.requiredBytes).toBe(Math.ceil(4.5 * GB * 1.2) + 3 * GB);
-    expect(c!.parts.map((p) => p.what)).toEqual(['the new images, unpacked', '2 database backups']);
+    // (2.5 + 1) × 1.2 + 3: one dump per update, the new app's
+    expect(c!.requiredBytes).toBe(Math.ceil(3.5 * GB * 1.2) + 3 * GB);
+    expect(c!.parts.map((p) => p.what)).toEqual(['the new images, unpacked', 'a database backup']);
     expect(c!.ok).toBe(true);
+  });
+
+  it('counts two dumps when told the updater takes one too', () => {
+    const [c] = planSpace(docker(20 * GB), null, { imageBytes: 0, backupBytes: 1 * GB, backupCopies: 2 }, 3 * GB);
+    expect(c!.parts).toEqual([{ what: '2 database backups', bytes: 2 * GB }]);
+  });
+
+  it("puts a heavy migration's load on Docker's filesystem, where the database volume lives", () => {
+    const checks = planSpace(
+      docker(4 * GB),
+      { where: '/backups', freeBytes: 100 * GB, totalBytes: 2000 * GB },
+      { imageBytes: 0, backupBytes: 0.5 * GB, migrationBytes: 2 * GB, migrationWhat: 'moving the cover thumbnails (0046_cover_thumbs.sql)' },
+      3 * GB,
+      true,
+    );
+    expect(checks.map((c) => [c.label, c.parts.map((p) => p.what)])).toEqual([
+      ["Docker's data", ['moving the cover thumbnails (0046_cover_thumbs.sql)']],
+      ['the backups', ['a database backup']],
+    ]);
+    expect(checks[0]!.requiredBytes).toBe(Math.ceil(2 * GB * 1.2) + 3 * GB);
   });
 
   it('checks a host backups folder of another size on its own, with a smaller headroom', () => {
     const checks = planSpace(docker(4 * GB), { where: '/backups', freeBytes: 1 * GB, totalBytes: 2000 * GB }, { imageBytes: 0.4 * GB, backupBytes: 0.5 * GB }, 3 * GB, true);
     expect(checks.map((c) => [c.label, c.requiredBytes, c.ok])).toEqual([
       ["Docker's data", Math.ceil(1 * GB * 1.2) + 3 * GB, false],
-      ['the backups', Math.ceil(1 * GB * 1.2) + 512 * MB, false],
+      ['the backups', Math.ceil(0.5 * GB * 1.2) + 512 * MB, false],
     ]);
   });
 
   it('puts the backups on Docker when their folder could not be measured', () => {
     const checks = planSpace(docker(10 * GB), null, { imageBytes: 0, backupBytes: 1 * GB }, 3 * GB);
     expect(checks).toHaveLength(1);
-    expect(checks[0]!.parts).toEqual([{ what: '2 database backups', bytes: 2 * GB }]);
+    expect(checks[0]!.parts).toEqual([{ what: 'a database backup', bytes: 1 * GB }]);
   });
 
   it('counts the dumps on both when unsure where they land', () => {
     // a volume whose numbers differ from Docker's root: perhaps another dataset
     const checks = planSpace(docker(20 * GB), { where: '/backups', freeBytes: 5 * GB, totalBytes: 50 * GB }, { imageBytes: 1 * GB, backupBytes: 1 * GB }, 3 * GB, false);
     expect(checks.map((c) => [c.label, c.parts.map((p) => p.what)])).toEqual([
-      ["Docker's data", ['the new images, unpacked', '2 database backups']],
-      ['the backups', ['2 database backups']],
+      ["Docker's data", ['the new images, unpacked', 'a database backup']],
+      ['the backups', ['a database backup']],
     ]);
   });
 
@@ -86,7 +106,7 @@ describe('the arithmetic', () => {
     expect(spaceShortMessage(fits)).toBeNull();
     const short = planSpace(docker(5 * GB), null, { imageBytes: 1 * GB, backupBytes: 1 * GB }, 3 * GB);
     const msg = spaceShortMessage(short)!;
-    expect(msg).toMatch(/^not enough free disk space: Docker's data on \/var\/lib\/docker has 5\.0 GB free and the update needs 8\.4 GB\. Free at least 3\.4 GB; safe to delete: docker builder prune/);
+    expect(msg).toMatch(/^not enough free disk space: Docker's data on \/var\/lib\/docker has 5\.0 GB free and the update needs 7\.2 GB\. Free at least 2\.2 GB; safe to delete: docker builder prune/);
     expect(msg).not.toMatch(/unknown/);
   });
 
@@ -263,19 +283,28 @@ describe('measuring the download', () => {
 
 describe('checkSpace', () => {
   it('measures everything and refuses with the numbers when short', async () => {
-    // 1 GB of new layers → 2.5 GB unpacked; 2 × 300 MB dumps; × 1.2 + 3 GB = 6.72 GB
+    // 1 GB of new layers → 2.5 GB unpacked; one 300 MB dump; × 1.2 + 3 GB = 6.35 GB
     const { deps, logs } = probe({ images: { 'r/a:2': [{ digest: 'd', size: 1 * GB }] }, target: ['r/a:2'], free: 6 * GB });
     const res = await checkSpace(deps, { target: '2', imageCount: 1, dockerHeadroom: 3 * GB });
     expect(res.checks).toHaveLength(1);
-    expect(res.problem).toMatch(/Docker's data on \/srv\/docker has 6\.0 GB free and the update needs 6\.7 GB/);
-    expect(logs.at(-1)).toMatch(/^warn: space: Docker's data \(\/srv\/docker\): 6\.0 GB free, needs 6\.7 GB \(the new images, unpacked ~2\.5 GB, 2 database backups ~600 MB, 20 % margin, 3\.0 GB left free\)/);
+    expect(res.problem).toMatch(/Docker's data on \/srv\/docker has 6\.0 GB free and the update needs 6\.4 GB/);
+    expect(logs.at(-1)).toMatch(/^warn: space: Docker's data \(\/srv\/docker\): 6\.0 GB free, needs 6\.4 GB \(the new images, unpacked ~2\.5 GB, a database backup ~300 MB, 20 % margin, 3\.0 GB left free\)/);
   });
 
   it('counts only the backups once the images are pulled', async () => {
     const { deps } = probe({ free: 4 * GB });
     const res = await checkSpace(deps, { target: null, imageCount: 1, dockerHeadroom: 3 * GB });
     expect(res.problem).toBeNull();
-    expect(res.checks[0]!.requiredBytes).toBe(Math.ceil(600 * MB * 1.2) + 3 * GB);
+    expect(res.checks[0]!.requiredBytes).toBe(Math.ceil(300 * MB * 1.2) + 3 * GB);
+  });
+
+  it('adds a heavy migration, but never to a module run', async () => {
+    const { deps } = probe({ free: 40 * GB });
+    const migration = { bytes: 3 * GB, what: 'moving the cover thumbnails' };
+    const res = await checkSpace(deps, { target: null, imageCount: 1, dockerHeadroom: 3 * GB, migration });
+    expect(res.checks[0]!.requiredBytes).toBe(Math.ceil((300 * MB + 3 * GB) * 1.2) + 3 * GB);
+    const mod = await checkSpace(deps, { target: '2', imageCount: 0, dockerHeadroom: 3 * GB, images: [], migration });
+    expect(mod.checks[0]!.parts).toEqual([]);
   });
 });
 
@@ -283,7 +312,7 @@ describe('the backup estimate', () => {
   it('counts the database without its indexes when there is no dump yet', async () => {
     const { deps, logs } = probe({ newest: null, dbSize: `${1000 * MB} ${400 * MB}`, free: 50 * GB });
     const res = await checkSpace(deps, { target: null, imageCount: 1, dockerHeadroom: 3 * GB });
-    expect(res.checks[0]!.parts).toEqual([{ what: '2 database backups', bytes: 1200 * MB }]);
+    expect(res.checks[0]!.parts).toEqual([{ what: 'a database backup', bytes: 600 * MB }]);
     expect(logs).toContain('info: space: no backup in /backups yet; counting the database without its indexes, 600 MB (1000 MB in all), per backup');
   });
 });
