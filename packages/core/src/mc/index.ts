@@ -5,6 +5,7 @@
  * routes (api) and the pull job (worker) both use it.
  */
 export * from './allowlist.js';
+export * from './address.js';
 export * from './remote.js';
 export * from './scopes.js';
 export * from './tokens.js';

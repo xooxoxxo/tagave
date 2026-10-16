@@ -12,6 +12,8 @@
  * `localhost`; any other name needs https and the trusted list.
  */
 
+import { isIP } from 'node:net';
+
 /** What tagave serves to a linked app, and what it reads from one. */
 export const TAGAVE_PROVIDES = ['ratings', 'collection', 'listens', 'identity'] as const;
 export const TAGAVE_CONSUMES = ['critic-scores', 'identity', 'wantlist-suggestions'] as const;
@@ -64,4 +66,37 @@ export function isAllowedRedirect(uri: unknown, trustedPublicHosts: readonly str
   if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
   if (isPrivateHost(u.hostname)) return true;
   return u.protocol === 'https:' && trustedPublicHosts.includes(u.hostname);
+}
+
+/** A DNS host name: labels of letters, digits and inner hyphens, 1–63 each, 253 in all. */
+function isDnsName(host: string): boolean {
+  if (host.length === 0 || host.length > 253) return false;
+  return host.split('.').every((l) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(l));
+}
+
+/**
+ * A remote tagave may link to and fetch from (client side only; the
+ * provider's redirect URIs keep isAllowedRedirect): what isAllowedRedirect
+ * allows, or a canonical http(s) URL whose host is a DNS name (a LAN name,
+ * a Docker service name), never `localhost`, `*.localhost` or a name with a
+ * trailing dot. A name passes this gate only; where it may connect is
+ * decided per request on the addresses it resolves to (address.ts): private
+ * ones only, unless the name is trusted and the URL https.
+ */
+export function isAllowedRemote(uri: unknown, trustedPublicHosts: readonly string[]): uri is string {
+  if (isAllowedRedirect(uri, trustedPublicHosts)) return true;
+  if (typeof uri !== 'string' || uri.length === 0 || uri.length > 2048) return false;
+  if (uri.includes(',') || uri.includes('#') || /\s/.test(uri)) return false;
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (u.href !== uri || u.username || u.password) return false;
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const h = u.hostname;
+  if (isIP(h.replace(/^\[|\]$/g, '')) !== 0) return false;
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.')) return false;
+  return isDnsName(h);
 }

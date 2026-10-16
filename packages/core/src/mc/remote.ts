@@ -1,43 +1,153 @@
 /**
  * Outbound Music Connections HTTP (tagave as a client): one fetch for the
- * linking routes (api) and the pull job (worker).
+ * linking routes (api) and the pull job (worker). The SSRF rules, on every
+ * request (manifest, register, token, revoke, every feed page):
  *
- * Every request:
- *   - goes only to a URL on the linked remote's own origin that passes the
- *     allow-list (allowlist.ts). The remote's manifest names its auth
- *     endpoints and feeds; every one of them must sit on the origin the
- *     person typed, or the manifest is refused, so a token or a client
- *     secret never travels to another host;
- *   - follows no redirect (redirect: 'error');
- *   - gives up after 10 s;
- *   - reads at most 64 KB of anything but a feed page (the package's pull()
- *     caps those at 5 MB);
- *   - says who it is: `User-Agent: tagave/<version> (music-connections/1)`.
+ *   1. The URL passes the client host gate (allowlist.ts › isAllowedRemote):
+ *      http(s) to a private or loopback IP literal, `localhost` or a DNS
+ *      name (a LAN or Docker service name), or https to a host named in
+ *      MC_TRUSTED_PUBLIC_HOSTS. Callers only pass URLs pinned to
+ *      the linked remote's origin (scheme, host and the port it names): the
+ *      manifest is refused when any endpoint it names sits elsewhere, so a
+ *      token or a client secret never travels to another host.
+ *   2. The host is resolved once and every address it resolves to must pass
+ *      address.ts (link-local, 0/8, multicast, broadcast, `::` and mapped
+ *      forms always refused; loopback only for a literally loopback host).
+ *      An untrusted name may reach private addresses only, never loopback or
+ *      a public one. The connection then goes to that exact address (a
+ *      pinned lookup on a fresh socket; Host header and TLS server name stay
+ *      the URL's), so DNS rebinding cannot swap the target after the check.
+ *   3. No redirects: a 3xx answer is an error.
+ *   4. A timeout (10 s, 30 s for a feed page) and a cap on every body read
+ *      (64 KB, 5 MB for a feed page in the package's pull()).
+ *   5. `User-Agent: tagave/<version> (music-connections/1)`.
  *
- * LinkError messages are fixed strings, safe for logs and for the link's
- * last_error: never a token, a secret or a response body.
+ * LinkError messages are fixed strings for the server log and a link's
+ * last_error: never a token, a secret or a remote's body. The person adding
+ * an address sees only a generic "could not reach" (api › mcConnections.ts).
  */
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import { isIP, type LookupFunction } from 'node:net';
+import { Readable } from 'node:stream';
 import { ManifestSchema, isCapability, type Capability, type Manifest } from 'music-connections';
 import { readBuildInfo } from '../build/info.js';
-import { isAllowedRedirect, parseTrustedHosts } from './allowlist.js';
+import { isAllowedRemote, parseTrustedHosts } from './allowlist.js';
+import { addressAllowed, bareHost } from './address.js';
 
 export const MAX_MANIFEST_BYTES = 64 * 1024;
 export const REMOTE_TIMEOUT_MS = 10_000;
+export const FEED_TIMEOUT_MS = 30_000;
 
-/** Error whose message is safe to log and to show (never a token or a remote's body). */
+/** Error whose message is safe to log (never a token or a remote's body). */
 export class LinkError extends Error {
   override name = 'LinkError';
 }
 
-// Injectable for tests (no live network calls); production uses global fetch.
-let remoteFetch: typeof fetch = (...a) => fetch(...a);
-/** Tests: route every outbound Music Connections request through `f` (undefined restores fetch). */
-export function setRemoteFetch(f: typeof fetch | undefined): void {
-  remoteFetch = f ?? ((...a) => fetch(...a));
-}
-
 /** MC_TRUSTED_PUBLIC_HOSTS, read per call so a restart (or a test) can change it. */
 export const trustedHosts = (): string[] => parseTrustedHosts(process.env['MC_TRUSTED_PUBLIC_HOSTS']);
+
+// ── Resolution and the address check ──────────────────────────────────────
+
+export type Resolver = (hostname: string) => Promise<string[]>;
+const systemResolver: Resolver = async (hostname) => (await dnsLookup(hostname, { all: true, verbatim: true })).map((a) => a.address);
+let resolver: Resolver = systemResolver;
+/** Tests: answer DNS with `r` (undefined restores the system resolver). */
+export function setResolver(r: Resolver | undefined): void {
+  resolver = r ?? systemResolver;
+}
+
+/**
+ * The one address a request to `url` connects to: the URL passes the host
+ * allow-list, and every address its host resolves to passes the address
+ * rules. Throws LinkError.
+ */
+export async function resolveTarget(url: string, trusted: readonly string[] = trustedHosts()): Promise<string> {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    throw new LinkError('invalid url');
+  }
+  if (!isAllowedRemote(u.href, trusted)) throw new LinkError('remote not allowed');
+  const host = bareHost(u.hostname);
+  const trustedName = u.protocol === 'https:' && isIP(host) === 0 && trusted.includes(host.toLowerCase());
+  let ips: string[];
+  if (isIP(host) !== 0) ips = [host];
+  else {
+    try {
+      ips = await resolver(host);
+    } catch {
+      throw new LinkError('remote unresolvable');
+    }
+  }
+  if (ips.length === 0) throw new LinkError('remote unresolvable');
+  for (const ip of ips) if (!addressAllowed(host, ip, trustedName)) throw new LinkError('address not allowed');
+  return ips[0]!;
+}
+
+// ── Transport ─────────────────────────────────────────────────────────────
+
+/** How a checked request reaches the network: `address` is the IP to connect to. */
+export type Transport = (url: string, init: RequestInit & { signal: AbortSignal }, address: string) => Promise<Response>;
+
+/** A lookup that answers every name with the one checked address. */
+export function pinnedLookup(address: string): LookupFunction {
+  const family = isIP(address) === 6 ? 6 : 4;
+  return ((_host: string, opts: { all?: boolean } | undefined, cb: (...a: unknown[]) => void) => {
+    if (typeof opts === 'function') {
+      (opts as (...a: unknown[]) => void)(null, address, family);
+      return;
+    }
+    if (opts?.all) cb(null, [{ address, family }]);
+    else cb(null, address, family);
+  }) as unknown as LookupFunction;
+}
+
+/** node:http(s) to the pinned address; no redirect is ever followed (http.request follows none). */
+const nodeTransport: Transport = (url, init, address) => new Promise<Response>((resolve, reject) => {
+  const u = new URL(url);
+  const headers = Object.fromEntries(new Headers(init.headers));
+  const body = typeof init.body === 'string' ? init.body : init.body == null ? undefined : String(init.body);
+  if (body !== undefined) headers['content-length'] = String(Buffer.byteLength(body));
+  const send = u.protocol === 'https:' ? httpsRequest : httpRequest;
+  const host = bareHost(u.hostname);
+  const req = send({
+    protocol: u.protocol,
+    host,
+    port: u.port || undefined,
+    path: `${u.pathname}${u.search}`,
+    method: init.method ?? 'GET',
+    headers,
+    lookup: pinnedLookup(address),
+    // a fresh socket per request: a pooled one could have been opened for another address
+    agent: false,
+    signal: init.signal,
+    ...(u.protocol === 'https:' && isIP(host) === 0 ? { servername: host } : {}),
+  }, (res: IncomingMessage) => {
+    const status = res.statusCode ?? 502;
+    const h = new Headers();
+    for (const [k, v] of Object.entries(res.headers)) {
+      if (Array.isArray(v)) for (const x of v) h.append(k, x);
+      else if (v !== undefined) h.set(k, v);
+    }
+    const noBody = status === 204 || status === 304 || (init.method ?? 'GET') === 'HEAD';
+    if (noBody) res.resume();
+    resolve(new Response(noBody ? null : (Readable.toWeb(res) as ReadableStream<Uint8Array>), { status: status < 200 || status > 599 ? 502 : status, headers: h }));
+  });
+  req.on('error', reject);
+  req.end(body);
+});
+
+let transport: Transport = nodeTransport;
+/**
+ * Tests: carry checked requests with `t` instead of the network (undefined
+ * restores it). The URL and address checks still run first.
+ */
+export function setRemoteFetch(t: ((url: string, init?: RequestInit) => Promise<Response>) | undefined): void {
+  transport = t ? (url, init) => t(url, init) : nodeTransport;
+}
 
 let userAgent: string | null = null;
 /** Sent on every outbound Music Connections request. */
@@ -46,10 +156,19 @@ export function mcUserAgent(): string {
   return userAgent;
 }
 
-/** fetch with the user agent, no redirects and a timeout. `url` must already be checked (pinned). */
-export function rfetch(url: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * One outbound request: the URL and resolved-address checks, then the
+ * pinned connection, the user agent and a timeout. A 3xx is refused.
+ */
+export async function rfetch(url: string, init: RequestInit = {}, opts: { timeoutMs?: number } = {}): Promise<Response> {
+  const address = await resolveTarget(url);
   const headers: Record<string, string> = { ...Object.fromEntries(new Headers(init.headers)), 'user-agent': mcUserAgent() };
-  return remoteFetch(url, { ...init, headers, redirect: 'error', signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS) });
+  const res = await transport(url, { ...init, headers, redirect: 'manual', signal: AbortSignal.timeout(opts.timeoutMs ?? REMOTE_TIMEOUT_MS) }, address);
+  if (res.status >= 300 && res.status < 400) {
+    await res.body?.cancel().catch(() => undefined);
+    throw new LinkError('redirect refused');
+  }
+  return res;
 }
 
 /** A body read incrementally, refused past `max` bytes. */
@@ -64,7 +183,14 @@ export async function readCapped(res: Response, max: number): Promise<string> {
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
-    const { done, value } = await reader.read();
+    let step: Awaited<ReturnType<typeof reader.read>>;
+    try {
+      step = await reader.read();
+    } catch (err) {
+      // the remote sent headers and then broke off (reset, timeout): never an unexpected error
+      throw new LinkError(networkReason(err, 'response unreadable'));
+    }
+    const { done, value } = step;
     if (done) break;
     total += value.byteLength;
     if (total > max) {
@@ -98,7 +224,7 @@ export function pinned(u: string, origin: string, trusted: readonly string[] = t
     throw new LinkError('endpoint invalid');
   }
   if (r.origin !== origin) throw new LinkError('endpoint on another host');
-  if (!isAllowedRedirect(r.href, trusted)) throw new LinkError('endpoint not allowed');
+  if (!isAllowedRemote(r.href, trusted)) throw new LinkError('endpoint not allowed');
   return r.href;
 }
 
@@ -138,7 +264,7 @@ export function remoteOrigin(rawUrl: string, trusted: readonly string[] = truste
   }
   if (base.protocol !== 'http:' && base.protocol !== 'https:') throw new LinkError('invalid url');
   if (base.username || base.password) throw new LinkError('invalid url');
-  if (!isAllowedRedirect(`${base.origin}/`, trusted)) throw new LinkError('remote not allowed');
+  if (!isAllowedRemote(`${base.origin}/`, trusted)) throw new LinkError('remote not allowed');
   return base.origin;
 }
 
@@ -201,7 +327,7 @@ export function revokeUrlFor(tokenUrl: string, origin: string, trusted: readonly
   if (!/\/token$/.test(u.pathname)) return null;
   u.pathname = u.pathname.replace(/\/token$/, '/revoke');
   u.search = '';
-  return u.origin === origin && isAllowedRedirect(u.href, trusted) ? u.href : null;
+  return u.origin === origin && isAllowedRemote(u.href, trusted) ? u.href : null;
 }
 
 /**
