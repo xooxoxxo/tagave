@@ -44,6 +44,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
   }
 
   const as = (user: string, role: string) => ({ 'x-test-user': user, 'x-test-role': role });
+  // the cleanup covers every library (household), so other suites' finished plans in the
+  // shared test database count too: the previews are checked against a baseline taken first
+  const baseline: Record<'archived' | 'finished', TagChangeCleanupPreview> = {} as never;
+  const preview = async (scope: 'archived' | 'finished') =>
+    (await app.inject({ method: 'GET', url: `/api/v1/storage/tag-changes?scope=${scope}`, headers: as(ownerId, 'owner') })).json<TagChangeCleanupPreview>();
   const exists = async (key: string) => (await db.select({ id: tagPlans.id }).from(tagPlans).where(eq(tagPlans.id, ids[key]!))).length === 1;
 
   beforeAll(async () => {
@@ -68,14 +73,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/storage-root', displayName: 's', writable: true, validationStatus: 'ok' });
     await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: 'A/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
 
-    await plan('draft', 'draft', { archived: false });
-    await plan('appliedArchived', 'applied', { archived: true, applied: true }); // revertible
-    await plan('revertedArchived', 'reverted', { archived: true, applied: true }); // safe: old tags are back
-    await plan('cancelledArchived', 'cancelled', { archived: true }); // safe: nothing written
-    await plan('failedOpen', 'partially_failed'); // finished, not archived, nothing written
-    await plan('appliedOpen', 'applied', { applied: true }); // finished, revertible, not archived
-    await plan('foreign', 'cancelled', { archived: true, library: otherLibraryId });
+    await setUp();
+  });
 
+  async function setUp() {
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const { createStorageRoutes } = await import('./storage.js');
     app = Fastify({ logger: false });
@@ -86,7 +87,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
     });
     await app.register(createStorageRoutes, { prefix: '/api/v1', cacheDir, backupDir: join(cacheDir, 'backups') });
     await app.ready();
-  });
+    baseline.archived = await preview('archived');
+    baseline.finished = await preview('finished');
+
+    await plan('draft', 'draft', { archived: false });
+    await plan('appliedArchived', 'applied', { archived: true, applied: true }); // revertible
+    await plan('revertedArchived', 'reverted', { archived: true, applied: true }); // safe: old tags are back
+    await plan('cancelledArchived', 'cancelled', { archived: true }); // safe: nothing written
+    await plan('failedOpen', 'partially_failed'); // finished, not archived, nothing written
+    await plan('appliedOpen', 'applied', { applied: true }); // finished, revertible, not archived
+    // a library someone else created: shared in the household model, so the cleanup covers it too
+    await plan('foreign', 'cancelled', { archived: true, library: otherLibraryId });
+  }
 
   afterAll(async () => {
     await app?.close();
@@ -135,15 +147,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/storage/tag-changes?scope=archived', headers: as(ownerId, 'owner') });
     expect(res.statusCode).toBe(200);
     const body = res.json<TagChangeCleanupPreview>();
-    expect(body).toMatchObject({ scope: 'archived', plans: 2, revertible: { plans: 1 } });
+    expect(body).toMatchObject({ scope: 'archived', plans: baseline.archived.plans + 3, revertible: { plans: baseline.archived.revertible.plans + 1 } });
     expect(body.bytes).toBeGreaterThan(0);
     expect(body.revertible.bytes).toBeGreaterThan(0);
     expect((await app.inject({ method: 'GET', url: '/api/v1/storage/tag-changes?scope=everything', headers: as(ownerId, 'owner') })).statusCode).toBe(400);
   });
 
   it('previews every finished plan, never drafts', async () => {
-    const body = (await app.inject({ method: 'GET', url: '/api/v1/storage/tag-changes?scope=finished', headers: as(ownerId, 'owner') })).json<TagChangeCleanupPreview>();
-    expect(body).toMatchObject({ plans: 3, revertible: { plans: 2 } });
+    const body = await preview('finished');
+    expect(body).toMatchObject({ plans: baseline.finished.plans + 4, revertible: { plans: baseline.finished.revertible.plans + 2 } });
   });
 
   it('rejects a malformed cleanup request', async () => {
@@ -152,36 +164,40 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
   });
 
   it('deletes archived plans but keeps the one that can still be reverted', async () => {
+    const before = await preview('archived');
     const res = await app.inject({ method: 'POST', url: '/api/v1/storage/tag-changes/cleanup', headers: as(ownerId, 'owner'), payload: { scope: 'archived' } });
     expect(res.statusCode).toBe(200);
     const body = res.json<TagChangeCleanupResult>();
-    expect(body.deletedPlans).toBe(2);
+    expect(body.deletedPlans).toBe(before.plans);
+    expect(body.deletedPlans).toBeGreaterThanOrEqual(3);
     expect(body.freedBytes).toBeGreaterThan(0);
     expect(await exists('revertedArchived')).toBe(false);
     expect(await exists('cancelledArchived')).toBe(false);
+    // household: a plan in a library another person created is cleaned up too
+    expect(await exists('foreign')).toBe(false);
     expect(await exists('appliedArchived')).toBe(true);
     // items went with their plans
     const left = await db.select({ id: tagPlanItems.id }).from(tagPlanItems).where(inArray(tagPlanItems.tagPlanId, [ids['revertedArchived']!, ids['cancelledArchived']!]));
     expect(left).toHaveLength(0);
-    // other owners' plans, open plans and unarchived plans untouched
-    expect(await exists('foreign')).toBe(true);
+    // open plans and unarchived plans untouched
     expect(await exists('draft')).toBe(true);
     expect(await exists('failedOpen')).toBe(true);
   });
 
   it('deletes a revertible plan only when asked explicitly', async () => {
+    const before = await preview('archived');
     const res = await app.inject({ method: 'POST', url: '/api/v1/storage/tag-changes/cleanup', headers: as(ownerId, 'owner'), payload: { scope: 'archived', includeRevertible: true } });
-    expect(res.json<TagChangeCleanupResult>().deletedPlans).toBe(1);
+    expect(res.json<TagChangeCleanupResult>().deletedPlans).toBe(before.plans + before.revertible.plans);
     expect(await exists('appliedArchived')).toBe(false);
     expect(await exists('appliedOpen')).toBe(true);
   });
 
   it('finished scope takes the unarchived finished plans, still sparing the revertible', async () => {
+    const before = await preview('finished');
     const res = await app.inject({ method: 'POST', url: '/api/v1/storage/tag-changes/cleanup', headers: as(ownerId, 'owner'), payload: { scope: 'finished' } });
-    expect(res.json<TagChangeCleanupResult>().deletedPlans).toBe(1);
+    expect(res.json<TagChangeCleanupResult>().deletedPlans).toBe(before.plans);
     expect(await exists('failedOpen')).toBe(false);
     expect(await exists('appliedOpen')).toBe(true);
     expect(await exists('draft')).toBe(true);
-    expect(await exists('foreign')).toBe(true);
   });
 });

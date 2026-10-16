@@ -114,26 +114,26 @@ export function isInside(parent: string, child: string): boolean {
 const finishedList = sql.join(FINISHED_PLAN_STATUSES.map((s) => sql`${s}`), sql`, `);
 
 /**
- * The finished plans in the owner's libraries the cleanup covers, each with
+ * The finished plans the cleanup covers, in every library (the household
+ * model: libraries are shared, owner_user_id only says who created one; the
+ * route is the owner's), each with
  * whether it can still be reverted (it wrote files and has not been
  * reverted: its items hold the old tags) and about how many bytes its rows
  * take (the plan and its items: previews and the revert journal).
  */
-const candidates = (userId: string, scope: TagChangeCleanupScope) => sql`
+const candidates = (scope: TagChangeCleanupScope) => sql`
   select p.id,
          (p.status <> 'reverted' and exists (
             select 1 from tag_plan_items i where i.tag_plan_id = p.id and i.status = 'applied')) as revertible,
          (pg_column_size(p.*) + coalesce((
             select sum(pg_column_size(i.*)) from tag_plan_items i where i.tag_plan_id = p.id), 0))::bigint as bytes
     from tag_plans p
-    join libraries l on l.id = p.library_id
-   where l.owner_user_id = ${userId}
-     and p.status in (${finishedList})
+   where p.status in (${finishedList})
      ${scope === 'archived' ? sql`and p.archived_at is not null` : sql``}`;
 
-export async function previewTagChangeCleanup(db: Db, userId: string, scope: TagChangeCleanupScope): Promise<TagChangeCleanupPreview> {
+export async function previewTagChangeCleanup(db: Db, scope: TagChangeCleanupScope): Promise<TagChangeCleanupPreview> {
   const rows = await rowsOf(db, sql`
-    with cand as (${candidates(userId, scope)})
+    with cand as (${candidates(scope)})
     select revertible, count(*)::int as plans, coalesce(sum(bytes), 0)::bigint as bytes
       from cand group by revertible`);
   const safe = rows.find((r) => r['revertible'] === false);
@@ -148,10 +148,10 @@ export async function previewTagChangeCleanup(db: Db, userId: string, scope: Tag
 
 /** Deletes in one statement, re-checking every condition, so a plan that changed since the preview is judged as it is now. */
 export async function runTagChangeCleanup(
-  db: Db, userId: string, scope: TagChangeCleanupScope, includeRevertible: boolean,
+  db: Db, scope: TagChangeCleanupScope, includeRevertible: boolean,
 ): Promise<TagChangeCleanupResult> {
   const [row] = await rowsOf(db, sql`
-    with cand as (${candidates(userId, scope)}),
+    with cand as (${candidates(scope)}),
     gone as (
       delete from tag_plans p using cand c
        where p.id = c.id ${includeRevertible ? sql`` : sql`and not c.revertible`}

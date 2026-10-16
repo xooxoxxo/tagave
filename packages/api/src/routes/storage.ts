@@ -112,17 +112,17 @@ export async function createStorageRoutes(fastify: FastifyInstance, opts: Storag
   });
 
   fastify.get('/storage/tag-changes', async (request) => {
-    const userId = requireOwner(request);
-    return previewTagChangeCleanup(getDb(), userId, scopeOf((request.query as { scope?: string }).scope));
+    requireOwner(request);
+    return previewTagChangeCleanup(getDb(), scopeOf((request.query as { scope?: string }).scope));
   });
 
   fastify.post('/storage/tag-changes/cleanup', async (request) => {
-    const userId = requireOwner(request);
+    requireOwner(request);
     const parsed = tagChangeCleanupRequestSchema.safeParse(request.body ?? {});
     if (!parsed.success) {
       throw new ApiError(400, 'Bad Request', 'Send { "scope": "archived" | "finished", "includeRevertible": boolean }');
     }
-    const result = await runTagChangeCleanup(getDb(), userId, parsed.data.scope, parsed.data.includeRevertible);
+    const result = await runTagChangeCleanup(getDb(), parsed.data.scope, parsed.data.includeRevertible);
     request.log.info({ ...parsed.data, ...result }, 'tag-change cleanup');
     return result;
   });
