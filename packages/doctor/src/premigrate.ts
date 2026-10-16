@@ -49,7 +49,7 @@ export function allowSchemaSkew(env: NodeJS.ProcessEnv): boolean {
 /**
  * The default number of before-update dumps to keep when Settings › Backups
  * has not saved one: TAGAVE_PREMIGRATE_BACKUP_KEEP, default 3, brought into
- * 2–50. The saved keepPreUpdate wins (readBackupSettings).
+ * 1–50. The saved keepPreUpdate wins (readBackupSettings).
  */
 export function preMigrationKeep(env: NodeJS.ProcessEnv): number {
   return envKeepPreUpdate(env);

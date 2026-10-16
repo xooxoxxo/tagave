@@ -82,7 +82,7 @@ describe('SettingsBackupsPage', () => {
     for (const title of ['Keeping backups', '>Nightly</h4>', '>Before update</h4>', '>Manual</h4>']) expect(html).toContain(title);
     expect(html).toContain('4 backups, 4.0 MB, newest');
     expect(html).toContain('Keep the newest');
-    expect(html).toContain('min="2"');
+    expect(html).toContain('min="1"');
     expect(html).toContain('Back up now and backups taken by hand are kept until you delete them.');
     // what goes at the next update, with the total size and which backups
     expect(html).toContain('3 older backups (3.0 MB) go at the next run:');

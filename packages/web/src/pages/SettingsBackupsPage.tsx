@@ -203,11 +203,11 @@ export function SettingsBackupsPage() {
         <div className={styles.fields}>
           <label className={styles.field}>
             <span className={styles.label}>Keep the newest</span>
-            <Input type="number" inputMode="numeric" min={2} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 2, 50)} />
+            <Input type="number" inputMode="numeric" min={1} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 1, 50)} />
           </label>
         </div>
         <p className={styles.hint}>
-          Taken before an update changes the database, so you can go back. At least 2 are kept. Older ones are deleted after the next
+          Taken before an update changes the database, so you can go back. At least 1 is kept. Older ones are deleted after the next
           update succeeds.
         </p>
         <PendingDelete kind={kind('pre-migration')} backups={data.backups} edited={draft.keepPreUpdate !== saved.keepPreUpdate} />

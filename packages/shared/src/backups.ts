@@ -22,7 +22,7 @@ export const backupSettingsSchema = z.object({
   keepDaily: z.number().int().min(1).max(90),
   keepWeekly: z.number().int().min(0).max(52),
   /** Before-update dumps to keep (the app's before it migrates, and the updater's); at least 2. */
-  keepPreUpdate: z.number().int().min(2).max(50),
+  keepPreUpdate: z.number().int().min(1).max(50),
   /** Manual dumps to keep; null keeps them until the owner deletes them. */
   keepManual: z.number().int().min(1).max(100).nullable(),
 }).strict();

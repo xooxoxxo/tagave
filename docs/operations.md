@@ -176,7 +176,7 @@ A full disk stops Postgres, and with it the app. Updates are the usual cause: ne
 ### What grows
 
 - **Images:** each release brings new app, worker and updater images, about 3 GB together. Updates remove the older ones (see Old images); images from before that, and images you built yourself, stay.
-- **Backups:** each dump is about the size of the database without its indexes and cover thumbnails, and, for nightly and manual dumps, the provider cache (see [What a backup holds](#what-a-backup-holds)). Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). Before-update dumps keep the newest 3 (at least 2). Manual dumps stay until you delete them, unless you set a number; pre-restore dumps stay until you delete them. Each kind has its own number on the Backups page.
+- **Backups:** each dump is about the size of the database without its indexes and cover thumbnails, and, for nightly and manual dumps, the provider cache (see [What a backup holds](#what-a-backup-holds)). Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). Before-update dumps keep the newest 3 (at least 1). Manual dumps stay until you delete them, unless you set a number; pre-restore dumps stay until you delete them. Each kind has its own number on the Backups page.
 - **Cache:** full-size cover art and converted audio, in the `cache` volume. It grows with the library. The cover thumbnails the app shows are in the database.
 - **Build cache:** Docker keeps the layers of every image built on the computer. A source install that builds its own images collects gigabytes here.
 - **Logs:** each container keeps at most three 10 MB log files (`docker-compose.prod.yml`). Containers started outside compose have no limit.
@@ -278,7 +278,7 @@ Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --
 |---|---|---|
 | Nightly | every night at 03:00 in the container's `TZ` (change it on the Backups page) | by retention: the newest of each of the last 7 days and the newest of each of the last 4 weeks are kept |
 | Manual | "Back up now", or `tagave-doctor backup` | only when you delete it, or after the next manual backup when you set "keep the newest N" on the Backups page |
-| Before update | by the app, before it applies database updates; by the in-app updater (`tagave-doctor backup --kind before-update`) only when the app takes none (see [In-app updates](#in-app-updates)) | after a successful update, keeping the newest 3 (2–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
+| Before update | by the app, before it applies database updates; by the in-app updater (`tagave-doctor backup --kind before-update`) only when the app takes none (see [In-app updates](#in-app-updates)) | after a successful update, keeping the newest 3 (1–50 on the Backups page). An install that kept the earlier default of 5 keeps 5 until you pick a number |
 | Before restore | by `tagave-doctor restore --in-place` | only when you delete it |
 
 ### What a backup holds
@@ -306,7 +306,7 @@ The update that brings migration `0046_cover_thumbs` moves the thumbnails into t
 
 Files are named `tagave-<UTC time>[-<kind>].pgdump`. Releases before 0.9 named them `liner-<UTC time>[-<kind>].pgdump` (the project's old name); those stay listed, restorable and pruned with the new ones, sorted by time. Each dump has a small `.json` file next to it that records its kind and the check. The schedule and retention are saved in the same folder as `backup-settings.json`, so restoring an older database never brings back older settings. Lowering a number deletes nothing when you save it: the older backups of that kind go at its next run, and the Backups page lists which ones and how much space that frees. The newest backup of a kind is never deleted, and only files this app named are.
 
-Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52), `TAGAVE_PREMIGRATE_BACKUP_KEEP` (before update, 2–50). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
+Defaults for a fresh install can be set with environment variables on the app: `BACKUP_NIGHTLY=off`, `BACKUP_HOUR` (0–23), `BACKUP_KEEP_DAILY` (1–90), `BACKUP_KEEP_WEEKLY` (0–52), `TAGAVE_PREMIGRATE_BACKUP_KEEP` (before update, 1–50). Once settings are saved on the Backups page, the saved values win. `BACKUP_DIR` (or the older `BACKUP_DIR`) picks the folder; the compose files set it to `/backups`.
 
 ### Take a backup by hand
 
@@ -385,7 +385,7 @@ Overrides, for when you know why you need them:
 | `TAGAVE_ALLOW_SCHEMA_SKEW=1` | Let an app or worker run on a database a newer version updated. |
 | `BACKUP_DIR` | Where the app writes backups inside its container (default `/backups`). |
 | `TAGAVE_BACKUP_REQUIRE_MOUNT=0` | Let the app back up into a folder that is not a mounted volume. The app image sets it to `1`. |
-| `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep until a number is saved on the Backups page (default 3, 2–50). When it is unset and the backups folder already has before-update backups from an earlier release, the app saves 5, that release's default, once. |
+| `TAGAVE_PREMIGRATE_BACKUP_KEEP` | How many pre-update backups to keep until a number is saved on the Backups page (default 3, 1–50). When it is unset and the backups folder already has before-update backups from an earlier release, the app saves 5, that release's default, once. |
 | `TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1` | Migrate even though the free-space check before `0046_cover_thumbs` says the disk is short (see [What a backup holds](#what-a-backup-holds)). |
 
 With the installer, set the `TAGAVE_*` ones in `.env`.

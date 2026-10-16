@@ -113,9 +113,9 @@ describe('backup routes', () => {
     expect(onSettingsChanged).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps 2 to 50 before-update backups and 1 to 100 manual ones, or all manual ones', async () => {
+  it('keeps 1 to 50 before-update backups and 1 to 100 manual ones, or all manual ones', async () => {
     const base = { enabled: false, hour: 1, keepDaily: 14, keepWeekly: 8 };
-    for (const bad of [{ keepPreUpdate: 1 }, { keepPreUpdate: 51 }, { keepManual: 0 }, { keepManual: 101 }, { keepManual: 'all' }]) {
+    for (const bad of [{ keepPreUpdate: 0 }, { keepPreUpdate: 51 }, { keepManual: 0 }, { keepManual: 101 }, { keepManual: 'all' }]) {
       const res = await app.inject({ method: 'PUT', url: '/api/v1/backups/settings', payload: { ...base, ...bad } });
       expect(res.statusCode, JSON.stringify(bad)).toBe(400);
     }

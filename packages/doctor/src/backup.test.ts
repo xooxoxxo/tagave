@@ -364,7 +364,7 @@ describe('backups folder', () => {
       .toEqual({ ...defaults, enabled: false, hour: 1, keepDaily: 14 });
     await writeBackupSettings(dir, { enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2, keepPreUpdate: 4, keepManual: 10 });
     expect(await readBackupSettings(dir, {})).toEqual({ enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2, keepPreUpdate: 4, keepManual: 10 });
-    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ hour: 99, keepDaily: 0, keepPreUpdate: 1, keepManual: 0 }));
+    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ hour: 99, keepDaily: 0, keepPreUpdate: 0, keepManual: 0 }));
     expect(await readBackupSettings(dir, {})).toEqual(defaults);
   });
 
@@ -376,9 +376,10 @@ describe('backups folder', () => {
     expect((await readBackupSettings(dir, {})).keepManual).toBeNull();
   });
 
-  it('takes the before-update default from TAGAVE_PREMIGRATE_BACKUP_KEEP, within 2 to 50, and a saved value wins', async () => {
+  it('takes the before-update default from TAGAVE_PREMIGRATE_BACKUP_KEEP, within 1 to 50, and a saved value wins', async () => {
     expect((await readBackupSettings(dir, { TAGAVE_PREMIGRATE_BACKUP_KEEP: '6' })).keepPreUpdate).toBe(6);
-    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '1' }).keepPreUpdate).toBe(2);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '1' }).keepPreUpdate).toBe(1);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '0' }).keepPreUpdate).toBe(1);
     expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '50' }).keepPreUpdate).toBe(50);
     expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '99' }).keepPreUpdate).toBe(50);
     expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '' }).keepPreUpdate).toBe(3);

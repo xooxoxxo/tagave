@@ -694,10 +694,10 @@ export interface BackupSettings {
    * Before-update dumps to keep (the app's pre-migration dumps, and the
    * updater's --kind before-update ones). One in-app update writes one dump
    * of this kind: the app's, or the updater's when the app takes none
-   * (updater rollback-dump.ts). At least 2 still, so the previous update's
-   * dump survives the next one (plan D8 allows 1 now; not changed here). The
-   * installer's host-side backups/pre-update-* dumps are separate
-   * (install-tagave.sh keeps 3).
+   * (updater rollback-dump.ts). At least 1 (D8): the dump of the update
+   * under way is never pruned before it succeeds, and the newest is always
+   * kept. The default stays 3. The installer's host-side
+   * backups/pre-update-* dumps are separate (install-tagave.sh keeps 3).
    */
   keepPreUpdate: number;
   /** Manual dumps to keep; null keeps them until the owner deletes them. */
@@ -708,7 +708,7 @@ export const SETTINGS_LIMITS = {
   keepDaily: { min: 1, max: 90 },
   keepWeekly: { min: 0, max: 52 },
   hour: { min: 0, max: 23 },
-  keepPreUpdate: { min: 2, max: 50 },
+  keepPreUpdate: { min: 1, max: 50 },
   keepManual: { min: 1, max: 100 },
 } as const;
 
@@ -723,7 +723,7 @@ function envInt(env: NodeJS.ProcessEnv, key: string, fallback: number, min: numb
 
 /**
  * TAGAVE_PREMIGRATE_BACKUP_KEEP (LINER_ before 0.9) as the default for
- * keepPreUpdate, brought into 2–50; a value saved on the page wins.
+ * keepPreUpdate, brought into 1–50; a value saved on the page wins.
  */
 export function envKeepPreUpdate(env: NodeJS.ProcessEnv): number {
   const n = Number.parseInt(tagaveEnv('PREMIGRATE_BACKUP_KEEP', env) ?? '', 10);
