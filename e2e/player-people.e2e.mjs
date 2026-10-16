@@ -269,7 +269,9 @@ try {
   const nd1 = (await subsonic(people.ben.nd, people.ben.phone, 'getAlbumList2', { type: 'alphabeticalByName', size: 10 })).albumList2.album.find((a) => a.name === 'Album 1');
   const songs1 = (await subsonic(people.ben.nd, people.ben.phone, 'getAlbum', { id: nd1.id })).album.song;
   await subsonic(people.ben.nd, people.ben.phone, 'scrobble', { id: songs1[0].id, submission: 'false' });
-  const t0 = Date.now() - 4 * 36_000;
+  // reported with the times they happened, the latest a few seconds ago: after tagave first
+  // looked, but before the listener's last web play (an app that was offline, then synced)
+  const t0 = Date.now() - 3 * 36_000 - 5_000;
   for (const [i, s] of songs1.entries()) await subsonic(people.ben.nd, people.ben.phone, 'scrobble', { id: s.id, submission: 'true', time: t0 + i * 36_000 });
   step('a phone app (Subsonic, as the listener) played Album 1', true, songs1.map((s) => s.title).join(', '));
 
