@@ -171,6 +171,31 @@ open in the app also get their years when their details are next refreshed.
 
 A full disk stops Postgres, and with it the app. Updates are the usual cause: new images and backups land on top of whatever Docker has kept.
 
+### What grows
+
+- **Images:** each release brings new app, worker and updater images, about 3 GB together. Updates remove the older ones (see Old images); images from before that, and images you built yourself, stay.
+- **Backups:** each dump is about the size of the database without its indexes. Nightly backups keep 7 daily and 4 weekly ones (Settings › Backups). The app keeps the newest 5 dumps it takes before an update (`TAGAVE_PREMIGRATE_BACKUP_KEEP`). Manual and pre-restore dumps stay until you delete them.
+- **Cache:** cover thumbnails and converted audio, in the `cache` volume. It grows with the library.
+- **Build cache:** Docker keeps the layers of every image built on the computer. A source install that builds its own images collects gigabytes here.
+- **Logs:** each container keeps at most three 10 MB log files (`docker-compose.prod.yml`). Containers started outside compose have no limit.
+- **Database:** grows with the library and with finished tag changes (Settings › Storage can clean those up).
+
+### How to check
+
+- `tagave-doctor` has a Disk space check. It measures the backups folder, the cache folder and, when Postgres runs on the same computer, its data folder. It warns at 85 % used and fails at 95 %; `TAGAVE_DISK_WARN_PCT` and `TAGAVE_DISK_FAIL_PCT` in `.env` change that. Settings › System status shows the same check. `/api/v1/health` is public, so it says only ok, warn or error.
+- In Docker the doctor cannot see Postgres's volume, and says so. Docker volumes usually share one disk, so the backups and cache numbers are a good guide; `df -h` on the host is the answer.
+- Settings › Storage shows the free space of each disk, and what tagave itself takes. The owner sees a note on every page while a disk is past 85 %.
+- On the host, `df -h` shows what is free and `docker system df` shows what images, containers, volumes and the build cache take.
+
+### Safe to delete
+
+- Dangling images: `docker image prune -f` removes images no tag names and no container uses.
+- The build cache: `docker builder prune -f`. tagave never needs it to run.
+- tagave images older than the previous release. Keep the one that runs and the one before it, for a roll back (see Old images).
+- Old backups beyond retention, from Settings › Backups. Keep the newest, and copy anything you want to keep somewhere else first.
+
+Never delete Docker volumes, and never prune them (`docker system prune --volumes`, `docker compose down -v` and the like). `pgdata` is the database; `backups` and `cache` go with it.
+
 ### Free space before updates
 
 Before the in-app updater pulls anything, it works out what the update will write and checks each filesystem it writes to:
@@ -214,6 +239,22 @@ To free space from releases before this one by hand, list the images and remove 
 docker image ls | grep -E 'tagave-(app|worker|updater)'
 docker image rm ghcr.io/xooxoxxo/tagave-app:0.7.0 ghcr.io/xooxoxxo/tagave-worker:0.7.0 ghcr.io/xooxoxxo/tagave-updater:0.7.0
 ```
+
+### Recommended Docker settings
+
+Let Docker clear its build cache by itself. Add this to `/etc/docker/daemon.json` (merge it with what is there), then restart Docker with `sudo systemctl restart docker`. The restart stops every container for a moment.
+
+```json
+{"builder":{"gc":{"enabled":true,"defaultKeepStorage":"10GB"}}}
+```
+
+Remove unused images and old build cache once a week. For example, with `sudo crontab -e`:
+
+```sh
+0 4 * * 0 docker image prune -f && docker builder prune -f --filter until=72h
+```
+
+Neither touches volumes or the images of running containers.
 
 ## Where data lives
 
