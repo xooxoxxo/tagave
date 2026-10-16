@@ -193,4 +193,19 @@ describe('GET /storage errors', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().folders.map((f: { key: string }) => f.key)).toEqual(['cache', 'backups']);
   });
+
+  it('adds the free space of the disks the backups and cache folders are on', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/v1/storage', headers: as('owner') });
+    expect(res.statusCode).toBe(200);
+    const disk = res.json().disk;
+    expect(disk).toMatchObject({ status: expect.stringMatching(/^(pass|warn|fail)$/), warnPct: 85, failPct: 95 });
+    // both folders sit in one temp folder: one filesystem with both paths
+    expect(disk.filesystems).toHaveLength(1);
+    expect(disk.filesystems[0].paths).toEqual([
+      { key: 'backups', label: 'Backups', path: join(dir, 'backups') },
+      { key: 'cache', label: 'Cache', path: join(dir, 'cache') },
+    ]);
+    expect(disk.filesystems[0].totalBytes).toBeGreaterThan(0);
+    expect(disk.filesystems[0].freeBytes).toBeGreaterThanOrEqual(0);
+  });
 });

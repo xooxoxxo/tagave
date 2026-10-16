@@ -93,7 +93,8 @@
 .ok { color: var(--ink-2); }
 
 .bad {
-  color: var(--danger-ink);
+  /* --danger-ink is the label on a danger fill (white); text on the page uses --danger */
+  color: var(--danger);
   font-size: var(--font-size-sm);
 }
 

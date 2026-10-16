@@ -1778,7 +1778,7 @@ snapshot_player() {
 # put it back as it was.
 save_configuration() {
   local name file
-  UPDATE_BACKUP_DIR="$INSTALL_DIR/backups/pre-update-${FROM_VERSION:-unknown}-$(date +%Y%m%d-%H%M%S)"
+  UPDATE_BACKUP_DIR="$INSTALL_DIR/backups/pre-update-${FROM_VERSION:-unknown}-$(date -u +%Y%m%d-%H%M%S)"
   ( umask 077; mkdir -p "$UPDATE_BACKUP_DIR" )
   chmod 700 "$INSTALL_DIR/backups" "$UPDATE_BACKUP_DIR"
   for name in .env "$WORKER_ENV_NAME" "$COMPOSE_MAIN" "$COMPOSE_DB"; do
@@ -1820,6 +1820,39 @@ backup_database() {
   [ "${entries:-0}" -gt 0 ] || die "the backup at $dump could not be read back. Nothing was changed."
   size="$(du -h "$dump" | awk '{print $1}')"
   ok "Database backed up to $dump ($size, $entries entries)"
+}
+
+# Keeps the database dump of the newest UPDATE_DUMPS_KEEP pre-update-* folders
+# in backups/ (this update's included) and deletes the dumps in older ones.
+# The .env and compose copies stay in every folder: they are small, and a roll
+# back to that version needs them. Only a database.pgdump that is a plain file
+# in a folder named pre-update-<version>-<date>-<time> is ever deleted.
+UPDATE_DUMPS_KEEP=3
+prune_update_dumps() {
+  local dir="$INSTALL_DIR/backups" folder name stamp dump kept=0 removed=0 freed=0 size
+  [ -d "$dir" ] || return 0
+  while IFS="$(printf '\t')" read -r stamp folder; do
+    [ -n "$folder" ] || continue
+    kept=$((kept + 1))
+    [ "$kept" -gt "$UPDATE_DUMPS_KEEP" ] || continue
+    [ "$folder" != "$UPDATE_BACKUP_DIR" ] || continue
+    dump="$folder/database.pgdump"
+    size="$(du -k "$dump" 2>/dev/null | awk '{print $1}')"
+    if rm -f -- "$dump"; then
+      removed=$((removed + 1))
+      freed=$((freed + ${size:-0}))
+    fi
+  done <<EOF_DUMPS
+$(for folder in "$dir"/pre-update-*; do
+    if [ ! -d "$folder" ] || [ -L "$folder" ]; then continue; fi
+    name="${folder##*/}"
+    stamp="$(printf '%s\n' "$name" | sed -n 's/^pre-update-.*-\([0-9]\{8\}-[0-9]\{6\}\)$/\1/p')"
+    [ -n "$stamp" ] || continue
+    if [ ! -f "$folder/database.pgdump" ] || [ -L "$folder/database.pgdump" ]; then continue; fi
+    printf '%s\t%s\n' "$stamp" "$folder"
+  done | sort -r)
+EOF_DUMPS
+  [ "$removed" -eq 0 ] || ok "Removed $removed older pre-update database backup(s) ($((freed / 1024)) MB); kept the newest $UPDATE_DUMPS_KEEP and every saved .env and compose file"
 }
 
 # Prints, as commands to paste, how to go back to CURRENT.
@@ -2130,6 +2163,7 @@ update_app_computer() {
   step "Backing up"
   save_configuration
   backup_database
+  prune_update_dumps
   ON_DIE=print_rollback
 
   step "Switching to $TARGET"

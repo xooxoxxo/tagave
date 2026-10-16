@@ -320,13 +320,32 @@ describe('backups folder', () => {
   });
 
   it('reads defaults until settings are saved, and ignores out-of-range values', async () => {
-    expect(await readBackupSettings(dir, {})).toEqual({ enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4 });
+    const defaults = { enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4, keepPreUpdate: 3, keepManual: null };
+    expect(await readBackupSettings(dir, {})).toEqual(defaults);
     expect(defaultBackupSettings({ BACKUP_NIGHTLY: 'off', BACKUP_HOUR: '1', BACKUP_KEEP_DAILY: '14', BACKUP_KEEP_WEEKLY: 'x' }))
-      .toEqual({ enabled: false, hour: 1, keepDaily: 14, keepWeekly: 4 });
-    await writeBackupSettings(dir, { enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2 });
-    expect(await readBackupSettings(dir, {})).toEqual({ enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2 });
-    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ hour: 99, keepDaily: 0 }));
-    expect(await readBackupSettings(dir, {})).toEqual({ enabled: true, hour: 3, keepDaily: 7, keepWeekly: 4 });
+      .toEqual({ ...defaults, enabled: false, hour: 1, keepDaily: 14 });
+    await writeBackupSettings(dir, { enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2, keepPreUpdate: 4, keepManual: 10 });
+    expect(await readBackupSettings(dir, {})).toEqual({ enabled: false, hour: 5, keepDaily: 3, keepWeekly: 2, keepPreUpdate: 4, keepManual: 10 });
+    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ hour: 99, keepDaily: 0, keepPreUpdate: 1, keepManual: 0 }));
+    expect(await readBackupSettings(dir, {})).toEqual(defaults);
+  });
+
+  it('reads settings saved by an older release (no per-kind fields) with the new defaults', async () => {
+    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ enabled: true, hour: 2, keepDaily: 5, keepWeekly: 1 }));
+    expect(await readBackupSettings(dir, {})).toMatchObject({ hour: 2, keepPreUpdate: 3, keepManual: null });
+    // a saved null is "until I delete", not "use the default"
+    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ keepManual: null }));
+    expect((await readBackupSettings(dir, {})).keepManual).toBeNull();
+  });
+
+  it('takes the before-update default from TAGAVE_PREMIGRATE_BACKUP_KEEP, within 2 to 50, and a saved value wins', async () => {
+    expect((await readBackupSettings(dir, { TAGAVE_PREMIGRATE_BACKUP_KEEP: '6' })).keepPreUpdate).toBe(6);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '1' }).keepPreUpdate).toBe(2);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '50' }).keepPreUpdate).toBe(50);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '99' }).keepPreUpdate).toBe(50);
+    expect(defaultBackupSettings({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '' }).keepPreUpdate).toBe(3);
+    await writeFile(join(dir, 'backup-settings.json'), JSON.stringify({ keepPreUpdate: 2 }));
+    expect((await readBackupSettings(dir, { TAGAVE_PREMIGRATE_BACKUP_KEEP: '6' })).keepPreUpdate).toBe(2);
   });
 
   it('records the last run and the last nightly run separately', async () => {

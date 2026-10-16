@@ -70,13 +70,9 @@ export class BackupService {
     this.active++;
     const next = this.chain.then(async () => {
       const settings = await this.settings();
-      return this.runFn({
-        databaseUrl: this.databaseUrl,
-        dir: this.dir,
-        kind,
-        policy: { keepDaily: settings.keepDaily, keepWeekly: settings.keepWeekly },
-        timeZone: this.timeZone,
-      });
+      // Retention of this kind only, from the settings saved now: a number
+      // lowered on the page takes effect here, at the next run (D5).
+      return this.runFn({ databaseUrl: this.databaseUrl, dir: this.dir, kind, settings, timeZone: this.timeZone });
     });
     const done = next.finally(() => { this.active--; });
     this.chain = done.catch(() => undefined);

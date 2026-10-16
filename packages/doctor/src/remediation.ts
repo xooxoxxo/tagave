@@ -38,6 +38,11 @@ export function remediationFor(check: Pick<Check, 'id' | 'status' | 'detail'>): 
       return failed
         ? 'A music folder cannot be read by the worker. The path is checked on the worker host, not on the web server: mount the drive or share there (in Docker, bind-mount it into the worker container at the same path), give the worker user read access, then press Re-check under Settings › Music folders.'
         : 'Add a music folder under Settings › Music folders, or open that page and press Re-check on a folder whose check is old or still waiting.';
+    case 'disk':
+      if (check.status === 'warn' && !/% or more used/.test(check.detail)) {
+        return 'The free space of the disks tagave writes could not be read on this host. Check that the backups and cache folders are mounted (a stale network share does not answer), then run `df -h` on the host to see the free space yourself.';
+      }
+      return `${failed ? 'A disk tagave writes is almost full. When it fills up Postgres stops and updates fail, so free space now.' : 'A disk tagave writes is filling up. Free space before the next update: an update pulls new images and takes a backup first.'} On the Docker host run \`df -h\` and \`docker system df\`, then remove unused images and build cache (\`docker image prune -f\` and \`docker builder prune -f\`) and old backups you no longer need (Settings › Backups). Never delete Docker volumes: they hold the database. "Disk space" in the operations guide lists what grows and what is safe to delete. Settings › Storage shows what tagave itself takes.`;
     case 'cacheDir':
       return 'The cache folder on this host is missing or not writable. Create it and give the app user write access, or point CACHE_DIR at a writable folder and restart.';
     case 'providers':

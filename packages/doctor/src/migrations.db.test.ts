@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -264,6 +264,54 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     ]);
     expect(await sql`select count(*)::int as n from _migration_backups`).toEqual([{ n: 1 }]);
     await sql.end({ timeout: 2 });
+  });
+
+  it('prunes before-update dumps by the number saved on Settings › Backups, over the env default', async () => {
+    const db = await fresh();
+    const backups = await mkdtemp(join(tmpdir(), 'tagave-premig-saved-'));
+    dirs.push(backups);
+    for (const d of ['2026-01-01', '2026-02-01', '2026-03-01', '2026-04-01']) await writeFile(join(backups, pre(d)), 'old');
+    await writeFile(join(backups, 'backup-settings.json'), JSON.stringify({ keepPreUpdate: 2 }));
+    const env = { BACKUP_DIR: backups, TAGAVE_PREMIGRATE_BACKUP_KEEP: '5' };
+    const migs = await dir({ '0001_a.sql': 'create table a (id int);' });
+    const backup = async (o: BackupOptions): Promise<BackupResult> => {
+      const p = join(o.outDir, pre('2026-09-01'));
+      await writeFile(p, 'dump');
+      return { path: p, kind: 'pre-migration', bytes: 4, tocEntries: 1, pruned: [], durationMs: 1 };
+    };
+    await migrateOnBoot({ databaseUrl: db, appVersion: '1.0.0', env, log: quiet, migrationsDir: migs });
+    await writeFile(join(migs, '0002_b.sql'), 'create table b (id int);');
+    const r = await migrateOnBoot({ databaseUrl: db, appVersion: '1.1.0', env, log: quiet, migrationsDir: migs, backup });
+    expect(r.backup?.status).toBe('ok');
+    expect((await readdir(backups)).filter(isPre).sort()).toEqual([pre('2026-04-01'), pre('2026-09-01')]);
+  });
+
+  it('an existing install keeps the earlier 5 before-update dumps on the first boot; a fresh one keeps 3', async () => {
+    const backup = async (o: BackupOptions): Promise<BackupResult> => {
+      const p = join(o.outDir, pre('2026-09-01'));
+      await writeFile(p, 'dump');
+      return { path: p, kind: 'pre-migration', bytes: 4, tocEntries: 1, pruned: [], durationMs: 1 };
+    };
+    const boot = async (backups: string) => {
+      const db = await fresh();
+      const env = { BACKUP_DIR: backups };
+      const migs = await dir({ '0001_a.sql': 'create table a (id int);' });
+      await migrateOnBoot({ databaseUrl: db, appVersion: '1.0.0', env, log: quiet, migrationsDir: migs });
+      await writeFile(join(migs, '0002_b.sql'), 'create table b (id int);');
+      await migrateOnBoot({ databaseUrl: db, appVersion: '1.1.0', env, log: quiet, migrationsDir: migs, backup });
+    };
+    const existing = await mkdtemp(join(tmpdir(), 'tagave-premig-legacy-'));
+    dirs.push(existing);
+    for (const d of ['2026-03-01', '2026-04-01', '2026-05-01', '2026-06-01', '2026-07-01']) await writeFile(join(existing, pre(d)), 'old');
+    await boot(existing);
+    expect((await readdir(existing)).filter(isPre)).toHaveLength(5);
+    expect(JSON.parse(await readFile(join(existing, 'backup-settings.json'), 'utf8'))).toEqual({ keepPreUpdate: 5 });
+
+    const fresh3 = await mkdtemp(join(tmpdir(), 'tagave-premig-fresh-'));
+    dirs.push(fresh3);
+    await boot(fresh3);
+    expect((await readdir(fresh3)).filter(isPre)).toEqual([pre('2026-09-01')]);
+    expect(await readdir(fresh3)).not.toContain('backup-settings.json');
   });
 
   it('the backups check warns when the folder cannot take a file', async () => {

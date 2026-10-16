@@ -413,6 +413,18 @@ grep -q "releases/tag/v0.5.0" "$work/dry.log" || fail "update --dry-run: no rele
 [ ! -d "$work/upd/backups" ] || fail "update --dry-run wrote a backup"
 pass "update --dry-run changes nothing"
 
+# Dumps from four earlier updates, plus files the pruning must leave alone.
+mkdir -p "$work/upd/backups"
+for old in 0.3.0-20260101-100000 0.3.1-20260201-100000 0.3.2-20260301-100000 0.3.3-20260401-100000; do
+  mkdir -p "$work/upd/backups/pre-update-$old"
+  printf 'PGDMP old' >"$work/upd/backups/pre-update-$old/database.pgdump"
+  printf 'TAGAVE_VERSION=%s\n' "${old%%-*}" >"$work/upd/backups/pre-update-$old/.env"
+  printf 'services: {}\n' >"$work/upd/backups/pre-update-$old/docker-compose.yml"
+done
+mkdir -p "$work/upd/backups/pre-update-by-hand"
+printf 'PGDMP mine' >"$work/upd/backups/pre-update-by-hand/database.pgdump"
+printf 'PGDMP mine' >"$work/upd/backups/my-own.pgdump"
+
 : >"$work/docker.log"
 fake update --dir "$work/upd" --yes >"$work/update.log" 2>&1 || { cat "$work/update.log" >&2; fail "update"; }
 [ "$(env_value TAGAVE_VERSION "$work/upd/.env")" = "0.5.0" ] || fail "update: .env not moved to 0.5.0"
@@ -435,6 +447,21 @@ fi
 grep -q 'How to roll back to 0.4.1' "$work/update.log" || fail "update: no roll back instructions"
 grep -q 'pg_restore' "$work/update.log" || fail "update: roll back does not restore the database"
 pass "update backs up, pins 0.5.0, restarts the app before the workers, prints the roll back"
+
+# D6: the newest 3 pre-update dumps stay (this update's and the two before it);
+# older dumps go, but every folder keeps its .env and compose copy.
+for old in 0.3.2-20260301-100000 0.3.3-20260401-100000; do
+  [ -s "$work/upd/backups/pre-update-$old/database.pgdump" ] || fail "update: removed the dump of pre-update-$old, one of the newest 3"
+done
+for old in 0.3.0-20260101-100000 0.3.1-20260201-100000; do
+  [ ! -e "$work/upd/backups/pre-update-$old/database.pgdump" ] || fail "update: kept the dump of pre-update-$old, older than the newest 3"
+  [ -f "$work/upd/backups/pre-update-$old/.env" ] || fail "update: removed the saved .env of pre-update-$old"
+  [ -f "$work/upd/backups/pre-update-$old/docker-compose.yml" ] || fail "update: removed the saved compose file of pre-update-$old"
+done
+[ -s "$work/upd/backups/pre-update-by-hand/database.pgdump" ] || fail "update: removed a dump in a folder it did not name"
+[ -s "$work/upd/backups/my-own.pgdump" ] || fail "update: removed a file it did not write"
+grep -q 'Removed 2 older pre-update database backup' "$work/update.log" || fail "update: does not say it removed 2 older dumps"
+pass "update keeps the newest 3 pre-update dumps and every saved .env and compose file"
 
 fake update --dir "$work/upd" --yes >"$work/update2.log" 2>&1 || { cat "$work/update2.log" >&2; fail "update, again"; }
 grep -q 'Already on 0.5.0' "$work/update2.log" || fail "update: a second run should do nothing"

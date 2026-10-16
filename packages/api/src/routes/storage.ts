@@ -17,6 +17,7 @@ import {
   type StorageStep,
   type TagChangeCleanupScope,
 } from '@tagave/shared';
+import { diskSpace } from '@tagave/doctor';
 import { getDb } from '../db.js';
 import { databaseUnreachable } from '../lib/databaseUnreachable.js';
 import { ApiError } from '../middleware/errorHandler.js';
@@ -91,6 +92,17 @@ export async function createStorageRoutes(fastify: FastifyInstance, opts: Storag
     const folders: StorageFolderView[] = [];
     const backupInCache = !!opts.cacheDir && isInside(opts.cacheDir, opts.backupDir);
     const cacheDir = opts.cacheDir;
+    // free space per filesystem (statfs, the doctor's disk check); a failure
+    // here leaves it out instead of failing the page
+    const disk = diskSpace({
+      ...(process.env.DATABASE_URL ? { databaseUrl: process.env.DATABASE_URL } : {}),
+      ...(cacheDir ? { cacheDir } : {}),
+      backupDir: opts.backupDir,
+      fresh: true,
+    }).catch((err: unknown) => {
+      request.log.warn({ err }, 'disk space measurement failed');
+      return null;
+    });
     let database, cache, backups;
     try {
       [database, cache, backups] = await Promise.all([
@@ -108,7 +120,7 @@ export async function createStorageRoutes(fastify: FastifyInstance, opts: Storag
       folders.push({ key: 'cache', label: 'Cache folder', path: opts.cacheDir, ...cache });
     }
     folders.push({ key: 'backups', label: 'Backups folder', path: opts.backupDir, ...backups });
-    return { checkedAt: new Date().toISOString(), database, folders };
+    return { checkedAt: new Date().toISOString(), database, folders, disk: await disk };
   });
 
   fastify.get('/storage/tag-changes', async (request) => {

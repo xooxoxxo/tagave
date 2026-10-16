@@ -63,6 +63,49 @@ export interface StorageFolderView {
   error: string | null;
 }
 
+/** A place tagave writes whose disk the doctor's disk check measures. */
+export type DiskPathKey = 'backups' | 'cache' | 'database';
+
+export interface DiskPathView {
+  key: DiskPathKey;
+  label: string;
+  path: string;
+}
+
+/**
+ * One filesystem (statfs), with the tagave paths that live on it. Used and
+ * free are as `df` counts them: free is what a non-root process can still
+ * write, and the percentage is used / (used + free).
+ */
+export interface DiskFilesystemView {
+  totalBytes: number;
+  usedBytes: number;
+  freeBytes: number;
+  /** 0 to 100, one decimal, rounded down. */
+  usedPct: number;
+  status: 'pass' | 'warn' | 'fail';
+  paths: DiskPathView[];
+}
+
+/** A path whose disk could not be measured from where the check ran, and why. */
+export interface DiskUnmeasuredView {
+  key: DiskPathKey;
+  label: string;
+  path: string | null;
+  reason: string;
+}
+
+/** The doctor's disk check: every filesystem tagave writes, worst status first. */
+export interface DiskSpaceView {
+  status: 'pass' | 'warn' | 'fail';
+  /** Thresholds in percent used (TAGAVE_DISK_WARN_PCT, TAGAVE_DISK_FAIL_PCT). */
+  warnPct: number;
+  failPct: number;
+  checkedAt: string;
+  filesystems: DiskFilesystemView[];
+  unmeasured: DiskUnmeasuredView[];
+}
+
 export interface StorageOverview {
   checkedAt: string;
   database: {
@@ -71,6 +114,8 @@ export interface StorageOverview {
     categories: StorageCategoryView[];
   };
   folders: StorageFolderView[];
+  /** Free space on this server's disks; null when it could not be read. */
+  disk?: DiskSpaceView | null;
 }
 
 /** What GET /storage was measuring when it failed. */

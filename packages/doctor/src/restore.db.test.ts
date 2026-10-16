@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { listBackups, pgDumpBin, pgRestoreBin, readBackupStatus, runBackup, runRecordedBackup } from './backup.js';
+import { defaultBackupSettings, listBackups, pgDumpBin, pgRestoreBin, readBackupStatus, runBackup, runRecordedBackup } from './backup.js';
 import { RestoreRefused, checkActivity, runRestore, sideName, stamp, withDatabase } from './restore.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -91,10 +91,10 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     expect(list).toEqual([expect.objectContaining({ name: basename(dump), kind: 'manual', verified: true, bytes: result.bytes })]);
   }, 60_000);
 
-  it('records a nightly run and prunes by the policy', async () => {
-    const record = await runRecordedBackup({ databaseUrl: scratchUrl, dir, kind: 'nightly', policy: { keepDaily: 1, keepWeekly: 0 }, now: new Date('2026-01-01T03:00:00Z') });
+  it('records a nightly run and prunes nightly dumps by the saved settings', async () => {
+    const record = await runRecordedBackup({ databaseUrl: scratchUrl, dir, kind: 'nightly', settings: { ...defaultBackupSettings({}), keepDaily: 1, keepWeekly: 0 }, now: new Date('2026-01-01T03:00:00Z') });
     expect(record).toMatchObject({ ok: true, kind: 'nightly' });
-    const second = await runRecordedBackup({ databaseUrl: scratchUrl, dir, kind: 'nightly', policy: { keepDaily: 1, keepWeekly: 0 }, now: new Date('2026-01-02T03:00:00Z') });
+    const second = await runRecordedBackup({ databaseUrl: scratchUrl, dir, kind: 'nightly', settings: { ...defaultBackupSettings({}), keepDaily: 1, keepWeekly: 0 }, now: new Date('2026-01-02T03:00:00Z') });
     expect(second.pruned).toEqual([record.file]);
     expect((await readBackupStatus(dir)).lastNightly?.file).toBe(second.file);
     // the manual dump is never pruned

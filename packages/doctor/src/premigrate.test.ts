@@ -157,8 +157,11 @@ describe('env knobs', () => {
     expect(skipPreMigrationBackup({})).toBe(false);
     expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: 'true' })).toBe(true);
     expect(skipPreMigrationBackup({ TAGAVE_SKIP_PREMIGRATE_BACKUP: '0' })).toBe(false);
-    expect(preMigrationKeep({})).toBe(5);
-    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '0' })).toBe(5);
+    expect(preMigrationKeep({})).toBe(3);
+    // at least 2: one update writes two before-update dumps (D8)
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '0' })).toBe(2);
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '50' })).toBe(50);
+    expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '51' })).toBe(50);
     expect(preMigrationKeep({ TAGAVE_PREMIGRATE_BACKUP_KEEP: '9' })).toBe(9);
   });
 

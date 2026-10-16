@@ -106,11 +106,11 @@ services:
       TZ: ${TZ:-UTC}
       # Nightly, manual and pre-update database backups (Settings › Backups).
       # Before it applies a database update, the app writes a checked pg_dump
-      # here and refuses to update if that fails. It keeps the newest
-      # TAGAVE_PREMIGRATE_BACKUP_KEEP of them. Set TAGAVE_SKIP_PREMIGRATE_BACKUP=1
-      # only to update without a backup on purpose.
+      # here and refuses to update if that fails. It keeps the newest 3, or the
+      # number on the Backups page (TAGAVE_PREMIGRATE_BACKUP_KEEP sets the default).
+      # Set TAGAVE_SKIP_PREMIGRATE_BACKUP=1 only to update without a backup on purpose.
       BACKUP_DIR: /backups
-      TAGAVE_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-5}
+      TAGAVE_PREMIGRATE_BACKUP_KEEP: ${TAGAVE_PREMIGRATE_BACKUP_KEEP:-}
       TAGAVE_SKIP_PREMIGRATE_BACKUP: ${TAGAVE_SKIP_PREMIGRATE_BACKUP:-}
       TAGAVE_ALLOW_SCHEMA_SKEW: ${TAGAVE_ALLOW_SCHEMA_SKEW:-}
       # Settings > Updates shows the update command for the way tagave was

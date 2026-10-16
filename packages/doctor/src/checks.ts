@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { ensureDir } from './ensureDir.js';
 import postgres from 'postgres';
+import type { DiskSpaceView } from '@tagave/shared';
 import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@tagave/db';
 import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork } from '@tagave/core';
 
@@ -14,6 +15,8 @@ export interface Check {
   status: CheckStatus;
   detail: string;
   durationMs: number;
+  /** The disk check's numbers per filesystem (only on id 'disk'). */
+  disk?: DiskSpaceView;
 }
 
 /** "1 worker", "2 workers": details are read by people, not parsed. */

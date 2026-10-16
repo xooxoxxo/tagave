@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { runDoctor, remediationFor } from '@tagave/doctor';
+import { runDoctor, remediationFor, publicDiskCheck } from '@tagave/doctor';
 import { readBuildInfo } from '@tagave/core';
 import { getDb } from '../db.js';
 import { expectedWorkers } from './system.js';
@@ -43,6 +43,8 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
       const migrations = level('migrations');
       const cacheDir = level('cacheDir');
       const workerHeartbeat = level('workerHeartbeat');
+      // a full disk is a warn or a fail of its own; it never makes the probe 503
+      const disk = level('disk');
       const down = database === 'error' || migrations === 'error';
 
       const health: any = {
@@ -52,22 +54,24 @@ export async function createHealthRoutes(fastify: FastifyInstance) {
         migrations,
         cacheDir,
         workerHeartbeat,
-        checks: result.checks.map((c) => ({
-          id: c.id,
-          title: c.title,
-          status: c.status,
-          detail: c.detail,
-          remediation: remediationFor(c),
-        })),
+        disk,
+        // Public: the disk check says ok / filling up / almost full only.
+        // Its paths and sizes are for the owner (GET /storage, /system/checks).
+        checks: result.checks.map((full) => {
+          const c = full.id === 'disk' ? publicDiskCheck(full) : full;
+          return { id: c.id, title: c.title, status: c.status, detail: c.detail, remediation: remediationFor(c) };
+        }),
       };
 
       reply.status(down ? 503 : 200).send(health);
     } catch (err) {
+      // public: a fixed message; what failed goes to the server log
+      request.log.error({ err }, 'health check failed');
       return reply.status(503).send({
         status: 'error',
         timestamp: new Date().toISOString(),
         database: 'error',
-        error: (err as any).message,
+        error: 'Health check failed',
       });
     }
   });
