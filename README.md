@@ -11,7 +11,8 @@ tags without ever damaging a file, and tells you what is missing.
 
 It is a catalogue that also plays: an optional player module (a bundled
 Navidrome, or your own Subsonic-compatible server) plays albums inside tagave
-and serves your phone apps.
+and serves your phone apps. Each person's plays become their listens and are
+scrobbled to their own Last.fm and ListenBrainz.
 
 </div>
 
