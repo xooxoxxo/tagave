@@ -39,6 +39,14 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // The consent page: any signed-in person approves or denies a link to their own account.
   'GET /api/v1/connect/requests/:id': 'self',
   'POST /api/v1/connect/requests/:id/decision': 'self',
+  // Settings › Connections (routes/mcConnections.ts): each person links tagave to other music apps for themselves; every handler filters by request.user.id.
+  'GET /api/v1/me/connections': 'self',
+  'POST /api/v1/me/connections': 'self',
+  'GET /api/v1/me/connections/callback': 'self',
+  'POST /api/v1/me/connections/:id/sync': 'self',
+  'POST /api/v1/me/connections/:id/reapprove': 'self',
+  'PATCH /api/v1/me/connections/:id': 'self',
+  'DELETE /api/v1/me/connections/:id': 'self',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',

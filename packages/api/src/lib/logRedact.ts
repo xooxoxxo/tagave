@@ -1,11 +1,12 @@
 /**
  * Request URLs as the request log writes them. A one-time invite or
  * set-password link carries its token in the path, and the Last.fm sign-in
- * comes back with its token and state in the query; whoever reads the logs
- * must not be able to use them.
+ * comes back with its token and state in the query, and a Music
+ * Connections approval with its one-time code; whoever reads the logs must
+ * not be able to use them.
  */
 const TOKEN_PATH = /(\/invites?\/)[^/?#]+/;
-const SECRET_QUERY = new Set(['token', 'state']);
+const SECRET_QUERY = new Set(['token', 'state', 'code', 'code_verifier', 'refresh_token', 'access_token', 'client_secret']);
 
 export function redactUrl(url: string): string {
   const q = url.indexOf('?');

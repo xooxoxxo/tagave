@@ -46,6 +46,7 @@ async function startBoss(): Promise<PgBoss> {
     'roots.validate', 'scan.root', 'enrich.sweep', // library / scan
     'edition.add', 'queue.autoaccept', // review matches
     'art.thumb', 'art.thumbSweep', // cover thumbnails the images route found missing
+    'connections.pull', // Settings › Connections: Sync now, and the first pull after linking
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }

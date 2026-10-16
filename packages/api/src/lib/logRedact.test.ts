@@ -11,6 +11,12 @@ describe('redactUrl', () => {
     expect(redactUrl('/api/v1/me/listening/lastfm/callback?token=secret&state=1.sig&x=1'))
       .toBe('/api/v1/me/listening/lastfm/callback?token=%5Bredacted%5D&state=%5Bredacted%5D&x=1');
   });
+  it('hides an OAuth code, verifier and tokens (the Music Connections callback)', () => {
+    expect(redactUrl('/api/v1/me/connections/callback?code=mcx_secret&state=s1&x=1'))
+      .toBe('/api/v1/me/connections/callback?code=%5Bredacted%5D&state=%5Bredacted%5D&x=1');
+    const all = redactUrl('/x?code_verifier=v&refresh_token=r&access_token=a&client_secret=c&Code=up');
+    for (const v of ['=v&', '=r&', '=a&', '=c&', '=up']) expect(all).not.toContain(v);
+  });
   it('leaves other URLs alone', () => {
     expect(redactUrl('/api/v1/libraries/abc/albums?limit=50')).toBe('/api/v1/libraries/abc/albums?limit=50');
     expect(redactUrl('/api/v1/users/invites')).toBe('/api/v1/users/invites');

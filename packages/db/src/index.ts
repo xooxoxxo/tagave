@@ -7,6 +7,7 @@ export * from './migrations-lib.js';
 export * from './schema.js';
 export * from './artistRows.js';
 export * from './autoAccept.js';
+export * from './mcLinks.js';
 
 export async function makeDb(databaseUrl: string) {
   const client = postgres(databaseUrl);

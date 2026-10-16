@@ -486,3 +486,15 @@ export {
   type LastfmStartView,
   type ConnectListenbrainzView,
 } from './listening.js';
+
+// Settings › Connections: Music Connections links made from this tagave
+export {
+  type McLinkState,
+  type McCapabilityView,
+  type McLinkView,
+  type McConnectionsView,
+  mcRemoteUrlSchema,
+  type McRemoteUrl,
+  type McStartView,
+  type McLinkErrorCode,
+} from './connections.js';

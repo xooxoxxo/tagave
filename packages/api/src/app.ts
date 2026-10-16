@@ -38,6 +38,7 @@ import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
 import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
 import { createMcFeedRoutes } from './routes/mcFeeds.js';
+import { createMcConnectionRoutes } from './routes/mcConnections.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -168,5 +169,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
 
     // Settings › Users: people, roles, invites (owner)
     instance.register(createUserRoutes, { prefix: '/api/v1' });
+
+    // Settings › Connections: Music Connections links this person made to other apps ('self')
+    instance.register(createMcConnectionRoutes, { prefix: '/api/v1' });
   });
 }
