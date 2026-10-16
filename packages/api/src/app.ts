@@ -37,6 +37,7 @@ import { createPlayerListeningRoutes } from './routes/playerListening.js';
 import { createUserRoutes } from './routes/users.js';
 import { createInviteRoutes } from './routes/invites.js';
 import { createConnectRoutes, createManifestRoute } from './routes/connect.js';
+import { createMcFeedRoutes } from './routes/mcFeeds.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -85,6 +86,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
   // request); the consent page's two routes need a session ('self').
   app.register(createManifestRoute);
   app.register(createConnectRoutes, { prefix: '/api/v1' });
+  // The feeds (/mc/v1, outside /api): their own bearer-token gate, deny by
+  // default (routes/mcFeeds.ts).
+  app.register(createMcFeedRoutes);
 
   // Every route below needs a session; what each role may do is in
   // permissions/routeTable.ts, checked by the root hook (middleware/auth.ts).

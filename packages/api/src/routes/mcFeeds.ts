@@ -1,0 +1,101 @@
+/**
+ * Music Connections feeds (spec §3): what a linked app reads with its access
+ * token.
+ *
+ *   GET /mc/v1/<capability>?since=<cursor>&limit=<1..500>   ratings, collection, listens, identity
+ *   GET /mc/v1/schema/<capability>.json                      each one's JSON Schema (public)
+ *
+ * Outside /api, so the route guard (permissions/guard.ts) never sees these:
+ * the bearer check below is their only gate, and it refuses by default.
+ * Missing, unknown, expired or revoked token, a disabled client or person:
+ * 401. A live token without `<capability>:read`: 403. More than 60 calls a
+ * minute on one token: 429 with Retry-After. Every answer is no-store.
+ */
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { buildFeedPage, capabilityJsonSchema, isCapability, readScope, type Capability } from 'music-connections';
+import { getAuthHandle } from '../middleware/auth.js';
+import { RateLimiter } from '../lib/rateLimit.js';
+import { TAGAVE_PROVIDES, bearerToken, lookupAccessToken, type AccessGrant } from '../lib/mcOAuth.js';
+import { MAX_LIMIT, feedLibrary, parseSince, readFeed } from '../lib/mcFeeds.js';
+import { feedPath } from './connect.js';
+
+/** Per access token (feeds) or per address (the public schemas). */
+const feedCalls = new RateLimiter(60, 60_000);
+const schemaCalls = new RateLimiter(60, 60_000);
+
+export function resetMcFeedLimits(): void {
+  feedCalls.reset();
+  schemaCalls.reset();
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    /** The access grant behind the bearer token (/mc/v1 feeds only). */
+    mcGrant?: AccessGrant | undefined;
+  }
+}
+
+const problem = (status: number, title: string, detail?: string) => ({ type: 'about:blank', status, title, ...(detail ? { detail } : {}) });
+
+function unauthorized(reply: FastifyReply, invalid: boolean): FastifyReply {
+  reply.header('www-authenticate', invalid ? 'Bearer realm="music-connections", error="invalid_token"' : 'Bearer realm="music-connections"');
+  return reply.status(401).send(problem(401, 'Unauthorized', invalid ? 'The access token is not valid.' : 'An access token is required.'));
+}
+
+/** The bearer gate for one capability's feed: token, rate limit, then scope. */
+function requireScope(cap: Capability) {
+  return async (request: FastifyRequest, reply: FastifyReply) => {
+    const token = bearerToken(request.headers.authorization);
+    if (!token) return unauthorized(reply, false);
+    const grant = await lookupAccessToken(getAuthHandle().sql, token);
+    if (!grant) return unauthorized(reply, true);
+    feedCalls.check(`token:${grant.tokenId}`, Date.now(), 'Too many requests on this access token.');
+    if (!grant.scopes.includes(readScope(cap))) {
+      reply.header('www-authenticate', `Bearer realm="music-connections", error="insufficient_scope", scope="${readScope(cap)}"`);
+      return reply.status(403).send(problem(403, 'Forbidden', `This link was not granted ${readScope(cap)}.`));
+    }
+    request.mcGrant = grant;
+  };
+}
+
+export async function createMcFeedRoutes(fastify: FastifyInstance) {
+  // First, so the refusals (401, 403, 429, 400, 410) carry it too.
+  fastify.addHook('onRequest', async (_request, reply) => {
+    reply.header('cache-control', 'no-store');
+  });
+
+  fastify.get<{ Params: { file: string } }>('/mc/v1/schema/:file', async (request, reply) => {
+    schemaCalls.check(`ip:${request.ip}`);
+    const cap = request.params.file.replace(/\.json$/, '');
+    if (!request.params.file.endsWith('.json') || !isCapability(cap) || !TAGAVE_PROVIDES.includes(cap)) {
+      return reply.status(404).send(problem(404, 'Not Found'));
+    }
+    return capabilityJsonSchema(cap);
+  });
+
+  for (const cap of TAGAVE_PROVIDES) {
+    fastify.get<{ Querystring: Record<string, unknown> }>(feedPath(cap), { onRequest: requireScope(cap) }, async (request, reply) => {
+      const grant = request.mcGrant;
+      if (!grant) return unauthorized(reply, true); // the hook always sets it; never serve without
+      const since = parseSince(request.query['since']);
+      if (!since.ok) {
+        return since.status === 410
+          ? reply.status(410).send(problem(410, 'Gone', 'The cursor is older than the change log keeps; take a fresh snapshot.'))
+          : reply.status(400).send(problem(400, 'Bad Request', 'Invalid cursor.'));
+      }
+      const rawLimit = Math.trunc(Number(request.query['limit'] ?? MAX_LIMIT));
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), MAX_LIMIT) : MAX_LIMIT;
+      const prev = typeof request.query['since'] === 'string' ? request.query['since'] : '';
+
+      const sql = getAuthHandle().sql;
+      const libraryId = await feedLibrary(sql);
+      if (!libraryId) return { items: [], next: prev, more: false };
+      const rows = await readFeed(sql, cap, { userId: grant.userId, libraryId }, since.after, limit, (msg) => request.log.warn(msg));
+      const page = buildFeedPage(rows, limit, prev);
+      // buildFeedPage maps the first `limit` rows one to one: drop the skipped
+      // ones afterwards, so the cursor still moves past them.
+      page.items = page.items.filter((_, i) => !rows[i]?.skip);
+      return page;
+    });
+  }
+}
