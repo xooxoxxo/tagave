@@ -12,10 +12,22 @@ import {
 } from './checks.js';
 import { checkBackups } from './backupCheck.js';
 import { checkPublicUrl } from './authCheck.js';
+import { checkDisk } from './diskCheck.js';
 
 export type { Check, CheckStatus } from './checks.js';
 export { remediationFor } from './remediation.js';
 export { checkPublicUrl } from './authCheck.js';
+export {
+  checkDisk,
+  diskSpace,
+  publicDiskCheck,
+  readDiskThresholds,
+  resetDiskCache,
+  resetDiskStateForTests,
+  DEFAULT_DISK_WARN_PCT,
+  DEFAULT_DISK_FAIL_PCT,
+  type DiskSpaceOptions,
+} from './diskCheck.js';
 export {
   migrateOnBoot,
   preMigrationBackup,
@@ -96,6 +108,11 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   }));
   checks.push(await checkCacheDir(cacheDir));
   checks.push(await checkBackups(databaseUrl, backupDir ? { backupDir } : {}));
+  checks.push(await checkDisk({
+    databaseUrl,
+    ...(cacheDir ? { cacheDir } : {}),
+    ...(backupDir ? { backupDir } : {}),
+  }));
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs, offlineDetail));
   checks.push(await checkAppSecret(databaseUrl));
   checks.push(await checkPublicUrl(databaseUrl));

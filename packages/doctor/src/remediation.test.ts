@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { remediationFor } from './remediation.js';
 
-const ids = ['database', 'migrations', 'contactString', 'workerHeartbeat', 'versions', 'scanRoots', 'cacheDir', 'providers', 'appSecret'];
+const ids = ['database', 'migrations', 'contactString', 'workerHeartbeat', 'versions', 'scanRoots', 'cacheDir', 'providers', 'appSecret', 'disk'];
 
 describe('remediationFor', () => {
   it('says nothing for a passing or skipped check', () => {
@@ -35,6 +35,15 @@ describe('remediationFor', () => {
     expect(text).toContain('~/tagave');
     expect(text.indexOf('`docker compose up -d`')).toBeGreaterThanOrEqual(0);
     expect(text.indexOf('`docker compose up -d`')).toBeLessThan(text.indexOf('docker-compose.prod.yml'));
+  });
+
+  it('tells a full disk from one it could not read, and never suggests deleting volumes', () => {
+    const full = remediationFor({ id: 'disk', status: 'fail', detail: 'Disk almost full (95% or more used). Backups /backups: 97% used' }) ?? '';
+    expect(full).toMatch(/almost full/);
+    expect(full).toContain('docker image prune -f');
+    expect(full).toMatch(/Never delete Docker volumes/);
+    expect(remediationFor({ id: 'disk', status: 'warn', detail: 'Disk filling up (85% or more used). Cache /cache: 88% used' })).toMatch(/filling up/);
+    expect(remediationFor({ id: 'disk', status: 'warn', detail: 'Backups: could not be measured: EIO' })).toMatch(/could not be read/);
   });
 
   it('returns null for a check it does not know', () => {
