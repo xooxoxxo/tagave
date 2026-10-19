@@ -20,7 +20,7 @@ export interface AlbumFlowRefs {
   tracks: RefObject<HTMLElement | null>;
 }
 
-/** Phone layout: the first screen is the album, TRACKLIST resting at its bottom. */
+/** Phone layout: the album, then TRACKLIST and the tracks right after it. */
 const PHONE = '(max-width: 720px)';
 const reducedMotion = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 

@@ -262,7 +262,7 @@
   display: none;
 }
 
-/* one TRACKLIST label: rests at the bottom of the first screen (phone),
+/* one TRACKLIST label: follows the album directly (phone; owner, 2026-10-19),
    sticks under the header; its caret straightens into the separator */
 .tl {
   position: sticky;

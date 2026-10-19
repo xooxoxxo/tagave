@@ -3,8 +3,8 @@
  * "tagave - Album Page Flow"; changes 2026-10-16 evening: the conventions of
  * a music app's album page): the album first (cover, "Rock · 2012", title,
  * artist, "tracks · length · format", a two-line excerpt with More, then
- * the action row Shuffle | Play, raised icons) with one TRACKLIST label resting at the
- * bottom of a phone's first screen, then the tracks. Back and ⋮ are embossed
+ * the action row Shuffle | Play, raised icons) followed by one TRACKLIST label (it sticks
+ * under the docked header) and the tracks. Back and ⋮ are embossed
  * icons that never move; the header docks around them (AlbumFlowHeader,
  * useAlbumFlow). ⋮ opens the album's drawer (a dropdown on a desktop) with
  * every album action, Album info, and the Maintenance switch; Play never
@@ -919,7 +919,6 @@ export function AlbumDetailPage() {
         <section
           ref={(el) => { flowRefs.hero.current = el; }}
           className={styles.hero}
-          style={flow.pane.phone && flow.pane.height ? { minHeight: flow.pane.height - flow.pane.tlHeight } : undefined}
           aria-label="Album"
         >
           {/* The cover's own colours behind the album, fading into the page. */}
@@ -1024,7 +1023,7 @@ export function AlbumDetailPage() {
           </div>
         </section>
 
-        {/* one TRACKLIST label: rests at the bottom of the first screen, sticks under the header
+        {/* one TRACKLIST label: follows the album directly (owner, 2026-10-19), sticks under the header
             (with Maintenance on, the sections switcher takes its place) */}
         {!sections && <button ref={(el) => { flowRefs.tl.current = el; }} type="button" className={styles.tl} onClick={() => { if (!tracksPanel) setTab('tracks'); flow.toTracklist(); }} aria-label="Go to the tracklist">
           <span className={styles.tlLabel}>Tracklist</span>
