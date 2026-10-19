@@ -1,5 +1,23 @@
 .layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: clamp(1.5rem, 4vw, 4rem); align-items: start; }
-.sectionNav { position: relative; display: flex; flex-direction: column; gap: .2rem; }
+/* The section list stays where it is while the section beside it scrolls:
+   it sticks just under the page's sticky header (PageShell measures it), at
+   the height it starts at, and scrolls on its own when taller than the pane
+   (short enough to clear the content's bottom padding, or the end of the
+   grid would push it up). */
+.sectionNav {
+  position: sticky;
+  top: calc(var(--shell-header-h, 0px) + 1.5rem);
+  max-height: calc(var(--pane-h, 100dvh) - var(--shell-header-h, 0px) - 4rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  /* room for the focus ring inside the scroller */
+  padding: 3px;
+  margin: -3px;
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+}
 .groupLabel { font: var(--type-label); text-transform: uppercase; letter-spacing: .1em; white-space: nowrap; color: var(--ink-3); margin: 1.75rem .75rem .6rem 1rem; }
 .sectionNav > div:first-child .groupLabel { margin-top: 0; }
 .sectionLink { display: block; padding: .6rem 1rem; border-radius: var(--r-pill); color: var(--ink-2); font-size: .875rem; font-weight: 500; transition: background-color var(--dur) ease, color var(--dur) ease; }
@@ -8,7 +26,26 @@
 .activeSection:hover { color: var(--chip-on-ink); background: var(--dew-tint); }
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
 .sectionDescription { color: var(--ink-2); font-size: .9375rem; }
-@media (max-width: 700px) { .layout { grid-template-columns: 1fr; } .sectionNav { flex-direction: row; overflow-x: auto; padding-bottom: .5rem; border-bottom: 1px solid var(--line); } .sectionLink { white-space: nowrap; } .groupLabel { display: none; } }
+/* Phone: /settings is the list of sections, a section is a page of its own
+   (the top bar carries its name and the way back), as on every other phone
+   screen. The section's own heading would repeat the bar, so only a screen
+   reader reads it. */
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  .sectionNav { position: static; max-height: none; overflow: visible; }
+  .sectionLink { padding: .8rem 1rem; font-size: 1rem; }
+  .groupLabel { margin-top: 1.5rem; }
+  .layout[data-view="list"] > .content { display: none; }
+  .layout[data-view="section"] > .sectionNav { display: none; }
+  .layout[data-view="section"] > .content > h2:first-child,
+  .layout[data-view="section"] > .content > div:first-child > h2:first-child,
+  .layout[data-view="section"] > .content > div:first-child > div:first-child > h2:first-child {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  /* the list: no section is open yet, so none is marked */
+  .layout[data-view="list"] .activeSection { color: var(--ink-2); background: none; box-shadow: none; font-weight: 500; }
+  .layout[data-view="list"] .activeSection:hover { color: var(--ink); background: var(--mist); }
+}
 
 /* Appearance › Maintenance */
 .modeSetting { margin-top: var(--space-xl); }

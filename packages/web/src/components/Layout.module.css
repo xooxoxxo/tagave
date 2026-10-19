@@ -100,13 +100,24 @@ between browsing and upkeep: the hairline cut into the
   .navLinks [data-group="manage"] { margin-top: 0; border-top: 0; }
   .main { min-height: 0; }
 }
-/* Phone: one row of brand, search and a menu button (about 60px). The links
-   and sign out open as a sheet under the bar; two rows of links plus a fixed
-   footer had taken 180px of an 860px screen. */
+/* The page's name in the phone's bar, where the wordmark was (sidebar and
+   tablet bar keep the wordmark and the links say where you are). */
+.pageTitle { display: none; }
+/* Phone: one row of the mark, the page's name, search and a menu button
+   (about 60px). The links and sign out open as a sheet under the bar; two
+   rows of links plus a fixed footer had taken 180px of an 860px screen. */
 @media (max-width: 720px) {
-  .nav { grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: .5rem; padding: .55rem 1rem; border-bottom: 1px solid var(--line); }
-  .brand { font-size: 1.3rem; gap: .5rem; }
+  .nav { grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: .5rem; padding: .55rem 1rem; border-bottom: 1px solid var(--line); }
+  .brand { grid-column: 1; grid-row: 1; font-size: 1.3rem; gap: .5rem; }
+  .wordmark { display: none; }
+  .pageTitle { display: block; grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--font-size-lg) / 1.2 var(--font-body); color: var(--ink); }
   .brandMark { width: 1.5rem; height: 1.5rem; }
+  /* The bar names the page, so the page's own heading is left to screen
+     readers, and a header that held only the heading keeps just the page's
+     top margin (tabs and toolbars would otherwise touch the bar). */
+  .page [data-page-title] { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .page [data-title-only] { padding: var(--page-top) 0 0; gap: 0; }
+  .page [data-title-only] > * { margin: 0; }
   .searchButton { grid-column: 3; grid-row: 1; width: 2.75rem; min-height: 2.75rem; padding: 0; justify-content: center; }
   .searchLabel, .searchButton kbd { display: none; }
   .searchIcon { width: 1.1rem; height: 1.1rem; }
@@ -237,7 +248,7 @@ between browsing and upkeep: the hairline cut into the
   .container:has([data-album-flow]) > .nav { display: none; }
   .container:has([data-artist-flow]) > .nav { display: none; }
   /* detail pages: back button and the title that fades in, instead of the mark */
-  .navDetail .brand { display: none; }
-  .phoneBar { display: flex; grid-column: 1; grid-row: 1; }
+  .navDetail .brand, .navDetail .pageTitle { display: none; }
+  .phoneBar { display: flex; grid-column: 1 / 3; grid-row: 1; }
   .appBar { display: none; }
 }

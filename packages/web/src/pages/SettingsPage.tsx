@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { Link, useLocation } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { useUpdateAvailable } from '../hooks/useUpdates';
@@ -5,7 +6,7 @@ import { UpdateDot } from '../components/UpdateDot';
 import { PageShell, SegmentedControl, ThemeSwitch } from '../components/ui';
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
-import { useScrollFade } from '../components/ui/useScrollFade';
+import { usePhoneSubpage } from '../components/appBarTitle';
 import { SettingsScanRootsContent } from './SettingsScanRootsPage';
 import { SettingsTagWritesContent } from './SettingsTagWritesPage';
 import { SettingsGenresContent } from './SettingsGenresPage';
@@ -78,15 +79,17 @@ export function SettingsPage() {
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
   const allowed = !known?.permission || can(role, known.permission);
-  // On a phone the section list is one scrolling row: the hook brings the
-  // current section into it and fades the edge that hides more sections.
-  const navRef = useScrollFade<HTMLElement>(section);
+  // On a phone /settings is the list of sections and each section its own
+  // page: the top bar shows a back key to the list and the section's name.
+  const view = useLocation().pathname.split('/')[2] ? 'section' : 'list';
+  usePhoneSubpage(view === 'section' ? known?.label ?? null : null, '/settings');
+  const navRef = useActiveInView<HTMLElement>(section);
   const { libraryId } = useCurrentLibrary();
   // the release feed is the owner's: nobody else is asked about it
   const updateAvailable = useUpdateAvailable(can(role, 'system.manage') ? libraryId : undefined);
   const canMaintain = can(role, 'library.edit');
-  return <PageShell title="Settings">
-    <div className={styles.layout}>
+  return <PageShell title="Settings" sticky>
+    <div className={styles.layout} data-view={view}>
       <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
         {!allowed ? <NotAvailable inline /> : <>
@@ -113,6 +116,24 @@ export function SettingsPage() {
       </div>
     </div>
   </PageShell>;
+}
+
+/**
+ * The section list stays put while a section scrolls, and scrolls on its own
+ * when it is taller than the pane: the current section is brought into it.
+ */
+function useActiveInView<T extends HTMLElement>(key: string) {
+  const ref = useRef<T>(null);
+  useLayoutEffect(() => {
+    const nav = ref.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !active || nav.scrollHeight <= nav.clientHeight) return;
+    const top = active.offsetTop;
+    const bottom = top + active.offsetHeight;
+    if (top < nav.scrollTop) nav.scrollTop = top;
+    else if (bottom > nav.scrollTop + nav.clientHeight) nav.scrollTop = bottom - nav.clientHeight;
+  }, [key]);
+  return ref;
 }
 
 /**

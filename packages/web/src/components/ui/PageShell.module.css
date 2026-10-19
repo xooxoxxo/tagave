@@ -28,6 +28,27 @@
 }
 .pageShellFill .header { padding-bottom: var(--space-md); }
 
+/* A header that stays at the top of the pane (Settings): the page scrolls
+   under the same frosted glass the detail pages' app bar uses, and a
+   hairline marks the edge once something is under it. */
+.headerSticky {
+  composes: header;
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: color-mix(in srgb, var(--canvas) 84%, transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.3);
+}
+@supports (animation-timeline: scroll()) {
+  .headerSticky { animation: stuckEdge linear both; animation-timeline: scroll(nearest); animation-range: 0 8px; }
+}
+@keyframes stuckEdge { from { box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--line); } }
+/* Phone: the app's top bar names the page and stays; the header scrolls away. */
+@media (max-width: 720px) {
+  .headerSticky { position: relative; z-index: auto; background: none; -webkit-backdrop-filter: none; backdrop-filter: none; animation: none; }
+}
+
 /* Behind the header, edge to edge of the pane (the album's cover wash). */
 .band {
   position: absolute;

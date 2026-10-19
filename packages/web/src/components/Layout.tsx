@@ -8,7 +8,8 @@ import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
 import { PageBackActionContext, PageBackContext } from './ui/PageShell';
 import { backAction, parentLabel, parentPath } from '../utils/backNav';
-import { useAppBarTitle } from './appBarTitle';
+import { useAppBarTitle, useSubpage } from './appBarTitle';
+import { pageTitle, pageTitles } from '../utils/pageTitles';
 import { BrandMark } from './BrandMark';
 import { UpdateDot } from './UpdateDot';
 import { useUpdateAvailable } from '../hooks/useUpdates';
@@ -36,6 +37,8 @@ export function Layout() {
   // Settings › Appearance: search beside the logo or below it, wordmark on or off
   const [{ searchPlacement, showWordmark }] = useDisplayPrefs();
   const barTitle = useAppBarTitle();
+  // A page inside a page (a Settings section on a phone): back to its list.
+  const subpage = useSubpage();
   // Detail pages trade the mark for a back button (phone); on wider screens
   // the back button leads the page's title row and, once the title scrolls
   // away, a slim bar fades in over the page with both.
@@ -97,6 +100,13 @@ export function Layout() {
     </IconButton>
   );
   const shownTitle = back && barTitle.title ? barTitle.title : null;
+  // Phone: the bar names the page in place of the wordmark.
+  const title = pageTitle(pathname);
+  const upButton = !back && subpage && (
+    <IconButton label={`Back to ${pageTitle(subpage.up) ?? 'the list'}`} variant="quiet" className={styles.backButton} onClick={() => void navigate({ to: subpage.up })}>
+      {backChevron}
+    </IconButton>
+  );
   // Maintenance changes the album and artist pages, so its key lives in
   // their own header; elsewhere a pill says it is on.
   const onAlbumPage = /^\/(albums|artists)\/[^/]+/.test(pathname);
@@ -110,18 +120,26 @@ export function Layout() {
   return (
     <div className={styles.container}>
       <a href="#main-content" className={styles.skipLink}>Skip to content</a>
-      <aside className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back ? styles.navDetail : ''}`}>
+      <aside className={`${styles.nav} ${menuOpen ? styles.navOpen : ''} ${back || upButton ? styles.navDetail : ''}`}>
         {back && (
           <div className={styles.phoneBar}>
             {backButton}
             <span className={`${styles.barTitle} ${barTitle.shown ? styles.barTitleShown : ''}`} aria-hidden={!barTitle.shown}>{shownTitle}</span>
           </div>
         )}
+        {upButton && (
+          <div className={styles.phoneBar}>
+            {upButton}
+            <span className={`${styles.barTitle} ${styles.barTitleShown}`} aria-hidden="true">{subpage.title}</span>
+          </div>
+        )}
         <div className={searchPlacement === 'beside' ? styles.brandRowBeside : styles.brandRow}>
-        <Link to="/" className={styles.brand} aria-label={showWordmark ? undefined : 'tagave'}>
+        <Link to="/" className={styles.brand} aria-label="tagave">
           <BrandMark className={styles.brandMark} />
-          {showWordmark && 'tagave'}
+          {showWordmark && <span className={styles.wordmark}>tagave</span>}
         </Link>
+        {/* the page's own heading names it for a screen reader */}
+        {title && <span className={styles.pageTitle} aria-hidden="true">{title}</span>}
         <div className={styles.tools}>
         <button ref={searchButton} className={styles.searchButton} onClick={() => setSearchOpen(true)} aria-haspopup="dialog" aria-label="Search your library">
           <svg className={styles.searchIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
@@ -146,13 +164,13 @@ export function Layout() {
         </button>
         <div id="main-navigation" className={styles.navSheet}>
         <nav className={styles.navLinks} aria-label="Main navigation">
-          <Link to="/" className={linkClass(pathname === '/')}>Home</Link>
-          <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>Albums</Link>
-          <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>Artists</Link>
-          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>Physical collection</Link>
-          {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">Library care{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
-          {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>Tag changes</Link>}
-          <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>Settings{updateAvailable && <UpdateDot />}</Link>
+          <Link to="/" className={linkClass(pathname === '/')}>{pageTitles['/']}</Link>
+          <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>{pageTitles['/albums']}</Link>
+          <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
+          <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
+          {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">{pageTitles['/work']}{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
+          {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
+          <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>
         </nav>
         <div className={styles.navUser}>
           <span className={styles.userEmail} title={user.email}>{user.email}</span>

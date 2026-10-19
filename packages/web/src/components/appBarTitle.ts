@@ -66,3 +66,36 @@ export function useBarTitle(title: string | null) {
     observer.current.observe(el);
   }, []);
 }
+
+/**
+ * A page inside a page on a phone (a Settings section opened from the
+ * section list): the top bar shows a back key to `up` and this title, in
+ * place of the main page's name. The page sets it while it shows the
+ * sub-page and clears it on the way out.
+ */
+export interface Subpage { title: string; up: string }
+
+let sub: Subpage | null = null;
+const subListeners = new Set<() => void>();
+function subscribeSub(l: () => void) {
+  subListeners.add(l);
+  return () => { subListeners.delete(l); };
+}
+
+export function useSubpage(): Subpage | null {
+  return useSyncExternalStore(subscribeSub, () => sub, () => null);
+}
+
+export function usePhoneSubpage(title: string | null, up: string) {
+  useEffect(() => {
+    const next = title ? { title, up } : null;
+    if (next?.title !== sub?.title || next?.up !== sub?.up) {
+      sub = next;
+      subListeners.forEach((l) => l());
+    }
+  }, [title, up]);
+  useEffect(() => () => {
+    sub = null;
+    subListeners.forEach((l) => l());
+  }, []);
+}

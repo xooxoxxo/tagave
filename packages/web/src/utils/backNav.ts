@@ -1,3 +1,5 @@
+import { pageTitle } from './pageTitles';
+
 /**
  * The context-aware app bar: detail pages get a back button in place of the
  * mark. Back returns to where the viewer came from inside the app; opened
@@ -21,9 +23,7 @@ export function isDetailPath(pathname: string): boolean {
 
 /** "Albums" for the back button's accessible name. */
 export function parentLabel(parent: string): string {
-  const name = parent.slice(1);
-  if (name === 'plans') return 'Tag changes';
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return pageTitle(parent) ?? parent.slice(1);
 }
 
 export type BackAction =

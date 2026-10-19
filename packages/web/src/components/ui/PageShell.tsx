@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useContext, useId } from 'react';
+import { createContext, ReactNode, RefObject, useContext, useId, useLayoutEffect, useRef } from 'react';
 import { Tabs, TabItem } from './Tabs';
 import { useBarTitle } from '../appBarTitle';
 import styles from './PageShell.module.css';
@@ -53,6 +53,13 @@ interface PageShellProps {
   fill?: boolean;
   /** A page that lays out its own header and column (the album flow): no header row, no content padding. */
   bare?: boolean;
+  /**
+   * The header stays at the top of the pane while the page scrolls under it
+   * (Settings). The shell exposes the header's height as --shell-header-h
+   * and the pane's visible height as --pane-h, so a sticky column inside
+   * the content can sit just under it and scroll on its own.
+   */
+  sticky?: boolean;
   children: ReactNode;
 }
 
@@ -76,20 +83,27 @@ export function PageShell({
   band,
   fill = false,
   bare = false,
+  sticky = false,
   children,
 }: PageShellProps) {
   const panelId = useId();
+  const shellRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  useStickyMetrics(sticky && !bare, shellRef, headerRef);
   const barText = barTitle !== undefined ? barTitle : typeof title === 'string' ? title : null;
   if (bare) return <div className={styles.pageShell} data-page-shell="">{children}</div>;
+  // Only a heading in the header: on a phone the app's top bar names the
+  // page, so the frame (Layout) hides the heading and this empty row.
+  const titleOnly = !back && !hero && !band && !subtitle && !aside && !titleAction && !actions;
   return (
-    <div className={fill ? styles.pageShellFill : styles.pageShell} data-page-shell="" data-virtual-page={fill ? '' : undefined}>
-      <header className={styles.header}>
+    <div ref={shellRef} className={fill ? styles.pageShellFill : styles.pageShell} data-page-shell="" data-virtual-page={fill ? '' : undefined}>
+      <header ref={headerRef} className={sticky ? styles.headerSticky : styles.header} data-title-only={titleOnly ? '' : undefined}>
         {band && <div className={styles.band} aria-hidden="true">{band}</div>}
         {hero ?? (<>
           <div className={styles.titleBlock}>
             <div className={styles.titleRow}>
               {back && <PageBack />}
-              {back ? <DetailTitle text={barText}>{title}</DetailTitle> : <h1 className={styles.title}>{title}</h1>}
+              {back ? <DetailTitle text={barText}>{title}</DetailTitle> : <h1 className={styles.title} data-page-title="">{title}</h1>}
               {titleAction && <span className={styles.titleAction}>{titleAction}</span>}
               {aside && <span className={styles.aside}>{aside}</span>}
             </div>
@@ -108,4 +122,24 @@ export function PageShell({
       <div className={styles.content} id={tabs?.length ? panelId : undefined} role={tabs?.length ? "tabpanel" : undefined}>{children}</div>
     </div>
   );
+}
+
+/** Sets --shell-header-h and --pane-h on the shell while `on`, kept current as either resizes. */
+function useStickyMetrics(on: boolean, shell: RefObject<HTMLDivElement | null>, header: RefObject<HTMLElement | null>) {
+  useLayoutEffect(() => {
+    const root = shell.current;
+    const head = header.current;
+    if (!on || !root || !head) return;
+    const pane = root.closest<HTMLElement>('#main-content');
+    const update = () => {
+      root.style.setProperty('--shell-header-h', `${head.offsetHeight}px`);
+      if (pane) root.style.setProperty('--pane-h', `${pane.clientHeight}px`);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(head);
+    if (pane) observer.observe(pane);
+    return () => observer.disconnect();
+  }, [on, shell, header]);
 }
