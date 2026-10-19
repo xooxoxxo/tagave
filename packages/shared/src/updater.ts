@@ -165,6 +165,11 @@ export interface UpdaterView {
   /** Why it did not answer, when installed but unreachable. */
   error: string | null;
   updater: UpdaterStatus | null;
+  /**
+   * The last run succeeded and the app runs its target: nothing left to look
+   * at, so the page drops the run without a Done (absent from apps before 0.10.1).
+   */
+  runSettled?: boolean;
 }
 
 /** A release number, optionally with a pre-release suffix: 0.8.0, 0.8.0-rc.1. */

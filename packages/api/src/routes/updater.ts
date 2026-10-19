@@ -64,6 +64,15 @@ export async function callUpdater<T>(base: string, method: 'GET' | 'POST', path:
   }
 }
 
+/**
+ * A run that succeeded, with the app now on its target, needs no Done: the
+ * view marks it settled for every browser. Failed, rolled back or cut off
+ * runs, and a success the app does not run (yet), stay until dismissed.
+ */
+export function runSettled(run: UpdateRun | null | undefined, appVersion: string): boolean {
+  return !!run && run.status === 'succeeded' && run.target === appVersion;
+}
+
 export function requireOwner(request: FastifyRequest) {
   if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
   if (request.user.role !== 'owner') throw new ApiError(403, 'Forbidden', 'Only the owner can update tagave');
@@ -77,7 +86,7 @@ export async function createUpdaterRoutes(fastify: FastifyInstance) {
     if (!base) return reply.send({ installed: false, reachable: false, error: null, updater: null } satisfies UpdaterView);
     const res = await callUpdater<UpdaterStatus>(base, 'GET', '/v1/status');
     return reply.send((res.ok
-      ? { installed: true, reachable: true, error: null, updater: res.body }
+      ? { installed: true, reachable: true, error: null, updater: res.body, runSettled: runSettled(res.body.run, readBuildInfo().version) }
       : { installed: true, reachable: false, error: res.error, updater: null }) satisfies UpdaterView);
   });
 

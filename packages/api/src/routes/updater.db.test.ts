@@ -22,8 +22,10 @@ import {
   testAuth,
   totpFromUri,
 } from '../testkit/authApp.js';
+import { readBuildInfo } from '@tagave/core';
+import type { UpdateRun } from '@tagave/shared';
 import { initDb } from '../db.js';
-import { createUpdaterInternalRoutes, createUpdaterRoutes } from './updater.js';
+import { createUpdaterInternalRoutes, createUpdaterRoutes, runSettled } from './updater.js';
 import { resetStepUpFailures } from './stepUp.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -44,6 +46,8 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
   let restarting = false;
   let busy = false;
   let refuseRelease = false;
+  /** The run GET /v1/status reports. */
+  let statusRun: Partial<UpdateRun> | null = null;
 
   const json = (j: Jar = jar) => ({ origin: TEST_PUBLIC_URL, 'content-type': 'application/json', cookie: cookieHeader(j) });
   const get = (path: string, j: Jar = jar) => app.inject({ method: 'GET', url: path, headers: { cookie: cookieHeader(j) } });
@@ -93,7 +97,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
         res.writeHead(req.method === 'POST' ? 202 : 200, { 'content-type': 'application/json' });
         res.end(req.method === 'POST'
           ? JSON.stringify({ run: { id: 'r1', from: '0.7.0', target: JSON.parse(body).version, status: 'running' } })
-          : JSON.stringify({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: null }));
+          : JSON.stringify({ version: '0.7.0', configuredVersion: '0.7.0', role: 'all', services: ['postgres', 'app'], run: statusRun }));
       });
     });
     await new Promise<void>((r) => fake.listen(0, '127.0.0.1', r));
@@ -119,6 +123,7 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     restarting = false;
     busy = false;
     refuseRelease = false;
+    statusRun = null;
     resetStepUpFailures();
     const res = await app.inject({ method: 'POST', url: '/api/auth/sign-in/email', headers: { origin: TEST_PUBLIC_URL, 'content-type': 'application/json' }, payload: { email: EMAIL, password: PASSWORD } });
     jar = cookieJar(res.headers['set-cookie']);
@@ -139,6 +144,20 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ installed: true, reachable: true, updater: { configuredVersion: '0.7.0' } });
     expect(received).toEqual([{ method: 'GET', path: '/v1/status', body: '', verified: true }]);
+  });
+
+  it('marks a run settled once it succeeded and the app runs its target, for every browser', async () => {
+    const app_ = readBuildInfo().version;
+    expect((await get('/api/v1/updater')).json()).toMatchObject({ runSettled: false });
+    statusRun = { id: 'r9', from: '0.0.1', target: app_, status: 'succeeded' };
+    expect((await get('/api/v1/updater')).json()).toMatchObject({ runSettled: true, updater: { run: { id: 'r9' } } });
+    for (const status of ['failed', 'rolled_back', 'rollback_failed', 'interrupted', 'running'] as const) {
+      statusRun = { id: 'r9', from: '0.0.1', target: app_, status };
+      expect((await get('/api/v1/updater')).json()).toMatchObject({ runSettled: false });
+    }
+    // succeeded, but the app does not run the target (yet, or it went back)
+    statusRun = { id: 'r9', from: app_, target: '99.0.0', status: 'succeeded' };
+    expect((await get('/api/v1/updater')).json()).toMatchObject({ runSettled: false });
   });
 
   it('counts a fresh sign-in as a strong verification', async () => {
@@ -226,6 +245,17 @@ describe.skipIf(!url)('updater routes and step-up (integration)', () => {
     expect((await post('/api/v1/auth/step-up/totp', { code: '000000' === totpFromUri(totpUri) ? '111111' : '000000' })).statusCode).toBe(401);
     expect((await post('/api/v1/auth/step-up/totp', { code: totpFromUri(totpUri) })).statusCode).toBe(200);
     expect((await post('/api/v1/updater/update', { version: '0.8.0' })).statusCode).toBe(202);
+  });
+});
+
+describe('runSettled', () => {
+  const run = (status: UpdateRun['status'], target = '0.10.1') => ({ id: 'r1', from: '0.10.0', target, status }) as UpdateRun;
+  it('settles a success on the version the app runs, nothing else', () => {
+    expect(runSettled(run('succeeded'), '0.10.1')).toBe(true);
+    expect(runSettled(run('succeeded'), '0.10.0')).toBe(false);
+    expect(runSettled(run('succeeded', '0.10.1'), '0.11.0')).toBe(false);
+    for (const s of ['running', 'failed', 'rolled_back', 'rollback_failed', 'interrupted'] as const) expect(runSettled(run(s), '0.10.1')).toBe(false);
+    expect(runSettled(null, '0.10.1')).toBe(false);
   });
 });
 

@@ -2,7 +2,8 @@
  * Settings › Updates with the opt-in updater: pick a release, confirm it is
  * you, and follow the run. The updater holds the run, so this view keeps
  * working while the app restarts (it polls and reconnects) and after a
- * reload. A finished run stays on screen until the owner dismisses it.
+ * reload. A successful run on the version the app now runs goes away on its
+ * own (the api marks it settled); any other finished run stays until Done.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -105,15 +106,19 @@ export function RunLog({ log }: { log: UpdateRun['log'] }) {
 /** How long a finished update shows its success before this tab reloads into the new build. */
 export const RELOAD_AFTER_UPDATE_MS = 2000;
 
+/** How long a tab that watched the run shows "Updated to X" before a settled run goes (when it does not reload). */
+export const SETTLED_SHOW_MS = 5000;
+
 /**
  * The run this tab watched go from running to succeeded: after
  * RELOAD_AFTER_UPDATE_MS, reload into the new build (if the server runs one;
  * a dev bundle never reloads). Only a run seen running here counts, so the
  * reloaded page, which finds the run already finished, stays put.
  */
-export function useReloadAfterUpdate(run: UpdateRun | null): boolean {
+export function useReloadAfterUpdate(run: UpdateRun | null): { reloading: boolean; showing: string | null } {
   const watched = useRef<string | null>(null);
   const [succeeded, setSucceeded] = useState<string | null>(null);
+  const [showing, setShowing] = useState<string | null>(null);
   const [reloading, setReloading] = useState(false);
   const id = run?.id ?? null;
   const status = run?.status ?? null;
@@ -123,8 +128,14 @@ export function useReloadAfterUpdate(run: UpdateRun | null): boolean {
     else if (status === 'succeeded' && watched.current === id) {
       watched.current = null;
       setSucceeded(id);
+      setShowing(id);
     }
   }, [id, status]);
+  useEffect(() => {
+    if (!showing) return;
+    const t = setTimeout(() => setShowing(null), SETTLED_SHOW_MS);
+    return () => clearTimeout(t);
+  }, [showing]);
   useEffect(() => {
     if (!succeeded) return;
     let cancelled = false;
@@ -138,7 +149,7 @@ export function useReloadAfterUpdate(run: UpdateRun | null): boolean {
     });
     return () => { cancelled = true; };
   }, [succeeded]);
-  return reloading;
+  return { reloading, showing };
 }
 
 /** The title of the api's 409 while the updater restarts itself (api routes/updater.ts). */
@@ -251,6 +262,17 @@ export function RunView({ run, disconnected, reloading, restart, onDismiss }: { 
   );
 }
 
+/**
+ * Whether the card shows the run: not once dismissed here, and not once the
+ * api calls it settled (a success the app runs), except for a moment in the
+ * tab that watched it finish (`showing`). Every other run stays until Done.
+ */
+export function showRun(run: UpdateRun, settled: boolean, dismissed: string | null, showing: string | null): boolean {
+  if (run.id === dismissed) return false;
+  if (settled && run.status === 'succeeded') return showing === run.id;
+  return true;
+}
+
 export interface InAppUpdateProps {
   view: UpdaterView;
   /** The view could not be refreshed (the app is restarting). */
@@ -272,7 +294,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
   const [stepUp, setStepUp] = useState<{ version: string; methods: StepUpMethod[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const versions = useMemo(() => releases.map((r) => r.version), [releases]);
-  const reloading = useReloadAfterUpdate(run);
+  const { reloading, showing } = useReloadAfterUpdate(run);
   const restart = restartingOn(view);
 
   useEffect(() => {
@@ -328,7 +350,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
     await go(picked);
   };
 
-  if (run && run.id !== dismissed) {
+  if (run && showRun(run, !!view.runSettled, dismissed, showing)) {
     return (
       <RunView
         run={run}
