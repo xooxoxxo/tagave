@@ -293,13 +293,18 @@ async function refreshGrant(sql: postgres.Sql, client: ClientRow, params: Params
         await audit(tx, 'mc.refresh.failed', row.user_id, { client_id: client.client_id, reason });
         return { ok: false, error: 'invalid_grant' };
       }
+      // A narrower scope (RFC 6749 §6): the new tokens carry exactly that
+      // subset, and the family can never widen again (later refreshes check
+      // against the new token's scopes). Omitted: the same scopes.
+      let scopes = row.scopes;
       const asked = params['scope'];
       if (asked !== undefined) {
-        const wanted = asked.split(' ').filter(Boolean);
-        if (!wanted.every((s) => row.scopes.includes(s))) return { ok: false, error: 'invalid_scope' };
+        const wanted = checkRequestedScopes(asked);
+        if (!wanted.ok || !wanted.scopes.every((s) => row.scopes.includes(s))) return { ok: false, error: 'invalid_scope' };
+        scopes = row.scopes.filter((s) => wanted.scopes.includes(s));
       }
       await tx`update mc_oauth_tokens set rotated_at = now() where id = ${row.id}`;
-      const body = await issueTokens(tx, { familyId: row.family_id, clientId: row.client_id, userId: row.user_id, scopes: row.scopes });
+      const body = await issueTokens(tx, { familyId: row.family_id, clientId: row.client_id, userId: row.user_id, scopes });
       await tx`delete from mc_oauth_tokens
                 where family_id = ${row.family_id} and rotated_at < now() - make_interval(days => ${ROTATED_KEEP_DAYS})`;
       return { ok: true, body };

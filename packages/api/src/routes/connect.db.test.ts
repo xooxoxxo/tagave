@@ -118,13 +118,13 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     });
   }
 
-  async function refresh(c: { client_id: string; client_secret: string }, refreshToken: string) {
+  async function refresh(c: { client_id: string; client_secret: string }, refreshToken: string, scope?: string) {
     const basic = Buffer.from(`${c.client_id}:${c.client_secret}`).toString('base64');
     return app.inject({
       method: 'POST',
       url: '/api/v1/connect/token',
       headers: { ...FORM, authorization: `Basic ${basic}` },
-      payload: form({ grant_type: 'refresh_token', refresh_token: refreshToken }),
+      payload: form({ grant_type: 'refresh_token', refresh_token: refreshToken, ...(scope !== undefined ? { scope } : {}) }),
     });
   }
 
@@ -251,6 +251,33 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     expect([a.statusCode, b.statusCode].sort()).toEqual([200, 400]);
     const won = (a.statusCode === 200 ? a : b).json();
     expect(await lookupAccessToken(handle.sql, won.access_token)).toBeNull();
+  });
+
+  it('a refresh with a narrower scope issues exactly that subset, and the family can never widen again', async () => {
+    const { c, tokens } = await linked();
+    const narrowed = await refresh(c, tokens.refresh_token, 'offline_access ratings:read');
+    expect(narrowed.statusCode).toBe(200);
+    const n = narrowed.json() as { access_token: string; refresh_token: string; scope: string };
+    expect(n.scope.split(' ').sort()).toEqual(['offline_access', 'ratings:read']);
+    expect((await lookupAccessToken(handle.sql, n.access_token))?.scopes.sort()).toEqual(['offline_access', 'ratings:read']);
+    // widening back, even to what the approval granted, is refused, and changes nothing
+    const wider = await refresh(c, n.refresh_token, 'offline_access ratings:read collection:read');
+    expect(wider.statusCode).toBe(400);
+    expect(wider.json()).toMatchObject({ error: 'invalid_scope' });
+    // omitting the scope keeps the narrowed one
+    const same = await refresh(c, n.refresh_token);
+    expect(same.statusCode).toBe(200);
+    const s2 = same.json() as { access_token: string; refresh_token: string; scope: string };
+    expect(s2.scope.split(' ').sort()).toEqual(['offline_access', 'ratings:read']);
+    expect((await lookupAccessToken(handle.sql, s2.access_token))?.scopes).not.toContain('collection:read');
+    // a scope tagave does not grant, or none at all, is refused
+    expect((await refresh(c, s2.refresh_token, 'ratings:write')).json()).toMatchObject({ error: 'invalid_scope' });
+    expect((await refresh(c, s2.refresh_token, '')).json()).toMatchObject({ error: 'invalid_scope' });
+    // narrowing away offline_access ends the family: no new refresh token
+    const last = await refresh(c, s2.refresh_token, 'ratings:read');
+    expect(last.statusCode).toBe(200);
+    expect(last.json()).not.toHaveProperty('refresh_token');
+    expect(last.json().scope).toBe('ratings:read');
   });
 
   it('a refresh waits for the lock at most the timeout, then answers 503', async () => {
