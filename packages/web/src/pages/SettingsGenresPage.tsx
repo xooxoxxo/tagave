@@ -132,10 +132,7 @@ function SettingsGenresContentInner() {
           <label htmlFor="whitelist" className={styles.label}>
             Whitelist
           </label>
-          <p className={styles.hint}>
-            Canonical genres to retain when enriching. One per line. Tags from Discogs and MusicBrainz that match
-            (case-insensitive) appear in the effective genres list; others become secondary styles.
-          </p>
+
           <textarea
             id="whitelist"
             className={styles.textarea}
@@ -153,13 +150,9 @@ function SettingsGenresContentInner() {
           <label htmlFor="aliases" className={styles.label}>
             Aliases
           </label>
-          <p className={styles.hint}>
-            Map non-whitelisted tags to canonical genres. Format: one alias per line, 'from = to'. Blank and
-            invalid lines are silently skipped.
-            {ignoredLines.aliases > 0 && (
-              <span className={styles.ignoredCount}> ({ignoredLines.aliases} ignored)</span>
-            )}
-          </p>
+          {ignoredLines.aliases > 0 && (
+            <p className={styles.hint}><span className={styles.ignoredCount}>{ignoredLines.aliases} lines ignored</span></p>
+          )}
           <textarea
             id="aliases"
             className={styles.textarea}
@@ -172,9 +165,8 @@ function SettingsGenresContentInner() {
 
         <div className={styles.fieldGroup}>
           <label htmlFor="maxGenres" className={styles.label}>
-            Maximum genres per album
+            Max genres per album
           </label>
-          <p className={styles.hint}>The maximum number of effective genres to select (1–10). Defaults to 3.</p>
           <input
             id="maxGenres"
             type="number"
@@ -198,9 +190,9 @@ function SettingsGenresContentInner() {
             onClick={handleReset}
             disabled={!hasChanges}
           >
-            Reset to defaults
+            Reset
           </Button>
-          {patchGenreMap.isSuccess && <span className={styles.success}>Settings saved</span>}
+          {patchGenreMap.isSuccess && <span className={styles.success}>Saved</span>}
           {patchGenreMap.isError && (
             <span className={styles.error}>
               {(patchGenreMap.error as { detail?: string; message?: string })?.detail ??
@@ -213,11 +205,10 @@ function SettingsGenresContentInner() {
       {previewData && (
         <>
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Effective Genres</h2>
-            <p className={styles.hint}>Distribution of effective genres across your library's release groups.</p>
+            <h2 className={styles.sectionTitle}>Effective genres</h2>
             <div className={styles.histogramContainer}>
               {previewData.histogram.length === 0 ? (
-                <p className={styles.emptyMessage}>No genres found.</p>
+                <p className={styles.emptyMessage}>No genres</p>
               ) : (
                 previewData.histogram.map((item) => {
                   const maxCount = Math.max(...previewData.histogram.map((h) => h.albums));
@@ -237,14 +228,10 @@ function SettingsGenresContentInner() {
           </div>
 
           <div className={styles.section}>
-            <h2 className={styles.sectionTitle}>Raw Tags</h2>
-            <p className={styles.hint}>
-              All raw tags from Discogs and MusicBrainz (top 200), with their mapping status. Hover over the source
-              for details.
-            </p>
+            <h2 className={styles.sectionTitle}>Raw tags</h2>
             <div className={styles.tableContainer}>
               {previewData.tags.length === 0 ? (
-                <p className={styles.emptyMessage}>No tags found.</p>
+                <p className={styles.emptyMessage}>No tags</p>
               ) : (
                 <table className={styles.table}>
                   <thead>

@@ -40,14 +40,14 @@ export interface Health {
   text: string;
 }
 
-/** "2 factors set up. You can lose one and still get in." and its warnings. */
+/** "2 factors" and its warnings. */
 export function accountHealth(s: SecurityStatus): Health {
   const factors = s.passkeys.length + (s.twoFactor.enabled ? 1 : 0);
   if (factors === 0) {
     return {
       tone: 'danger',
       factors,
-      text: 'No second factor yet. Anyone with your password can sign in, and sensitive actions will ask for your password only. Add a passkey or an authenticator app.',
+      text: 'No second factor',
     };
   }
   const codes = s.twoFactor.enabled ? s.twoFactor.backupCodesLeft ?? 0 : 0;
@@ -57,11 +57,11 @@ export function accountHealth(s: SecurityStatus): Health {
       factors,
       text:
         codes > 0
-          ? `1 factor set up, plus ${codes} backup code${codes === 1 ? '' : 's'}. Add a second passkey or security key so losing one device does not lock you out.`
-          : '1 factor set up. If you lose it you will need shell access to the server to get back in. Add a second passkey or security key.',
+          ? `1 factor, ${codes} backup code${codes === 1 ? '' : 's'}`
+          : '1 factor. Losing it locks you out.',
     };
   }
-  return { tone: 'success', factors, text: `${factors} factors set up. You can lose one and still get in.` };
+  return { tone: 'success', factors, text: `${factors} factors` };
 }
 
 /** "Firefox on macOS" from a user-agent string, or a plain fallback. */
@@ -142,10 +142,10 @@ export function backupCodesFile(codes: string[], email: string, origin: string, 
 /** Why passkeys will not work on this page, or null when they can. */
 export function passkeyProblem(config: SecurityStatus['config'], pageOrigin: string): string | null {
   if (!config.passkeysAvailable) {
-    return `Passkeys and security keys need https (or localhost). PUBLIC_URL is ${config.publicUrl}; serve tagave over https and set PUBLIC_URL to that address to use them.`;
+    return `Passkeys need https (or localhost). PUBLIC_URL is ${config.publicUrl}.`;
   }
   if (pageOrigin && pageOrigin !== config.publicUrl) {
-    return `Passkeys are tied to ${config.publicUrl} (PUBLIC_URL), but this page is ${pageOrigin}. Open tagave at ${config.publicUrl} to add or use a passkey, or change PUBLIC_URL.`;
+    return `Passkeys are tied to ${config.publicUrl} (PUBLIC_URL). Open tagave there.`;
   }
   return null;
 }

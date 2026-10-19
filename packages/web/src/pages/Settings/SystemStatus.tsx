@@ -27,8 +27,7 @@ export function SystemStatus() {
       {isLoading && <p className={styles.muted} role="status">Running checks…</p>}
       {isError && (
         <Banner tone="danger">
-          The checks could not run. If this keeps happening, the app may have lost its database: check that Postgres is
-          running and that DATABASE_URL is right.
+          Checks could not run. Check that Postgres is running.
         </Banner>
       )}
 
@@ -36,15 +35,14 @@ export function SystemStatus() {
         <>
           <Banner tone={failed ? 'danger' : warned ? 'warning' : 'success'}>
             {failed
-              ? `${failed} ${failed === 1 ? 'check needs' : 'checks need'} attention. Each one says how to fix it.`
+              ? `${failed} ${failed === 1 ? 'check' : 'checks'} failed`
               : warned
-                ? `Everything works. ${warned} ${warned === 1 ? 'warning is' : 'warnings are'} worth a look.`
-                : 'Everything is working.'}
+                ? `${warned} ${warned === 1 ? 'warning' : 'warnings'}`
+                : 'All checks pass'}
           </Banner>
           <SystemCheckList checks={data.checks} />
           <p className={styles.muted}>
-            Checked {new Date(data.checkedAt).toLocaleString()}. The same checks run from a shell with{' '}
-            <code>tagave-doctor doctor</code>.
+            Checked {new Date(data.checkedAt).toLocaleString()}
           </p>
         </>
       )}

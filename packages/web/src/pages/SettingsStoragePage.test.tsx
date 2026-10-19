@@ -49,7 +49,7 @@ const disk = (over: Partial<DiskSpaceView> = {}): DiskSpaceView => ({
 describe('Free space on this server', () => {
   it('shows each disk with its folders, free space and how full it is', () => {
     const html = renderToStaticMarkup(<DiskSpace disk={disk()} />);
-    expect(html).toContain('Free space on this server');
+    expect(html).toContain('Free space');
     expect(html).toContain('Backups and cache');
     expect(html).toContain('60.0 GB free of 100.0 GB');
     expect(html).toContain('40% used');
@@ -57,7 +57,7 @@ describe('Free space on this server', () => {
     expect(html).toContain('/backups');
     expect(html).toContain('style="width:40%"');
     expect(html).toContain('Database: Postgres runs on &quot;postgres&quot;, so its disk cannot be measured from here.');
-    expect(html).toContain('warns at 85% used and calls a disk almost full at 95%');
+    expect(html).not.toContain('Bars show');
     // nothing to act on: no banner, no badge
     expect(html).not.toMatch(/tone-warning|tone-danger|Filling up|Almost full/);
   });

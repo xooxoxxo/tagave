@@ -85,7 +85,7 @@ export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun
         </div>
         <span className={runStyles.elapsed} title="Elapsed">{clock(elapsed)}</span>
       </div>
-      {disconnected && running && <p className={runStyles.note}>tagave is restarting with the new settings. This page reconnects on its own.</p>}
+      {disconnected && running && <p className={runStyles.note}>Restarting…</p>}
       <StepList run={run} />
       <RunLog log={run.log} />
       {!running && (
@@ -116,7 +116,7 @@ export function TurnOffChoices({ m, onChange, initial }: { m: ModuleStatus; onCh
   };
   return (
     <>
-      <p>Its containers stop and its settings come out of the configuration. Kept unless you tick the box: {m.keepsOnRemoval}.</p>
+      <p>Kept unless you tick the box: {m.keepsOnRemoval}.</p>
       <label className={styles.check}>
         <input type="checkbox" checked={data} onChange={(e) => set(e.target.checked, history)} />
         <span>Also delete its data. This cannot be undone.</span>
@@ -176,10 +176,10 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
   const command = view.mode === 'command';
   return (
     <div className={styles.page}>
-      {view.mode === 'unreachable' && <Banner tone="danger">The updater does not answer, so modules cannot be turned on or off from here. {sentence(view.error)}</Banner>}
+      {view.mode === 'unreachable' && <Banner tone="danger">The updater does not answer. {sentence(view.error)}</Banner>}
       {command && (
         <p className={styles.hint}>
-          This server has no in-app updater, so modules are turned on and off in the install folder, with the commands below. To use the buttons instead, add the updater: <code>./install-tagave.sh enable-updater</code>.
+          Run in the install folder:
         </p>
       )}
       {!view.verified && view.mode !== 'unreachable' && (
@@ -203,7 +203,7 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
                   Memory up to {size(m.estimate.memoryMb)} · about {size(m.estimate.diskMb)} on disk{m.roles.includes('app') ? '' : ' · one-computer installs only'}
                 </p>
                 {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
-                {m.state === 'update_pending' && <p className={styles.meta}>This release pins another image for it; the next update (or Turn off and on) brings it in.</p>}
+                {m.state === 'update_pending' && <p className={styles.meta}>Update pending</p>}
                 {!m.available && m.reason && <p className={styles.meta}>{m.reason}</p>}
                 {command ? (
                   m.available && <CommandLine command={moduleCommand(isOn ? 'disable' : 'enable', m.id)} />
@@ -226,7 +226,7 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
         </ul>
       )}
       {error && <p className={styles.error} role="alert">{error}</p>}
-      <p className={styles.footnote}>Only modules from tagave&rsquo;s signed release catalogue can be installed; their images are pulled by digest and checked first.</p>
+
     </div>
   );
 }
@@ -284,7 +284,7 @@ function CatalogueModules() {
       message: (
         <>
           <p>{m.purpose}</p>
-          <p>The updater downloads its images (checked against the signed release), adds its settings and starts it. It takes up to {size(m.estimate.memoryMb)} of memory. If it does not come up healthy, everything goes back as it was.</p>
+          <p>Uses up to {size(m.estimate.memoryMb)} of memory.</p>
         </>
       ),
       confirmLabel: 'Turn on',
@@ -303,8 +303,8 @@ function CatalogueModules() {
     if (ok) await withStepUp(m, 'disable', choice);
   };
 
-  if (modules.isLoading) return <p className={styles.hint}>Loading the modules…</p>;
-  if (!modules.data) return <Banner tone="danger">Could not load the modules. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>;
+  if (modules.isLoading) return <p className={styles.hint}>Loading…</p>;
+  if (!modules.data) return <Banner tone="danger">Couldn’t load modules. {sentence((modules.error as { detail?: string } | null)?.detail)}</Banner>;
   return (
     <>
       <SettingsModulesView

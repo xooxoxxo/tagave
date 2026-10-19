@@ -118,20 +118,17 @@ export function SetupChecklistContent() {
       {/* Step 1: Contact String */}
       <div className={`${styles.step} ${step1Done ? styles.done : ''}`}>
         <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Contact String</h3>
+          <h3 className={styles.stepTitle}>Contact email or URL</h3>
           <span className={`${styles.pill} ${step1Done ? styles.completed : styles.required}`}>
             {step1Done ? 'Done' : 'Required'}
           </span>
         </div>
-        <p className={styles.description}>
-          Sent in the User-Agent of every provider request (MusicBrainz, Discogs, Wikidata).
-          <strong> Required:</strong> no provider calls happen until it is set.
-        </p>
+
         <div className={styles.control}>
           <input
             type="text"
             className={styles.input}
-            placeholder="Your Name / App (your-email@example.com)"
+            placeholder="you@example.com"
             value={contactString}
             onChange={(e) => setContactString(e.target.value)}
           />
@@ -151,15 +148,12 @@ export function SetupChecklistContent() {
       {/* Step 2: Scan Root */}
       <div className={`${styles.step} ${step2Done ? styles.done : ''}`}>
         <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Add a Scan Root</h3>
+          <h3 className={styles.stepTitle}>Music folder</h3>
           <span className={`${styles.pill} ${step2Done ? styles.completed : styles.required}`}>
             {step2Done ? 'Done' : 'Required'}
           </span>
         </div>
-        <p className={styles.description}>
-          The path must exist on the worker host where your music is mounted.
-          <strong> Required:</strong> at least one valid scan root to run a scan.
-        </p>
+
 
         {/* Existing roots */}
         {scanRoots.length > 0 && (
@@ -190,12 +184,12 @@ export function SetupChecklistContent() {
             onClick={() => setShowAddRoot(true)}
             className={styles.addButton}
           >
-            + Add Scan Root
+            Add folder
           </Button>
         ) : (
           <form onSubmit={handleAddRoot} className={styles.form}>
             <div className={styles.field}>
-              <label className={styles.label}>Path (absolute)</label>
+              <label className={styles.label}>Path</label>
               <input
                 type="text"
                 placeholder="/music or /mnt/music"
@@ -205,7 +199,7 @@ export function SetupChecklistContent() {
               />
             </div>
             <div className={styles.field}>
-              <label className={styles.label}>Display Name</label>
+              <label className={styles.label}>Name</label>
               <input
                 type="text"
                 placeholder="My Music"
@@ -223,7 +217,7 @@ export function SetupChecklistContent() {
                 className={styles.checkbox}
               />
               <label htmlFor="writable" className={styles.checkboxLabel}>
-                Allow tag writes (enable metadata updates)
+                Allow tag writes
               </label>
             </div>
             <div className={styles.formActions}>
@@ -246,7 +240,7 @@ export function SetupChecklistContent() {
 
         {pendingRoots.length > 0 && (
           <p className={styles.note}>
-            Validating {pendingRoots.length} root{pendingRoots.length > 1 ? 's' : ''}...
+            Validating {pendingRoots.length} folder{pendingRoots.length > 1 ? 's' : ''}…
           </p>
         )}
       </div>
@@ -254,22 +248,18 @@ export function SetupChecklistContent() {
       {/* Step 3: Discogs Token */}
       <div className={`${styles.step} ${step3Done ? styles.done : ''}`}>
         <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Discogs Token (Optional)</h3>
+          <h3 className={styles.stepTitle}>Discogs token</h3>
           <span className={`${styles.pill} ${step3Done ? styles.completed : styles.optional}`}>
             {step3Done ? 'Done' : 'Optional'}
           </span>
         </div>
-        <p className={styles.description}>
-          A personal access token from discogs.com/settings/developers. With it tagave runs Discogs
-          at 55 requests/minute instead of 25 and receives cover image URLs; without it candidates
-          and genres still work, only slower and without images.
-        </p>
+
 
         <div className={styles.control}>
           {settings?.discogsTokenSet ? (
             <>
               <span className={styles.configured}>
-                Token configured ({settings.discogsTokenHint ? `••••${settings.discogsTokenHint}` : 'unknown'})
+                Saved{settings.discogsTokenHint ? ` ••••${settings.discogsTokenHint}` : ''}
               </span>
               <Button
                 variant="quiet"
@@ -287,7 +277,7 @@ export function SetupChecklistContent() {
                 size="sm"
                 onClick={() => setShowDiscogsConfig(!showDiscogsConfig)}
               >
-                {showDiscogsConfig ? 'Cancel' : 'Configure Token'}
+                {showDiscogsConfig ? 'Cancel' : 'Add token'}
               </Button>
               {showDiscogsConfig && (
                 <>
@@ -314,21 +304,18 @@ export function SetupChecklistContent() {
       {/* Step 4: AcoustID Key */}
       <div className={`${styles.step} ${step4Done ? styles.done : ''}`}>
         <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>AcoustID Key (Optional)</h3>
+          <h3 className={styles.stepTitle}>AcoustID key</h3>
           <span className={`${styles.pill} ${step4Done ? styles.completed : styles.optional}`}>
             {step4Done ? 'Done' : 'Optional'}
           </span>
         </div>
-        <p className={styles.description}>
-          Fingerprint-based identification of untagged files using the AcoustID service.
-          <strong> Coming in a later milestone</strong> — the key is stored now for future use.
-        </p>
+
 
         <div className={styles.control}>
           {settings?.acoustidKeySet ? (
             <>
               <span className={styles.configured}>
-                Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
+                Saved{settings.acoustidKeyHint ? ` ••••${settings.acoustidKeyHint}` : ''}
               </span>
               <Button
                 variant="quiet"
@@ -346,7 +333,7 @@ export function SetupChecklistContent() {
                 size="sm"
                 onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
               >
-                {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
+                {showAcoustidConfig ? 'Cancel' : 'Add key'}
               </Button>
               {showAcoustidConfig && (
                 <>
@@ -373,26 +360,22 @@ export function SetupChecklistContent() {
       {/* Step 5: Start First Scan */}
       <div className={`${styles.step} ${step5Done ? styles.done : ''}`}>
         <div className={styles.stepHeader}>
-          <h3 className={styles.stepTitle}>Start First Scan</h3>
+          <h3 className={styles.stepTitle}>First scan</h3>
           <span className={`${styles.pill} ${step5Done ? styles.completed : styles.required}`}>
             {step5Done ? 'Done' : 'Required'}
           </span>
         </div>
-        <p className={styles.description}>
-          <strong>Enabled when at least one scan root is validated.</strong> Albums appear on the
-          dashboard as folders are indexed. You can monitor progress in the Jobs page.
-        </p>
 
         {step5Done ? (
           <div className={styles.control}>
-            <span className={styles.configured}>Scanning in progress...</span>
+            <span className={styles.configured}>Scanning…</span>
           </div>
         ) : (
           <Button
             onClick={handleStartFirstScan}
             disabled={!step5Enabled || startScan.isPending}
           >
-            {startScan.isPending ? 'Starting scan...' : 'Start First Scan'}
+            {startScan.isPending ? 'Starting…' : 'Start scan'}
           </Button>
         )}
       </div>

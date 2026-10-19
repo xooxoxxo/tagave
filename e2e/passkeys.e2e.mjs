@@ -4,7 +4,7 @@
  * Chrome's virtual WebAuthn authenticators over CDP:
  *
  *   1. a throwaway user signs in with email + password;
- *   2. Settings › Security › "Add a security key" registers a USB (YubiKey-
+ *   2. Settings › Security › "Add security key" registers a USB (YubiKey-
  *      like) authenticator that verifies the user (PIN);
  *   3. sign out, then "Sign in with a passkey" signs back in with no password;
  *   4. a second, platform ("internal") authenticator is added as a passkey and
@@ -129,7 +129,7 @@ try {
   // 2. register the YubiKey-like security key
   await page.goto('/settings/security');
   await page.getByRole('heading', { name: 'Passkeys and security keys' }).waitFor();
-  await page.getByRole('button', { name: 'Add a security key' }).click();
+  await page.getByRole('button', { name: 'Add security key' }).click();
   await page.getByText('On this key or device only').first().waitFor({ timeout: 15000 });
   const keys = await sql`select credential_id, rp_id, device_type, transports from auth_passkeys where user_id = ${userId}`;
   step('security key registered', keys.length === 1 && keys[0].rp_id === new URL(BASE_URL).hostname, JSON.stringify(keys[0]));
@@ -148,7 +148,7 @@ try {
   // possible (credentials live in the authenticator), so step 5 uses this one.
   const platform = await addAuthenticator(cdp, 'internal');
   await page.goto('/settings/security');
-  await page.getByRole('button', { name: 'Add a passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey' }).click();
   for (let i = 0; i < 60; i++) {
     const r = await page.request.get(`${BASE_URL}/api/v1/auth/security`);
     if (r.ok() && (await r.json()).passkeys.length === 2) break;
@@ -182,7 +182,7 @@ try {
     options: { protocol: 'ctap2', transport: 'usb', hasResidentKey: true, hasUserVerification: false, automaticPresenceSimulation: true },
   });
   await page.goto('/settings/security');
-  await page.getByRole('button', { name: 'Add a security key' }).click();
+  await page.getByRole('button', { name: 'Add security key' }).click();
   const refusal = page.locator('[class*="banner"]').filter({ hasText: /PIN or fingerprint|PIN/ });
   await refusal.first().waitFor({ timeout: 15000 });
   const stillTwo = (await sql`select count(*)::int as n from auth_passkeys where user_id = ${userId}`)[0].n === 2;

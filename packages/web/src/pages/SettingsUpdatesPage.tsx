@@ -8,7 +8,7 @@
  * an update and follows it (InAppUpdate); without it, it shows the command.
  */
 import { useEffect, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { docsUrl } from '../utils/docs';
 import ReactMarkdown from 'react-markdown';
 import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
@@ -141,14 +141,8 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           {detected !== 'unknown' && <span className={styles.detected}>this server</span>}
         </h3>
         <GuideSteps guide={primary!} />
-        <p className={styles.hint}>
-          Then check: the table below lists every process at {target ? target.version : 'the new version'}, and <Link to="/settings/system">System status</Link> shows no failures.
-        </p>
         <details className={styles.more}>
-          <summary>If something goes wrong</summary>
-          <p className={styles.hint}>
-            Database changes only go forward: an older version cannot use a database a newer one has changed. Go back to the version you had and restore the backup you took.
-          </p>
+          <summary>Roll back</summary>
           <GuideSteps guide={rollbackGuide(primary!.method, install, app.version, target?.version ?? null)} />
         </details>
         {others.map((g) => (
@@ -159,7 +153,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         ))}
       </div>
     ) : (
-      <p className={styles.muted}>The update steps appear once you have read the notes.</p>
+      <p className={styles.muted}>Read the notes first</p>
     );
 
   return (
@@ -167,22 +161,22 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
       {target && data.updateAvailable && (
         <Banner tone="info">
           <div className={styles.bannerRow}>
-            <span><strong>tagave {target.version} is out.</strong> You run {app.version}.</span>
+            <span><strong>tagave {target.version}</strong> · you run {app.version}</span>
             {target.requiresAttention && <span className={styles.attention}>requires attention</span>}
             <Button size="sm" variant="quiet" className={styles.bannerAction} disabled={skip.isPending} onClick={() => skip.mutate(target.version)}>
-              Skip this version
+              Skip
             </Button>
           </div>
         </Banner>
       )}
       {skipped && (
         <p className={styles.muted}>
-          You skipped {feed.skippedVersion}. You will hear about the next release.{' '}
+          Skipped {feed.skippedVersion}{' '}
           <Button size="sm" variant="quiet" disabled={skip.isPending} onClick={() => skip.mutate(null)}>Show it again</Button>
         </p>
       )}
       {data.mismatch && (
-        <Banner tone="warning">A worker runs a different build than the app. Update the lagging side to the same version and restart it.</Banner>
+        <Banner tone="warning">A worker runs a different build than the app.</Banner>
       )}
 
       {feed.newer.length > 0 && (
@@ -197,12 +191,11 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         {attention.length > 0 && target && (
           <Banner tone="warning">
             <p className={styles.gateText}>
-              {attention.length === 1 ? `${attention[0]!.tag} is` : `${attention.map((r) => r.tag).join(', ')} are`} marked
-              {' '}<strong>requires attention</strong>: the update may need a step from you. Read the notes above first.
+              {attention.length === 1 ? attention[0]!.tag : attention.map((r) => r.tag).join(', ')}{' '}<strong>requires attention</strong>
             </p>
             <label className={styles.gateCheck}>
               <input type="checkbox" checked={confirmed} onChange={(e) => setReadFor(e.target.checked ? target.version : null)} />
-              I have read the notes marked requires attention
+              I have read the notes
             </label>
           </Banner>
         )}
@@ -218,15 +211,13 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           <>
             {uv?.installed && !uv.reachable && (
               <Banner tone="warning">
-                The updater is set up on this server but does not answer ({uv.error}). Check it with <code>docker compose ps</code> and <code>docker compose logs updater</code> in the install folder, or update by hand below.
+                The updater does not answer ({uv.error}).
               </Banner>
             )}
-            {!target && upToDate && <p className={styles.hint}>Up to date: {app.version}.</p>}
+            {!target && upToDate && <p className={styles.hint}>Up to date · {app.version}</p>}
             {manual}
             {uv && !uv.installed && (
-              <p className={styles.hint}>
-                To update from this page, turn on the optional updater: run <code>./install-tagave.sh enable-updater</code> in the install folder. It holds the Docker socket; see <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/security.md#the-in-app-updater" target="_blank" rel="noreferrer">docs/security.md</a>.
-              </p>
+              <a className={styles.hint} href={docsUrl('install.md#updating-from-the-app-optional-updater')} target="_blank" rel="noreferrer">Update from this page</a>
             )}
           </>
         )}
@@ -252,7 +243,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
               <td className={styles.dim}>–</td>
             </tr>
             {workers.length === 0 && (
-              <tr><td colSpan={7} className={styles.dim}>No worker heartbeat in the last two minutes.</td></tr>
+              <tr><td colSpan={7} className={styles.dim}>No workers seen</td></tr>
             )}
             {workers.map((w) => {
               const lagging = !!(w.sha && app.sha && w.sha !== app.sha);
@@ -277,10 +268,9 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
 
       <section className={styles.section} aria-labelledby="updates-checks">
         <h3 id="updates-checks" className={styles.title}>Update checks</h3>
-        <p className={styles.hint}>Every 12 hours the server fetches the release list from GitHub; nothing about you or your library is sent.</p>
         {feed.lockedByServer ? (
           <p className={styles.hint}>
-            {feed.enabled ? <>Set on the server with <code>TAGAVE_UPDATE_FEED</code>: checks read <code>{feed.url}</code>.</> : <>Turned off on the server with <code>TAGAVE_UPDATE_FEED=off</code>.</>}
+            {feed.enabled ? <><code>TAGAVE_UPDATE_FEED</code>: <code>{feed.url}</code></> : <>Off (<code>TAGAVE_UPDATE_FEED=off</code>)</>}
           </p>
         ) : (
           <label className={styles.gateCheck}>
@@ -293,17 +283,14 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
             {check.isPending ? 'Checking…' : 'Check now'}
           </Button>
           <span className={styles.muted}>
-            {!feed.enabled ? 'Update checks are off.'
-              : feed.lastCheckedAt ? <>Last checked <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span>.</> : 'Not checked yet.'}
-            {feed.enabled && feed.error ? ` The last check failed: ${feed.error}.` : ''}
+            {!feed.enabled ? 'Off'
+              : feed.lastCheckedAt ? <>Last checked <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span></> : 'Not checked yet'}
+            {feed.enabled && feed.error ? ` · Failed: ${feed.error}` : ''}
           </span>
         </div>
         {!feed.lockedByServer && feed.enabled && (
           <details className={styles.more} open={feed.custom}>
-            <summary>Use a different release feed</summary>
-            <p className={styles.hint}>
-              For a fork: a GitHub Releases API URL, such as <code>https://api.github.com/repos/OWNER/REPO/releases</code>. Empty uses the official feed, <code>{feed.defaultUrl}</code>.
-            </p>
+            <summary>Release feed</summary>
             <div className={styles.row}>
               <input
                 className={styles.input}
@@ -316,7 +303,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
                 Save
               </Button>
             </div>
-            {setFeed.isError && <p className={styles.error}>Could not save: the feed must be a GitHub releases API URL, such as https://api.github.com/repos/OWNER/REPO/releases.</p>}
+            {setFeed.isError && <p className={styles.error}>Use a GitHub releases API URL</p>}
           </details>
         )}
       </section>

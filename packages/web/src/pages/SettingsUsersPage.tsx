@@ -8,7 +8,7 @@
 import { useState, type FormEvent } from 'react';
 import { ROLES, ROLE_DESCRIPTIONS, ROLE_LABELS, type InviteLinkResponse, type Role, type UserView } from '@tagave/shared';
 import { Banner, Button, Select, TextField, confirmDialog } from '../components/ui';
-import { LinkPanel, PendingLinkRow, RoleLegend, UserRow, usersListStyles as list } from '../components/users/UsersList';
+import { LinkPanel, PendingLinkRow, UserRow, usersListStyles as list } from '../components/users/UsersList';
 import { useStepUpAction } from '../components/users/useStepUpAction';
 import { useChangeUser, useInviteUser, useRemoveUser, useResetSignIn, useRevokeInvite, useUsers } from '../hooks/useUsers';
 import styles from './SettingsSecurityPage.module.css';
@@ -37,7 +37,7 @@ export function SettingsUsersPage() {
   const [resetLink, setResetLink] = useState<InviteLinkResponse | null>(null);
 
   if (isLoading) return <p className={styles.muted}>Loading people…</p>;
-  if (error || !data) return <Banner tone="danger">Could not load the people on this tagave.</Banner>;
+  if (error || !data) return <Banner tone="danger">Couldn’t load users.</Banner>;
 
   const busy = invite.isPending || change.isPending || reset.isPending || remove.isPending || revoke.isPending;
   const attempt = async (what: string, fallback: string, fn: () => Promise<unknown>) => {
@@ -75,7 +75,7 @@ export function SettingsUsersPage() {
     if (turnOff) {
       const ok = await confirmDialog({
         title: `Turn off sign-in for ${u.name}?`,
-        message: <p>They are signed out on every device and cannot sign in until you turn it back on. Their ratings, reviews and listens stay.</p>,
+        message: <p>They are signed out everywhere until you turn it back on.</p>,
         confirmLabel: 'Turn off sign-in',
         tone: 'danger',
       });
@@ -88,8 +88,8 @@ export function SettingsUsersPage() {
     const ok = await confirmDialog({
       title: choice === 'keep' ? `Remove ${u.name}?` : `Remove ${u.name} and delete their data?`,
       message: choice === 'keep'
-        ? <p>Their account is closed for good and their email address is freed. Their ratings, reviews and listens stay in the library's history.</p>
-        : <p>Their account and their ratings, reviews, listens and saved views are deleted. This cannot be undone. Albums and tag changes stay.</p>,
+        ? <p>Their account is closed. Their ratings, reviews and listens stay.</p>
+        : <p>Their ratings, reviews, listens and saved views are deleted. This cannot be undone.</p>,
       confirmLabel: choice === 'keep' ? 'Remove' : 'Remove and delete',
       tone: 'danger',
     });
@@ -136,10 +136,10 @@ export function SettingsUsersPage() {
               ) : (
                 <div className={list.linkPanel}>
                   <p className={list.linkTitle}>New set-password link for {u.name}</p>
-                  <p className={list.hint}>With the link they choose a new password. Every device they are signed in on is signed out.</p>
+                  <p className={list.hint}>Signs them out everywhere.</p>
                   <label className={list.check}>
                     <input type="checkbox" checked={clearFactors} onChange={(e) => setClearFactors(e.target.checked)} />
-                    <span>Also remove their passkeys and authenticator app (a lost phone or key)</span>
+                    <span>Also remove passkeys and authenticator</span>
                   </label>
                   <div className={list.buttons}>
                     <Button size="sm" onClick={() => void onMakeReset(u)} loading={reset.isPending}>Make link</Button>
@@ -153,8 +153,7 @@ export function SettingsUsersPage() {
       </section>
 
       <section className={styles.section} aria-labelledby="users-invite">
-        <h3 id="users-invite" className={styles.title}>Invite someone</h3>
-        <p className={styles.hint}>tagave makes a link for them to set their name and password. It works once, for 7 days.</p>
+        <h3 id="users-invite" className={styles.title}>Invite</h3>
         {made ? (
           <LinkPanel
             title={`Invite link for ${made.invite.email} (${ROLE_LABELS[made.invite.role]})`}
@@ -171,9 +170,8 @@ export function SettingsUsersPage() {
                 {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </Select>
             </div>
-            <RoleLegend />
             <div>
-              <Button type="submit" disabled={!email.trim()} loading={invite.isPending}>Make invite link</Button>
+              <Button type="submit" disabled={!email.trim()} loading={invite.isPending}>Invite</Button>
             </div>
           </form>
         )}

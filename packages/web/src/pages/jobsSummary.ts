@@ -32,10 +32,8 @@ export function summaryMessage(opts: {
     const many = summary.needsAttention !== 1;
     return {
       tone: 'danger',
-      lead: `${plural(summary.needsAttention, 'task')} ${many ? 'need' : 'needs'} your attention.`,
-      text: anyRetryable
-        ? 'See what went wrong below; once the cause is fixed, press Retry where it is offered.'
-        : `See what went wrong below. ${many ? 'They' : 'It'} cannot be restarted from this page.`,
+      lead: `${plural(summary.needsAttention, 'task')} ${many ? 'need' : 'needs'} attention`,
+      text: anyRetryable ? '' : `· can’t be restarted here`,
     };
   }
 
@@ -44,24 +42,24 @@ export function summaryMessage(opts: {
   if (running > 0 || waiting > 0) {
     const names = runningNames.slice(0, 3).join(', ');
     const parts = [
-      names ? `${names}${runningNames.length > 3 ? ' and more' : ''}.` : running > 0 ? `${plural(running, 'task')} running.` : '',
-      waiting > 0 ? `${plural(waiting, 'task')} waiting to start.` : '',
+      names ? `${names}${runningNames.length > 3 ? ' and more' : ''}` : running > 0 ? `${plural(running, 'task')} running` : '',
+      waiting > 0 ? `${plural(waiting, 'task')} waiting` : '',
     ].filter(Boolean);
-    return { tone: 'info', lead: 'Working.', text: parts.join(' ') };
+    return { tone: 'info', lead: 'Working', text: parts.length ? `· ${parts.join(' · ')}` : '' };
   }
 
   if (pendingAlbums > 0) {
     return {
       tone: 'info',
-      lead: 'Albums are waiting.',
-      text: `Nothing is running right now, but ${plural(pendingAlbums, 'album')} ${pendingAlbums === 1 ? 'has' : 'have'} not been checked yet. The next identification run picks them up, or press Check waiting albums now below.`,
+      lead: 'Albums waiting',
+      text: `· ${plural(pendingAlbums, 'album')} not checked yet`,
     };
   }
 
   return {
     tone: 'success',
-    lead: 'All caught up.',
-    text: summary.lastFinishedAt ? `Nothing is running; the last task finished ${relative(summary.lastFinishedAt)}.` : 'Nothing is running.',
+    lead: 'All caught up',
+    text: summary.lastFinishedAt ? `· last task ${relative(summary.lastFinishedAt)}` : '',
   };
 }
 

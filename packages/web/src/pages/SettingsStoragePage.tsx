@@ -9,6 +9,7 @@ import { Badge, Banner, Button, SegmentedControl, confirmDialog, showToast } fro
 import { diskNoticeText, pathsLabel } from '../components/DiskSpaceNotice';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
+import { docsUrl } from '../utils/docs';
 import styles from './SettingsStoragePage.module.css';
 
 const plansText = (n: number) => (n === 1 ? '1 plan' : `${n.toLocaleString()} plans`);
@@ -68,11 +69,10 @@ export function SettingsStorageContent() {
           {db.categories.map((c) => (
             <li key={c.key} className={styles.row}>
               <div className={styles.rowHead}>
-                <span className={styles.label}>{c.label}</span>
+                <span className={styles.label} title={[c.description, ...c.tables.map((t) => `${t.name}: ${formatBytes(t.bytes)}`)].join('\n')}>{c.label}</span>
                 <span className={styles.size}>{formatBytes(c.bytes)}</span>
               </div>
               <Bar share={db.totalBytes > 0 ? c.bytes / db.totalBytes : 0} />
-              <p className={styles.description} title={c.tables.map((t) => `${t.name}: ${formatBytes(t.bytes)}`).join('\n') || undefined}>{c.description}</p>
             </li>
           ))}
         </ul>
@@ -80,7 +80,7 @@ export function SettingsStorageContent() {
 
       <section className={styles.section} aria-labelledby="storage-folders">
         <div className={styles.head}>
-          <h3 id="storage-folders" className={styles.title}>Folders on this server</h3>
+          <h3 id="storage-folders" className={styles.title}>Folders</h3>
           <span className={styles.size}>{formatBytes(folderTotal)}</span>
         </div>
         <ul className={styles.rows}>
@@ -99,7 +99,7 @@ export function SettingsStorageContent() {
             </li>
           ))}
         </ul>
-        <p className={styles.muted}>Bars show each folder's share of everything above, database included.</p>
+
       </section>
 
       <TagChangeCleanup />
@@ -118,10 +118,10 @@ export function DiskSpace({ disk }: { disk: DiskSpaceView | null | undefined }) 
   return (
     <section className={styles.section} aria-labelledby="storage-disk">
       <div className={styles.head}>
-        <h3 id="storage-disk" className={styles.title}>Free space on this server</h3>
+        <h3 id="storage-disk" className={styles.title}>Free space</h3>
       </div>
-      {!disk ? <p className={styles.muted}>The free space of this server’s disks could not be read.</p> : <>
-        {notice && <Banner tone={notice.tone}>{notice.text} “Disk space” in the operations guide says what is safe to delete. Never delete Docker volumes.</Banner>}
+      {!disk ? <p className={styles.muted}>Free space could not be read</p> : <>
+        {notice && <Banner tone={notice.tone}>{notice.text} Never delete Docker volumes. <a href={docsUrl('operations.md#disk-space')} target="_blank" rel="noreferrer">How to</a></Banner>}
         <ul className={styles.rows}>
           {disk.filesystems.map((f) => (
             <li key={f.paths.map((p) => p.key).join('+')} className={styles.row}>
@@ -140,7 +140,7 @@ export function DiskSpace({ disk }: { disk: DiskSpaceView | null | undefined }) 
           ))}
         </ul>
         {disk.unmeasured.map((u) => <p key={u.key} className={styles.muted}>{u.label}: {u.reason}.</p>)}
-        <p className={styles.muted}>Bars show how full each disk is. tagave warns at {disk.warnPct}% used and calls a disk almost full at {disk.failPct}%.</p>
+
       </>}
     </section>
   );
@@ -155,9 +155,9 @@ function CleanupChoice({ preview, onChange }: { preview: TagChangeCleanupPreview
   const plans = preview.plans + (include ? preview.revertible.plans : 0);
   const bytes = preview.bytes + (include ? preview.revertible.bytes : 0);
   return <>
-    <p>Deletes the plans with their previews and file lists. They cannot be brought back.</p>
+    <p>This cannot be undone.</p>
     {preview.revertible.plans > 0 && <>
-      <p><strong>{plansText(preview.revertible.plans)}</strong> can still be reverted: {preview.revertible.plans === 1 ? 'it holds' : 'they hold'} the old tags Revert puts back. Deleting {preview.revertible.plans === 1 ? 'it' : 'them'} makes those tag changes permanent.</p>
+      <p><strong>{plansText(preview.revertible.plans)}</strong> can still be reverted. Deleting {preview.revertible.plans === 1 ? 'it' : 'them'} makes those changes permanent.</p>
       <div className={styles.choice}>
         <SegmentedControl
           label="Plans that can still be reverted"
@@ -167,7 +167,7 @@ function CleanupChoice({ preview, onChange }: { preview: TagChangeCleanupPreview
         />
       </div>
     </>}
-    <p className={styles.confirmTotal} role="status">{plans === 0 ? 'Nothing would be deleted.' : <>Deletes <strong>{plansText(plans)}</strong>, about <strong>{formatBytes(bytes)}</strong>.</>}</p>
+    <p className={styles.confirmTotal} role="status">{plans === 0 ? 'Nothing to delete' : <>Deletes <strong>{plansText(plans)}</strong>, about <strong>{formatBytes(bytes)}</strong></>}</p>
   </>;
 }
 
@@ -200,7 +200,7 @@ function TagChangeCleanup() {
   return (
     <section className={styles.section} aria-labelledby="storage-cleanup">
       <h3 id="storage-cleanup" className={styles.title}>Clean up tag changes</h3>
-      <p className={styles.hint}>Finished plans (applied, failed, cancelled or reverted) keep their previews and, until reverted, the old tags of every file they wrote. Deleting them frees that room in the database, which Postgres reuses for new data.</p>
+
       <SegmentedControl
         label="Which plans"
         value={scope}
@@ -211,8 +211,8 @@ function TagChangeCleanup() {
         : preview.error || !p ? <Banner tone="danger">Could not count the tag changes.</Banner>
         : nothing ? <p className={styles.muted}>{scope === 'archived' ? 'No archived plans.' : 'No finished plans.'}</p>
         : <p className={styles.hint}>
-            <strong>{plansText(p.plans)}</strong>, about <strong>{formatBytes(p.bytes)}</strong>, can go.
-            {p.revertible.plans > 0 && <> {plansText(p.revertible.plans)} more ({formatBytes(p.revertible.bytes)}) can still be reverted and {p.revertible.plans === 1 ? 'is' : 'are'} kept unless you choose otherwise.</>}
+            <strong>{plansText(p.plans)}</strong> · {formatBytes(p.bytes)}
+            {p.revertible.plans > 0 && <> · {plansText(p.revertible.plans)} revertible ({formatBytes(p.revertible.bytes)}) kept</>}
           </p>}
       <div>
         <Button variant="quiet-danger" onClick={() => void run()} disabled={!p || nothing || cleanup.isPending} loading={cleanup.isPending}>Clean up…</Button>

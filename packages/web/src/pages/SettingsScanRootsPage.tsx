@@ -5,7 +5,7 @@
 
 import { useId, useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
-import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, folderLinkFor, type ScanRoot } from '@tagave/shared';
+import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot } from '@tagave/shared';
 import { Button, confirmDialog } from '../components/ui';
 import styles from './SettingsScanRootsPage.module.css';
 
@@ -126,14 +126,14 @@ function SettingsScanRootsContentInner() {
   };
 
   const handleToggleWritable = async (root: ScanRoot) => {
-    if (!root.writable && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Writes are journaled and revertible. Nothing changes until you apply a tag plan.</p></>, confirmLabel: 'Allow writes' }))) return;
+    if (!root.writable && !(await confirmDialog({ title: 'Allow tag writes under this folder?', message: <><p><code>{root.path}</code></p><p>Every write can be reverted.</p></>, confirmLabel: 'Allow writes' }))) return;
     withPending(root.id, () => {
       updateMutation.mutate({ rootId: root.id, data: { writable: !root.writable } }, { onSettled: clearPending(root.id) });
     });
   };
 
   const handleDelete = async (rootId: string) => {
-    if (await confirmDialog({ title: 'Delete this scan root?', message: 'tagave stops cataloguing it. Your files are not touched.', confirmLabel: 'Delete', tone: 'danger' })) {
+    if (await confirmDialog({ title: 'Remove this folder?', message: 'Your files stay on disk.', confirmLabel: 'Delete', tone: 'danger' })) {
       withPending(rootId, () => {
         deleteMutation.mutate(rootId, { onSettled: clearPending(rootId) });
       });
@@ -159,17 +159,16 @@ function SettingsScanRootsContentInner() {
   return (
     <div className={styles.content}>
         <h2 className={styles.sectionTitle}>Music folders</h2>
-        <p className={styles.subtitle}>Manage the folders tagave indexes for music files</p>
 
         {/* Add form */}
       {!showAddForm ? (
         <Button className={styles.addButton} onClick={() => setShowAddForm(true)}>
-          + Add music folder
+          Add folder
         </Button>
       ) : (
         <form onSubmit={handleAddRoot} className={styles.form}>
           <div className={styles.field}>
-            <label htmlFor="path">Path (absolute, inside container)</label>
+            <label htmlFor="path">Path</label>
             <input
               id="path"
               type="text"
@@ -183,7 +182,7 @@ function SettingsScanRootsContentInner() {
           </div>
 
           <div className={styles.field}>
-            <label htmlFor="displayName">Display Name</label>
+            <label htmlFor="displayName">Name</label>
             <input
               id="displayName"
               type="text"
@@ -205,12 +204,12 @@ function SettingsScanRootsContentInner() {
                 onChange={handleInputChange}
                 disabled={createMutation.isPending}
               />
-              Writable (allow tag edits)
+              Writable
             </label>
           </div>
 
           <div className={styles.field}>
-            <label htmlFor="pollIntervalS">Poll Interval (seconds)</label>
+            <label htmlFor="pollIntervalS">Rescan every (seconds)</label>
             <input
               id="pollIntervalS"
               type="number"
@@ -228,7 +227,7 @@ function SettingsScanRootsContentInner() {
 
           <div className={styles.formActions}>
             <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? 'Adding...' : 'Add Root'}
+              {createMutation.isPending ? 'Adding...' : 'Add'}
             </Button>
             <Button variant="quiet" type="button" onClick={() => setShowAddForm(false)}>
               Cancel
@@ -243,17 +242,13 @@ function SettingsScanRootsContentInner() {
         </form>
       )}
 
-      <p className={styles.helpText}>
-        The path must exist on the worker host (where the music is mounted), not on the web app host.
-        The worker validates it within a few seconds.
-      </p>
 
       {/* Roots list */}
       {isLoading ? (
         <div className={styles.loading}>Loading scan roots...</div>
       ) : scanRoots.length === 0 ? (
         <div className={styles.emptyState}>
-          <p>No music folders yet. Add a folder to start building your library.</p>
+          <p>No music folders</p>
         </div>
       ) : (
         <div className={styles.rootsList}>
@@ -345,7 +340,7 @@ function SettingsScanRootsContentInner() {
                   disabled={isPending(root.id) || root.lastStatus === 'scanning' || root.validationStatus !== 'ok'}
                   title={root.validationStatus !== 'ok' ? 'Path must be validated first' : ''}
                 >
-                  {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan Now'}
+                  {root.lastStatus === 'scanning' || isPending(root.id) ? 'Scanning...' : 'Scan'}
                 </Button>
                 <Button
                   variant="secondary"
@@ -354,7 +349,7 @@ function SettingsScanRootsContentInner() {
                   disabled={isPending(root.id) || (!root.writable && !canEnableWrites(root))}
                   title={writableHint(root)}
                 >
-                  {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow tag writes'}
+                  {isPending(root.id) ? 'Saving...' : root.writable ? 'Make read-only' : 'Allow writes'}
                 </Button>
                 <Button
                   variant="quiet-danger"
@@ -374,7 +369,7 @@ function SettingsScanRootsContentInner() {
               />
               {root.writable && root.probeWritable === false && (
                 <p className={styles.rootWarning}>
-                  Marked writable, but the worker cannot write to this mount — tag plans will not apply here until it is remounted read-write.
+                  Mount is read-only
                 </p>
               )}
             </div>
@@ -395,7 +390,7 @@ function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boo
   const saved = root.folderLink ?? '';
   const [value, setValue] = useState(saved);
   const problem = folderLinkBaseProblem(value);
-  const example = folderLinkFor(value, 'Artist/2013 - Album');
+
   const dirty = value.trim() !== saved.trim();
   return (
     <div className={styles.folderLink}>
@@ -408,7 +403,7 @@ function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boo
           onChange={(e) => setValue(e.target.value)}
           placeholder="smb://nas/music/ or file:///Volumes/music/"
           aria-invalid={problem ? true : undefined}
-          aria-describedby={`${id}-help`}
+          aria-describedby={problem ? `${id}-help` : undefined}
           spellCheck={false}
           autoCapitalize="off"
         />
@@ -416,15 +411,7 @@ function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boo
           {saving ? 'Saving...' : value.trim() || !saved ? 'Save link' : 'Remove link'}
         </Button>
       </div>
-      <p id={`${id}-help`} className={problem ? styles.error : styles.folderLinkHelp}>
-        {problem ?? (
-          <>
-            Where your computer sees <code>{root.path}</code>. Album pages then offer “Open folder”
-            {example ? <>, e.g. <code>{example}</code></> : null}. smb:// opens Finder or Explorer on most systems;
-            browsers usually block file:// links from a web page, so “Copy path” is always there too.
-          </>
-        )}
-      </p>
+      {problem && <p id={`${id}-help`} className={styles.error}>{problem}</p>}
     </div>
   );
 }

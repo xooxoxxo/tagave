@@ -9,6 +9,7 @@ import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSett
 import { Badge, Banner, Button, Input, SegmentedControl, Select, buttonClassName, confirmDialog, type BadgeTone } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
+import { docsUrl } from '../utils/docs';
 import styles from './SettingsBackupsPage.module.css';
 
 const KIND: Record<BackupKindView, { label: string; tone: BadgeTone }> = {
@@ -34,8 +35,8 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 /** "3 backups, 1.2 GB, newest 16 Oct 2026, 03:00" for one kind. */
 function kindSummary(k: BackupKindSummaryView | undefined): string {
-  if (!k || k.count === 0) return 'None yet.';
-  return `${plural(k.count, 'backup')}, ${formatBytes(k.bytes)}, newest ${when(k.newest ?? '')}.`;
+  if (!k || k.count === 0) return 'None';
+  return `${plural(k.count, 'backup')}, ${formatBytes(k.bytes)}, newest ${when(k.newest ?? '')}`;
 }
 
 /**
@@ -43,7 +44,7 @@ function kindSummary(k: BackupKindSummaryView | undefined): string {
  * a number deletes nothing on save). The dates are the ones in the list above.
  */
 function PendingDelete({ kind, backups, edited }: { kind: BackupKindSummaryView | undefined; backups: BackupEntryView[]; edited: boolean }) {
-  if (edited) return <p className={styles.muted}>Save to see which backups go at the next run.</p>;
+  if (edited) return null;
   if (!kind || kind.pendingDelete.count === 0) return null;
   const byName = new Map(backups.map((b) => [b.name, b]));
   const dates = kind.pendingDelete.names.map((n) => byName.get(n)).filter((b): b is BackupEntryView => !!b);
@@ -51,19 +52,12 @@ function PendingDelete({ kind, backups, edited }: { kind: BackupKindSummaryView 
   const more = dates.length - shown.length;
   return (
     <p className={styles.hint}>
-      {plural(kind.pendingDelete.count, 'older backup')} ({formatBytes(kind.pendingDelete.bytes)}) {kind.pendingDelete.count === 1 ? 'goes' : 'go'} at the next run:{' '}
-      <span title={kind.pendingDelete.names.join('\n')}>{shown.join('; ')}{more > 0 ? `; and ${more} more` : ''}.</span>
+      Next run deletes {plural(kind.pendingDelete.count, 'older backup')} ({formatBytes(kind.pendingDelete.bytes)}):{' '}
+      <span title={kind.pendingDelete.names.join('\n')}>{shown.join('; ')}{more > 0 ? `; and ${more} more` : ''}</span>
     </p>
   );
 }
 
-const COPY_CMD = 'cd ~/tagave\ndocker compose cp app:/backups ./tagave-backups';
-const RESTORE_CMD = [
-  'cd ~/tagave',
-  'docker compose stop app worker-identify worker-files',
-  'docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore <file name> --yes',
-  'docker compose up -d',
-].join('\n');
 
 export function SettingsBackupsPage() {
   const { data, isLoading, error } = useBackups();
@@ -74,7 +68,7 @@ export function SettingsBackupsPage() {
   const [edits, setEdits] = useState<BackupSettingsView | null>(null);
 
   if (isLoading) return <p className={styles.muted}>Loading backups…</p>;
-  if (error || !data) return <Banner tone="danger">Could not load backups. Only the owner can see this page.</Banner>;
+  if (error || !data) return <Banner tone="danger">Couldn’t load backups.</Banner>;
 
   const draft = edits ?? data.settings;
   const setDraft = (next: BackupSettingsView) => setEdits(next);
@@ -85,7 +79,7 @@ export function SettingsBackupsPage() {
   const onDelete = async (b: BackupEntryView) => {
     const ok = await confirmDialog({
       title: 'Delete this backup?',
-      message: <>The file <code>{b.name}</code> is removed from the backups folder. This cannot be undone.</>,
+      message: <><code>{b.name}</code>. This cannot be undone.</>,
       tone: 'danger',
       confirmLabel: 'Delete',
     });
@@ -105,15 +99,14 @@ export function SettingsBackupsPage() {
   return (
     <div className={styles.page}>
       {lastNight && !lastNight.ok && (
-        <Banner tone="danger">The last nightly backup, {when(lastNight.startedAt)}, failed: {lastNight.error}</Banner>
+        <Banner tone="danger">Nightly backup {when(lastNight.startedAt)} failed: {lastNight.error}</Banner>
       )}
       {lastManualFailed && (
-        <Banner tone="danger">The backup you started {when(lastManualFailed.startedAt)} failed: {lastManualFailed.error}</Banner>
+        <Banner tone="danger">Backup {when(lastManualFailed.startedAt)} failed: {lastManualFailed.error}</Banner>
       )}
       {!data.dedicated && (
         <Banner tone="warning">
-          Backups are going into the app's cache folder (<code>{data.dir}</code>), which is not meant to be kept.
-          Set <code>BACKUP_DIR</code> for the app to a folder of its own. The installer's compose file does this for you.
+          Backups are in the cache folder (<code>{data.dir}</code>). Set <code>BACKUP_DIR</code>.
         </Banner>
       )}
       {data.error && <Banner tone="danger">{data.error}</Banner>}
@@ -127,7 +120,7 @@ export function SettingsBackupsPage() {
         </div>
         {backUp.error && <Banner tone="danger">Could not start the backup.</Banner>}
         {data.backups.length === 0 ? (
-          <p className={styles.muted}>No backups yet. {data.settings.enabled ? `The first nightly backup runs at ${hourLabel(data.settings.hour)}.` : 'Nightly backups are off.'} You can also back up now.</p>
+          <p className={styles.muted}>No backups yet</p>
         ) : (
           <>
             <div className={styles.tableScroll}>
@@ -156,8 +149,7 @@ export function SettingsBackupsPage() {
               </table>
             </div>
             <p className={styles.muted}>
-              {data.backups.length} backup{data.backups.length === 1 ? '' : 's'}, {formatBytes(data.totalBytes)} in all.
-              "Readable" means the file was read back in full right after it was written.
+              {data.backups.length} backup{data.backups.length === 1 ? '' : 's'} · {formatBytes(data.totalBytes)}
             </p>
           </>
         )}
@@ -165,10 +157,6 @@ export function SettingsBackupsPage() {
 
       <section className={styles.section} aria-labelledby="backups-schedule">
         <h3 id="backups-schedule" className={styles.title}>Keeping backups</h3>
-        <p className={styles.hint}>
-          Each kind of backup has its own number. Lowering one deletes nothing when you save: older backups of that kind go at its next run,
-          and the newest backup of a kind is never deleted.
-        </p>
 
         <h4 className={styles.subTitle}>Nightly</h4>
         <p className={styles.muted}>{kindSummary(kind('nightly'))}</p>
@@ -192,10 +180,7 @@ export function SettingsBackupsPage() {
             <Input type="number" inputMode="numeric" min={0} max={52} value={draft.keepWeekly} onChange={(e) => setNumber('keepWeekly', e.target.value, 0, 52)} />
           </label>
         </div>
-        <p className={styles.hint}>
-          Keeps the newest nightly backup of each of the last {plural(draft.keepDaily, 'day')}
-          {draft.keepWeekly > 0 ? `, and the newest of each of the last ${plural(draft.keepWeekly, 'week')}` : ''}. Older nightly backups are deleted after each night's run.
-        </p>
+
         <PendingDelete kind={kind('nightly')} backups={data.backups} edited={nightlyEdited} />
 
         <h4 className={styles.subTitle}>Before update</h4>
@@ -206,10 +191,7 @@ export function SettingsBackupsPage() {
             <Input type="number" inputMode="numeric" min={1} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 1, 50)} />
           </label>
         </div>
-        <p className={styles.hint}>
-          Taken before an update changes the database, so you can go back. At least 1 is kept. Older ones are deleted after the next
-          update succeeds.
-        </p>
+
         <PendingDelete kind={kind('pre-migration')} backups={data.backups} edited={draft.keepPreUpdate !== saved.keepPreUpdate} />
 
         <h4 className={styles.subTitle}>Manual</h4>
@@ -229,18 +211,14 @@ export function SettingsBackupsPage() {
             <Input type="number" inputMode="numeric" min={1} max={100} disabled={draft.keepManual === null} value={draft.keepManual ?? ''} onChange={(e) => setNumber('keepManual', e.target.value, 1, 100)} />
           </label>
         </div>
-        <p className={styles.hint}>
-          {draft.keepManual === null
-            ? 'Back up now and backups taken by hand are kept until you delete them.'
-            : `Keeps the newest ${plural(draft.keepManual, 'manual backup')}. Older ones are deleted after the next Back up now.`}
-        </p>
+
         <PendingDelete kind={kind('manual')} backups={data.backups} edited={draft.keepManual !== saved.keepManual} />
 
         {restore && (
           <>
             <h4 className={styles.subTitle}>Before restore</h4>
             <p className={styles.muted}>{kindSummary(restore)}</p>
-            <p className={styles.hint}>Taken before a restore replaces the data. Kept until you delete them.</p>
+
           </>
         )}
 
@@ -252,27 +230,9 @@ export function SettingsBackupsPage() {
       </section>
 
       <section className={styles.section} aria-labelledby="backups-where">
-        <h3 id="backups-where" className={styles.title}>Where the files are</h3>
-        <p className={styles.hint}>
-          The app writes backups to <code>{data.dir}</code> inside its container. With the installer's compose file that is a Docker volume
-          called <code>backups</code>, or a folder on this computer if you set <code>TAGAVE_BACKUP_DIR</code> in the install folder's <code>.env</code>.
-          The settings above are saved in that folder too, as <code>backup-settings.json</code>.
-        </p>
-        <p className={styles.hint}>
-          A backup on the same disk does not help if that disk fails. Copy the folder somewhere else from time to time: download a backup here,
-          or copy the whole folder out of the container and then onto another computer, a NAS or cloud storage (rsync, rclone, or a file sync app):
-        </p>
-        <pre className={styles.code} tabIndex={0}>{COPY_CMD}</pre>
-        <p className={styles.hint}>
-          Keep the <code>APP_SECRET</code> from your <code>.env</code> in a password manager as well. A backup restored without it still has all your
-          music data, but saved Discogs and AcoustID keys have to be entered again.
-        </p>
-        <h4 className={styles.subTitle}>Restoring a backup</h4>
-        <p className={styles.hint}>
-          Restoring replaces everything in the database. Stop the app and workers, restore, and start them again. The current database is kept
-          under another name until you drop it, so you can go back.
-        </p>
-        <pre className={styles.code} tabIndex={0}>{RESTORE_CMD}</pre>
+        <h3 id="backups-where" className={styles.title}>Folder</h3>
+        <p className={styles.hint}><code>{data.dir}</code></p>
+        <a className={styles.hint} href={docsUrl('operations.md#backups')} target="_blank" rel="noreferrer">How to copy and restore</a>
       </section>
     </div>
   );

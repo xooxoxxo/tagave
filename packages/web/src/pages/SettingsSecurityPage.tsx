@@ -63,10 +63,7 @@ function Overview({ data }: { data: SecurityStatus }) {
         <li><span>Passkeys and security keys</span><span className={styles.muted}>{data.passkeys.length}</span></li>
         <li><span>Authenticator app</span><span className={styles.muted}>{data.twoFactor.enabled ? 'on' : 'off'}</span></li>
       </ul>
-      <p className={styles.hint}>
-        Signing in with email and password asks for the authenticator code when the app is on. A passkey counts as both
-        factors (your key's PIN or fingerprint is the second), so it never asks for a code.
-      </p>
+
     </Section>
   );
 }
@@ -106,11 +103,7 @@ function AuthenticatorSection({ data, email }: { data: SecurityStatus; email: st
         ))
       }
     >
-      <p className={styles.hint}>
-        {data.twoFactor.enabled
-          ? 'On. Signing in with your password also asks for the 6-digit code from the app.'
-          : 'A 6-digit code from an app on your phone, asked for after your password.'}
-      </p>
+
       {mode === 'enrol' && (
         <AuthenticatorSetup
           email={email}
@@ -123,7 +116,7 @@ function AuthenticatorSection({ data, email }: { data: SecurityStatus; email: st
       )}
       {mode === 'disable' && (
         <form className={styles.form} onSubmit={disable}>
-          <p className={styles.hint}>Turning it off also forgets every trusted device and your backup codes.</p>
+          <p className={styles.hint}>This also forgets trusted devices and backup codes.</p>
           <TextField label="Your password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus />
           {error && <Banner tone="danger">{error}</Banner>}
           <div className={styles.actions}>
@@ -164,11 +157,8 @@ function BackupCodesSection({ data, email }: { data: SecurityStatus; email: stri
       title="Backup codes"
       action={mode === 'idle' && <Button variant="secondary" onClick={() => setMode('password')}>Make new codes</Button>}
     >
-      <p className={styles.hint}>
-        {left === null ? 'Could not count your backup codes.' : `${left} of 10 left.`} Each code signs you in once instead of the
-        authenticator code. Making new codes cancels the old ones.
-      </p>
-      {left !== null && left <= 3 && mode === 'idle' && <Banner tone="warning">Only {left} backup code{left === 1 ? '' : 's'} left. Make new ones.</Banner>}
+      {left !== null && left > 3 && <p className={styles.hint}>{left} of 10 left</p>}
+      {left !== null && left <= 3 && mode === 'idle' && <Banner tone="warning">Only {left} of 10 left</Banner>}
       {mode === 'password' && (
         <form className={styles.form} onSubmit={regenerate}>
           <TextField label="Your password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" autoFocus />
@@ -206,12 +196,8 @@ function TrustedDevicesSection({ data }: { data: SecurityStatus }) {
   };
   return (
     <Section id="security-devices" title="Trusted devices">
-      <p className={styles.hint}>
-        Browsers where you ticked "Don't ask for a code on this device for 30 days". Changing your password or turning the
-        authenticator off forgets them all.
-      </p>
       {data.trustedDevices.length === 0 ? (
-        <p className={styles.muted}>None.</p>
+        <p className={styles.muted}>None</p>
       ) : (
         <ul className={styles.list}>
           {data.trustedDevices.map((d) => (
@@ -274,8 +260,7 @@ function PasswordSection({ data }: { data: SecurityStatus }) {
       title="Password"
       action={!open && <Button variant="secondary" onClick={() => { setOpen(true); setDone(false); }}>Change password</Button>}
     >
-      <p className={styles.hint}>{data.password.set ? `Last changed ${when(data.password.changedAt)}.` : 'No password set.'}</p>
-      {done && <Banner tone="success">Password changed.{signOutOthers ? ' Your other devices are signed out.' : ''}</Banner>}
+      {done && <Banner tone="success">Password changed</Banner>}
       {open && (
         <form className={styles.form} onSubmit={submit}>
           <TextField label="Current password" type="password" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" autoFocus />

@@ -53,7 +53,6 @@ export function SettingsPlaybackContent() {
   return (
     <>
       <h2>Playback</h2>
-      <p className={styles.description}>Play albums in tagave through a Navidrome server: the one tagave can run next to itself, or one you already have. tagave streams the audio, so the server never needs to be reachable from your browser.</p>
 
       <div className={styles.status} role="status">
         <Badge tone={status.tone}>{status.label}</Badge>
@@ -61,28 +60,25 @@ export function SettingsPlaybackContent() {
       </div>
 
       {owner && cap && !cap.installed && (
-        <p className={styles.hint}>The bundled player is not installed. Turn it on in <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link>, or connect a server of your own below.</p>
+        <p className={styles.hint}><Link to="/settings/$section" params={{ section: 'modules' }}>Turn on in Modules</Link></p>
       )}
 
       {owner && cap?.installed && (
         <div className={styles.row}>
-          <Button variant="secondary" size="sm" loading={scan.isPending} onClick={() => scan.mutate()}>Scan now</Button>
+          <Button variant="secondary" size="sm" loading={scan.isPending} onClick={() => scan.mutate()}>Scan</Button>
           <ScanLine lastScan={settings.data?.lastScan ?? null} justAsked={scan.isSuccess} />
         </div>
       )}
       {scan.isError && <p className={styles.error} role="alert">{problem(scan.error, 'The scan could not be started.')}</p>}
 
       {cap?.installed && settings.data?.bundled && (
-        <p className={styles.hint}>Everyone on this tagave plays as their own account on the player, which tagave makes and keeps in step with Settings › Users. Phone and desktop apps that speak Subsonic connect to this computer on port 4533; each person sets their own password for them in <Link to="/settings/$section" params={{ section: 'listening' }}>Settings › Listening</Link>.</p>
+        <p className={styles.hint}>Subsonic apps: port 4533</p>
       )}
 
       {owner && settings.data && !settings.data.bundled && <OwnServerForm libraryId={libraryId} settings={settings.data} />}
-      {owner && settings.isError && <Banner tone="danger">Could not load the playback settings. {problem(settings.error, '')}</Banner>}
+      {owner && settings.isError && <Banner tone="danger">Couldn’t load playback settings. {problem(settings.error, '')}</Banner>}
 
       {owner && cap?.installed && <ScrobblingSettings libraryId={libraryId} />}
-      {!owner && cap?.installed && (
-        <p className={styles.hint}>Your own Last.fm, ListenBrainz and recent plays: <Link to="/settings/$section" params={{ section: 'listening' }}>Settings › Listening</Link>.</p>
-      )}
 
       <QualitySetting />
     </>
@@ -90,10 +86,10 @@ export function SettingsPlaybackContent() {
 }
 
 function ScanLine({ lastScan, justAsked }: { lastScan: PlayerSettingsView['lastScan']; justAsked: boolean }) {
-  if (justAsked) return <span className={styles.muted}>Asked the server to scan.</span>;
+  if (justAsked) return <span className={styles.muted}>Scan requested</span>;
   if (!lastScan) return null;
-  if (lastScan.state === 'failed') return <span className={styles.error}>The last scan request failed{lastScan.error ? `: ${lastScan.error}` : '.'}</span>;
-  return <span className={styles.muted}>Last asked {when(lastScan.requestedAt)}.</span>;
+  if (lastScan.state === 'failed') return <span className={styles.error}>Last scan failed{lastScan.error ? `: ${lastScan.error}` : ''}</span>;
+  return <span className={styles.muted}>Last scan {when(lastScan.requestedAt)}</span>;
 }
 
 /** Bring your own server: address, user and password; Save tests the connection first. */
@@ -123,25 +119,25 @@ function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined;
   const onRemove = async () => {
     const ok = await confirmDialog({
       title: 'Remove this player server?',
-      message: 'tagave forgets its address, user and password, and the Play buttons go away. Nothing on the server changes.',
+      message: 'Play buttons go away. Nothing on the server changes.',
       confirmLabel: 'Remove',
       tone: 'danger',
     });
     if (ok) remove.mutate(undefined, { onSuccess: () => { setUrl(''); setUsername(''); setPassword(''); } });
   };
 
-  const hint = saved?.passwordHint ? `Saved, ends in …${saved.passwordHint}. Leave it empty to keep it.` : saved ? 'Leave it empty to keep the saved password.' : undefined;
+  const hint = saved?.passwordHint ? `Saved …${saved.passwordHint}` : saved ? 'Saved' : undefined;
 
   return (
     <form className={styles.form} onSubmit={onSubmit} noValidate>
       <h3 className={styles.subTitle}>Your own server</h3>
-      <p className={styles.hint}>Any Navidrome (or other Subsonic-compatible server) that tagave&rsquo;s server can reach. It needs to see the same music folders as tagave. To run one next to tagave instead, start tagave with its &ldquo;player&rdquo; profile.</p>
+
       <TextField label="Server address" type="url" inputMode="url" autoComplete="url" placeholder="http://navidrome:4533" value={url} onChange={(e) => setUrl(e.currentTarget.value)} required error={invalid ?? undefined} />
       <TextField label="User name" autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
       <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} hint={hint} />
       {save.isError && <p className={styles.error} role="alert">{problem(save.error, 'The server did not accept these details.')}</p>}
       {remove.isError && <p className={styles.error} role="alert">{problem(remove.error, 'The server could not be removed.')}</p>}
-      {save.isSuccess && !save.isPending && <p className={styles.muted} role="status">Saved. tagave reached the server.</p>}
+      {save.isSuccess && !save.isPending && <p className={styles.muted} role="status">Connected</p>}
       <div className={styles.row}>
         <Button type="submit" loading={save.isPending}>Save</Button>
         {saved && <Button variant="quiet-danger" onClick={() => void onRemove()} disabled={remove.isPending}>Remove</Button>}
@@ -163,8 +159,7 @@ function QualitySetting() {
   const [quality, setQuality] = usePlayerQuality();
   return (
     <>
-      <h3 className={styles.subTitle}>Quality on this device</h3>
-      <p className={styles.hint}>Auto plays the original file when this browser can, and otherwise converts it to Opus, AAC or MP3 at the bitrate below. Remembered in this browser only.</p>
+      <h3 className={styles.subTitle}>Quality</h3>
       <div className={styles.quality}>
         <SegmentedControl label="Format" value={quality.format} onChange={(format) => setQuality({ format })} options={FORMATS} />
         <label className={styles.bitrate}>
@@ -194,7 +189,7 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
   const onRemove = async () => {
     const ok = await confirmDialog({
       title: 'Remove the Last.fm API key?',
-      message: 'Nobody can connect Last.fm until a key is added again, and scrobbles to Last.fm wait. Connected accounts stay connected.',
+      message: 'Last.fm scrobbles wait until a key is added again.',
       confirmLabel: 'Remove',
       tone: 'danger',
     });
@@ -262,10 +257,10 @@ export function ScrobblingSettingsPanel({
         <LastfmKeyForm replacing={configured} saving={saving} saved={saved} error={error} onSave={onSave} onCancel={() => setReplacing(false)} />
       )}
       {configured && you && (you.lastfmAccount !== null ? (
-        <p className={styles.hint}>Your Last.fm: connected as {you.lastfmAccount}</p>
+        <p className={styles.hint}>Your Last.fm: {you.lastfmAccount}</p>
       ) : (
         <div className={styles.youLine}>
-          <span className={styles.youText}>Your Last.fm isn&rsquo;t connected</span>
+          <span className={styles.youText}>Your Last.fm</span>
           <Button size="sm" loading={connecting} onClick={onConnect}>Connect</Button>
           {connectError && <p className={styles.error} role="alert">{connectError}</p>}
         </div>
@@ -289,9 +284,9 @@ function LastfmKeyForm({ replacing, saving, saved, error, onSave, onCancel }: { 
   };
   return (
     <form className={styles.form} onSubmit={submit} noValidate>
-      {!replacing && <p className={styles.hint}>Add a Last.fm API key so people here can connect Last.fm. ListenBrainz needs nothing.</p>}
+
       <div>
-        <Button variant="quiet" size="sm" aria-expanded={howOpen} aria-controls="lastfm-key-steps" onClick={() => setHowOpen((o) => !o)}>How to get a key</Button>
+        <Button variant="quiet" size="sm" aria-expanded={howOpen} aria-controls="lastfm-key-steps" onClick={() => setHowOpen((o) => !o)}>How to</Button>
         <Collapse open={howOpen} id="lastfm-key-steps">
           <ol className={styles.steps}>
             <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in.</li>

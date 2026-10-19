@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { InviteView, UserView } from '@tagave/shared';
-import { LinkPanel, PendingLinkRow, RoleLegend, UserRow, usersListStyles } from '../components/users/UsersList';
+import { LinkPanel, PendingLinkRow, UserRow, usersListStyles } from '../components/users/UsersList';
 
 const noop = () => undefined;
 const actions = { onRole: noop, onToggleDisabled: noop, onResetSignIn: noop, onRemove: noop };
@@ -53,6 +53,5 @@ export const InviteLink: Story = {
   ),
 };
 
-export const Roles: Story = { render: () => <RoleLegend /> };
 
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };

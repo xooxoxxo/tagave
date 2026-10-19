@@ -190,3 +190,5 @@
 .steps a {
   color: var(--accent);
 }
+
+.howTo { display: inline-block; margin-top: var(--space-4, 1rem); font-size: .875rem; }

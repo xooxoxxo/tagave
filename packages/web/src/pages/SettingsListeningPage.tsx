@@ -30,17 +30,17 @@ const SERVICE_NAME: Record<ScrobbleService, string> = { lastfm: 'Last.fm', liste
 /** "12 recent plays will be sent" after connecting, or null when none were queued. */
 export function queuedLine(queued: number | null | undefined): string | null {
   if (!queued || queued <= 0) return null;
-  return queued === 1 ? '1 recent play will be sent.' : `${queued} recent plays will be sent.`;
+  return queued === 1 ? '1 recent play queued' : `${queued} recent plays queued`;
 }
 
 /** What the person's browser came back from Last.fm with (?lastfm=…&queued=…). */
 export function lastfmReturnMessage(result: string | null, queued: number | null = null): { tone: 'success' | 'danger'; text: string } | null {
   switch (result) {
-    case 'connected': return { tone: 'success', text: `Last.fm is connected. ${queuedLine(queued) ?? 'Your plays from here on are scrobbled.'}` };
-    case 'expired': return { tone: 'danger', text: 'That Last.fm sign-in took too long or was started in another account. Try Connect again.' };
-    case 'refused': return { tone: 'danger', text: 'Last.fm did not send tagave a sign-in. Try Connect again and choose Yes, allow access.' };
-    case 'unavailable': return { tone: 'danger', text: 'Last.fm is not set up on this server any more. Ask the owner to add the API key again.' };
-    case 'failed': return { tone: 'danger', text: 'Last.fm did not accept the sign-in. Try Connect again.' };
+    case 'connected': return { tone: 'success', text: queuedLine(queued) ? `Last.fm connected · ${queuedLine(queued)}` : 'Last.fm connected' };
+    case 'expired': return { tone: 'danger', text: 'Last.fm sign-in expired. Try again.' };
+    case 'refused': return { tone: 'danger', text: 'Last.fm access was not allowed. Try again.' };
+    case 'unavailable': return { tone: 'danger', text: 'Last.fm is not set up on this server.' };
+    case 'failed': return { tone: 'danger', text: 'Last.fm sign-in failed. Try again.' };
     default: return null;
   }
 }
@@ -81,7 +81,7 @@ export function ListeningSettingsView(props: ListeningSettingsViewProps) {
   const { data, history, lastfmReturn, lastfmQueued = null } = props;
   const back = lastfmReturnMessage(lastfmReturn, lastfmQueued);
   if (!data.playerInstalled) {
-    return <p className={styles.hint}>The player is not set up on this server, so there is nothing to listen with yet. The owner turns it on in Settings › Playback.</p>;
+    return <p className={styles.hint}>Player not set up</p>;
   }
   return (
     <div className={styles.page}>
@@ -101,13 +101,11 @@ function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePa
     return (
       <Section id="listening-account" title="Your player account" aside={a.state === 'disabled' ? <Badge tone="danger">Locked</Badge> : null}>
         <p className={styles.hint}>
-          {a.username
-            ? <>Your plays, play counts, ratings and stars on the player are yours alone. tagave made the account <strong className={styles.name}>{a.username}</strong> for you and signs it in itself.</>
-            : <>tagave makes your own account on the player the first time you play something, so your plays and ratings are yours alone.</>}
+          {a.username ? <>User name: <strong className={styles.name}>{a.username}</strong></> : 'Created on your first play'}
         </p>
-        <h4 className={styles.subTitle}>Phone and desktop apps</h4>
-        <p className={styles.hint}>Apps that speak Subsonic (Symfonium, Amperfy, play:Sub, Substreamer, Feishin) connect to this server on port 4533. Sign in there with the user name above and a password you set here. Their plays come back to tagave as yours and are scrobbled like the ones here.</p>
-        {a.phonePassword && <p className={styles.ok} role="status">A password for apps is set. tagave does not show it again.</p>}
+        <h4 className={styles.subTitle}>Subsonic apps</h4>
+        <p className={styles.hint}>Port 4533</p>
+        {a.phonePassword && <p className={styles.ok} role="status">Password set</p>}
         <PhonePasswordForm
           key={a.phonePassword ? 'set' : 'unset'}
           hasOne={a.phonePassword}
@@ -123,8 +121,8 @@ function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePa
   return (
     <Section id="listening-account" title="Your player account">
       {a.kind === 'shared'
-        ? <p className={styles.hint}>You play through the account the owner set up for this server, which everyone here shares. tagave still records your plays and scrobbles them, but the server cannot tell you apart from the others: add your own login on that server to keep your play counts and ratings there, and to have plays from your phone apps come back as yours.</p>
-        : <p className={styles.hint}>You play as <strong className={styles.name}>{a.username}</strong> on the owner&rsquo;s server. Your plays from other apps there come back to tagave as yours.</p>}
+        ? <p className={styles.hint}>Shared account</p>
+        : <p className={styles.hint}>User name: <strong className={styles.name}>{a.username}</strong></p>}
       <OwnAccountForm account={a} busy={!!busy?.account} error={errors?.account ?? null} onSave={onSaveOwnAccount} onRemove={onRemoveOwnAccount} />
     </Section>
   );
@@ -142,7 +140,7 @@ function PhonePasswordForm({ hasOne, disabled, busy, error, onSave, onClear }: {
   const clear = async () => {
     const ok = await confirmDialog({
       title: 'Remove the password for apps?',
-      message: 'Apps signed in with it stop working until you set a new one. Playing in tagave is not affected.',
+      message: 'Apps signed in with it stop working.',
       confirmLabel: 'Remove',
       tone: 'danger',
     });
@@ -158,11 +156,11 @@ function PhonePasswordForm({ hasOne, disabled, busy, error, onSave, onClear }: {
         onChange={(e) => setPassword(e.currentTarget.value)}
         disabled={disabled}
         error={invalid ?? error ?? undefined}
-        hint="At least 12 characters. Apps keep it, so use one you do not use anywhere else."
+        hint="At least 12 characters"
       />
       <div className={styles.row}>
         <Button type="submit" variant="secondary" loading={busy} disabled={disabled}>{hasOne ? 'Change password' : 'Set password'}</Button>
-        {hasOne && <Button variant="quiet-danger" onClick={() => void clear()} disabled={busy}>Remove it</Button>}
+        {hasOne && <Button variant="quiet-danger" onClick={() => void clear()} disabled={busy}>Remove</Button>}
       </div>
     </form>
   );
@@ -180,21 +178,21 @@ function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: L
   };
   return (
     <form className={styles.form} onSubmit={submit} noValidate>
-      <TextField label="Your user name on that server" autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
-      <TextField label="Your password there" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} hint={own ? 'Leave it empty to keep the saved one.' : 'tagave signs in with it to check it, then keeps it sealed.'} error={error ?? undefined} />
+      <TextField label="User name" autoComplete="username" value={username} onChange={(e) => setUsername(e.currentTarget.value)} required />
+      <TextField label="Password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.currentTarget.value)} hint={own ? 'Saved' : undefined} error={error ?? undefined} />
       <div className={styles.choice}>
-        <span className={styles.choiceLabel} aria-hidden="true">Who scrobbles your plays</span>
+        <span className={styles.choiceLabel} aria-hidden="true">Scrobbled by</span>
         <SegmentedControl
-          label="Who scrobbles your plays"
+          label="Scrobbled by"
           value={serverScrobbles ? 'server' : 'tagave'}
           onChange={(v) => setServerScrobbles(v === 'server')}
           options={[{ value: 'tagave', label: 'tagave' }, { value: 'server', label: 'That server' }]}
         />
-        <p className={styles.hint}>Choose &ldquo;That server&rdquo; only if you linked Last.fm or ListenBrainz in that server&rsquo;s own settings. tagave then sends nothing, so no play is counted twice.</p>
+
       </div>
       <div className={styles.row}>
-        <Button type="submit" variant="secondary" loading={busy} disabled={!username.trim()}>{own ? 'Save' : 'Add my login'}</Button>
-        {own && <Button variant="quiet-danger" onClick={onRemove} disabled={busy}>Use the shared account</Button>}
+        <Button type="submit" variant="secondary" loading={busy} disabled={!username.trim()}>{own ? 'Save' : 'Add login'}</Button>
+        {own && <Button variant="quiet-danger" onClick={onRemove} disabled={busy}>Use shared</Button>}
       </div>
     </form>
   );
@@ -205,7 +203,7 @@ function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: L
 /** One line per connected service: who, when something last went through, what waits. */
 export function serviceLine(s: ScrobbleAccountView): string {
   const parts = [`Connected as ${s.accountName}`, s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
-  if (s.pending > 0) parts.push(`${s.pending} waiting to be sent`);
+  if (s.pending > 0) parts.push(`${s.pending} waiting`);
   return parts.join(' · ');
 }
 
@@ -215,7 +213,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
   const disconnect = async (service: ScrobbleService) => {
     const ok = await confirmDialog({
       title: `Disconnect ${SERVICE_NAME[service]}?`,
-      message: 'Plays from now on are not sent there, and scrobbles still waiting are dropped. Your history on that service stays.',
+      message: 'Scrobbles still waiting are dropped.',
       confirmLabel: 'Disconnect',
       tone: 'danger',
     });
@@ -223,8 +221,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
   };
   return (
     <Section id="listening-scrobbling" title="Scrobbling">
-      <p className={styles.hint}>tagave sends each play you make, here or in a phone app through this server, to the services you connect. A track counts once you have heard half of it or four minutes, and only tracks longer than 30 seconds.</p>
-      {data.account.serverScrobbles && <Banner tone="info">Your own server scrobbles your plays itself, so tagave sends none for you.</Banner>}
+      {data.account.serverScrobbles && <Banner tone="info">Your server scrobbles for you</Banner>}
       <ul className={styles.services}>
         <li className={styles.service}>
           <div className={styles.serviceHead}>
@@ -239,12 +236,11 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
             </>
           ) : data.lastfmAvailable ? (
             <>
-              <p className={styles.hint}>You sign in on last.fm, allow tagave, and come back here.</p>
               {errors?.lastfm && <p className={styles.error} role="alert">{errors.lastfm}</p>}
-              <div className={styles.row}><Button loading={!!busy?.lastfm} onClick={onConnectLastfm}>Connect Last.fm</Button></div>
+              <div className={styles.row}><Button loading={!!busy?.lastfm} onClick={onConnectLastfm} aria-label="Connect Last.fm">Connect</Button></div>
             </>
           ) : (
-            <p className={styles.hint}>Last.fm needs an API key on this server first. The owner adds it once in Settings › Playback › Scrobbling.</p>
+            <p className={styles.hint}>Not set up on this server</p>
           )}
         </li>
         <li className={styles.service}>
@@ -273,16 +269,16 @@ function ListenbrainzForm({ busy, error, onConnect }: { busy: boolean; error: st
   return (
     <form className={styles.form} onSubmit={(e) => { e.preventDefault(); if (token.trim()) onConnect(token.trim()); }} noValidate>
       <TextField
-        label="Your ListenBrainz user token"
+        label="User token"
         type="password"
         autoComplete="off"
         spellCheck={false}
         value={token}
         onChange={(e) => setToken(e.currentTarget.value)}
         error={error ?? undefined}
-        hint={<>Copy it from <a href="https://listenbrainz.org/settings/" target="_blank" rel="noreferrer">listenbrainz.org › Settings</a> (User token). tagave checks it before saving.</>}
+        hint={<a href="https://listenbrainz.org/settings/" target="_blank" rel="noreferrer">Get your token</a>}
       />
-      <div className={styles.row}><Button type="submit" variant="secondary" loading={busy} disabled={!token.trim()}>Connect ListenBrainz</Button></div>
+      <div className={styles.row}><Button type="submit" variant="secondary" loading={busy} disabled={!token.trim()} aria-label="Connect ListenBrainz">Connect</Button></div>
     </form>
   );
 }
@@ -290,7 +286,7 @@ function ListenbrainzForm({ busy, error, onConnect }: { busy: boolean; error: st
 // ---- history ----
 
 function playStatus(p: PlayHistoryItem): string {
-  if (!p.scrobbles) return 'Not counted: under half of it was heard';
+  if (!p.scrobbles) return 'Not counted';
   if (p.scrobbled.length === 0) return 'Counted';
   return p.scrobbled.map((s) => {
     const name = SERVICE_NAME[s.service];
@@ -307,12 +303,12 @@ function HistorySection({ history }: { history: ListeningHistoryView | null }) {
   return (
     <Section id="listening-history" title="Recently played">
       {!history ? <p className={styles.muted}>Loading…</p> : history.plays.length === 0 ? (
-        <p className={styles.hint}>Nothing yet. Plays show here a few seconds after a track ends, and within a minute or two from phone apps.</p>
+        <p className={styles.hint}>No plays yet</p>
       ) : (
         <>
           {history.listens.length > 0 && (
             <p className={styles.hint}>
-              {history.listens.length === 1 ? 'One album listen' : `${history.listens.length} album listens`} recently (half an album or more within six hours), the last {history.listens[0]!.album ? <>of <strong className={styles.name}>{history.listens[0]!.album}</strong></> : ''} on {when(history.listens[0]!.endedAt)}. Album listens also show on the album page.
+              {history.listens.length === 1 ? '1 album listen' : `${history.listens.length} album listens`} · last {history.listens[0]!.album ? <><strong className={styles.name}>{history.listens[0]!.album}</strong>, </> : ''}{when(history.listens[0]!.endedAt)}
             </p>
           )}
           <ul className={styles.plays}>
@@ -362,9 +358,8 @@ export function SettingsListeningContent() {
   return (
     <>
       <h2>Listening</h2>
-      <p className={styles.description}>Your plays, your scrobbles and your account on the player. Everything here is yours alone; nobody else on this tagave sees it.</p>
       {listening.isLoading && <p className={styles.muted}>Loading…</p>}
-      {listening.isError && <Banner tone="danger">Could not load your listening settings. {problem(listening.error, '')}</Banner>}
+      {listening.isError && <Banner tone="danger">Couldn’t load listening settings. {problem(listening.error, '')}</Banner>}
       {listening.data && (
         <ListeningSettingsView
           data={listening.data}

@@ -88,21 +88,21 @@ export function SettingsPage() {
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><p className={styles.sectionDescription}>Choose light or dark, or follow your device. This is remembered in this browser only.</p><ThemeSwitch />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
-        {section === 'users' && <><h2>Users</h2><p className={styles.sectionDescription}>Who can sign in to this tagave, and what each of them can do.</p><SettingsUsersPage /></>}
-        {section === 'account' && <><h2>Account</h2><p className={styles.sectionDescription}>Your name, email address and what your account can do here.</p><SettingsAccountPage /></>}
-        {section === 'providers' && <><h2>Integrations</h2><p className={styles.sectionDescription}>Connect metadata and artwork providers to enrich your music.</p><SettingsProvidersPage /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><ThemeSwitch />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
+        {section === 'users' && <><h2>Users</h2><SettingsUsersPage /></>}
+        {section === 'account' && <><h2>Account</h2><SettingsAccountPage /></>}
+        {section === 'providers' && <><h2>Integrations</h2><SettingsProvidersPage /></>}
         {section === 'playback' && <SettingsPlaybackContent />}
-        {section === 'system' && <><h2>System status</h2><p className={styles.sectionDescription}>Health checks with a fix for anything that fails. Versions and connected workers are under <Link to="/settings/$section" params={{ section: 'updates' }}>Updates</Link>.</p><SystemStatus /></>}
-        {section === 'storage' && <><h2>Storage</h2><p className={styles.sectionDescription}>How much room tagave takes: the database by kind of data, and the folders it keeps on this server. Your music files are not counted.</p><SettingsStorageContent /></>}
-        {section === 'backups' && <><h2>Backups</h2><p className={styles.sectionDescription}>Copies of the database: your catalog, matches, reviews and settings. Your music files are not in them.</p><SettingsBackupsPage /></>}
-        {section === 'updates' && <><h2>Updates</h2><p className={styles.sectionDescription}>New releases and the versions this server runs.</p><SettingsUpdatesPage /></>}
-        {section === 'modules' && <><h2>Modules</h2><p className={styles.sectionDescription}>Optional parts of tagave you can turn on and off. Each comes from the signed catalogue of the release this server runs.</p><SettingsModulesContent /></>}
-        {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
+        {section === 'system' && <><h2>System status</h2><SystemStatus /></>}
+        {section === 'storage' && <><h2>Storage</h2><SettingsStorageContent /></>}
+        {section === 'backups' && <><h2>Backups</h2><SettingsBackupsPage /></>}
+        {section === 'updates' && <><h2>Updates</h2><SettingsUpdatesPage /></>}
+        {section === 'modules' && <><h2>Modules</h2><SettingsModulesContent /></>}
+        {section === 'activity' && <><h2>Background activity</h2><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}
         {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
-        {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
+        {section === 'security' && <><h2>Security</h2><SettingsSecurityPage /></>}
         </>}
       </div>
     </div>
@@ -120,7 +120,7 @@ function MaintenanceSetting() {
   // section's column, so the gap above the control matches too.
   return <>
     <h2 className={styles.modeSetting}>Maintenance</h2>
-    <p className={styles.sectionDescription}>Off, albums show only the music and speak up only when something needs your decision. On, every album shows its match state, provider links, all library issues and the Manage menu. Also in the top bar, or press Shift+M. Remembered in this browser only.</p>
+    
     <SegmentedControl label="Maintenance" value={on ? 'on' : 'off'} onChange={(v) => setOn(v === 'on')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
   </>;
 }
@@ -135,16 +135,16 @@ function DisplaySettings() {
   const [prefs, setPrefs] = useDisplayPrefs();
   return <>
     <h2 className={styles.modeSetting}>Search box</h2>
-    <p className={styles.sectionDescription}>Where the search box sits in the sidebar: on its own line below the logo, or on the logo's row. On a phone or tablet the top bar keeps its own layout. Remembered in this browser only.</p>
+    
     <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below the logo' }, { value: 'beside', label: 'Next to the logo' }]} />
     <h2 className={styles.modeSetting}>Wordmark</h2>
-    <p className={styles.sectionDescription}>Show the name "tagave" next to the mark, or the mark alone. Remembered in this browser only.</p>
+    
     <SegmentedControl label="Wordmark" value={prefs.showWordmark ? 'shown' : 'hidden'} onChange={(v) => setPrefs({ showWordmark: v === 'shown' })} options={[{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]} />
     <h2 className={styles.modeSetting}>Short albums</h2>
-    <p className={styles.sectionDescription}>Albums of three tracks or fewer get a generated ripple artwork under the tracklist, drawn from the album's title. Remembered in this browser only.</p>
+    
     <SegmentedControl label="Short album artwork" value={prefs.shortAlbumArt ? 'on' : 'off'} onChange={(v) => setPrefs({ shortAlbumArt: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
     <h2 className={styles.modeSetting}>Artist page</h2>
-    <p className={styles.sectionDescription}>Name first: the artist's name across the top, their details in a column that also takes you to each section. Like albums: their covers beside the name, laid out like an album page. Remembered in this browser only.</p>
+    
     <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
   </>;
 }

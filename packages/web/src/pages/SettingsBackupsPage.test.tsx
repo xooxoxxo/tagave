@@ -32,7 +32,7 @@ function render(data: BackupsStatus): string {
 describe('SettingsBackupsPage', () => {
   it('says when the first nightly backup runs when there are none', () => {
     const html = render(status());
-    expect(html).toContain('No backups yet. The first nightly backup runs at 03:00.');
+    expect(html).toContain('No backups yet');
     expect(html).toContain('Back up now');
   });
 
@@ -49,7 +49,7 @@ describe('SettingsBackupsPage', () => {
     expect(html).toContain('Readable');
     expect(html).toContain('Not checked');
     expect(html).toContain('href="/api/v1/backups/tagave-2026-09-29T03-00-00Z-nightly.pgdump/download"');
-    expect(html).toContain('2 backups, 3.0 KB in all.');
+    expect(html).toContain('2 backups · 3.0 KB');
   });
 
   it('shows a failed night and a folder that is not dedicated', () => {
@@ -79,13 +79,13 @@ describe('SettingsBackupsPage', () => {
         { kind: 'manual', count: 0, bytes: 0, newest: null, pendingDelete: { count: 0, bytes: 0, names: [] } },
       ],
     }));
-    for (const title of ['Keeping backups', '>Nightly</h4>', '>Before update</h4>', '>Manual</h4>']) expect(html).toContain(title);
+    for (const title of ['>Nightly</h4>', '>Before update</h4>', '>Manual</h4>']) expect(html).toContain(title);
     expect(html).toContain('4 backups, 4.0 MB, newest');
     expect(html).toContain('Keep the newest');
     expect(html).toContain('min="1"');
-    expect(html).toContain('Back up now and backups taken by hand are kept until you delete them.');
+    expect(html).toContain('Keep manual backups');
     // what goes at the next update, with the total size and which backups
-    expect(html).toContain('3 older backups (3.0 MB) go at the next run:');
+    expect(html).toContain('Next run deletes 3 older backups (3.0 MB):');
     expect(html).toContain(pre('1').name);
     // no restore block until there is a pre-restore backup
     expect(html).not.toContain('>Before restore</h4>');
@@ -100,10 +100,10 @@ describe('SettingsBackupsPage', () => {
     }));
     expect(html).toContain('>Before restore</h4>');
     expect(html).toContain('1 backup, 2.0 KB, newest');
-    expect(html).toContain('Kept until you delete them.');
+    expect(html).toContain('1 backup, 2.0 KB, newest');
   });
 
   it('says nothing goes when the saved numbers keep everything', () => {
-    expect(render(status())).not.toContain('at the next run:');
+    expect(render(status())).not.toContain('Next run deletes');
   });
 });

@@ -30,7 +30,7 @@ describe('accountHealth', () => {
     expect(accountHealth({ ...base, passkeys: [key(), key({ id: 'q' })] })).toEqual({
       tone: 'success',
       factors: 2,
-      text: '2 factors set up. You can lose one and still get in.',
+      text: '2 factors',
     });
   });
 });

@@ -159,7 +159,7 @@ try {
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();
   await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 15000 });
   await page.goto('/settings/security');
-  await page.getByRole('button', { name: 'Add a passkey' }).click();
+  await page.getByRole('button', { name: 'Add passkey' }).click();
   for (let i = 0; i < 60; i++) {
     if ((await sql`select count(*)::int as n from auth_passkeys where user_id = ${userId}`)[0].n === 1) break;
     await page.waitForTimeout(250);

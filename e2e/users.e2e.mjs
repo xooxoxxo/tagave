@@ -85,7 +85,7 @@ try {
   step('Settings › Users lists the owner', await ownerPage.getByText('Ada Owner').isVisible());
   await ownerPage.getByLabel(/^Email address/).fill(listener.email);
   await ownerPage.getByLabel('Role', { exact: true }).selectOption('listener');
-  await ownerPage.getByRole('button', { name: 'Make invite link' }).click();
+  await ownerPage.getByRole('button', { name: 'Invite', exact: true }).click();
   const linkBox = ownerPage.getByLabel('One-time link');
   await linkBox.waitFor();
   const link = await linkBox.inputValue();

@@ -310,8 +310,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
       title: `Update to ${picked}?`,
       message: (
         <>
-          <p>The updater switches this install to {picked} and restarts tagave; the new version backs up the database before it changes it. tagave is unavailable for a minute or two.</p>
-          <p>If {picked} does not come up healthy, the updater goes back to {current} and restores the backup when the database was changed.</p>
+          <p>tagave is unavailable for a minute or two. If {picked} fails its health check, it goes back to {current}.</p>
         </>
       ),
       confirmLabel: `Update to ${picked}`,
@@ -347,7 +346,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
         <p className={styles.note}>Split install: this updates this computer only. Then run <code>install-tagave.sh update</code> on the music computer.</p>
       )}
       {versions.length === 0 ? (
-        <p className={styles.note}>{upToDate ? `Up to date: ${current}.` : `You run ${current}. No newer release is known.`}</p>
+        <p className={styles.note}>{upToDate ? `Up to date · ${current}` : `Running ${current}`}</p>
       ) : (
         <>
           <div className={styles.row}>
@@ -360,8 +359,7 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
               Update to {picked}
             </Button>
           </div>
-          <p className={styles.note}>Backs up the database, restarts tagave and goes back to {current} if the new version fails its health check.</p>
-          {!confirmed && <p className={styles.note}>Tick the box above first.</p>}
+          {!confirmed && <p className={styles.note}>Read the notes first</p>}
         </>
       )}
       {restart && <RestartingNote restart={restart} />}

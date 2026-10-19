@@ -87,15 +87,9 @@ function SettingsFollowRulesContentInner() {
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Follow rules</h2>
 
-        <p className={styles.pageHint}>
-          Default inclusion: primary type Album; optional EP and Single. Default exclusion: Compilation, Live, Remix, DJ-mix, Mixtape/Street, Demo, Soundtrack. Auto-follow when artist has ≥ albums in library. These apply to new follows, refresh, and auto-follow; per-artist overrides available on artist page.
-        </p>
 
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>Include Primary Types</label>
-          <p className={styles.hint}>
-            Which release types to include when following new artists or refreshing discographies.
-          </p>
+          <label className={styles.label}>Include</label>
           <div className={styles.checkboxGroup}>
             {PRIMARY_TYPES.map((type) => (
               <label key={type} className={styles.checkboxLabel}>
@@ -112,10 +106,7 @@ function SettingsFollowRulesContentInner() {
         </div>
 
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>Exclude Secondary Types</label>
-          <p className={styles.hint}>
-            Which release types to exclude when following new artists or refreshing discographies.
-          </p>
+          <label className={styles.label}>Exclude</label>
           <div className={styles.checkboxGroup}>
             {SECONDARY_TYPES.map((type) => (
               <label key={type} className={styles.checkboxLabel}>
@@ -133,11 +124,8 @@ function SettingsFollowRulesContentInner() {
 
         <div className={styles.fieldGroup}>
           <label htmlFor="autoFollowMinAlbums" className={styles.label}>
-            Auto-follow Threshold
+            Auto-follow at (albums)
           </label>
-          <p className={styles.hint}>
-            Minimum number of albums by an artist in your library before automatically following them (1–10, default 2).
-          </p>
           <div className={styles.inputWrapper}>
             <input
               id="autoFollowMinAlbums"
@@ -165,9 +153,9 @@ function SettingsFollowRulesContentInner() {
             onClick={handleReset}
             disabled={!hasChanges}
           >
-            Reset to defaults
+            Reset
           </Button>
-          {patchFollowRules.isSuccess && <span className={styles.success}>Settings saved</span>}
+          {patchFollowRules.isSuccess && <span className={styles.success}>Saved</span>}
           {patchFollowRules.isError && (
             <span className={styles.error}>
               {(patchFollowRules.error as { detail?: string; message?: string })?.detail ??

@@ -6,7 +6,7 @@
  * the worker re-checks both per file when a plan applies.
  */
 import { useEffect, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { docsUrl } from '../utils/docs';
 import type { TagPolicies } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useUpdateLibrarySettings, useScanRoots } from '../hooks/useLibrary';
@@ -15,27 +15,11 @@ import styles from './SettingsTagWritesPage.module.css';
 
 type Preset = TagPolicies['preset'];
 
-const PRESETS: Array<{ id: Preset; title: string; hint: string }> = [
-  {
-    id: 'canonical_ids_and_fill',
-    title: 'Canonical IDs + fill (recommended)',
-    hint: 'Overwrite MusicBrainz/Discogs IDs, album, album artist, dates, track and disc numbers; fill blank title, artist and genre; never touch comments, ratings, lyrics or artwork.',
-  },
-  {
-    id: 'fill_blanks_only',
-    title: 'Fill blanks only',
-    hint: 'Only fields that are empty in the file get a value. Nothing that exists changes.',
-  },
-  {
-    id: 'overwrite_all',
-    title: 'Overwrite all',
-    hint: 'Every mapped field takes the canonical value. Locked fields still win.',
-  },
-  {
-    id: 'custom',
-    title: 'Custom',
-    hint: 'Start from the recommended preset and set per-field rules in the plan wizard.',
-  },
+const PRESETS: Array<{ id: Preset; title: string }> = [
+  { id: 'canonical_ids_and_fill', title: 'Canonical IDs + fill (recommended)' },
+  { id: 'fill_blanks_only', title: 'Fill blanks only' },
+  { id: 'overwrite_all', title: 'Overwrite all' },
+  { id: 'custom', title: 'Custom' },
 ];
 
 const DEFAULT_POLICY: TagPolicies = { preset: 'canonical_ids_and_fill', id3Version: '2.4', multiValueSeparator: '; ' };
@@ -83,8 +67,8 @@ function SettingsTagWritesContentInner() {
     if (!enabled) {
       const ok = await confirmDialog({
         title: 'Enable tag writes for this library?',
-        message: 'Nothing is written until you apply a tag plan. Every write is journaled, verified against the audio-stream hash and revertible.',
-        confirmLabel: 'Enable tag writes',
+        message: 'Nothing is written until you apply a tag plan.',
+        confirmLabel: 'Turn on',
       });
       if (!ok) return;
     }
@@ -116,43 +100,33 @@ function SettingsTagWritesContentInner() {
     <div className={styles.content}>
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Tag preferences</h2>
-        <p className={styles.pageHint}>
-          tagave never writes to your files unless this switch is on <em>and</em> the file sits in a music folder that
-          allows writes. Writes happen only through tag plans: preview the diff, apply, and revert from the album’s
-          Activity tab if needed. Each file is written to a temp copy, re-read, checked against its audio-stream hash and renamed
-          into place. Artwork is never modified; APE and WavPack are read-only.
-        </p>
 
         <div className={styles.statusList}>
           <div className={styles.statusRow}>
             <span className={`${styles.statusDot} ${enabled ? styles.on : styles.off}`} />
             <div className={styles.statusText}>
-              <strong>Library switch</strong>
-              <span>{enabled ? 'Tag writes enabled' : 'Tag writes disabled (default)'}</span>
+              <strong>Tag writes</strong>
+              <span>{enabled ? 'On' : 'Off'}</span>
             </div>
             <Button
               variant={enabled ? 'secondary' : 'primary'}
               onClick={toggleWrites}
               disabled={toggling || update.isPending}
             >
-              {toggling ? 'Saving...' : enabled ? 'Disable tag writes' : 'Enable tag writes'}
+              {toggling ? 'Saving...' : enabled ? 'Turn off' : 'Turn on'}
             </Button>
           </div>
 
           <div className={styles.statusRow}>
             <span className={`${styles.statusDot} ${writableRoots.length ? styles.on : styles.off}`} />
             <div className={styles.statusText}>
-              <strong>Music folders that allow writes</strong>
+              <strong>Writable folders</strong>
               <span>
                 {roots.isLoading
                   ? 'Checking…'
-                  : rootList.length === 0
-                    ? 'No music folders set up'
-                    : writableRoots.length === 0
-                      ? rootList.length === 1
-                        ? 'Your music folder does not allow writes'
-                        : `None of your ${rootList.length} music folders allow writes`
-                      : writableRoots.map((r) => r.path).join(', ')}
+                  : writableRoots.length === 0
+                    ? 'None'
+                    : writableRoots.map((r) => r.path).join(', ')}
               </span>
             </div>
             <LinkButton variant="secondary" size="sm" to="/settings/library">
@@ -162,19 +136,12 @@ function SettingsTagWritesContentInner() {
         </div>
 
         {enabled && writableRoots.length === 0 && (
-          <p className={styles.warning}>
-            The switch is on but no music folder allows writes yet — plans will preview but refuse to apply until you
-            press “Allow tag writes” on a folder under Music folders.
-          </p>
+          <p className={styles.warning}>No folder allows writes</p>
         )}
       </div>
 
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Default write policy</h2>
-        <p className={styles.hint}>
-          New plans start from this policy; each plan can still change it before preview. The recommended defaults are
-          canonical IDs + fill, and ID3v2.4 (UTF-8) for MP3s.
-        </p>
 
         <div className={styles.fieldGroup}>
           <label className={styles.label}>Preset</label>
@@ -190,7 +157,6 @@ function SettingsTagWritesContentInner() {
                 />
                 <span className={styles.radioText}>
                   <strong>{p.title}</strong>
-                  <span>{p.hint}</span>
                 </span>
               </label>
             ))}
@@ -201,10 +167,7 @@ function SettingsTagWritesContentInner() {
           <label htmlFor="id3Version" className={styles.label}>
             ID3 version for MP3
           </label>
-          <p className={styles.hint}>
-            v2.4 stores UTF-8 and real multi-value frames. Pick v2.3 only for players that cannot read v2.4; values are
-            then joined with the separator below.
-          </p>
+
           <select
             id="id3Version"
             className={styles.select}
@@ -219,7 +182,7 @@ function SettingsTagWritesContentInner() {
         {policy.id3Version === '2.3' && (
           <div className={styles.fieldGroup}>
             <label htmlFor="separator" className={styles.label}>
-              Multi-value separator (v2.3 only)
+              Separator
             </label>
             <input
               id="separator"
@@ -232,7 +195,7 @@ function SettingsTagWritesContentInner() {
 
         <div className={styles.actions}>
           <Button type="button" onClick={savePolicy} disabled={!policyChanged || update.isPending}>
-            {update.isPending && !toggling ? 'Saving...' : 'Save policy'}
+            {update.isPending && !toggling ? 'Saving...' : 'Save'}
           </Button>
           <Button variant="quiet" type="button" onClick={() => setPolicy(saved)} disabled={!policyChanged}>
             Reset
@@ -242,18 +205,7 @@ function SettingsTagWritesContentInner() {
         </div>
       </div>
 
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>First run, safely</h2>
-        <ol className={styles.steps}>
-          <li>Allow tag writes on your music folder under <Link to="/settings/library">Music folders</Link>.</li>
-          <li>Enable the library switch above.</li>
-          <li>
-            Open <Link to="/plans">Plans</Link>, create a plan for one artist or a handful of albums, and preview it.
-          </li>
-          <li>Apply, check a file in your player, then revert from the album’s Activity tab and apply again.</li>
-          <li>Only then widen the scope.</li>
-        </ol>
-      </div>
+      <a className={styles.howTo} href={docsUrl('tag-correction.md')} target="_blank" rel="noreferrer">How to</a>
     </div>
   );
 }

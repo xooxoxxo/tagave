@@ -62,7 +62,7 @@ export function JobsPage() {
   }, [focusId, jobs]);
 
   if (!libraryId || isLoading) return <p className={styles.muted}>Loading activity…</p>;
-  if (isError || !jobs) return <Banner tone="danger">Could not load background activity. Reload the page to try again.</Banner>;
+  if (isError || !jobs) return <Banner tone="danger">Couldn’t load background activity.</Banner>;
 
   // the API sends every task that needs the owner, and the rest running first, then newest first
   const attention = jobs.attention;
@@ -74,7 +74,7 @@ export function JobsPage() {
   const onRetry = (job: JobView) => {
     setRetryNote((m) => ({ ...m, [job.id]: '' }));
     retry.mutate(job.id, {
-      onSuccess: (res) => setRetryNote((m) => ({ ...m, [job.id]: res.queued ? 'Started again.' : 'Already queued; it will start soon.' })),
+      onSuccess: (res) => setRetryNote((m) => ({ ...m, [job.id]: res.queued ? 'Started' : 'Already queued' })),
       onError: (err) => setRetryNote((m) => ({ ...m, [job.id]: problemMessage(err) })),
     });
   };
@@ -87,7 +87,7 @@ export function JobsPage() {
 
       {focusMissing && (
         <Banner tone="warning">
-          The task from your link is not in the activity list any more.{' '}
+          Task not found.{' '}
           <Button variant="quiet" size="sm" type="button" onClick={clearFocus}>Show everything</Button>
         </Banner>
       )}
@@ -96,7 +96,7 @@ export function JobsPage() {
 
       {attention.length > 0 && (
         <section className={styles.section} aria-labelledby="jobs-attention">
-          <h3 id="jobs-attention" className={styles.sectionTitle}>Needs your attention</h3>
+          <h3 id="jobs-attention" className={styles.sectionTitle}>Needs attention</h3>
           <JobTable
             jobs={attention}
             focusId={focusId}
@@ -108,7 +108,7 @@ export function JobsPage() {
                     Retry
                   </Button>
                 ) : (
-                  <span className={styles.muted}>Can't be restarted here</span>
+                  <span className={styles.muted}>Can’t restart</span>
                 )}
                 {retryNote[job.id] && <span className={styles.note} role="status">{retryNote[job.id]}</span>}
               </div>
@@ -122,21 +122,19 @@ export function JobsPage() {
           <h3 id="jobs-recent" className={styles.sectionTitle}>Recent activity</h3>
           {(showRoutine || jobs.summary.routineHidden > 0) && (
             <Button size="sm" variant="ghost" onClick={() => { setShowRoutine((v) => !v); setLimit(PAGE); }} aria-pressed={showRoutine}>
-              {showRoutine ? 'Hide routine entries' : `Show ${plural(jobs.summary.routineHidden, 'hidden entry', 'hidden entries')}`}
+              {showRoutine ? 'Hide routine' : `Show ${plural(jobs.summary.routineHidden, 'hidden entry', 'hidden entries')}`}
             </Button>
           )}
         </div>
-        {!showRoutine && jobs.summary.routineHidden > 0 && (
-          <p className={styles.hint}>Hidden: scheduled checks that ran as expected, and old failures a later run fixed.</p>
-        )}
+
         {recent.length > 0 ? (
           <JobTable jobs={recent} focusId={focusId} />
         ) : (
-          <p className={styles.muted}>Nothing else has run in the last 30 days.</p>
+          <p className={styles.muted}>Nothing in the last 30 days</p>
         )}
         {more > 0 && (
           <div className={styles.more}>
-            <span className={styles.muted}>{plural(more, 'older entry', 'older entries')} not shown.</span>
+            <span className={styles.muted}>{plural(more, 'older entry', 'older entries')}</span>
             <Button size="sm" variant="secondary" onClick={() => setLimit((l) => l + PAGE)} loading={isFetching}>
               Show {n(Math.min(more, PAGE))} more
             </Button>
@@ -190,7 +188,7 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
 
       {running ? (
         <>
-          <p className={styles.lead}>Checking your albums: {n(done)} of {n(sweepTotal)} done ({pct}%).</p>
+          <p className={styles.lead}>{n(done)} of {n(sweepTotal)} checked ({pct}%)</p>
           <div className={styles.bar} role="progressbar" aria-valuemin={0} aria-valuemax={sweepTotal} aria-valuenow={done} aria-label="Albums checked">
             <div className={styles.barFill} style={{ width: `${pct}%` }} />
           </div>
@@ -199,15 +197,15 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
       ) : (
         <p className={styles.lead}>
           {states.pending > 0
-            ? `${plural(states.pending, 'album')} still waiting to be checked.`
-            : `All ${plural(total, 'album')} have been checked${finishedAt ? ` (finished ${formatRelativeTime(finishedAt)})` : ''}.`}
+            ? `${plural(states.pending, 'album')} waiting`
+            : `All ${plural(total, 'album')} checked${finishedAt ? ` · ${formatRelativeTime(finishedAt)}` : ''}`}
         </p>
       )}
 
       <dl className={styles.counts}>
         <div><dt>Identified</dt><dd>{n(states.matched)}</dd></div>
-        <div><dt>Need your review</dt><dd>{n(states.needsReview)}</dd></div>
-        <div><dt>No match found</dt><dd>{n(states.unidentified)}</dd></div>
+        <div><dt>Need review</dt><dd>{n(states.needsReview)}</dd></div>
+        <div><dt>No match</dt><dd>{n(states.unidentified)}</dd></div>
       </dl>
 
       <div className={styles.actions}>
@@ -215,11 +213,11 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
           <LinkButton to="/work" search={{ tab: 'review' }} size="sm">Review {plural(states.needsReview, 'match', 'matches')}</LinkButton>
         )}
         {states.unidentified > 0 && (
-          <LinkButton to="/work" search={{ tab: 'identify' }} size="sm" variant="secondary">See albums with no match</LinkButton>
+          <LinkButton to="/work" search={{ tab: 'identify' }} size="sm" variant="secondary">View unmatched</LinkButton>
         )}
         {!running && states.pending > 0 && (
           <Button size="sm" variant="secondary" onClick={() => kick.mutate()} loading={kick.isPending} disabled={kick.isSuccess}>
-            {kick.isSuccess ? 'Started' : 'Check waiting albums now'}
+            {kick.isSuccess ? 'Started' : 'Check now'}
           </Button>
         )}
       </div>

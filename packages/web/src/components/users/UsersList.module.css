@@ -112,29 +112,6 @@
   line-height: var(--line-height-relaxed);
 }
 
-.legend {
-  display: grid;
-  gap: var(--space-xs);
-  margin: 0;
-  font-size: var(--font-size-sm);
-}
-
-.legend div {
-  display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: var(--space-sm);
-}
-
-.legend dt {
-  font-weight: 500;
-  color: var(--ink);
-}
-
-.legend dd {
-  margin: 0;
-  color: var(--ink-2);
-}
-
 .form {
   display: flex;
   flex-direction: column;

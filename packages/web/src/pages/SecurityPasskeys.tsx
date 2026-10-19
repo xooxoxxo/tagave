@@ -31,16 +31,12 @@ export function AddPasskeyButtons({ onAdded, disabled }: { onAdded: () => void |
     <div className={styles.section}>
       <div className={styles.actions}>
         <Button onClick={() => void add('passkey')} loading={pending === 'passkey'} disabled={disabled || pending !== null}>
-          Add a passkey
+          Add passkey
         </Button>
         <Button variant="secondary" onClick={() => void add('security-key')} loading={pending === 'security-key'} disabled={disabled || pending !== null}>
-          Add a security key
+          Add security key
         </Button>
       </div>
-      <p className={styles.hint}>
-        A security key such as a YubiKey needs a PIN: if yours has none, your browser asks you to set one. Every sign-in and
-        sensitive action then asks for the PIN and a touch.
-      </p>
       {error && <Banner tone="danger">{error}</Banner>}
     </div>
   );
@@ -58,8 +54,8 @@ export function PasskeysSection({ data }: { data: SecurityStatus }) {
     const ok = await confirmDialog({
       title: `Remove ${passkeyLabel(p)}?`,
       message: lastFactor
-        ? 'It is your only second factor: after this, your password alone signs you in.'
-        : 'It can no longer sign you in to tagave. The key itself is not changed.',
+        ? 'Your password alone will sign you in.'
+        : 'It can no longer sign you in.',
       confirmLabel: 'Remove',
       tone: 'danger',
     });
@@ -85,10 +81,7 @@ export function PasskeysSection({ data }: { data: SecurityStatus }) {
       <div className={styles.head}>
         <h3 id="security-passkeys" className={styles.title}>Passkeys and security keys</h3>
       </div>
-      <p className={styles.hint}>
-        Sign in with your fingerprint, face, device PIN or a security key instead of your password. A passkey sign-in counts as
-        two factors, so it never asks for the authenticator code.
-      </p>
+
       {problem && <Banner tone="warning">{problem}</Banner>}
       {data.passkeys.length > 0 && (
         <ul className={styles.list}>

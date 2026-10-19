@@ -57,16 +57,12 @@ export function SettingsProvidersPage() {
     <div className={styles.container}>
       {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Provider Configuration</h2>
+        <h2 className={styles.sectionTitle}>Providers</h2>
 
         <div className={styles.fieldGroup}>
           <label htmlFor="contactString" className={styles.label}>
-            Contact string (User-Agent)
+            Contact email or URL (required)
           </label>
-          <p className={styles.hint}>
-            Sent in the User-Agent of every provider request (MusicBrainz, Discogs, Wikidata) as required by their
-            terms — an email address or URL. Required: no provider calls are made until it is set.
-          </p>
           <input
             id="contactString"
             type="text"
@@ -78,16 +74,11 @@ export function SettingsProvidersPage() {
         </div>
 
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>Discogs API Token</label>
-          <p className={styles.hint}>
-            A personal access token from discogs.com/settings/developers. With it tagave runs Discogs at 55
-            requests/minute instead of 25 and receives cover image URLs; without it Discogs candidates and
-            genres still work, only slower and without images.
-          </p>
+          <label className={styles.label}>Discogs token</label>
           {settings?.discogsTokenSet ? (
             <div className={styles.tokenConfigured}>
               <span className={styles.tokenHint}>
-                Token configured ({settings.discogsTokenHint ? `••••${settings.discogsTokenHint}` : 'unknown'})
+                Saved{settings.discogsTokenHint ? ` ••••${settings.discogsTokenHint}` : ''}
               </span>
               <Button
                 variant="quiet"
@@ -104,9 +95,10 @@ export function SettingsProvidersPage() {
               size="sm"
               onClick={() => setShowTokenConfig(!showTokenConfig)}
             >
-              {showTokenConfig ? 'Cancel' : 'Configure Token'}
+              {showTokenConfig ? 'Cancel' : 'Add token'}
             </Button>
           )}
+          {!settings?.discogsTokenSet && <a className={styles.hint} href="https://www.discogs.com/settings/developers" target="_blank" rel="noreferrer">Get a token</a>}
           {showTokenConfig && (
             <input
               type="password"
@@ -119,15 +111,11 @@ export function SettingsProvidersPage() {
         </div>
 
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>AcoustID Key</label>
-          <p className={styles.hint}>
-            Fingerprint-based identification for albums whose tags are wrong or missing (APE and WavPack image rips, mistagged folders).
-            Get a free application key at acoustid.org — the service is free for non-commercial use only.
-          </p>
+          <label className={styles.label}>AcoustID key</label>
           {settings?.acoustidKeySet ? (
             <div className={styles.tokenConfigured}>
               <span className={styles.tokenHint}>
-                Key configured ({settings.acoustidKeyHint ? `••••${settings.acoustidKeyHint}` : 'unknown'})
+                Saved{settings.acoustidKeyHint ? ` ••••${settings.acoustidKeyHint}` : ''}
               </span>
               <Button
                 variant="quiet"
@@ -144,9 +132,10 @@ export function SettingsProvidersPage() {
               size="sm"
               onClick={() => setShowAcoustidConfig(!showAcoustidConfig)}
             >
-              {showAcoustidConfig ? 'Cancel' : 'Configure Key'}
+              {showAcoustidConfig ? 'Cancel' : 'Add key'}
             </Button>
           )}
+          {!settings?.acoustidKeySet && <a className={styles.hint} href="https://acoustid.org/new-application" target="_blank" rel="noreferrer">Get a key</a>}
           {showAcoustidConfig && (
             <input
               type="password"
@@ -166,16 +155,12 @@ export function SettingsProvidersPage() {
               disabled={!settings?.acoustidKeySet || updateSettings.isPending}
               onChange={(e) => updateSettings.mutate({ fingerprintingEnabled: e.target.checked })}
             />{' '}
-            Fingerprint unidentified albums in the background
+            Fingerprint unidentified albums
           </label>
-          <p className={styles.hint}>
-            Every 10 minutes the file worker fingerprints the next 30 unidentified albums (untagged and no-candidate ones first; cue images track by track) and the identify
-            worker looks them up on AcoustID at 3 requests/second; matches feed the normal identification with their release candidates.
-            {!settings?.acoustidKeySet && ' Needs the key above.'}
-          </p>
+          {!settings?.acoustidKeySet && <p className={styles.hint}>Needs an AcoustID key</p>}
           {fpStats && (
             <p className={styles.hint}>
-              {fpStats.albums.lookedUp.toLocaleString()} of {(fpStats.albums.lookedUp + fpStats.albums.remaining).toLocaleString()} unidentified albums looked up
+              {fpStats.albums.lookedUp.toLocaleString()} of {(fpStats.albums.lookedUp + fpStats.albums.remaining).toLocaleString()} looked up
               {' · '}{fpStats.albums.withCandidates.toLocaleString()} got candidates, {fpStats.albums.noCandidates.toLocaleString()} none
               {fpStats.albums.matchedViaAcoustid > 0 ? ` · ${fpStats.albums.matchedViaAcoustid.toLocaleString()} matched via AcoustID` : ''}
               {' · '}{fpStats.files.fingerprinted.toLocaleString()} files fingerprinted{fpStats.files.failed ? ` (${fpStats.files.failed} failed)` : ''}
@@ -185,11 +170,9 @@ export function SettingsProvidersPage() {
           )}
           {fpStats?.provider && (
             <p className={styles.error} role="alert">
-              AcoustID is parked until {new Date(fpStats.provider.parkedUntil).toLocaleTimeString()}
-              {fpStats.provider.reason ? `: ${fpStats.provider.reason}` : ''}.
-              {/invalid api key/i.test(fpStats.provider.reason ?? '')
-                ? ' Lookups need an application key (acoustid.org/new-application), not your user key — saving a new key above clears this.'
-                : ' Saving a new key above clears this.'}
+              AcoustID paused until {new Date(fpStats.provider.parkedUntil).toLocaleTimeString()}
+              {fpStats.provider.reason ? `: ${fpStats.provider.reason}` : ''}
+              {/invalid api key/i.test(fpStats.provider.reason ?? '') ? '. Use an application key, not a user key.' : ''}
             </p>
           )}
         </div>
@@ -199,9 +182,9 @@ export function SettingsProvidersPage() {
             onClick={handleSave}
             disabled={(!discogsToken && !acoustidKey && contactString === settings?.contactString) || updateSettings.isPending}
           >
-            {updateSettings.isPending ? 'Saving...' : 'Save Settings'}
+            {updateSettings.isPending ? 'Saving...' : 'Save'}
           </Button>
-          {updateSettings.isSuccess && <span className={styles.success}>Settings saved</span>}
+          {updateSettings.isSuccess && <span className={styles.success}>Saved</span>}
           {updateSettings.isError && (
             <span className={styles.error}>
               {(updateSettings.error as { detail?: string; message?: string })?.detail ??
@@ -213,18 +196,15 @@ export function SettingsProvidersPage() {
 
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Enrichment</h2>
-        <p className={styles.hint}>
-          Bridge your MusicBrainz release identifiers to Discogs and vice versa, unlocking additional metadata
-          like genres, styles, and images.
-        </p>
+
         <Button
           variant="secondary"
           onClick={() => enrichSweep.mutate()}
           disabled={enrichSweep.isPending}
         >
-          {enrichSweep.isPending ? 'Queued...' : 'Bridge Discogs identities now'}
+          {enrichSweep.isPending ? 'Queued...' : 'Link Discogs IDs'}
         </Button>
-        {enrichSweep.isSuccess && <span className={styles.success}>Enrichment job queued</span>}
+        {enrichSweep.isSuccess && <span className={styles.success}>Queued</span>}
         {enrichSweep.isError && (
           <span className={styles.error}>
             {(enrichSweep.error as { detail?: string; message?: string })?.detail ??
