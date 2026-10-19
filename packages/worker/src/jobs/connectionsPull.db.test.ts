@@ -20,8 +20,8 @@ import { LANDING_VERSION } from './mcLanding.js';
 import { BACKOFF_MINUTES, STUB_HANDLERS, backoffMinutes, connectionsTick, refreshLinkManifest, runLinkPull, type PullHandlers } from './connectionsPull.js';
 
 const SECRET = 'c'.repeat(64);
-const RG = 'http://192.168.2.50:8080';
-const OTHER = 'http://192.168.2.51:8080';
+const RG = 'http://192.168.77.50:8080';
+const OTHER = 'http://192.168.77.51:8080';
 const MBID = '11111111-2222-4333-8444-555555555555';
 
 const album = { rg_mbid: MBID, artist: 'Can', title: 'Tago Mago' };
@@ -260,7 +260,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('connections.pull (db)', () => {
   });
 
   it('a stored manifest whose feed points at another host is refused; no token is sent anywhere', async () => {
-    rg.manifest = { ...rg.manifest, provides: { 'critic-scores': 'http://192.168.2.99/mc/v1/critic-scores' } };
+    rg.manifest = { ...rg.manifest, provides: { 'critic-scores': 'http://192.168.77.99/mc/v1/critic-scores' } };
     const id = await link(RG);
     const reached: string[] = [];
     setRemoteFetch(async (url) => { reached.push(url); return new Response('{}'); });
@@ -293,7 +293,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('connections.pull (db)', () => {
     expect(Object.keys(r.manifest.provides)).toContain('wantlist-suggestions');
     expect(r.scopes).toEqual(['critic-scores:read', 'identity:read']);
     const audits = await client`select action, payload from audit_log where actor_user_id = ${userId}`;
-    expect(audits).toEqual([{ action: 'mc.consumer.capabilities_available', payload: { remote_host: '192.168.2.50:8080', added: ['wantlist-suggestions'] } }]);
+    expect(audits).toEqual([{ action: 'mc.consumer.capabilities_available', payload: { remote_host: '192.168.77.50:8080', added: ['wantlist-suggestions'] } }]);
     expect(Date.parse((await row(fresh)).manifest_checked_at)).toBeGreaterThan(Date.now() - 10_000);
   });
 

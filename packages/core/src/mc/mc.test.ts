@@ -32,7 +32,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { sealSecret } from '../crypto/secretbox.js';
 
-const RG = 'http://192.168.2.50:8080';
+const RG = 'http://192.168.77.50:8080';
 const SECRET = 'a'.repeat(64);
 
 function manifest(over: Partial<Manifest> = {}): Manifest {
@@ -73,10 +73,10 @@ describe('scope derivation', () => {
 describe('origin pinning (the package rules, tagave defaults)', () => {
   it('pins to the origin with MC_TRUSTED_PUBLIC_HOSTS as the trusted list', () => {
     expect(pinned('/connect/token', RG)).toBe(`${RG}/connect/token`);
-    expect(() => pinned('http://192.168.2.51:8080/connect/token', RG)).toThrow(LinkError);
+    expect(() => pinned('http://192.168.77.51:8080/connect/token', RG)).toThrow(LinkError);
     expect(endpointsOf(manifest(), RG).feeds['critic-scores']).toBe(`${RG}/mc/v1/critic-scores`);
     expect(revokeUrlFor('/api/v1/connect/token', RG)).toBe(`${RG}/api/v1/connect/revoke`);
-    expect(remoteOrigin('http://192.168.2.50:8080/some/page?x=1')).toBe(RG);
+    expect(remoteOrigin('http://192.168.77.50:8080/some/page?x=1')).toBe(RG);
     expect(() => remoteOrigin('http://8.8.8.8')).toThrow('remote not allowed');
     // the provider's redirect gate stays narrower than the client's
     expect(isAllowedRemote('http://review-gatherer:3000/', [])).toBe(true);
@@ -94,7 +94,7 @@ describe('manifest fetch', () => {
 
   it('fetches the origin’s well-known manifest without redirects, with a timeout and the user agent', async () => {
     serve(() => Response.json(manifest()));
-    const got = await fetchRemoteManifest('http://192.168.2.50:8080/settings');
+    const got = await fetchRemoteManifest('http://192.168.77.50:8080/settings');
     expect(got.origin).toBe(RG);
     expect(got.endpoints.register).toBe(`${RG}/connect/register`);
     expect(calls[0]!.url).toBe(`${RG}/.well-known/music-connections`);
@@ -160,14 +160,14 @@ describe('sealed tokens', () => {
 describe('SSRF: resolved addresses', () => {
   it('a LAN name may reach private addresses only: not loopback, not public, not a mix', async () => {
     const answers: Record<string, string[]> = {
-      'review-gatherer': ['192.168.2.50'],
+      'review-gatherer': ['192.168.77.50'],
       'sneaky.lan': ['127.0.0.1'],
-      'mixed.lan': ['192.168.2.50', '93.184.216.34'],
+      'mixed.lan': ['192.168.77.50', '93.184.216.34'],
       'public.example.com': ['93.184.216.34'],
       'meta.lan': ['169.254.169.254'],
     };
     setResolver(async (h) => answers[h] ?? []);
-    await expect(resolveTarget('http://review-gatherer:3000/.well-known/music-connections')).resolves.toBe('192.168.2.50');
+    await expect(resolveTarget('http://review-gatherer:3000/.well-known/music-connections')).resolves.toBe('192.168.77.50');
     await expect(resolveTarget('http://sneaky.lan/')).rejects.toThrow('address not allowed');
     await expect(resolveTarget('http://mixed.lan/')).rejects.toThrow('address not allowed');
     await expect(resolveTarget('https://public.example.com/')).rejects.toThrow('address not allowed');

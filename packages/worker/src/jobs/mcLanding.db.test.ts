@@ -20,7 +20,7 @@ import { LANDING_VERSION, attachParked, capParked, criticScoresHandler, identity
 import { unplugLinkTx } from '@tagave/db';
 
 const SECRET = 'd'.repeat(64);
-const RG_ORIGIN = 'http://192.168.2.60:8080';
+const RG_ORIGIN = 'http://192.168.77.60:8080';
 const now = '2026-10-01T00:00:00.000Z';
 
 type Page = { items: unknown[]; next: string; more: boolean };
@@ -53,7 +53,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('music connections landing (db)'
     };
     const tokens = sealTokens({ access_token: 'acc', refresh_token: 'ref', client_secret: 'sec', access_expires_at: new Date(Date.now() + 3600_000).toISOString() }, SECRET);
     // one link per person and address: a second link of one person uses another port
-    const origin = `http://192.168.2.60:${8000 + ++linkSeq}`;
+    const origin = `http://192.168.77.60:${8000 + ++linkSeq}`;
     await client`insert into mc_links (id, user_id, remote_url, manifest, client_id, sealed_tokens, scopes, requested_scopes, state)
                  values (${id}, ${userId}, ${origin}, ${JSON.stringify(manifest)}::text::jsonb, 'cid', ${tokens}, ${scopes}, ${scopes}, 'active')`;
     return id;
@@ -141,7 +141,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('music connections landing (db)'
     const data = typeof row.data === 'string' ? JSON.parse(row.data) : row.data;
     expect(JSON.stringify(data)).not.toContain('prose');
     expect(data).not.toHaveProperty('album');
-    expect(data.reviews[0].url).toMatch(/^http:\/\/192\.168\.2\.60:\d+\/reviews\/1$/);
+    expect(data.reviews[0].url).toMatch(/^http:\/\/192\.168\.77\.60:\d+\/reviews\/1$/);
   });
 
   it('a critic-scores tombstone removes only that link’s row for that key: another link’s and CritiqueBrainz’s stay', async () => {

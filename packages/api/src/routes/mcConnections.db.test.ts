@@ -30,8 +30,8 @@ import { PgBoss } from 'pg-boss';
 import { COULD_NOT_REACH, enqueueLinkPull, mcConnectionsConfig, resetConnectionRouteLimits, type EnqueueResult } from './mcConnections.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
-const RG = 'http://192.168.2.50:8080';
-const RG_MOVED = 'http://192.168.2.60:8080';
+const RG = 'http://192.168.77.50:8080';
+const RG_MOVED = 'http://192.168.77.60:8080';
 const CALLBACK = `${TEST_PUBLIC_URL}/api/v1/me/connections/callback`;
 
 type Call = { url: string; method: string; headers: Record<string, string>; body: string };
@@ -362,7 +362,7 @@ describe.skipIf(!adminUrl)('Settings › Connections (integration)', () => {
 
   describe('refusals: no token or secret goes to another host', () => {
     it('a manifest naming an auth endpoint or any feed on another host is refused before registering', async () => {
-      rg.state.manifest = { ...rg.state.manifest, auth: { authorize: '/connect/authorize', token: 'http://192.168.2.99/connect/token', register: '/connect/register' } };
+      rg.state.manifest = { ...rg.state.manifest, auth: { authorize: '/connect/authorize', token: 'http://192.168.77.99/connect/token', register: '/connect/register' } };
       let res = await start(RG);
       expect(res.statusCode).toBe(400);
       expect(res.json().detail).toBe(COULD_NOT_REACH);
@@ -392,7 +392,7 @@ describe.skipIf(!adminUrl)('Settings › Connections (integration)', () => {
       ];
       for (const answer of answers) {
         setRemoteFetch(async () => answer());
-        const res = await start('http://192.168.2.77:9000');
+        const res = await start('http://192.168.77.77:9000');
         expect(res.statusCode).toBe(400);
         expect(res.json().detail).toBe(COULD_NOT_REACH);
         expect(res.body).not.toContain('secret');

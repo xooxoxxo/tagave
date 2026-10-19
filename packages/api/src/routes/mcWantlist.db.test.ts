@@ -36,7 +36,7 @@ import { readFeed } from '../lib/mcFeeds.js';
 import { resetConnectionRouteLimits } from './mcConnections.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
-const RG = 'http://192.168.2.70:8080';
+const RG = 'http://192.168.77.70:8080';
 
 type Seen = { url: string; method: string; auth: string | null; body: string };
 
@@ -68,7 +68,7 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     const id = randomUUID();
     const tokens = sealTokens({ access_token: 'acc', refresh_token: 'ref', client_secret: 'sec', access_expires_at: new Date(Date.now() + (expired ? -60_000 : 3600_000)).toISOString() }, TEST_APP_SECRET);
     await sql`insert into mc_links (id, user_id, remote_url, manifest, client_id, sealed_tokens, scopes, requested_scopes, state)
-              values (${id}, ${u.userId}, ${`http://192.168.2.70:${port++}`}, ${sql.json(manifest as never)}, 'cid', ${tokens}, ${scopes}, ${scopes}, 'active')`;
+              values (${id}, ${u.userId}, ${`http://192.168.77.70:${port++}`}, ${sql.json(manifest as never)}, 'cid', ${tokens}, ${scopes}, ${scopes}, 'active')`;
     return id;
   }
   async function suggestion(u: TestUser, linkId: string, key: string, over: Record<string, unknown> = {}) {

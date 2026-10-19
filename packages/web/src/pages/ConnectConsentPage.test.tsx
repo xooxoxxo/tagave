@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ConsentCard, isFramed, type ConsentRequestView } from './ConnectConsentPage';
 
 const view: ConsentRequestView = {
-  client: { name: 'review-gatherer', redirectHost: '192.168.2.50:8080', secure: false },
+  client: { name: 'review-gatherer', redirectHost: '192.168.77.50:8080', secure: false },
   scopes: [
     { scope: 'ratings:read', label: 'Read your album ratings and favourites' },
     { scope: 'listens:read', label: 'Read how many times a day you play each album' },
@@ -22,7 +22,7 @@ describe('ConsentCard', () => {
   it('names the app, its host and each scope in words', () => {
     const html = render();
     expect(html).toContain('Link review-gatherer?');
-    expect(html).toContain('192.168.2.50:8080');
+    expect(html).toContain('192.168.77.50:8080');
     expect(html).toContain('Read your album ratings and favourites');
     expect(html).toContain('Read how many times a day you play each album');
     expect(html).not.toContain('ratings:read');

@@ -18,7 +18,7 @@ import { hashToken, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
 import { connectConfig, resetConnectRouteLimits } from './connect.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
-const REDIRECT = 'http://192.168.2.50:8080/connect/callback';
+const REDIRECT = 'http://192.168.77.50:8080/connect/callback';
 const SCOPE = 'ratings:read collection:read listens:read identity:read offline_access';
 const VERIFIER = 'v'.repeat(20) + '-the-pkce-verifier-of-this-test-0123456789';
 
@@ -162,7 +162,7 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     expect(anon.statusCode).toBe(401);
     const view = await app.inject({ method: 'GET', url: `/api/v1/connect/requests/${requestId}`, headers: { cookie: person.cookie } });
     expect(view.statusCode).toBe(200);
-    expect(view.json()).toMatchObject({ client: { name: 'review-gatherer', redirectHost: '192.168.2.50:8080' } });
+    expect(view.json()).toMatchObject({ client: { name: 'review-gatherer', redirectHost: '192.168.77.50:8080' } });
     expect(view.json().scopes.map((s: { scope: string }) => s.scope)).toEqual(SCOPE.split(' '));
     for (const s of view.json().scopes) expect(s.label).not.toBe(s.scope);
 
@@ -335,11 +335,11 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     });
 
     it('refuses a second redirect URI, and a non-canonical one', async () => {
-      expect((await register([REDIRECT, 'http://192.168.2.51/cb'])).statusCode).toBe(400);
+      expect((await register([REDIRECT, 'http://192.168.77.51/cb'])).statusCode).toBe(400);
       expect((await register([])).statusCode).toBe(400);
-      expect((await register(['http://192.168.2.50:8080/cb#frag'])).statusCode).toBe(400);
-      expect((await register(['http://192.168.2.50:8080/a,http://evil.example/'])).statusCode).toBe(400);
-      expect((await register(['HTTP://192.168.2.50/cb'])).statusCode).toBe(400);
+      expect((await register(['http://192.168.77.50:8080/cb#frag'])).statusCode).toBe(400);
+      expect((await register(['http://192.168.77.50:8080/a,http://evil.example/'])).statusCode).toBe(400);
+      expect((await register(['HTTP://192.168.77.50/cb'])).statusCode).toBe(400);
     });
   });
 
@@ -365,7 +365,7 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
       expect(await status(authorizeUrl(clientId, { scope: 'ratings:write' }))).toBe(400);
     });
     it('a redirect URI other than the registered one is 400 and never followed', async () => {
-      const res = await app.inject({ method: 'GET', url: authorizeUrl(clientId, { redirect_uri: 'http://192.168.2.51/cb' }) });
+      const res = await app.inject({ method: 'GET', url: authorizeUrl(clientId, { redirect_uri: 'http://192.168.77.51/cb' }) });
       expect(res.statusCode).toBe(400);
       expect(res.headers.location).toBeUndefined();
     });

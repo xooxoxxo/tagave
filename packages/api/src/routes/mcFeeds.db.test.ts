@@ -106,7 +106,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
 
     clientId = `mcc_${randomUUID()}`;
     await sql`insert into mc_oauth_clients (client_id, client_secret_hash, name, redirect_uri)
-              values (${clientId}, ${hashToken('secret')}, 'review-gatherer', 'http://192.168.2.50/cb')`;
+              values (${clientId}, ${hashToken('secret')}, 'review-gatherer', 'http://192.168.77.50/cb')`;
     token = await newToken(person.userId, ALL);
 
     await sql`insert into libraries (id, owner_user_id, name, created_at) values (${libraryId}, ${person.userId}, 'Home', now() - interval '1 day')`;
