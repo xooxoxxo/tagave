@@ -188,11 +188,14 @@ Optional parts of tagave (the player is the first) are listed in **Settings › 
 
 With the updater, **Turn on** asks you to confirm it is you (like an update), then shows each step: the signature and the disk are checked and its images are pulled by digest and checked; its settings go into `.env` (generated secrets once, kept when it is turned off); it starts; it must report healthy. If any step fails, the updater rolls back and the page says why. **Turn off** stops it and takes it out of the configuration; its data stays unless you tick **Also delete its data**.
 
+Turned off with its data kept, a module only loses what it does: its background work stops, and turning it on again picks up where it was. **Also delete its data** deletes exactly the module's own data: its Docker volumes, and its rows in tagave's database, and nothing of your library, your people, reviews or ratings. For the player that is Navidrome's database and, in tagave, the player's library (which song on Navidrome is which track), plays and play counts, and the connected Last.fm and ListenBrainz accounts with their keys. The listens the player recorded stay: they are your history, like the ones you add by hand. A second box, **Also delete the listens the player recorded**, deletes those too; listens you added yourself stay either way. The run's log says how many rows of each kind went and how many listens were kept.
+
 Without the updater, each module shows the command that does the same from the install folder:
 
 ```sh
 ./install-tagave.sh enable-module player
 ./install-tagave.sh disable-module player            # asks before deleting its data; --delete-data deletes it
+./install-tagave.sh disable-module player --delete-data --delete-history   # the player's listens too
 ```
 
 It runs the same steps, with the release's own updater image as a one-off container. Only modules in tagave's signed catalogue can be installed; there are no third-party or community modules.
@@ -226,7 +229,15 @@ Navidrome reads your music folder read-only, always, even when you installed wit
 
 **Resources.** Plan for about 150 MB more memory, and one more core while Navidrome scans or transcodes. The compose file caps it at 512 MB (`mem_limit`) and one core (`cpus: 1.0`), so a scan cannot starve the database on a small machine.
 
-**Turning it off.** `disable-player` stops and removes the Navidrome container, removes `player` from `COMPOSE_PROFILES`, clears `TAGAVE_PLAYER_URL` and restarts the app. It keeps the password and the key in `.env`, so `enable-player` later reopens the same Navidrome data. It then asks whether to delete the `player-data` volume (Navidrome's own plays, stars and users); the answer defaults to no. With `--yes`, or without a terminal, it keeps the volume and prints the command to delete it later (`docker volume rm tagave_player-data`).
+**Turning it off.** `disable-player` stops and removes the Navidrome container, removes `player` from `COMPOSE_PROFILES`, clears `TAGAVE_PLAYER_URL` and restarts the app. It keeps the password and the key in `.env`, so `enable-player` later reopens the same Navidrome data. It then asks whether to delete the player's data: the `player-data` volume (Navidrome's own plays, stars and users) and the player's rows in tagave's database (its library, plays, play counts and the connected Last.fm and ListenBrainz accounts). Then, separately, whether to delete the listens it recorded; listens you added yourself always stay. Both answers default to no; `--delete-data` and `--delete-history` answer yes. With `--yes`, or without a terminal, it keeps everything and prints how to delete it later:
+
+```sh
+docker volume rm tagave_player-data
+docker compose exec app node packages/doctor/dist/cli.js purge-module player                    # its rows in tagave; listens stay
+docker compose exec app node packages/doctor/dist/cli.js purge-module player --delete-history   # and the listens it recorded
+```
+
+`purge-module` deletes the player's tables in one transaction and refuses while the player is on (`TAGAVE_PLAYER_URL` set); running it again deletes nothing. A player server of your own (Settings › Playback) and the Last.fm API key stay: they are settings, not the player's data.
 
 **Listens and scrobbling.** When someone has heard at least half of an album's tracks within six hours, in tagave or in a phone app, tagave adds a listen of that release to the album page (only for them). Each play also goes to the person's own Last.fm and ListenBrainz, once: tagave sends every scrobble itself, and Navidrome's own scrobbling is turned off in `compose.yml` so nothing is counted twice. A track counts when it is longer than 30 seconds and half of it (or four minutes) was heard.
 

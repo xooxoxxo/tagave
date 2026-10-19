@@ -866,6 +866,24 @@ JSON
   [ "$(env_value TAGAVE_MODULE_DUMMY_TOKEN "$work/signed/.env")" = "abc" ] || fail "re-run: the module's secret was dropped"
   [ "$(services "$work/signed")" = "app dummy postgres worker-files worker-identify " ] || fail "re-run: services are $(services "$work/signed")"
   pass "re-running the installer keeps the modules that are on, their compose files and secrets"
+
+  # disable-module hands the data choices to the updater's module run: the
+  # history (the player's listens) only together with the data.
+  module_run() {
+    PATH="$work/bin:$PATH" REAL_DOCKER="$real_docker" FAKE_LOG="$work/docker.log" FAKE_STATE="$work/state" \
+      "$signed_src/install-tagave.sh" "$@" --yes --dir "$work/signed" </dev/null
+  }
+  : >"$work/docker.log"
+  module_run disable-module player --delete-data --delete-history >"$work/mod-off.log" 2>&1 || { cat "$work/mod-off.log" >&2; fail "disable-module --delete-data --delete-history"; }
+  grep -q 'cli.js module disable player --delete-data --delete-history$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "disable-module: the updater run did not get --delete-data --delete-history"; }
+  : >"$work/docker.log"
+  module_run disable-module player --delete-data >"$work/mod-off2.log" 2>&1 || { cat "$work/mod-off2.log" >&2; fail "disable-module --delete-data"; }
+  grep -q 'cli.js module disable player --delete-data$' "$work/docker.log" || { cat "$work/docker.log" >&2; fail "disable-module: --delete-data alone was not passed as it is"; }
+  : >"$work/docker.log"
+  if module_run disable-module player --delete-history >"$work/mod-off3.log" 2>&1; then fail "disable-module: --delete-history without --delete-data went ahead"; fi
+  grep -q -- '--delete-history goes with --delete-data' "$work/mod-off3.log" || { cat "$work/mod-off3.log" >&2; fail "disable-module: the refusal does not say why"; }
+  grep -q 'cli.js module' "$work/docker.log" && fail "disable-module: refused, but the updater ran"
+  pass "disable-module passes --delete-data and --delete-history on, and refuses the history without the data"
 else
   echo "test-installer: skip signed releases (this openssl cannot check Ed25519 signatures)"
 fi

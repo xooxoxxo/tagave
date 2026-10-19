@@ -48,7 +48,7 @@
 # way Settings > Modules does it, for installs without the updater:
 #
 #   ./install-tagave.sh enable-module ID
-#   ./install-tagave.sh disable-module ID [--delete-data]
+#   ./install-tagave.sh disable-module ID [--delete-data [--delete-history]]
 #
 # Run with --help for every option.
 
@@ -95,6 +95,7 @@ DRY_RUN=0
 COMMAND="install"
 MODULE_ID=""
 DELETE_DATA=0
+DELETE_HISTORY=0
 
 PROJECT_NAME="tagave"
 COMPOSE_MAIN="compose.yml"
@@ -156,7 +157,7 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
                            Single-computer installs (role all) only. Restarts
                            the app.
   disable-player           remove the player again (asks before deleting its
-                           data)
+                           data; --delete-data and --delete-history as below)
   enable-module ID         turn on a module of the release's signed catalogue
                            (Settings > Modules lists them): the release's
                            updater image checks the signature, pulls its
@@ -203,8 +204,14 @@ Usage: install-tagave.sh [install|update|status|enable-updater|disable-updater|
   update only:
   --dry-run                show what the update would do; change nothing
 
-  disable-module only:
-  --delete-data            also delete the module's data (cannot be undone)
+  disable-module and disable-player only:
+  --delete-data            also delete the module's data (cannot be undone):
+                           its volumes and its rows in tagave's database (for
+                           the player: its library, play counts and the
+                           Last.fm and ListenBrainz connections)
+  --delete-history         with --delete-data: also delete the history it
+                           recorded in tagave (the player's listens); listens
+                           you added yourself stay. Without it they stay.
 
   --yes, -y                never ask; use flags, environment and defaults
   --no-start               write the configuration and check it, start nothing
@@ -251,6 +258,7 @@ while [ "$#" -gt 0 ]; do
     --app-url)           need_arg "$@"; APP_URL="$2"; shift 2 ;;
     --dry-run)           DRY_RUN=1; shift ;;
     --delete-data)       DELETE_DATA=1; shift ;;
+    --delete-history|--delete-play-history) DELETE_HISTORY=1; shift ;;
     --behind-https)      BEHIND_HTTPS=1; shift ;;
     --with-updater)      WITH_UPDATER=1; shift ;;
     --with-player)       WITH_PLAYER=1; shift ;;
@@ -2517,8 +2525,10 @@ run_enable_player() {
 }
 
 # Removes the player container and turns the profile off. The admin password
-# and the encryption key stay in .env, and the data volume stays unless the
-# owner says yes, so turning the player on again finds the same Navidrome.
+# and the encryption key stay in .env, and its data (the volume and its rows
+# in tagave's database) stays unless the owner says yes, so turning the player
+# on again finds the same Navidrome. The listens it recorded stay either way
+# unless the owner also asks for those to go.
 run_disable_player() {
   local env_file profiles project volume answer=""
   say "${C_BOLD}tagave: remove the player${C_OFF}"
@@ -2544,20 +2554,49 @@ run_disable_player() {
 
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
   volume="${project:-$PROJECT_NAME}_player-data"
-  if ! docker volume inspect "$volume" >/dev/null 2>&1; then return 0; fi
-  if [ -n "$TTY" ] && [ "$NO_START" != "1" ]; then
-    printf '%s' "Also delete the player's data volume (Navidrome's database: its own plays, stars and users)? (y/N): " >"$TTY"
+  [ "$NO_START" != "1" ] || return 0
+  if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
+    say "  The player's data: Navidrome's database (its own plays, stars and users) and, in tagave,"
+    say "  the player's library, play counts and connected Last.fm and ListenBrainz accounts."
+    printf '%s' "Also delete the player's data? Your listens stay. This cannot be undone. (y/N): " >"$TTY"
     IFS= read -r answer <"$TTY" || answer=""
+    case "$answer" in y|Y|yes|Yes|YES) DELETE_DATA=1 ;; esac
   fi
-  case "$answer" in
-    y|Y|yes|Yes|YES)
-      docker volume rm "$volume" >/dev/null || die "could not delete the volume $volume (see above)."
-      ok "Deleted the volume $volume"
-      ;;
-    *)
-      say "  The player's data is kept in the Docker volume $volume, so enable-player picks it up again."
-      say "  To delete it later:  docker volume rm $volume"
-      ;;
+  if [ "$DELETE_DATA" != "1" ]; then
+    say "  The player's data is kept (the Docker volume $volume and its rows in tagave), so"
+    say "  enable-player picks it up again. To delete it later: docker volume rm $volume, and"
+    say "    docker compose exec app node packages/doctor/dist/cli.js purge-module player [--delete-history]"
+    return 0
+  fi
+  if [ "$DELETE_HISTORY" != "1" ] && [ -n "$TTY" ]; then
+    printf '%s' "Also delete the listens the player recorded? Listens you added yourself stay. (y/N): " >"$TTY"
+    IFS= read -r answer <"$TTY" || answer=""
+    case "$answer" in y|Y|yes|Yes|YES) DELETE_HISTORY=1 ;; esac
+  fi
+  purge_module_rows player
+  if docker volume inspect "$volume" >/dev/null 2>&1; then
+    docker volume rm "$volume" >/dev/null || die "could not delete the volume $volume (see above)."
+    ok "Deleted the volume $volume"
+  fi
+}
+
+# The rows a module keeps in tagave's database, deleted by the doctor in the
+# app container (packages/doctor/src/modulePurge.ts; the same one the
+# updater runs for disable-module). The doctor answers one JSON line.
+purge_module_rows() {
+  local id="$1" out
+  wait_for app healthy 300 || die "the app is not running, so the $id's rows in tagave were not deleted; start it, then: docker compose exec app node packages/doctor/dist/cli.js purge-module $id"
+  if [ "$DELETE_HISTORY" = "1" ]; then
+    out="$(compose exec -T app node packages/doctor/dist/cli.js purge-module "$id" --json --delete-history 2>&1 || true)"
+  else
+    out="$(compose exec -T app node packages/doctor/dist/cli.js purge-module "$id" --json 2>&1 || true)"
+  fi
+  case "$out" in
+    *'{"purged":'*)
+      if [ "$DELETE_HISTORY" = "1" ]; then ok "Deleted the $id's rows in tagave's database and the listens it recorded"
+      else ok "Deleted the $id's rows in tagave's database; your listens stay"; fi ;;
+    *) printf '%s\n' "$out" | tail -n 3 >&2
+       die "deleting the $id's rows in tagave's database failed (above); nothing else was deleted. Once the app runs: docker compose exec app node packages/doctor/dist/cli.js purge-module $id" ;;
   esac
 }
 
@@ -2572,7 +2611,7 @@ run_disable_player() {
 # a later release needs nothing new here: the catalogue comes with the
 # release, signed.
 run_module() {
-  local action="$1" env_file project image digest answer="" extra="" onoff=on
+  local action="$1" env_file project image digest answer="" extra="" history="" onoff=on
   [ "$action" = "enable-module" ] || onoff=off
   say "${C_BOLD}tagave: turn $onoff the module $MODULE_ID${C_OFF}"
   case "$INSTALL_DIR" in /*) ;; *) INSTALL_DIR="$PWD/$INSTALL_DIR" ;; esac
@@ -2593,11 +2632,20 @@ run_module() {
   image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
   if [ "$action" = "disable-module" ]; then
     if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
+      [ "$MODULE_ID" != "player" ] || say "  Its data: Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts. Your listens stay."
       printf '%s' "Also delete the data of $MODULE_ID? This cannot be undone. (y/N): " >"$TTY"
       IFS= read -r answer <"$TTY" || answer=""
       case "$answer" in y|Y|yes|Yes|YES) DELETE_DATA=1 ;; esac
     fi
+    # The player wrote listens into tagave: the person's history, kept unless asked.
+    if [ "$MODULE_ID" = "player" ] && [ "$DELETE_DATA" = "1" ] && [ "$DELETE_HISTORY" != "1" ] && [ -n "$TTY" ]; then
+      printf '%s' "Also delete the listens the player recorded? Listens you added yourself stay. (y/N): " >"$TTY"
+      IFS= read -r answer <"$TTY" || answer=""
+      case "$answer" in y|Y|yes|Yes|YES) DELETE_HISTORY=1 ;; esac
+    fi
+    [ "$DELETE_HISTORY" != "1" ] || [ "$DELETE_DATA" = "1" ] || die "--delete-history goes with --delete-data"
     [ "$DELETE_DATA" != "1" ] || extra="--delete-data"
+    [ "$DELETE_HISTORY" != "1" ] || history="--delete-history"
   fi
   [ "$action" = "disable-module" ] || confirm "Turn on $MODULE_ID now?"
   project="$(env_get COMPOSE_PROJECT_NAME "$env_file")"
@@ -2609,7 +2657,7 @@ run_module() {
     -v "$INSTALL_DIR:$INSTALL_DIR" -w "$INSTALL_DIR" \
     -e TAGAVE_INSTALL_DIR="$INSTALL_DIR" \
     --network "${project}_default" \
-    --entrypoint node "$image" /opt/tagave/updater/dist/cli.js module "${action%-module}" "$MODULE_ID" ${extra:+"$extra"} \
+    --entrypoint node "$image" /opt/tagave/updater/dist/cli.js module "${action%-module}" "$MODULE_ID" ${extra:+"$extra"} ${history:+"$history"} \
     || die "$MODULE_ID was not turned $onoff; the lines above say why (the configuration is as it was unless they say otherwise)."
   ok "$MODULE_ID is $onoff"
 }
