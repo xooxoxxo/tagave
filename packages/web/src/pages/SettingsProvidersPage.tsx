@@ -57,17 +57,16 @@ export function SettingsProvidersPage() {
     <div className={styles.container}>
       {/* rendered inside the Settings shell (SettingsPage → PageShell tabs); no page header here */}
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Providers</h2>
-
         <div className={styles.fieldGroup}>
           <label htmlFor="contactString" className={styles.label}>
-            Contact email or URL (required)
+            Contact
           </label>
           <input
             id="contactString"
             type="text"
             className={styles.input}
-            placeholder="Your Name / App (your-email@example.com)"
+            placeholder="you@example.com"
+            required
             value={contactString}
             onChange={(e) => setContactString(e.target.value)}
           />
@@ -161,11 +160,10 @@ export function SettingsProvidersPage() {
           {fpStats && (
             <p className={styles.hint}>
               {fpStats.albums.lookedUp.toLocaleString()} of {(fpStats.albums.lookedUp + fpStats.albums.remaining).toLocaleString()} looked up
-              {' · '}{fpStats.albums.withCandidates.toLocaleString()} got candidates, {fpStats.albums.noCandidates.toLocaleString()} none
-              {fpStats.albums.matchedViaAcoustid > 0 ? ` · ${fpStats.albums.matchedViaAcoustid.toLocaleString()} matched via AcoustID` : ''}
-              {' · '}{fpStats.files.fingerprinted.toLocaleString()} files fingerprinted{fpStats.files.failed ? ` (${fpStats.files.failed} failed)` : ''}
-              {fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting > 0 ? ` · ${fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting} in the queue` : ''}
-              {' · '}{fpStats.lookups.last24h.toLocaleString()} lookups in 24 h
+              {' · '}{fpStats.albums.withCandidates.toLocaleString()} with candidates
+              {fpStats.albums.matchedViaAcoustid > 0 ? ` · ${fpStats.albums.matchedViaAcoustid.toLocaleString()} matched` : ''}
+              {' · '}{fpStats.files.fingerprinted.toLocaleString()} files{fpStats.files.failed ? ` (${fpStats.files.failed} failed)` : ''}
+              {fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting > 0 ? ` · ${fpStats.queue.fingerprintWaiting + fpStats.queue.lookupWaiting} queued` : ''}
             </p>
           )}
           {fpStats?.provider && (
@@ -195,7 +193,6 @@ export function SettingsProvidersPage() {
       </div>
 
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Enrichment</h2>
 
         <Button
           variant="secondary"

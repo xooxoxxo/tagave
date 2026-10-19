@@ -16,13 +16,13 @@ describe('invite form', () => {
 
 describe('Settings › Users wording', () => {
   it('says how someone signs in, in a few words', () => {
-    expect(signInText({ twoFactor: false, passkeys: 0 })).toBe('Password only');
-    expect(signInText({ twoFactor: true, passkeys: 1 })).toBe('Password, 1 passkey and authenticator app');
+    expect(signInText({ twoFactor: false, passkeys: 0 })).toBe('Password');
+    expect(signInText({ twoFactor: true, passkeys: 1 })).toBe('Password, 1 passkey, authenticator');
     expect(signInText({ twoFactor: false, passkeys: 3 })).toBe('Password, 3 passkeys');
   });
 
   it('says when they were last here', () => {
     expect(lastSeenText(null)).toBe('Never signed in');
-    expect(lastSeenText('2026-10-03T10:00:00Z')).toMatch(/^Last here /);
+    expect(lastSeenText('2026-10-03T10:00:00Z')).toMatch(/^Seen /);
   });
 });

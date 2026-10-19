@@ -200,7 +200,7 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
                 </div>
                 <p className={styles.purpose}>{m.purpose}</p>
                 <p className={styles.meta}>
-                  Memory up to {size(m.estimate.memoryMb)} · about {size(m.estimate.diskMb)} on disk{m.roles.includes('app') ? '' : ' · one-computer installs only'}
+                  {size(m.estimate.memoryMb)} memory · {size(m.estimate.diskMb)} disk{m.roles.includes('app') ? '' : ' · one-computer installs'}
                 </p>
                 {m.state === 'failed' && m.lastError && <p className={styles.error}>{sentence(m.lastError)}</p>}
                 {m.state === 'update_pending' && <p className={styles.meta}>Update pending</p>}
@@ -352,7 +352,7 @@ export function McModuleRow({ view, pending = false, error = null, onTurnOn, onT
           Links tagave to other music apps you run, such as review-gatherer.
         </p>
         <p className={styles.meta}>
-          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items received{view.fills > 0 ? ` · ${view.fills} album IDs it filled in` : ''} · built in
+          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items{view.fills > 0 ? ` · ${view.fills} IDs filled in` : ''}
         </p>
         <div className={styles.actions}>
           {view.enabled

@@ -14,6 +14,7 @@ import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
+import { shortDate } from '../utils/time';
 import styles from './SettingsPlaybackPage.module.css';
 
 /** "navidrome" → "Navidrome" */
@@ -36,9 +37,7 @@ const problem = (err: unknown, fallback: string) => {
   return e?.detail || e?.title || fallback;
 };
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
+const when = (iso: string) => shortDate(iso);
 
 export function SettingsPlaybackContent() {
   const { libraryId } = useCurrentLibrary();
@@ -72,7 +71,7 @@ export function SettingsPlaybackContent() {
       {scan.isError && <p className={styles.error} role="alert">{problem(scan.error, 'The scan could not be started.')}</p>}
 
       {cap?.installed && settings.data?.bundled && (
-        <p className={styles.hint}>Subsonic apps: port 4533</p>
+        <p className={styles.hint}>Subsonic port 4533</p>
       )}
 
       {owner && settings.data && !settings.data.bundled && <OwnServerForm libraryId={libraryId} settings={settings.data} />}
@@ -245,7 +244,6 @@ export function ScrobblingSettingsPanel({
         <>
           <div className={styles.keyLine}>
             <span className={styles.keyText}>Last.fm · API key …{lastfm?.apiKeyHint}{lastfm?.source === 'env' ? ' · from .env' : ''}</span>
-            <Badge tone="success">Ready</Badge>
           </div>
           {error && <p className={styles.error} role="alert">{error}</p>}
           <div className={styles.row}>

@@ -18,7 +18,7 @@ describe('Settings › Modules', () => {
     const html = render(BASE_VIEW);
     expect(html).toContain('Player');
     expect(html).toContain('Dummy');
-    expect(html).toContain('Memory up to 512 MB · about 260 MB on disk · one-computer installs only');
+    expect(html).toContain('512 MB memory · 260 MB disk · one-computer installs');
     expect(button(html, 'Turn on')).not.toMatch(/disabled/);
     expect(button(html, 'Turn off')).not.toBe('');
     expect(html).not.toContain('install-tagave.sh enable-module');
@@ -94,7 +94,7 @@ describe('the Music Connections row (a setting, not a container)', () => {
     const html = row(true);
     expect(html).toContain('Music Connections');
     expect(html).toContain('>On<');
-    expect(html).toContain('2 connections · 40 items received · 3 album IDs it filled in');
+    expect(html).toContain('2 connections · 40 items · 3 IDs filled in');
     expect(button(html, 'Turn off')).not.toBe('');
     expect(button(html, 'Turn on')).toBe('');
   });

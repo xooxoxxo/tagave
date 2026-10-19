@@ -12,7 +12,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import type { JobView, JobsSummary } from '@tagave/shared';
 import { useCurrentLibrary, useIdentifyStats, useKickSweep, useJobs, useRetryJob } from '../hooks';
 import type { IdentifyStatsResponse } from '../hooks';
-import { Badge, Banner, Button, LinkButton, Table, Th, Td, type BadgeTone } from '../components/ui';
+import { Badge, Banner, Button, LinkButton, Table, Td, type BadgeTone } from '../components/ui';
 import { formatRelativeTime } from '../utils/time';
 import { identifyRateLine, summaryMessage } from './jobsSummary';
 import styles from './JobsPage.module.css';
@@ -81,9 +81,9 @@ export function JobsPage() {
 
   return (
     <div className={styles.page}>
-      <Summary summary={jobs.summary} running={recent.filter((j) => j.status === 'running')}
+      {attention.length === 0 && <Summary summary={jobs.summary} running={recent.filter((j) => j.status === 'running')}
         anyRetryable={attention.some((j) => j.retryable)}
-        pendingAlbums={stats && stats.sweep?.state !== 'running' ? stats.states.pending : undefined} />
+        pendingAlbums={stats && stats.sweep?.state !== 'running' ? stats.states.pending : undefined} />}
 
       {focusMissing && (
         <Banner tone="warning">
@@ -181,9 +181,7 @@ function Identification({ stats, libraryId }: { stats: IdentifyStatsResponse; li
     <section className={styles.card} aria-labelledby="jobs-identify">
       <div className={styles.cardHead}>
         <h3 id="jobs-identify" className={styles.sectionTitle}>Album identification</h3>
-        {running ? <Badge tone="info">Running</Badge>
-          : states.pending > 0 ? <Badge tone="neutral">Waiting</Badge>
-          : <Badge tone="success">Finished</Badge>}
+        {running && <Badge tone="info">Running</Badge>}
       </div>
 
       {running ? (
@@ -236,14 +234,6 @@ function JobTable({ jobs, focusId, action }: { jobs: JobView[]; focusId: string 
         <col className={styles.colWhen} />
         {action && <col className={styles.colAction} />}
       </colgroup>
-      <thead>
-        <tr>
-          <Th>Task</Th>
-          <Th>Status</Th>
-          <Th>When</Th>
-          {action && <Th><span className={styles.srOnly}>Action</span></Th>}
-        </tr>
-      </thead>
       <tbody>
         {jobs.map((job) => {
           const badge = statusBadge(job);

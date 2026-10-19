@@ -163,7 +163,7 @@ export function SettingsUsersPage() {
           />
         ) : (
           <form className={list.form} onSubmit={(e) => void onInvite(e)}>
-            <TextField label="Email address" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
+            <TextField label="Email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" />
             <div className={list.field}>
               <label htmlFor="invite-role" className={list.fieldLabel}>Role</label>
               <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as Role)}>

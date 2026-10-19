@@ -7,25 +7,26 @@
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ROLES, ROLE_LABELS, type InviteView, type Role, type UserView } from '@tagave/shared';
 import { Badge, Button, Input, Menu, Select, showToast, type BadgeTone, type MenuItem } from '../ui';
+import { shortDate } from '../../utils/time';
 import styles from './UsersList.module.css';
 
 const ROLE_TONE: Record<Role, BadgeTone> = { owner: 'accent', editor: 'info', listener: 'neutral' };
 
 function day(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  return shortDate(iso, { time: false });
 }
 
-/** "Last here 3 Oct 2026", or never. */
+/** "Seen 3 Oct", or never. */
 export function lastSeenText(iso: string | null): string {
-  return iso ? `Last here ${day(iso)}` : 'Never signed in';
+  return iso ? `Seen ${day(iso)}` : 'Never signed in';
 }
 
 /** How the person signs in, in a few words. */
 export function signInText(u: Pick<UserView, 'twoFactor' | 'passkeys'>): string {
   const parts: string[] = [];
   if (u.passkeys > 0) parts.push(u.passkeys === 1 ? '1 passkey' : `${u.passkeys} passkeys`);
-  if (u.twoFactor) parts.push('authenticator app');
-  return parts.length ? `Password, ${parts.join(' and ')}` : 'Password only';
+  if (u.twoFactor) parts.push('authenticator');
+  return parts.length ? `Password, ${parts.join(', ')}` : 'Password';
 }
 
 export function RoleBadge({ role }: { role: Role }) {

@@ -24,10 +24,26 @@ const TITLES: Record<string, string> = {
 };
 
 /**
- * One row per check: what was checked, what was found, and, for anything
- * that did not pass, what to do about it.
+ * Checks that did not pass, in full (what was found and how to fix it);
+ * the ones that passed fold into one "All good · N" line that opens.
  */
 export function SystemCheckList({ checks }: { checks: SystemCheck[] }) {
+  const ok = checks.filter((c) => c.status === 'pass');
+  const rest = checks.filter((c) => c.status !== 'pass');
+  return (
+    <>
+      {rest.length > 0 && <CheckRows checks={rest} />}
+      {ok.length > 0 && (
+        <details className={styles.ok}>
+          <summary>{rest.length === 0 ? 'All good' : 'OK'} · {ok.length}</summary>
+          <CheckRows checks={ok} />
+        </details>
+      )}
+    </>
+  );
+}
+
+function CheckRows({ checks }: { checks: SystemCheck[] }) {
   return (
     <ul className={styles.list}>
       {checks.map((check) => {
@@ -40,10 +56,7 @@ export function SystemCheckList({ checks }: { checks: SystemCheck[] }) {
             </div>
             {check.detail && <p className={styles.detail}>{check.detail}</p>}
             {check.remediation && (
-              <p className={styles.fix}>
-                <strong>How to fix: </strong>
-                {check.remediation}
-              </p>
+              <p className={styles.fix}>{check.remediation}</p>
             )}
           </li>
         );

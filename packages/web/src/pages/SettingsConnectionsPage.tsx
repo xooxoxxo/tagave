@@ -14,6 +14,7 @@ import { Badge, Banner, Button, TextField, confirmDialog, showToast, type BadgeT
 import { useAddConnection, useConnections, useEditConnectionUrl, useReapproveConnection, useRevokeConnection, useSyncConnection } from '../hooks/useConnections';
 import type { ApiError } from '../services/api';
 import { copyText } from './AlbumFolders';
+import { shortDate } from '../utils/time';
 import styles from './SettingsConnectionsPage.module.css';
 
 const CAPABILITY_LABELS: Record<string, string> = {
@@ -43,9 +44,7 @@ export function problem(err: unknown, fallback: string, now = Date.now()): strin
   return `${text} It starts ${when(e.retryAt)}.`;
 }
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
+const when = (iso: string) => shortDate(iso);
 
 function stateBadge(link: McLinkView): { tone: BadgeTone; label: string } {
   if (link.state === 'revoked') return { tone: 'neutral', label: 'Revoked' };
@@ -225,8 +224,8 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
             <li key={c.capability} className={styles.cap}>
               <span>{CAPABILITY_LABELS[c.capability] ?? c.capability}</span>
               <span className={c.status === 'granted' ? styles.capOn : styles.capOff}>
-                {c.status === 'granted' ? 'Granted' : c.status === 'available' ? 'Available, re-link to grant' : 'Not granted'}
-                {c.status === 'granted' && c.skipped ? ` (${c.skipped} skipped last sync)` : ''}
+                {c.status === 'granted' ? 'Granted' : c.status === 'available' ? 'Available' : 'Not granted'}
+                {c.status === 'granted' && c.skipped ? ` · ${c.skipped} skipped` : ''}
               </span>
             </li>
           ))}
@@ -234,8 +233,8 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
       )}
 
       <dl className={styles.meta}>
-        <div><dt>Last sync</dt><dd>{link.lastSyncAt ? when(link.lastSyncAt) : 'Not yet'}</dd></div>
-        {link.lastError && !revoked && <div><dt>Last error</dt><dd className={styles.errorText}>{link.lastError}</dd></div>}
+        <div><dt>Synced</dt><dd>{link.lastSyncAt ? when(link.lastSyncAt) : 'Not yet'}</dd></div>
+        {link.lastError && !revoked && <div><dt>Error</dt><dd className={styles.errorText}>{link.lastError}</dd></div>}
         {(link.parkedDropped ?? 0) > 0 && !revoked && (
           <div><dt>Not kept</dt><dd>{link.parkedDropped} items for albums not in your library were dropped</dd></div>
         )}
@@ -272,9 +271,9 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
             </>
           ) : (
             <>
-              {link.state === 'active' && <Button variant="secondary" size="sm" onClick={onSync} loading={busy}>Sync now</Button>}
+              {link.state === 'active' && <Button variant="secondary" size="sm" onClick={onSync} loading={busy}>Sync</Button>}
               <Button variant={link.state === 'needs_reapproval' || available.length > 0 ? 'primary' : 'quiet'} size="sm" onClick={onReapprove} disabled={busy}>Re-approve</Button>
-              <Button variant="quiet" size="sm" onClick={() => setEditing(true)}>Edit address</Button>
+              <Button variant="quiet" size="sm" onClick={() => setEditing(true)}>Edit</Button>
               <Button variant="quiet-danger" size="sm" onClick={onRevoke} disabled={busy}>Revoke</Button>
             </>
           )}

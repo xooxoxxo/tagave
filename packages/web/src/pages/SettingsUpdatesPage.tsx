@@ -89,7 +89,7 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
     <details className={styles.release} open={open}>
       <summary className={styles.releaseHead}>
         <strong>{release.tag}</strong>
-        {release.name && release.name !== release.tag && <span>{release.name}</span>}
+        {release.name && release.name !== release.tag && release.name.replace(/^tagave\s+/i, 'v') !== release.tag && <span>{release.name}</span>}
         {release.publishedAt && <span className={styles.muted}>{new Date(release.publishedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>}
         {release.requiresAttention && <span className={styles.attention}>requires attention</span>}
       </summary>
@@ -275,7 +275,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         ) : (
           <label className={styles.gateCheck}>
             <input type="checkbox" checked={feed.enabled} disabled={setFeed.isPending} onChange={(e) => setFeed.mutate({ enabled: e.target.checked })} />
-            Check for new versions
+            Auto-check
           </label>
         )}
         <div className={styles.row}>
@@ -284,7 +284,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
           </Button>
           <span className={styles.muted}>
             {!feed.enabled ? 'Off'
-              : feed.lastCheckedAt ? <>Last checked <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span></> : 'Not checked yet'}
+              : feed.lastCheckedAt ? <span title={fullDate(feed.lastCheckedAt)}>{when(feed.lastCheckedAt)}</span> : 'Not checked yet'}
             {feed.enabled && feed.error ? ` · Failed: ${feed.error}` : ''}
           </span>
         </div>

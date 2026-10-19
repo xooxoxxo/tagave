@@ -40,27 +40,27 @@ import styles from './SettingsPage.module.css';
 type Section = { value: string; label: string; group: string; permission?: Permission };
 
 const sections: Section[] = [
-  { value: 'library', label: 'Music folders', group: 'Your library', permission: 'system.manage' },
-  { value: 'metadata', label: 'Tag preferences', group: 'Your library', permission: 'library.edit' },
-  { value: 'genre-mapping', label: 'Genre mapping', group: 'Your library', permission: 'library.edit' },
-  { value: 'following', label: 'Follow rules', group: 'Your library', permission: 'library.edit' },
-  { value: 'users', label: 'Users', group: 'Connections & system', permission: 'users.manage' },
-  { value: 'providers', label: 'Integrations', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'playback', label: 'Playback', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'system', label: 'System status', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'storage', label: 'Storage', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'backups', label: 'Backups', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'updates', label: 'Updates', group: 'Connections & system', permission: 'system.manage' },
+  { value: 'library', label: 'Music folders', group: 'Library', permission: 'system.manage' },
+  { value: 'metadata', label: 'Tag preferences', group: 'Library', permission: 'library.edit' },
+  { value: 'genre-mapping', label: 'Genre mapping', group: 'Library', permission: 'library.edit' },
+  { value: 'following', label: 'Follow rules', group: 'Library', permission: 'library.edit' },
+  { value: 'users', label: 'Users', group: 'System', permission: 'users.manage' },
+  { value: 'providers', label: 'Integrations', group: 'System', permission: 'system.manage' },
+  { value: 'playback', label: 'Playback', group: 'System', permission: 'system.manage' },
+  { value: 'system', label: 'System status', group: 'System', permission: 'system.manage' },
+  { value: 'storage', label: 'Storage', group: 'System', permission: 'system.manage' },
+  { value: 'backups', label: 'Backups', group: 'System', permission: 'system.manage' },
+  { value: 'updates', label: 'Updates', group: 'System', permission: 'system.manage' },
   // Modules change the install: system.manage is the owner's alone.
-  { value: 'modules', label: 'Modules', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'activity', label: 'Background activity', group: 'Connections & system', permission: 'library.edit' },
-  { value: 'setup-checklist', label: 'Setup checklist', group: 'Connections & system', permission: 'system.manage' },
-  { value: 'account', label: 'Account', group: 'Your account' },
-  { value: 'appearance', label: 'Appearance', group: 'Your account' },
-  { value: 'security', label: 'Security', group: 'Your account' },
-  { value: 'listening', label: 'Listening', group: 'Your account' },
+  { value: 'modules', label: 'Modules', group: 'System', permission: 'system.manage' },
+  { value: 'activity', label: 'Background activity', group: 'System', permission: 'library.edit' },
+  { value: 'setup-checklist', label: 'Setup checklist', group: 'System', permission: 'system.manage' },
+  { value: 'account', label: 'Account', group: 'Account' },
+  { value: 'appearance', label: 'Appearance', group: 'Account' },
+  { value: 'security', label: 'Security', group: 'Account' },
+  { value: 'listening', label: 'Listening', group: 'Account' },
   // Music Connections: each person links tagave to other music apps for themselves
-  { value: 'connections', label: 'Connections', group: 'Your account' },
+  { value: 'connections', label: 'Connections', group: 'Account' },
 ];
 
 export function SettingsPage() {
@@ -136,7 +136,7 @@ function DisplaySettings() {
   return <>
     <h2 className={styles.modeSetting}>Search box</h2>
     
-    <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below the logo' }, { value: 'beside', label: 'Next to the logo' }]} />
+    <SegmentedControl label="Search box" value={prefs.searchPlacement} onChange={(v) => setPrefs({ searchPlacement: v })} options={[{ value: 'below', label: 'Below' }, { value: 'beside', label: 'Beside' }]} />
     <h2 className={styles.modeSetting}>Wordmark</h2>
     
     <SegmentedControl label="Wordmark" value={prefs.showWordmark ? 'shown' : 'hidden'} onChange={(v) => setPrefs({ showWordmark: v === 'shown' })} options={[{ value: 'shown', label: 'Shown' }, { value: 'hidden', label: 'Hidden' }]} />

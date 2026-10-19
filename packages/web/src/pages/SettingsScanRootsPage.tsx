@@ -7,6 +7,7 @@ import { useId, useState } from 'react';
 import { useCurrentLibrary, useScanRoots, useCreateScanRoot, useUpdateScanRoot, useDeleteScanRoot, useStartScan, useValidateScanRoot } from '../hooks';
 import { SCAN_ROOT_EMPTY_MESSAGE, folderLinkBaseProblem, type ScanRoot } from '@tagave/shared';
 import { Button, confirmDialog } from '../components/ui';
+import { shortDate } from '../utils/time';
 import styles from './SettingsScanRootsPage.module.css';
 
 /**
@@ -273,13 +274,8 @@ function SettingsScanRootsContentInner() {
                       Empty
                     </span>
                   )}
-                  {root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && (
-                    <span
-                      className={`${styles.badge} ${styles.validationOk}`}
-                      title={root.probeWritable === false ? 'Mounted read-only' : 'Path validated'}
-                    >
-                      {root.probeWritable === false ? 'Read-only mount' : 'OK'}
-                    </span>
+                  {root.validationStatus === 'ok' && root.validationMessage !== SCAN_ROOT_EMPTY_MESSAGE && root.probeWritable === false && (
+                    <span className={`${styles.badge} ${styles.validationOk}`} title="Mounted read-only">Read-only mount</span>
                   )}
                   {root.validationStatus === 'missing' && (
                     <span className={`${styles.badge} ${styles.validationError}`} title={root.validationMessage || 'Path does not exist'}>
@@ -296,13 +292,8 @@ function SettingsScanRootsContentInner() {
                       Unreadable
                     </span>
                   )}
-                  {root.validatedAt && (
-                    <span className={styles.badge} title={new Date(root.validatedAt).toLocaleString()}>
-                      {new Date(root.validatedAt).toLocaleDateString()}
-                    </span>
-                  )}
-                  <span className={styles.badge}>{root.writable ? 'Writable' : 'Read-only'}</span>
-                  <span className={styles.badge}>{root.enabled ? 'Enabled' : 'Disabled'}</span>
+                  {!root.writable && root.probeWritable !== false && <span className={styles.badge}>Read-only</span>}
+                  {!root.enabled && <span className={styles.badge}>Disabled</span>}
                 </div>
               </div>
 
@@ -310,7 +301,7 @@ function SettingsScanRootsContentInner() {
                 <span>{(root.albumsFound ?? 0).toLocaleString()} {root.albumsFound === 1 ? 'album' : 'albums'}</span>
                 <span>{(root.tracksFound ?? 0).toLocaleString()} {root.tracksFound === 1 ? 'track' : 'tracks'}</span>
                 {root.lastScanAt && (
-                  <span>Last scan: {new Date(root.lastScanAt).toLocaleDateString()}</span>
+                  <span>Scanned {shortDate(root.lastScanAt, { time: false })}</span>
                 )}
               </div>
 
@@ -394,7 +385,7 @@ function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boo
   const dirty = value.trim() !== saved.trim();
   return (
     <div className={styles.folderLink}>
-      <label htmlFor={id} className={styles.folderLinkLabel}>Open-folder link</label>
+      <label htmlFor={id} className={styles.folderLinkLabel}>Folder link</label>
       <div className={styles.folderLinkRow}>
         <input
           id={id}
@@ -408,7 +399,7 @@ function FolderLinkField({ root, saving, onSave }: { root: ScanRoot; saving: boo
           autoCapitalize="off"
         />
         <Button size="sm" variant="secondary" disabled={!dirty || !!problem || saving} onClick={() => onSave(value.trim() || null)}>
-          {saving ? 'Saving...' : value.trim() || !saved ? 'Save link' : 'Remove link'}
+          {saving ? 'Saving...' : value.trim() || !saved ? 'Save' : 'Remove'}
         </Button>
       </div>
       {problem && <p id={`${id}-help`} className={styles.error}>{problem}</p>}

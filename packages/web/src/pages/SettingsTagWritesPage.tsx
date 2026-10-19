@@ -129,8 +129,8 @@ function SettingsTagWritesContentInner() {
                     : writableRoots.map((r) => r.path).join(', ')}
               </span>
             </div>
-            <LinkButton variant="secondary" size="sm" to="/settings/library">
-              Music folders
+            <LinkButton variant="secondary" size="sm" to="/settings/library" aria-label="Edit music folders">
+              Edit
             </LinkButton>
           </div>
         </div>
@@ -144,7 +144,6 @@ function SettingsTagWritesContentInner() {
         <h2 className={styles.sectionTitle}>Default write policy</h2>
 
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>Preset</label>
           <div className={styles.radioGroup}>
             {PRESETS.map((p) => (
               <label key={p.id} className={`${styles.radioLabel} ${policy.preset === p.id ? styles.radioActive : ''}`}>
@@ -165,7 +164,7 @@ function SettingsTagWritesContentInner() {
 
         <div className={styles.fieldGroup}>
           <label htmlFor="id3Version" className={styles.label}>
-            ID3 version for MP3
+            MP3 tags
           </label>
 
           <select

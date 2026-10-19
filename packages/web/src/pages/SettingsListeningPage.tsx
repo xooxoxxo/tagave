@@ -13,7 +13,7 @@ import {
   useRemoveOwnAccount, useSaveOwnAccount, useSetPhonePassword,
 } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
-import { formatRelativeTime } from '../utils/time';
+import { formatRelativeTime, shortDate } from '../utils/time';
 import styles from './SettingsListeningPage.module.css';
 
 const problem = (err: unknown, fallback: string) => {
@@ -21,9 +21,7 @@ const problem = (err: unknown, fallback: string) => {
   return e?.detail || e?.title || fallback;
 };
 
-function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
-}
+const when = (iso: string | null) => shortDate(iso);
 
 const SERVICE_NAME: Record<ScrobbleService, string> = { lastfm: 'Last.fm', listenbrainz: 'ListenBrainz' };
 
@@ -99,13 +97,10 @@ function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePa
   const a = data.account;
   if (a.kind === 'bundled') {
     return (
-      <Section id="listening-account" title="Your player account" aside={a.state === 'disabled' ? <Badge tone="danger">Locked</Badge> : null}>
+      <Section id="listening-account" title="Player account" aside={a.state === 'disabled' ? <Badge tone="danger">Locked</Badge> : null}>
         <p className={styles.hint}>
-          {a.username ? <>User name: <strong className={styles.name}>{a.username}</strong></> : 'Created on your first play'}
+          {a.username ? <><strong className={styles.name}>{a.username}</strong> · Subsonic port 4533</> : 'Subsonic port 4533'}
         </p>
-        <h4 className={styles.subTitle}>Subsonic apps</h4>
-        <p className={styles.hint}>Port 4533</p>
-        {a.phonePassword && <p className={styles.ok} role="status">Password set</p>}
         <PhonePasswordForm
           key={a.phonePassword ? 'set' : 'unset'}
           hasOne={a.phonePassword}
@@ -119,7 +114,7 @@ function AccountSection({ data, busy, errors, onSetPhonePassword, onClearPhonePa
     );
   }
   return (
-    <Section id="listening-account" title="Your player account">
+    <Section id="listening-account" title="Player account">
       {a.kind === 'shared'
         ? <p className={styles.hint}>Shared account</p>
         : <p className={styles.hint}>User name: <strong className={styles.name}>{a.username}</strong></p>}
@@ -156,7 +151,7 @@ function PhonePasswordForm({ hasOne, disabled, busy, error, onSave, onClear }: {
         onChange={(e) => setPassword(e.currentTarget.value)}
         disabled={disabled}
         error={invalid ?? error ?? undefined}
-        hint="At least 12 characters"
+        placeholder="12+ characters"
       />
       <div className={styles.row}>
         <Button type="submit" variant="secondary" loading={busy} disabled={disabled}>{hasOne ? 'Change password' : 'Set password'}</Button>
@@ -202,7 +197,7 @@ function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: L
 
 /** One line per connected service: who, when something last went through, what waits. */
 export function serviceLine(s: ScrobbleAccountView): string {
-  const parts = [`Connected as ${s.accountName}`, s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
+  const parts = [s.accountName ?? '', s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
   if (s.pending > 0) parts.push(`${s.pending} waiting`);
   return parts.join(' · ');
 }
@@ -226,7 +221,6 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
         <li className={styles.service}>
           <div className={styles.serviceHead}>
             <span className={styles.serviceName}>Last.fm</span>
-            {lastfm?.connected ? <Badge tone="success">Connected</Badge> : <Badge tone="neutral">Not connected</Badge>}
           </div>
           {lastfm?.connected ? (
             <>
@@ -246,7 +240,6 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
         <li className={styles.service}>
           <div className={styles.serviceHead}>
             <span className={styles.serviceName}>ListenBrainz</span>
-            {lb?.connected ? <Badge tone="success">Connected</Badge> : <Badge tone="neutral">Not connected</Badge>}
           </div>
           {lb?.connected ? (
             <>
@@ -288,11 +281,11 @@ function ListenbrainzForm({ busy, error, onConnect }: { busy: boolean; error: st
 function playStatus(p: PlayHistoryItem): string {
   if (!p.scrobbles) return 'Not counted';
   if (p.scrobbled.length === 0) return 'Counted';
-  return p.scrobbled.map((s) => {
+  if (p.scrobbled.every((s) => s.status === 'sent')) return 'Scrobbled';
+  return p.scrobbled.filter((s) => s.status !== 'sent').map((s) => {
     const name = SERVICE_NAME[s.service];
     switch (s.status) {
-      case 'sent': return `Scrobbled to ${name}`;
-      case 'pending': case 'sending': return `Waiting for ${name}`;
+      case 'pending': case 'sending': return `${name} waiting`;
       case 'ignored': return `${name} did not keep it${s.error ? ` (${s.error})` : ''}`;
       default: return `Not sent to ${name}${s.error ? ` (${s.error})` : ''}`;
     }
@@ -306,11 +299,6 @@ function HistorySection({ history }: { history: ListeningHistoryView | null }) {
         <p className={styles.hint}>No plays yet</p>
       ) : (
         <>
-          {history.listens.length > 0 && (
-            <p className={styles.hint}>
-              {history.listens.length === 1 ? '1 album listen' : `${history.listens.length} album listens`} · last {history.listens[0]!.album ? <><strong className={styles.name}>{history.listens[0]!.album}</strong>, </> : ''}{when(history.listens[0]!.endedAt)}
-            </p>
-          )}
           <ul className={styles.plays}>
             {history.plays.map((p) => (
               <li key={p.id} className={styles.play}>
@@ -319,7 +307,7 @@ function HistorySection({ history }: { history: ListeningHistoryView | null }) {
                   <span className={styles.playSub} dir="auto">{[p.artist, p.album].filter(Boolean).join(' · ')}</span>
                 </div>
                 <div className={styles.playMeta}>
-                  <span className={styles.playWhen}>{when(p.startedAt)} · {p.source === 'web' ? 'tagave' : 'another app'}</span>
+                  <span className={styles.playWhen}>{when(p.startedAt)}{p.source === 'web' ? '' : ' · another app'}</span>
                   <span className={styles.playStatus}>{playStatus(p)}</span>
                 </div>
               </li>

@@ -168,7 +168,7 @@ export function SetupChecklistContent() {
                   className={`${styles.validationPill} ${styles[root.validationStatus]}`}
                 >
                   {root.validationStatus === 'pending' && 'Validating...'}
-                  {root.validationStatus === 'ok' && 'Valid'}
+                  {root.validationStatus === 'ok' && '✓'}
                   {root.validationStatus === 'missing' && 'Path not found'}
                   {root.validationStatus === 'not_directory' && 'Not a directory'}
                   {root.validationStatus === 'unreadable' && 'Not readable'}

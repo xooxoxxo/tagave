@@ -83,7 +83,7 @@ try {
   await ownerPage.goto('/settings/users');
   await ownerPage.getByRole('heading', { name: 'People' }).waitFor();
   step('Settings › Users lists the owner', await ownerPage.getByText('Ada Owner').isVisible());
-  await ownerPage.getByLabel(/^Email address/).fill(listener.email);
+  await ownerPage.getByLabel(/^Email/).fill(listener.email);
   await ownerPage.getByLabel('Role', { exact: true }).selectOption('listener');
   await ownerPage.getByRole('button', { name: 'Invite', exact: true }).click();
   const linkBox = ownerPage.getByLabel('One-time link');
@@ -102,7 +102,7 @@ try {
   step('the invite page names the role', await lp.getByText('You are invited as a listener').isVisible());
   await shoot(lp, 'invite-accept');
   const fields = lp.locator('input[autocomplete="new-password"]');
-  await lp.getByLabel(/^Your name/).fill(listener.name);
+  await lp.getByLabel(/^Name/).fill(listener.name);
   await fields.nth(0).fill(listener.password);
   await fields.nth(1).fill(listener.password);
   await lp.getByRole('button', { name: 'Create account' }).click();

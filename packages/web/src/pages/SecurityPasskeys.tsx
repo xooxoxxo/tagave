@@ -9,6 +9,7 @@ import { useRefreshSecurity } from '../hooks/useSecurity';
 import { addPasskey, deletePasskey, renamePasskey, type PasskeyKind } from '../services/passkeys';
 import { signInErrorMessage } from './loginErrors';
 import { accountHealth, passkeyKind, passkeyLabel, passkeyProblem, type PasskeyView, type SecurityStatus } from './securityModel';
+import { shortDate } from '../utils/time';
 import styles from './SettingsSecurityPage.module.css';
 
 export function AddPasskeyButtons({ onAdded, disabled }: { onAdded: () => void | Promise<void>; disabled?: boolean }) {
@@ -101,7 +102,7 @@ export function PasskeysSection({ data }: { data: SecurityStatus }) {
                     <strong>{passkeyLabel(p)}</strong>
                     <div className={styles.muted}>
                       {passkeyKind(p)}
-                      {p.createdAt ? ` · added ${new Date(p.createdAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}` : ''}
+                      {p.createdAt ? ` · ${shortDate(p.createdAt, { time: false })}` : ''}
                     </div>
                   </div>
                   <div className={styles.actions}>

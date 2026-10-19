@@ -41,8 +41,7 @@ export function SettingsAccountPage() {
 
   return (
     <div className={styles.page}>
-      <section className={styles.section} aria-labelledby="account-name">
-        <h3 id="account-name" className={styles.title}>Name</h3>
+      <section className={styles.section} aria-label="Name">
         <form className={styles.section} onSubmit={(e) => { e.preventDefault(); if (dirty) void save(); }}>
           <TextField label="Name" value={draft} maxLength={255} autoComplete="name" onChange={(e) => { setName(e.target.value); setSaved(false); }} />
           <div>
@@ -54,7 +53,7 @@ export function SettingsAccountPage() {
       </section>
 
       <section className={styles.section} aria-labelledby="account-email">
-        <h3 id="account-email" className={styles.title}>Email address</h3>
+        <h3 id="account-email" className={styles.title}>Email</h3>
         <p className={styles.hint}>{user.email}</p>
 
       </section>

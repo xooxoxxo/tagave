@@ -52,3 +52,14 @@
   color: var(--text-primary);
   max-width: 72ch;
 }
+
+.ok summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  padding: var(--space-xs) 0;
+}
+
+.ok[open] summary {
+  margin-bottom: var(--space-sm);
+}

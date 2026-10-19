@@ -51,12 +51,12 @@ describe('Free space on this server', () => {
     const html = renderToStaticMarkup(<DiskSpace disk={disk()} />);
     expect(html).toContain('Free space');
     expect(html).toContain('Backups and cache');
-    expect(html).toContain('60.0 GB free of 100.0 GB');
-    expect(html).toContain('40% used');
+    expect(html).toContain('60.0 GB free');
+    expect(html).toContain('style="width:40%"');
     expect(html).toContain('<code');
     expect(html).toContain('/backups');
     expect(html).toContain('style="width:40%"');
-    expect(html).toContain('Database: Postgres runs on &quot;postgres&quot;, so its disk cannot be measured from here.');
+    expect(html).toContain('Database: not measured');
     expect(html).not.toContain('Bars show');
     // nothing to act on: no banner, no badge
     expect(html).not.toMatch(/tone-warning|tone-danger|Filling up|Almost full/);

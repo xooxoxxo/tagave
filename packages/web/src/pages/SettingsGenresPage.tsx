@@ -165,7 +165,7 @@ function SettingsGenresContentInner() {
 
         <div className={styles.fieldGroup}>
           <label htmlFor="maxGenres" className={styles.label}>
-            Max genres per album
+            Max genres
           </label>
           <input
             id="maxGenres"

@@ -22,6 +22,20 @@ export function formatRelativeTime(isoString: string): string {
 }
 
 /**
+ * A short date and time: "19 Oct, 22:21", the year only when it is not
+ * this one ("3 Mar 2025, 09:10"). `time: false` gives the date alone.
+ */
+export function shortDate(iso: string | null | undefined, opts: { time?: boolean } = {}): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  const date = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) });
+  if (opts.time === false) return date;
+  return `${date}, ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+/**
  * Humanize ETA in seconds (e.g., "~2 h 10 min", "~35 min", "<1 min")
  */
 export function formatEta(seconds: number | null): string {

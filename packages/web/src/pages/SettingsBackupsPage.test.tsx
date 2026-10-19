@@ -46,7 +46,7 @@ describe('SettingsBackupsPage', () => {
     }));
     expect(html).toContain('Nightly');
     expect(html).toContain('Before update');
-    expect(html).toContain('Readable');
+    expect(html).not.toContain('Readable');
     expect(html).toContain('Not checked');
     expect(html).toContain('href="/api/v1/backups/tagave-2026-09-29T03-00-00Z-nightly.pgdump/download"');
     expect(html).toContain('2 backups · 3.0 KB');
@@ -80,8 +80,8 @@ describe('SettingsBackupsPage', () => {
       ],
     }));
     for (const title of ['>Nightly</h4>', '>Before update</h4>', '>Manual</h4>']) expect(html).toContain(title);
-    expect(html).toContain('4 backups, 4.0 MB, newest');
-    expect(html).toContain('Keep the newest');
+    expect(html).toContain('4 backups · 4.0 MB');
+    expect(html).toContain('>Keep<');
     expect(html).toContain('min="1"');
     expect(html).toContain('Keep manual backups');
     // what goes at the next update, with the total size and which backups
@@ -99,8 +99,8 @@ describe('SettingsBackupsPage', () => {
       ],
     }));
     expect(html).toContain('>Before restore</h4>');
-    expect(html).toContain('1 backup, 2.0 KB, newest');
-    expect(html).toContain('1 backup, 2.0 KB, newest');
+    expect(html).toContain('1 backup · 2.0 KB');
+    expect(html).toContain('1 backup · 2.0 KB');
   });
 
   it('says nothing goes when the saved numbers keep everything', () => {

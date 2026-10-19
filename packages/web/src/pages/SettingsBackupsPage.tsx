@@ -9,6 +9,7 @@ import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSett
 import { Badge, Banner, Button, Input, SegmentedControl, Select, buttonClassName, confirmDialog, type BadgeTone } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
+import { shortDate } from '../utils/time';
 import { docsUrl } from '../utils/docs';
 import styles from './SettingsBackupsPage.module.css';
 
@@ -21,9 +22,7 @@ const KIND: Record<BackupKindView, { label: string; tone: BadgeTone }> = {
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
-function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
+const when = (iso: string) => shortDate(iso);
 
 function hourLabel(h: number): string {
   return `${String(h).padStart(2, '0')}:00`;
@@ -36,7 +35,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 /** "3 backups, 1.2 GB, newest 16 Oct 2026, 03:00" for one kind. */
 function kindSummary(k: BackupKindSummaryView | undefined): string {
   if (!k || k.count === 0) return 'None';
-  return `${plural(k.count, 'backup')}, ${formatBytes(k.bytes)}, newest ${when(k.newest ?? '')}`;
+  return `${plural(k.count, 'backup')} · ${formatBytes(k.bytes)}`;
 }
 
 /**
@@ -111,9 +110,8 @@ export function SettingsBackupsPage() {
       )}
       {data.error && <Banner tone="danger">{data.error}</Banner>}
 
-      <section className={styles.section} aria-labelledby="backups-list">
+      <section className={styles.section} aria-label="Backups">
         <div className={styles.head}>
-          <h3 id="backups-list" className={styles.title}>Backups</h3>
           <Button onClick={() => backUp.mutate()} loading={data.running || backUp.isPending} disabled={data.running}>
             {data.running ? 'Backing up…' : 'Back up now'}
           </Button>
@@ -125,9 +123,6 @@ export function SettingsBackupsPage() {
           <>
             <div className={styles.tableScroll}>
               <table className={styles.table}>
-                <thead>
-                  <tr><th>Taken</th><th>Kind</th><th className={styles.num}>Size</th><th>Checked</th><th><span className="visually-hidden">Actions</span></th></tr>
-                </thead>
                 <tbody>
                   {data.backups.map((b) => (
                     <tr key={b.name}>
@@ -135,7 +130,6 @@ export function SettingsBackupsPage() {
                       <td><Badge tone={KIND[b.kind].tone}>{KIND[b.kind].label}</Badge></td>
                       <td className={styles.num}>{formatBytes(b.bytes)}</td>
                       <td>
-                        {b.verified === true && <span className={styles.ok}>Readable</span>}
                         {b.verified === false && <span className={styles.bad} title="The file changed size after it was written">Changed since</span>}
                         {b.verified === null && <span className={styles.muted}>Not checked</span>}
                       </td>
@@ -149,20 +143,18 @@ export function SettingsBackupsPage() {
               </table>
             </div>
             <p className={styles.muted}>
-              {data.backups.length} backup{data.backups.length === 1 ? '' : 's'} · {formatBytes(data.totalBytes)}
+              {data.backups.length} backup{data.backups.length === 1 ? '' : 's'} · {formatBytes(data.totalBytes)} · <code>{data.dir}</code> · <a href={docsUrl('operations.md#backups')} target="_blank" rel="noreferrer">How to restore</a>
             </p>
           </>
         )}
       </section>
 
-      <section className={styles.section} aria-labelledby="backups-schedule">
-        <h3 id="backups-schedule" className={styles.title}>Keeping backups</h3>
+      <section className={styles.section} aria-label="Keeping backups">
 
         <h4 className={styles.subTitle}>Nightly</h4>
         <p className={styles.muted}>{kindSummary(kind('nightly'))}</p>
         <div className={styles.fields}>
           <div className={styles.field}>
-            <span className={styles.label}>Nightly backup</span>
             <SegmentedControl label="Nightly backup" value={draft.enabled ? 'on' : 'off'} onChange={(v) => setDraft({ ...draft, enabled: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
           </div>
           <label className={styles.field}>
@@ -172,11 +164,11 @@ export function SettingsBackupsPage() {
             </Select>
           </label>
           <label className={styles.field}>
-            <span className={styles.label}>Days to keep</span>
+            <span className={styles.label}>Days</span>
             <Input type="number" inputMode="numeric" min={1} max={90} value={draft.keepDaily} onChange={(e) => setNumber('keepDaily', e.target.value, 1, 90)} />
           </label>
           <label className={styles.field}>
-            <span className={styles.label}>Weeks to keep</span>
+            <span className={styles.label}>Weeks</span>
             <Input type="number" inputMode="numeric" min={0} max={52} value={draft.keepWeekly} onChange={(e) => setNumber('keepWeekly', e.target.value, 0, 52)} />
           </label>
         </div>
@@ -187,7 +179,7 @@ export function SettingsBackupsPage() {
         <p className={styles.muted}>{kindSummary(kind('pre-migration'))}</p>
         <div className={styles.fields}>
           <label className={styles.field}>
-            <span className={styles.label}>Keep the newest</span>
+            <span className={styles.label}>Keep</span>
             <Input type="number" inputMode="numeric" min={1} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 1, 50)} />
           </label>
         </div>
@@ -207,7 +199,7 @@ export function SettingsBackupsPage() {
             />
           </div>
           <label className={styles.field}>
-            <span className={styles.label}>Number to keep</span>
+            <span className={styles.label}>Count</span>
             <Input type="number" inputMode="numeric" min={1} max={100} disabled={draft.keepManual === null} value={draft.keepManual ?? ''} onChange={(e) => setNumber('keepManual', e.target.value, 1, 100)} />
           </label>
         </div>
@@ -229,11 +221,6 @@ export function SettingsBackupsPage() {
         </div>
       </section>
 
-      <section className={styles.section} aria-labelledby="backups-where">
-        <h3 id="backups-where" className={styles.title}>Folder</h3>
-        <p className={styles.hint}><code>{data.dir}</code></p>
-        <a className={styles.hint} href={docsUrl('operations.md#backups')} target="_blank" rel="noreferrer">How to copy and restore</a>
-      </section>
     </div>
   );
 }

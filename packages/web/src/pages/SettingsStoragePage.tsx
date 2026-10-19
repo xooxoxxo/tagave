@@ -10,6 +10,7 @@ import { diskNoticeText, pathsLabel } from '../components/DiskSpaceNotice';
 import { useStorage, useTagChangeCleanup, useTagChangeCleanupPreview } from '../hooks/useStorage';
 import { formatBytes } from '../utils/format';
 import { docsUrl } from '../utils/docs';
+import { shortDate } from '../utils/time';
 import styles from './SettingsStoragePage.module.css';
 
 const plansText = (n: number) => (n === 1 ? '1 plan' : `${n.toLocaleString()} plans`);
@@ -46,14 +47,14 @@ export function SettingsStorageContent() {
   const db = data.database;
   const folderTotal = data.folders.reduce((n, f) => n + f.bytes, 0);
   const grand = db.totalBytes + folderTotal;
-  const checked = new Date(data.checkedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const checked = shortDate(data.checkedAt);
 
   return (
     <div className={styles.page}>
       <div className={styles.summary}>
-        <p className={styles.total}><span className={styles.totalValue}>{formatBytes(grand)}</span> in all</p>
+        <p className={styles.total}><span className={styles.totalValue}>{formatBytes(grand)}</span></p>
         <div className={styles.refresh}>
-          <span className={styles.muted}>Measured {checked}</span>
+          <span className={styles.muted}>{checked}</span>
           <Button variant="secondary" size="sm" loading={isFetching} onClick={() => void refetch()}>Refresh</Button>
         </div>
       </div>
@@ -130,16 +131,16 @@ export function DiskSpace({ disk }: { disk: DiskSpaceView | null | undefined }) 
                   {pathsLabel(f.paths.map((p) => p.label))}
                   {f.status !== 'pass' && <> <Badge tone={DISK_BADGE[f.status].tone}>{DISK_BADGE[f.status].label}</Badge></>}
                 </span>
-                <span className={styles.size}>{formatBytes(f.freeBytes)} free of {formatBytes(f.totalBytes)}</span>
+                <span className={styles.size}>{formatBytes(f.freeBytes)} free</span>
               </div>
               <Bar share={f.usedPct / 100} />
               <p className={styles.description}>
-                {Math.floor(f.usedPct)}% used · {f.paths.map((p, i) => <span key={p.key}>{i > 0 && ', '}<code className={styles.path}>{p.path}</code></span>)}
+                {f.paths.map((p, i) => <span key={p.key}>{i > 0 && ', '}<code className={styles.path}>{p.path}</code></span>)}
               </p>
             </li>
           ))}
         </ul>
-        {disk.unmeasured.map((u) => <p key={u.key} className={styles.muted}>{u.label}: {u.reason}.</p>)}
+        {disk.unmeasured.map((u) => <p key={u.key} className={styles.muted} title={u.reason}>{u.label}: not measured</p>)}
 
       </>}
     </section>

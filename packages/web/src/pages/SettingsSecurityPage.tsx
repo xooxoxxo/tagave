@@ -10,17 +10,18 @@ import { BackupCodesPanel } from '../components/BackupCodesPanel';
 import { useMe } from '../hooks';
 import { useForgetDevice, useRefreshSecurity, useSecurity } from '../hooks/useSecurity';
 import { authClient } from '../services/authClient';
+import { shortDate } from '../utils/time';
 import { signInErrorMessage } from './loginErrors';
 import { accountHealth, deviceLabel, type SecurityStatus } from './securityModel';
 import { PasskeysSection } from './SecurityPasskeys';
 import styles from './SettingsSecurityPage.module.css';
 
 function when(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : 'unknown';
+  return iso ? shortDate(iso) : 'unknown';
 }
 
 function day(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
+  return shortDate(iso, { time: false });
 }
 
 function Section({ id, title, children, action }: { id: string; title: string; children: ReactNode; action?: ReactNode }) {
@@ -56,13 +57,8 @@ export function SettingsSecurityPage() {
 function Overview({ data }: { data: SecurityStatus }) {
   const health = accountHealth(data);
   return (
-    <Section id="security-methods" title="Sign-in methods">
+    <Section id="security-methods" title="Sign-in">
       <Banner tone={health.tone}>{health.text}</Banner>
-      <ul className={styles.methods}>
-        <li><span>Password</span><span className={styles.muted}>{data.password.set ? `changed ${when(data.password.changedAt)}` : 'not set'}</span></li>
-        <li><span>Passkeys and security keys</span><span className={styles.muted}>{data.passkeys.length}</span></li>
-        <li><span>Authenticator app</span><span className={styles.muted}>{data.twoFactor.enabled ? 'on' : 'off'}</span></li>
-      </ul>
 
     </Section>
   );
@@ -206,7 +202,7 @@ function TrustedDevicesSection({ data }: { data: SecurityStatus }) {
                 <strong>{deviceLabel(d.userAgent)}</strong>
                 {d.current && <span className={styles.badge}>This device</span>}
                 <div className={styles.muted}>
-                  Last used {when(d.lastUsedAt)} · trusted until {day(d.expiresAt)}
+                  {when(d.lastUsedAt)} · until {day(d.expiresAt)}
                   {d.ipAddress ? ` · ${d.ipAddress}` : ''}
                 </div>
               </div>

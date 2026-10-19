@@ -37,9 +37,9 @@ describe('ConnectionsPanel', () => {
     expect(html).toContain('Critic scores');
     expect(html).toContain('Granted');
     expect(html).toContain('Not granted');
-    expect(html).toContain('Available, re-link to grant');
+    expect(html).toContain('Available');
     expect(html).toContain('Linked');
-    for (const label of ['Sync now', 'Re-approve', 'Edit address', 'Revoke']) expect(html).toContain(label);
+    for (const label of ['>Sync<', 'Re-approve', '>Edit<', 'Revoke']) expect(html).toContain(label);
   });
 
   it('offers Link back with this tagave’s address once there is a link, never before', () => {
@@ -60,7 +60,7 @@ describe('ConnectionsPanel', () => {
   it('a link needing approval has no Sync now; a revoked one offers Link again and Remove', () => {
     const needs = render({ view: { links: [{ ...link, state: 'needs_reapproval' }], ownUrl: null } });
     expect(needs).toContain('Needs approval');
-    expect(needs).not.toContain('Sync now');
+    expect(needs).not.toContain('>Sync<');
     const revoked = render({ view: { links: [{ ...link, state: 'revoked' }], ownUrl: null } });
     expect(revoked).toContain('Link again');
     expect(revoked).toContain('Remove');
