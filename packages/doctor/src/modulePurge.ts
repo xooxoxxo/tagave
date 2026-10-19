@@ -61,6 +61,14 @@ export interface ModuleData {
 const BUNDLED = "'bundled'";
 /** Its rows, or the rows of a library no server of the owner's serves. */
 const BUNDLED_OR_UNSERVED = `server_key = ${BUNDLED} or library_id <> all($1::uuid[])`;
+/**
+ * libraries.settings as an object, also for a row an older writer stored as a
+ * jsonb string holding the object (0051 unwraps those; a database restored
+ * from before it may still have one): reading it as a string would miss a
+ * served library and purge its rows.
+ */
+const SETTINGS = `(case when jsonb_typeof(settings) = 'string' and (settings #>> '{}') is json object
+  then (settings #>> '{}')::jsonb else settings end)`;
 
 export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
   player: {
@@ -86,7 +94,7 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
     // libraries it serves and the scrobbling connections stay.
     shared: {
       libraries: `select id from libraries
-        where coalesce(settings->>'playerUrl', '') <> '' and coalesce(settings->>'playerUser', '') <> '' and coalesce(settings->>'playerPassword', '') <> ''`,
+        where coalesce(${SETTINGS}->>'playerUrl', '') <> '' and coalesce(${SETTINGS}->>'playerUser', '') <> '' and coalesce(${SETTINGS}->>'playerPassword', '') <> ''`,
       where: {
         player_scrobbles: `play_id in (select id from player_plays where server_key = ${BUNDLED} or (library_id is not null and library_id <> all($1::uuid[])))`,
         player_plays: `server_key = ${BUNDLED} or (library_id is not null and library_id <> all($1::uuid[]))`,

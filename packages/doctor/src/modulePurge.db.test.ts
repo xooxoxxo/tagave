@@ -76,4 +76,23 @@ describe.skipIf(!url || !existsSync(cli))('purge-module (integration)', () => {
     expect(again.history.count).toBeGreaterThanOrEqual(1);
     expect(await sql`select source from listens where user_id = ${user}`).toEqual([{ source: 'manual' }]);
   }, 20_000); // two CLI spawns
+
+  it('keeps what a server of the owner\'s own uses when its settings are a jsonb string', async () => {
+    // As an older writer stored them (a plain client binding JSON.stringify'd
+    // settings as jsonb); 0051 unwraps those, a restored dump may bring one back.
+    const served = randomUUID();
+    const own = { playerUrl: 'http://own:4533', playerUser: 'me', playerPassword: 'enc:v1:x' };
+    await sql`insert into libraries (id, owner_user_id, name, settings) values (${served}, ${user}, 'Served', ${JSON.stringify(own)}::jsonb)`;
+    try {
+      expect(await sql`select jsonb_typeof(settings) as t from libraries where id = ${served}`).toEqual([{ t: 'string' }]);
+      await sql`insert into player_scan_requests (library_id, folder) values (${served}, 'B')`;
+      const res = await run(['purge-module', 'player', '--json']);
+      expect(res.code).toBe(0);
+      expect(JSON.parse(res.stdout.trim().split('\n').pop()!).purged.keptForLibraries).toBe(1);
+      expect(await sql`select folder from player_scan_requests where library_id = ${served}`).toEqual([{ folder: 'B' }]);
+    } finally {
+      await sql`delete from player_scan_requests where library_id = ${served}`;
+      await sql`delete from libraries where id = ${served}`;
+    }
+  }, 20_000);
 });
