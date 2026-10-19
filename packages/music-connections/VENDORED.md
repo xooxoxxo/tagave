@@ -8,6 +8,7 @@ there, and run the script again with the new tag.
 - Tag: v0.2.1
 - Commit: b17d74d4d8ab6a9629ea49692b27a31119526970
 - Copied: `src`, `test`, `package.json`, `tsconfig.json`, `tsconfig.test.json`, `vitest.config.ts`, `README.md`, `CHANGELOG.md`, `LICENSE`
+- Content: sha256:d927feaa2480c6e64cc4f01967403e763548a12d87e67cf81800f4cc228b6f5b
 - License: MIT (`LICENSE`)
 
 The music-connections repository at this tag is the single source of these

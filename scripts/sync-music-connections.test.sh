@@ -20,7 +20,7 @@ git -C "$SRC" add -A && git -C "$SRC" commit --quiet -m one && git -C "$SRC" tag
 printf '{ "name": "music-connections", "version": "0.3.0" }\n' > "$SRC/package.json"
 git -C "$SRC" commit --quiet -am two && git -C "$SRC" tag v9.9.9
 
-DEST="$TMP/dest"
+DEST="$TMP/dest"; mkdir -p "$DEST"; echo x > "$DEST/VENDORED.md"
 mkdir -p "$DEST/node_modules/zod" "$DEST/src"
 echo 'stale' > "$DEST/src/stale.ts"
 echo 'hand edit' > "$DEST/HAND.md"
@@ -44,5 +44,12 @@ check "writes the tag into VENDORED.md"      grep -q '^- Tag: v0.2.0$' "$DEST/VE
 check "never writes a local path"            test "$(grep -cF -- "$TMP" "$DEST/VENDORED.md")" -eq 0
 check "syncs from a URL and names it"        test "$(run "file://$SRC" v0.2.0; echo $?)" -eq 0
 check "the URL is the named source"          grep -qF -- "- Source: file://$SRC" "$DEST/VENDORED.md"
+
+check "writes a content hash"                grep -Eq '^- Content: sha256:[0-9a-f]{64}$' "$DEST/VENDORED.md"
+H1="$(grep '^- Content:' "$DEST/VENDORED.md")"
+run "$SRC" v0.2.0
+check "the content hash is reproducible"     test "$(grep '^- Content:' "$DEST/VENDORED.md")" = "$H1"
+echo 'changed' >> "$DEST/src/index.ts"; run "$SRC" v0.2.0
+check "a restored tree has the same hash"    test "$(grep '^- Content:' "$DEST/VENDORED.md")" = "$H1"
 
 exit "$fail"

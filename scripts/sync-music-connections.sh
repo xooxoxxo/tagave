@@ -47,12 +47,27 @@ for f in "${FILES[@]}"; do
   fi
 done
 
-# Replace everything except the installed node_modules.
 mkdir -p "$DEST"
+# Replace everything except the installed node_modules.
 find "$DEST" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +
 for f in "${FILES[@]}"; do
   cp -R "$TMP/repo/$f" "$DEST/"
 done
+
+# sha256 over the sorted "sha256  relative-path" lines of every file copied
+# (packages/core/src/mc/vendored.test.ts recomputes it the same way).
+CONTENT="$(cd "$DEST" && node -e '
+const { createHash } = require("node:crypto");
+const { readFileSync, readdirSync, statSync } = require("node:fs");
+const lines = [];
+const walk = (p) => {
+  if (statSync(p).isDirectory()) for (const e of readdirSync(p)) walk(p + "/" + e);
+  else lines.push(createHash("sha256").update(readFileSync(p)).digest("hex") + "  " + p);
+};
+for (const f of process.argv.slice(1)) walk(f);
+lines.sort();
+process.stdout.write(createHash("sha256").update(lines.join("\n") + "\n").digest("hex"));
+' "${FILES[@]}")"
 
 # Name a URL without any credentials in it; never write a local path into the repo.
 case "$SRC" in
@@ -75,11 +90,12 @@ for f in "${FILES[@]}"; do COPIED="${COPIED:+$COPIED, }$BT$f$BT"; done
   echo "- Tag: $TAG"
   echo "- Commit: $COMMIT"
   echo "- Copied: $COPIED"
+  echo "- Content: sha256:$CONTENT"
   echo "- License: MIT (\`LICENSE\`)"
   echo
   echo "The music-connections repository at this tag is the single source of these"
-  echo "files. @tagave/core checks that the tag above matches \`package.json\`"
-  echo "(packages/core/src/mc/vendored.test.ts)."
+  echo "files. @tagave/core checks that the tag above matches \`package.json\` and"
+  echo "that the content hash matches the files (packages/core/src/mc/vendored.test.ts)."
   echo
   echo "Once the package is published to npm, depend on \`music-connections\` at"
   echo "this version instead and delete this directory."
