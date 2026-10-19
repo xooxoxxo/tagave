@@ -9,7 +9,8 @@
  *             address, `::`, and an IPv4-mapped, IPv4-compatible or NAT64
  *             address pointing at any of these; anything unparsable;
  *   loopback  127.0.0.0/8 and ::1: only when the URL's host is literally
- *             loopback (localhost, 127.x, [::1]), never a name resolving there;
+ *             loopback (localhost, 127.x; the host gate refuses IPv6 literals, so
+ *             [::1] never passes), never a name resolving there;
  *   private   RFC 1918, the CGNAT range 100.64.0.0/10 (tailnets), IPv6
  *             unique-local fc00::/7: any allowed host may reach these;
  *   public    everything else: only a trusted name over https.
@@ -109,7 +110,7 @@ export function classifyAddress(ip: string): AddressClass {
 /** The URL host without IPv6 brackets. */
 export const bareHost = (hostname: string): string => hostname.replace(/^\[|\]$/g, "");
 
-/** Is the URL's host literally loopback (localhost, 127.x.x.x, [::1])? */
+/** Is the URL's host literally loopback (localhost, 127.x.x.x; the host gate refuses IPv6 literals such as [::1])? */
 export function isLiteralLoopback(hostname: string): boolean {
   const h = bareHost(hostname).toLowerCase();
   if (h === "localhost") return true;

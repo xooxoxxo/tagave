@@ -52,7 +52,11 @@ export async function pull(
     const u = new URL(opts.url);
     u.searchParams.set("limit", String(opts.limit ?? MAX_FEED_LIMIT));
     if (cursor) u.searchParams.set("since", cursor);
-    const res = await deps.fetch(u, { headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
+    // Never follow a redirect: a 3xx could send the bearer token, or the request
+    // itself, to another host. "error" makes a standard fetch reject; the status
+    // check covers a custom fetch that hands back the 3xx instead.
+    const res = await deps.fetch(u, { redirect: "error", headers: { authorization: `Bearer ${token}`, accept: "application/json" } });
+    if (res.status >= 300 && res.status < 400) throw new Error(`remote redirected (${res.status}); redirects are not followed`);
 
     if (res.status === 401) {
       if (refreshed) throw new NeedsReapproval("token rejected after refresh");

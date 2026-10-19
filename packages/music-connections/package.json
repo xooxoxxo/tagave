@@ -1,6 +1,6 @@
 {
   "name": "music-connections",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Music Connections v1: link music apps by capability (critic scores, ratings, collection, listens, identity, wantlist suggestions).",
   "license": "MIT",
   "type": "module",

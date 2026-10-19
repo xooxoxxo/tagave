@@ -47,6 +47,20 @@ describe("pull", () => {
     expect(r).toMatchObject({ applied: 1, skipped: 1, cursor: "c1" });
   });
 
+  it("asks fetch never to follow redirects", async () => {
+    const { d } = deps([json(200, { items: [], next: "c1", more: false })]);
+    await pull({ url: "http://x/mc/v1/ratings", capability: "ratings", cursor: null, apply: async () => {} }, d);
+    const init = (d.fetch as unknown as { mock: { calls: [unknown, RequestInit][] } }).mock.calls[0]?.[1];
+    expect(init?.redirect).toBe("error");
+  });
+
+  it("refuses a 3xx a custom fetch hands back, without applying anything", async () => {
+    const { d } = deps([new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } })]);
+    const apply = vi.fn(async () => {});
+    await expect(pull({ url: "http://x/mc/v1/ratings", capability: "ratings", cursor: null, apply }, d)).rejects.toThrow(/redirect/);
+    expect(apply).not.toHaveBeenCalled();
+  });
+
   it("refreshes once on 401, then gives NeedsReapproval if still 401", async () => {
     const { d } = deps([json(401, {}), json(401, {})]);
     await expect(pull({ url: "http://x/mc/v1/ratings", capability: "ratings", cursor: null, apply: async () => {} }, d)).rejects.toBeInstanceOf(NeedsReapproval);
