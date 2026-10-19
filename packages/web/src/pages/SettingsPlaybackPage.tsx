@@ -9,10 +9,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from '@tanstack/react-router';
 import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
-import { Badge, Banner, Button, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
+import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
-import { useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
+import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
 import styles from './SettingsPlaybackPage.module.css';
 
@@ -80,7 +80,7 @@ export function SettingsPlaybackContent() {
       {owner && settings.isError && <Banner tone="danger">Could not load the playback settings. {problem(settings.error, '')}</Banner>}
 
       {owner && cap?.installed && <ScrobblingSettings libraryId={libraryId} />}
-      {cap?.installed && (
+      {!owner && cap?.installed && (
         <p className={styles.hint}>Your own Last.fm, ListenBrainz and recent plays: <Link to="/settings/$section" params={{ section: 'listening' }}>Settings › Listening</Link>.</p>
       )}
 
@@ -189,6 +189,8 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
   const view = useScrobblingSettings(libraryId, true);
   const save = useSaveLastfmApp(libraryId);
   const remove = useRemoveLastfmApp(libraryId);
+  const listening = useListening();
+  const connect = useConnectLastfm();
   const onRemove = async () => {
     const ok = await confirmDialog({
       title: 'Remove the Last.fm API key?',
@@ -199,6 +201,8 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
     if (ok) remove.mutate();
   };
   if (view.isError) return <Banner tone="danger">Could not load the scrobbling settings. {problem(view.error, '')}</Banner>;
+  const mine = listening.data;
+  const lastfm = mine?.services.find((s) => s.service === 'lastfm');
   return (
     <ScrobblingSettingsPanel
       view={view.data ?? null}
@@ -207,6 +211,10 @@ function ScrobblingSettings({ libraryId }: { libraryId: string | undefined }) {
       error={save.isError ? problem(save.error, 'Last.fm did not accept these.') : remove.isError ? problem(remove.error, 'The key could not be removed.') : null}
       onSave={(body) => save.mutate(body)}
       onRemove={() => void onRemove()}
+      you={mine && !mine.account.serverScrobbles ? { lastfmAccount: lastfm?.connected ? lastfm.accountName ?? '' : null } : null}
+      connecting={connect.isPending}
+      connectError={connect.isError ? problem(connect.error, 'Last.fm could not be reached.') : null}
+      onConnect={() => connect.mutate()}
     />
   );
 }
@@ -218,14 +226,60 @@ export interface ScrobblingSettingsPanelProps {
   error?: string | null;
   onSave: (body: SaveLastfmApp) => void;
   onRemove: () => void;
+  /** the signed-in person's own Last.fm: their account name, or null when not connected; null/absent hides the line */
+  you?: { lastfmAccount: string | null } | null;
+  connecting?: boolean;
+  connectError?: string | null;
+  onConnect?: () => void;
+  /** stories: start with the Replace form open */
+  initialReplacing?: boolean;
 }
 
-/** The owner's half of scrobbling: the Last.fm application, with the steps to make one. */
-export function ScrobblingSettingsPanel({ view, saving = false, saved = false, error = null, onSave, onRemove }: ScrobblingSettingsPanelProps) {
+/** The owner's half of scrobbling: the Last.fm application, and whether the owner's own Last.fm is connected. */
+export function ScrobblingSettingsPanel({
+  view, saving = false, saved = false, error = null, onSave, onRemove, you = null, connecting = false, connectError = null, onConnect, initialReplacing = false,
+}: ScrobblingSettingsPanelProps) {
+  const lastfm = view?.lastfm;
+  const configured = !!lastfm?.configured;
+  const [replacing, setReplacing] = useState(initialReplacing);
+  useEffect(() => { if (saved) setReplacing(false); }, [saved]);
+  return (
+    <section className={styles.scrobbling} aria-labelledby="playback-scrobbling">
+      <h3 id="playback-scrobbling" className={styles.subTitle}>Scrobbling</h3>
+      {!view ? <p className={styles.muted}>Loading…</p> : configured && !replacing ? (
+        <>
+          <div className={styles.keyLine}>
+            <span className={styles.keyText}>Last.fm · API key …{lastfm?.apiKeyHint}{lastfm?.source === 'env' ? ' · from .env' : ''}</span>
+            <Badge tone="success">Ready</Badge>
+          </div>
+          {error && <p className={styles.error} role="alert">{error}</p>}
+          <div className={styles.row}>
+            <Button variant="secondary" size="sm" onClick={() => setReplacing(true)}>Replace</Button>
+            {lastfm?.source === 'settings' && <Button variant="quiet-danger" size="sm" onClick={onRemove} disabled={saving}>Remove</Button>}
+          </div>
+        </>
+      ) : (
+        <LastfmKeyForm replacing={configured} saving={saving} saved={saved} error={error} onSave={onSave} onCancel={() => setReplacing(false)} />
+      )}
+      {configured && you && (you.lastfmAccount !== null ? (
+        <p className={styles.hint}>Your Last.fm: connected as {you.lastfmAccount}</p>
+      ) : (
+        <div className={styles.youLine}>
+          <span className={styles.youText}>Your Last.fm isn&rsquo;t connected</span>
+          <Button size="sm" loading={connecting} onClick={onConnect}>Connect</Button>
+          {connectError && <p className={styles.error} role="alert">{connectError}</p>}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function LastfmKeyForm({ replacing, saving, saved, error, onSave, onCancel }: { replacing: boolean; saving: boolean; saved: boolean; error: string | null; onSave: (body: SaveLastfmApp) => void; onCancel: () => void }) {
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
   const [invalid, setInvalid] = useState<string | null>(null);
-  const lastfm = view?.lastfm;
+  const [howOpen, setHowOpen] = useState(false);
+  useEffect(() => { if (saved) { setApiKey(''); setSecret(''); } }, [saved]);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     const parsed = saveLastfmAppSchema.safeParse({ apiKey, secret });
@@ -233,30 +287,25 @@ export function ScrobblingSettingsPanel({ view, saving = false, saved = false, e
     setInvalid(null);
     onSave(parsed.data);
   };
-  useEffect(() => { if (saved) { setApiKey(''); setSecret(''); } }, [saved]);
   return (
-    <section className={styles.scrobbling} aria-labelledby="playback-scrobbling">
-      <h3 id="playback-scrobbling" className={styles.subTitle}>Scrobbling</h3>
-      <p className={styles.hint}>tagave sends every play to each person&rsquo;s own Last.fm or ListenBrainz, from its player here and from phone apps through this server. Each person connects their own account in Settings › Listening. ListenBrainz needs nothing from you; Last.fm needs an API key for this server, once.</p>
-      <div className={styles.status} role="status">
-        <Badge tone={lastfm?.configured ? 'success' : 'neutral'}>{!view ? 'Checking…' : lastfm?.configured ? 'Last.fm ready' : 'Last.fm not set up'}</Badge>
-        {lastfm?.configured && <span className={styles.statusDetail}>API key ending in …{lastfm.apiKeyHint}{lastfm.source === 'env' ? ', from .env' : ''}</span>}
+    <form className={styles.form} onSubmit={submit} noValidate>
+      {!replacing && <p className={styles.hint}>Add a Last.fm API key so people here can connect Last.fm. ListenBrainz needs nothing.</p>}
+      <div>
+        <Button variant="quiet" size="sm" aria-expanded={howOpen} aria-controls="lastfm-key-steps" onClick={() => setHowOpen((o) => !o)}>How to get a key</Button>
+        <Collapse open={howOpen} id="lastfm-key-steps">
+          <ol className={styles.steps}>
+            <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in.</li>
+            <li>Enter any application name; leave the other fields empty.</li>
+            <li>Submit, then copy the API key and shared secret here.</li>
+          </ol>
+        </Collapse>
       </div>
-      <ol className={styles.steps}>
-        <li>Open <a href="https://www.last.fm/api/account/create" target="_blank" rel="noreferrer">last.fm/api/account/create</a> and sign in with any Last.fm account (yours is fine).</li>
-        <li>Under Application name, type a name, for example &ldquo;tagave at home&rdquo;. Leave every other field empty.</li>
-        <li>Press Submit. Last.fm shows an API key and a Shared secret.</li>
-        <li>Paste both below and press Save. tagave checks them with Last.fm first and keeps them sealed.</li>
-      </ol>
-      <form className={styles.form} onSubmit={submit} noValidate>
-        <TextField label="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.currentTarget.value)} placeholder={lastfm?.configured ? `…${lastfm.apiKeyHint ?? ''}` : '32 letters and digits'} />
-        <TextField label="Shared secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} error={invalid ?? error ?? undefined} />
-        {saved && <p className={styles.muted} role="status">Saved. Last.fm accepted the key.</p>}
-        <div className={styles.row}>
-          <Button type="submit" variant="secondary" loading={saving} disabled={!apiKey || !secret}>{lastfm?.configured ? 'Replace' : 'Save'}</Button>
-          {lastfm?.source === 'settings' && <Button variant="quiet-danger" onClick={onRemove} disabled={saving}>Remove</Button>}
-        </div>
-      </form>
-    </section>
+      <TextField label="API key" autoComplete="off" spellCheck={false} value={apiKey} onChange={(e) => setApiKey(e.currentTarget.value)} />
+      <TextField label="Shared secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.currentTarget.value)} error={invalid ?? error ?? undefined} />
+      <div className={styles.row}>
+        <Button type="submit" loading={saving} disabled={!apiKey || !secret}>Save</Button>
+        {replacing && <Button variant="quiet" onClick={onCancel} disabled={saving}>Cancel</Button>}
+      </div>
+    </form>
   );
 }

@@ -4,7 +4,7 @@
  * Last.fm application (Settings › Playback › Scrobbling).
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { LastfmStartView, ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayerAccountView, SaveLastfmApp, ScrobbleAccountView, ScrobbleService, ScrobblingSettingsView } from '@tagave/shared';
+import type { ConnectListenbrainzView, LastfmStartView, ListeningHistoryView, ListeningView, OwnPlayerAccount, PlayerAccountView, SaveLastfmApp, ScrobbleAccountView, ScrobbleService, ScrobblingSettingsView } from '@tagave/shared';
 import { api } from '../services/api';
 import { useCurrentLibrary } from './useCurrentLibrary';
 
@@ -55,7 +55,7 @@ export function useConnectLastfm() {
 export function useConnectListenbrainz() {
   const refresh = useRefresh();
   return useMutation({
-    mutationFn: (token: string) => api.post<{ services: ScrobbleAccountView[] }>('/me/listening/listenbrainz', { token }),
+    mutationFn: (token: string) => api.post<ConnectListenbrainzView>('/me/listening/listenbrainz', { token }),
     onSuccess: refresh,
   });
 }

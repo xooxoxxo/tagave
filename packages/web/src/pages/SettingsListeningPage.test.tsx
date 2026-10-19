@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ListeningView } from '@tagave/shared';
-import { ListeningSettingsView, lastfmReturnMessage, type ListeningSettingsViewProps } from './SettingsListeningPage';
+import { ListeningSettingsView, lastfmReturnMessage, queuedLine, type ListeningSettingsViewProps } from './SettingsListeningPage';
 import { ScrobblingSettingsPanel } from './SettingsPlaybackPage';
 
 const noop = () => undefined;
@@ -59,19 +59,54 @@ describe('ListeningSettingsView', () => {
     expect(lastfmReturnMessage('connected')?.tone).toBe('success');
     expect(lastfmReturnMessage('expired')?.tone).toBe('danger');
     expect(lastfmReturnMessage(null)).toBeNull();
+    expect(lastfmReturnMessage('connected', 12)?.text).toBe('Last.fm is connected. 12 recent plays will be sent.');
+    expect(queuedLine(1)).toBe('1 recent play will be sent.');
+    expect(queuedLine(0)).toBeNull();
+  });
+  it('says once how many recent plays go to ListenBrainz after connecting', () => {
+    const data = { ...base, services: [base.services[0]!, { ...base.services[1]!, connected: true, accountName: 'anna-lb' }] };
+    expect(renderToStaticMarkup(<ListeningSettingsView {...props(data)} listenbrainzQueued={12} />)).toContain('12 recent plays will be sent.');
+    expect(renderToStaticMarkup(<ListeningSettingsView {...props(data)} />)).not.toContain('recent plays will be sent');
   });
 });
 
 describe('ScrobblingSettingsPanel', () => {
-  it('walks the owner through making a Last.fm API key', () => {
-    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={{ lastfm: { configured: false, source: null, apiKeyHint: null }, listenbrainz: { available: true } }} onSave={noop} onRemove={noop} />);
-    expect(html).toContain('href="https://www.last.fm/api/account/create"');
-    expect(html).toContain('Application name');
-    expect(html).toContain('Last.fm not set up');
+  const unset = { lastfm: { configured: false, source: null, apiKeyHint: null }, listenbrainz: { available: true as const } };
+  const set = { lastfm: { configured: true, source: 'settings' as const, apiKeyHint: '105a' }, listenbrainz: { available: true as const } };
+  it('asks for a key in one sentence, with the steps behind a disclosure', () => {
+    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={unset} onSave={noop} onRemove={noop} />);
+    expect(html).toContain('How to get a key');
+    expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('Application name');
+    expect(html).toContain('API key');
+    expect(html).toContain('>Save<');
   });
-  it('names the key by its last four characters only', () => {
-    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={{ lastfm: { configured: true, source: 'env', apiKeyHint: '3f9a' }, listenbrainz: { available: true } }} onSave={noop} onRemove={noop} />);
-    expect(html).toContain('ending in …3f9a, from .env');
+  it('shows a saved key read-only, by its last four characters, with Replace and Remove', () => {
+    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} onSave={noop} onRemove={noop} />);
+    expect(html).toContain('Last.fm · API key …105a');
+    expect(html).toContain('>Replace<');
+    expect(html).toContain('>Remove<');
+    expect(html).not.toContain('<input');
+    expect(html).not.toContain('How to get a key');
+  });
+  it('opens the fields with Cancel on Replace', () => {
+    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} initialReplacing onSave={noop} onRemove={noop} />);
+    expect(html).toContain('<input');
+    expect(html).toContain('>Cancel<');
+  });
+  it('a key from .env cannot be removed here', () => {
+    const html = renderToStaticMarkup(<ScrobblingSettingsPanel view={{ ...set, lastfm: { ...set.lastfm, source: 'env', apiKeyHint: '3f9a' } }} onSave={noop} onRemove={noop} />);
+    expect(html).toContain('…3f9a · from .env');
     expect(html).not.toContain('>Remove<');
+  });
+  it('offers Connect when the owner’s own Last.fm is not connected', () => {
+    const off = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} onConnect={noop} />);
+    expect(off).toContain('Your Last.fm isn’t connected');
+    expect(off).toContain('>Connect<');
+    const on = renderToStaticMarkup(<ScrobblingSettingsPanel view={set} you={{ lastfmAccount: 'anna-fm' }} onSave={noop} onRemove={noop} />);
+    expect(on).toContain('connected as anna-fm');
+    expect(on).not.toContain('>Connect<');
+    // no key yet: nothing to connect to
+    expect(renderToStaticMarkup(<ScrobblingSettingsPanel view={unset} you={{ lastfmAccount: null }} onSave={noop} onRemove={noop} />)).not.toContain('isn’t connected');
   });
 });

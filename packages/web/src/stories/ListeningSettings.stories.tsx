@@ -72,7 +72,8 @@ export const ScrobbleProblem: Story = {
     data: { ...connected, services: connected.services.map((s) => (s.service === 'lastfm' ? { ...s, lastError: 'Last.fm no longer accepts this connection; connect again', lastErrorAt: at(2), pending: 3 } : s)) },
   },
 };
-export const BackFromLastfm: Story = { name: 'Back from Last.fm', args: { lastfmReturn: 'connected' } };
+export const BackFromLastfm: Story = { name: 'Back from Last.fm', args: { lastfmReturn: 'connected', lastfmQueued: 12 } };
+export const ListenbrainzJustConnected: Story = { name: 'ListenBrainz just connected', args: { listenbrainzQueued: 12 } };
 export const SharedAccount: Story = {
   name: 'Own server, shared account',
   args: { data: { ...connected, account: { kind: 'shared', username: null, phonePassword: false, serverScrobbles: false, state: null, lastError: null } } },

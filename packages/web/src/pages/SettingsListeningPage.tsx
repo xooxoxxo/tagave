@@ -26,10 +26,16 @@ function when(iso: string | null): string {
 
 const SERVICE_NAME: Record<ScrobbleService, string> = { lastfm: 'Last.fm', listenbrainz: 'ListenBrainz' };
 
-/** What the person's browser came back from Last.fm with (?lastfm=…). */
-export function lastfmReturnMessage(result: string | null): { tone: 'success' | 'danger'; text: string } | null {
+/** "12 recent plays will be sent" after connecting, or null when none were queued. */
+export function queuedLine(queued: number | null | undefined): string | null {
+  if (!queued || queued <= 0) return null;
+  return queued === 1 ? '1 recent play will be sent.' : `${queued} recent plays will be sent.`;
+}
+
+/** What the person's browser came back from Last.fm with (?lastfm=…&queued=…). */
+export function lastfmReturnMessage(result: string | null, queued: number | null = null): { tone: 'success' | 'danger'; text: string } | null {
   switch (result) {
-    case 'connected': return { tone: 'success', text: 'Last.fm is connected. Your plays from here on are scrobbled.' };
+    case 'connected': return { tone: 'success', text: `Last.fm is connected. ${queuedLine(queued) ?? 'Your plays from here on are scrobbled.'}` };
     case 'expired': return { tone: 'danger', text: 'That Last.fm sign-in took too long or was started in another account. Try Connect again.' };
     case 'refused': return { tone: 'danger', text: 'Last.fm did not send tagave a sign-in. Try Connect again and choose Yes, allow access.' };
     case 'unavailable': return { tone: 'danger', text: 'Last.fm is not set up on this server any more. Ask the owner to add the API key again.' };
@@ -55,6 +61,10 @@ export interface ListeningSettingsViewProps {
   history: ListeningHistoryView | null;
   /** ?lastfm= after the browser came back from Last.fm */
   lastfmReturn: string | null;
+  /** ?queued= with it: recent plays queued for Last.fm on connect */
+  lastfmQueued?: number | null;
+  /** recent plays queued for ListenBrainz by the connect just made */
+  listenbrainzQueued?: number | null;
   busy?: Partial<Record<'lastfm' | 'listenbrainz' | 'phone' | 'account' | 'disconnect', boolean>>;
   errors?: Partial<Record<'lastfm' | 'listenbrainz' | 'phone' | 'account', string | null>>;
   onConnectLastfm: () => void;
@@ -67,8 +77,8 @@ export interface ListeningSettingsViewProps {
 }
 
 export function ListeningSettingsView(props: ListeningSettingsViewProps) {
-  const { data, history, lastfmReturn } = props;
-  const back = lastfmReturnMessage(lastfmReturn);
+  const { data, history, lastfmReturn, lastfmQueued = null } = props;
+  const back = lastfmReturnMessage(lastfmReturn, lastfmQueued);
   if (!data.playerInstalled) {
     return <p className={styles.hint}>The player is not set up on this server, so there is nothing to listen with yet. The owner turns it on in Settings › Playback.</p>;
   }
@@ -198,7 +208,7 @@ function serviceLine(s: ScrobbleAccountView): string {
   return parts.join(' · ');
 }
 
-function ScrobblingSection({ data, busy, errors, onConnectLastfm, onConnectListenbrainz, onDisconnect }: ListeningSettingsViewProps) {
+function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLastfm, onConnectListenbrainz, onDisconnect }: ListeningSettingsViewProps) {
   const lastfm = data.services.find((s) => s.service === 'lastfm');
   const lb = data.services.find((s) => s.service === 'listenbrainz');
   const disconnect = async (service: ScrobbleService) => {
@@ -230,7 +240,7 @@ function ScrobblingSection({ data, busy, errors, onConnectLastfm, onConnectListe
             <>
               <p className={styles.hint}>You sign in on last.fm, allow tagave, and come back here.</p>
               {errors?.lastfm && <p className={styles.error} role="alert">{errors.lastfm}</p>}
-              <div className={styles.row}><Button variant="secondary" loading={!!busy?.lastfm} onClick={onConnectLastfm}>Connect Last.fm</Button></div>
+              <div className={styles.row}><Button loading={!!busy?.lastfm} onClick={onConnectLastfm}>Connect Last.fm</Button></div>
             </>
           ) : (
             <p className={styles.hint}>Last.fm needs an API key on this server first. The owner adds it once in Settings › Playback › Scrobbling.</p>
@@ -244,6 +254,7 @@ function ScrobblingSection({ data, busy, errors, onConnectLastfm, onConnectListe
           {lb?.connected ? (
             <>
               <p className={styles.hint}>{serviceLine(lb)}</p>
+              {queuedLine(listenbrainzQueued) && <p className={styles.ok} role="status">{queuedLine(listenbrainzQueued)}</p>}
               {lb.lastError && <p className={styles.error} role="alert">{lb.lastError}{lb.lastErrorAt ? ` (${when(lb.lastErrorAt)})` : ''}</p>}
               <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('listenbrainz')} disabled={busy?.disconnect}>Disconnect</Button></div>
             </>
@@ -335,8 +346,11 @@ export function SettingsListeningContent() {
   const clearPhone = useClearPhonePassword();
   const saveOwn = useSaveOwnAccount();
   const removeOwn = useRemoveOwnAccount();
-  const [lastfmReturn] = useState(() => {
-    try { return new URLSearchParams(globalThis.location?.search ?? '').get('lastfm'); } catch { return null; }
+  const [{ lastfmReturn, lastfmQueued }] = useState(() => {
+    try {
+      const q = new URLSearchParams(globalThis.location?.search ?? '');
+      return { lastfmReturn: q.get('lastfm'), lastfmQueued: Number(q.get('queued')) || null };
+    } catch { return { lastfmReturn: null, lastfmQueued: null }; }
   });
   // the ?lastfm= note is read once; the address goes back to plain Settings › Listening
   useEffect(() => {
@@ -355,6 +369,8 @@ export function SettingsListeningContent() {
           data={listening.data}
           history={history.data ?? null}
           lastfmReturn={lastfmReturn}
+          lastfmQueued={lastfmQueued}
+          listenbrainzQueued={lb.data?.queued ?? null}
           busy={{ lastfm: lastfm.isPending, listenbrainz: lb.isPending, phone: phone.isPending || clearPhone.isPending, account: saveOwn.isPending || removeOwn.isPending, disconnect: disconnect.isPending }}
           errors={{
             lastfm: lastfm.isError ? problem(lastfm.error, 'Last.fm could not be reached.') : null,
