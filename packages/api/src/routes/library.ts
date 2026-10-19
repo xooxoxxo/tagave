@@ -237,7 +237,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     }
 
     await db.update(libraries)
-      .set({ settings: sql`${JSON.stringify(mergedSettings)}::jsonb` })
+      .set({ settings: sql`${JSON.stringify(mergedSettings)}::text::jsonb` })
       .where(eq(libraries.id, libraryId));
 
     // A new AcoustID key lifts the park the worker set when the old one was
@@ -701,7 +701,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         const base = normalizeFolderLinkBase(body.folderLink);
         if (base) next[scanRootId] = base; else delete next[scanRootId];
         const current = settingsObject(lib[0]?.settings);
-        await db.update(libraries).set({ settings: sql`${JSON.stringify({ ...current, folderLinks: next })}::jsonb` }).where(eq(libraries.id, libraryId));
+        await db.update(libraries).set({ settings: sql`${JSON.stringify({ ...current, folderLinks: next })}::text::jsonb` }).where(eq(libraries.id, libraryId));
         links = next;
       }
 

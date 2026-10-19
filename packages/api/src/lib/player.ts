@@ -186,7 +186,7 @@ export async function requestPlayerScan(sql: Sql, boss: Pick<PgBoss, 'send'> | n
 async function recordLastScan(sql: Sql, libraryId: string, state: 'requested' | 'failed', error: string | null): Promise<void> {
   const value = JSON.stringify({ requestedAt: new Date().toISOString(), state, error });
   await sql`
-    update libraries set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{playerLastScan}', ${value}::jsonb)
+    update libraries set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{playerLastScan}', ${value}::text::jsonb)
     where id = ${libraryId}`;
 }
 

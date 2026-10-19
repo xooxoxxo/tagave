@@ -142,7 +142,7 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
       playerPassword: sealSecret(password, appSecretValue()),
       playerPasswordHint: computeHint(password),
     };
-    await sql`update libraries set settings = ${JSON.stringify(next)}::jsonb where id = ${libraryId}`;
+    await sql`update libraries set settings = ${JSON.stringify(next)}::text::jsonb where id = ${libraryId}`;
     clearCapabilityCache();
     return settingsView(next, true);
   });
@@ -154,7 +154,7 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     const lib = await libraryById(sql, libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     const { playerUrl: _u, playerUser: _n, playerPassword: _p, playerPasswordHint: _h, ...rest } = lib.settings;
-    await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
+    await sql`update libraries set settings = ${JSON.stringify(rest)}::text::jsonb where id = ${libraryId}`;
     clearCapabilityCache();
     return settingsView(rest, true);
   });

@@ -133,45 +133,8 @@ try {
 
   // One-time boot migration: seal plaintext credentials (PLT-5)
   try {
-    const { sealSecret, isSealed } = await import('@tagave/core');
-    const libraries = await db.client`
-      select id, settings from libraries
-      where settings->>'discogsToken' is not null
-         or settings->>'acoustidKey' is not null
-    ` as unknown as Array<{ id: string; settings: Record<string, any> }>;
-
-    let sealed = 0;
-    for (const lib of libraries) {
-      const settings = typeof lib.settings === 'string'
-        ? JSON.parse(lib.settings)
-        : lib.settings;
-
-      let needsUpdate = false;
-
-      // Seal discogsToken if present and not already sealed
-      if (settings.discogsToken && typeof settings.discogsToken === 'string' && !isSealed(settings.discogsToken)) {
-        const hint = settings.discogsToken.slice(-4);
-        settings.discogsToken = sealSecret(settings.discogsToken, appSecret);
-        settings.discogsTokenHint = hint;
-        needsUpdate = true;
-      }
-
-      // Seal acoustidKey if present and not already sealed
-      if (settings.acoustidKey && typeof settings.acoustidKey === 'string' && !isSealed(settings.acoustidKey)) {
-        const hint = settings.acoustidKey.slice(-4);
-        settings.acoustidKey = sealSecret(settings.acoustidKey, appSecret);
-        settings.acoustidKeyHint = hint;
-        needsUpdate = true;
-      }
-
-      if (needsUpdate) {
-        await db.client`
-          update libraries set settings = ${JSON.stringify(settings)}
-          where id = ${lib.id}
-        `;
-        sealed++;
-      }
-    }
+    const { sealPlaintextLibraryCredentials } = await import('./lib/bootSeal.js');
+    const sealed = await sealPlaintextLibraryCredentials(db.client, appSecret);
 
     if (sealed > 0) {
       logger.info(`Sealed ${sealed} library credential(s) during boot migration`);

@@ -68,6 +68,9 @@ describe.skipIf(!url)('setup on Better Auth (integration)', () => {
     // Mirrored for rollback to 0.6.x during the bridge release.
     expect(row!['password_hash']).toBe(accounts[0]!['password']);
     expect(await sql`select name from libraries where owner_user_id = ${user.id}`).toEqual([{ name: 'My Music Library' }]);
+    // The settings are a jsonb object SQL can read, not a string holding one.
+    expect(await sql`select jsonb_typeof(settings) as t, settings->>'contactString' as c from libraries where owner_user_id = ${user.id}`)
+      .toEqual([{ t: 'object', c: expect.any(String) }]);
 
     const jar = cookieJar(res.headers['set-cookie']);
     const me = await app.inject({ method: 'GET', url: '/api/v1/auth/me', headers: { cookie: cookieHeader(jar) } });

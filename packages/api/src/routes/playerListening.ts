@@ -93,7 +93,7 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     const checked = await lastfmCheckApp(probe!.app);
     if (!checked.ok) throw new ApiError(400, 'Bad Request', checked.reason);
     const next: PlayerLibrarySettings & LastfmAppSettings = { ...lib.settings, ...sealLastfmApp(body.apiKey, body.secret) };
-    await sql`update libraries set settings = ${JSON.stringify(next)}::jsonb where id = ${libraryId}`;
+    await sql`update libraries set settings = ${JSON.stringify(next)}::text::jsonb where id = ${libraryId}`;
     return scrobblingSettingsView(next);
   });
 
@@ -104,7 +104,7 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     const lib = await libraryById(sql, libraryId);
     if (!lib) throw new ApiError(404, 'Not Found', 'Library not found');
     const { lastfmApiKey: _k, lastfmSecret: _s, lastfmApiKeyHint: _h, ...rest } = lib.settings as unknown as PlayerLibrarySettings & LastfmAppSettings;
-    await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
+    await sql`update libraries set settings = ${JSON.stringify(rest)}::text::jsonb where id = ${libraryId}`;
     return scrobblingSettingsView({});
   });
 

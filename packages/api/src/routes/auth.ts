@@ -76,7 +76,7 @@ export async function createAuthRoutes(fastify: FastifyInstance) {
       await tx`
         insert into libraries (id, owner_user_id, name, settings, created_at)
         values (${uuidv7()}, ${user.id}, 'My Music Library',
-                ${tx.json({ contactString: body.contactString })}, now())`;
+                ${JSON.stringify({ contactString: body.contactString })}::text::jsonb, now())`;
       return res;
     });
 

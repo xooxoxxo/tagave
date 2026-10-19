@@ -56,7 +56,7 @@ async function patchUpdates(libraryId: string, patch: Partial<UpdatesSettings>):
     update libraries set settings = jsonb_set(
       coalesce(settings, '{}'::jsonb),
       '{updates}',
-      coalesce(settings->'updates', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)
+      coalesce(settings->'updates', '{}'::jsonb) || ${JSON.stringify(patch)}::text::jsonb)
     where id = ${libraryId}
     returning settings->'updates' as updates`)) as unknown as Array<{ updates: UpdatesSettings | string | null }>;
   const raw = rows[0]?.updates ?? null;
