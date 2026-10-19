@@ -58,8 +58,11 @@ export async function unplugLink(sql: Sql, linkId: string, actorUserId: string |
  */
 export async function removeMcData(sql: Sql, opts: { keepFills: boolean; actorUserId: string | null }): Promise<UnplugCounts & { links: number }> {
   return sql.begin(async (tx) => {
-    if (opts.keepFills) await confirmFills(tx, 'mc', null, opts.actorUserId);
+    // Links first, as revoke does (the pull transaction holds a link's row,
+    // then its fills): confirming the fills first would take the locks in the
+    // opposite order and could deadlock with an in-flight page's revertFills.
     const links = await tx<Array<{ id: string }>>`select id from mc_links for update`;
+    if (opts.keepFills) await confirmFills(tx, 'mc', null, opts.actorUserId);
     const total: UnplugCounts = { rows: 0, candidates: 0, fillsReverted: 0, fillsKept: 0 };
     for (const l of links) {
       const c = await unplugLinkTx(tx, l.id, opts.actorUserId);

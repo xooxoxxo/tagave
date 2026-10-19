@@ -188,6 +188,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('music connections landing (db)'
     expect((await client`select release_group_id from mc_critic_scores where link_id = ${a} and key = ${key}`)[0].release_group_id).not.toBeNull();
   });
 
+  it('one link failing in the tick does not stop the others; its last_error is recorded', async () => {
+    const bad = await link(owner);
+    const good = await link(owner);
+    const m = mbid();
+    await criticScoresHandler.apply([critic('b1', album({ rg_mbid: mbid() }))], await hctx(bad, 'critic-scores'));
+    await criticScoresHandler.apply([critic('g1', album({ rg_mbid: m }))], await hctx(good, 'critic-scores'));
+    await releaseGroup({ mbid: m });
+    // a parked row whose album is not valid JSON: attaching that link throws
+    await client`update mc_critic_scores set album = to_jsonb('{broken'::text) where link_id = ${bad}`;
+    const errors: unknown[] = [];
+    const logger = { error: (...a: unknown[]) => errors.push(a), warn: () => undefined, info: () => undefined } as unknown as WorkerContext['logger'];
+    const attached = await attachParked(ctx.sql, { logger });
+    expect(attached).toBeGreaterThanOrEqual(1); // the good link was still attached
+    expect((await client`select release_group_id from mc_critic_scores where link_id = ${good}`)[0].release_group_id).not.toBeNull();
+    expect(errors.length).toBeGreaterThanOrEqual(1);
+    expect((await client`select last_error from mc_links where id = ${bad}`)[0].last_error).toBe('attaching parked items failed');
+  });
+
   it('a link keeps a bounded number of parked rows; the oldest go and are counted on the link', async () => {
     const a = await link(owner);
     for (const k of ['o1', 'o2', 'o3', 'o4']) await criticScoresHandler.apply([critic(k, album({ rg_mbid: mbid() }))], await hctx(a, 'critic-scores'));
@@ -497,6 +515,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('music connections landing (db)'
     expect(await coreSnapshot({ wantlistOrigin: true })).toEqual(before);
     expect((await client`select 1 from wantlist_items where id = ${w.id}`).length).toBe(1);
     expect(await client`select key from mc_critic_scores where link_id = ${a}`).toEqual([]);
+  });
+
+  it('"Keep" locks the link rows before it confirms the fills (no lock order against an in-flight revertFills)', async () => {
+    await removeMcData(ctx.sql, { keepFills: false, actorUserId: owner });
+    const empty = await releaseGroup({ mbid: null });
+    const a = await link(owner);
+    await identityHandler().apply([ident('lk', album({ rg_mbid: mbid(), discogs_master_id: empty.master }))], await hctx(a, 'identity'));
+    expect((await client`select 1 from identity_fills where module = 'mc'`).length).toBeGreaterThan(0);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let held!: () => void;
+    const holding = new Promise<void>((r) => { held = r; });
+    // an in-flight page holds the link row
+    const page = client.begin(async (tx: any) => {
+      await tx`select id from mc_links where id = ${a} for update`;
+      held();
+      await gate;
+    });
+    await holding;
+    const removal = removeMcData(ctx.sql, { keepFills: true, actorUserId: owner });
+    await new Promise((r) => setTimeout(r, 400));
+    // removal waits on the link row and has not touched the fills: they are still free to lock
+    const probe = await client.begin(async (tx: any) => {
+      await tx`set local lock_timeout = '1s'`;
+      return tx`select id from identity_fills where module = 'mc' for update nowait`;
+    });
+    expect(probe.length).toBeGreaterThan(0);
+    release();
+    await page;
+    await removal;
+    expect((await client`select 1 from mc_links`).length).toBe(0);
   });
 
   it('removing the module’s data with "Keep": core differs only in the MBIDs a person chose to keep', async () => {

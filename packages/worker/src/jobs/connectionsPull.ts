@@ -189,7 +189,7 @@ export async function connectionsPullJob(ctx: WorkerContext, data: ConnectionsPu
 export async function connectionsTick(ctx: WorkerContext, opts: PullOptions = {}): Promise<{ manifests: number; queued: number }> {
   // items parked for want of an album: attach what identify runs matched since (D4)
   try {
-    const attached = await attachParked(ctx.sql);
+    const attached = await attachParked(ctx.sql, { logger: ctx.logger });
     if (attached) ctx.logger.info({ attached }, 'connections.pull: parked items attached');
   } catch (e) {
     ctx.logger.error({ error: e instanceof Error ? e.name : 'unknown' }, 'connections.pull: attaching parked items failed');

@@ -369,7 +369,7 @@ export async function lockedForLink<T>(sql: Sql, linkId: string, fn: (tx: Sql) =
  * keep failing never hold the others back. Runs after each link's pull (in
  * that link's transaction) and on every tick (per link, under its lock).
  */
-export async function attachParked(sql: Sql, opts: { linkId?: string; h?: HandlerContext; batch?: number } = {}): Promise<number> {
+export async function attachParked(sql: Sql, opts: { linkId?: string; h?: HandlerContext; batch?: number; logger?: HandlerContext['logger'] } = {}): Promise<number> {
   const links = opts.linkId
     ? [opts.linkId]
     : (await sql<Array<{ link_id: string }>>`
@@ -380,8 +380,19 @@ export async function attachParked(sql: Sql, opts: { linkId?: string; h?: Handle
   let attached = 0;
   for (const linkId of links) {
     const run = (tx: Sql) => attachForLink(tx, linkId, opts.batch ?? ATTACH_BATCH);
-    const n = opts.h ? await inLink(opts.h, run) : await lockedForLink(sql, linkId, run);
-    attached += n ?? 0;
+    // Inside a pull the caller's transaction is the link's; its failure is the pull's.
+    if (opts.h) {
+      attached += (await inLink(opts.h, run)) ?? 0;
+      continue;
+    }
+    // On the tick one link failing must not stop the rest.
+    try {
+      attached += (await lockedForLink(sql, linkId, run)) ?? 0;
+    } catch (e) {
+      opts.logger?.error({ linkId, error: e instanceof Error ? e.name : 'unknown' }, 'connections.pull: attaching a link\'s parked items failed');
+      await sql`update mc_links set last_error = 'attaching parked items failed', updated_at = now() where id = ${linkId}`
+        .catch(() => opts.logger?.error({ linkId }, 'connections.pull: could not record the attach failure'));
+    }
   }
   return attached;
 }
