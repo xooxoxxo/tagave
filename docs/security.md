@@ -198,7 +198,7 @@ The player is an optional service (compose profile `player`): an unmodified [Nav
 
 ## Music Connections
 
-Music Connections lets another music app read one person's data from tagave, and lets tagave read from another app (see [Operations](operations.md#music-connections)). Each direction is a separate link with its own approval, and each can be revoked on its own. Turning the module off in Settings › Modules makes the description and the feeds answer 404.
+Music Connections lets another music app read one person's data from tagave, and lets tagave read from another app (see [Operations](operations.md#music-connections)). Each direction is a separate link with its own approval, and each can be revoked on its own. It is off by default. Off (Settings › Modules), the description, the feeds and the register, authorize and consent endpoints answer 404, and the token endpoint issues nothing (503); revoke still works.
 
 **The OAuth provider.** Better Auth 1.7 has no OAuth-provider plugin, so tagave runs its own OAuth 2.0 server at `/api/v1/connect/*`. Better Auth supplies only the session for the consent page.
 

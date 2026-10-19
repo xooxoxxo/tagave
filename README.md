@@ -52,7 +52,8 @@ app such as review-gatherer can read your ratings, collection and listens, and
 tagave shows its critic scores in your album's review panel and its suggestions
 next to your wantlist. Each person links their own account in Settings ›
 Connections, approves what is shared, and can revoke it at any time. Your
-review text is never shared. [Operations](docs/operations.md#music-connections)
+review text is never shared. Music Connections is off by default; the owner
+turns it on in Settings › Modules. [Operations](docs/operations.md#music-connections)
 explains how.
 
 **Keeps your account yours.** Sign in with a passkey or a security key such as a

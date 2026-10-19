@@ -471,7 +471,18 @@ A linked app reads the feeds at `/mc/v1/ratings`, `/mc/v1/collection`, `/mc/v1/l
 
 What tagave reads lands in tables of its own, one row per connection and item: critic scores show in an album's review panel, labelled by where they came from ("Pitchfork (via review-gatherer)"); wantlist suggestions show under the wantlist on the Collection page, where Accept or Dismiss is sent to the app first and Accept keeps the album on the wantlist of the library you are in, in tagave only (never sent to Discogs); identity fills an album's missing MusicBrainz ID only when the other app is sure, the connection belongs to an owner and no other album has that ID, and otherwise becomes a suggestion in the identify queue, which only a person accepts (the auto-accept rules leave it alone). tagave never overwrites a match or an ID. An item for an album tagave does not have yet waits and attaches once the album is matched; a connection keeps at most 5000 such items per kind, and the oldest beyond that are dropped (the connection shows how many). Revoking a connection deletes what it brought, takes back the IDs it filled that nobody has confirmed since, and leaves what a person decided: accepted wantlist entries and accepted suggestions. Every fill and take-back is in the audit log (`identity.fill`, `identity.fill_reverted`).
 
-Music Connections has a row in **Settings › Modules**. Off, nothing is pulled or served (the description and feeds answer 404), its pages hide and everything is kept. Turning it off with "Also delete its data" revokes every connection at the other app and deletes the module's data; "keep the album IDs it filled in" keeps those as the library's own.
+Music Connections is **off by default**, on a new install and on one updated from a release without it. The owner turns it on in **Settings › Modules** (the Music Connections row; it asks you to confirm it is you). It takes effect at once, with no restart: every request and every job run reads the switch.
+
+Off, nothing links, is pulled or is served, and everything is kept:
+
+- `/.well-known/music-connections`, the feeds under `/mc/v1/`, and `/api/v1/connect/register`, `/authorize` and the consent page's requests answer 404. The consent page says Music Connections is turned off and offers nothing to approve.
+- `/api/v1/connect/token` issues nothing: both grants answer 503 `temporarily_unavailable` with `Retry-After: 3600`. A linked app reads that as a pause, so its link survives and works again once the module is on. `/api/v1/connect/revoke` keeps working, so a linked app can still give its approval back.
+- The 15-minute `connections.pull` tick and the nightly `mc.purge` skip.
+- **Settings › Connections** says the module is off and points the owner to Settings › Modules.
+
+The change-log triggers that migration 0048 added to seven core tables keep writing to `facet_changes` while the module is off: they are part of the core, so that a linked app picks up every change once the module is on again. Nothing reads or compacts that log while it is off; the first `mc.purge` after turning it on compacts what gathered meanwhile.
+
+Turning it off with "Also delete its data" revokes every connection at the other app and deletes the module's data; "keep the album IDs it filled in" keeps those as the library's own.
 
 ### Settings
 
