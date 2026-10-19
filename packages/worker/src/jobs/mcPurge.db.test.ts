@@ -33,9 +33,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
     ctx = { db: made.db, sql: made.client, boss: {} as any, logger: pino({ level: 'silent' }) };
     await client`insert into users (id, email) values (${userId}, ${`purge-${tag}@example.test`})`;
     await client`insert into libraries (id, owner_user_id, name) values (${libraryId}, ${userId}, 'purge test')`;
-    // Music Connections is off by default; the purge runs only with it on
+    // Music Connections is off by default: the purge runs anyway
     was = await mcEnabled(client);
-    await setMcEnabled(client, true);
+    await setMcEnabled(client, false);
     await client`insert into release_groups (id, mbid, title) values (${rgLive}, ${randomUUID()}, 'purge test')`;
     // a rating that exists (its trigger logs one upsert, removed below)
     await client`insert into user_reviews (library_id, user_id, release_group_id, rating) values (${libraryId}, ${userId}, ${rgLive}, 4)`;
@@ -61,20 +61,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
     await client.end({ timeout: 5 });
   });
 
-  it('skips while Music Connections is off, and touches nothing', async () => {
-    await setMcEnabled(client, false);
-    try {
-      const before = await left();
-      expect(await mcPurgeJob(ctx, { batchSize: 1 })).toEqual({ skipped: 'music connections is off' });
-      expect(await left()).toEqual(before);
-    } finally {
-      await setMcEnabled(client, true);
-    }
-  });
-
   it('drops superseded rows and old tombstones, never a key that has data', async () => {
+    expect(await mcEnabled(client)).toBe(false);
     const result = await mcPurgeJob(ctx, { batchSize: 1 });
-    if ('skipped' in result) throw new Error('the purge skipped');
     expect(result).toMatchObject({ relogged: 1 });
     expect(result.superseded).toBeGreaterThanOrEqual(3);
     expect(result.tombstones).toBeGreaterThanOrEqual(2);
@@ -84,6 +73,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
       'recent-delete delete',
       `${rgLive} upsert`,
     ].sort());
+  });
+
+  it('compacts superseded rows with Music Connections off', async () => {
+    expect(await mcEnabled(client)).toBe(false);
+    await row(`${tag}:again`, 'upsert', '5 days');
+    await row(`${tag}:again`, 'delete', '4 days');
+    await row(`${tag}:again`, 'upsert', '3 days');
+    const result = await mcPurgeJob(ctx);
+    expect(result.superseded).toBeGreaterThanOrEqual(2);
+    expect((await left()).filter((r: string) => r.startsWith('again '))).toEqual(['again upsert']);
   });
 
   it('a second run changes nothing', async () => {

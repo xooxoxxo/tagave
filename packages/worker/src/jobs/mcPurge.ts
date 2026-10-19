@@ -17,13 +17,14 @@
  * statement holds locks or bloats WAL for long. Runs daily on the worker that
  * serves facets.refresh (database upkeep).
  *
- * Music Connections off (Settings › Modules): the run skips. The triggers keep
- * logging (core transport), so the first run after it is turned on again
- * compacts what gathered meanwhile.
+ * It runs whether or not Music Connections is on (Settings › Modules): the
+ * triggers are core transport and keep logging while the module is off, so
+ * this housekeeping keeps the log small either way. It touches only
+ * facet_changes; the switch guards the network-facing parts (tick, pulls,
+ * feeds, OAuth).
  */
 import { TOMBSTONE_DAYS } from 'music-connections';
 import type { WorkerContext } from '../lib/context.js';
-import { mcIsOn } from './connectionsPull.js';
 
 /** The protocol's tombstone window (music-connections › TOMBSTONE_DAYS). */
 export const MC_TOMBSTONE_DAYS = TOMBSTONE_DAYS;
@@ -38,8 +39,7 @@ export interface McPurgeJobData {
 export async function mcPurgeJob(
   ctx: WorkerContext,
   data: McPurgeJobData = {},
-): Promise<{ relogged: number; superseded: number; tombstones: number } | { skipped: string }> {
-  if (!(await mcIsOn(ctx))) return { skipped: 'music connections is off' };
+): Promise<{ relogged: number; superseded: number; tombstones: number }> {
   const keepDays = data.keepDays ?? MC_TOMBSTONE_DAYS;
   const batchSize = data.batchSize ?? 5000;
 

@@ -477,10 +477,10 @@ Off, nothing links, is pulled or is served, and everything is kept:
 
 - `/.well-known/music-connections`, the feeds under `/mc/v1/`, and `/api/v1/connect/register`, `/authorize` and the consent page's requests answer 404. The consent page says Music Connections is turned off and offers nothing to approve.
 - `/api/v1/connect/token` issues nothing: both grants answer 503 `temporarily_unavailable` with `Retry-After: 3600`. A linked app reads that as a pause, so its link survives and works again once the module is on. `/api/v1/connect/revoke` keeps working, so a linked app can still give its approval back.
-- The 15-minute `connections.pull` tick and the nightly `mc.purge` skip.
+- The 15-minute `connections.pull` tick skips.
 - **Settings › Connections** says the module is off and points the owner to Settings › Modules.
 
-The change-log triggers that migration 0048 added to seven core tables keep writing to `facet_changes` while the module is off: they are part of the core, so that a linked app picks up every change once the module is on again. Nothing reads or compacts that log while it is off; the first `mc.purge` after turning it on compacts what gathered meanwhile.
+The change-log triggers that migration 0048 added to seven core tables keep writing to `facet_changes` while the module is off: they are part of the core, so that a linked app picks up every change once the module is on again. The nightly `mc.purge` compacts that log daily whether or not the module is on, so it stays small on an install that never turns Music Connections on.
 
 Turning it off with "Also delete its data" revokes every connection at the other app and deletes the module's data; "keep the album IDs it filled in" keeps those as the library's own.
 
