@@ -13,6 +13,7 @@ import {
   useRemoveOwnAccount, useSaveOwnAccount, useSetPhonePassword,
 } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
+import { formatRelativeTime } from '../utils/time';
 import styles from './SettingsListeningPage.module.css';
 
 const problem = (err: unknown, fallback: string) => {
@@ -201,9 +202,9 @@ function OwnAccountForm({ account, busy, error, onSave, onRemove }: { account: L
 
 // ---- scrobbling ----
 
-function serviceLine(s: ScrobbleAccountView): string {
-  const parts = [`Connected as ${s.accountName}`];
-  if (s.lastOkAt) parts.push(`last scrobble ${when(s.lastOkAt)}`);
+/** One line per connected service: who, when something last went through, what waits. */
+export function serviceLine(s: ScrobbleAccountView): string {
+  const parts = [`Connected as ${s.accountName}`, s.lastOkAt ? `Last sent ${formatRelativeTime(s.lastOkAt)}` : 'Nothing sent yet'];
   if (s.pending > 0) parts.push(`${s.pending} waiting to be sent`);
   return parts.join(' · ');
 }
@@ -233,7 +234,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
           {lastfm?.connected ? (
             <>
               <p className={styles.hint}>{serviceLine(lastfm)}</p>
-              {lastfm.lastError && <p className={styles.error} role="alert">{lastfm.lastError}{lastfm.lastErrorAt ? ` (${when(lastfm.lastErrorAt)})` : ''}</p>}
+              {lastfm.lastError && <p className={styles.error} role="alert">{lastfm.lastError}{lastfm.lastErrorAt ? ` (${formatRelativeTime(lastfm.lastErrorAt)})` : ''}</p>}
               <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('lastfm')} disabled={busy?.disconnect}>Disconnect</Button></div>
             </>
           ) : data.lastfmAvailable ? (
@@ -255,7 +256,7 @@ function ScrobblingSection({ data, busy, errors, listenbrainzQueued, onConnectLa
             <>
               <p className={styles.hint}>{serviceLine(lb)}</p>
               {queuedLine(listenbrainzQueued) && <p className={styles.ok} role="status">{queuedLine(listenbrainzQueued)}</p>}
-              {lb.lastError && <p className={styles.error} role="alert">{lb.lastError}{lb.lastErrorAt ? ` (${when(lb.lastErrorAt)})` : ''}</p>}
+              {lb.lastError && <p className={styles.error} role="alert">{lb.lastError}{lb.lastErrorAt ? ` (${formatRelativeTime(lb.lastErrorAt)})` : ''}</p>}
               <div className={styles.row}><Button variant="quiet-danger" size="sm" onClick={() => void disconnect('listenbrainz')} disabled={busy?.disconnect}>Disconnect</Button></div>
             </>
           ) : (

@@ -52,7 +52,7 @@ export interface ScrobbleDeps {
   fetchImpl?: typeof fetch;
   env?: NodeJS.ProcessEnv;
   now?: () => number;
-  log?: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void };
+  log?: { info: (o: object, m: string) => void; warn: (o: object, m: string) => void; debug?: (o: object, m: string) => void };
 }
 
 // -- the owner's Last.fm application ---------------------------------------------
@@ -443,7 +443,8 @@ export async function sendNowPlaying(deps: ScrobbleDeps, userId: string, library
       out = await listenbrainzNowPlaying(secret, track, { ...f, ...(apiUrl ? { apiUrl } : {}) });
     }
     if (out.kind === 'sent') n++;
-    else if (out.kind === 'auth') {
+    else deps.log?.debug?.({ userId, service: r.service, outcome: out.kind, reason: out.reason }, 'now playing not sent');
+    if (out.kind === 'auth') {
       await sql`update scrobble_accounts set last_error = ${out.reason}, last_error_at = now() where user_id = ${userId} and service = ${r.service}`;
     }
   }

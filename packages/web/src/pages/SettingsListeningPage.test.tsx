@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ListeningView } from '@tagave/shared';
-import { ListeningSettingsView, lastfmReturnMessage, queuedLine, type ListeningSettingsViewProps } from './SettingsListeningPage';
+import { ListeningSettingsView, lastfmReturnMessage, queuedLine, serviceLine, type ListeningSettingsViewProps } from './SettingsListeningPage';
 import { ScrobblingSettingsPanel } from './SettingsPlaybackPage';
 
 const noop = () => undefined;
@@ -43,9 +43,13 @@ describe('ListeningSettingsView', () => {
     const data = { ...base, services: [{ ...base.services[0]!, connected: true, accountName: 'anna-fm', pending: 2, lastError: 'Service Offline', lastErrorAt: '2026-10-16T10:00:00Z' }, base.services[1]!] };
     const html = renderToStaticMarkup(<ListeningSettingsView {...props(data)} />);
     expect(html).toContain('Connected as anna-fm');
-    expect(html).toContain('2 waiting to be sent');
+    expect(html).toContain('Nothing sent yet · 2 waiting to be sent');
     expect(html).toContain('Service Offline');
     expect(html).toContain('Disconnect');
+  });
+  it('says when something last went through', () => {
+    const ok = { ...base.services[1]!, connected: true, accountName: 'anna-lb', lastOkAt: new Date(Date.now() - 2 * 60_000).toISOString() };
+    expect(serviceLine(ok)).toBe('Connected as anna-lb · Last sent 2 min ago');
   });
   it('says so when the player is not set up', () => {
     expect(renderToStaticMarkup(<ListeningSettingsView {...props({ ...base, playerInstalled: false })} />)).toContain('The player is not set up');
