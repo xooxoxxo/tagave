@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ModuleRun } from '@tagave/shared/modules';
 import { envGet } from './envFile.js';
-import { ModuleOperation, moduleStatuses, newModuleRun, renderModuleCompose, withComposeFile, type ModuleConfig } from './modules.js';
+import { ModuleOperation, describePurgeAnswer, moduleStatuses, newModuleRun, renderModuleCompose, withComposeFile, type ModuleConfig } from './modules.js';
 import { verifyRelease, type VerifiedRelease } from './release.js';
 import { DUMMY_MODULE, PLAYER_MODULE, digest, signed, testKey, testManifest } from './release.testkit.js';
 import type { CommandResult, RunOptions } from './runner.js';
@@ -342,6 +342,15 @@ describe('module operations', () => {
     const split = await moduleStatuses({ installDir: dir, release: rel, platform: PLATFORM, run: null, active: false });
     expect(split.find((m) => m.id === 'player')).toMatchObject({ available: false, reason: expect.stringMatching(/split install/) });
     expect(split.find((m) => m.id === 'dummy')).toMatchObject({ available: true });
+  });
+});
+
+describe('the doctor\'s purge answer', () => {
+  it('says what went, and what a player server of the owner\'s own kept', () => {
+    expect(describePurgeAnswer({ module: 'player', deleted: { player_users: 2, scrobble_accounts: 0 }, history: { table: 'listens', action: 'kept', count: 4 }, librariesCleared: 0, keptForLibraries: 1 }))
+      .toBe('deleted 2 player_users; kept what a player server of your own uses in 1 library, and the Last.fm and ListenBrainz connections; kept the 4 listens it recorded');
+    // an older doctor's answer has no keptForLibraries
+    expect(describePurgeAnswer({ module: 'player', deleted: {}, history: null, librariesCleared: 0 })).toBe('no rows of its own were left');
   });
 });
 

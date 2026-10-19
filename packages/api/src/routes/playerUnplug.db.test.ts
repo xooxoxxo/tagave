@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { sealSecret } from '@tagave/core';
 import { MODULE_DATA, PurgeRefused, purgeModuleData } from '@tagave/doctor';
 import { close, fakeListenbrainz, fakeNavidrome, listen } from '../testkit/playerFakes.js';
 
@@ -291,5 +292,71 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     const again = await purgeModuleData(sql, 'player', { env: {}, deleteHistory: true });
     expect(again.history).toMatchObject({ action: 'deleted', count: 0 });
     expect(await core()).toEqual(after);
+  });
+
+  it('removing the bundled player while a server of your own is set up leaves that server, its rows and the scrobble accounts as they were', async () => {
+    // the bundled player in use again
+    await useThePlayer();
+    turnOff();
+    // the owner's own server in Settings › Playback (the fake Navidrome under another account: another server_key)
+    nav.state.users.set('own-admin', { id: 'nd-own', password: 'own-pw', isAdmin: true, name: 'Own', plays: new Map(), ratings: new Map(), starred: new Set() });
+    const ownSettings = { playerUrl: navUrl, playerUser: 'own-admin', playerPassword: sealSecret('own-pw', process.env['APP_SECRET']!), playerPasswordHint: 'w' };
+    await sql`update libraries set settings = settings || ${JSON.stringify(ownSettings)}::jsonb where id = ${libraryId}`;
+    player.clearCapabilityCache();
+    const own = player.backendFor(ownSettings)!;
+    expect(own.managed).toBe('external');
+    // used through its own code: Anna's login there, a play in tagave, her counts, her ratings
+    await people.saveOwnAccount(sql, own, anna, { username: 'own-admin', password: 'own-pw', serverScrobbles: false });
+    expect((await app.inject({ method: 'GET', url: `/api/v1/player/albums/${albumId}/queue`, headers: as(anna) })).statusCode).toBe(200);
+    const q = randomUUID();
+    await event(anna, 'completed', t.one, 199_000, q);
+    await event(anna, 'completed', t.three, 199_000, q);
+    await sync.runPlayerFastSync({ sql });
+    const deps = sync.playsDeps({ sql });
+    await plays.pollPerson(deps, own, anna);
+    await ratings.syncPersonRatings({ sql }, own, anna);
+
+    const before = await playerRows();
+    const bundledRows = (t: string) => (before[t] as any[]).filter((r) => r.server_key === 'bundled').length;
+    const ownRows = (t: string) => (before[t] as any[]).filter((r) => r.server_key === own.key).length;
+    for (const t of ['player_users', 'player_poll_state', 'player_rating_sync']) {
+      expect(bundledRows(t), `${t} bundled`).toBeGreaterThan(0);
+      expect(ownRows(t), `${t} own`).toBeGreaterThan(0);
+    }
+    // one song id per track: the own server's queue took the map over
+    expect(ownRows('player_track_map')).toBeGreaterThan(0);
+    expect(before['scrobble_accounts']!.length).toBe(2);
+    const coreBefore = await core();
+
+    const r = await purgeModuleData(sql, 'player', { env: {} });
+    expect(r.keptForLibraries).toBe(1);
+    expect(r.deleted['scrobble_accounts']).toBe(0);
+    const after = await playerRows();
+    const notBundled = (t: string) => (before[t] as any[]).filter((row) => row.server_key !== 'bundled');
+    for (const t of ['player_track_map', 'player_song_counts', 'player_poll_state', 'player_rating_sync', 'player_users', 'player_retired_accounts', 'player_events', 'player_plays']) {
+      expect(after[t], t).toEqual(notBundled(t));
+    }
+    const keptPlays = new Set(notBundled('player_plays').map((p: any) => p.id));
+    expect(after['player_scrobbles']).toEqual((before['player_scrobbles'] as any[]).filter((s) => keptPlays.has(s.play_id)));
+    // keyed by the library (which the own server serves) or by the person: as they were
+    for (const t of ['player_listens', 'scrobble_accounts', 'player_scan_requests']) expect(after[t], t).toEqual(before[t]);
+    expect(await core()).toEqual(coreBefore);
+    const [lib] = await sql`select settings from libraries where id = ${libraryId}`;
+    expect(lib.settings).toMatchObject({ ...ownSettings, discogsUser: 'kept' });
+    expect(lib.settings.playerLastScan).toBeDefined();
+    // the own server still plays: its backend and Anna's login there are intact
+    expect((await people.personServer(sql, own, anna))?.kind).toBe('own');
+    // again: nothing more goes
+    const again = await purgeModuleData(sql, 'player', { env: {} });
+    expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
+
+    // the own server removed too (Settings › Playback): now nothing of the player is left to keep
+    const { playerUrl: _u, playerUser: _n, playerPassword: _p, playerPasswordHint: _h, ...rest } = lib.settings;
+    await sql`update libraries set settings = ${JSON.stringify(rest)}::jsonb where id = ${libraryId}`;
+    const last = await purgeModuleData(sql, 'player', { env: {} });
+    expect(last.keptForLibraries).toBe(0);
+    expect(last.deleted['scrobble_accounts']).toBe(2);
+    expect(Object.values(await counts()).every((n) => n === 0)).toBe(true);
+    expect((await core()).listens).toEqual(coreBefore.listens);
   });
 });

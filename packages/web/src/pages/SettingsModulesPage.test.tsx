@@ -73,7 +73,7 @@ describe('Settings › Modules', () => {
     expect(closed).not.toContain('Your listens stay.');
     expect((closed.match(/type="checkbox"/g) ?? []).length).toBe(1);
     const data = off({ deleteData: true, deleteHistory: false });
-    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. Your listens stay.");
+    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Playback keeps its data and the accounts. Your listens stay.");
     expect(data).toContain('Also delete the listens the player recorded. Listens you added yourself stay.');
     expect((data.match(/type="checkbox"/g) ?? []).length).toBe(2);
     expect((data.match(/checked=""/g) ?? []).length).toBe(1);

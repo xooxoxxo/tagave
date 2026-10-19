@@ -2557,7 +2557,8 @@ run_disable_player() {
   [ "$NO_START" != "1" ] || return 0
   if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
     say "  The player's data: Navidrome's database (its own plays, stars and users) and, in tagave,"
-    say "  the player's library, play counts and connected Last.fm and ListenBrainz accounts."
+    say "  the player's library, play counts and connected Last.fm and ListenBrainz accounts. A server of"
+    say "  your own in Settings > Playback keeps its data and the accounts."
     printf '%s' "Also delete the player's data? Your listens stay. This cannot be undone. (y/N): " >"$TTY"
     IFS= read -r answer <"$TTY" || answer=""
     case "$answer" in y|Y|yes|Yes|YES) DELETE_DATA=1 ;; esac
@@ -2632,7 +2633,11 @@ run_module() {
   image="$TAGAVE_REGISTRY/tagave-updater:$CURRENT${digest:+@$digest}"
   if [ "$action" = "disable-module" ]; then
     if [ "$DELETE_DATA" != "1" ] && [ -n "$TTY" ]; then
-      [ "$MODULE_ID" != "player" ] || say "  Its data: Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts. Your listens stay."
+      if [ "$MODULE_ID" = "player" ]; then
+        say "  Its data: Navidrome's database and, in tagave, the player's library, play counts and connected"
+        say "  Last.fm and ListenBrainz accounts. A server of your own in Settings > Playback keeps its data"
+        say "  and the accounts. Your listens stay."
+      fi
       printf '%s' "Also delete the data of $MODULE_ID? This cannot be undone. (y/N): " >"$TTY"
       IFS= read -r answer <"$TTY" || answer=""
       case "$answer" in y|Y|yes|Yes|YES) DELETE_DATA=1 ;; esac

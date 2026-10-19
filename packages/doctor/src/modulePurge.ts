@@ -20,7 +20,11 @@
  * server, retired accounts, scan requests) and scrobble_accounts. Last.fm
  * and ListenBrainz connections are per person, but only the player feeds
  * them, so they belong to the player for now and go with it (they hold the
- * session keys). Kept: the listens it wrote into the core `listens` table
+ * session keys). While a player server of the owner's own is still set up
+ * (Settings › Playback) only the bundled player's rows go (server_key
+ * 'bundled'), with the rows of libraries that server does not serve; that
+ * server's rows, the plays, listens and scrobbles of its libraries and the
+ * scrobbling connections stay, so it keeps working. Kept: the listens it wrote into the core `listens` table
  * (source 'player'), which are the person's history; `deleteHistory` deletes
  * those too, and only those (listens logged by hand stay either way). The
  * owner's own settings in libraries.settings stay as well (a player server
@@ -39,7 +43,24 @@ export interface ModuleData {
   history: { table: string; where: string } | null;
   /** Set in the app's environment while the module is on: the purge refuses then. */
   onWhenEnv: readonly string[];
+  /**
+   * Another part still uses some of these tables (the player: a server of
+   * the owner's own, Settings › Playback). `libraries` finds the libraries
+   * it serves; while there are any, each table is emptied only where
+   * `where` says ($1: those libraries' ids), a table mapped to null is kept
+   * whole, and the settings keys go only in the other libraries. With none
+   * left, everything goes.
+   */
+  shared?: {
+    libraries: string;
+    where: Readonly<Record<string, string | null>>;
+  };
 }
+
+/** The bundled Navidrome's server_key (playerServerKey in packages/core/src/player/config.ts). */
+const BUNDLED = "'bundled'";
+/** Its rows, or the rows of a library no server of the owner's serves. */
+const BUNDLED_OR_UNSERVED = `server_key = ${BUNDLED} or library_id <> all($1::uuid[])`;
 
 export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
   player: {
@@ -60,6 +81,27 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
     librarySettingsKeys: ['playerLastScan'],
     history: { table: 'listens', where: "source = 'player'" },
     onWhenEnv: ['TAGAVE_PLAYER_URL'],
+    // Removing the bundled player leaves a server of the owner's own working:
+    // its rows (other server_keys), the plays, listens and scrobbles of the
+    // libraries it serves and the scrobbling connections stay.
+    shared: {
+      libraries: `select id from libraries
+        where coalesce(settings->>'playerUrl', '') <> '' and coalesce(settings->>'playerUser', '') <> '' and coalesce(settings->>'playerPassword', '') <> ''`,
+      where: {
+        player_scrobbles: `play_id in (select id from player_plays where server_key = ${BUNDLED} or (library_id is not null and library_id <> all($1::uuid[])))`,
+        player_plays: `server_key = ${BUNDLED} or (library_id is not null and library_id <> all($1::uuid[]))`,
+        player_listens: 'library_id <> all($1::uuid[])',
+        player_events: BUNDLED_OR_UNSERVED,
+        player_track_map: `server_key = ${BUNDLED}`,
+        player_song_counts: `server_key = ${BUNDLED}`,
+        player_poll_state: `server_key = ${BUNDLED}`,
+        player_rating_sync: BUNDLED_OR_UNSERVED,
+        player_users: `server_key = ${BUNDLED}`,
+        player_retired_accounts: `server_key = ${BUNDLED}`,
+        scrobble_accounts: null,
+        player_scan_requests: 'library_id <> all($1::uuid[])',
+      },
+    },
   },
 };
 
@@ -73,6 +115,8 @@ export interface PurgeResult {
   history: { table: string; action: 'deleted' | 'kept'; count: number } | null;
   /** Libraries whose settings lost a key of the module. */
   librariesCleared: number;
+  /** Libraries another part still serves (a player server of the owner's own), whose rows were kept; 0 when none. */
+  keptForLibraries: number;
 }
 
 export async function purgeModuleData(
@@ -106,18 +150,26 @@ export async function purgeModuleData(
       }
     }
 
+    const kept = data.shared ? (await tx.unsafe<{ id: string }[]>(data.shared.libraries)).map((r) => r.id) : [];
     const deleted: Record<string, number> = {};
-    for (const t of present) deleted[t] = (await tx.unsafe(`delete from "${t}"`)).count;
+    for (const t of present) {
+      if (kept.length === 0) {
+        deleted[t] = (await tx.unsafe(`delete from "${t}"`)).count;
+        continue;
+      }
+      const where = data.shared!.where[t];
+      deleted[t] = where ? (await tx.unsafe(`delete from "${t}" where ${where}`, where.includes('$1') ? [kept] : [])).count : 0;
+    }
 
     let librariesCleared = 0;
     if (data.librarySettingsKeys.length) {
       const keys = [...data.librarySettingsKeys];
       const res = await tx`
         update libraries set settings = settings - ${keys}::text[]
-        where settings ?| ${keys}::text[]`;
+        where settings ?| ${keys}::text[] and id <> all(${kept}::uuid[])`;
       librariesCleared = res.count;
     }
-    return { module: moduleId, deleted, history, librariesCleared };
+    return { module: moduleId, deleted, history, librariesCleared, keptForLibraries: kept.length };
   });
 }
 
@@ -125,6 +177,7 @@ export async function purgeModuleData(
 export function describePurge(r: PurgeResult): string {
   const rows = Object.entries(r.deleted).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`);
   const parts = [rows.length ? `deleted ${rows.join(', ')}` : 'no rows of its own were left'];
+  if (r.keptForLibraries) parts.push(`kept what a player server of your own uses in ${r.keptForLibraries} librar${r.keptForLibraries === 1 ? 'y' : 'ies'}, and the Last.fm and ListenBrainz connections`);
   if (r.librariesCleared) parts.push(`its scan status cleared in ${r.librariesCleared} librar${r.librariesCleared === 1 ? 'y' : 'ies'}`);
   if (r.history) parts.push(`${r.history.action} the ${r.history.count} ${r.history.table} it recorded`);
   return parts.join('; ');

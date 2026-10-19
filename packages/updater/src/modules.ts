@@ -755,11 +755,14 @@ export interface PurgeAnswer {
   deleted: Record<string, number>;
   history: { table: string; action: 'deleted' | 'kept'; count: number } | null;
   librariesCleared: number;
+  /** Libraries a player server of the owner's own still serves; their rows stayed. Absent from older doctors. */
+  keptForLibraries?: number;
 }
 
 export function describePurgeAnswer(r: PurgeAnswer): string {
   const rows = Object.entries(r.deleted ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`);
   const parts = [rows.length ? `deleted ${rows.join(', ')}` : 'no rows of its own were left'];
+  if (r.keptForLibraries) parts.push(`kept what a player server of your own uses in ${r.keptForLibraries} librar${r.keptForLibraries === 1 ? 'y' : 'ies'}, and the Last.fm and ListenBrainz connections`);
   if (r.history) parts.push(`${r.history.action} the ${r.history.count} ${r.history.table} it recorded`);
   return parts.join('; ');
 }
