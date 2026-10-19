@@ -91,8 +91,7 @@ export function LoginPage() {
     <div className={styles.container}>
       <div className={styles.card}>
         <h1 className={styles.title}>tagave</h1>
-        <p className={styles.subtitle}>Sign in to your music archive</p>
-
+        
         <form onSubmit={handleSubmit} className={styles.form}>
           <div className={styles.field}>
             <label htmlFor="email" className={styles.label}>
@@ -168,7 +167,7 @@ export function LoginPage() {
 
         <div className={styles.footer}>
           <p>
-            First time here? <a href="/setup">Create the owner account</a>.
+            <a href="/setup">Create owner account</a>
           </p>
         </div>
       </div>

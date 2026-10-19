@@ -55,7 +55,7 @@ export function TwoFactorPage() {
       <div className={styles.card}>
         <h1 className={styles.title}>tagave</h1>
         <p className={styles.subtitle}>
-          {mode === 'totp' ? 'Enter the 6-digit code from your authenticator app.' : 'Enter one of your backup codes. Each works once.'}
+          {mode === 'totp' ? 'Authenticator code' : 'Backup code'}
         </p>
 
         <form onSubmit={submit} className={styles.form}>
@@ -78,7 +78,7 @@ export function TwoFactorPage() {
 
           <label className={styles.checkboxRow}>
             <input type="checkbox" checked={trustDevice} onChange={(e) => setTrustDevice(e.target.checked)} disabled={pending} />
-            Don't ask for a code on this device for 30 days
+            Trust this device for 30 days
           </label>
 
           {error && (
@@ -95,7 +95,7 @@ export function TwoFactorPage() {
         <div className={styles.footer}>
           <p>
             <Button variant="quiet" size="sm" type="button" onClick={switchMode}>
-              {mode === 'totp' ? 'Use a backup code instead' : 'Use the authenticator app instead'}
+              {mode === 'totp' ? 'Use a backup code' : 'Use the authenticator'}
             </Button>
           </p>
           <p>

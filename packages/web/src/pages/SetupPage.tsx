@@ -58,29 +58,24 @@ function SystemCheckScreen({ onContinue }: { onContinue: () => void }) {
   return (
     <section aria-labelledby="check-heading" className={styles.section}>
       <h2 id="check-heading" className={styles.heading}>Is everything running?</h2>
-      <p className={styles.lead}>
-        tagave needs its database and at least one worker. The worker is the process that reads your music files; it can
-        run on this machine or another one.
-      </p>
 
       {health.isLoading && <p className={styles.muted} role="status">Checking the database and workers…</p>}
 
       {health.isError && (
         <Banner tone="danger">
-          The app could not run its checks. Postgres may be down or unreachable: check that the database is running and
-          that DATABASE_URL in the app environment is right, then check again.
+          Checks could not run. Check that Postgres is running and DATABASE_URL is right.
         </Banner>
       )}
 
       {health.data && (
         <>
           {problems.length === 0 ? (
-            <Banner tone="success">The database is ready and a worker is running.</Banner>
+            <Banner tone="success">All checks pass</Banner>
           ) : blocked ? (
-            <Banner tone="danger">Fix the failed checks below before creating the account.</Banner>
+            <Banner tone="danger">Fix the failed checks first.</Banner>
           ) : (
             <Banner tone="warning">
-              You can create the account now. Scanning waits until the checks below pass.
+              Scanning waits until these checks pass.
             </Banner>
           )}
           <SystemCheckList checks={checks} />
@@ -124,7 +119,7 @@ function AccountScreen({ onBack, onDone }: { onBack: () => void; onDone: () => v
   return (
     <section aria-labelledby="account-heading" className={styles.section}>
       <h2 id="account-heading" className={styles.heading}>Create the owner account</h2>
-      <p className={styles.lead}>This is the account you sign in with. It can change everything in this tagave.</p>
+
 
       <form onSubmit={submit} className={styles.form} noValidate>
         <TextField
@@ -169,7 +164,7 @@ function AccountScreen({ onBack, onDone }: { onBack: () => void; onDone: () => v
           value={form.contactString}
           onChange={change('contactString')}
           error={errors.contactString}
-          hint="MusicBrainz and Discogs ask every app to say who is calling. Your email address or website is sent with each lookup; nothing else is shared."
+          hint="Sent with each MusicBrainz and Discogs lookup."
           placeholder="you@example.com or https://example.com"
           disabled={setupMutation.isPending}
         />

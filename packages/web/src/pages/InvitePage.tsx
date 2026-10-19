@@ -15,11 +15,6 @@ import { useAcceptInvite, useInviteLookup } from '../hooks/useUsers';
 import styles from './SetupPage.module.css';
 
 const A_ROLE: Record<InviteLookup['role'], string> = { owner: 'an owner', editor: 'an editor', listener: 'a listener' };
-const YOU_CAN: Record<InviteLookup['role'], string> = {
-  owner: 'You can change everything here, including settings, updates, backups and people.',
-  editor: 'You can browse and play, look after the library and make tag changes.',
-  listener: 'You can browse, search and play, and keep your own ratings, reviews and listens.',
-};
 
 export interface InviteFormValues {
   name: string;
@@ -60,11 +55,11 @@ export function InviteFormView({ link, pending = false, serverError = null, onSu
       <h2 id="invite-heading" className={styles.heading}>{invite ? 'Create your account' : 'Choose a new password'}</h2>
       <p className={styles.lead}>
         {invite
-          ? <>You are invited as {A_ROLE[link.role]}. {YOU_CAN[link.role]}</>
-          : <>For {link.email}. Every device you are signed in on is signed out.{link.clearSecondFactors ? ' Your passkeys and authenticator app are removed too; add them again afterwards.' : ''}</>}
+          ? <>Invited as {A_ROLE[link.role]}</>
+          : <>For {link.email}. Signs you out everywhere.{link.clearSecondFactors ? ' Passkeys and authenticator are removed.' : ''}</>}
       </p>
       <form onSubmit={submit} className={styles.form} noValidate>
-        {invite && <TextField label="Email" type="email" value={link.email} readOnly autoComplete="username" hint="You sign in with this address." />}
+        {invite && <TextField label="Email" type="email" value={link.email} readOnly autoComplete="username" />}
         {!invite && <input type="email" hidden readOnly value={link.email} autoComplete="username" />}
         {invite && <TextField label="Your name" required autoComplete="name" value={values.name} onChange={set('name')} error={errors.name} disabled={pending} />}
         <div className={styles.passwordField}>
@@ -98,7 +93,7 @@ export function InviteGoneView() {
   return (
     <section className={styles.section}>
       <h2 className={styles.heading}>This link no longer works</h2>
-      <p className={styles.lead}>It was used already, revoked, or more than 7 days old. Ask the person who sent it for a new one.</p>
+      <p className={styles.lead}>Ask for a new one.</p>
       <div className={styles.actions}><LinkButton to="/login" variant="secondary">Sign in</LinkButton></div>
     </section>
   );

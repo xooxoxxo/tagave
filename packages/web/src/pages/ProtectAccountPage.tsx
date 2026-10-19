@@ -4,7 +4,7 @@
  * warning in Settings › Security.
  */
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearch } from '@tanstack/react-router';
+import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Banner, Button, Card } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
 import { AuthenticatorSetup } from '../components/AuthenticatorSetup';
@@ -42,21 +42,12 @@ export function ProtectAccountPage() {
         {!fromInvite && <SetupSteps current="Protect your account" />}
       </header>
 
-      {error && <Banner tone="danger">Could not load your sign-in settings. You can do this later under Settings › Security.</Banner>}
+      {error && <Banner tone="danger">Couldn’t load sign-in settings.</Banner>}
 
       <Card title="Add a second factor">
-        <p>
-          With a second factor, a leaked password is not enough to get into tagave, and sensitive actions (deleting a backup,
-          changing provider tokens) ask for it.
-        </p>
-        {data && (
-          <p>
-            tagave is set up for <code>{data.config.publicUrl}</code> (PUBLIC_URL). Passkeys made now work only at that
-            address.
-          </p>
-        )}
+
         {problem && <Banner tone="warning">{problem}</Banner>}
-        {factors > 0 && <Banner tone="success">Done: your account has {factors === 1 ? 'a second factor' : `${factors} second factors`}.</Banner>}
+        {factors > 0 && <Banner tone="success">{factors === 1 ? '1 second factor' : `${factors} second factors`}</Banner>}
 
         <h3>Passkey or security key</h3>
         <AddPasskeyButtons
@@ -69,7 +60,7 @@ export function ProtectAccountPage() {
 
         <h3>Authenticator app</h3>
         {data?.twoFactor.enabled ? (
-          <p>On.</p>
+          <p>On</p>
         ) : authenticator ? (
           <AuthenticatorSetup
             email={me.data?.email ?? ''}
@@ -81,7 +72,7 @@ export function ProtectAccountPage() {
             }}
           />
         ) : (
-          <Button variant="secondary" onClick={() => { setStarted(true); setAuthenticator(true); }}>Set up an authenticator app</Button>
+          <Button variant="secondary" onClick={() => { setStarted(true); setAuthenticator(true); }}>Set up</Button>
         )}
       </Card>
 
@@ -90,11 +81,7 @@ export function ProtectAccountPage() {
           {factors > 0 ? (fromInvite ? 'Go to Home' : 'Go to my library') : 'Skip for now'}
         </Button>
       </footer>
-      {factors === 0 && (
-        <p>
-          You can do this any time under <Link to="/settings/$section" params={{ section: 'security' }}>Settings › Security</Link>.
-        </p>
-      )}
+
     </div>
   );
 }

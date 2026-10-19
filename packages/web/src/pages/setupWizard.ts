@@ -135,51 +135,51 @@ export function folderAdvice(
         return {
           tone: 'warning',
           title: 'No running worker checks folders',
-          text: 'Workers are running, but none of them reads music folders, so this folder waits. Folders are checked by the file worker, the one that scans (with the installer, worker-files). Start it (see the system check above), and this folder is checked within a few seconds.',
+          text: 'Start the file worker (worker-files).',
         };
       }
       if (opts.workerLive === false || (opts.workerLive === undefined && waited > PENDING_GRACE_MS * 3)) {
         return {
           tone: 'warning',
           title: 'No worker has checked this folder yet',
-          text: 'Folders are checked by the worker, and no worker is running right now. Start the worker (see the system check above), and this folder is checked within a few seconds.',
+          text: 'Start the worker.',
         };
       }
-      return { tone: 'info', title: 'Checking the folder', text: 'The worker is looking at the folder. This takes a few seconds.' };
+      return { tone: 'info', title: 'Checking the folder', text: '' };
     }
     case 'missing':
       return {
         tone: 'danger',
         title: 'The worker cannot find this folder',
-        text: `${path} does not exist on the worker host. If the web app and the worker run on different machines or containers, the path must exist where the worker runs. In Docker, the folder must be mounted into the worker container and entered here by its path inside the container (with the bundled Compose file, set MUSIC_DIR and enter /mnt/music). For a NAS share, mount it on the worker host first (NFS: an entry in /etc/fstab, then "mount -a"; SMB: "mount -t cifs"), then press Re-check.`,
+        text: `${path} does not exist on the worker host. Mount it there (NFS or SMB for a NAS), then Re-check.`,
       };
     case 'not_directory':
       return {
         tone: 'danger',
         title: 'This is a file, not a folder',
-        text: `${path} is not a folder. Enter the folder that holds your music, for example the parent of your artist folders.`,
+        text: `Enter the folder that holds your artist folders.`,
       };
     case 'unreadable':
       return {
         tone: 'danger',
         title: 'The worker cannot open this folder',
-        text: `${path} exists, but the user the worker runs as cannot list it. Give that user read access (for example "chmod -R o+rX" on the folder). On an SMB mount, set uid, gid or file_mode and dir_mode in the mount options so the worker user can read it. Then press Re-check.`,
+        text: `Give the worker user read access to ${path}, then Re-check.`,
       };
     case 'ok':
       if (root.validationMessage === SCAN_ROOT_EMPTY_MESSAGE) {
         return {
           tone: 'warning',
           title: 'The worker sees an empty folder',
-          text: `${path} exists on the worker host but has nothing in it, so a scan will find no music. If your music is in that folder on your computer, Docker is not passing it through. On a Mac, Docker only sees folders it shares with its virtual machine (colima shares just your home folder): move the music under your home folder, or add its folder to Docker's file sharing settings, then run the installer again (or restart the worker) and press Re-check.`,
+          text: `Docker is not sharing ${path} with the worker. On a Mac, keep the music under your home folder, then Re-check.`,
         };
       }
       if (root.writable && root.probeWritable === false) {
         return {
           tone: 'warning',
           title: 'Readable, but read-only',
-          text: 'The worker can read this folder, so scanning and identifying work. It cannot write to it, so tag changes cannot be saved into the files. Mount it read-write if you want that later; nothing else is needed now.',
+          text: 'Tag changes can’t be written to these files.',
         };
       }
-      return { tone: 'success', title: 'Folder is ready', text: 'The worker can read this folder.' };
+      return { tone: 'success', title: 'Folder is ready', text: '' };
   }
 }

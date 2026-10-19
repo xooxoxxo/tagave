@@ -168,18 +168,14 @@ export function OnboardingPage() {
 
       {live === false && (
         <Banner tone="warning">
-          <strong>No worker is running.</strong> Music folders are checked and scanned by the worker, so nothing moves until
-          one starts. {heartbeat?.remediation ?? ''}{' '}
-          <Link to="/settings/$section" params={{ section: 'system' }}>See all system checks</Link>
+          <strong>No worker is running.</strong> {heartbeat?.remediation ?? ''}{' '}
+          <Link to="/settings/$section" params={{ section: 'system' }}>System checks</Link>
         </Banner>
       )}
 
       {needsContact && (
         <Card title="Contact for metadata services">
           <div className={styles.stack}>
-            <p className={styles.description}>
-              MusicBrainz and Discogs ask every app to say who is calling. No lookups run until this is set.
-            </p>
             <TextField
               label="Email address or website"
               value={contactString}
@@ -198,11 +194,7 @@ export function OnboardingPage() {
 
       <Card title="Music folder">
         <div className={styles.stack}>
-          <p className={styles.description}>
-            The folder that holds your music. The worker reads it, so enter the path as the worker sees it: if the worker
-            runs in Docker, that is the path inside the worker container (with the bundled Compose file, /mnt/music), not
-            the path on your NAS or computer.
-          </p>
+          <p className={styles.description}>The path as the worker sees it, e.g. /mnt/music</p>
 
           {scanRoots.length > 0 && (
             <ul className={styles.roots}>
@@ -216,7 +208,7 @@ export function OnboardingPage() {
                       <code className={styles.rootPath}>{root.path}</code>
                     </div>
                     <Banner tone={advice.tone}>
-                      <strong>{advice.title}.</strong> {advice.text}
+                      <strong>{advice.title}{advice.text ? '.' : ''}</strong> {advice.text}
                     </Banner>
                     {canRecheck && (
                       <div className={styles.actions}>
@@ -250,12 +242,12 @@ export function OnboardingPage() {
                 label="Name"
                 value={rootName}
                 onChange={(e) => setRootName(e.target.value)}
-                hint="Optional. Shown in the app instead of the path."
+
                 placeholder="My music"
               />
               <label className={styles.checkbox}>
                 <input type="checkbox" checked={rootWritable} onChange={(e) => setRootWritable(e.target.checked)} />
-                Allow tagave to write tags into these files later (nothing is written without your approval)
+                Allow tag writes
               </label>
               {createScanRoot.error && (
                 <Banner tone="danger">
@@ -288,13 +280,9 @@ export function OnboardingPage() {
           {/* A library that has been scanned shows its progress even while a
               folder check is pending again (they re-run every ten minutes). */}
           {!scanStarted && readyRoots.length === 0 ? (
-            <p className={styles.description}>Add a music folder the worker can read, then start the first scan here.</p>
+            <p className={styles.description}>Add a folder first</p>
           ) : !scanStarted ? (
             <>
-              <p className={styles.description}>
-                The scan reads the folder and groups files into albums. Identification then matches each album to
-                MusicBrainz and Discogs in the background.
-              </p>
               {scanError && <Banner tone="danger">{scanError}</Banner>}
               <div className={styles.actions}>
                 <Button onClick={() => void startFirstScan()} loading={startScan.isPending}>
@@ -321,54 +309,46 @@ export function OnboardingPage() {
 
               {identified ? (
                 <Banner tone="success">
-                  <strong>Your first album is identified:</strong>{' '}
+                  <strong>First album identified:</strong>{' '}
                   <Link to="/albums/$albumId" params={{ albumId: identified.id }}>
                     {identified.title}
                   </Link>{' '}
-                  by {identified.artistCredit}. The rest of the library follows in the background.
+                  by {identified.artistCredit}
                 </Banner>
               ) : job && (job.status === 'failed' || job.status === 'interrupted' || job.status === 'cancelled') ? (
                 <Banner tone="danger">
-                  The scan stopped: {job.error ?? 'no reason was recorded'}. Check the folder above, then start a new scan
-                  from Settings › Music folders.{' '}
+                  The scan stopped: {job.error ?? 'no reason was recorded'}.{' '}
                   <Link to="/settings/$section" params={{ section: 'activity' }}>Open background activity</Link>
                 </Banner>
               ) : scanState === 'grouping' ? (
-                <Banner tone="info">Scan finished. Grouping the files it found into albums…</Banner>
+                <Banner tone="info">Grouping files into albums…</Banner>
               ) : scanState === 'empty' ? (
                 <Banner tone="warning">
-                  The scan finished without finding any albums. Check that the folder holds audio files in album
-                  folders, and that it is the folder the worker sees.
+                  No albums found. Check the folder above.
                 </Banner>
               ) : scanState === 'found' ? (
                 <Banner tone="info">
-                  Identifying albums. The first result usually arrives within a few minutes.{' '}
+                  Identifying albums…{' '}
                   <Button variant="secondary" size="sm" loading={kickSweep.isPending} onClick={() => kickSweep.mutate()}>
-                    Start identifying now
+                    Identify now
                   </Button>
                 </Banner>
               ) : (
-                <Banner tone="info">Scanning. Albums appear here as folders are read.</Banner>
+                <Banner tone="info">Scanning…</Banner>
               )}
             </>
           )}
         </div>
       </Card>
 
-      <Card title="Optional: faster lookups">
+      <Card title="Optional">
         <div className={styles.stack}>
-          <p className={styles.description}>
-            Both are optional and can be added later under Settings › Integrations.
-          </p>
           <div className={styles.field}>
             <span className={styles.label}>Discogs token</span>
-            <p className={styles.description}>
-              A personal access token from discogs.com/settings/developers lets tagave make Discogs lookups more than twice
-              as fast and fetch cover images.
-            </p>
+
             {settings?.discogsTokenSet ? (
               <div className={styles.row}>
-                <span className={styles.configured}>Saved{settings.discogsTokenHint ? ` (ends in ${settings.discogsTokenHint})` : ''}</span>
+                <span className={styles.configured}>Saved{settings.discogsTokenHint ? ` ••••${settings.discogsTokenHint}` : ''}</span>
                 <Button variant="ghost" size="sm" onClick={() => updateSettings.mutate({ discogsToken: null })}>
                   Remove
                 </Button>
@@ -388,12 +368,10 @@ export function OnboardingPage() {
           </div>
           <div className={styles.field}>
             <span className={styles.label}>AcoustID key</span>
-            <p className={styles.description}>
-              Identifies untagged files by their sound. Get a key at acoustid.org.
-            </p>
+
             {settings?.acoustidKeySet ? (
               <div className={styles.row}>
-                <span className={styles.configured}>Saved{settings.acoustidKeyHint ? ` (ends in ${settings.acoustidKeyHint})` : ''}</span>
+                <span className={styles.configured}>Saved{settings.acoustidKeyHint ? ` ••••${settings.acoustidKeyHint}` : ''}</span>
                 <Button variant="ghost" size="sm" onClick={() => updateSettings.mutate({ acoustidKey: null })}>
                   Remove
                 </Button>
