@@ -158,7 +158,7 @@ export function SettingsBackupsPage() {
             <SegmentedControl label="Nightly backup" value={draft.enabled ? 'on' : 'off'} onChange={(v) => setDraft({ ...draft, enabled: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
           </div>
           <label className={styles.field}>
-            <span className={styles.label}>Time ({data.timeZone})</span>
+            <span className={styles.label} title={data.timeZone}>Time</span>
             <Select value={draft.hour} disabled={!draft.enabled} onChange={(e) => setDraft({ ...draft, hour: parseInt(e.target.value, 10) })}>
               {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
             </Select>

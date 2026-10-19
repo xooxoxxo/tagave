@@ -200,13 +200,13 @@ function TagChangeCleanup() {
   const nothing = !!p && p.plans === 0 && p.revertible.plans === 0;
   return (
     <section className={styles.section} aria-labelledby="storage-cleanup">
-      <h3 id="storage-cleanup" className={styles.title}>Clean up tag changes</h3>
+      <h3 id="storage-cleanup" className={styles.title}>Tag change cleanup</h3>
 
       <SegmentedControl
         label="Which plans"
         value={scope}
         onChange={setScope}
-        options={[{ value: 'archived', label: 'Archived plans' }, { value: 'finished', label: 'All finished plans' }]}
+        options={[{ value: 'archived', label: 'Archived' }, { value: 'finished', label: 'All finished' }]}
       />
       {preview.isLoading ? <p className={styles.muted}>Counting…</p>
         : preview.error || !p ? <Banner tone="danger">Could not count the tag changes.</Banner>
