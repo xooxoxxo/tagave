@@ -209,6 +209,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     void searched;
   });
 
+  it('edition.add never rewrites a linked app’s suggestion of the same release: the owner’s evidence goes beside it', async () => {
+    heldForReview();
+    const id = await album();
+    await identifyAlbumJob(ctx, { localAlbumId: id });
+    const pasted = mbRelease();
+    catalogue.set(pasted.id, pasted);
+    const first = await addEditionJob(ctx, { localAlbumId: id, target: { source: 'musicbrainz', mbid: pasted.id } });
+    if (!first.ok) throw new Error('paste failed');
+    // the linked app suggests that release; the owner's own candidate is gone (say, never pasted)
+    await client`delete from match_candidates where id = ${first.candidateId}`;
+    const mcBreakdown = { mc: { key: 'rg-key', service: 'review-gatherer', confidence: 0.9 } };
+    const [mc] = await client`insert into match_candidates (local_album_id, release_id, distance, breakdown, source)
+                              values (${id}, ${first.releaseId}, 0.1, ${JSON.stringify(mcBreakdown)}::text::jsonb, ${`mc:${randomUUID()}`}) returning id`;
+    const res = await addEditionJob(ctx, { localAlbumId: id, target: { source: 'musicbrainz', mbid: pasted.id } });
+    expect(res).toMatchObject({ ok: true, added: true, releaseId: first.releaseId });
+    expect(res.ok && res.candidateId).not.toBe(mc.id);
+    const [kept] = await client`select breakdown, distance::text as distance, source from match_candidates where id = ${mc.id}`;
+    expect(typeof kept.breakdown === 'string' ? JSON.parse(kept.breakdown) : kept.breakdown).toEqual(mcBreakdown);
+    expect(Number(kept.distance)).toBe(0.1);
+    const own = await client`select source from match_candidates where local_album_id = ${id} and release_id = ${first.releaseId} order by source`;
+    expect(own.map((r: { source: string }) => r.source.startsWith('mc:') ? 'mc' : r.source)).toEqual(['mc', 'user_mbid']);
+    // pasting again refreshes the owner's candidate, still not the module's
+    expect(await addEditionJob(ctx, { localAlbumId: id, target: { source: 'musicbrainz', mbid: pasted.id } }))
+      .toMatchObject({ ok: true, added: false, candidateId: res.ok ? res.candidateId : '' });
+  });
+
   it('edition.add explains an id the provider does not know', async () => {
     const id = await album('needs_review');
     expect(await addEditionJob(ctx, { localAlbumId: id, target: { source: 'musicbrainz', mbid: randomUUID() } }))

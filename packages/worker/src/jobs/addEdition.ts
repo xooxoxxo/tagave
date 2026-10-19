@@ -8,7 +8,7 @@
  * The job's return value is its output (pg-boss), which the API hands to the
  * screen: the new candidate's id, or a sentence saying why there is none.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, notLike } from 'drizzle-orm';
 import { localAlbums, localTracks, matchCandidates } from '@tagave/db';
 import { scoreCandidates, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
@@ -71,9 +71,13 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   const { releaseId } = await persistFetched(ctx, release);
 
   // One candidate per release: pasting a listed (or excluded) edition again
-  // refreshes its score and brings it back instead of adding a twin.
+  // refreshes its score and brings it back instead of adding a twin. A
+  // module's suggestion of the same release (source mc:<link>) is never
+  // that candidate: its breakdown (mc.key names it for the linked app's
+  // retract and revoke) stays as the module wrote it, and the owner's
+  // evidence goes in a candidate of its own beside it.
   const existing = await ctx.db.select({ id: matchCandidates.id }).from(matchCandidates)
-    .where(and(eq(matchCandidates.localAlbumId, album.id), eq(matchCandidates.releaseId, releaseId))).limit(1);
+    .where(and(eq(matchCandidates.localAlbumId, album.id), eq(matchCandidates.releaseId, releaseId), notLike(matchCandidates.source, 'mc:%'))).limit(1);
   const distance = scored.distance.toFixed(4);
   if (existing[0]) {
     await ctx.db.update(matchCandidates)
