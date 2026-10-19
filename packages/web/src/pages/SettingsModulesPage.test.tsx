@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ModulesView } from '@tagave/shared';
-import { SettingsModulesView } from './SettingsModulesPage';
+import { SettingsModulesView, TurnOffChoices } from './SettingsModulesPage';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from '../stories/modulesFixtures';
 
 const render = (view: ModulesView, dismissed: string | null = null) =>
@@ -63,5 +63,25 @@ describe('Settings › Modules', () => {
     const html = render({ ...BASE_VIEW, role: 'app', modules: [{ ...PLAYER, available: false, reason: 'Player needs everything on one computer; this is the app computer of a split install.' }] });
     expect(html).toContain('this is the app computer of a split install');
     expect(button(html, 'Turn on')).toMatch(/disabled/);
+  });
+
+  it('Turn off says what the data box deletes and what stays, and offers the play history unticked', () => {
+    const off = (initial?: { deleteData: boolean; deleteHistory: boolean }) =>
+      renderToStaticMarkup(<TurnOffChoices m={{ ...PLAYER, state: 'on' }} onChange={() => undefined} {...(initial ? { initial } : {})} />);
+    const closed = off();
+    expect(closed).toContain('Also delete its data. This cannot be undone.');
+    expect(closed).not.toContain('Your listens stay.');
+    expect((closed.match(/type="checkbox"/g) ?? []).length).toBe(1);
+    const data = off({ deleteData: true, deleteHistory: false });
+    expect(data).toContain("Deletes Navidrome&#x27;s database and, in tagave, the player&#x27;s library, play counts and connected Last.fm and ListenBrainz accounts. Your listens stay.");
+    expect(data).toContain('Also delete the listens the player recorded. Listens you added yourself stay.');
+    expect((data.match(/type="checkbox"/g) ?? []).length).toBe(2);
+    expect((data.match(/checked=""/g) ?? []).length).toBe(1);
+    const history = off({ deleteData: true, deleteHistory: true });
+    expect(history).not.toContain('Your listens stay.');
+    expect((history.match(/checked=""/g) ?? []).length).toBe(2);
+    // a module with no rows in tagave: the one box, as before
+    const dummy = renderToStaticMarkup(<TurnOffChoices m={DUMMY} onChange={() => undefined} initial={{ deleteData: true, deleteHistory: false }} />);
+    expect((dummy.match(/type="checkbox"/g) ?? []).length).toBe(1);
   });
 });

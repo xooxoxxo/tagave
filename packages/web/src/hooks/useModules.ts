@@ -28,8 +28,8 @@ export function useModules(enabled = true) {
 export function useModuleAction() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, action, deleteData }: { id: string; action: 'enable' | 'disable'; deleteData?: boolean }) =>
-      api.post<{ run: ModuleRun }>(`/modules/${id}/${action}`, action === 'disable' ? { deleteData: !!deleteData } : {}),
+    mutationFn: ({ id, action, deleteData, deleteHistory }: { id: string; action: 'enable' | 'disable'; deleteData?: boolean; deleteHistory?: boolean }) =>
+      api.post<{ run: ModuleRun }>(`/modules/${id}/${action}`, action === 'disable' ? { deleteData: !!deleteData, ...(deleteData && deleteHistory ? { deleteHistory: true } : {}) } : {}),
     onSuccess: ({ run }) => {
       queryClient.setQueryData<ModulesView>(modulesKey, (prev) => (prev ? {
         ...prev,

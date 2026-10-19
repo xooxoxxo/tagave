@@ -61,7 +61,7 @@ export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun
     case 'succeeded':
       head = run.reason
         ? { tone: 'warn', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: sentence(run.reason) }
-        : { tone: 'ok', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: on ? 'It runs and reports healthy.' : run.deleteData ? 'Its data is deleted.' : 'Its data is kept.' };
+        : { tone: 'ok', title: `${run.moduleName} is ${on ? 'on' : 'off'}`, body: on ? 'It runs and reports healthy.' : run.deleteData ? (run.deleteHistory ? 'Its data and the listens it recorded are deleted.' : 'Its data is deleted.') : 'Its data is kept.' };
       break;
     case 'failed':
       head = { tone: 'warn', title: `${run.moduleName} was not turned ${on ? 'on' : 'off'}`, body: sentence(run.reason) };
@@ -93,6 +93,45 @@ export function ModuleRunView({ run, disconnected, onDismiss }: { run: ModuleRun
         </div>
       )}
     </div>
+  );
+}
+
+export interface TurnOffChoice { deleteData: boolean; deleteHistory: boolean }
+
+/**
+ * What Turn off keeps and what the boxes delete. For a module with rows in
+ * tagave's database (the player), the catalogue says plainly what goes and
+ * what stays, and offers its history (the player's listens) as a second box,
+ * unticked.
+ */
+export function TurnOffChoices({ m, onChange, initial }: { m: ModuleStatus; onChange: (c: TurnOffChoice) => void; initial?: TurnOffChoice }) {
+  const [data, setData] = useState(initial?.deleteData ?? false);
+  const [history, setHistory] = useState(initial?.deleteHistory ?? false);
+  const appData = m.appData ?? null;
+  const set = (d: boolean, h: boolean) => {
+    setData(d);
+    setHistory(h);
+    onChange({ deleteData: d, deleteHistory: d && h });
+  };
+  return (
+    <>
+      <p>Its containers stop and its settings come out of the configuration. Kept unless you tick the box: {m.keepsOnRemoval}.</p>
+      <label className={styles.check}>
+        <input type="checkbox" checked={data} onChange={(e) => set(e.target.checked, history)} />
+        <span>Also delete its data. This cannot be undone.</span>
+      </label>
+      {data && appData && (
+        <div className={styles.choice}>
+          <p className={styles.consequence}>{appData.removes}{!history && appData.keeps ? ` ${appData.keeps}` : ''}</p>
+          {appData.history && (
+            <label className={styles.check}>
+              <input type="checkbox" checked={history} onChange={(e) => set(true, e.target.checked)} />
+              <span>{appData.history}</span>
+            </label>
+          )}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -197,7 +236,7 @@ export function SettingsModulesContent() {
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
   const [error, setError] = useState<string | null>(null);
-  const [stepUp, setStepUp] = useState<{ m: ModuleStatus; act: 'enable' | 'disable'; deleteData: boolean; methods: StepUpMethod[] } | null>(null);
+  const [stepUp, setStepUp] = useState<{ m: ModuleStatus; act: 'enable' | 'disable'; choice: TurnOffChoice; methods: StepUpMethod[] } | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
   // A run that finished may have changed what the app offers (the player).
@@ -206,17 +245,17 @@ export function SettingsModulesContent() {
     if (finished) void queryClient.invalidateQueries({ queryKey: ['player'] });
   }, [finished, queryClient]);
 
-  const go = async (m: ModuleStatus, act: 'enable' | 'disable', deleteData: boolean) => {
+  const go = async (m: ModuleStatus, act: 'enable' | 'disable', choice: TurnOffChoice) => {
     setError(null);
     setPending(m.id);
     try {
-      await action.mutateAsync({ id: m.id, action: act, deleteData });
+      await action.mutateAsync({ id: m.id, action: act, ...choice });
       setDismissed(null);
     } catch (err) {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 403 && e.title === 'Step-up required') {
         const s = await getStepUp();
-        setStepUp({ m, act, deleteData, methods: s.methods });
+        setStepUp({ m, act, choice, methods: s.methods });
       } else {
         setError(sentence(e.detail ?? e.title) || `${m.name} could not be turned ${act === 'enable' ? 'on' : 'off'}.`);
       }
@@ -225,17 +264,17 @@ export function SettingsModulesContent() {
     }
   };
 
-  const withStepUp = async (m: ModuleStatus, act: 'enable' | 'disable', deleteData: boolean) => {
+  const withStepUp = async (m: ModuleStatus, act: 'enable' | 'disable', choice: TurnOffChoice) => {
     try {
       const s = await getStepUp();
       if (!s.fresh) {
-        setStepUp({ m, act, deleteData, methods: s.methods });
+        setStepUp({ m, act, choice, methods: s.methods });
         return;
       }
     } catch {
       /* the server decides anyway */
     }
-    await go(m, act, deleteData);
+    await go(m, act, choice);
   };
 
   const turnOn = async (m: ModuleStatus) => {
@@ -249,26 +288,18 @@ export function SettingsModulesContent() {
       ),
       confirmLabel: 'Turn on',
     });
-    if (ok) await withStepUp(m, 'enable', false);
+    if (ok) await withStepUp(m, 'enable', { deleteData: false, deleteHistory: false });
   };
 
   const turnOff = async (m: ModuleStatus) => {
-    let deleteData = false;
+    let choice: TurnOffChoice = { deleteData: false, deleteHistory: false };
     const ok = await confirmDialog({
       title: `Turn off ${m.name}?`,
-      message: (
-        <>
-          <p>Its containers stop and its settings come out of the configuration. Kept unless you tick the box: {m.keepsOnRemoval}.</p>
-          <label className={styles.check}>
-            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data. This cannot be undone.</span>
-          </label>
-        </>
-      ),
+      message: <TurnOffChoices m={m} onChange={(c) => { choice = c; }} />,
       confirmLabel: 'Turn off',
       tone: 'danger',
     });
-    if (ok) await withStepUp(m, 'disable', deleteData);
+    if (ok) await withStepUp(m, 'disable', choice);
   };
 
   if (modules.isLoading) return <p className={styles.hint}>Loading the modules…</p>;
@@ -290,7 +321,7 @@ export function SettingsModulesContent() {
           action={`Turning ${stepUp.act === 'enable' ? 'on' : 'off'} ${stepUp.m.name}`}
           methods={stepUp.methods}
           onCancel={() => setStepUp(null)}
-          onDone={() => { const s = stepUp; setStepUp(null); void go(s.m, s.act, s.deleteData); }}
+          onDone={() => { const s = stepUp; setStepUp(null); void go(s.m, s.act, s.choice); }}
         />
       )}
     </>
