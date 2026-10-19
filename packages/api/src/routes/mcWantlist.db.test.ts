@@ -14,7 +14,8 @@
  *   - the echo rule on the identity feed;
  *   - the module switch (Settings › Modules): off hides the feeds and the
  *     manifest and refuses new links; remove data;
- *   - every mc_ and player_ table is listed in its module's manifest.
+ *   - every mc_ and player_ table, and facet_changes, facet_cursors and
+ *     identity_fills, is listed in exactly one module's manifest.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
@@ -335,12 +336,25 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     }
   });
 
-  it('every mc_ and player_ table is listed in its module’s manifest, and every listed table exists', async () => {
-    const tables = (await sql<Array<{ t: string }>>`select table_name as t from information_schema.tables where table_schema = 'public'`).map((r) => r.t);
-    for (const m of MODULES.filter((x) => x.prefix)) {
-      const prefixed = tables.filter((t) => t.startsWith(m.prefix!)).sort();
-      expect([...m.tables].filter((t) => t.startsWith(m.prefix!)).sort()).toEqual(prefixed);
-      for (const t of m.tables) expect(tables).toContain(t);
+  it('every mc_ and player_ table, and the facet transport tables, is listed in exactly one module’s manifest, and every listed table exists', async () => {
+    const tables = (await sql<Array<{ t: string }>>`select table_name as t from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`).map((r) => r.t);
+    const owners = new Map<string, string[]>();
+    for (const m of MODULES) for (const t of m.tables) owners.set(t, [...(owners.get(t) ?? []), m.id]);
+    // a module-ish table: a module prefix, or the core facet transport
+    const CORE_FACET_TABLES = ['facet_changes', 'facet_cursors', 'identity_fills'];
+    const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || CORE_FACET_TABLES.includes(t));
+    expect(mustOwn.length).toBeGreaterThan(CORE_FACET_TABLES.length);
+    for (const t of CORE_FACET_TABLES) expect(tables, t).toContain(t);
+    const unlisted = mustOwn.filter((t) => !owners.has(t));
+    expect(unlisted, 'tables with no manifest entry (packages/core/src/facets/manifests.ts)').toEqual([]);
+    for (const [t, ids] of owners) {
+      expect(ids, `${t} is listed by more than one module`).toHaveLength(1);
+      expect(tables, `${t} is listed in ${ids[0]}'s manifest but does not exist`).toContain(t);
     }
+    // a prefixed table belongs to the module with that prefix
+    for (const m of MODULES.filter((x) => x.prefix)) {
+      for (const t of mustOwn.filter((x) => x.startsWith(m.prefix!))) expect(owners.get(t), t).toEqual([m.id]);
+    }
+    expect(owners.get('facet_changes')).toEqual(['library']);
   });
 });

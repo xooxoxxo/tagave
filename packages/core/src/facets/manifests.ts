@@ -17,6 +17,11 @@ export const LIBRARY_MODULE = defineModule({
     { facet: 'album.listens', version: '1.0' },
   ],
   consumes: [],
+  // Core facet transport (0048, 0050): the change log every facet writes,
+  // where in-process consumers stopped reading it, and the gap-fill ledger.
+  // Core keeps them whichever modules are on; listed so the schema test
+  // (every module-ish table has an owner) has one place to look.
+  tables: ['facet_changes', 'facet_cursors', 'identity_fills'],
   enabled: () => true,
 });
 
