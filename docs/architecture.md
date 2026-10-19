@@ -13,6 +13,7 @@ The tagave catalog is built on a modular package structure with a clear separati
 | `packages/worker` | scanner, clusterer, matcher, enricher, tag writer (pg-boss jobs) |
 | `packages/web` | React SPA |
 | `packages/doctor` | health and configuration diagnostics |
+| `packages/music-connections` | the Music Connections protocol package, vendored from its public repository |
 
 ## How work is split between app and worker
 
@@ -48,6 +49,23 @@ Both jobs are named in the identify worker's queue list. When you split workers 
 ## Worker roles in practice
 
 In a typical deployment, two worker processes run: a file worker and an identify worker. The file worker needs the music library mounted (read-only) and handles scanning, clustering, and tag writing. The identify worker needs internet access to query MusicBrainz and Discogs, and it spends the provider rate-limit budget on metadata enrichment and identification. The isolation allows you to scale them independently: run multiple identify workers in regions with low latency to your providers, and keep the file worker on the host where your library is mounted.
+
+## Facets and modules
+
+Core owns who an entity is: artists, albums (`release_groups`), releases and tracks, with their MusicBrainz and Discogs ids. Everything else about an entity is a **facet**, named data with a version, such as `album.critic-scores@1` or `album.rating@1`. Each facet has a scope: global, one library, or one person.
+
+A **module** declares in its manifest (`packages/core/src/facets/manifests.ts`) which facets it provides and reads, its tables (`mc_*`, `player_*`), its jobs and when it is on. Library, collection and reviews are built-in and always on. The player and Music Connections can be turned on and off in Settings › Modules. When a module is off, its jobs skip, its pages hide, its facets are unavailable and its rows stay. Modules read each other only through the facet API (`GET /api/v1/facets` tells the web app what is on). They write through the owning module's commands, so turning a module off never corrupts core data.
+
+Facet changes go into one change log, `facet_changes`, written by statement-level triggers. Its cursor is `(changed_at, id)`, and removals are kept for 90 days as tombstones.
+
+## Music Connections
+
+Music Connections is the module that links tagave to other music apps (review-gatherer, for example) over the open `music-connections/1` protocol. Both directions use pull feeds, and each person links their own account:
+
+- **As a provider**, tagave serves its manifest at `/.well-known/music-connections` and the feeds `/mc/v1/ratings`, `collection`, `listens` and `identity`, all read from `facet_changes`. Its own OAuth 2.0 server lives at `/api/v1/connect/*`.
+- **As a client**, Settings › Connections links to another app. The `connections.pull` job reads `critic-scores`, `identity` and `wantlist-suggestions` from it every 15 minutes, using `pull()` from the vendored `packages/music-connections`. What it reads lands in `mc_critic_scores`, `mc_identity` and `mc_wantlist_suggestions`.
+
+Each direction is its own link, and the app that will read starts it. `docs/security.md` covers the auth rules, and `docs/operations.md` covers the settings and the end-to-end test.
 
 ## Development
 

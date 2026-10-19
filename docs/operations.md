@@ -465,13 +465,51 @@ Then relaunch the host workers. Both topologies can coexist, because jobs are cl
 
 Another music app (review-gatherer, for example) can link to one person's tagave account: it registers at `/api/v1/connect/register`, the person approves on tagave's consent page, and the app may then read that person's ratings, collection, listens and identity until the link is revoked. tagave describes itself at `/.well-known/music-connections`. An app may register only with a redirect address on a private network (LAN, the tailnet range 100.64.0.0/10, or localhost), over http or https. To allow an app on a public host, add its host name to `MC_TRUSTED_PUBLIC_HOSTS` in `.env` (comma separated); public hosts must use https. Registrations, approvals, failed refreshes and revocations are written to the audit log (`audit_log`, actions `mc.*`).
 
-tagave can also read from another app. In **Settings › Connections** each person pastes the other app's address; tagave fetches its description, registers itself there and sends the browser to the other app to approve. tagave then pulls what it reads (critic scores, identity, wantlist suggestions) every 15 minutes on the worker that serves `identify.album` (queue `connections.pull`). The address may be an IP on your network, `localhost`, or a host name on your network such as a Docker service name (`http://review-gatherer:3000`) or a `.lan` name; a public host needs https and an entry in `MC_TRUSTED_PUBLIC_HOSTS`. The rules are checked again on every request against every address the host name resolves to: a name that is not trusted may reach private addresses only (never loopback or a public one, so a name answering with both a private and a public address is refused), link-local (169.254.0.0/16, fe80::/10), 0.0.0.0/8, multicast and broadcast are always refused, loopback only when the address itself is `localhost`, `127.x.x.x` or `[::1]`, and redirects are never followed. Every address the other app names must sit on the address the person gave. Tokens are kept sealed with `APP_SECRET`; after changing it, each connection asks for approval again (`tagave-doctor reseal` does not cover them).
+tagave can also read from another app. In **Settings › Connections** each person pastes the other app's address; tagave fetches its description, registers itself there and sends the browser to the other app to approve. tagave then pulls what it reads (critic scores, identity, wantlist suggestions) every 15 minutes on the worker that serves `identify.album` (queue `connections.pull`). The address may be an IP on your network, `localhost`, or a host name on your network such as a Docker service name (`http://review-gatherer:3000`) or a `.lan` name; a public host needs https and an entry in `MC_TRUSTED_PUBLIC_HOSTS`. The rules are checked again on every request against every address the host name resolves to: a name that is not trusted may reach private addresses only (never loopback or a public one, so a name answering with both a private and a public address is refused), link-local (169.254.0.0/16, fe80::/10), 0.0.0.0/8, multicast and broadcast are always refused, loopback only when the address itself is `localhost` or `127.x.x.x` (IPv6 literals are refused), and redirects are never followed. Every address the other app names must sit on the address the person gave. Tokens are kept sealed with `APP_SECRET`; after changing it, each connection asks for approval again (`tagave-doctor reseal` does not cover them).
 
 A linked app reads the feeds at `/mc/v1/ratings`, `/mc/v1/collection`, `/mc/v1/listens` and `/mc/v1/identity`, each with its own token scope and at most 60 requests a minute per token. They cover the install's first library (the one the web app opens). Ratings and listens are the linked person's own; the collection and the album matches are the library's. Listens are counted per day in UTC, so a play at 01:30 in Amsterdam in summer (23:30 UTC) counts toward the day before. Removals are kept for 90 days. An app that has not synced for longer than that starts again from a full copy. The nightly `mc.purge` job (04:50, on the worker that runs `facets.refresh`) clears what is older.
 
 What tagave reads lands in tables of its own, one row per connection and item: critic scores show in an album's review panel, labelled by where they came from ("Pitchfork (via review-gatherer)"); wantlist suggestions show under the wantlist on the Collection page, where Accept or Dismiss is sent to the app first and Accept keeps the album on the wantlist of the library you are in, in tagave only (never sent to Discogs); identity fills an album's missing MusicBrainz ID only when the other app is sure, the connection belongs to an owner and no other album has that ID, and otherwise becomes a suggestion in the identify queue, which only a person accepts (the auto-accept rules leave it alone). tagave never overwrites a match or an ID. An item for an album tagave does not have yet waits and attaches once the album is matched; a connection keeps at most 5000 such items per kind, and the oldest beyond that are dropped (the connection shows how many). Revoking a connection deletes what it brought, takes back the IDs it filled that nobody has confirmed since, and leaves what a person decided: accepted wantlist entries and accepted suggestions. Every fill and take-back is in the audit log (`identity.fill`, `identity.fill_reverted`).
 
 Music Connections has a row in **Settings › Modules**. Off, nothing is pulled or served (the description and feeds answer 404), its pages hide and everything is kept. Turning it off with "Also delete its data" revokes every connection at the other app and deletes the module's data; "keep the album IDs it filled in" keeps those as the library's own.
+
+### Settings
+
+| Variable | What it does |
+|---|---|
+| `PUBLIC_URL` | The address other apps use for tagave. The description's auth endpoints and the redirect address tagave registers with are built from it, so it must be what the other app can reach. If the other app checks redirect addresses like tagave does, a LAN host name will not pass: use a private IP or a trusted https host. Some apps accept only IP addresses on your network, not host names; give them tagave's private IP. |
+| `MC_TRUSTED_PUBLIC_HOSTS` | Public host names (comma separated, https only) that may register with tagave and that tagave may link to. Empty by default: private networks only. |
+| `APP_SECRET` | Seals each connection's tokens. After you change it, each connection asks for approval again. |
+
+### The Connections page
+
+**Settings › Connections** lists each connection with what it may read (granted or not), the last sync, the last error and its state. Each one has these actions:
+
+- **Sync now** queues a pull right away. You can do this at most once a minute per connection.
+- **Re-approve** appears when the other app stopped accepting the tokens, for example after a revoke there or after `APP_SECRET` changed. Pulls stop until you approve again; what was already pulled stays, and the next pull continues where the last one ended.
+- **Edit address** points the connection at the same app's new address. The tokens never follow a new address, so the app asks for approval again.
+- **Revoke** hands the tokens back to the other app and deletes what the connection brought in (see above). **Remove** then takes it off the list.
+
+After the first connection, a **Link back** note shows this tagave's address with a Copy button. The other app can read from tagave only if you add that address in the other app's own connections page and approve it here. tagave has no list of the apps reading from it. To stop an app reading from tagave, revoke the link in that app, or turn the module off.
+
+### End-to-end test
+
+`scripts/mc-e2e.sh` runs tagave and review-gatherer together in a throwaway Docker Compose project, `mce2e-<random>`. They share one internal network with no internet access. One person on each side links in both directions, and each app starts the link to the other. The test then checks three things: a rating given in tagave shows on review-gatherer's album page, review-gatherer's critic scores show in tagave's review panel, and a wantlist suggestion accepted in tagave is gone from review-gatherer's next suggestions feed. It is a manual test, not a CI gate, because review-gatherer is not part of this repository. Without `MC_E2E_RG_IMAGE` set, the script says so and exits 0.
+
+```sh
+MC_E2E_RG_IMAGE=<your review-gatherer API image> \
+MC_E2E_RG_SEED=<seed.sql> \
+MC_E2E_RG_ENV_FILE=<rg.env> \
+./scripts/mc-e2e.sh
+```
+
+- `MC_E2E_RG_IMAGE`: a local image of review-gatherer's API. It must listen on port 3000. The script passes it `DATABASE_URL` and `PUBLIC_URL`.
+- `MC_E2E_RG_SEED`: SQL that runs in review-gatherer's database once the app has started. It must bring the schema up to date beyond what the app migrates on boot, and hold the three albums in `FIXTURE` in `e2e/mc/mc.e2e.mjs`, with scored critic reviews.
+- `MC_E2E_RG_ENV_FILE` (optional): the rest of its environment, such as its auth secret and migrate-on-boot flag.
+- `MC_E2E_TAG` (optional): the tag of the tagave images. The default is the current commit. Images that already exist are reused and kept. Images the run builds (`mce2e-tg-app:<tag>`, `mce2e-tg-worker:<tag>`) are removed at the end.
+- `MC_E2E_KEEP=1` (optional): leave the stack up and print the command that removes it.
+
+The run removes its containers and its network. The databases live in tmpfs, so no volume is created. When a check fails, the script prints the last log lines of each app.
 
 ## Release gate
 

@@ -124,6 +124,7 @@ See [operations](operations.md#backups) for the schedule, retention and restorin
 tagave has no telemetry. The server makes outbound requests only to:
 
 - the metadata services it uses: MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID when you add keys for them;
+- the apps you link in Settings › Connections (Music Connections), and only those: tagave pulls from them, and sends them a decision when you accept or dismiss one of their wantlist suggestions;
 - the GitHub releases list of the official repository, once every 12 hours, to learn about new versions. It is a plain GET with a fixed `User-Agent: tagave-update-check` and no version, id or library data. Turn it off under Settings › Updates, or for the whole server with `TAGAVE_UPDATE_FEED=off` (see [Updates](install.md#updates)).
 
 ## The in-app updater
@@ -194,6 +195,32 @@ The player is an optional service (compose profile `player`): an unmodified [Nav
 **The stream proxy.** The browser streams through tagave, never from Navidrome directly. Every stream needs a tagave session. Each user can hold only a few streams at once (`TAGAVE_PLAYER_MAX_STREAMS`, 4 by default), with a cap for the whole server, and a request to Navidrome that does not answer or stops sending in time is cut off.
 
 **Your responsibility.** tagave streams files you already have, to you and your household. It ships no music and fetches none. A public share link makes files downloadable by anyone who has the link, which can amount to distribution in many jurisdictions. That is why sharing is off.
+
+## Music Connections
+
+Music Connections lets another music app read one person's data from tagave, and lets tagave read from another app (see [Operations](operations.md#music-connections)). Each direction is a separate link with its own approval, and each can be revoked on its own. Turning the module off in Settings › Modules makes the description and the feeds answer 404.
+
+**The OAuth provider.** Better Auth 1.7 has no OAuth-provider plugin, so tagave runs its own OAuth 2.0 server at `/api/v1/connect/*`. Better Auth supplies only the session for the consent page.
+
+- **Registration** (`/connect/register`) accepts exactly one redirect URI. It must be http or https on a private address: an RFC 1918 or 100.64.0.0/10 IP, 127.0.0.0/8 or `localhost`. Otherwise it must be https on a host listed in `MC_TRUSTED_PUBLIC_HOSTS`. A LAN host name is never accepted as a redirect URI. At most 10 registrations a minute come from one address.
+- **Authorization** is code plus PKCE S256, nothing else. Each parameter may appear only once. `offline_access` is granted only together with a capability scope (`ratings:read`, `collection:read`, `listens:read`, `identity:read`), and there is no `openid`. The consent page names the app, the host its redirect goes to and each scope in plain words. An approval sent from a browser must come from tagave's own page. A request expires after 10 minutes and its code after 5. A code works once: presenting it again revokes what it was exchanged for.
+- **Tokens.** An access token lasts 1 hour. A refresh token lasts 90 days and is replaced on every use. Using a replaced refresh token again revokes the whole approval. Revocation follows RFC 7009 at `/connect/revoke`. There is no userinfo or end-session endpoint.
+- **Feeds** take a bearer token. Each feed checks its own scope, answers only with the approving person's data and the install's first library, sets `Cache-Control: no-store`, and allows 60 requests a minute per token (`Retry-After`). The text of your reviews (`user_reviews.body_md`) never leaves: only ratings do.
+
+**Token storage.** As the provider, tagave keeps only SHA-256 hashes of what it hands out: access and refresh tokens, codes and client secrets. A database dump does not contain usable tokens. As a client, it seals each link's access token, refresh token and client secret together with `APP_SECRET` (AES-256-GCM, like the other credentials), as are the PKCE verifier and client secret of a link in progress. The link's `state` is kept only as a hash. Tokens never appear in logs, URLs or error messages. After `APP_SECRET` changes, every link asks for approval again.
+
+**Allow-lists.** tagave links only to remotes it may reach: private IPs, `localhost`, https hosts in `MC_TRUSTED_PUBLIC_HOSTS` (comma separated, https only), or a host name on your network such as a Docker service or `.lan` name. Every address the remote's manifest names must sit on the remote's own origin, so a token or client secret never travels to another host.
+
+**SSRF rules,** checked on every outbound request (manifest, registration, token, revoke, every feed page):
+
+- The host name is resolved once, and every address it resolves to is checked. The connection then goes to the address that was checked (LAN-name pinning), so a DNS answer that changes later cannot redirect it.
+- A host name that is not trusted may reach private addresses only. It never reaches loopback or a public address, and a name that answers with both a private and a public address is refused.
+- Link-local (169.254.0.0/16, fe80::/10), 0.0.0.0/8, multicast and broadcast are always refused. Loopback is allowed only when the address is literally `localhost` or `127.x.x.x`; IPv6 literals are refused.
+- Redirects are never followed. Requests time out after 10 seconds (30 for a feed page), and bodies are capped at 64 KB (5 MB for a feed page).
+
+**What comes in.** Every item is checked against the protocol's schema and its text is length-capped. Only `http(s)` links are kept, and everything is shown as text, never as HTML. No review prose crosses in either direction: critic reviews arrive as scores and links.
+
+**Audit log.** Registrations, approvals and denials, code reuse, refresh failures, scope changes, address changes and revocations go to `audit_log` (actions `mc.*`), as do the album IDs a link fills in or takes back (`identity.fill`, `identity.fill_reverted`).
 
 ## TLS and HTTPS
 

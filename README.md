@@ -47,6 +47,14 @@ artwork, and gaps in the discography of artists you follow.
 record which releases you own on vinyl or CD, so the files and the shelf are one
 catalogue.
 
+**Links to your other music apps.** With Music Connections, a critic-review
+app such as review-gatherer can read your ratings, collection and listens, and
+tagave shows its critic scores in your album's review panel and its suggestions
+next to your wantlist. Each person links their own account in Settings ›
+Connections, approves what is shared, and can revoke it at any time. Your
+review text is never shared. [Operations](docs/operations.md#music-connections)
+explains how.
+
 **Keeps your account yours.** Sign in with a passkey or a security key such as a
 YubiKey, add an authenticator app with backup codes, and see and revoke the
 devices you trusted. [Security](docs/security.md) has the details.
@@ -87,7 +95,7 @@ explains the two ways to arrange that.
 | [Features](docs/features.md) | What the app does, in more detail |
 | [Tag correction](docs/tag-correction.md) | How writes work, and what stops them going wrong |
 | [Operations](docs/operations.md) | Backups, upgrades, health checks, moving workers |
-| [Security](docs/security.md) | `APP_SECRET`, rotation, TLS |
+| [Security](docs/security.md) | `APP_SECRET`, rotation, TLS, Music Connections |
 | [Architecture](docs/architecture.md) | How the pieces fit, and how to develop on it |
 | [Design system](docs/design/system.md) | Visual language and component contracts |
 
