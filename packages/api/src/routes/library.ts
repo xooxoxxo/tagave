@@ -21,7 +21,7 @@ import { folderLinksOf, settingsObject } from '../lib/folderLinks.js';
 import { normalizeFolderLinkBase } from '@tagave/shared';
 
 /** Library settings only an owner (system.manage) may change. */
-const SYSTEM_SETTING_KEYS = ['contactString', 'discogsToken', 'acoustidKey', 'onboardingCompletedAt'] as const;
+const SYSTEM_SETTING_KEYS = ['contactString', 'discogsToken', 'acoustidKey', 'onboardingCompletedAt', 'setupChecklistDismissedAt'] as const;
 
 /**
  * The settings blob as GET /libraries lists it. Libraries are shared, so a
@@ -76,6 +76,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const acoustidKeyHint = (settings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const fingerprintingEnabled = (settings as Record<string, any>)['fingerprintingEnabled'] === true;
     const onboardingCompletedAt = (settings as Record<string, any>)['onboardingCompletedAt'] ?? null;
+    const setupChecklistDismissedAt = (settings as Record<string, any>)['setupChecklistDismissedAt'] ?? null;
     const genreMapRaw = (settings as Record<string, any>)['genreMap'] ?? null;
     const genreMap = normalizeGenreMap(genreMapRaw);
     const lintRulesRaw = (settings as Record<string, any>)['lintRules'] ?? null;
@@ -109,6 +110,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeyHint: system ? acoustidKeyHint : null,
         fingerprintingEnabled,
         onboardingCompletedAt,
+        setupChecklistDismissedAt,
         genreMap,
         lintRules,
         discographyRefreshEnabled,
@@ -197,6 +199,10 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
       mergedSettings.onboardingCompletedAt = body.onboardingCompletedAt;
     }
 
+    if (body.setupChecklistDismissedAt !== undefined) {
+      mergedSettings.setupChecklistDismissedAt = body.setupChecklistDismissedAt;
+    }
+
     if (body.genreMap !== undefined) {
       mergedSettings.genreMap = normalizeGenreMap(body.genreMap);
     }
@@ -251,6 +257,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
     const acoustidKeyHint = (mergedSettings as Record<string, any>)['acoustidKeyHint'] ?? null;
     const fingerprintingEnabled = (mergedSettings as Record<string, any>)['fingerprintingEnabled'] === true;
     const onboardingCompletedAt = (mergedSettings as Record<string, any>)['onboardingCompletedAt'] ?? null;
+    const setupChecklistDismissedAt = (mergedSettings as Record<string, any>)['setupChecklistDismissedAt'] ?? null;
     const genreMap = normalizeGenreMap((mergedSettings as Record<string, any>)['genreMap'] ?? null);
     const lintRulesRaw = (mergedSettings as Record<string, any>)['lintRules'] ?? null;
     const lintRules = lintRulesRaw ?? {
@@ -280,6 +287,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
         acoustidKeyHint,
         fingerprintingEnabled,
         onboardingCompletedAt,
+        setupChecklistDismissedAt,
         genreMap,
         lintRules,
         discographyRefreshEnabled,

@@ -1,5 +1,5 @@
 /**
- * Setup checklist content for embedding in SettingsPage › System section
+ * The setup checklist: Home shows it on first run (setupChecklist.ts); Settings keeps its route, out of the nav
  * Extracted from OnboardingPage for reuse
  */
 

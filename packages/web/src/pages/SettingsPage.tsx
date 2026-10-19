@@ -37,7 +37,7 @@ import styles from './SettingsPage.module.css';
  * owner everything. A direct link to a section the role lacks shows "Not
  * available for your account" in place of the section.
  */
-type Section = { value: string; label: string; group: string; permission?: Permission };
+type Section = { value: string; label: string; group: string; permission?: Permission; /** reachable by link, not in the nav */ unlisted?: boolean };
 
 const sections: Section[] = [
   { value: 'library', label: 'Music folders', group: 'Library', permission: 'system.manage' },
@@ -54,7 +54,8 @@ const sections: Section[] = [
   // Modules change the install: system.manage is the owner's alone.
   { value: 'modules', label: 'Modules', group: 'System', permission: 'system.manage' },
   { value: 'activity', label: 'Background activity', group: 'System', permission: 'library.edit' },
-  { value: 'setup-checklist', label: 'Setup checklist', group: 'System', permission: 'system.manage' },
+  // First run shows it on Home; the route stays for direct links.
+  { value: 'setup-checklist', label: 'Setup checklist', group: 'System', permission: 'system.manage', unlisted: true },
   { value: 'account', label: 'Account', group: 'Account' },
   { value: 'appearance', label: 'Appearance', group: 'Account' },
   { value: 'security', label: 'Security', group: 'Account' },
@@ -63,11 +64,16 @@ const sections: Section[] = [
   { value: 'connections', label: 'Connections', group: 'Account' },
 ];
 
+/** The sections the nav lists for a role. */
+export function settingsNav(role: Parameters<typeof can>[0]): Section[] {
+  return sections.filter((item) => !item.unlisted && (!item.permission || can(role, item.permission)));
+}
+
 export function SettingsPage() {
   const role = useRole();
   // Music Connections off (Settings › Modules, off by default): Connections says so
   const mcOn = useModuleOn('mc');
-  const visible = sections.filter((item) => !item.permission || can(role, item.permission));
+  const visible = settingsNav(role);
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';

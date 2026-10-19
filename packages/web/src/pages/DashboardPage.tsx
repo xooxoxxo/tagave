@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { useAlbums, useCan, useCurrentLibrary, useGapCounts, useIdentifyStats, useTagPlans } from '../hooks';
+import { useAlbums, useCan, useCurrentLibrary, useGapCounts, useIdentifyStats, useScanRoots, useTagPlans } from '../hooks';
+import { useLibrarySettings, useUpdateLibrarySettings } from '../hooks/useLibrary';
 import { usePlaybackAvailable } from '../hooks/usePlayer';
 import { playAlbum } from '../player/engine';
 import { api } from '../services/api';
 import { PageShell, Card, Button, LinkButton, CoverArt } from '../components/ui';
+import { SetupChecklistContent } from './SetupChecklistContent';
+import { showSetupChecklist } from './setupChecklist';
 import styles from './DashboardPage.module.css';
 
 export function DashboardPage() {
@@ -24,6 +27,12 @@ export function DashboardPage() {
   });
   // the same cached query the nav badge uses: one request, not two
   const gaps = useGapCounts(careLibrary);
+  // First run: the owner's setup checklist, until it is done or dismissed
+  const owner = useCan('system.manage');
+  const setupSettings = useLibrarySettings(owner ? libraryId : undefined);
+  const setupRoots = useScanRoots(owner ? libraryId : undefined);
+  const dismissSetup = useUpdateLibrarySettings(libraryId);
+  const setup = showSetupChecklist(owner, setupSettings.data, setupRoots.data);
   const playable = recent.data?.items ?? [];
   const playRecent = () => {
     const album = playable[Math.floor(Math.random() * playable.length)];
@@ -47,7 +56,11 @@ export function DashboardPage() {
       {/* A kiosk view on a desktop: the page is exactly the height of the
           window and the recently added row sizes its covers to the room left
           (DashboardPage.module.css); on a phone it scrolls naturally. */}
-      <div className={styles.content} data-kiosk-page>
+      <div className={styles.content} data-kiosk-page={setup ? undefined : true}>
+        {setup && <section aria-labelledby="setup-heading">
+          <div className={styles.sectionHeading}><div><h2 id="setup-heading">Setup</h2></div><Button variant="quiet" size="sm" disabled={dismissSetup.isPending} onClick={() => dismissSetup.mutate({ setupChecklistDismissedAt: new Date().toISOString() })}>Dismiss</Button></div>
+          <SetupChecklistContent />
+        </section>}
         <section aria-labelledby="recent-heading" className={styles.recent}>
           <div className={styles.sectionHeading}><div><h2 id="recent-heading">Recently added</h2></div><Link to="/albums" search={{ sort: 'added_date' }}>View all →</Link></div>
           {libraryLoading || recent.isLoading ? <div className={styles.albumGrid} aria-label="Loading recent albums" aria-busy="true">{Array.from({ length: 6 }, (_, i) => <div key={i} className={styles.skeleton} />)}</div>

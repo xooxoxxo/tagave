@@ -281,6 +281,12 @@ describe.skipIf(!adminUrl)('Settings › Users and invite links (integration)', 
     expect((await as(owner, 'GET', `/libraries/${libraryId}/settings`)).json()).toMatchObject({ contactString: 'ada@example.com', discogsTokenHint: 'abcd' });
     const editor = await createTestUser(handle, { role: 'editor' });
     expect((await as(editor, 'PATCH', `/libraries/${libraryId}/settings`, { contactString: 'evil@example.com' })).statusCode).toBe(403);
+    // the setup checklist on Home is the owner's to dismiss, for good
+    const dismissedAt = '2026-10-20T10:00:00.000Z';
+    expect((await as(editor, 'PATCH', `/libraries/${libraryId}/settings`, { setupChecklistDismissedAt: dismissedAt })).statusCode).toBe(403);
+    expect((await as(owner, 'GET', `/libraries/${libraryId}/settings`)).json()).toMatchObject({ setupChecklistDismissedAt: null });
+    expect((await as(owner, 'PATCH', `/libraries/${libraryId}/settings`, { setupChecklistDismissedAt: dismissedAt })).json()).toMatchObject({ setupChecklistDismissedAt: dismissedAt });
+    expect((await as(owner, 'GET', `/libraries/${libraryId}/settings`)).json()).toMatchObject({ setupChecklistDismissedAt: dismissedAt, contactString: 'ada@example.com' });
 
     // the library list carries no install settings for a listener or an editor, and no sealed secrets for anyone
     await sql`update libraries set settings = ${sql.json({ contactString: 'ada@example.com', discogsToken: 'enc:v1:t', discogsTokenHint: 'abcd', playerUrl: 'http://nd', playerUser: 'admin', playerPassword: 'enc:v1:p', lastfmApiKey: 'enc:v1:k', lastfmSecret: 'enc:v1:s', lastfmApiKeyHint: 'wxyz' })} where id = ${libraryId}`;
