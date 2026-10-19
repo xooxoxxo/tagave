@@ -61,7 +61,7 @@ export function InviteFormView({ link, pending = false, serverError = null, onSu
       <form onSubmit={submit} className={styles.form} noValidate>
         {invite && <TextField label="Email" type="email" value={link.email} readOnly autoComplete="username" />}
         {!invite && <input type="email" hidden readOnly value={link.email} autoComplete="username" />}
-        {invite && <TextField label="Your name" required autoComplete="name" value={values.name} onChange={set('name')} error={errors.name} disabled={pending} />}
+        {invite && <TextField label="Name" required autoComplete="name" value={values.name} onChange={set('name')} error={errors.name} disabled={pending} />}
         <div className={styles.passwordField}>
           <TextField
             label={invite ? 'Password' : 'New password'}
@@ -71,14 +71,14 @@ export function InviteFormView({ link, pending = false, serverError = null, onSu
             value={values.password}
             onChange={set('password')}
             error={errors.password}
-            hint={`At least ${MIN_PASSWORD_LENGTH} characters.`}
+            placeholder={`${MIN_PASSWORD_LENGTH}+ characters`}
             disabled={pending}
           />
           <Button variant="quiet" size="sm" type="button" className={styles.togglePassword} onClick={() => setShow((s) => !s)}>
-            {show ? 'Hide password' : 'Show password'}
+            {show ? 'Hide' : 'Show'}
           </Button>
         </div>
-        <TextField label="Password again" type={show ? 'text' : 'password'} required autoComplete="new-password" value={values.confirm} onChange={set('confirm')} error={errors.confirm} disabled={pending} />
+        <TextField label="Repeat password" type={show ? 'text' : 'password'} required autoComplete="new-password" value={values.confirm} onChange={set('confirm')} error={errors.confirm} disabled={pending} />
         {serverError && <Banner tone="danger">{serverError}</Banner>}
         <div className={styles.actions}>
           <Button type="submit" loading={pending}>{invite ? 'Create account' : 'Set password'}</Button>

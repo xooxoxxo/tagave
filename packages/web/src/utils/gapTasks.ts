@@ -203,30 +203,30 @@ export function wrongFix(gap: GapLike): WrongFix {
   switch (gap.kind) {
     case 'incomplete_album':
       return {
-        text: 'If the wrong edition was matched, its track count is wrong too. Choose the edition you own, or re-identify the album.',
+        text: 'The wrong edition may be matched.',
         action: 'editions',
         actionLabel: 'Choose the right edition',
       };
     case 'duplicate':
       return {
-        text: 'If these are different albums, one of them was matched to the wrong release. Re-identify it from its album page.',
+        text: 'One of them may be matched to the wrong release.',
         action: 'reidentify',
         actionLabel: 'Re-identify',
       };
     case 'missing_album':
       return {
-        text: 'If this release should not count for this artist, change which release types you follow.',
+        text: 'Change which release types count.',
         action: 'follow-rules',
         actionLabel: 'Change what you follow',
       };
     default:
-      return { text: 'This check stays hidden for this album. Your answer is recorded so the check can be improved.', action: null };
+      return { text: 'Hidden for this album.', action: null };
   }
 }
 
 /** "Resolved by scan on 29 Sep 2026", or why the task left the list. */
 export function doneLabel(task: { resolvedAt: string | null; subjectGone: boolean }, locale?: string): string {
-  const date = task.resolvedAt ? new Date(task.resolvedAt).toLocaleDateString(locale, { day: 'numeric', month: 'short', year: 'numeric' }) : null;
-  if (task.subjectGone) return date ? `No longer in your library (checked ${date})` : 'No longer in your library';
-  return date ? `Resolved by scan on ${date}` : 'Resolved by scan';
+  const date = task.resolvedAt ? new Date(task.resolvedAt).toLocaleDateString(locale, { day: 'numeric', month: 'short' }) : null;
+  if (task.subjectGone) return date ? `Gone from library · ${date}` : 'Gone from library';
+  return date ? `Fixed ${date}` : 'Fixed';
 }

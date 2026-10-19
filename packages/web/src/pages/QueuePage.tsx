@@ -238,8 +238,6 @@ export function ReviewPanel() {
         <div className={styles.albumSide}>
           <p className={styles.progress}>
             <strong>{totalLeft}</strong> left
-            <span className={styles.progressSep}>·</span>
-            {itemIdx + 1} of {items.length} loaded
           </p>
           <Button
             variant="secondary"
@@ -349,7 +347,7 @@ export function ReviewPanel() {
 
       <details className={styles.tracks}>
         <summary className={styles.tracksSummary}>
-          {localTrackCount} track{localTrackCount === 1 ? '' : 's'} on disk
+          Tracks
         </summary>
         <ol className={styles.trackList}>
           {item.tracks.map((t) => (

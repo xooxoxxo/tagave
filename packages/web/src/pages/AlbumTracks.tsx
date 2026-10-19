@@ -15,7 +15,7 @@
 import { useRef, useState } from 'react';
 import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
 import type { DetailTrack } from './albumDetailTypes';
-import { dur, fileLine, trackArtistIfDifferent } from './albumFormat';
+import { dur, fileLine, qualityLine, trackArtistIfDifferent } from './albumFormat';
 import styles from './AlbumTracks.module.css';
 
 interface MissingRow { disc: number; position: number; title: string; lengthMs: number | null }
@@ -68,8 +68,10 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
   const toggle = (id: string) => setOpenFile((cur) => (cur === id ? null : id));
 
   if (tracks.length === 0 && (!maintenance || missingTracks.length === 0)) {
-    return <p className={styles.empty}>No track information is available for this album yet.</p>;
+    return <p className={styles.empty}>No tracks yet</p>;
   }
+  // the album line already says the format; a track only repeats it when it differs
+  const uniform = tracks.every((t) => qualityLine(t) === qualityLine(tracks[0]!));
   const groups = trackEntries(tracks, maintenance ? missingTracks : []);
   const multiDisc = (discCount ?? 1) > 1 || groups.length > 1;
 
@@ -151,9 +153,9 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                         )}
                       </span>
                       {artist && <span className={styles.sub}>{artist}</span>}
-                      {/* the file facts are the row's hover text; screen readers get them here
-                          (Maintenance adds the row's "⋯" that shows them for everyone) */}
-                      {!maintenance && file && <span className={styles.srOnly}>, {file}</span>}
+                      {/* the file facts are the row's hover text; screen readers get the format
+                          here when it differs from the album's (Maintenance adds the row's "⋯") */}
+                      {!maintenance && file && !uniform && <span className={styles.srOnly}>, {qualityLine(t)}</span>}
                     </span>
                     <span className={styles.len}>{dur(t.durationMs)}</span>
                     {maintenance && (

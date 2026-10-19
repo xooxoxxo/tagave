@@ -32,6 +32,7 @@ import {
   Banner, Button, Collapse, CoverArt, EmptyState, LinkButton, Menu, PageShell, Tabs, confirmDialog, showToast, updateToast, type MenuItem,
 } from '../components/ui';
 import { WantlistSection } from '../components/WantlistSection';
+import { shortDate } from '../utils/time';
 import styles from './CollectionPage.module.css';
 
 type View = 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates';
@@ -91,6 +92,9 @@ interface CollectionOptions {
   folders: Array<{ id: number; name: string }>;
   conditionGrades: string[];
 }
+
+/** "Very Good Plus (VG+)" → "VG+": the grade's short form, as on Discogs. */
+const grade = (g: string | null | undefined) => (g ? g.match(/\(([^)]+)\)\s*$/)?.[1] ?? g : null);
 
 const EMPTY_FORM = { input: '', folderId: 1, mediaCondition: '', sleeveCondition: '', notes: '', rating: 0 };
 
@@ -166,7 +170,7 @@ export function CollectionPage() {
   };
 
   const subtitle = source?.lastSyncAt
-    ? <span className={styles.meta}>Last synced {new Date(source.lastSyncAt).toLocaleString()}</span>
+    ? <span className={styles.meta}>Synced {shortDate(source.lastSyncAt)}</span>
     : undefined;
 
   if (sources.isLoading) {
@@ -349,7 +353,7 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
     }
   };
 
-  const discogsLink = <a className={styles.textLink} href={item.discogsUrl} target="_blank" rel="noopener noreferrer">Open on Discogs ↗</a>;
+  const discogsLink = <a className={styles.textLink} href={item.discogsUrl} target="_blank" rel="noopener noreferrer">Discogs ↗</a>;
 
   // one primary action per row
   let primary: React.ReactNode = null;
@@ -374,11 +378,10 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
   const facts = [
     item.format,
     item.folderName && item.folderName !== 'Uncategorized' ? item.folderName : null,
-    item.mediaCondition ? `media ${item.mediaCondition}` : null,
-    item.sleeveCondition ? `sleeve ${item.sleeveCondition}` : null,
+    item.mediaCondition || item.sleeveCondition ? [grade(item.mediaCondition), grade(item.sleeveCondition)].filter(Boolean).join('/') : null,
     item.rating ? '★'.repeat(item.rating) : null,
   ].filter(Boolean);
-  const onDisk = album && view !== 'removed'
+  const onDisk = view === 'physical_only' || view === 'both' ? null : album && view !== 'removed'
     ? `On disk: ${album.title ?? 'album'}${item.localAlbums.length > 1 ? ` and ${item.localAlbums.length - 1} more` : ''}`
     : item.mappingSource === 'not_in_library' ? 'Not in your library' : null;
 

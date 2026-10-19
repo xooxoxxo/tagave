@@ -53,7 +53,6 @@ const KIND_TAG: Record<string, { text: string; title: string }> = {
 const BULK_LABEL: Record<BulkAlbumAction, string> = {
   identify: 'Re-identify', fetch_art: 'Fetch art', as_is: 'Keep as-is', ignore: 'Ignore', unignore: 'Un-ignore', prefer: 'Mark preferred',
 };
-const MULTI_KEYS: MultiFilterKey[] = ['state', 'genre', 'decade', 'format', 'label', 'gap'];
 
 function formatLabel(a: AlbumSummary): string {
   if (a.isLossless) return 'Lossless';

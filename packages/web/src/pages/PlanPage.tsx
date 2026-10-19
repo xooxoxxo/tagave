@@ -845,8 +845,10 @@ export function PlanPage() {
 
             <div className={styles.files}>
               {visibleItems.length === 0 && !items.isLoading && <div className={styles.empty}>No files match.</div>}
-              {visibleItems.map((it) => {
+              {visibleItems.map((it, idx) => {
                 const rows = (it.diffs as TagDiffEntry[]).filter((d) => d.reason !== 'no-change');
+                // the folder once, on the first of its files in a run
+                const prevDir = idx > 0 ? (visibleItems[idx - 1]!.relPath ?? '').split('/').slice(0, -1).join('/') : null;
                 const open = isOpen(it.id);
                 const dir = (it.relPath ?? '').split('/').slice(0, -1).join('/');
                 const name = (it.relPath ?? it.audioFileId).split('/').pop();
@@ -856,9 +858,9 @@ export function PlanPage() {
                   <div key={it.id} className={styles.file}>
                     <button type="button" className={styles.fileRow} onClick={() => toggle(it.id)} aria-expanded={open}>
                       <span className={`${styles.caret} ${open ? styles.caretOpen : ''}`}>▶</span>
-                      <span><Badge tone={ITEM_TONE[st]}>{st}</Badge></span>
+                      <span>{st !== 'pending' && <Badge tone={ITEM_TONE[st]}>{st}</Badge>}</span>
                       <span className={styles.path} title={it.relPath ?? it.audioFileId}>
-                        <span className={styles.pathDir}>{dir}</span>
+                        {dir !== prevDir && <span className={styles.pathDir}>{dir}</span>}
                         <span className={styles.pathFile}>{name}</span>
                         {it.error && <span className={styles.fileError} title={it.error}>{it.error}</span>}
                       </span>

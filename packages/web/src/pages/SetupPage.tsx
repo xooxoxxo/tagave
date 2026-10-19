@@ -56,8 +56,7 @@ function SystemCheckScreen({ onContinue }: { onContinue: () => void }) {
   const problems = checks.filter((c) => c.status !== 'pass');
 
   return (
-    <section aria-labelledby="check-heading" className={styles.section}>
-      <h2 id="check-heading" className={styles.heading}>Is everything running?</h2>
+    <section aria-label="System check" className={styles.section}>
 
       {health.isLoading && <p className={styles.muted} role="status">Checking the database and workers…</p>}
 
@@ -69,9 +68,7 @@ function SystemCheckScreen({ onContinue }: { onContinue: () => void }) {
 
       {health.data && (
         <>
-          {problems.length === 0 ? (
-            <Banner tone="success">All checks pass</Banner>
-          ) : blocked ? (
+          {problems.length === 0 ? null : blocked ? (
             <Banner tone="danger">Fix the failed checks first.</Banner>
           ) : (
             <Banner tone="warning">
@@ -84,7 +81,7 @@ function SystemCheckScreen({ onContinue }: { onContinue: () => void }) {
 
       <div className={styles.actions}>
         <Button variant="secondary" onClick={() => void health.refetch()} loading={health.isFetching}>
-          {health.isFetching ? 'Checking…' : 'Check again'}
+          {health.isFetching ? 'Checking…' : 'Recheck'}
         </Button>
         <Button onClick={onContinue} disabled={!health.data || blocked}>
           Continue
@@ -151,15 +148,15 @@ function AccountScreen({ onBack, onDone }: { onBack: () => void; onDone: () => v
             value={form.password}
             onChange={change('password')}
             error={errors.password}
-            hint="At least 12 characters."
+            placeholder="12+ characters"
             disabled={setupMutation.isPending}
           />
           <Button variant="quiet" size="sm" type="button" className={styles.togglePassword} onClick={() => setShowPassword((v) => !v)}>
-            {showPassword ? 'Hide password' : 'Show password'}
+            {showPassword ? 'Hide' : 'Show'}
           </Button>
         </div>
         <TextField
-          label="Contact for metadata services"
+          label="Contact"
           required
           value={form.contactString}
           onChange={change('contactString')}

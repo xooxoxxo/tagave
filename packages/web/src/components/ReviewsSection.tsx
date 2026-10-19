@@ -18,8 +18,9 @@ import {
   useAddClipping, useAddListen, useDeleteClipping, useDeleteListen, useDeleteReview,
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
-import { StarRating, useCoarsePointer } from './StarRating';
+import { StarRating } from './StarRating';
 import { Button, IconButton, SegmentedControl, confirmDialog, showToast } from './ui';
+import { shortDate } from '../utils/time';
 import styles from './ReviewsSection.module.css';
 
 interface ReviewsSectionProps {
@@ -50,7 +51,7 @@ function fmtDate(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '';
 }
 function fmtDateTime(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString() : '';
+  return shortDate(iso);
 }
 function todayLocalIso(): string {
   const d = new Date();
@@ -76,9 +77,8 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
   if (error || !data) return <div className={styles.section}><p className={styles.muted}>Reviews are unavailable right now.</p></div>;
 
   return (
-    <section className={styles.section} aria-labelledby="reviews-title">
+    <section className={styles.section} aria-label="Reviews and listening">
       <div className={styles.titleRow}>
-        <h2 id="reviews-title" className={styles.title}>Reviews &amp; listening</h2>
         <Button variant="secondary" className={styles.addButton} onClick={() => setAdding('listen')} aria-haspopup="dialog" title="Log a listen with a date, format or note, or keep a clipping">
           <span aria-hidden="true">+</span> Add…
         </Button>
@@ -111,7 +111,6 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
 function RatingRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | undefined; releaseGroupId: string; bundle: ReviewsBundle }) {
   const save = useSaveReview(libraryId, releaseGroupId);
   const rating = bundle.own?.rating ?? null;
-  const coarse = useCoarsePointer();
   return (
     <Row label="Your rating">
       <div className={styles.ratingLine}>
@@ -119,9 +118,7 @@ function RatingRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
         {rating != null ? (<>
           <span className={styles.ratingHint}>{rating.toFixed(1)} of 5</span>
           <Button variant="quiet" size="sm" className={styles.clear} onClick={() => save.mutate({ rating: null })} disabled={save.isPending}>Clear</Button>
-        </>) : (
-          <span className={styles.ratingHint}>{coarse ? 'Tap a star to rate; tap it again for a half star.' : 'Click a star; its left half gives a half star.'}</span>
-        )}
+        </>) : null}
       </div>
       {save.isError && <p className={styles.error}>{(save.error as { detail?: string })?.detail ?? 'The rating was not saved.'}</p>}
     </Row>
@@ -208,7 +205,7 @@ function ReviewRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
           )}
         </>
       ) : (
-        <p className={styles.empty}>No review yet. Write a few lines about what stays with you; you can edit it any time and earlier versions are kept.</p>
+        <p className={styles.empty}>No review yet</p>
       )}
     </Row>
   );
@@ -239,7 +236,7 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
       )}
     >
       {listens.length === 0 ? (
-        <p className={styles.empty}>Not logged yet. “I listened today” logs today’s listen in one tap; Add… above logs one with a date, format or note.</p>
+        <p className={styles.empty}>No listens yet</p>
       ) : (
         <>
           <p className={styles.summary}>
@@ -294,7 +291,7 @@ export function CriticScoresRow({ bundle }: { bundle: ReviewsBundle }) {
       {values.some((v) => v.reviews.length > 0 || v.criticRatings.length > 0) && (
         <div className={styles.ratingsRow}>
           {values.flatMap((v) => [
-            ...v.reviews.map((r, i) => (
+            ...v.reviews.filter((r) => r.label !== v.source.label).map((r, i) => (
               <span key={`${v.source.module}:${v.source.ref ?? ''}:r${i}`} className={styles.ratingCard}>
                 <strong>{r.label}</strong>
                 <span>{r.scoreRaw && r.score === null ? r.scoreRaw : score10(r.score)}</span>
@@ -318,7 +315,6 @@ function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string 
   const refresh = useRefreshReviews(libraryId, releaseGroupId);
   const texts = bundle.external.filter((e) => e.source === 'wikipedia' || e.source === 'critiquebrainz');
   const ratings = bundle.external.filter((e) => e.source === 'musicbrainz' || e.source === 'discogs');
-  const missing = (['wikipedia', 'critiquebrainz'] as const).filter((s) => !texts.some((t) => t.source === s));
   const busy = refresh.isPending || bundle.gathering;
 
   return (
@@ -385,8 +381,7 @@ function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string 
 
       {bundle.fetchedAt && !bundle.gathering && (
         <p className={styles.muted}>
-          {missing.length > 0 ? `No reviews from ${missing.map((s) => SOURCE_LABEL[s]).join(' or ')}. ` : ''}
-          As of {fmtDateTime(bundle.fetchedAt)}.
+          {fmtDateTime(bundle.fetchedAt)}
         </p>
       )}
     </Row>
@@ -424,7 +419,7 @@ function ClippingsRow({ releaseGroupId, bundle }: { releaseGroupId: string; bund
   return (
     <Row label="Clippings">
       {bundle.clippings.length === 0 ? (
-        <p className={styles.empty}>Nothing saved yet. Add… above keeps a quote, a score or a link from a review you read elsewhere (a magazine, a blog).</p>
+        <p className={styles.empty}>None yet</p>
       ) : (
         <ul className={styles.list}>
           {bundle.clippings.map((c) => (

@@ -11,10 +11,9 @@ import { paragraphs, shortDate, type DetailsState } from './artistPageView';
 import styles from './ArtistPage.module.css';
 
 const CHIP: Partial<Record<ArtistAlbumOwnership, [string, CoverChipTone]>> = {
-  physical: ['Physical', 'neutral'],
-  both: ['Digital & Physical', 'accent'],
-  missing: ['Missing', 'warn'],
-  ignored: ['Skipped', 'neutral'],
+  // missing and skipped albums sit under their own headings, dimmed: no chip
+  physical: ['Physical only', 'neutral'],
+  both: ['Physical', 'accent'],
 };
 
 export function AlbumCard({ album, onReopen, reopening }: {

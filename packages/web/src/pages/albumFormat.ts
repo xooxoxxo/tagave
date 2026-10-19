@@ -22,7 +22,8 @@ export function mb(bytes: number | null): string {
 }
 
 /** "FLAC · 24bit/96.0kHz · 41.2 MB" */
-export function fileLine(t: DetailTrack): string {
+/** "FLAC · 24bit/96.0kHz" or "MP3 · 320kbps": the file's format without its size. */
+export function qualityLine(t: DetailTrack): string {
   return [
     t.file.codec,
     t.file.lossless
@@ -30,8 +31,11 @@ export function fileLine(t: DetailTrack): string {
       : t.file.bitrateKbps
         ? `${t.file.bitrateKbps}kbps`
         : null,
-    mb(t.file.sizeBytes),
   ].filter(Boolean).join(' · ');
+}
+
+export function fileLine(t: DetailTrack): string {
+  return [qualityLine(t), mb(t.file.sizeBytes)].filter(Boolean).join(' · ');
 }
 
 export const STATE_LABEL: Record<string, string> = {

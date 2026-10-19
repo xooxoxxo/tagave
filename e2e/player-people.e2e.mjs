@@ -148,7 +148,7 @@ try {
   await ben.goto(inv.body.link);
   await ben.getByRole('heading', { name: 'Create your account' }).waitFor();
   step('the invite page names the role', await ben.getByText('You are invited as a listener').isVisible());
-  await ben.getByLabel(/^Your name/).fill(people.ben.name);
+  await ben.getByLabel(/^Name/).fill(people.ben.name);
   const pw = ben.locator('input[autocomplete="new-password"]');
   await pw.nth(0).fill(people.ben.password);
   await pw.nth(1).fill(people.ben.password);
@@ -204,7 +204,7 @@ try {
     await page.getByRole('button', { name: 'Connect Last.fm' }).click();
     await page.waitForURL((u) => u.pathname === '/settings/listening' && u.search === '', { timeout: 20000 }).catch(() => undefined);
     await page.getByText('Last.fm is connected.').waitFor({ timeout: 15000 });
-    await page.getByLabel('Your ListenBrainz user token').fill(people[who].lb);
+    await page.getByLabel('User token').fill(people[who].lb);
     await page.getByRole('button', { name: 'Connect ListenBrainz' }).click();
     await page.getByText(/Connected as /).nth(1).waitFor({ timeout: 15000 });
     await page.getByLabel(/Password for apps/).fill(people[who].phone);

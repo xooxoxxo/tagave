@@ -5,7 +5,7 @@
  */
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { TASK_DONE_DAYS, TASK_NOTE_MAX, type GapTask } from '@tagave/shared';
+import { TASK_NOTE_MAX, type GapTask } from '@tagave/shared';
 import { useCurrentLibrary } from '../hooks';
 import { useGapTasks, useRecheckGaps, useSaveTaskNote } from '../hooks/useGaps';
 import { ReopenGapButton } from '../components/GapChoices';
@@ -13,7 +13,7 @@ import { Button, EmptyState, Input, LinkButton } from '../components/ui';
 import { doneLabel, taskText } from '../utils/gapTasks';
 import styles from './TasksPage.module.css';
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 
 function NoteEditor({ task }: { task: GapTask }) {
   const [editing, setEditing] = useState(false);
@@ -24,7 +24,7 @@ function NoteEditor({ task }: { task: GapTask }) {
       <span className={styles.note}>
         {task.note && <span className={styles.noteText}>{task.note}</span>}
         <Button variant="quiet" size="sm" onClick={() => { setDraft(task.note ?? ''); setEditing(true); }}>
-          {task.note ? 'Edit note' : 'Add note'}
+          Note
         </Button>
       </span>
     );
@@ -77,14 +77,14 @@ function TaskRow({ task }: { task: GapTask }) {
         <p className={styles.text}>{done ? <s>{text}</s> : text}</p>
         <div className={styles.meta}>
           {where}
-          <span>{done ? doneLabel(task) : `Added ${shortDate(task.acceptedAt)}`}</span>
+          <span>{done ? doneLabel(task, 'en-GB') : shortDate(task.acceptedAt)}</span>
           {!done && <NoteEditor task={task} />}
           {done && task.note && <span className={styles.noteText}>{task.note}</span>}
         </div>
       </div>
       {!done && (
         <div className={styles.actions}>
-          <ReopenGapButton gapId={task.id} title="Take it off your task list; it goes back to Needs attention">Remove from tasks</ReopenGapButton>
+          <ReopenGapButton gapId={task.id} title="Take it off your task list; it goes back to Needs attention">Remove</ReopenGapButton>
         </div>
       )}
     </li>
@@ -138,7 +138,6 @@ export function TasksPanel() {
       {done.length > 0 && (
         <section aria-labelledby="tasks-done">
           <h2 id="tasks-done" className={styles.heading}>Done <span className={styles.count}>{done.length}</span></h2>
-          <p className={styles.muted}>Last {TASK_DONE_DAYS} days</p>
           <ul className={styles.list}>{done.map((t) => <TaskRow key={t.id} task={t} />)}</ul>
         </section>
       )}

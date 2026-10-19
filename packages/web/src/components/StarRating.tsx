@@ -55,7 +55,7 @@ function matchCoarse(): boolean {
 }
 
 /** True on a touch-first device (phone, tablet). Follows changes (e.g. a tablet docked to a keyboard). */
-export function useCoarsePointer(): boolean {
+function useCoarsePointer(): boolean {
   const [coarse, setCoarse] = useState(matchCoarse);
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;

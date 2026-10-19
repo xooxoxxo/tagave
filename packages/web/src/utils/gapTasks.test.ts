@@ -76,7 +76,7 @@ describe('wrongFix', () => {
 
 describe('doneLabel', () => {
   it('says the scan resolved it, or that the album is gone', () => {
-    expect(doneLabel({ resolvedAt: '2026-09-29T10:00:00Z', subjectGone: false }, 'en-GB')).toMatch(/^Resolved by scan on 29 Sep/);
-    expect(doneLabel({ resolvedAt: null, subjectGone: true })).toBe('No longer in your library');
+    expect(doneLabel({ resolvedAt: '2026-09-29T10:00:00Z', subjectGone: false }, 'en-GB')).toMatch(/^Fixed 29 Sep/);
+    expect(doneLabel({ resolvedAt: null, subjectGone: true })).toBe('Gone from library');
   });
 });

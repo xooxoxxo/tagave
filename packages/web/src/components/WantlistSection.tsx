@@ -14,6 +14,7 @@ import type { WantlistDecision, WantlistEntryView, WantlistSuggestionView, Wantl
 import { Button } from './ui';
 import { useWantlist, useWantlistDecision } from '../hooks/useWantlist';
 import { useCurrentLibrary } from '../hooks';
+import { shortDate } from '../utils/time';
 import styles from './WantlistSection.module.css';
 
 export interface WantlistPanelProps {
@@ -32,7 +33,7 @@ function Entry({ e }: { e: WantlistEntryView }) {
         <h4 className={styles.albumTitle}>{e.title ?? (e.discogsReleaseId ? `Discogs release ${e.discogsReleaseId}` : 'Untitled')}</h4>
         {e.artist && <span className={styles.artist}>{e.artist}</span>}
       </div>
-      {e.dateAdded && <p className={styles.meta}>Added {new Date(e.dateAdded).toLocaleDateString()}</p>}
+      {e.dateAdded && <p className={styles.meta}>{shortDate(e.dateAdded, { time: false })}</p>}
     </li>
   );
 }
@@ -43,7 +44,6 @@ export function WantlistPanel({ view, pending = null, errors = {}, onDecide }: W
     <section className={styles.section} aria-labelledby="wantlist-title">
       <div className={styles.head}>
         <h2 id="wantlist-title" className={styles.title}>Wantlist</h2>
-        <p className={styles.lede}>Not sent to Discogs.</p>
       </div>
       {view.wantlist.length > 0
         ? <ul className={styles.list} aria-label="Your wantlist">{view.wantlist.map((e) => <Entry key={e.id} e={e} />)}</ul>
@@ -51,7 +51,7 @@ export function WantlistPanel({ view, pending = null, errors = {}, onDecide }: W
 
       {view.available && (
         <>
-          <h3 className={styles.subTitle}>Suggested by your linked apps</h3>
+          <h3 className={styles.subTitle}>Suggestions</h3>
           {open.length === 0 ? (
             <p className={styles.empty}>No suggestions</p>
           ) : (

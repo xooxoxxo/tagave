@@ -194,7 +194,6 @@ export function OnboardingPage() {
 
       <Card title="Music folder">
         <div className={styles.stack}>
-          <p className={styles.description}>The path as the worker sees it, e.g. /mnt/music</p>
 
           {scanRoots.length > 0 && (
             <ul className={styles.roots}>
@@ -207,9 +206,9 @@ export function OnboardingPage() {
                       <span className={styles.rootName}>{root.displayName}</span>
                       <code className={styles.rootPath}>{root.path}</code>
                     </div>
-                    <Banner tone={advice.tone}>
+                    {advice.tone !== 'success' && <Banner tone={advice.tone}>
                       <strong>{advice.title}{advice.text ? '.' : ''}</strong> {advice.text}
-                    </Banner>
+                    </Banner>}
                     {canRecheck && (
                       <div className={styles.actions}>
                         <Button
@@ -236,7 +235,7 @@ export function OnboardingPage() {
                 value={rootPath}
                 onChange={(e) => setRootPath(e.target.value)}
                 error={rootError}
-                placeholder="/music"
+                placeholder="/mnt/music"
               />
               <TextField
                 label="Name"

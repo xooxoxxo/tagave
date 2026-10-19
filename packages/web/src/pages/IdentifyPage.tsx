@@ -115,7 +115,7 @@ export function IdentifyPanel() {
   // Rate and ETA only mean something while albums wait; the rate counts
   // albums decided in the last 15 minutes.
   const progressLine = perMin > 0 && stats.etaSeconds
-    ? `About ${perMin.toLocaleString()} a minute · done in ${formatEta(stats.etaSeconds)}`
+    ? `${perMin.toLocaleString()}/min · ${formatEta(stats.etaSeconds)} left`
     : queue.active > 0
       ? 'Working'
       : 'Waiting for the worker';
@@ -144,7 +144,7 @@ export function IdentifyPanel() {
           <div className={styles.identified}>
             <div className={styles.identifiedPercent}>{share}%</div>
             <div className={styles.identifiedLabel}>identified</div>
-            <div className={styles.identifiedNote}>{matched.toLocaleString()} of {total.toLocaleString()} albums</div>
+            <div className={styles.identifiedNote}>of {total.toLocaleString()} albums</div>
           </div>
 
           <nav className={styles.decisions} aria-label="Albums by decision">
@@ -177,7 +177,7 @@ export function IdentifyPanel() {
             <div className={styles.statusBody}>
               <div className={styles.statusTitle}>{waiting.toLocaleString()} {waiting === 1 ? 'album' : 'albums'} waiting</div>
               <div className={styles.statusNote}>
-                {progressLine} · {queue.queued.toLocaleString()} queued · {queue.active.toLocaleString()} running{queue.retry > 0 ? ` · ${queue.retry.toLocaleString()} retrying` : ''}
+                {progressLine}{queue.queued > 0 ? ` · ${queue.queued.toLocaleString()} queued` : ''}{queue.active > 0 ? ` · ${queue.active.toLocaleString()} running` : ''}{queue.retry > 0 ? ` · ${queue.retry.toLocaleString()} retrying` : ''}
               </div>
             </div>
             <Button variant="secondary" size="sm" onClick={() => kickSweep.mutate()} loading={kickSweep.isPending} title="Queue the waiting albums now instead of at the next five-minute sweep">
@@ -196,15 +196,12 @@ export function IdentifyPanel() {
       </header>
 
       {/* Manual requests: owner-initiated identify jobs still in the queue */}
-      <section className={styles.requests}>
+      {requests && requests.items.length > 0 && <section className={styles.requests}>
         <div className={styles.provenanceHeader}>
           <span className={styles.identifiedLabel}>Manual requests</span>
           <span className={styles.provenanceTotal}>{requests ? `${requests.items.length} queued` : '…'}</span>
         </div>
-        {requests && requests.items.length === 0 && (
-          <div className={styles.fastPathLine}>None</div>
-        )}
-        {requests && requests.items.length > 0 && (
+        {(
           <div className={styles.requestList}>
             {requests.items.map((r) => (
               <div key={r.id} className={styles.requestRow}>
@@ -221,7 +218,7 @@ export function IdentifyPanel() {
             ))}
           </div>
         )}
-      </section>
+      </section>}
 
       {/* Provenance: how the live matches were found */}
       <section className={styles.provenance}>
@@ -250,22 +247,15 @@ export function IdentifyPanel() {
         <div className={styles.fastPathLine}>
           {fastPath.eligible === 0
             ? 'No embedded MusicBrainz IDs'
-            : `Embedded MusicBrainz IDs: ${fastPath.eligible} ${fastPath.eligible === 1 ? 'album' : 'albums'} · ${fastPath.viaMbid} matched via the tag (${pctOf(fastPath.viaMbid, fastPath.eligible)} of eligible) · ${fastPath.viaOther} via search · ${fastPath.undecided} undecided · ${fastPath.pending} pending`}
+            : `Embedded MBIDs: ${fastPath.eligible} · ${fastPath.viaMbid} via tag · ${fastPath.viaOther} via search${fastPath.undecided ? ` · ${fastPath.undecided} undecided` : ''}${fastPath.pending ? ` · ${fastPath.pending} pending` : ''}`}
         </div>
       </section>
 
-      {/* Could not be matched: what the owner can do next */}
-      <section id="could-not-match" className={styles.nextSteps} aria-labelledby="could-not-match-title">
-        <div className={styles.provenanceHeader}>
-          <span id="could-not-match-title" className={styles.identifiedLabel}>No match</span>
-          <span className={styles.provenanceTotal}>{stats.states.unidentified.toLocaleString()} {stats.states.unidentified === 1 ? 'album' : 'albums'}</span>
-        </div>
-        <a className={styles.fastPathLine} href={docsUrl('features.md#identification')} target="_blank" rel="noreferrer">How to</a>
-      </section>
+      <a id="could-not-match" className={styles.fastPathLine} href={docsUrl('features.md#identification')} target="_blank" rel="noreferrer">How to identify</a>
 
       {/* Reason tabs */}
       <div className={styles.tabs}>
-        {REASONS.map((r) => (
+        {REASONS.filter((r) => !r.key || r.key === reason || (reasonCounts[r.key as keyof typeof reasonCounts] ?? 0) > 0).map((r) => (
           <button
             key={r.key || 'all'}
             className={reason === r.key ? styles.tabActive : styles.tab}
@@ -278,13 +268,6 @@ export function IdentifyPanel() {
             {r.label} {reasonCounts[r.key as keyof typeof reasonCounts] ?? 0}
           </button>
         ))}
-        <Button
-          variant="quiet"
-          size="sm"
-          onClick={() => navigate({ to: '/queue' })}
-        >
-          Ambiguous → Queue
-        </Button>
       </div>
 
       {/* Search */}

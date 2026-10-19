@@ -50,7 +50,7 @@ describe('WantlistPanel', () => {
 
   it('with Music Connections off there are no suggestions, only the wantlist', () => {
     const html = renderToStaticMarkup(<WantlistPanel view={{ ...view, available: false }} onDecide={noop} />);
-    expect(html).not.toContain('Suggested by your linked apps');
+    expect(html).not.toContain('>Suggestions<');
     expect(html).toContain('Musik von Harmonia');
   });
 });
