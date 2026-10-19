@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { makeDb } from '@tagave/db';
-import { AuthConfigError, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
+import { AuthConfigError, fastifyTrustProxy, parseTrustProxy, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
 import { readBuildInfo } from '@tagave/core';
 import { migrateOnBoot } from '@tagave/doctor';
 import { startUpdateChecks } from './routes/updates.js';
@@ -57,6 +57,9 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info', serializers: { req: requestSerializer } },
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
+  // which hops may name the client (TRUST_PROXY: a hop count or the proxies'
+  // addresses, never every hop): request.ip is then the client for every limiter
+  trustProxy: fastifyTrustProxy(parseTrustProxy(process.env.TRUST_PROXY)),
 });
 
 // Validate APP_SECRET (required for credential encryption)

@@ -33,6 +33,17 @@ export class RateLimiter {
     return h.n <= this.max;
   }
 
+  /**
+   * Hands back one hit taken by allow/check in the key's current window: for
+   * a limit on failures, take a hit before the try (so calls at once cannot
+   * all pass) and give it back when the try succeeds.
+   */
+  release(key: string, now = Date.now()): void {
+    const h = this.hits.get(key);
+    // `now` is when the hit was taken: a window that restarted since keeps its count
+    if (h && now >= h.start && now - h.start < this.windowMs && h.n > 0) h.n -= 1;
+  }
+
   /** Whole seconds until the key's window resets (at least 1). */
   retryAfterS(key: string, now = Date.now()): number {
     const h = this.hits.get(key);
@@ -72,7 +83,52 @@ export class RateLimiter {
   }
 }
 
-/** The signed-in person, else the client address. */
+/**
+ * A bounded map whose entries expire: at most `maxKeys` (the oldest set goes
+ * first), each for `ttlMs` or until its own `until`, whichever is sooner.
+ */
+export class TtlCache<V> {
+  private readonly entries = new Map<string, { v: V; until: number }>();
+  constructor(readonly ttlMs: number, readonly maxKeys = 10_000) {}
+
+  get(key: string, now = Date.now()): V | undefined {
+    const e = this.entries.get(key);
+    if (!e) return undefined;
+    if (now >= e.until) {
+      this.entries.delete(key);
+      return undefined;
+    }
+    return e.v;
+  }
+
+  has(key: string, now = Date.now()): boolean {
+    return this.get(key, now) !== undefined;
+  }
+
+  set(key: string, v: V, now = Date.now(), until = Infinity): void {
+    this.entries.delete(key);
+    while (this.entries.size >= this.maxKeys) {
+      const oldest = this.entries.keys().next();
+      if (oldest.done) break;
+      this.entries.delete(oldest.value);
+    }
+    this.entries.set(key, { v, until: Math.min(now + this.ttlMs, until) });
+  }
+
+  delete(key: string): void {
+    this.entries.delete(key);
+  }
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  reset(): void {
+    this.entries.clear();
+  }
+}
+
+/** The signed-in person, else the client address (request.ip: TRUST_PROXY decides which hop that is). */
 export function rateKey(request: FastifyRequest): string {
   return request.user ? `user:${request.user.id}` : `ip:${request.ip}`;
 }

@@ -394,4 +394,4 @@ Until a worker is listening to the database, a new scan root stays `pending` and
 If you proxy the app (nginx, Caddy, etc.):
 - Set `PUBLIC_URL=https://your-domain.com` in `.env`; with https the session cookie gets the `secure` flag
 - Keep `ALLOW_INSECURE_HTTP=false` (default) so the owner account cannot be created over plain http
-- Set `TRUST_PROXY=true` when the proxy sets `X-Forwarded-For`, so sign-in rate limits apply per client
+- Set `TRUST_PROXY=1` (one proxy in front; or the proxies' addresses, `TRUST_PROXY=172.16.0.0/12`) when the proxy sets `X-Forwarded-For`, so rate limits apply per client (docs/security.md › Reverse proxy and client addresses)

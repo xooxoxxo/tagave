@@ -13,6 +13,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type postgres from 'postgres';
 import { OFFLINE_ACCESS, isLookupLength, parseScopeRequest, providerScopes, type Capability, type ScopeCheck } from 'music-connections';
+import { TtlCache } from './rateLimit.js';
 import { TAGAVE_CONSUMES as CORE_CONSUMES, TAGAVE_PROVIDES as CORE_PROVIDES } from '@tagave/core/mc';
 
 export { ACCESS_TOKEN_TTL_S, OFFLINE_ACCESS, PROTOCOL, REFRESH_TOKEN_TTL_S, bearerToken, type ScopeCheck } from 'music-connections';
@@ -43,6 +44,20 @@ export const SCOPE_LABELS: Readonly<Record<string, string>> = {
 /** The one hash for every stored secret: hex SHA-256 of the UTF-8 string. */
 export function hashToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/**
+ * Access-token hashes that were just issued here or whose lookup succeeded
+ * lately (an hour, 10,000 at most). Never used to serve: such a token is
+ * still looked up on every request (revoked, expired, disabled client or
+ * person, scope); it only lets the feeds' bearer gate (routes/mcFeeds.ts)
+ * look it up at once instead of in the queue of an address past its limit.
+ */
+export const knownGoodTokens = new TtlCache<true>(60 * 60_000, 10_000);
+
+/** A token this process just issued is known-good at once (routes/connect.ts › issueTokens). */
+export function markIssued(accessTokenHash: string): void {
+  knownGoodTokens.set(accessTokenHash, true);
 }
 
 /** True when `presented` hashes to `storedHash` (constant time). */

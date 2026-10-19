@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SessionUser } from '@tagave/shared/auth';
 import {
+  CLIENT_IP_HEADER,
   LEGACY_SESSION_COOKIE,
   fromNodeHeaders,
   sessionCookieNames,
@@ -161,7 +162,16 @@ export async function resolveSession(request: FastifyRequest, reply: FastifyRepl
  * route's permission (permissions/guard.ts). All before the body is read, so
  * a refused request never gets that far.
  */
+/**
+ * The client's address for Better Auth (its limiter, trusted devices):
+ * request.ip, which TRUST_PROXY decides, replacing whatever the client sent.
+ */
+export async function setClientIpHeader(request: FastifyRequest): Promise<void> {
+  request.headers[CLIENT_IP_HEADER] = request.ip;
+}
+
 export async function authMiddleware(fastify: FastifyInstance) {
+  fastify.addHook('onRequest', setClientIpHeader);
   fastify.addHook('onRequest', bridgeLegacySession);
   fastify.addHook('onRequest', async (request, reply) => {
     // Better Auth's own routes resolve the session themselves.

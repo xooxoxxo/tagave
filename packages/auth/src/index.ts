@@ -6,7 +6,7 @@ import type {} from '@simplewebauthn/server';
 import { APIError as BetterAuthAPIError } from 'better-auth/api';
 import { PostgresJSDialect } from 'kysely-postgres-js';
 import postgres from 'postgres';
-import { deriveAuthSecret as deriveSecret, type AuthEnvConfig } from './config.js';
+import { CLIENT_IP_HEADER, deriveAuthSecret as deriveSecret, type AuthEnvConfig } from './config.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { tagavePlugin } from './tagave-plugin.js';
 import { recordTrustedDevice } from './trusted-devices.js';
@@ -150,7 +150,8 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
       cookiePrefix: COOKIE_PREFIX,
       useSecureCookies: env.publicUrl.secure,
       database: { generateId: 'uuid' as const },
-      ...(env.trustProxy ? { ipAddress: { ipAddressHeaders: ['x-forwarded-for'] } } : {}),
+      // the client's address as the api worked it out (TRUST_PROXY), never X-Forwarded-For as sent
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     databaseHooks: {
       session: {
@@ -163,7 +164,7 @@ function buildOptions(opts: CreateAuthOptions, sql: postgres.Sql) {
         // Name trusted-device rows so Settings > Security can list and revoke them.
         create: {
           after: async (verification: { identifier?: string; value?: string }, ctx: unknown) =>
-            recordTrustedDevice(sql, verification, ctx as Parameters<typeof recordTrustedDevice>[2], env.trustProxy),
+            recordTrustedDevice(sql, verification, ctx as Parameters<typeof recordTrustedDevice>[2]),
         },
       },
       account: {

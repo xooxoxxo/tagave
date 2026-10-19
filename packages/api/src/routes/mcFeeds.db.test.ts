@@ -17,8 +17,9 @@ import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
-import { hashToken } from '../lib/mcOAuth.js';
-import { createMcFeedRoutes, resetMcFeedLimits } from './mcFeeds.js';
+import { hashToken, markIssued } from '../lib/mcOAuth.js';
+import { FAILED_LOOKUPS_PER_MINUTE, MAX_LANE_WAITING, createMcFeedRoutes, resetMcFeedLimits } from './mcFeeds.js';
+import { fastifyTrustProxy, parseTrustProxy } from '@tagave/auth';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { FACET_OF, feedTuning, readFeed, type ServedCapability } from '../lib/mcFeeds.js';
 
@@ -534,6 +535,131 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     expect(res.headers['cache-control']).toBe('no-store');
     // another token is counted on its own
     expect((await get('/mc/v1/identity?limit=1')).statusCode).toBe(200);
+  });
+
+  // ── tokens that are not valid ────────────────────────────────────────────
+
+  const bogus = (i: number | string) => `mca_bogus-${i}`.padEnd(47, 'x');
+  const from = (target: FastifyInstance, ip: string, t: string, xff?: string) =>
+    target.inject({ method: 'GET', url: '/mc/v1/identity?limit=1', remoteAddress: ip, headers: { authorization: `Bearer ${t}`, ...(xff ? { 'x-forwarded-for': xff } : {}) } });
+
+  it('a malformed token, or one that already missed, is 401 without a lookup and is not counted', async () => {
+    for (const t of ['short', 'x'.repeat(201), `${'a'.repeat(40)} b`, `${'a'.repeat(40)}%`]) expect((await from(app, '10.9.8.1', t)).statusCode).toBe(401);
+    expect((await from(app, '10.9.8.1', bogus('once'))).statusCode).toBe(401);
+    // a repeat never reaches the limit: well past it, still 401
+    for (let i = 0; i < FAILED_LOOKUPS_PER_MINUTE + 5; i++) expect((await from(app, '10.9.8.1', bogus('once'))).statusCode).toBe(401);
+    expect((await from(app, '10.9.8.1', await newToken(person.userId, ALL))).statusCode).toBe(200);
+  });
+
+  const ALL_LOOKUPS = FAILED_LOOKUPS_PER_MINUTE;
+
+  it('past the limit a miss is 429 with Retry-After; a valid token, seen before or new, is still served; another address is not held up', async () => {
+    const seenLive = await newToken(person.userId, ALL);
+    expect((await from(app, '10.9.9.9', seenLive)).statusCode).toBe(200);
+    // fresh X-Forwarded-For values change nothing: not trusted without TRUST_PROXY
+    for (let i = 0; i < FAILED_LOOKUPS_PER_MINUTE; i++) expect((await from(app, '10.9.9.9', bogus(i), `203.0.113.${i % 250}`)).statusCode).toBe(401);
+    const refused = await from(app, '10.9.9.9', bogus('last'));
+    expect(refused.statusCode).toBe(429);
+    expect(Number(refused.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    expect(Number(refused.headers['retry-after'])).toBeLessThanOrEqual(60);
+    expect(refused.headers['cache-control']).toBe('no-store');
+    // a known miss is 401 without a lookup; valid tokens are looked up and served
+    expect((await from(app, '10.9.9.9', bogus(1))).statusCode).toBe(401);
+    expect((await from(app, '10.9.9.9', seenLive)).statusCode).toBe(200);
+    expect((await from(app, '10.9.9.9', await newToken(person.userId, ALL))).statusCode).toBe(200);
+    expect((await from(app, '10.9.9.10', await newToken(person.userId, ALL))).statusCode).toBe(200);
+  });
+
+  it('every caller on one address (behind a proxy, TRUST_PROXY unset): a flood of bad tokens never stops a linked app with a valid token', async () => {
+    const seen = await newToken(person.userId, ALL);
+    expect((await from(app, '172.18.0.2', seen)).statusCode).toBe(200);
+    // as issueTokens does for every token it hands out
+    const fresh = await newToken(person.userId, ALL);
+    markIssued(hashToken(fresh));
+    const flood = Array.from({ length: FAILED_LOOKUPS_PER_MINUTE + 200 }, (_, i) => from(app, '172.18.0.2', bogus(`f${i}`)));
+    const legit = [from(app, '172.18.0.2', seen), from(app, '172.18.0.2', fresh), from(app, '172.18.0.2', seen)];
+    const [bad, good] = await Promise.all([Promise.all(flood), Promise.all(legit)]);
+    expect(good.map((r) => r.statusCode)).toEqual([200, 200, 200]);
+    expect(bad.every((r) => r.statusCode === 401 || r.statusCode === 429)).toBe(true);
+    expect(bad.filter((r) => r.statusCode === 429).length).toBeGreaterThan(0);
+    // and after it, still served
+    expect((await from(app, '172.18.0.2', fresh)).statusCode).toBe(200);
+    expect((await from(app, '172.18.0.2', await newToken(person.userId, ALL))).statusCode).toBe(200);
+  });
+
+  it('past the limit one address queues at most MAX_LANE_WAITING lookups: the rest are 429 at once, and a token issued meanwhile is served without waiting', async () => {
+    const ip = '172.18.0.3';
+    for (let i = 0; i < FAILED_LOOKUPS_PER_MINUTE; i++) expect((await from(app, ip, bogus(`w${i}`))).statusCode).toBe(401);
+    let finished = 0;
+    const flood = Array.from({ length: MAX_LANE_WAITING * 3 }, (_, i) =>
+      from(app, ip, bogus(`x${i}`)).then((r) => {
+        finished += 1;
+        return r;
+      }),
+    );
+    const fresh = await newToken(person.userId, ALL);
+    markIssued(hashToken(fresh));
+    const served = await from(app, ip, fresh);
+    const doneBefore = finished;
+    const bad = await Promise.all(flood);
+    expect(served.statusCode).toBe(200);
+    // served while the lane was still working through the flood
+    expect(doneBefore).toBeLessThan(bad.length);
+    expect(bad.every((r) => r.statusCode === 429)).toBe(true);
+    expect(bad.every((r) => Number(r.headers['retry-after']) >= 1)).toBe(true);
+  });
+
+  it('nothing is served from memory: a revoke, an expiry or a narrowed scope counts on the very next request, even past the limit', async () => {
+    const t = await newToken(person.userId, ALL);
+    expect((await from(app, '10.9.6.6', t)).statusCode).toBe(200);
+    for (let i = 0; i < ALL_LOOKUPS; i++) await from(app, '10.9.6.6', bogus(`m${i}`));
+    expect((await from(app, '10.9.6.6', bogus('m-last'))).statusCode).toBe(429);
+    // another process changes the row: this one sees it at once
+    await sql`update mc_oauth_tokens set scopes = ${['ratings:read']} where access_token_hash = ${hashToken(t)}`;
+    expect((await from(app, '10.9.6.6', t)).statusCode).toBe(403);
+    await sql`update mc_oauth_tokens set scopes = ${ALL} where access_token_hash = ${hashToken(t)}`;
+    expect((await from(app, '10.9.6.6', t)).statusCode).toBe(200);
+    await sql`update mc_oauth_tokens set access_expires_at = now() - interval '1 second' where access_token_hash = ${hashToken(t)}`;
+    expect((await from(app, '10.9.6.6', t)).statusCode).toBe(401);
+    const u = await newToken(person.userId, ALL);
+    expect((await from(app, '10.9.6.7', u)).statusCode).toBe(200);
+    await sql`update mc_oauth_tokens set revoked_at = now() where access_token_hash = ${hashToken(u)}`;
+    expect((await from(app, '10.9.6.7', u)).statusCode).toBe(401);
+    // the revoked token's miss is remembered by its own hash: a new token is not affected
+    expect((await from(app, '10.9.6.7', u)).statusCode).toBe(401);
+    expect((await from(app, '10.9.6.7', await newToken(person.userId, ALL))).statusCode).toBe(200);
+  });
+
+  it('an expired or revoked token is refused', async () => {
+    expect((await from(app, '10.9.5.5', await newToken(person.userId, ALL, { expired: true }))).statusCode).toBe(401);
+    expect((await from(app, '10.9.5.5', await newToken(person.userId, ALL, { revoked: true }))).statusCode).toBe(401);
+  });
+
+  it('requests at once each take a slot before their lookup: no more than the limit go through at once, the rest one at a time', async () => {
+    const extra = 50;
+    const answers = await Promise.all(Array.from({ length: FAILED_LOOKUPS_PER_MINUTE + extra }, (_, i) => from(app, '10.9.7.7', bogus(`c${i}`))));
+    const codes = answers.map((r) => r.statusCode);
+    expect(codes.filter((c) => c === 401)).toHaveLength(FAILED_LOOKUPS_PER_MINUTE);
+    expect(codes.filter((c) => c === 429)).toHaveLength(extra);
+  });
+
+  it('behind a trusted proxy the misses count per client; a forged X-Forwarded-For from an untrusted peer is ignored', async () => {
+    const proxied = Fastify({ logger: false, trustProxy: fastifyTrustProxy(parseTrustProxy('172.16.0.0/12', () => undefined)) });
+    await errorHandler(proxied);
+    await proxied.register(createMcFeedRoutes);
+    await proxied.ready();
+    try {
+      for (let i = 0; i < ALL_LOOKUPS; i++) expect((await from(proxied, '172.18.0.2', bogus(`p${i}`), `forged, 198.51.100.7`)).statusCode).toBe(401);
+      expect((await from(proxied, '172.18.0.2', bogus('p-last'), '198.51.100.7')).statusCode).toBe(429);
+      // another client through the same proxy is not held up
+      expect((await from(proxied, '172.18.0.2', await newToken(person.userId, ALL), '198.51.100.8')).statusCode).toBe(200);
+      // a peer outside the proxy networks naming 198.51.100.8 is counted as itself
+      for (let i = 0; i < ALL_LOOKUPS; i++) expect((await from(proxied, '203.0.113.50', bogus(`q${i}`), '198.51.100.8')).statusCode).toBe(401);
+      expect((await from(proxied, '203.0.113.50', bogus('q-last'), '198.51.100.8')).statusCode).toBe(429);
+      expect((await from(proxied, '172.18.0.2', bogus('r'), '198.51.100.8')).statusCode).toBe(401);
+    } finally {
+      await proxied.close();
+    }
   });
 
   it('the gate is the plugin’s: a route there that declares nothing is refused', async () => {

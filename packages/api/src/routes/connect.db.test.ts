@@ -16,7 +16,7 @@ import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testk
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { turnMcOn } from '../testkit/mc.js';
 import { mcEnabled, setMcEnabled } from '@tagave/db';
-import { hashToken, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
+import { hashToken, knownGoodTokens, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
 import { connectConfig, resetConnectRouteLimits } from './connect.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
@@ -150,6 +150,14 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     });
     expect(Object.keys(m.provides).sort()).toEqual(['collection', 'identity', 'listens', 'ratings']);
     expect([...m.consumes].sort()).toEqual(['critic-scores', 'identity', 'wantlist-suggestions']);
+  });
+
+  it('every access token it issues is known-good at once, so its first feed request skips a flooded queue', async () => {
+    const { c, tokens } = await linked();
+    expect(knownGoodTokens.has(hashToken(tokens.access_token))).toBe(true);
+    const r = await refresh(c, tokens.refresh_token);
+    expect(r.statusCode).toBe(200);
+    expect(knownGoodTokens.has(hashToken(r.json().access_token))).toBe(true);
   });
 
   it('links end to end: register → authorize → consent → token → refresh → revoke', async () => {

@@ -52,6 +52,7 @@ import {
   TAGAVE_PROVIDES,
   checkRequestedScopes,
   hashToken,
+  markIssued,
   isAllowedRegistration,
   newSecret,
   parseTrustedHosts,
@@ -192,12 +193,15 @@ interface Issued {
 
 async function issueTokens(tx: Sql, grant: { familyId: string; clientId: string; userId: string; scopes: string[] }): Promise<Issued> {
   const access = newSecret('mca');
+  const accessHash = hashToken(access);
   const refresh = grant.scopes.includes(OFFLINE_ACCESS) ? newSecret('mcr') : null;
   await tx`insert into mc_oauth_tokens
       (family_id, client_id, user_id, scopes, access_token_hash, access_expires_at, refresh_token_hash, refresh_expires_at)
     values (${grant.familyId}, ${grant.clientId}, ${grant.userId}, ${grant.scopes},
-      ${hashToken(access)}, now() + make_interval(secs => ${ACCESS_TOKEN_TTL_S}),
+      ${accessHash}, now() + make_interval(secs => ${ACCESS_TOKEN_TTL_S}),
       ${refresh ? hashToken(refresh) : null}, ${refresh ? tx`now() + make_interval(secs => ${REFRESH_TOKEN_TTL_S})` : null})`;
+  // its first feed request skips the queue of a flooded address (still looked up)
+  markIssued(accessHash);
   return {
     access_token: access,
     token_type: 'Bearer',

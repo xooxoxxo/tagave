@@ -1,4 +1,5 @@
 import type postgres from 'postgres';
+import { CLIENT_IP_HEADER } from './config.js';
 
 /**
  * Trusted devices ("don't ask for a code on this device for 30 days").
@@ -18,10 +19,9 @@ interface HookContext {
 
 const TRUST_COOKIE_RE = /(?:^|;\s*)(?:__Secure-)?tagave\.trust_device=([^;]*)/;
 
-function clientIp(headers: Headers | undefined, trustProxy: boolean): string | null {
-  if (!headers || !trustProxy) return null;
-  const forwarded = headers.get('x-forwarded-for');
-  return forwarded ? forwarded.split(',')[0]!.trim() : null;
+/** The client's address as the api set it (config.ts › CLIENT_IP_HEADER, from TRUST_PROXY). */
+function clientIp(headers: Headers | undefined): string | null {
+  return headers?.get(CLIENT_IP_HEADER)?.trim() || null;
 }
 
 /** databaseHooks.verification.create.after: name a new or rotated trust row. */
@@ -29,7 +29,6 @@ export async function recordTrustedDevice(
   sql: postgres.Sql,
   verification: { identifier?: string; value?: string },
   ctx: HookContext | null | undefined,
-  trustProxy: boolean,
 ): Promise<void> {
   const identifier = verification.identifier;
   const userId = verification.value;
@@ -40,7 +39,7 @@ export async function recordTrustedDevice(
   const raw = TRUST_COOKIE_RE.exec(ctx?.headers?.get('cookie') ?? '')?.[1];
   const previous = trustIdentifierFromCookie(raw);
   const userAgent = ctx?.headers?.get('user-agent') ?? null;
-  const ip = clientIp(ctx?.headers, trustProxy);
+  const ip = clientIp(ctx?.headers);
 
   if (previous && previous !== identifier) {
     const moved = await sql`

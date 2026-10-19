@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { errorHandler } from '../middleware/errorHandler.js';
-import { RateLimitError, RateLimiter } from './rateLimit.js';
+import { RateLimitError, RateLimiter, TtlCache } from './rateLimit.js';
 
 describe('RateLimiter', () => {
   it('refuses past max within a window and allows again after it', () => {
@@ -65,6 +65,47 @@ describe('RateLimiter', () => {
     for (let i = 0; i < 5; i++) l.allow(`new-${i}`, 70_010);
     expect(l.size).toBeLessThan(100);
     expect(l.allow('hot', 70_020)).toBe(false);
+  });
+
+  it('release gives back a hit taken in the window', () => {
+    const l = new RateLimiter(2, 60_000);
+    expect(l.allow('k', 0)).toBe(true);
+    l.release('k', 0);
+    expect(l.allow('k', 0)).toBe(true);
+    expect(l.allow('k', 0)).toBe(true);
+    expect(l.allow('k', 0)).toBe(false);
+    l.release('k', 1000);
+    l.release('k', 1000);
+    expect(l.allow('k', 1000)).toBe(true);
+    // nothing to give back outside the window, or for an unknown key
+    l.release('k', 60_000);
+    l.release('unknown', 0);
+    expect(l.size).toBe(1);
+  });
+
+  it('release with the time a hit was taken leaves a window that restarted since alone', () => {
+    const l = new RateLimiter(1, 60_000);
+    expect(l.allow('k', 0)).toBe(true);
+    // the window restarts at 61s; a release stamped 0 (taken in the old one) gives nothing back
+    expect(l.allow('k', 61_000)).toBe(true);
+    l.release('k', 0);
+    expect(l.allow('k', 61_000)).toBe(false);
+  });
+
+  it('TtlCache: entries expire after the ttl or their own deadline; the oldest go at the cap', () => {
+    const c = new TtlCache<number>(1000, 2);
+    c.set('a', 1, 0);
+    c.set('b', 2, 0, 500);
+    expect(c.get('a', 999)).toBe(1);
+    expect(c.get('a', 1000)).toBeUndefined();
+    expect(c.has('b', 499)).toBe(true);
+    expect(c.has('b', 500)).toBe(false);
+    c.set('x', 1, 0);
+    c.set('y', 2, 0);
+    c.set('z', 3, 0);
+    expect(c.size).toBe(2);
+    expect(c.get('x', 1)).toBeUndefined();
+    expect(c.get('z', 1)).toBe(3);
   });
 
   it('says how many seconds are left in the window', () => {
