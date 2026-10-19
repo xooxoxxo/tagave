@@ -297,6 +297,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('connections.pull (db)', () => {
     expect(Date.parse((await row(fresh)).manifest_checked_at)).toBeGreaterThan(Date.now() - 10_000);
   });
 
+  it('the tick re-reads stale manifests a bounded number at a time, and starts none past its time budget', async () => {
+    const stale = new Date(Date.now() - 25 * 3600_000);
+    const ids: string[] = [];
+    for (let i = 0; i < 20; i++) ids.push(await link(`http://192.168.77.${100 + i}:8080`, { manifest_checked_at: stale, last_attempt_at: new Date() }));
+    let inFlight = 0;
+    let most = 0;
+    setRemoteFetch(async () => {
+      inFlight++;
+      most = Math.max(most, inFlight);
+      await new Promise((r) => setTimeout(r, 30));
+      inFlight--;
+      return Response.json(rg.manifest);
+    });
+    expect(await connectionsTick(ctx, { manifestConcurrency: 4 })).toEqual({ manifests: 20, queued: 0 });
+    expect(most).toBe(4);
+    const checked = await client`select count(*)::int as n from mc_links where user_id = ${userId} and manifest_checked_at > now() - interval '1 minute'`;
+    expect(checked[0].n).toBe(20);
+
+    // out of time: the ones started finish, the rest keep their old check time for the next tick
+    await client`update mc_links set manifest_checked_at = ${stale.toISOString()}::text::timestamptz where user_id = ${userId}`;
+    setRemoteFetch(async () => {
+      await new Promise((r) => setTimeout(r, 80));
+      return Response.json(rg.manifest);
+    });
+    const res = await connectionsTick(ctx, { manifestConcurrency: 3, manifestBudgetMs: 40 });
+    expect(res.manifests).toBe(3);
+    const after = await client`select count(*)::int as n from mc_links where user_id = ${userId} and manifest_checked_at > now() - interval '1 minute'`;
+    expect(after[0].n).toBe(3);
+  });
+
   it('a re-read manifest from another service is not taken', async () => {
     const id = await link(RG);
     rg.manifest = { ...rg.manifest, service: 'impostor' };

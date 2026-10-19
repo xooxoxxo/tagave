@@ -2,8 +2,9 @@
  * connections.pull (Music Connections spec §4 Consumer side, §5): tagave
  * pulls the feeds of every app a person linked in Settings › Connections.
  *
- *   { }          the 15-minute tick: re-reads stale manifests (daily), then
- *                queues one job per active link that is due;
+ *   { }          the 15-minute tick: re-reads stale manifests (daily; 8 at a
+ *                time, none started after 5 minutes), then queues one job
+ *                per active link that is due;
  *   { linkId }   one link: Sync now, the first pull after linking, a tick's
  *                job, or a retry after a failure (backoff 1, 5, 15, 60 min).
  *
@@ -137,7 +138,21 @@ export interface PullOptions {
   appSecret?: string | undefined;
   sleep?: (ms: number) => Promise<void>;
   budgetMs?: number;
+  /** the tick's manifest re-reads: how many at a time (default MANIFEST_CONCURRENCY) */
+  manifestConcurrency?: number;
+  /** the tick's manifest re-reads: no new one starts after this long (default MANIFEST_BUDGET_MS) */
+  manifestBudgetMs?: number;
 }
+
+/** The tick re-reads at most this many manifests at a time (each capped at REMOTE_TIMEOUT_MS, 10 s). */
+export const MANIFEST_CONCURRENCY = 8;
+/**
+ * The tick starts no new manifest re-read after 5 minutes: with the 10 s cap
+ * on each one, the tick ends well inside pg-boss's 15-minute expiry for
+ * connections.pull. The links left over keep their old manifest_checked_at
+ * and come first at the next tick.
+ */
+export const MANIFEST_BUDGET_MS = 5 * 60_000;
 
 class RefreshRejected extends Error {}
 class TransientRefresh extends Error {}
@@ -198,13 +213,7 @@ export async function connectionsTick(ctx: WorkerContext, opts: PullOptions = {}
     select id from mc_links
      where state = 'active' and (manifest_checked_at is null or manifest_checked_at < now() - ${MANIFEST_EVERY}::interval)
      order by manifest_checked_at nulls first limit 100`;
-  for (const l of stale) {
-    try {
-      await refreshLinkManifest(ctx, l.id);
-    } catch {
-      ctx.logger.error({ linkId: l.id }, 'connections.pull: manifest re-read crashed');
-    }
-  }
+  const reread = await rereadManifests(ctx, stale.map((l) => l.id), opts.manifestConcurrency ?? MANIFEST_CONCURRENCY, opts.manifestBudgetMs ?? MANIFEST_BUDGET_MS);
   const due = await ctx.sql<Array<{ id: string }>>`
     select id from mc_links
      where state = 'active'
@@ -213,8 +222,31 @@ export async function connectionsTick(ctx: WorkerContext, opts: PullOptions = {}
        and (pull_lease_until is null or pull_lease_until < now())
      order by last_attempt_at nulls first limit 500`;
   for (const l of due) await ctx.boss.send('connections.pull', { linkId: l.id }, { singletonKey: `connections.pull:${l.id}` });
-  if (due.length || stale.length) ctx.logger.info({ queued: due.length, manifests: stale.length }, 'connections.pull: links queued');
-  return { manifests: stale.length, queued: due.length };
+  if (due.length || reread) ctx.logger.info({ queued: due.length, manifests: reread }, 'connections.pull: links queued');
+  return { manifests: reread, queued: due.length };
+}
+
+/**
+ * The tick's daily manifest re-reads, `concurrency` at a time; none starts
+ * once `budgetMs` has passed (those links wait for the next tick). Returns
+ * how many were started. One crashing never stops the others.
+ */
+async function rereadManifests(ctx: WorkerContext, ids: readonly string[], concurrency: number, budgetMs: number): Promise<number> {
+  const deadline = Date.now() + budgetMs;
+  let next = 0;
+  const lane = async () => {
+    while (next < ids.length && Date.now() < deadline) {
+      const id = ids[next++]!;
+      try {
+        await refreshLinkManifest(ctx, id);
+      } catch {
+        ctx.logger.error({ linkId: id }, 'connections.pull: manifest re-read crashed');
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, ids.length)) }, lane));
+  if (next < ids.length) ctx.logger.info({ started: next, left: ids.length - next }, 'connections.pull: manifest re-reads out of time, the rest wait for the next tick');
+  return next;
 }
 
 const newOwner = () => randomBytes(16).toString('hex');
