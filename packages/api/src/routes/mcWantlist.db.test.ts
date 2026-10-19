@@ -35,6 +35,7 @@ import { initDb } from '../db.js';
 import { criticScoresFor } from '../lib/facets.js';
 import { readFeed } from '../lib/mcFeeds.js';
 import { resetConnectionRouteLimits } from './mcConnections.js';
+import { DECISIONS_PER_MINUTE, resetWantlistDecisionLimit } from './mcWantlist.js';
 
 const adminUrl = process.env.TEST_DATABASE_URL;
 const RG = 'http://192.168.77.70:8080';
@@ -116,6 +117,7 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
 
   beforeEach(async () => {
     resetConnectionRouteLimits();
+    resetWantlistDecisionLimit();
     seen.length = 0;
     decisionStatus = 200;
     spent.clear();
@@ -199,6 +201,21 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     expect(gone.json().detail).toMatch(/no longer has this suggestion \(404\)/);
     expect((await sql`select decision from mc_wantlist_suggestions where id = ${id}`)[0]!['decision']).toBeNull();
     expect((await sql`select 1 from wantlist_items where origin = ${`mc:${l}`}`).length).toBe(0);
+  });
+
+  it('decisions are limited per person: past the limit 429 with Retry-After and no call to the app; another person is not held up', async () => {
+    const l = await link(person);
+    // bad ids count too: each try is a request the limit is about
+    for (let i = 0; i < DECISIONS_PER_MINUTE; i++) expect((await decide(person, randomUUID(), 'dismissed')).statusCode).toBe(404);
+    const id = await suggestion(person, l, 'limited');
+    const refused = await decide(person, id, 'dismissed');
+    expect(refused.statusCode).toBe(429);
+    expect(Number(refused.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    expect(Number(refused.headers['retry-after'])).toBeLessThanOrEqual(60);
+    expect(seen.filter((s) => s.url.endsWith('/decision'))).toEqual([]);
+    expect((await sql`select decision from mc_wantlist_suggestions where id = ${id}`)[0]!['decision']).toBeNull();
+    // the owner has a limit of their own
+    expect((await decide(owner, randomUUID(), 'dismissed')).statusCode).toBe(404);
   });
 
   it('without the write scope nothing is sent; another person’s suggestion is not found', async () => {

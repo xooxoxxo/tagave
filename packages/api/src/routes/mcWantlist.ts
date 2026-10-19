@@ -13,6 +13,9 @@
  * @tagave/db › wantlist.ts) in the caller's library. A 403 or 404 from the app is said in the
  * answer, for the panel to show.
  *
+ * Decisions are limited per person (DECISIONS_PER_MINUTE): each one is a
+ * call to the linked app. Past it the answer is 429 with Retry-After.
+ *
  * The suggestion's text (reason) is the remote's: kept length-capped and
  * shown as text, never as HTML.
  */
@@ -25,6 +28,7 @@ import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { postToLinkedApp, type RemoteLink } from '../lib/mcRemoteCall.js';
 import { sameSite } from './mcConnections.js';
+import { RateLimiter } from '../lib/rateLimit.js';
 
 type Sql = postgres.Sql;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +57,13 @@ function suggestionView(r: SuggestionRow): WantlistSuggestionView {
     decision: r.decision,
     decidedAt: iso(r.decided_at),
   };
+}
+
+/** Decisions one person may send per minute (each makes a call to the linked app). */
+export const DECISIONS_PER_MINUTE = 30;
+const decisions = new RateLimiter(DECISIONS_PER_MINUTE, 60_000);
+export function resetWantlistDecisionLimit(): void {
+  decisions.reset();
 }
 
 const UUID = (s: unknown): s is string => typeof s === 'string' && UUID_RE.test(s);
@@ -104,6 +115,7 @@ export async function createMcWantlistRoutes(fastify: FastifyInstance) {
   fastify.post('/me/wantlist-suggestions/:id/decision', async (request): Promise<WantlistSuggestionView> => {
     const user = request.user!;
     sameSite(request);
+    decisions.check(`user:${user.id}`);
     const { sql, env } = getAuthHandle();
     if (!(await mcEnabled(sql))) throw new ApiError(409, 'Conflict', 'Music Connections is turned off.');
     const id = (request.params as { id: string }).id;
