@@ -22,6 +22,7 @@ import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { TEST_APP_SECRET, TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
+import { turnMcOn } from '../testkit/mc.js';
 import { resetConnectRouteLimits } from './connect.js';
 import { createHash } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
@@ -110,6 +111,7 @@ describe.skipIf(!adminUrl)('Settings › Connections (integration)', () => {
     initAuth(handle);
     person = await createTestUser(handle, { role: 'listener' });
     other = await createTestUser(handle, { role: 'listener' });
+    await turnMcOn(handle.sql, person.userId);
     app = Fastify({ logger: false });
     await app.register(fastifyCookie);
     await registerApiRoutes(app, { backupService: { dir: '/nonexistent' } as never });

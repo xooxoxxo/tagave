@@ -121,6 +121,16 @@ const tg = {
     const libs = await s.req(`${TAGAVE}/api/v1/libraries`);
     const id = libs.data?.data?.[0]?.id;
     expect(id, 'tagave library', libs);
+    // Music Connections is off by default: nothing is offered until the owner
+    // turns it on in Settings › Modules (a fresh step-up), and no restart follows.
+    const before = await s.req(`${TAGAVE}/.well-known/music-connections`);
+    expect(before.status === 404, 'tagave offers nothing while Music Connections is off', before);
+    const up = await s.req(`${TAGAVE}/api/v1/auth/step-up/password`, { method: 'POST', json: { password: PERSON.password } });
+    expect(up.status >= 200 && up.status < 300, 'tagave step-up', up);
+    const on = await s.req(`${TAGAVE}/api/v1/settings/music-connections`, { method: 'PUT', json: { enabled: true } });
+    expect(on.status === 200 && on.data?.enabled === true, 'tagave turns Music Connections on', on);
+    const after = await s.req(`${TAGAVE}/.well-known/music-connections`);
+    expect(after.status === 200, 'tagave manifest once on', after);
     return id;
   },
   /** Follow an authorize URL as the signed-in person and approve on the consent page's API. */

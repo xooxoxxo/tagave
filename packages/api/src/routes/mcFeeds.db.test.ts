@@ -12,7 +12,7 @@ import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { CAPABILITY_DATA, FeedPageSchema, encodeCursor, runConformance, type Capability } from 'music-connections';
 import type { AuthHandle } from '@tagave/auth';
-import { nextFacetChanges } from '@tagave/db';
+import { nextFacetChanges, setMcEnabled } from '@tagave/db';
 import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
@@ -112,6 +112,8 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     await sql`insert into libraries (id, owner_user_id, name, created_at) values (${libraryId}, ${person.userId}, 'Home', now() - interval '1 day')`;
     // a second library, made later: not the one a link reads
     await sql`insert into libraries (owner_user_id, name) values (${person.userId}, 'Later')`;
+    // off by default (Settings › Modules)
+    await setMcEnabled(sql, true);
     await sql`insert into release_groups (id, mbid, title, artist_credit, discogs_master_id)
               values (${rgA}, ${rgAMbid}, 'Kind of Blue', ${sql.json(['Miles Davis'])}, 5460)`;
     // Discogs-only (no MusicBrainz group): a synthetic group from the master
@@ -471,6 +473,18 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
   });
 
   // ── the bearer gate ──────────────────────────────────────────────────────
+
+  it('every feed and schema is 404 while Music Connections is off, and served again once on', async () => {
+    await setMcEnabled(sql, false);
+    try {
+      for (const url of ['/mc/v1/ratings', '/mc/v1/collection', '/mc/v1/listens', '/mc/v1/identity', '/mc/v1/schema/ratings.json']) {
+        expect((await get(url)).statusCode).toBe(404);
+      }
+    } finally {
+      await setMcEnabled(sql, true);
+    }
+    expect((await get('/mc/v1/ratings')).statusCode).toBe(200);
+  });
 
   it('refuses by default: no, unknown, expired or revoked token, or a disabled client, is 401', async () => {
     const expired = await newToken(person.userId, ALL, { expired: true });

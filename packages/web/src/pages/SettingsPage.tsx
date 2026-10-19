@@ -18,7 +18,7 @@ import { SettingsBackupsPage } from './SettingsBackupsPage';
 import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { SettingsListeningContent } from './SettingsListeningPage';
-import { SettingsConnectionsContent } from './SettingsConnectionsPage';
+import { ConnectionsOff, SettingsConnectionsContent } from './SettingsConnectionsPage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
@@ -65,9 +65,9 @@ const sections: Section[] = [
 
 export function SettingsPage() {
   const role = useRole();
-  // Music Connections off (Settings › Modules): its Connections page hides
+  // Music Connections off (Settings › Modules, off by default): Connections says so
   const mcOn = useModuleOn('mc');
-  const visible = sections.filter((item) => (!item.permission || can(role, item.permission)) && !(item.value === 'connections' && mcOn === false));
+  const visible = sections.filter((item) => !item.permission || can(role, item.permission));
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
@@ -101,7 +101,7 @@ export function SettingsPage() {
         {section === 'activity' && <><h2>Background activity</h2><p className={styles.sectionDescription}>Follow scans and processing jobs, and investigate failures.</p><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}
         {section === 'listening' && <SettingsListeningContent />}
-        {section === 'connections' && (mcOn === false ? <p>Music Connections is turned off on this tagave. The owner turns it on in Settings › Modules.</p> : <SettingsConnectionsContent />)}
+        {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
         {section === 'security' && <><h2>Security</h2><p className={styles.sectionDescription}>How you sign in, and what keeps your account yours if a password leaks or a device is lost.</p><SettingsSecurityPage /></>}
         </>}
       </div>

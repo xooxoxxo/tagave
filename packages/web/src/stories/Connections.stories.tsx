@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { McLinkView } from '@tagave/shared';
-import { ConnectionsPanel } from '../pages/SettingsConnectionsPage';
+import { ConnectionsOff, ConnectionsPanel } from '../pages/SettingsConnectionsPage';
 
 const now = Date.parse('2026-10-16T10:00:00Z');
 const iso = (msAgo: number) => new Date(now - msAgo).toISOString();
@@ -69,4 +69,8 @@ export const Revoked: Story = { args: { view: view([{ ...linked, state: 'revoked
 export const Refused: Story = {
   name: 'Link refused',
   args: { view: view([]), returned: { error: 'access_denied' }, addError: 'Could not reach a Music Connections service at that address.' },
+};
+export const TurnedOff: Story = {
+  name: 'Module turned off',
+  render: () => <ConnectionsOff modules={<a href="#modules">Settings › Modules</a>} />,
 };

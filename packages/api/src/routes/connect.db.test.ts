@@ -14,6 +14,7 @@ import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
+import { turnMcOn } from '../testkit/mc.js';
 import { hashToken, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
 import { connectConfig, resetConnectRouteLimits } from './connect.js';
 
@@ -39,6 +40,7 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     handle = testAuth(db.url);
     initAuth(handle);
     person = await createTestUser(handle, { role: 'listener' });
+    await turnMcOn(handle.sql, person.userId);
     app = Fastify({ logger: false });
     await app.register(fastifyCookie);
     await registerApiRoutes(app, { backupService: { dir: '/nonexistent' } as never });

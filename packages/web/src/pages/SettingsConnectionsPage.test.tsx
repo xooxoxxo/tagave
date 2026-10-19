@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { McLinkView } from '@tagave/shared';
-import { ConnectionsPanel, problem, returnError, type ConnectionsPanelProps } from './SettingsConnectionsPage';
+import { ConnectionsOff, ConnectionsPanel, problem, returnError, type ConnectionsPanelProps } from './SettingsConnectionsPage';
 
 const link: McLinkView = {
   id: 'l1',
@@ -92,5 +92,19 @@ describe('ConnectionsPanel', () => {
     const html = render({ view: { links: [{ ...link, parkedDropped: 12, identityConflicts: 2 }], ownUrl: null } });
     expect(html).toContain('12 items for albums not in your library were dropped');
     expect(html).toContain('2 album IDs it sent are');
+  });
+});
+
+describe('ConnectionsOff', () => {
+  it('says the module is off and points the owner to Settings › Modules', () => {
+    const html = renderToStaticMarkup(<ConnectionsOff modules={<a href="/settings/modules">Settings › Modules</a>} />);
+    expect(html).toContain('Music Connections is turned off');
+    expect(html).toContain('href="/settings/modules"');
+    expect(html).not.toContain('Add connection');
+  });
+
+  it('tells anyone else to ask the owner', () => {
+    const html = renderToStaticMarkup(<ConnectionsOff />);
+    expect(html).toContain('Ask the owner to turn it on in Settings › Modules.');
   });
 });

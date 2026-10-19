@@ -8,7 +8,7 @@
  *
  * ConnectionsPanel is the view (stories); SettingsConnectionsContent wires it.
  */
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { mcRemoteUrlSchema, type McConnectionsView, type McLinkErrorCode, type McLinkView } from '@tagave/shared';
 import { Badge, Banner, Button, TextField, confirmDialog, showToast, type BadgeTone } from '../components/ui';
 import { useAddConnection, useConnections, useEditConnectionUrl, useReapproveConnection, useRevokeConnection, useSyncConnection } from '../hooks/useConnections';
@@ -108,6 +108,24 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
       <AddConnection adding={adding} error={addError} onAdd={props.onAdd} />
 
       {links.length > 0 && view?.ownUrl && <LinkBack ownUrl={view.ownUrl} {...(props.onCopy ? { onCopy: props.onCopy } : {})} />}
+    </>
+  );
+}
+
+/**
+ * Music Connections turned off (Settings › Modules, off by default): nothing
+ * links or syncs. `modules` is the way to Settings › Modules for someone who
+ * may turn it on (the owner); everyone else is told to ask.
+ */
+export function ConnectionsOff({ modules = null }: { modules?: ReactNode }) {
+  return (
+    <>
+      <h2>Connections</h2>
+      <Banner tone="info">
+        Music Connections is turned off on this tagave, so nothing links or syncs.{' '}
+        {modules ? <>Turn it on in {modules}.</> : 'Ask the owner to turn it on in Settings › Modules.'}
+      </Banner>
+      <p className={styles.description}>Once it is on, you can link tagave to other music apps you run, such as review-gatherer, and it reads what they offer every 15 minutes.</p>
     </>
   );
 }

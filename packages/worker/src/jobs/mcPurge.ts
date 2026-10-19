@@ -16,9 +16,14 @@
  * Writers never wait on this: they only insert. Deletes go in batches so no
  * statement holds locks or bloats WAL for long. Runs daily on the worker that
  * serves facets.refresh (database upkeep).
+ *
+ * Music Connections off (Settings › Modules): the run skips. The triggers keep
+ * logging (core transport), so the first run after it is turned on again
+ * compacts what gathered meanwhile.
  */
 import { TOMBSTONE_DAYS } from 'music-connections';
 import type { WorkerContext } from '../lib/context.js';
+import { mcIsOn } from './connectionsPull.js';
 
 /** The protocol's tombstone window (music-connections › TOMBSTONE_DAYS). */
 export const MC_TOMBSTONE_DAYS = TOMBSTONE_DAYS;
@@ -33,7 +38,8 @@ export interface McPurgeJobData {
 export async function mcPurgeJob(
   ctx: WorkerContext,
   data: McPurgeJobData = {},
-): Promise<{ relogged: number; superseded: number; tombstones: number }> {
+): Promise<{ relogged: number; superseded: number; tombstones: number } | { skipped: string }> {
+  if (!(await mcIsOn(ctx))) return { skipped: 'music connections is off' };
   const keepDays = data.keepDays ?? MC_TOMBSTONE_DAYS;
   const batchSize = data.batchSize ?? 5000;
 

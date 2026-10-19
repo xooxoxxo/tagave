@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { makeDb } from '@tagave/db';
+import { makeDb, mcEnabled, setMcEnabled } from '@tagave/db';
 import pino from 'pino';
 import { mcPurgeJob } from './mcPurge.js';
 import type { WorkerContext } from '../lib/context.js';
@@ -17,6 +17,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
   const libraryId = randomUUID();
   const rgLive = randomUUID();
   const tag = randomUUID().slice(0, 8);
+  let was = false;
 
   const row = (key: string, op: 'upsert' | 'delete', age: string) =>
     client`insert into facet_changes (facet, key, op, user_id, library_id, changed_at)
@@ -32,6 +33,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
     ctx = { db: made.db, sql: made.client, boss: {} as any, logger: pino({ level: 'silent' }) };
     await client`insert into users (id, email) values (${userId}, ${`purge-${tag}@example.test`})`;
     await client`insert into libraries (id, owner_user_id, name) values (${libraryId}, ${userId}, 'purge test')`;
+    // Music Connections is off by default; the purge runs only with it on
+    was = await mcEnabled(client);
+    await setMcEnabled(client, true);
     await client`insert into release_groups (id, mbid, title) values (${rgLive}, ${randomUUID()}, 'purge test')`;
     // a rating that exists (its trigger logs one upsert, removed below)
     await client`insert into user_reviews (library_id, user_id, release_group_id, rating) values (${libraryId}, ${userId}, ${rgLive}, 4)`;
@@ -50,14 +54,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
   });
 
   afterAll(async () => {
+    await setMcEnabled(client, was);
     await client`delete from libraries where id = ${libraryId}`;
     await client`delete from release_groups where id = ${rgLive}`;
     await client`delete from users where id = ${userId}`;
     await client.end({ timeout: 5 });
   });
 
+  it('skips while Music Connections is off, and touches nothing', async () => {
+    await setMcEnabled(client, false);
+    try {
+      const before = await left();
+      expect(await mcPurgeJob(ctx, { batchSize: 1 })).toEqual({ skipped: 'music connections is off' });
+      expect(await left()).toEqual(before);
+    } finally {
+      await setMcEnabled(client, true);
+    }
+  });
+
   it('drops superseded rows and old tombstones, never a key that has data', async () => {
     const result = await mcPurgeJob(ctx, { batchSize: 1 });
+    if ('skipped' in result) throw new Error('the purge skipped');
     expect(result).toMatchObject({ relogged: 1 });
     expect(result.superseded).toBeGreaterThanOrEqual(3);
     expect(result.tombstones).toBeGreaterThanOrEqual(2);

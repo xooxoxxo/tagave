@@ -87,12 +87,14 @@ export async function removeMcData(sql: Sql, opts: { keepFills: boolean; actorUs
 
 // ── The module switch (Settings › Modules) ─────────────────────────────────
 // Kept in the settings of the install's first library (the one the feeds
-// and links read): settings.modules.mc.enabled. Absent means on.
+// and links read): settings.modules.mc.enabled. Absent means off, as for the
+// player: a new or updated install links nothing until the owner turns it on.
+// Read per call (each request, each job run), so the switch needs no restart.
 
 export async function mcEnabled(sql: Sql | Tx): Promise<boolean> {
   const [row] = await sql<Array<{ v: string | null }>>`
     select settings->'modules'->'mc'->>'enabled' as v from libraries order by created_at, id limit 1`;
-  return row?.v !== 'false';
+  return row?.v === 'true';
 }
 
 export async function setMcEnabled(sql: Sql | Tx, enabled: boolean): Promise<void> {
