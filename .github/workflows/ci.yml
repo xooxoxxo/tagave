@@ -174,7 +174,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: shellcheck
-        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh scripts/sync-music-connections.sh scripts/sync-music-connections.test.sh
+        run: shellcheck install-tagave.sh scripts/test-installer.sh scripts/check-templates.sh scripts/release.sh scripts/sync-music-connections.sh scripts/sync-music-connections.test.sh scripts/mc-e2e.sh
 
       # Portainer, Dokploy, Coolify and Unraid templates in deploy/templates/
       - name: App templates

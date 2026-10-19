@@ -1,0 +1,105 @@
+# Music Connections end to end: this tagave and a second Music Connections
+# app (review-gatherer, from an image you build), linked both ways on one
+# private network. Run it with scripts/mc-e2e.sh, which sets every variable
+# below, picks the subnet and removes all of it afterwards.
+#
+# The network is internal: nothing here reaches the internet. Each app gets a
+# fixed address in a private range, because the Music Connections allow-lists
+# accept a redirect URI only on a private address.
+name: ${MC_E2E_PROJECT:?run scripts/mc-e2e.sh}
+
+networks:
+  mc:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${MC_E2E_NET:?}.0/24
+          # dynamic addresses stay below .128; the apps sit above it
+          ip_range: ${MC_E2E_NET:?}.0/25
+
+x-tg-env: &tg-env
+  DATABASE_URL: postgres://e2e:e2e@tg-db:5432/e2e
+  APP_SECRET: ${MC_E2E_APP_SECRET:?}
+  CACHE_DIR: /cache
+
+services:
+  tg-db:
+    image: postgres:16
+    environment: { POSTGRES_USER: e2e, POSTGRES_PASSWORD: e2e, POSTGRES_DB: e2e }
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [mc]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d e2e"]
+      interval: 2s
+      retries: 30
+
+  tg-app:
+    image: mce2e-tg-app:${MC_E2E_TAG:?}
+    build: { context: ../.., dockerfile: docker/app.Dockerfile }
+    environment:
+      <<: *tg-env
+      ALLOW_INSECURE_HTTP: "true"
+      PUBLIC_URL: http://${MC_E2E_NET}.200:3000
+      MC_TRUSTED_PUBLIC_HOSTS: ""
+      BACKUP_DIR: /backups
+    tmpfs: [/cache, /backups]
+    networks:
+      mc: { ipv4_address: "${MC_E2E_NET}.200" }
+    depends_on:
+      tg-db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 3s
+      start_period: 300s
+      retries: 100
+
+  # connections.pull runs on the identify queue set; nothing else is needed
+  tg-worker:
+    image: mce2e-tg-worker:${MC_E2E_TAG:?}
+    build: { context: ../.., dockerfile: docker/worker.Dockerfile }
+    environment:
+      <<: *tg-env
+      TAGAVE_QUEUES: identify.album
+    tmpfs: [/cache]
+    networks: [mc]
+    depends_on:
+      tg-app: { condition: service_healthy }
+
+  rg-db:
+    image: postgres:17
+    environment: { POSTGRES_USER: e2e, POSTGRES_PASSWORD: e2e, POSTGRES_DB: e2e }
+    tmpfs: [/var/lib/postgresql/data]
+    networks: [mc]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U e2e -d e2e"]
+      interval: 2s
+      retries: 30
+
+  # The other app: DATABASE_URL and PUBLIC_URL from here, the rest from
+  # MC_E2E_RG_ENV_FILE. It must listen on port 3000 and serve
+  # /.well-known/music-connections there.
+  rg:
+    image: ${MC_E2E_RG_IMAGE:?}
+    pull_policy: never
+    env_file:
+      - path: ${MC_E2E_RG_ENV_FILE:-/dev/null}
+    environment:
+      DATABASE_URL: postgres://e2e:e2e@rg-db:5432/e2e
+      PUBLIC_URL: http://${MC_E2E_NET}.201:3000
+    networks:
+      mc: { ipv4_address: "${MC_E2E_NET}.201" }
+    depends_on:
+      rg-db: { condition: service_healthy }
+
+  # The test itself, in the app image (it has node). Run, not started.
+  runner:
+    image: mce2e-tg-app:${MC_E2E_TAG:?}
+    pull_policy: never
+    profiles: [runner]
+    working_dir: /e2e
+    volumes: ["./:/e2e:ro"]
+    environment:
+      TAGAVE_URL: http://${MC_E2E_NET}.200:3000
+      RG_URL: http://${MC_E2E_NET}.201:3000
+    networks: [mc]
+    entrypoint: ["node", "/e2e/mc.e2e.mjs"]
