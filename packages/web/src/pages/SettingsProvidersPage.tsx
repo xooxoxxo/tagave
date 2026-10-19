@@ -107,6 +107,7 @@ export function SettingsProvidersPage() {
               onChange={(e) => setDiscogsToken(e.target.value)}
             />
           )}
+          <p className={styles.hint}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
         </div>
 
         <div className={styles.fieldGroup}>

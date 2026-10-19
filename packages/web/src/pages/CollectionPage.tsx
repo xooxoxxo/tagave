@@ -273,7 +273,7 @@ export function CollectionPage() {
             </ul>
           </div>
 
-          <p className={styles.footer}>Data provided by <a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer">Discogs</a></p>
+          <p className={styles.footer}>Data provided by <a href="https://www.discogs.com" target="_blank" rel="noopener noreferrer">Discogs</a>. tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
         </>
       )}
       <WantlistSection />

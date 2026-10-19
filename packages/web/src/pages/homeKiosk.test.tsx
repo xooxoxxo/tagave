@@ -79,10 +79,9 @@ describe('Home: a kiosk view on a desktop', () => {
     expect(tsx).toMatch(/data-kiosk-page/);
     const layout = read('../components/Layout.module.css');
     expect(layout).toMatch(/@media \(min-width: 901px\) and \(min-height: 640px\) \{/);
-    // the page and the footer share the pane, so the Discogs notice fits too
     expect(layout).toMatch(/\.main:has\(\[data-kiosk-page\]\) \{ display: flex; flex-direction: column; \}/);
     expect(layout).toMatch(/\.page:has\(\[data-kiosk-page\]\) \{ flex: 1 1 auto; min-height: 0; \}/);
-    expect(layout).toMatch(/\.main:has\(\[data-kiosk-page\]\) > \.footer \{ margin-top: 0; \}/);
+    expect(layout).not.toMatch(/\.footer/);
     expect(css).toMatch(/@media \(min-width: 901px\) and \(min-height: 640px\) \{/);
   });
 

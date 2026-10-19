@@ -181,7 +181,6 @@ export function Layout() {
               <div className={styles.page}><Outlet /></div>
             </PageBackActionContext.Provider>
           </PageBackContext.Provider>
-          <footer className={styles.footer}>tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</footer>
         </main>
         {/* mounted once here, under the page: route changes never unmount the audio */}
         <PlayerBar />
