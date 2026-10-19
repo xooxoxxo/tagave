@@ -2,12 +2,14 @@
  * mc.purge against the test database: rows a newer row of the same key
  * supersedes go; tombstones older than 90 days go unless their key has data
  * now (then the key is logged again as an upsert); everything else stays.
+ * The provider's ended token families and unused clients go after 30 days;
+ * the client side's links stay.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { makeDb, mcEnabled, setMcEnabled } from '@tagave/db';
 import pino from 'pino';
-import { mcPurgeJob } from './mcPurge.js';
+import { mcPurgeJob, pruneOAuth } from './mcPurge.js';
 import type { WorkerContext } from '../lib/context.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
@@ -89,5 +91,84 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mc.purge (db)', () => {
     const before = await left();
     expect(await mcPurgeJob(ctx)).toMatchObject({ relogged: 0 });
     expect(await left()).toEqual(before);
+  });
+
+  describe('the provider’s OAuth records', () => {
+    const cid = (n: string) => `mcc_purge_${tag}_${n}`;
+    const client_ = (n: string, age: string) =>
+      client`insert into mc_oauth_clients (client_id, client_secret_hash, name, redirect_uri, created_at)
+             values (${cid(n)}, 'h', ${`purge ${n}`}, 'http://192.168.1.5/cb', now() - ${age}::interval)`;
+    /** One token of a family; times relative to now. */
+    const token = (c: string, family: string, t: { access: string; refresh?: string | null; rotated?: string; revoked?: string }) =>
+      client`insert into mc_oauth_tokens (family_id, client_id, user_id, scopes, access_token_hash, access_expires_at,
+                                          refresh_token_hash, refresh_expires_at, rotated_at, revoked_at)
+             values (${family}, ${cid(c)}, ${userId}, ${['ratings:read', 'offline_access']}, ${randomUUID()}, now() + ${t.access}::interval,
+                     ${t.refresh ? randomUUID() : null}, ${t.refresh ? client`now() + ${t.refresh}::interval` : null},
+                     ${t.rotated ? client`now() + ${t.rotated}::interval` : null}, ${t.revoked ? client`now() + ${t.revoked}::interval` : null})`;
+    const families = async () =>
+      (await client`select distinct family_id::text as f from mc_oauth_tokens where client_id like ${`mcc_purge_${tag}_%`}`).map((r: { f: string }) => r.f).sort();
+    const clients = async () =>
+      (await client`select client_id from mc_oauth_clients where client_id like ${`mcc_purge_${tag}_%`} order by client_id`).map((r: { client_id: string }) => r.client_id.replace(`mcc_purge_${tag}_`, ''));
+    const f = { revokedLong: randomUUID(), revokedRecent: randomUUID(), live: randomUUID(), expiredLong: randomUUID(), rotatedLive: randomUUID() };
+    const linkId = randomUUID();
+
+    beforeAll(async () => {
+      await client_('revoked', '90 days');
+      await client_('recent', '90 days');
+      await client_('live', '90 days');
+      await client_('pending', '90 days');
+      await client_('code', '90 days');
+      await client_('young', '5 days');
+      await client_('unused', '90 days');
+      // revoked 40 days ago (a rotated token and its successor): the family goes, then its client
+      await token('revoked', f.revokedLong, { access: '-80 days', refresh: '20 days', rotated: '-80 days', revoked: '-40 days' });
+      await token('revoked', f.revokedLong, { access: '-79 days', refresh: '20 days', revoked: '-40 days' });
+      // revoked 10 days ago: kept, and so is its client
+      await token('recent', f.revokedRecent, { access: '-20 days', refresh: '60 days', revoked: '-10 days' });
+      // one live family keeps its client; an ended one of the same client goes
+      await token('live', f.live, { access: '-1 day', refresh: '29 days' });
+      await token('live', f.expiredLong, { access: '-70 days', refresh: '-40 days' });
+      // a rotated token long ago, its successor still usable: the family stays whole
+      await token('live', f.rotatedLive, { access: '-60 days', refresh: '30 days', rotated: '-60 days' });
+      await token('live', f.rotatedLive, { access: '-59 days', refresh: '31 days' });
+      // an authorize request not yet decided, and a code not yet exchanged: in flight
+      await client`insert into mc_oauth_requests (id, client_id, redirect_uri, scopes, code_challenge, expires_at)
+                   values (${`mcq_${tag}_p`}, ${cid('pending')}, 'http://192.168.1.5/cb', ${['ratings:read']}, 'c', now() + interval '5 minutes')`;
+      await client`insert into mc_oauth_requests (id, client_id, redirect_uri, scopes, code_challenge, expires_at, user_id, decided_at, code_hash, code_expires_at)
+                   values (${`mcq_${tag}_c`}, ${cid('code')}, 'http://192.168.1.5/cb', ${['ratings:read']}, 'c', now() - interval '1 minute',
+                           ${userId}, now() - interval '2 minutes', ${randomUUID()}, now() + interval '3 minutes')`;
+      // an expired request does not keep its client
+      await client`insert into mc_oauth_requests (id, client_id, redirect_uri, scopes, code_challenge, expires_at)
+                   values (${`mcq_${tag}_u`}, ${cid('unused')}, 'http://192.168.1.5/cb', ${['ratings:read']}, 'c', now() - interval '40 days')`;
+      // the client side's own link (to a remote whose client id happens to match): never touched
+      await client`insert into mc_links (id, user_id, remote_url, manifest, client_id, sealed_tokens, state)
+                   values (${linkId}, ${userId}, 'http://192.168.1.9:8080', '{}'::jsonb, ${cid('revoked')}, 'enc:x', 'revoked')`;
+    });
+
+    afterAll(async () => {
+      await client`delete from mc_links where id = ${linkId}`;
+      await client`delete from mc_oauth_clients where client_id like ${`mcc_purge_${tag}_%`}`;
+    });
+
+    it('drops families ended over 30 days ago and unused clients; keeps live, recent and in-flight ones; never a link', async () => {
+      // one family, then one client, per delete statement: every batch runs
+      const result = await mcPurgeJob(ctx, { batchSize: 1 });
+      expect(result.families).toBeGreaterThanOrEqual(2);
+      expect(result.tokens).toBeGreaterThanOrEqual(3);
+      expect(result.clients).toBeGreaterThanOrEqual(2);
+      expect(await families()).toEqual([f.revokedRecent, f.live, f.rotatedLive].sort());
+      expect(await clients()).toEqual(['code', 'live', 'pending', 'recent', 'young']);
+      expect((await client`select 1 from mc_oauth_requests where id = ${`mcq_${tag}_u`}`).length).toBe(0);
+      expect((await client`select sealed_tokens from mc_links where id = ${linkId}`)[0]?.sealed_tokens).toBe('enc:x');
+      const [audit] = await client`select payload from audit_log where action = 'mc.oauth.prune' order by at desc limit 1`;
+      expect(audit.payload).toMatchObject({ families: result.families, tokens: result.tokens, clients: result.clients, keep_days: 30 });
+    });
+
+    it('a second run deletes nothing and writes no audit entry', async () => {
+      const before = (await client`select count(*)::int as n from audit_log where action = 'mc.oauth.prune'`)[0].n;
+      expect(await pruneOAuth(ctx, 30)).toEqual({ families: 0, tokens: 0, clients: 0 });
+      expect((await client`select count(*)::int as n from audit_log where action = 'mc.oauth.prune'`)[0].n).toBe(before);
+      expect(await clients()).toEqual(['code', 'live', 'pending', 'recent', 'young']);
+    });
   });
 });
