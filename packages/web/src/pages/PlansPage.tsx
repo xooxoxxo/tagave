@@ -122,11 +122,11 @@ export function PlansPage() {
       }}
     >
       {isLoading ? (
-        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading plans...</div>
+        <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--text-secondary)' }}>Loading…</div>
       ) : filteredPlans.length === 0 ? (
         <EmptyState
           title={showArchived ? 'No archived plans' : 'No plans'}
-          text={statusFilter === 'all' ? 'Create a tag plan to preview and apply corrections to your library' : showArchived ? 'Archive a finished plan to keep it out of the list.' : undefined}
+
           action={
             statusFilter === 'all' ? (
               <Button variant="primary" size="sm" onClick={() => setShowWizard(true)}>

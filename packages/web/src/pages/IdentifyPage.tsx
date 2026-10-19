@@ -8,6 +8,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
 import { formatEta, formatRelativeTime } from '../utils/time';
+import { docsUrl } from '../utils/docs';
 import { Button } from '../components/ui';
 import styles from './IdentifyPage.module.css';
 
@@ -97,11 +98,11 @@ export function IdentifyPanel() {
   }
 
   if (statsLoading && !stats) {
-    return <div className={styles.container}>Loading identification stats...</div>;
+    return <div className={styles.container}>Loading…</div>;
   }
 
   if (!stats) {
-    return <div className={styles.container}>Failed to load stats</div>;
+    return <div className={styles.container}>Couldn’t load stats</div>;
   }
 
   const total = stats.total;
@@ -116,8 +117,8 @@ export function IdentifyPanel() {
   const progressLine = perMin > 0 && stats.etaSeconds
     ? `About ${perMin.toLocaleString()} a minute · done in ${formatEta(stats.etaSeconds)}`
     : queue.active > 0
-      ? 'Working on them now; the pace shows after a few minutes.'
-      : 'Waiting for the worker to pick them up.';
+      ? 'Working'
+      : 'Waiting for the worker';
   const scrollToUnmatched = () => document.getElementById('could-not-match')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Provenance of the live matches + the embedded-MBID fast path (XO-309).
@@ -153,11 +154,11 @@ export function IdentifyPanel() {
             </Link>
             <Link className={styles.decision} to="/work" search={{ tab: 'review' } as never}>
               <span className={styles.statValue}>{stats.states.needsReview.toLocaleString()}</span>
-              <span className={styles.statLabel}>Need your review</span>
+              <span className={styles.statLabel}>Need review</span>
             </Link>
             <button type="button" className={styles.decision} onClick={scrollToUnmatched}>
               <span className={styles.statValue}>{stats.states.unidentified.toLocaleString()}</span>
-              <span className={styles.statLabel}>Could not be matched</span>
+              <span className={styles.statLabel}>No match</span>
             </button>
           </nav>
         </div>
@@ -166,24 +167,21 @@ export function IdentifyPanel() {
           <div className={styles.statusLine} role="status">
             <span className={styles.statusDot} data-tone="ok" aria-hidden="true" />
             <div>
-              <div className={styles.statusTitle}>Every album has a decision</div>
-              <div className={styles.statusNote}>
-                Nothing is waiting to be identified. Albums a scan adds are picked up within five minutes.
-                {requests && requests.items.length > 0 ? ` ${requests.items.length} manual ${requests.items.length === 1 ? 'request is' : 'requests are'} in the queue below.` : ''}
-              </div>
+              <div className={styles.statusTitle}>All albums decided</div>
+              {requests && requests.items.length > 0 && <div className={styles.statusNote}>{requests.items.length} manual {requests.items.length === 1 ? 'request' : 'requests'} queued</div>}
             </div>
           </div>
         ) : (
           <div className={styles.statusLine} role="status">
             <span className={styles.statusDot} data-tone="live" aria-hidden="true" />
             <div className={styles.statusBody}>
-              <div className={styles.statusTitle}>{waiting.toLocaleString()} {waiting === 1 ? 'album is' : 'albums are'} waiting to be identified</div>
+              <div className={styles.statusTitle}>{waiting.toLocaleString()} {waiting === 1 ? 'album' : 'albums'} waiting</div>
               <div className={styles.statusNote}>
                 {progressLine} · {queue.queued.toLocaleString()} queued · {queue.active.toLocaleString()} running{queue.retry > 0 ? ` · ${queue.retry.toLocaleString()} retrying` : ''}
               </div>
             </div>
             <Button variant="secondary" size="sm" onClick={() => kickSweep.mutate()} loading={kickSweep.isPending} title="Queue the waiting albums now instead of at the next five-minute sweep">
-              Identify waiting albums now
+              Identify now
             </Button>
           </div>
         )}
@@ -191,7 +189,7 @@ export function IdentifyPanel() {
         {reason && (
           <div className={styles.headerActions}>
             <Button variant="secondary" size="sm" onClick={handleRetryReason} disabled={retry.isPending}>
-              {retry.isPending ? 'Retrying...' : 'Retry all in this category'}
+              {retry.isPending ? 'Retrying...' : 'Retry all'}
             </Button>
           </div>
         )}
@@ -204,7 +202,7 @@ export function IdentifyPanel() {
           <span className={styles.provenanceTotal}>{requests ? `${requests.items.length} queued` : '…'}</span>
         </div>
         {requests && requests.items.length === 0 && (
-          <div className={styles.fastPathLine}>No manual identification requests waiting. Requests from an album page run ahead of the sweep.</div>
+          <div className={styles.fastPathLine}>None</div>
         )}
         {requests && requests.items.length > 0 && (
           <div className={styles.requestList}>
@@ -251,7 +249,7 @@ export function IdentifyPanel() {
         </div>
         <div className={styles.fastPathLine}>
           {fastPath.eligible === 0
-            ? 'No albums carry embedded MusicBrainz IDs in their tags.'
+            ? 'No embedded MusicBrainz IDs'
             : `Embedded MusicBrainz IDs: ${fastPath.eligible} ${fastPath.eligible === 1 ? 'album' : 'albums'} · ${fastPath.viaMbid} matched via the tag (${pctOf(fastPath.viaMbid, fastPath.eligible)} of eligible) · ${fastPath.viaOther} via search · ${fastPath.undecided} undecided · ${fastPath.pending} pending`}
         </div>
       </section>
@@ -259,17 +257,10 @@ export function IdentifyPanel() {
       {/* Could not be matched: what the owner can do next */}
       <section id="could-not-match" className={styles.nextSteps} aria-labelledby="could-not-match-title">
         <div className={styles.provenanceHeader}>
-          <span id="could-not-match-title" className={styles.identifiedLabel}>Could not be matched</span>
+          <span id="could-not-match-title" className={styles.identifiedLabel}>No match</span>
           <span className={styles.provenanceTotal}>{stats.states.unidentified.toLocaleString()} {stats.states.unidentified === 1 ? 'album' : 'albums'}</span>
         </div>
-        <p className={styles.fastPathLine}>
-          tagave searched MusicBrainz and Discogs for these and found nothing close enough. Open an album from the list below and pick one:
-        </p>
-        <ol className={styles.stepList}>
-          <li><strong>Fingerprint it.</strong> AcoustID recognises the recordings even when the tags are wrong or missing (needs an AcoustID key in <Link to="/settings/providers">Settings › Providers</Link>).</li>
-          <li><strong>Match it yourself.</strong> Paste the MusicBrainz release — or its release group — or the Discogs release under <em>Manage this album</em>.</li>
-          <li><strong>Set the values yourself.</strong> <em>Set album values…</em> writes the artist, title and year you give, after a preview you approve.</li>
-        </ol>
+        <a className={styles.fastPathLine} href={docsUrl('features.md#identification')} target="_blank" rel="noreferrer">How to</a>
       </section>
 
       {/* Reason tabs */}
@@ -314,7 +305,7 @@ export function IdentifyPanel() {
       {/* Triage list */}
       {triageLoading && <div className={styles.loading}>Loading items...</div>}
       {triage && triage.items.length === 0 && (
-        <div className={styles.empty}>No unidentified albums in this category.</div>
+        <div className={styles.empty}>None in this category</div>
       )}
       {triage && triage.items.length > 0 && (
         <>

@@ -17,16 +17,6 @@ export const CHOICE_HELP = {
   wrong: 'The check made a mistake, for example the wrong edition was matched. It’s hidden and you’re shown how to put it right.',
 } as const;
 
-/** The legend shown once above a list of gaps, so each choice is explained where it is offered. */
-export function GapChoicesHelp({ className }: { className?: string }) {
-  return (
-    <dl className={[styles.help, className].filter(Boolean).join(' ')} aria-label="What the choices mean">
-      <div><dt>Add to my tasks</dt><dd>{CHOICE_HELP.task}</dd></div>
-      <div><dt>Not a problem</dt><dd>{CHOICE_HELP.notAProblem}</dd></div>
-      <div><dt>This is wrong</dt><dd>{CHOICE_HELP.wrong}</dd></div>
-    </dl>
-  );
-}
 
 interface GapChoicesProps {
   gapId: string;

@@ -90,7 +90,7 @@ export function AlbumsPage() {
     if (count > 0 && m.queryKey === albumsSelectionKey(search) && albumsSelectionKey(next) !== m.queryKey) {
       const ok = await confirmDialog({
         title: leaveMessage(count),
-        message: 'Changing the filters, search or sort starts a new selection. The albums themselves are not changed.',
+        message: 'The albums themselves are not changed.',
         confirmLabel: 'Change and clear',
         cancelLabel: 'Stay',
       });
@@ -190,7 +190,7 @@ export function AlbumsPage() {
   const mergeSelected = async () => {
     const ids = [...selected];
     if (ids.length < 2) return;
-    if (!(await confirmDialog({ title: `Treat these ${ids.length} albums as one?`, message: 'Nothing on disk moves. You can split them back from the album page.', confirmLabel: 'Treat as one album' }))) return;
+    if (!(await confirmDialog({ title: `Treat these ${ids.length} albums as one?`, message: 'Nothing on disk moves.', confirmLabel: 'Treat as one album' }))) return;
     setMergeNote(null);
     try {
       const r = await merge.mutateAsync({ albumIds: ids });
@@ -489,20 +489,18 @@ export function AlbumsPage() {
             onApplyView={applyView}
             onSaveView={saveView}
             curation={maintenance}
-            onDeleteView={async (id) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected, only the saved filters.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); }}
+            onDeleteView={async (id) => { if (await confirmDialog({ title: 'Delete this saved view?', message: 'The albums are not affected.', confirmLabel: 'Delete', tone: 'danger' })) deleteView.mutate(id); }}
           />
         )}
 
         <div className={styles.main}>
           {error && <div className={styles.error} role="alert">Couldn’t load albums. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
-          {isLoading && <div className={styles.loading}>Loading albums...</div>}
+          {isLoading && <div className={styles.loading}>Loading…</div>}
 
           {showEmpty && (
             <div className={styles.emptyState}>
-              <h2>{activeCount > 0 ? 'No albums match these filters' : 'No albums found'}</h2>
-              {activeCount > 0
-                ? <p><Button variant="secondary" onClick={clearAll}>Clear filters</Button></p>
-                : <p>Start scanning in Settings to build your library.</p>}
+              <h2>{activeCount > 0 ? 'No matching albums' : 'No albums yet'}</h2>
+              {activeCount > 0 && <p><Button variant="secondary" onClick={clearAll}>Clear filters</Button></p>}
             </div>
           )}
 

@@ -17,7 +17,7 @@ export function NotAvailableContent({ text }: { text?: ReactNode }) {
   return (
     <EmptyState
       title="Not available for your account"
-      text={text ?? 'This page belongs to another role. Ask the owner of this tagave if you need it.'}
+      text={text}
       action={<LinkButton to="/" variant="secondary">Go to Home</LinkButton>}
     />
   );

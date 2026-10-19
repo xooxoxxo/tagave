@@ -101,17 +101,13 @@ export function TasksPanel() {
   return (
     <div className={styles.container}>
       <div className={styles.intro}>
-        <p>
-          Things you said you’ll fix yourself, such as finding missing tracks and adding them to the album’s folder.
-          You don’t tick them off: once the files are in place, the next scan checks again and crosses the task out.
-        </p>
         <div className={styles.introActions}>
           <Button variant="secondary" size="sm" loading={recheck.isPending} onClick={() => recheck.mutate()} title="Run the gap check now instead of waiting for the next scan">
-            Check again now
+            Check again
           </Button>
           {recheck.isSuccess && (
             <span className={styles.status} role="status">
-              {recheck.data?.queued ? 'Check queued. Fixed tasks are crossed out when it finishes.' : 'A check is already waiting to run.'}
+              {recheck.data?.queued ? 'Check queued' : 'Already queued'}
             </span>
           )}
           {recheck.isError && <span className={styles.error} role="alert">Couldn’t queue the check.</span>}
@@ -121,15 +117,14 @@ export function TasksPanel() {
       {isLoading && <p className={styles.muted}>Loading tasks…</p>}
       {isError && (
         <p role="alert" className={styles.error}>
-          Couldn’t load your tasks. <Button variant="quiet" size="sm" onClick={() => void refetch()}>Try again</Button>
+          Couldn’t load tasks. <Button variant="quiet" size="sm" onClick={() => void refetch()}>Try again</Button>
         </p>
       )}
 
       {data && todo.length === 0 && (
         <EmptyState
-          title="No tasks right now"
-          text="When something under Needs attention is real and yours to fix, choose Add to my tasks. It stays here until a scan finds it fixed."
-          action={<LinkButton variant="secondary" size="sm" to="/work" search={{ tab: 'attention' }}>Go to Resolve gaps</LinkButton>}
+          title="No tasks"
+          action={<LinkButton variant="secondary" size="sm" to="/work" search={{ tab: 'attention' }}>Resolve gaps</LinkButton>}
         />
       )}
 
@@ -143,7 +138,7 @@ export function TasksPanel() {
       {done.length > 0 && (
         <section aria-labelledby="tasks-done">
           <h2 id="tasks-done" className={styles.heading}>Done <span className={styles.count}>{done.length}</span></h2>
-          <p className={styles.muted}>Crossed out by a scan in the last {TASK_DONE_DAYS} days.</p>
+          <p className={styles.muted}>Last {TASK_DONE_DAYS} days</p>
           <ul className={styles.list}>{done.map((t) => <TaskRow key={t.id} task={t} />)}</ul>
         </section>
       )}

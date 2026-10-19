@@ -7,7 +7,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary } from '../hooks';
 import { api } from '../services/api';
-import { GapChoices, GapChoicesHelp } from '../components/GapChoices';
+import { GapChoices } from '../components/GapChoices';
 import { gapLine, missingTrackLabel, titleList, type MissingTrack } from '../utils/gapTasks';
 import styles from './AttentionPage.module.css';
 
@@ -70,9 +70,9 @@ export function AttentionPanel() {
 
       {isLoading && <div className={styles.loading}>Loading...</div>}
       {data && data.items.length === 0 && (
-        <div className={styles.empty}>Nothing open in this category.</div>
+        <div className={styles.empty}>Nothing open</div>
       )}
-      {data && data.items.length > 0 && <GapChoicesHelp />}
+
 
       <div className={styles.list}>
         {data?.items.map((g) => (

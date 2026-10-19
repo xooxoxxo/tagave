@@ -58,7 +58,7 @@ export function ArtistPage() {
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
 
   if (error) {
-    return <PageShell back title="Couldn’t load this artist" barTitle={null}><p className={styles.error}>Failed to load artist</p></PageShell>;
+    return <PageShell back title="Couldn’t load this artist" barTitle={null}>{null}</PageShell>;
   }
 
   const details = artist ? detailsState(artist, waiting) : 'fetching';

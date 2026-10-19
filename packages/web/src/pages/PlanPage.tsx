@@ -595,7 +595,7 @@ export function PlanPage() {
             </Button>
           )}
           {p.status === 'previewed' && (
-            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, { title: `Write the previewed changes to ${plural(stats?.filesTouched ?? 0, 'file')}?`, message: 'Every write is journaled and can be reverted from this page.', confirmLabel: 'Apply changes' })} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
+            <Button variant="primary" loading={applyM.isPending} onClick={run(applyM, { title: `Write the previewed changes to ${plural(stats?.filesTouched ?? 0, 'file')}?`, message: 'Every write can be reverted.', confirmLabel: 'Apply' })} disabled={!canApply || applyM.isPending || awaiting !== null} title={applyTitle}>
               {applyM.isPending || awaiting !== null ? 'Starting…' : 'Apply now'}
             </Button>
           )}
@@ -708,13 +708,12 @@ export function PlanPage() {
             {previewFailed ? (
               <>
                 <strong>The preview stopped with an error{current?.error ? `: ${current.error}` : '.'}</strong>{' '}
-                Nothing was written. {jobLink('See the job in Background activity')}, or use Retry preview above.
+                Nothing was written. {jobLink('View job')}
               </>
             ) : previewStalled === 'no-progress' && current ? (
               <>
                 <strong>The preview has not reported progress for over a minute.</strong>{' '}
-                {current.message ? `Last update: ${current.message}. ` : ''}The background worker may have stopped.{' '}
-                {jobLink('Check Background activity')}, or use Retry preview above.
+                {current.message ? `Last update: ${current.message}. ` : ''}{jobLink('View job')}
               </>
             ) : previewStalled ? (
               <>
@@ -723,7 +722,7 @@ export function PlanPage() {
                     ? `The preview was queued ${formatRelativeTime(current.queuedAt)} and the background worker has not started it yet.`
                     : `The preview did not report back within ${PREVIEW_TIMEOUT_MS / 1000} seconds.`}
                 </strong>{' '}
-                The worker may be busy with other jobs or stopped. {jobLink('Check Background activity')}, or use Retry preview above.
+                {jobLink('View job')}
               </>
             ) : previewBusy ? (
               <>
@@ -734,27 +733,26 @@ export function PlanPage() {
                     {current.startedAt ? ` · started ${formatRelativeTime(current.startedAt)}` : ''}.{' '}
                   </>
                 ) : current?.state === 'queued' ? (
-                  <>Waiting for the background worker to start it. </>
+                  <>Waiting for the worker. </>
                 ) : null}
-                Nothing is written. {jobLink('Follow it in Background activity')}.
+                {jobLink('View job')}
               </>
             ) : (
               <>
-                <strong>No preview yet.</strong>{' '}
-                Every file in scope is read once; a whole-library plan can take a few minutes. Nothing is written.
+                <strong>No preview yet</strong>
               </>
             )}
           </Banner>
         )}
 
         {p.status === 'paused' && stats?.lastError && (
-          <Banner tone="danger">The last run stopped early: {stats.lastError}. Resume retries the files that were not written.</Banner>
+          <Banner tone="danger">The last run stopped early: {stats.lastError}</Banner>
         )}
 
         {p.status === 'partially_failed' && (
           <Banner tone={statusView.allFailed ? 'danger' : 'warning'}>
             <strong>{statusView.allFailed ? 'No file was written: ' : ''}{(statusCounts['failed'] ?? progress?.failed ?? 0).toLocaleString()} file(s) failed.</strong>{' '}
-            Filter the list by status "failed" to see why. A new plan over the same scope previews only what is still different.
+
           </Banner>
         )}
 

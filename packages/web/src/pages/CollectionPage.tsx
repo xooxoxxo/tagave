@@ -36,12 +36,12 @@ import styles from './CollectionPage.module.css';
 
 type View = 'physical_only' | 'both' | 'unmapped' | 'removed' | 'duplicates';
 
-const VIEWS: Array<{ key: View; label: string; count: 'physicalOnly' | 'both' | 'unmapped' | 'removed' | 'duplicates'; help: string }> = [
-  { key: 'physical_only', label: 'Physical only', count: 'physicalOnly', help: 'Records you own that are not on disk. Good candidates to rip or buy digitally.' },
-  { key: 'both', label: 'Both', count: 'both', help: 'Records you own that are also in your library on disk.' },
-  { key: 'unmapped', label: 'Unmapped', count: 'unmapped', help: 'tagave doesn’t know which album in your library these records are. Pick the match, or say the record isn’t in your library.' },
-  { key: 'removed', label: 'Removed', count: 'removed', help: 'Records that were in your Discogs collection and are gone now.' },
-  { key: 'duplicates', label: 'Duplicates', count: 'duplicates', help: 'The same Discogs release is in your collection more than once. Remove the extra copy, or say you own both.' },
+const VIEWS: Array<{ key: View; label: string; count: 'physicalOnly' | 'both' | 'unmapped' | 'removed' | 'duplicates' }> = [
+  { key: 'physical_only', label: 'Physical only', count: 'physicalOnly' },
+  { key: 'both', label: 'Both', count: 'both' },
+  { key: 'unmapped', label: 'Unmapped', count: 'unmapped' },
+  { key: 'removed', label: 'Removed', count: 'removed' },
+  { key: 'duplicates', label: 'Duplicates', count: 'duplicates' },
 ];
 
 interface LocalAlbumRef {
@@ -156,7 +156,7 @@ export function CollectionPage() {
         const formats = [...new Set(err.existing.map((e) => e.format).filter(Boolean))].join(' and ');
         if (await confirmDialog({
           title: `You already have this${formats ? ` on ${formats}` : ''}. Add another copy?`,
-          message: 'Add another copy only if you really own two. Each copy is its own item in your Discogs collection.',
+          message: 'Each copy is its own item in your Discogs collection.',
           confirmLabel: 'Add another copy',
         })) await addRecord(true);
         return;
@@ -165,9 +165,9 @@ export function CollectionPage() {
     }
   };
 
-  const subtitle = source
-    ? <>The records and CDs in {source.username ? `${source.username}’s` : 'your'} Discogs collection, next to the albums on disk.{source.lastSyncAt && <span className={styles.meta}> Last synced {new Date(source.lastSyncAt).toLocaleString()}.</span>}</>
-    : 'The records and CDs on your shelf, next to the albums on disk.';
+  const subtitle = source?.lastSyncAt
+    ? <span className={styles.meta}>Last synced {new Date(source.lastSyncAt).toLocaleString()}</span>
+    : undefined;
 
   if (sources.isLoading) {
     return <PageShell title="Physical collection" subtitle={subtitle}><p className={styles.loading}>Loading…</p></PageShell>;
@@ -186,15 +186,14 @@ export function CollectionPage() {
           <Button variant="secondary" onClick={() => setShowAddForm(!showAddForm)} aria-expanded={showAddForm}>Add a record</Button>
           <Button variant="secondary" onClick={() => sync.mutate()} disabled={sync.isPending || source.status === 'syncing'}>Sync now</Button>
           <Menu label="More collection actions" items={[
-            { key: 'remap', label: 'Re-run mapping', hint: 'Match unmapped records to albums again', disabled: remap.isPending || source.status === 'syncing', onSelect: () => remap.mutate() },
+            { key: 'remap', label: 'Re-run mapping', disabled: remap.isPending || source.status === 'syncing', onSelect: () => remap.mutate() },
           ]} />
         </>
       )}
     >
       {!source ? (
         <EmptyState
-          title="No collection connected yet"
-          text="Connect your Discogs account and tagave lists the vinyl and CDs you own, shows which of them are also on disk, and which are only on the shelf."
+          title="No collection connected"
           action={canConnect ? <LinkButton to="/settings/providers">Connect Discogs</LinkButton> : undefined}
         />
       ) : (
@@ -202,7 +201,7 @@ export function CollectionPage() {
           <Collapse open={showAddForm}>
             <form className={styles.addForm} onSubmit={(e) => { e.preventDefault(); void addRecord(); }}>
               <h2 className={styles.formTitle}>Add a record</h2>
-              <p className={styles.formHint}>To add an album you already have on disk, open it and choose “I own this on vinyl/CD”: tagave links it for you.</p>
+
               <label className={styles.formGroup}>
                 <span>Discogs release URL or ID</span>
                 <input type="text" required placeholder="https://www.discogs.com/release/12345 or 12345" value={form.input}
@@ -245,7 +244,7 @@ export function CollectionPage() {
           {duplicates > 0 && view !== 'duplicates' && (
             <Banner tone="warning">
               <span className={styles.bannerLine}>
-                {duplicates === 1 ? 'One record is' : `${duplicates} records are`} in your collection twice.
+                {duplicates === 1 ? '1 duplicate' : `${duplicates} duplicates`}
                 <Button size="sm" variant="secondary" onClick={() => setView('duplicates')}>Review duplicates</Button>
               </span>
             </Banner>
@@ -259,7 +258,7 @@ export function CollectionPage() {
               panelId="collection-panel"
               items={visibleViews.map((v) => ({ value: v.key, label: v.label, ...(counts[v.count] ? { count: counts[v.count] } : {}) }))}
             />
-            <p className={styles.viewHelp}>{current.help}</p>
+
           </div>
 
           <div id="collection-panel" role="tabpanel" aria-label={current.label}>
@@ -400,7 +399,7 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
             {isExtraCopy && !removing && (
               <Button size="sm" variant="quiet" loading={keepBoth.isPending} onClick={() => void ownBoth()}>I own both</Button>
             )}
-            {isExtraCopy && isUnmapped && <span>Remove this copy, then link the one that stays</span>}
+
             {item.pushState === 'pending' && <span className={styles.status}>adding to Discogs…</span>}
             {item.pushState === 'failed' && <span className={styles.flagDanger} title={item.pushError ?? undefined}>{item.pushError?.startsWith('Removing') ? 'Removing from Discogs failed' : 'Adding to Discogs failed'}</span>}
           </div>
@@ -408,7 +407,7 @@ function CollectionRow({ item, view, libraryId }: { item: CollectionItem; view: 
           {isUnmapped && !isExtraCopy && (
             <div className={styles.suggestions}>
               {suggestions.isLoading && <p className={styles.suggestHint}>Looking for this album in your library…</p>}
-              {!suggestions.isLoading && list.length === 0 && <p className={styles.suggestHint}>No album in your library looks like this record.</p>}
+              {!suggestions.isLoading && list.length === 0 && <p className={styles.suggestHint}>No match in your library</p>}
               {list.map((s, idx) => (
                 <div key={s.id} className={styles.suggestion}>
                   <CoverArt src={s.coverUrl} title={s.title ?? ''} compact className={styles.suggestThumb} />

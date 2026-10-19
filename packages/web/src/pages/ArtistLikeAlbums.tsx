@@ -112,7 +112,7 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
         </div>
         : <>
           {groups.map(([k, list]) => <Group key={k} label={heads ? KIND_HEADINGS[k] : null}><AlbumGrid albums={list} /></Group>)}
-          {s.owned.length === 0 && <p className={styles.empty}>Nothing by this artist on disk or on the shelf.</p>}
+          {s.owned.length === 0 && <p className={styles.empty}>Nothing in your library</p>}
           {s.missing.length > 0 && <Group label={`Not in your library · ${s.missing.length}`}><AlbumGrid albums={s.missing} /></Group>}
           {maintenance && s.skipped.length > 0 && <Group label={`Skipped · ${s.skipped.length}`}>
             <AlbumGrid albums={s.skipped} onReopen={p.onReopen} reopening={p.reopening} />

@@ -206,7 +206,7 @@ export function ReviewPanel() {
   if (!items.length) {
     return (
       <div className={styles.emptyState}>
-        Queue is empty — nothing needs your judgment right now.
+        Nothing to review
       </div>
     );
   }
@@ -305,7 +305,7 @@ export function ReviewPanel() {
             </>
           ) : (
             <p className={styles.noCandidates}>
-              No edition matched this album. Paste one if you know it, keep the files as they are, or ignore the album.
+              No edition matched
             </p>
           )}
         </section>
@@ -429,7 +429,7 @@ function AddEdition({ albumId, inputRef, onAdded }: {
       }
       if (!alive.current) return;
       if (!result) {
-        setError('Still waiting for MusicBrainz or Discogs. The edition appears here once the lookup finishes.');
+        setError('Still waiting for MusicBrainz or Discogs.');
       } else if (!result.ok) {
         setError(result.message);
       } else {
@@ -447,7 +447,7 @@ function AddEdition({ albumId, inputRef, onAdded }: {
   return (
     <form className={styles.add} onSubmit={(e) => void submit(e)} noValidate>
       <label htmlFor={`paste-${albumId}`} className={styles.addLabel}>
-        Not listed? Paste a MusicBrainz or Discogs link, or a release ID
+        Paste a release link or ID
       </label>
       <div className={styles.addRow}>
         <Input

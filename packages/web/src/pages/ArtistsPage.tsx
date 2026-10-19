@@ -167,14 +167,13 @@ export function ArtistsPage() {
         </nav>
       </div>
 
-      {isLoading && <div className={styles.status} role="status">Loading artists…</div>}
+      {isLoading && <div className={styles.status} role="status">Loading…</div>}
       {error && <div className={styles.error} role="alert">Couldn’t load artists. <Button variant="secondary" size="sm" onClick={() => void refetch()}>Try again</Button></div>}
       {showEmpty && <EmptyState
-        title={search || group ? 'No matching artists' : 'No artists in your library yet'}
-        text={search || group ? 'Try another name or letter, or clear the search.' : 'Scan a music folder to build your artist library.'}
+        title={search || group ? 'No matching artists' : 'No artists yet'}
       />}
       {showEmpty && (search || group) && <p className={styles.clear}>
-        <Button variant="secondary" size="sm" onClick={() => { setQ(''); setSearch(''); setGroup(null); }}>Show all artists</Button>
+        <Button variant="secondary" size="sm" onClick={() => { setQ(''); setSearch(''); setGroup(null); }}>Show all</Button>
       </p>}
 
       {view === 'list' && items.length > 0 && <div className={styles.listHead} aria-hidden="true">
@@ -229,7 +228,7 @@ export function ArtistsPage() {
             })}
           </div>
         )}
-        {isFetchingNextPage && <div className={styles.more} role="status">Loading more artists…</div>}
+        {isFetchingNextPage && <div className={styles.more} role="status">Loading more…</div>}
       </div>
     </PageShell>
   );
