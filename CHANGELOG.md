@@ -2,6 +2,54 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
+## [v0.10.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.10.0)
+
+**Minor release (0.9 → 0.10).** A new album page with Shuffle and a ⋮ drawer, far less text on every page, scrobbling that catches up when you connect, cleaner player removal, and Music Connections (off until you turn it on).
+
+### Before you update
+
+**Requires attention:** check free disk space before you start, and delete old before-update backups once afterwards.
+
+- **Free disk for the cover change.** Migration 0046 moves cover thumbnails into their own table and needs about 3× their size free on the database disk while it runs (about 0.9 GB on a 27,000-album library). The update refuses to start if there isn't enough; `TAGAVE_SKIP_MIGRATION_SPACE_CHECK=1` skips the check. ([b2bd335](https://github.com/xooxoxxo/tagave/commit/b2bd335), [a1db9e7](https://github.com/xooxoxxo/tagave/commit/a1db9e7))
+- **A short pause during the update.** Migration 0048 adds a change log to seven tables; expect seconds to about a minute on a large library. ([74f05cf](https://github.com/xooxoxxo/tagave/commit/74f05cf))
+- **Old before-update backups.** Backups the 0.9 updater made show under *Manual* on Settings › Backups and are never deleted automatically. Delete them once by hand.
+- **Your own backup scripts:** if you run `pg_dump` yourself, add `--exclude-table-data=public.cover_thumbs` (and `public.provider_cache` for routine dumps).
+- **Music Connections is off by default.** Turn it on in Settings › Modules. If you later rotate `APP_SECRET`, every link goes back to *Needs re-approval*. ([b441a56](https://github.com/xooxoxxo/tagave/commit/b441a56))
+- **Going back to 0.9 means a restore.** This update changes the database (migrations 0046–0050). The updater takes a backup first and restores it on its own if the update fails; to return later, follow [Going back](https://github.com/xooxoxxo/tagave/blob/v0.10.0/docs/operations.md).
+
+### New
+
+- **Album page.** Centred cover, genre and year, title, artist, one facts line and a short excerpt with *More*. Shuffle and Play below; the tracks follow straight after. ⋮ in the header opens a drawer on phones (a menu on desktop) with the album's actions, *Album info* (About, Reviews) and the Maintenance switch, which replaces the wrench. ([15e979c](https://github.com/xooxoxxo/tagave/commit/15e979c), [7a79782](https://github.com/xooxoxxo/tagave/commit/7a79782), [5a05e41](https://github.com/xooxoxxo/tagave/commit/5a05e41))
+- **Shuffle.** Plays the album in a random order; shuffled plays count as listens like any other. ([eab8d5f](https://github.com/xooxoxxo/tagave/commit/eab8d5f))
+- **Scrobbling catches up.** Connecting Last.fm or ListenBrainz sends your plays from the last 14 days. Settings › Listening shows when each service last received a play. ([91e68a8](https://github.com/xooxoxxo/tagave/commit/91e68a8), [3e49928](https://github.com/xooxoxxo/tagave/commit/3e49928))
+- **Music Connections** (module, off by default). Link tagave to another app you run, such as a critic-review aggregator: see critic scores on albums, accept or dismiss wantlist suggestions, and fill missing MusicBrainz identities. Links are approved in the browser, scoped and revocable; nothing in your library is overwritten. ([052e0b9](https://github.com/xooxoxxo/tagave/commit/052e0b9), [5cdf932](https://github.com/xooxoxxo/tagave/commit/5cdf932), [62204a2](https://github.com/xooxoxxo/tagave/commit/62204a2))
+- **Update progress.** Settings › Updates shows what each step is doing and says why a step stalled. ([746236e](https://github.com/xooxoxxo/tagave/commit/746236e), [734c9e5](https://github.com/xooxoxxo/tagave/commit/734c9e5))
+
+### Improved
+
+- **Less text everywhere.** About half the words are gone: pages show labels and values, explanations moved to the docs, dates are short ("19 Oct, 22:21"), passing health checks fold into one "OK" line, and the Discogs notice shows only where Discogs is used. ([ff53bfa](https://github.com/xooxoxxo/tagave/commit/ff53bfa), [51285a1](https://github.com/xooxoxxo/tagave/commit/51285a1))
+- **Scrobbling settings.** A saved Last.fm key shows as one line with Replace and Remove; your own connection is right below it. ([4105de2](https://github.com/xooxoxxo/tagave/commit/4105de2))
+- **Removing the player.** *Delete its data* now also removes the player's rows in tagave and the connected Last.fm and ListenBrainz accounts. Your listens stay unless you tick *Also delete the listens the player recorded*. A server of your own in Settings › Playback keeps its data. ([1e71295](https://github.com/xooxoxxo/tagave/commit/1e71295), [254bf10](https://github.com/xooxoxxo/tagave/commit/254bf10))
+- **Smaller backups, one per update.** Cover thumbnails and the provider cache are left out of backups and rebuilt after a restore; an update takes one database backup instead of two. ([53b5253](https://github.com/xooxoxxo/tagave/commit/53b5253), [ed69ead](https://github.com/xooxoxxo/tagave/commit/ed69ead))
+- **Faster covers.** Thumbnails are served with an ETag and rebuilt in the background when missing. ([57956dd](https://github.com/xooxoxxo/tagave/commit/57956dd), [6b577bc](https://github.com/xooxoxxo/tagave/commit/6b577bc))
+
+### Fixed
+
+- With the player off, plays waiting to be reported were marked as never to report. ([bb86cd4](https://github.com/xooxoxxo/tagave/commit/bb86cd4))
+- Enough requests from different addresses could reset the limits on Settings › Users and invite links. ([e84053c](https://github.com/xooxoxxo/tagave/commit/e84053c))
+- The app can no longer be shown inside another site's frame. ([a0a392d](https://github.com/xooxoxxo/tagave/commit/a0a392d))
+- An interrupted update now points at the backup the app took. ([5e19dad](https://github.com/xooxoxxo/tagave/commit/5e19dad))
+
+### For self-hosters
+
+- **Migrations:** 0046 cover thumbs, 0047–0050 Music Connections (OAuth, change log, links, landing).
+- **New settings:** `MC_TRUSTED_PUBLIC_HOSTS` (`.env.example`), `TAGAVE_UPDATER_STALL_SECONDS` (default 120, `compose.yml`).
+- **Before-update backups:** existing installs keep 5, new installs 3; the minimum is now 1. ([3718702](https://github.com/xooxoxxo/tagave/commit/3718702))
+- **Installer:** `disable-module player` asks whether to delete play history (`--delete-history`). ([88250fa](https://github.com/xooxoxxo/tagave/commit/88250fa))
+- **Releases:** notes like these are now written per release in `release-notes/`, and CI refuses a release without them. ([a9dbd9e](https://github.com/xooxoxxo/tagave/commit/a9dbd9e))
+
+**All changes:** [v0.9.0...v0.10.0](https://github.com/xooxoxxo/tagave/compare/v0.9.0...v0.10.0)
+
 ## [v0.9.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.9.0) (2026-10-16)
 
 **Minor release (0.8 → 0.9).** tagave now has several people with their own roles, playback and scrobbling; optional parts install from Settings › Modules; every release is signed. Liner is now called tagave everywhere.
