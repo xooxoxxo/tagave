@@ -175,9 +175,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     return out;
   }
 
+  /**
+   * Every row of every player table in a total order: by the whole row, not
+   * its first columns. Rows that tie on those (one person's counts for
+   * several songs on one server) came back in whatever order the heap gave,
+   * which a delete of other rows can change.
+   */
   async function playerRows(): Promise<Record<string, unknown[]>> {
     const out: Record<string, unknown[]> = {};
-    for (const table of PLAYER_TABLES) out[table] = await sql.unsafe(`select * from "${table}" order by 1, 2`);
+    for (const table of PLAYER_TABLES) out[table] = await sql.unsafe(`select t.* from "${table}" t order by t::text`);
     return out;
   }
 
