@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { SettingsModulesView } from '../pages/SettingsModulesPage';
+import { SettingsModulesView, TurnOffChoices, type TurnOffChoice } from '../pages/SettingsModulesPage';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { BASE_VIEW, DUMMY, PLAYER, playerRun } from './modulesFixtures';
 
 const meta = {
@@ -36,3 +37,20 @@ export const NotSigned: Story = {
   args: { view: { ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature: it was changed after tagave signed it (key 3f0c9a1e5b7d2c44)', modules: [] } },
 };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: turning };
+
+/** The Turn off dialog of the player: the boxes as given (they still tick in the story). */
+function TurnOffDialog({ initial }: { initial?: TurnOffChoice }) {
+  const m = { ...PLAYER, state: 'on' as const };
+  return (
+    <ConfirmDialog
+      title={`Turn off ${m.name}?`}
+      message={<TurnOffChoices m={m} onChange={() => undefined} {...(initial ? { initial } : {})} />}
+      confirmLabel="Turn off"
+      tone="danger"
+      onResult={() => undefined}
+    />
+  );
+}
+export const TurnOffDialogKeep: Story = { render: () => <TurnOffDialog /> };
+export const TurnOffDialogData: Story = { render: () => <TurnOffDialog initial={{ deleteData: true, deleteHistory: false }} /> };
+export const TurnOffDialogHistory: Story = { render: () => <TurnOffDialog initial={{ deleteData: true, deleteHistory: true }} /> };
