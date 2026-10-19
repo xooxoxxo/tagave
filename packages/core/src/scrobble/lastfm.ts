@@ -128,6 +128,51 @@ export async function lastfmScrobble(app: LastfmApp, sessionKey: string, track: 
   return { kind: 'sent' };
 }
 
+/** Last.fm takes up to 50 scrobbles in one track.scrobble call. */
+export const LASTFM_BATCH_MAX = 50;
+
+/** A play to scrobble: the track and when it started. */
+export interface TimedTrack {
+  track: ScrobbleTrack;
+  startedAt: Date;
+}
+
+type IgnoredMessage = { code?: string | number; '#text'?: string };
+
+/**
+ * Up to 50 scrobbles in one signed call (artist[0], track[0], timestamp[0],
+ * …), so a backlog is one request, not fifty. One outcome per item, in the
+ * same order: a problem with the call (offline, rate limit, a session that
+ * no longer works) applies to all of them; Last.fm ignoring one item (too
+ * old, a filtered artist) applies to that item only.
+ */
+export async function lastfmScrobbleBatch(app: LastfmApp, sessionKey: string, items: TimedTrack[], opts: Opts = {}): Promise<SendOutcome[]> {
+  if (items.length === 0) return [];
+  if (items.length > LASTFM_BATCH_MAX) throw new RangeError(`Last.fm takes at most ${LASTFM_BATCH_MAX} scrobbles per call`);
+  if (items.length === 1) return [await lastfmScrobble(app, sessionKey, items[0]!.track, items[0]!.startedAt, opts)];
+  const params: Record<string, string> = { method: 'track.scrobble', sk: sessionKey };
+  items.forEach((it, i) => {
+    const one = { timestamp: String(Math.floor(it.startedAt.getTime() / 1000)), ...trackParams(it.track) };
+    for (const [k, v] of Object.entries(one)) params[`${k}[${i}]`] = v;
+  });
+  let answer: { status: number; body: LastfmAnswer | null };
+  try {
+    answer = await call(app, params, opts);
+  } catch (err) {
+    const reason = `Last.fm could not be reached (${(err as Error).message})`;
+    return items.map(() => ({ kind: 'retry', reason }));
+  }
+  const bad = outcomeOf(answer.status, answer.body);
+  if (bad) return items.map(() => bad);
+  const s = answer.body?.scrobbles?.scrobble;
+  const each: Array<{ ignoredMessage?: IgnoredMessage }> = Array.isArray(s) ? s : s ? [s] : [];
+  return items.map((_, i): SendOutcome => {
+    const msg = each[i]?.ignoredMessage;
+    if (msg?.code != null && String(msg.code) !== '0') return { kind: 'ignored', reason: msg['#text'] || `Last.fm ignored it (code ${msg.code})` };
+    return { kind: 'sent' };
+  });
+}
+
 export async function lastfmNowPlaying(app: LastfmApp, sessionKey: string, track: ScrobbleTrack, opts: Opts = {}): Promise<SendOutcome> {
   try {
     const answer = await call(app, { method: 'track.updateNowPlaying', sk: sessionKey, ...trackParams(track) }, opts);

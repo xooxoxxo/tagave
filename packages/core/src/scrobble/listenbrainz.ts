@@ -63,6 +63,24 @@ export function listenbrainzScrobble(token: string, track: ScrobbleTrack, starte
   return submit(token, { listen_type: 'single', payload: [{ listened_at: Math.floor(startedAt.getTime() / 1000), track_metadata: metadata(track) }] }, opts);
 }
 
+/** Listens per submit-listens call; ListenBrainz takes up to 1000. */
+export const LISTENBRAINZ_BATCH_MAX = 100;
+
+/**
+ * Several listens in one call (listen_type "import"; one listen goes as
+ * "single"). One outcome for all of them: ListenBrainz takes or refuses the
+ * whole request.
+ */
+export function listenbrainzScrobbleBatch(token: string, items: Array<{ track: ScrobbleTrack; startedAt: Date }>, opts: Opts = {}): Promise<SendOutcome> {
+  if (items.length === 0) return Promise.resolve({ kind: 'sent' });
+  if (items.length > LISTENBRAINZ_BATCH_MAX) throw new RangeError(`At most ${LISTENBRAINZ_BATCH_MAX} listens per call`);
+  if (items.length === 1) return listenbrainzScrobble(token, items[0]!.track, items[0]!.startedAt, opts);
+  return submit(token, {
+    listen_type: 'import',
+    payload: items.map((it) => ({ listened_at: Math.floor(it.startedAt.getTime() / 1000), track_metadata: metadata(it.track) })),
+  }, opts);
+}
+
 export function listenbrainzNowPlaying(token: string, track: ScrobbleTrack, opts: Opts = {}): Promise<SendOutcome> {
   return submit(token, { listen_type: 'playing_now', payload: [{ track_metadata: metadata(track) }] }, opts);
 }

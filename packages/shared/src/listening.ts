@@ -109,6 +109,13 @@ export const connectListenbrainzSchema = z.object({
   token: z.string().trim().min(8, 'Paste the whole token').max(200),
 }).strict();
 
+/** POST /api/v1/me/listening/listenbrainz: the services, and how many recent plays were queued for it */
+export interface ConnectListenbrainzView {
+  services: ScrobbleAccountView[];
+  /** plays from the last 14 days that will be sent now */
+  queued: number;
+}
+
 /** PUT /api/v1/me/listening/phone-password (bundled player) */
 export const phonePasswordSchema = z.object({
   password: z.string().min(12, 'Use at least 12 characters').max(256),

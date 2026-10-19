@@ -8,9 +8,10 @@
  *   GET    /api/v1/me/listening                            the person's player account and scrobbling connections
  *   GET    /api/v1/me/listening/history                    their recent plays and album listens
  *   POST   /api/v1/me/listening/lastfm/start               where to send the browser to allow tagave on Last.fm
- *   GET    /api/v1/me/listening/lastfm/callback            Last.fm sends the browser back here (?token=…)
+ *   GET    /api/v1/me/listening/lastfm/callback            Last.fm sends the browser back here (?token=…);
+ *                                                           connecting queues the last 14 days' plays (&queued=n)
  *   DELETE /api/v1/me/listening/lastfm                     disconnect
- *   POST   /api/v1/me/listening/listenbrainz               connect with a pasted token (checked first)
+ *   POST   /api/v1/me/listening/listenbrainz               connect with a pasted token (checked first); { services, queued }
  *   DELETE /api/v1/me/listening/listenbrainz               disconnect
  *   PUT    /api/v1/me/listening/phone-password             bundled player: a password for phone apps
  *   DELETE /api/v1/me/listening/phone-password             back to a random one
@@ -182,7 +183,7 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
 
   // The browser comes back from Last.fm: a page load, so it answers with a redirect to Settings.
   fastify.get('/me/listening/lastfm/callback', permission('self'), async (request: FastifyRequest, reply: FastifyReply) => {
-    const back = (result: string) => reply.redirect(`/settings/listening?lastfm=${result}`, 303);
+    const back = (result: string, queued?: number) => reply.redirect(`/settings/listening?lastfm=${result}${queued ? `&queued=${queued}` : ''}`, 303);
     const user = request.user;
     if (!user) return reply.redirect('/login', 303);
     const { state, token } = request.query as { state?: string; token?: string };
@@ -191,14 +192,15 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     const sql = getSql();
     const app = await installLastfmApp(sql);
     if (!app) return back('unavailable');
+    let queued: number;
     try {
       const session = await lastfmSession(app, token);
-      await connectAccount(sql, user.id, 'lastfm', session.name, session.key);
+      queued = await connectAccount(sql, user.id, 'lastfm', session.name, session.key);
     } catch (err) {
       request.log.warn({ err: (err as Error).message }, 'Last.fm connect');
       return back('failed');
     }
-    return back('connected');
+    return back('connected', queued);
   });
 
   fastify.post('/me/listening/listenbrainz', permission('player.use'), async (request: FastifyRequest) => {
@@ -213,8 +215,8 @@ export async function createPlayerListeningRoutes(fastify: FastifyInstance) {
     }
     if (!name) throw new ApiError(400, 'Bad Request', 'ListenBrainz does not accept this token. Copy it again from listenbrainz.org › Settings.');
     const sql = getSql();
-    await connectAccount(sql, user.id, 'listenbrainz', name, token);
-    return { services: await accountViews(sql, user.id) };
+    const queued = await connectAccount(sql, user.id, 'listenbrainz', name, token);
+    return { services: await accountViews(sql, user.id), queued };
   });
 
   fastify.delete('/me/listening/:service', permission('player.use'), async (request: FastifyRequest) => {

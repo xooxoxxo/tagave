@@ -219,7 +219,10 @@ export function fakeNavidrome(adminPassword: string) {
 /** A Last.fm that checks signatures and records what it was sent. */
 export function fakeLastfm(apiKey: string, secret: string) {
   const state = {
+    /** one entry per scrobble, a batch split into its items */
     scrobbles: [] as Array<Record<string, string>>,
+    /** one entry per track.scrobble request */
+    calls: [] as Array<Record<string, string>>,
     nowPlaying: [] as Array<Record<string, string>>,
     sessions: new Map<string, string>([['good-token', 'sk-anna']]),
     /** answer the next n scrobbles with error 11 (service offline) */
@@ -241,8 +244,23 @@ export function fakeLastfm(apiKey: string, secret: string) {
           return key ? send({ session: { name: 'anna-fm', key, subscriber: 0 } }) : send({ error: 4, message: 'Invalid authentication token' });
         }
         case 'track.scrobble':
+          state.calls.push(p);
           if (state.failNext > 0) { state.failNext--; return send({ error: 11, message: 'Service Offline' }); }
           if (p['sk'] !== 'sk-anna' && !p['sk']?.startsWith('sk-')) return send({ error: 9, message: 'Invalid session key' });
+          if (p['artist[0]'] !== undefined) {
+            // a batch: artist[0], track[0], timestamp[0], … up to 49
+            const items: Array<Record<string, string>> = [];
+            for (let i = 0; p[`artist[${i}]`] !== undefined; i++) {
+              const one: Record<string, string> = { sk: p['sk'] ?? '' };
+              for (const [k, v] of Object.entries(p)) {
+                const m = /^(\w+)\[(\d+)\]$/.exec(k);
+                if (m && Number(m[2]) === i) one[m[1]!] = v;
+              }
+              items.push(one);
+            }
+            state.scrobbles.push(...items);
+            return send({ scrobbles: { '@attr': { accepted: items.length, ignored: 0 }, scrobble: items.map(() => ({ ignoredMessage: { code: '0', '#text': '' } })) } });
+          }
           state.scrobbles.push(p);
           return send({ scrobbles: { '@attr': { accepted: 1, ignored: 0 }, scrobble: { ignoredMessage: { code: '0', '#text': '' } } } });
         case 'track.updateNowPlaying':

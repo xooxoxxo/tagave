@@ -25,15 +25,17 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type postgres from 'postgres';
 import { computeHint, openSecret, sealSecret } from '@tagave/core';
 import {
+  LASTFM_BATCH_MAX,
   MAX_SCROBBLE_AGE_MS,
   lastfmNowPlaying,
-  lastfmScrobble,
+  lastfmScrobbleBatch,
   listenbrainzNowPlaying,
-  listenbrainzScrobble,
+  listenbrainzScrobbleBatch,
   retryDelayMs,
   type LastfmApp,
   type ScrobbleTrack,
   type SendOutcome,
+  type TimedTrack,
 } from '@tagave/core/scrobble';
 import type { ScrobbleAccountView, ScrobbleService, ScrobblingSettingsView } from '@tagave/shared';
 import { appSecret } from './playerPeople.js';
@@ -177,7 +179,11 @@ export async function accountViews(sql: Sql, userId: string): Promise<ScrobbleAc
   });
 }
 
-export async function connectAccount(sql: Sql, userId: string, service: ScrobbleService, accountName: string, secret: string): Promise<void> {
+/**
+ * Connects (or reconnects) a person's account and queues their recent plays
+ * that never went to this service. Returns how many were queued.
+ */
+export async function connectAccount(sql: Sql, userId: string, service: ScrobbleService, accountName: string, secret: string, now = Date.now()): Promise<number> {
   await sql`
     insert into scrobble_accounts (user_id, service, account_name, secret_sealed)
     values (${userId}, ${service}, ${accountName}, ${sealSecret(secret, appSecret())})
@@ -187,6 +193,34 @@ export async function connectAccount(sql: Sql, userId: string, service: Scrobble
   await sql`
     update player_scrobbles s set next_attempt_at = now()
     from player_plays p where p.id = s.play_id and p.user_id = ${userId} and s.service = ${service} and s.status = 'pending'`;
+  return backfillScrobbles(sql, userId, service, now);
+}
+
+/**
+ * Plays from before the person connected: queued once, on connect. Last.fm
+ * drops scrobbles older than 14 days, so the window is 14 days for both
+ * services (ListenBrainz would take older ones; one rule is simpler).
+ *
+ * A play is queued when it is the person's own, counted as a scrobble
+ * (player_plays.scrobbles: the 30-second / half-or-four-minutes rule, the
+ * same flag that queues a new play), started within the last 14 days, has
+ * an artist and a title (the sender fails a play without them), and has no
+ * row for this service yet: a play that was already sent, ignored, or
+ * dropped by an earlier disconnect is not queued again. Nothing is queued
+ * while the person's own server scrobbles for them.
+ */
+export async function backfillScrobbles(sql: Sql, userId: string, service: ScrobbleService, now = Date.now()): Promise<number> {
+  const since = new Date(now - MAX_SCROBBLE_AGE_MS).toISOString();
+  const rows = await sql<{ play_id: string }[]>`
+    insert into player_scrobbles (play_id, service)
+    select p.id, ${service} from player_plays p
+    where p.user_id = ${userId} and p.scrobbles and p.started_at > ${since}
+      and p.artist is not null and p.artist <> '' and p.title <> ''
+      and not exists (select 1 from player_users u where u.user_id = p.user_id and u.state = 'active' and u.server_scrobbles)
+    order by p.started_at
+    on conflict (play_id, service) do nothing
+    returning play_id`;
+  return rows.length;
 }
 
 /** Disconnecting drops what was still waiting for that service: it is not sent later. */
@@ -291,7 +325,26 @@ async function settle(sql: Sql, row: DueRow, outcome: SendOutcome, now: Date): P
   }
 }
 
-/** Sends what is due. Returns how many were sent. */
+/** One request's worth: the same person, service and (Last.fm) application. */
+interface SendGroup {
+  service: ScrobbleService;
+  userId: string;
+  libraryId: string | null;
+  secret: string;
+  rows: Array<{ row: DueRow; track: ScrobbleTrack }>;
+}
+
+/**
+ * Sends what is due. Returns how many were sent.
+ *
+ * A backlog (a person who just connected, a service back after an outage)
+ * goes out batched: the claimed rows are grouped per person and service,
+ * Last.fm takes up to 50 scrobbles per call and ListenBrainz a list of
+ * listens, so one tick is at most one request per person and service. When
+ * a call fails in a way that applies to the account (offline, rate limit, a
+ * session that no longer works), the rest of that group is not tried this
+ * tick: it waits with the same outcome.
+ */
 export async function sendDueScrobbles(deps: ScrobbleDeps, limit = 50): Promise<{ sent: number; other: number }> {
   const { sql } = deps;
   const env = deps.env ?? process.env;
@@ -299,34 +352,69 @@ export async function sendDueScrobbles(deps: ScrobbleDeps, limit = 50): Promise<
   const rows = await claim(sql, limit, now);
   let sent = 0;
   let other = 0;
-  const apps = new Map<string, LastfmApp | null>();
-  for (const row of rows) {
-    let outcome: SendOutcome;
-    const track = scrobbleTrackOf(row);
-    const account = (await sql<{ secret_sealed: string }[]>`
-      select secret_sealed from scrobble_accounts where user_id = ${row.user_id} and service = ${row.service}`)[0];
-    if (!track) outcome = { kind: 'failed', reason: 'The track has no artist or title' };
-    else if (!account) outcome = { kind: 'failed', reason: 'Disconnected before it was sent' };
-    else if (now.getTime() - new Date(row.started_at).getTime() > MAX_SCROBBLE_AGE_MS) outcome = { kind: 'ignored', reason: 'Older than 14 days' };
-    else {
-      let secret: string;
-      try { secret = openSecret(account.secret_sealed, appSecret()); } catch { secret = ''; }
-      if (!secret) outcome = { kind: 'auth', reason: 'The saved connection cannot be opened (APP_SECRET changed?); connect again' };
-      else if (row.service === 'lastfm') {
-        const key = row.library_id ?? '';
-        if (!apps.has(key)) apps.set(key, await installLastfmApp(sql, env, row.library_id));
-        const app = apps.get(key)!;
-        outcome = app ? await lastfmScrobble(app, secret, track, new Date(row.started_at), deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}) : { kind: 'retry', reason: 'The Last.fm API key is not set (Settings › Playback › Scrobbling)' };
-      } else {
-        const apiUrl = listenbrainzUrl(env);
-        outcome = await listenbrainzScrobble(secret, track, new Date(row.started_at), { ...(deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}), ...(apiUrl ? { apiUrl } : {}) });
-      }
-    }
+  const done = async (row: DueRow, outcome: SendOutcome) => {
     await settle(sql, row, outcome, now);
     if (outcome.kind === 'sent') sent++;
     else {
       other++;
       deps.log?.warn({ playId: row.play_id, service: row.service, outcome: outcome.kind, reason: outcome.reason }, 'scrobble not sent');
+    }
+  };
+
+  const secrets = new Map<string, string | null>();
+  const groups = new Map<string, SendGroup>();
+  for (const row of rows) {
+    const track = scrobbleTrackOf(row);
+    const who = `${row.user_id}|${row.service}`;
+    if (!secrets.has(who)) {
+      const account = (await sql<{ secret_sealed: string }[]>`
+        select secret_sealed from scrobble_accounts where user_id = ${row.user_id} and service = ${row.service}`)[0];
+      let secret: string | null = null;
+      if (account) { try { secret = openSecret(account.secret_sealed, appSecret()); } catch { secret = ''; } }
+      secrets.set(who, secret);
+    }
+    const secret = secrets.get(who);
+    if (!track) await done(row, { kind: 'failed', reason: 'The track has no artist or title' });
+    else if (secret == null) await done(row, { kind: 'failed', reason: 'Disconnected before it was sent' });
+    else if (now.getTime() - new Date(row.started_at).getTime() > MAX_SCROBBLE_AGE_MS) await done(row, { kind: 'ignored', reason: 'Older than 14 days' });
+    else if (!secret) await done(row, { kind: 'auth', reason: 'The saved connection cannot be opened (APP_SECRET changed?); connect again' });
+    else {
+      // Last.fm signs with the library's application; ListenBrainz needs none
+      const key = `${who}|${row.service === 'lastfm' ? row.library_id ?? '' : ''}`;
+      const g = groups.get(key) ?? { service: row.service, userId: row.user_id, libraryId: row.library_id, secret, rows: [] };
+      g.rows.push({ row, track });
+      groups.set(key, g);
+    }
+  }
+
+  const apps = new Map<string, LastfmApp | null>();
+  const f = deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {};
+  for (const g of groups.values()) {
+    g.rows.sort((a, b) => new Date(a.row.started_at).getTime() - new Date(b.row.started_at).getTime());
+    let stop: SendOutcome | null = null;
+    for (let i = 0; i < g.rows.length; i += LASTFM_BATCH_MAX) {
+      const chunk = g.rows.slice(i, i + LASTFM_BATCH_MAX);
+      let outcomes: SendOutcome[];
+      if (stop) {
+        const same: SendOutcome = stop;
+        outcomes = chunk.map(() => same);
+      } else {
+        const items: TimedTrack[] = chunk.map((c) => ({ track: c.track, startedAt: new Date(c.row.started_at) }));
+        if (g.service === 'lastfm') {
+          const appKey = g.libraryId ?? '';
+          if (!apps.has(appKey)) apps.set(appKey, await installLastfmApp(sql, env, g.libraryId));
+          const app = apps.get(appKey);
+          outcomes = app
+            ? await lastfmScrobbleBatch(app, g.secret, items, f)
+            : chunk.map((): SendOutcome => ({ kind: 'retry', reason: 'The Last.fm API key is not set (Settings › Playback › Scrobbling)' }));
+        } else {
+          const apiUrl = listenbrainzUrl(env);
+          const one = await listenbrainzScrobbleBatch(g.secret, items, { ...f, ...(apiUrl ? { apiUrl } : {}) });
+          outcomes = chunk.map(() => one);
+        }
+        stop = outcomes.find((o) => o.kind === 'retry' || o.kind === 'auth') ?? null;
+      }
+      for (let k = 0; k < chunk.length; k++) await done(chunk[k]!.row, outcomes[k]!);
     }
   }
   return { sent, other };

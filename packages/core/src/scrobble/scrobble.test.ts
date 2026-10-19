@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createHash } from 'node:crypto';
 import { heardEnough, retryDelayMs, scrobbleWorthy } from './rules.js';
-import { lastfmAuthorizeUrl, lastfmScrobble, lastfmSignature } from './lastfm.js';
-import { listenbrainzScrobble } from './listenbrainz.js';
+import { lastfmAuthorizeUrl, lastfmScrobble, lastfmScrobbleBatch, lastfmSignature } from './lastfm.js';
+import { listenbrainzScrobble, listenbrainzScrobbleBatch } from './listenbrainz.js';
 import { freePlayerUserName, playerUserName } from '../player/navidrome.js';
 
 describe('when a play counts', () => {
@@ -42,6 +42,37 @@ describe('Last.fm', () => {
     expect((await lastfmScrobble(app, 'sk', track, new Date(), { fetchImpl: answer({ error: 11, message: 'Offline' }) })).kind).toBe('retry');
     expect(await lastfmScrobble(app, 'sk', track, new Date(), { fetchImpl: answer({ scrobbles: { '@attr': { accepted: 0, ignored: 1 }, scrobble: { ignoredMessage: { code: '3', '#text': 'Timestamp too old' } } } }) })).toEqual({ kind: 'ignored', reason: 'Timestamp too old' });
     expect((await lastfmScrobble(app, 'sk', track, new Date(), { fetchImpl: answer({ scrobbles: { '@attr': { accepted: 1, ignored: 0 } } }) })).kind).toBe('sent');
+  });
+});
+
+describe('batches', () => {
+  const track = (t: string) => ({ artist: 'A', track: t, album: null, albumArtist: null, trackNumber: null, durationMs: 200_000, recordingMbid: null, releaseMbid: null });
+  const items = [track('One'), track('Two'), track('Three')].map((t, i) => ({ track: t, startedAt: new Date((1000 + i) * 1000) }));
+  it('sends Last.fm scrobbles as one indexed call, with an outcome per item', async () => {
+    let form: URLSearchParams | null = null;
+    const fetchImpl = (async (_u: string, init: RequestInit) => {
+      form = new URLSearchParams(String(init.body));
+      return new Response(JSON.stringify({ scrobbles: { '@attr': { accepted: 2, ignored: 1 }, scrobble: [
+        { ignoredMessage: { code: '0', '#text': '' } }, { ignoredMessage: { code: '3', '#text': 'Timestamp too old' } }, { ignoredMessage: { code: '0', '#text': '' } },
+      ] } }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const out = await lastfmScrobbleBatch({ apiKey: 'k', secret: 's', apiUrl: 'http://x/' }, 'sk', items, { fetchImpl });
+    expect(out).toEqual([{ kind: 'sent' }, { kind: 'ignored', reason: 'Timestamp too old' }, { kind: 'sent' }]);
+    expect(form!.get('track[1]')).toBe('Two');
+    expect(form!.get('timestamp[2]')).toBe('1002');
+    expect(form!.get('track')).toBeNull();
+    const busy = (async () => new Response(JSON.stringify({ error: 29, message: 'Rate limit exceeded' }), { status: 200 })) as unknown as typeof fetch;
+    expect(await lastfmScrobbleBatch({ apiKey: 'k', secret: 's', apiUrl: 'http://x/' }, 'sk', items, { fetchImpl: busy })).toEqual(items.map(() => ({ kind: 'retry', reason: 'Rate limit exceeded' })));
+    await expect(lastfmScrobbleBatch({ apiKey: 'k', secret: 's' }, 'sk', Array.from({ length: 51 }, () => items[0]!))).rejects.toThrow(RangeError);
+  });
+  it('sends several ListenBrainz listens as one import', async () => {
+    let body: any = null;
+    const fetchImpl = (async (_u: string, init: RequestInit) => { body = JSON.parse(String(init.body)); return new Response('{"status":"ok"}', { status: 200 }); }) as unknown as typeof fetch;
+    expect(await listenbrainzScrobbleBatch('tok', items, { fetchImpl })).toEqual({ kind: 'sent' });
+    expect(body.listen_type).toBe('import');
+    expect(body.payload.map((p: any) => [p.listened_at, p.track_metadata.track_name])).toEqual([[1000, 'One'], [1001, 'Two'], [1002, 'Three']]);
+    await listenbrainzScrobbleBatch('tok', items.slice(0, 1), { fetchImpl });
+    expect(body.listen_type).toBe('single');
   });
 });
 

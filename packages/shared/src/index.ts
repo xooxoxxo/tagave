@@ -484,4 +484,5 @@ export {
   ownPlayerAccountSchema,
   type OwnPlayerAccount,
   type LastfmStartView,
+  type ConnectListenbrainzView,
 } from './listening.js';

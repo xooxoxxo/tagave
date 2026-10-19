@@ -133,6 +133,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
 
   const event = (user: string, kind: string, track: string, playedMs: number, queueId = randomUUID()) =>
     app.inject({ method: 'POST', url: '/api/v1/player/events', headers: as(user), payload: { kind, localTrackId: track, queueId, playedMs, positionMs: playedMs } });
+  /** every listen sent to ListenBrainz as a scrobble (one at a time, or several in one import) */
+  const lbScrobbles = () => lb.state.listens
+    .filter((l) => l.body.listen_type !== 'playing_now')
+    .flatMap((l) => l.body.payload.map((listen) => ({ user: l.user, listen: listen as any })));
   const playsOf = (user: string) => sql`select * from player_plays where user_id = ${user} order by started_at, created_at`;
 
   it('makes one Navidrome account per person, with a sealed random password, and keeps them in step', async () => {
@@ -262,14 +266,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     expect(lfm.state.scrobbles.map((s) => [s['track'], s['artist'], s['album'], s['sk']])).toEqual([
       ['First', 'The Band', 'People Album', 'sk-anna'], ['Second', 'The Band', 'People Album', 'sk-anna'],
     ]);
-    const lbSingles = lb.state.listens.filter((l) => l.body.listen_type === 'single');
-    expect(lbSingles.map((l) => [l.user, (l.body.payload[0] as any).track_metadata.track_name])).toEqual([['anna-lb', 'First'], ['anna-lb', 'Second']]);
-    expect((lbSingles[0]!.body.payload[0] as any).track_metadata.additional_info.release_mbid).toBe(releaseMbid);
+    const lbSent = lbScrobbles();
+    expect(lbSent.map((l) => [l.user, l.listen.track_metadata.track_name])).toEqual([['anna-lb', 'First'], ['anna-lb', 'Second']]);
+    expect(lbSent[0]!.listen.track_metadata.additional_info.release_mbid).toBe(releaseMbid);
     // again: nothing new
     await lib.runPlayerFastSync(opts());
     await scrob.sendDueScrobbles({ sql });
     expect(lfm.state.scrobbles).toHaveLength(2);
-    expect(lb.state.listens.filter((l) => l.body.listen_type === 'single')).toHaveLength(2);
+    expect(lbScrobbles()).toHaveLength(2);
     const statuses = await sql`select s.service, s.status from player_scrobbles s join player_plays p on p.id = s.play_id where p.user_id = ${anna} order by s.service`;
     expect(statuses.map((s: any) => s.status)).toEqual(['sent', 'sent', 'sent', 'sent']);
   });
@@ -294,7 +298,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     expect(await plays.deriveListens(sql, ben)).toBe(1);
     // Ben scrobbles to his ListenBrainz only (he has no Last.fm)
     await scrob.sendDueScrobbles({ sql });
-    expect(lb.state.listens.filter((l) => l.user === 'ben-lb' && l.body.listen_type === 'single')).toHaveLength(3);
+    expect(lbScrobbles().filter((l) => l.user === 'ben-lb')).toHaveLength(3);
     expect(lfm.state.scrobbles).toHaveLength(2);
     // Anna's web plays reported to Navidrome were not seen again as phone plays
     nav.phonePlay('anna-o', 's-3', Date.now());
