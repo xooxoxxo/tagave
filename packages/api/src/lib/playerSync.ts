@@ -108,28 +108,37 @@ export function kickPlayerSync(): void {
   kickTimer.unref?.();
 }
 
+export interface TickClock { lastMinute: number; lastNowPlaying: number }
+
+/**
+ * One round of the loop. With no player server (the module turned off and
+ * no server of the owner's own) it does nothing beyond finding that out:
+ * events, plays, scrobbles and the server's accounts stay as they are until
+ * a player is back, so turning the player off loses only the function. In
+ * particular plays still waiting to be reported are not given up on, and
+ * waiting scrobbles do not go out while the player is off.
+ */
+export async function playerSyncTick(o: SyncOptions, clock: TickClock, now = Date.now()): Promise<'idle' | 'ran'> {
+  const backends = await activeBackends(o.sql);
+  if (backends.length === 0) return 'idle';
+  await runPlayerFastSync(o);
+  if (now - clock.lastNowPlaying >= NOW_PLAYING_MS) { clock.lastNowPlaying = now; await runNowPlayingForward(o); }
+  if (now - clock.lastMinute >= MINUTE_MS) { clock.lastMinute = now; await runPlayerMinuteSync(o); }
+  return 'ran';
+}
+
 /** Starts the loop; returns a stop function. Nothing runs while no player is set up. */
 export function startPlayerPeopleWorker(o: SyncOptions): () => void {
   let running = false;
   let again = false;
-  let lastMinute = 0;
-  let lastNowPlaying = 0;
+  const clock: TickClock = { lastMinute: 0, lastNowPlaying: 0 };
   const tick = async () => {
     if (running) { again = true; return; }
     running = true;
     try {
       do {
         again = false;
-        const backends = await activeBackends(o.sql);
-        if (backends.length === 0) {
-          // events still become plays and listens without a server (nothing to report to)
-          await runPlayerFastSync(o);
-          break;
-        }
-        await runPlayerFastSync(o);
-        const now = Date.now();
-        if (now - lastNowPlaying >= NOW_PLAYING_MS) { lastNowPlaying = now; await runNowPlayingForward(o); }
-        if (now - lastMinute >= MINUTE_MS) { lastMinute = now; await runPlayerMinuteSync(o); }
+        if (await playerSyncTick(o, clock) === 'idle') break;
       } while (again);
     } catch (err) {
       o.log?.warn({ err: (err as Error).message }, 'player background work');
