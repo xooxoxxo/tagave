@@ -72,6 +72,7 @@ export {
   type RetentionPolicy,
 } from './backup.js';
 export { runRestore, type RestoreOptions, type RestoreResult } from './restore.js';
+export { MODULE_DATA, PurgeRefused, describePurge, purgeModuleData, type ModuleData, type PurgeResult } from './modulePurge.js';
 
 export interface DoctorOptions {
   databaseUrl: string;

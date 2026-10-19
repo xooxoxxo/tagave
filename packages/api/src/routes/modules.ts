@@ -4,7 +4,7 @@
  *
  *   GET  /api/v1/modules                  the catalogue, each module's state and the current or last run
  *   POST /api/v1/modules/:id/enable       owner + fresh step-up: turn it on (202)
- *   POST /api/v1/modules/:id/disable      owner + fresh step-up, { deleteData }: turn it off (202)
+ *   POST /api/v1/modules/:id/disable      owner + fresh step-up, { deleteData, deleteHistory }: turn it off (202)
  *
  * With the updater, the updater does the work and checks the release's
  * signature itself; the app brings it the signed manifest of the running
@@ -59,6 +59,7 @@ async function commandView(): Promise<ModulesView> {
         state: m.id === 'player' && playerOn ? 'on' : 'off',
         estimate: m.estimate,
         keepsOnRemoval: m.keepsOnRemoval,
+        appData: m.appData ?? null,
         roles: m.roles,
         downloadBytes: null,
         available: splitReason === null,
@@ -101,14 +102,14 @@ export async function createModuleRoutes(fastify: FastifyInstance) {
       const brought = await bringRelease(base, status.body);
       if (typeof brought === 'string') throw new ApiError(422, RELEASE_REFUSED_TITLE, `${brought}. Nothing was changed.`);
     }
-    const res = await callUpdater<{ run: ModuleRun }>(base, 'POST', `/v1/modules/${id}/${action}`, { deleteData: parsed.data.deleteData === true });
+    const res = await callUpdater<{ run: ModuleRun }>(base, 'POST', `/v1/modules/${id}/${action}`, { deleteData: parsed.data.deleteData === true, deleteHistory: parsed.data.deleteHistory === true });
     if (!res.ok && res.restarting) throw new ApiError(409, UPDATER_RESTARTING_TITLE, res.error);
     if (!res.ok) {
       const map: Record<number, [number, string]> = { 409: [409, 'Conflict'], 404: [404, 'Not Found'], 422: [422, RELEASE_REFUSED_TITLE], 400: [400, 'Bad Request'] };
       const [code, title] = map[res.status] ?? [502, 'Bad Gateway'];
       throw new ApiError(code, title, res.error);
     }
-    request.log.info({ event: `module.${action}`, userId: user.id, module: id, runId: res.body.run.id, deleteData: parsed.data.deleteData === true }, `module ${action} started`);
+    request.log.info({ event: `module.${action}`, userId: user.id, module: id, runId: res.body.run.id, deleteData: parsed.data.deleteData === true, deleteHistory: parsed.data.deleteHistory === true }, `module ${action} started`);
     return reply.status(202).send(res.body);
   });
 }

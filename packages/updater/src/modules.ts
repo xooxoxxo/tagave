@@ -25,7 +25,10 @@
  *   config     its profile out of COMPOSE_PROFILES (and its compose file out
  *              of COMPOSE_FILE), the settings it marks cleared; secrets stay
  *   verify     the services that read its settings restarted and healthy
- *   data       only when the owner ticked it: its volumes deleted
+ *   data       only when the owner ticked it: its rows in tagave's database
+ *              deleted (tagave-doctor purge-module in the app container,
+ *              for a module whose catalogue entry has appData; its history
+ *              in the core only when ticked as well), then its volumes
  *
  * A failure in preflight ends the run as `failed`: nothing changed. A
  * failure later rolls back: its containers removed (Turn on) or started
@@ -108,7 +111,7 @@ function tail(text: string, lines = 6): string {
   return text.trim().split('\n').slice(-lines).join(' | ');
 }
 
-export function newModuleRun(id: string, entry: ModuleEntry, action: 'enable' | 'disable', version: string, deleteData: boolean, now: Date): ModuleRun {
+export function newModuleRun(id: string, entry: ModuleEntry, action: 'enable' | 'disable', version: string, deleteData: boolean, now: Date, deleteHistory = false): ModuleRun {
   const labels = MODULE_STEP_LABELS[action];
   return {
     id,
@@ -117,6 +120,7 @@ export function newModuleRun(id: string, entry: ModuleEntry, action: 'enable' | 
     moduleName: entry.name,
     action,
     deleteData: action === 'disable' && deleteData,
+    deleteHistory: action === 'disable' && deleteData && deleteHistory && !!entry.appData?.history,
     version,
     status: 'running',
     startedAt: now.toISOString(),
@@ -229,6 +233,7 @@ export async function moduleStatuses(opts: {
       state,
       estimate: entry.estimate,
       keepsOnRemoval: entry.keepsOnRemoval,
+      appData: entry.appData ?? null,
       roles: entry.roles,
       downloadBytes: null,
       available: reason === null || on,
@@ -554,28 +559,60 @@ export class ModuleOperation {
     return names;
   }
 
+  /**
+   * Its rows in tagave's database, through the doctor in the app container
+   * (the app owns the database; this needs no secret and works the same
+   * from install-tagave.sh). The doctor answers one JSON line; an app image
+   * without the command answers something else, which counts as a failure.
+   */
+  private async purgeAppData(): Promise<string | null> {
+    const args = ['compose', 'exec', '-T', 'app', 'node', 'packages/doctor/dist/cli.js', 'purge-module', this.entry.id, '--json'];
+    if (this.run.deleteHistory) args.push('--delete-history');
+    const res = await this.docker(args, { timeoutMs: 300_000 });
+    const last = res.stdout.trim().split('\n').pop() ?? '';
+    let answer: { purged?: PurgeAnswer; error?: string } = {};
+    try {
+      answer = JSON.parse(last) as typeof answer;
+    } catch {
+      /* not the doctor's answer */
+    }
+    if (res.code === 0 && answer.purged) {
+      this.log('info', `tagave's database: ${describePurgeAnswer(answer.purged)}`);
+      return null;
+    }
+    return `its rows in tagave's database (${answer.error ?? (tail(res.stderr || res.stdout, 2) || `exit ${res.code}`)})`;
+  }
+
   /** Never rolled back; a failure here leaves the module off and says what is left. */
   private async disableData(): Promise<void> {
     const volumes = await this.volumeNames();
     if (!this.run.deleteData) {
       this.end('data', 'skipped');
-      this.log('info', volumes.length ? `kept its data: ${volumes.join(', ')} (${this.entry.keepsOnRemoval})` : 'it has no data to keep');
+      this.log('info', volumes.length || this.entry.appData ? `kept its data${volumes.length ? `: ${volumes.join(', ')}` : ''} (${this.entry.keepsOnRemoval})` : 'it has no data to keep');
       return;
     }
     this.begin('data');
     const failed: string[] = [];
+    // The database first: it holds the connections' session keys.
+    if (this.entry.appData) {
+      const problem = await this.purgeAppData();
+      if (problem) failed.push(problem);
+    }
     for (const v of volumes) {
       const res = await this.docker(['volume', 'rm', v], { timeoutMs: 60_000 });
       if (res.code !== 0) failed.push(`${v} (${tail(res.stderr, 1)})`);
     }
     if (failed.length) {
       this.end('data', 'failed');
-      this.run.reason = redact(`${this.entry.name} is off, but deleting its data failed: ${failed.join(', ')}. Delete it with docker volume rm.`);
+      const purge = `docker compose exec app node packages/doctor/dist/cli.js purge-module ${this.entry.id}${this.run.deleteHistory ? ' --delete-history' : ''}`;
+      const how = this.entry.appData ? `Delete the rest with ${purge} and docker volume rm` : 'Delete it with docker volume rm';
+      this.run.reason = redact(`${this.entry.name} is off, but deleting its data failed: ${failed.join(', ')}. ${how}.`);
       this.log('warn', this.run.reason);
       return;
     }
     this.end('data', 'done');
-    this.log('info', volumes.length ? `deleted ${volumes.join(', ')}` : 'it had no data');
+    if (volumes.length) this.log('info', `deleted ${volumes.join(', ')}`);
+    else if (!this.entry.appData) this.log('info', 'it had no data');
   }
 
   // -- roll back ---------------------------------------------------------------------
@@ -708,4 +745,21 @@ export function withRegistry(ref: string, registry?: string | null): string {
   if (!r) return ref;
   const name = ref.slice(ref.lastIndexOf('/') + 1);
   return name.startsWith('tagave-') ? `${r}/${name}` : ref;
+}
+
+// -- the doctor's purge answer ------------------------------------------------------
+
+/** What tagave-doctor purge-module --json prints (packages/doctor/src/modulePurge.ts). */
+export interface PurgeAnswer {
+  module: string;
+  deleted: Record<string, number>;
+  history: { table: string; action: 'deleted' | 'kept'; count: number } | null;
+  librariesCleared: number;
+}
+
+export function describePurgeAnswer(r: PurgeAnswer): string {
+  const rows = Object.entries(r.deleted ?? {}).filter(([, n]) => n > 0).map(([t, n]) => `${n} ${t}`);
+  const parts = [rows.length ? `deleted ${rows.join(', ')}` : 'no rows of its own were left'];
+  if (r.history) parts.push(`${r.history.action} the ${r.history.count} ${r.history.table} it recorded`);
+  return parts.join('; ');
 }

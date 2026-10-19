@@ -65,9 +65,29 @@ export interface ModuleEntry {
   volumes: string[];
   /** What stays when it is turned off, in one line. */
   keepsOnRemoval: string;
+  /**
+   * It keeps rows in tagave's own database: "Delete its data" deletes those
+   * too (tagave-doctor purge-module <id> in the app container), not only its
+   * volumes. Absent: it has none (or the release predates the purge).
+   */
+  appData?: ModuleAppData;
   estimate: { memoryMb: number; diskMb: number };
   /** The install roles it runs on: "all" (one computer) and/or "app" (the app computer of a split install). */
   roles: Array<'all' | 'app'>;
+}
+
+/** What "Delete its data" means in tagave's database, as Settings › Modules says it. */
+export interface ModuleAppData {
+  /** What goes, in a sentence. */
+  removes: string;
+  /** What stays when only the data goes, in a sentence ("Your listens stay."). null: nothing to say. */
+  keeps: string | null;
+  /**
+   * Rows it wrote into the core that are the person's history (the player's
+   * listens): kept unless the owner also ticks this box, whose label this
+   * is. null: none.
+   */
+  history: string | null;
 }
 
 export interface ReleaseManifest {
@@ -110,6 +130,8 @@ export interface ModuleRun {
   action: 'enable' | 'disable';
   /** Turn off only: the owner chose to delete the module's data too. */
   deleteData: boolean;
+  /** With deleteData: the history it wrote into the core goes too (the player's listens). Absent in runs from before 0.10. */
+  deleteHistory?: boolean;
   /** The release whose signed catalogue this run follows. */
   version: string;
   status: UpdateRunStatus;
@@ -137,6 +159,8 @@ export interface ModuleStatus {
   state: ModuleState;
   estimate: { memoryMb: number; diskMb: number };
   keepsOnRemoval: string;
+  /** Its rows in tagave's database, when it has any. */
+  appData: ModuleAppData | null;
   roles: Array<'all' | 'app'>;
   /** Download size of its images for this computer, compressed, when the registry said (null: unknown). */
   downloadBytes: number | null;
@@ -180,9 +204,11 @@ export interface ModulesView {
 export const MODULE_ID_RE = /^[a-z][a-z0-9-]{0,30}$/;
 
 export const moduleActionSchema = z.object({
-  /** Turn off only: also delete the module's data (its volumes). */
+  /** Turn off only: also delete the module's data (its volumes and its rows in tagave's database). */
   deleteData: z.boolean().optional(),
-}).strict();
+  /** Turn off with deleteData only: also delete the history it wrote into the core (the player's listens). */
+  deleteHistory: z.boolean().optional(),
+}).strict().refine((v) => !v.deleteHistory || v.deleteData, { message: 'deleteHistory goes with deleteData' });
 export type ModuleAction = z.infer<typeof moduleActionSchema>;
 
 /** The shell command that does the same as the button, for installs without the updater. */

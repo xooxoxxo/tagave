@@ -6,7 +6,7 @@ import type { ModuleRun } from '@tagave/shared/modules';
 import { envGet } from './envFile.js';
 import { ModuleOperation, moduleStatuses, newModuleRun, renderModuleCompose, withComposeFile, type ModuleConfig } from './modules.js';
 import { verifyRelease, type VerifiedRelease } from './release.js';
-import { digest, signed, testKey, testManifest } from './release.testkit.js';
+import { DUMMY_MODULE, PLAYER_MODULE, digest, signed, testKey, testManifest } from './release.testkit.js';
 import type { CommandResult, RunOptions } from './runner.js';
 
 const KEY = testKey();
@@ -35,6 +35,8 @@ interface FakeOptions {
   failUp?: string[];
   pullFails?: boolean;
   freeBytes?: number;
+  /** What the app container answers to the doctor's purge-module: its JSON (default), an app image without the command, or a refusal. */
+  purge?: 'ok' | 'old-app' | 'fails';
 }
 
 /** A Docker that keeps the little state these runs need, reading .env and modules/*.yml like compose would. */
@@ -77,6 +79,12 @@ function fakeDocker(dir: string, o: FakeOptions = {}) {
         return ok();
       }
       if (a[0] === 'ps') return ok(running.has(a[2]!) ? `cid-${a[2]}\n` : '');
+      if (a[0] === 'exec' && a.slice(2, 6).join(' ') === 'app node packages/doctor/dist/cli.js purge-module') {
+        if (o.purge === 'old-app') return ok('PASS database  connected\n\n9 pass\n');
+        if (o.purge === 'fails') return { code: 3, stdout: `${JSON.stringify({ refused: true, error: 'player is still on here (TAGAVE_PLAYER_URL is set); turn it off first' })}\n`, stderr: '' };
+        const history = a.includes('--delete-history');
+        return ok(`${JSON.stringify({ purged: { module: a[6], deleted: { player_plays: 12, player_listens: 2, scrobble_accounts: 1, player_users: 0 }, history: { table: 'listens', action: history ? 'deleted' : 'kept', count: 2 }, librariesCleared: 1 } })}\n`);
+      }
       if (a[0] === 'exec') return no('not here');
     }
     if (a[0] === 'inspect') {
@@ -116,7 +124,7 @@ describe('module operations', () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  const op = (module: string, action: 'enable' | 'disable', fake: ReturnType<typeof fakeDocker>, extra: { deleteData?: boolean; release?: VerifiedRelease } = {}) => {
+  const op = (module: string, action: 'enable' | 'disable', fake: ReturnType<typeof fakeDocker>, extra: { deleteData?: boolean; deleteHistory?: boolean; release?: VerifiedRelease } = {}) => {
     const rel = extra.release ?? release();
     const entry = rel.manifest.modules.find((m) => m.id === module)!;
     let n = 0;
@@ -134,7 +142,7 @@ describe('module operations', () => {
         sleep: async () => undefined,
         secret: () => `secret${(n += 1)}`,
       },
-      newModuleRun('run1', entry, action, rel.manifest.version, extra.deleteData ?? false, new Date()),
+      newModuleRun('run1', entry, action, rel.manifest.version, extra.deleteData ?? false, new Date(), extra.deleteHistory ?? false),
     );
   };
   let fakeFree: number | undefined;
@@ -253,6 +261,51 @@ describe('module operations', () => {
     expect(envGet(e, 'TAGAVE_PLAYER_PASSWORD')).toBe('secret1');
     expect(fake.calls).toContain('volume rm t1_player-data');
     expect(fake.calls.indexOf('volume rm t1_player-data')).toBeGreaterThan(fake.calls.lastIndexOf('compose up -d app'));
+    // its rows in tagave's database first, through the doctor in the app, once the app runs without it
+    const purge = 'compose exec -T app node packages/doctor/dist/cli.js purge-module player --json';
+    expect(fake.calls).toContain(purge);
+    expect(fake.calls.indexOf(purge)).toBeGreaterThan(fake.calls.lastIndexOf('compose up -d app'));
+    expect(fake.calls.indexOf(purge)).toBeLessThan(fake.calls.indexOf('volume rm t1_player-data'));
+    expect(off.deleteHistory).toBe(false);
+    expect(off.reason).toBeNull();
+    expect(off.log.map((l) => l.message)).toContain("tagave's database: deleted 12 player_plays, 2 player_listens, 1 scrobble_accounts; kept the 2 listens it recorded");
+  });
+
+  it('deletes the listens the player recorded only when that box is ticked too', async () => {
+    const fake = fakeDocker(dir);
+    await op('player', 'enable', fake).execute();
+    const off = await op('player', 'disable', fake, { deleteData: true, deleteHistory: true }).execute();
+    expect(off.status).toBe('succeeded');
+    expect(off.deleteHistory).toBe(true);
+    expect(fake.calls).toContain('compose exec -T app node packages/doctor/dist/cli.js purge-module player --json --delete-history');
+    expect(off.log.some((l) => l.message.endsWith('deleted the 2 listens it recorded'))).toBe(true);
+    // without the data box the history box means nothing; a module without history has none
+    expect(newModuleRun('r', PLAYER_MODULE, 'disable', '0.10.0', false, new Date(), true).deleteHistory).toBe(false);
+    expect(newModuleRun('r', DUMMY_MODULE, 'disable', '0.10.0', true, new Date(), true).deleteHistory).toBe(false);
+  });
+
+  it('keeps the player\'s rows when the data box is not ticked', async () => {
+    const fake = fakeDocker(dir);
+    await op('player', 'enable', fake).execute();
+    const off = await op('player', 'disable', fake).execute();
+    expect(off.steps.find((s) => s.id === 'data')!.status).toBe('skipped');
+    expect(fake.calls.some((c) => c.includes('purge-module'))).toBe(false);
+    expect(fake.calls.some((c) => c.startsWith('volume rm'))).toBe(false);
+    expect(off.log.some((l) => l.message.startsWith('kept its data: t1_player-data'))).toBe(true);
+  });
+
+  it('says what is left when the app cannot delete the rows (an app without the command, a refusal), and deletes the volume still', async () => {
+    for (const purge of ['old-app', 'fails'] as const) {
+      const fake = fakeDocker(dir, { purge });
+      await op('player', 'enable', fake).execute();
+      const off = await op('player', 'disable', fake, { deleteData: true }).execute();
+      expect(off.status).toBe('succeeded');
+      expect(off.steps.find((s) => s.id === 'data')!.status).toBe('failed');
+      expect(off.reason).toMatch(/^Player is off, but deleting its data failed: its rows in tagave's database \(/);
+      expect(off.reason).toContain('docker compose exec app node packages/doctor/dist/cli.js purge-module player');
+      if (purge === 'fails') expect(off.reason).toContain('player is still on here');
+      expect(fake.calls).toContain('volume rm t1_player-data');
+    }
   });
 
   it('rolls a Turn off back when the app does not come back, and never deletes data then', async () => {

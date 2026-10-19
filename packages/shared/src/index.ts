@@ -425,6 +425,7 @@ export {
   type ReleaseManifest,
   type ModuleSetting,
   type ModuleEntry,
+  type ModuleAppData,
   type ModuleStepId,
   type ModuleStep,
   type ModuleRun,

@@ -16,7 +16,7 @@
  *   GET  /v1/modules  the module catalogue of that release, each module's
  *                     state, and the current or last module run
  *   POST /v1/modules/<id>/enable           turn a module on (202)
- *   POST /v1/modules/<id>/disable          {"deleteData": false}: turn it off (202)
+ *   POST /v1/modules/<id>/disable          {"deleteData": false, "deleteHistory": false}: turn it off (202)
  *
  * One run at a time: an update and a module run refuse each other (409),
  * and both wait while the updater replaces itself.
@@ -238,14 +238,14 @@ export class UpdaterService {
     return { version, verified: current.verified !== null, problem: current.problem, modules, run: this.moduleRun };
   }
 
-  async startModule(id: string, action: 'enable' | 'disable', deleteData: boolean): Promise<{ ok: true; run: ModuleRun } | RefusedStart> {
+  async startModule(id: string, action: 'enable' | 'disable', deleteData: boolean, deleteHistory = false): Promise<{ ok: true; run: ModuleRun } | RefusedStart> {
     const busy = await this.busy();
     if (busy) return busy;
     const current = await this.currentRelease();
     if (!current.verified) return { ok: false, status: 422, error: `modules come only from the signed catalogue of the release that runs here, and ${current.problem}`, check: 'manifest' };
     const entry = current.verified.manifest.modules.find((m) => m.id === id);
     if (!entry) return { ok: false, status: 404, error: `${id} is not in the signed catalogue of ${current.verified.manifest.version}; only official modules can be installed` };
-    const run = newModuleRun(randomUUID(), entry, action, current.verified.manifest.version, deleteData, (this.opts.now ?? (() => new Date()))());
+    const run = newModuleRun(randomUUID(), entry, action, current.verified.manifest.version, deleteData, (this.opts.now ?? (() => new Date()))(), deleteHistory);
     const c = this.opts.config;
     const op = new ModuleOperation(
       {
@@ -385,7 +385,7 @@ export class UpdaterService {
     }
     const m = MODULE_PATH_RE.exec(path);
     if (req.method === 'POST' && m) {
-      const result = await this.startModule(m[1]!, m[2] as 'enable' | 'disable', json['deleteData'] === true);
+      const result = await this.startModule(m[1]!, m[2] as 'enable' | 'disable', json['deleteData'] === true, json['deleteHistory'] === true);
       return result.ok ? send(202, { run: result.run }) : refused(result);
     }
     return send(404, { error: 'not found' });

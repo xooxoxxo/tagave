@@ -73,6 +73,44 @@ async function main() {
     }
   }
 
+  // "Delete its data" of a module, in tagave's database (the updater runs this in the app container)
+  if (command === 'purge-module') {
+    const { purgeModuleData, describePurge, PurgeRefused } = await import('./modulePurge.js');
+    const usage = 'usage: purge-module <id> [--delete-history] [--json]';
+    let id: string | undefined;
+    let deleteHistory = false;
+    let jsonOut = false;
+    for (const arg of args.slice(1)) {
+      if (arg === '--delete-history') deleteHistory = true;
+      else if (arg === '--json') jsonOut = true;
+      else if (!arg.startsWith('--') && id === undefined) id = arg;
+      else {
+        console.error(colorize(`ERROR: unknown option ${arg}; ${usage}`, 'red'));
+        process.exit(2);
+      }
+    }
+    if (!id) {
+      console.error(colorize(`ERROR: name the module; ${usage}`, 'red'));
+      process.exit(2);
+    }
+    const postgres = (await import('postgres')).default;
+    const sql = postgres(databaseUrl, { max: 1, onnotice: () => undefined });
+    try {
+      const result = await purgeModuleData(sql, id, { deleteHistory });
+      // The updater reads the last line: {"purged": …}
+      if (jsonOut) console.log(JSON.stringify({ purged: result }));
+      else console.log(`${statusIcon('pass')} ${id}: ${describePurge(result)}`);
+      await sql.end({ timeout: 5 });
+      process.exit(0);
+    } catch (err) {
+      await sql.end({ timeout: 5 }).catch(() => undefined);
+      const message = (err as Error).message || String(err);
+      if (jsonOut) console.log(JSON.stringify({ refused: err instanceof PurgeRefused, error: message }));
+      else console.error(colorize(`${err instanceof PurgeRefused ? 'REFUSED' : 'FATAL'}: ${message}`, err instanceof PurgeRefused ? 'yellow' : 'red'));
+      process.exit(err instanceof PurgeRefused ? 3 : 1);
+    }
+  }
+
   // Handle backup subcommand
   if (command === 'backup') {
     const { backupWithRetention, defaultBackupDir, isSeparateMount, backupMountRequired, parseBackupArgs } = await import('./backup.js');

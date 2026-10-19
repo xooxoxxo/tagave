@@ -6,7 +6,7 @@
  * install's default network so it reaches the app) and run
  *
  *   node dist/cli.js module enable <id> [--manifest FILE --signature FILE]
- *   node dist/cli.js module disable <id> [--delete-data]
+ *   node dist/cli.js module disable <id> [--delete-data [--delete-history]]
  *
  * The same state machine and the same checks as Settings › Modules: only a
  * module from the signed catalogue of the release that runs here. The
@@ -21,7 +21,7 @@ import { UpdaterService } from './server.js';
 import { IMAGE_KEYS_DIR, loadTrustedKeys } from './release.js';
 
 function usage(): never {
-  console.error('usage: cli.js module enable|disable <id> [--delete-data] [--manifest FILE --signature FILE]');
+  console.error('usage: cli.js module enable|disable <id> [--delete-data [--delete-history]] [--manifest FILE --signature FILE]');
   process.exit(2);
 }
 
@@ -56,7 +56,13 @@ async function main(): Promise<number> {
       return 1;
     }
   }
-  const started = await service.startModule(id, action, args.includes('--delete-data'));
+  const deleteData = args.includes('--delete-data');
+  const deleteHistory = args.includes('--delete-history') || args.includes('--delete-play-history');
+  if (deleteHistory && !deleteData) {
+    console.error('refused: --delete-history goes with --delete-data');
+    return 2;
+  }
+  const started = await service.startModule(id, action, deleteData, deleteHistory);
   if (!started.ok) {
     console.error(`refused: ${started.error}`);
     return 1;

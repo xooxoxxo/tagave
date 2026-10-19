@@ -27,7 +27,7 @@
 import { createHash, createPublicKey, sign, verify, type KeyObject } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ModuleEntry, ModuleSetting, ReleaseImage, ReleaseManifest } from '@tagave/shared/modules';
+import type { ModuleAppData, ModuleEntry, ModuleSetting, ReleaseImage, ReleaseManifest } from '@tagave/shared/modules';
 import { compareReleases } from './image-hygiene.js';
 
 export const MANIFEST_FILE = 'release-manifest.json';
@@ -194,6 +194,17 @@ function parseCompose(id: string, profile: string, services: string[], v: unknow
   return out;
 }
 
+/** Optional: the module keeps rows in tagave's database, and what deleting them means. */
+function parseAppData(id: string, v: unknown): { appData?: ModuleAppData } {
+  if (v === undefined) return {};
+  if (!isObj(v)) bad(`module ${id}: appData`);
+  const optional = (key: 'keeps' | 'history'): string | null => {
+    const x = v[key] ?? null;
+    return x === null ? null : str(x, `module ${id}: appData.${key}`);
+  };
+  return { appData: { removes: str(v['removes'], `module ${id}: appData.removes`), keeps: optional('keeps'), history: optional('history') } };
+}
+
 function parseModule(v: unknown, images: Record<string, ReleaseImage>): ModuleEntry {
   if (!isObj(v)) bad('a module');
   const id = str(v['id'], 'a module has no id');
@@ -234,6 +245,7 @@ function parseModule(v: unknown, images: Record<string, ReleaseImage>): ModuleEn
     restarts: list('restarts', SERVICE_RE),
     volumes: list('volumes', /^[a-z0-9][a-z0-9_.-]{0,62}$/),
     keepsOnRemoval: str(v['keepsOnRemoval'], `module ${id}: keepsOnRemoval`),
+    ...parseAppData(id, v['appData']),
     estimate: { memoryMb: estimate['memoryMb'] as number, diskMb: estimate['diskMb'] as number },
     roles,
   };

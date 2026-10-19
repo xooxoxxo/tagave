@@ -37,6 +37,11 @@ export const PLAYER_MODULE: ModuleEntry = {
   restarts: ['app'],
   volumes: ['player-data'],
   keepsOnRemoval: "Navidrome's database (plays, stars) in the player-data volume",
+  appData: {
+    removes: "Deletes Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts.",
+    keeps: 'Your listens stay.',
+    history: 'Also delete the listens the player recorded. Listens you added yourself stay.',
+  },
   estimate: { memoryMb: 512, diskMb: 200 },
   roles: ['all'],
 };

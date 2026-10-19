@@ -94,6 +94,21 @@ describe('parseManifest', () => {
     expect(() => parseManifest(text(priv))).toThrow(/uses privileged/);
   });
 
+  it('reads what a module keeps in tagave\'s database; an entry without it (an older catalogue) has none', () => {
+    const m = testManifest('0.10.0');
+    const parsed = parseManifest(text(m));
+    expect(parsed.modules[0]!.appData).toEqual(m.modules[0]!.appData);
+    expect(parsed.modules[1]!.appData).toBeUndefined();
+    const noHistory = structuredClone(m);
+    noHistory.modules[0]!.appData = { removes: 'Deletes its rows.', keeps: null, history: null };
+    expect(parseManifest(text(noHistory)).modules[0]!.appData).toEqual({ removes: 'Deletes its rows.', keeps: null, history: null });
+    const bad = structuredClone(m) as unknown as { modules: Array<Record<string, unknown>> };
+    bad.modules[0]!['appData'] = { removes: '', history: null };
+    expect(() => parseManifest(text(bad))).toThrow(/appData.removes/);
+    bad.modules[0]!['appData'] = { removes: 'x', history: 3 };
+    expect(() => parseManifest(text(bad))).toThrow(/appData.history/);
+  });
+
   it('refuses a module setting that touches tagave itself or a digest pin', () => {
     const m = testManifest('0.10.0');
     m.modules[1]!.settings = [{ key: 'TAGAVE_VERSION', kind: 'value', value: '0.1.0' }];

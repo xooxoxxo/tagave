@@ -152,14 +152,18 @@ describe.skipIf(!url)('module routes (integration)', () => {
     hasManifest = true;
     const ok = await post('/api/v1/modules/player/enable', {});
     expect(ok.statusCode).toBe(202);
-    expect(received.at(-1)).toMatchObject({ method: 'POST', path: '/v1/modules/player/enable', body: '{"deleteData":false}' });
+    expect(received.at(-1)).toMatchObject({ method: 'POST', path: '/v1/modules/player/enable', body: '{"deleteData":false,"deleteHistory":false}' });
     refuse = { status: 409, error: 'Dummy is being turned on' };
     expect((await post('/api/v1/modules/player/enable', {})).json()).toMatchObject({ status: 409, detail: 'Dummy is being turned on' });
     refuse = { status: 422, error: 'the release manifest does not match its signature' };
     expect((await post('/api/v1/modules/player/enable', {})).json()).toMatchObject({ status: 422, title: 'Release refused' });
     refuse = null;
     expect((await post('/api/v1/modules/player/disable', { deleteData: true })).statusCode).toBe(202);
-    expect(received.at(-1)!.body).toBe('{"deleteData":true}');
+    expect(received.at(-1)!.body).toBe('{"deleteData":true,"deleteHistory":false}');
+    // the player's listens go too only with both boxes; the history box alone is refused
+    expect((await post('/api/v1/modules/player/disable', { deleteData: true, deleteHistory: true })).statusCode).toBe(202);
+    expect(received.at(-1)!.body).toBe('{"deleteData":true,"deleteHistory":true}');
+    expect((await post('/api/v1/modules/player/disable', { deleteHistory: true })).statusCode).toBe(400);
     expect((await post('/api/v1/modules/Bad!/enable', {})).statusCode).toBe(404);
     expect((await post('/api/v1/modules/player/enable', { extra: 1 })).statusCode).toBe(400);
   });
