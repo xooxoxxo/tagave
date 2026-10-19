@@ -1,9 +1,16 @@
 /*
  * Reviews & listening: one porcelain card of rows. Each row is a label, what
- * is there now, and one control: three columns on a wide screen, stacked on
- * a phone with the control full width under the value (≥44px tall).
+ * is there now, and one control. The card sizes its rows by its OWN width
+ * (container queries), not the window's: it lives in the album page, the
+ * 640px bottom drawer and the 440px side sheet.
+ *   - wide card (> 44rem): label · value · control, three columns
+ *   - medium (30–44rem): label · value, the control on its own line under the value
+ *   - narrow (≤ 30rem): label over value over control, like About's facts on a phone
+ * so the value never gets squeezed into a word-per-line column and the
+ * control never sits on its text. On a phone the control is full width (≥44px).
  */
 .section {
+  container: reviews / inline-size;
   margin-top: var(--space-lg);
   padding: 0.5rem 1.5rem;
   border: 1px solid var(--line);
@@ -66,6 +73,43 @@
   grid-area: control;
   display: flex;
   justify-content: flex-end;
+  min-width: 0;
+}
+
+/* medium card: the control moves under the value, on the value's left edge */
+@container reviews (max-width: 44rem) {
+  .row {
+    grid-template-columns: 9rem minmax(0, 1fr);
+    grid-template-areas:
+      "label value"
+      ". control";
+  }
+  .rowControl {
+    justify-content: flex-start;
+  }
+}
+
+/* narrow card: label over value over control, one left edge */
+@container reviews (max-width: 30rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "label"
+      "value"
+      "control";
+    row-gap: var(--space-xs);
+    padding: 1rem 0;
+  }
+  .rowLabel,
+  .rowValue {
+    padding-top: 0;
+  }
+  .rowControl {
+    margin-top: var(--space-xs);
+  }
+  .ratingLine {
+    margin-top: 0;
+  }
 }
 
 /* the one control: ≥44px everywhere */
@@ -410,30 +454,14 @@
   .section {
     padding: 0.25rem 1rem;
   }
-  .row {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas:
-      "label label"
-      "value value"
-      "control control";
-    row-gap: var(--space-xs);
-    padding: 1rem 0;
-  }
-  .rowLabel,
-  .rowValue {
-    padding-top: 0;
-  }
+  /* the row is already stacked (the card is narrow); the control fills it */
   .rowControl {
     justify-content: stretch;
-    margin-top: var(--space-xs);
   }
   .rowControl > * {
     flex: 1 1 auto;
     width: 100%;
     justify-content: center;
-  }
-  .ratingLine {
-    margin-top: 0;
   }
   .sheet {
     width: 100vw;

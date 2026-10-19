@@ -7,13 +7,15 @@ interface TooltipProps {
   /** One focusable element (a button, a link). It gets aria-describedby. */
   children: ReactElement<{ 'aria-describedby'?: string }>;
   side?: 'top' | 'bottom';
+  /** Which edge of the trigger the tip lines up with: centred, or its start / end edge, for a trigger near the side of a panel. */
+  align?: 'center' | 'start' | 'end';
 }
 
 /**
  * A small glass label that appears on hover and keyboard focus, and closes on
  * Escape, blur or pointer leave (WCAG 1.4.13: dismissible, hoverable, persistent).
  */
-export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
+export function Tooltip({ content, children, side = 'top', align = 'center' }: TooltipProps) {
   const id = useId();
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -32,6 +34,6 @@ export function Tooltip({ content, children, side = 'top' }: TooltipProps) {
     onBlur={() => setOpen(false)}
   >
     {cloneElement(children, { 'aria-describedby': describedBy })}
-    <span role="tooltip" id={id} className={[styles.tip, styles[side], open ? styles.open : undefined].filter(Boolean).join(' ')}>{content}</span>
+    <span role="tooltip" id={id} className={[styles.tip, styles[side], align !== 'center' ? styles[align] : undefined, open ? styles.open : undefined].filter(Boolean).join(' ')}>{content}</span>
   </span>;
 }

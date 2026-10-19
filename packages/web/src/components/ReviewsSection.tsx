@@ -19,7 +19,7 @@ import {
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
 import { StarRating } from './StarRating';
-import { Button, IconButton, SegmentedControl, confirmDialog, showToast } from './ui';
+import { Button, IconButton, SegmentedControl, Tooltip, confirmDialog, showToast } from './ui';
 import { shortDate } from '../utils/time';
 import styles from './ReviewsSection.module.css';
 
@@ -79,9 +79,12 @@ export function ReviewsSection({ libraryId, releaseGroupId, editions }: ReviewsS
   return (
     <section className={styles.section} aria-label="Reviews and listening">
       <div className={styles.titleRow}>
-        <Button variant="secondary" className={styles.addButton} onClick={() => setAdding('listen')} aria-haspopup="dialog" title="Log a listen with a date, format or note, or keep a clipping">
-          <span aria-hidden="true">+</span> Add…
-        </Button>
+        {/* below and from the button's start edge: it sits at the top left of a drawer that scrolls, where a centred tip above is cut off */}
+        <Tooltip content="Log a listen with a date, format or note, or keep a clipping" side="bottom" align="start">
+          <Button variant="secondary" className={styles.addButton} onClick={() => setAdding('listen')} aria-haspopup="dialog">
+            <span aria-hidden="true">+</span> Add…
+          </Button>
+        </Tooltip>
       </div>
 
       <RatingRow libraryId={libraryId} releaseGroupId={releaseGroupId} bundle={data} />
