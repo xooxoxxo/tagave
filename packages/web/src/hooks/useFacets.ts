@@ -1,6 +1,6 @@
 /**
  * What is on (GET /api/v1/facets): the app hides what a module that is off
- * would show (the Connections page, wantlist suggestions, linked apps'
+ * would show (the Connections page's links, the consent page's actions, wantlist suggestions, linked apps'
  * critic scores). Unknown while loading: callers treat null as "not yet".
  */
 import { useQuery } from '@tanstack/react-query';

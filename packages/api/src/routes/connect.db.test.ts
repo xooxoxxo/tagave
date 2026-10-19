@@ -15,6 +15,7 @@ import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { turnMcOn } from '../testkit/mc.js';
+import { mcEnabled, setMcEnabled } from '@tagave/db';
 import { hashToken, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
 import { connectConfig, resetConnectRouteLimits } from './connect.js';
 
@@ -384,5 +385,103 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     for (const url of ['/api/v1/connect/userinfo', '/api/v1/connect/endsession', '/api/auth/oauth2/userinfo', '/api/auth/oauth2/endsession', '/api/auth/oauth2/authorize']) {
       expect((await app.inject({ method: 'GET', url })).statusCode).toBe(404);
     }
+  });
+  describe('with Music Connections turned off (Settings › Modules)', () => {
+    const off = async <T>(fn: () => Promise<T>): Promise<T> => {
+      await setMcEnabled(handle.sql, false);
+      try { return await fn(); } finally { await setMcEnabled(handle.sql, true); }
+    };
+    /** authorize while on, so there is an open request to look at. */
+    async function openRequestId(clientId: string) {
+      const res = await app.inject({ method: 'GET', url: authorizeUrl(clientId) });
+      expect(res.statusCode).toBe(302);
+      return new URL(res.headers.location as string, TEST_PUBLIC_URL).searchParams.get('request')!;
+    }
+
+    it('register is 404 off and 201 on', async () => {
+      expect((await off(() => register())).statusCode).toBe(404);
+      expect((await register()).statusCode).toBe(201);
+    });
+
+    it('authorize is 404 off (no request is made) and 302 on', async () => {
+      const c = await client();
+      const before = (await handle.sql`select count(*)::int as n from mc_oauth_requests`)[0]!.n;
+      const res = await off(() => app.inject({ method: 'GET', url: authorizeUrl(c.client_id) }));
+      expect(res.statusCode).toBe(404);
+      expect(res.headers.location).toBeUndefined();
+      expect((await handle.sql`select count(*)::int as n from mc_oauth_requests`)[0]!.n).toBe(before);
+      expect((await app.inject({ method: 'GET', url: authorizeUrl(c.client_id) })).statusCode).toBe(302);
+    });
+
+    it('the consent request and its decision are 404 off, and work on', async () => {
+      const c = await client();
+      const id = await openRequestId(c.client_id);
+      const view = () => app.inject({ method: 'GET', url: `/api/v1/connect/requests/${id}`, headers: { cookie: person.cookie } });
+      const decide = () => app.inject({
+        method: 'POST',
+        url: `/api/v1/connect/requests/${id}/decision`,
+        headers: { cookie: person.cookie, origin: TEST_PUBLIC_URL },
+        payload: { decision: 'approve' },
+      });
+      const [v, d] = await off(async () => [await view(), await decide()]);
+      expect(v.statusCode).toBe(404);
+      expect(v.json().detail).toMatch(/turned off/);
+      expect(d.statusCode).toBe(404);
+      // nothing was decided while off
+      expect((await view()).statusCode).toBe(200);
+      expect((await decide()).statusCode).toBe(200);
+    });
+
+    it('the token endpoint issues nothing off (503, both grants), and works on again', async () => {
+      const { c, tokens } = await linked();
+      const code = await approve(c.client_id);
+      const [byCode, byRefresh] = await off(async () => [await exchange(c, code), await refresh(c, tokens.refresh_token)]);
+      for (const res of [byCode, byRefresh]) {
+        expect(res.statusCode).toBe(503);
+        expect(res.json().error).toBe('temporarily_unavailable');
+        expect(res.headers['retry-after']).toBe('3600');
+        expect(res.headers['cache-control']).toBe('no-store');
+      }
+      // the refresh token was not spent: it still works once the module is on
+      expect((await refresh(c, tokens.refresh_token)).statusCode).toBe(200);
+      expect((await exchange(c, code)).statusCode).toBe(200);
+    });
+
+    it('a wrong client secret is still 401 off', async () => {
+      const { c, tokens } = await linked();
+      const res = await off(() => refresh({ ...c, client_secret: 'mcs_wrong' }, tokens.refresh_token));
+      expect(res.statusCode).toBe(401);
+    });
+
+    it('revoke works off: the linked app can still give its approval back', async () => {
+      const { c, tokens } = await linked();
+      const res = await off(() => app.inject({
+        method: 'POST',
+        url: '/api/v1/connect/revoke',
+        headers: FORM,
+        payload: form({ token: tokens.refresh_token, client_id: c.client_id, client_secret: c.client_secret }),
+      }));
+      expect(res.statusCode).toBe(200);
+      expect(await lookupAccessToken(handle.sql, tokens.access_token)).toBeNull();
+      expect((await refresh(c, tokens.refresh_token)).statusCode).toBe(400);
+    });
+
+    it('is off by default: an install that never set it offers nothing', async () => {
+      await handle.sql`update libraries set settings = settings #- '{modules,mc}'`;
+      try {
+        expect(await mcEnabled(handle.sql)).toBe(false);
+        expect((await app.inject({ method: 'GET', url: '/.well-known/music-connections' })).statusCode).toBe(404);
+        expect((await register()).statusCode).toBe(404);
+      } finally {
+        await setMcEnabled(handle.sql, true);
+      }
+      expect(await mcEnabled(handle.sql)).toBe(true);
+    });
+
+    it('the manifest is 404 off and 200 on', async () => {
+      const m = () => app.inject({ method: 'GET', url: '/.well-known/music-connections' });
+      expect((await off(m)).statusCode).toBe(404);
+      expect((await m()).statusCode).toBe(200);
+    });
   });
 });

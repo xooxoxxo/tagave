@@ -16,6 +16,7 @@ import { registerApiRoutes } from '../app.js';
 import { initAuth } from '../middleware/auth.js';
 import { createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser } from '../testkit/users.js';
+import { turnMcOn } from '../testkit/mc.js';
 import { registeredRoutes, type RegisteredRoute } from '../testkit/routes.js';
 import { declaredPermission, isGuarded, routeKey } from './guard.js';
 
@@ -52,7 +53,10 @@ describe.skipIf(!adminUrl)('route permission matrix', () => {
     handle = testAuth(db.url);
     initAuth(handle);
     for (const role of ['listener', 'editor', 'owner'] as const) {
-      cookies[role] = (await createTestUser(handle, { role })).cookie;
+      const u = await createTestUser(handle, { role });
+      cookies[role] = u.cookie;
+      // Music Connections is off by default; its routes answer 404 then (connect.ts)
+      if (role === 'owner') await turnMcOn(handle.sql, u.userId);
     }
     app = Fastify({ logger: false });
     await app.register(fastifyCookie);

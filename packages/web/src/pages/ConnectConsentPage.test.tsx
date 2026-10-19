@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ConsentCard, isFramed, type ConsentRequestView } from './ConnectConsentPage';
+import { ConsentCard, ConsentOff, isFramed, type ConsentRequestView } from './ConnectConsentPage';
 
 const view: ConsentRequestView = {
   client: { name: 'review-gatherer', redirectHost: '192.168.77.50:8080', secure: false },
@@ -63,5 +63,15 @@ describe('framed', () => {
     expect(isFramed({ top: {}, self })).toBe(true);
     const crossOrigin = { self, get top(): unknown { throw new Error('SecurityError'); } };
     expect(isFramed(crossOrigin)).toBe(true);
+  });
+});
+
+describe('ConsentOff', () => {
+  it('says the module is off and offers no Approve or Deny', () => {
+    const html = renderToStaticMarkup(<ConsentOff />);
+    expect(html).toContain('Music Connections is turned off');
+    expect(html).toContain('Settings › Modules');
+    expect(html).not.toContain('Approve');
+    expect(html).not.toContain('Deny');
   });
 });

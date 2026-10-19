@@ -14,6 +14,13 @@
  *
  * No userinfo or end-session endpoint exists (both answer 404): tagave
  * issues no ID tokens, and identity data is the identity:read feed.
+ *
+ * Music Connections off (Settings › Modules): register, authorize, requests
+ * and decision answer 404, as the manifest and feeds do. Token and revoke stay
+ * reachable so a linked app can still give its approval back; the token
+ * endpoint issues nothing while off (503 temporarily_unavailable, for both
+ * grants), which a linked app treats as transient, so its link survives and
+ * picks up again once the module is back on.
  */
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -70,6 +77,10 @@ export const connectConfig = {
 };
 
 const NO_STORE = { 'cache-control': 'no-store', pragma: 'no-cache' };
+/** Retry-After on a token call while the module is off: an hour. */
+const OFF_RETRY_AFTER_S = 3600;
+/** The routes that only make sense with the module on (404 when off). */
+const OFF_WHEN_DISABLED = new Set(['/api/v1/connect/register', '/api/v1/connect/authorize', '/api/v1/connect/requests/:id', '/api/v1/connect/requests/:id/decision']);
 const REQUEST_ID_RE = /^mcq_[A-Za-z0-9_-]{43}$/;
 
 type OAuthError = 'invalid_request' | 'invalid_client' | 'invalid_grant' | 'unauthorized_client' | 'unsupported_grant_type' | 'invalid_scope' | 'temporarily_unavailable' | 'server_error';
@@ -301,6 +312,14 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
   // The token and revoke endpoints take form bodies (RFC 6749 §4.1.3), parsed by tokenParams.
   fastify.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string', bodyLimit: 16 * 1024 }, (_req, body, done) => done(null, body));
 
+  // Music Connections off: nothing new is registered, asked for or approved.
+  fastify.addHook('onRequest', async (request, reply) => {
+    if (!OFF_WHEN_DISABLED.has(request.routeOptions.url ?? '')) return;
+    if (await mcEnabled(getAuthHandle().sql)) return;
+    reply.headers(NO_STORE);
+    return reply.status(404).send({ type: 'about:blank', status: 404, title: 'Not Found', detail: 'Music Connections is turned off on this tagave.' });
+  });
+
   fastify.post('/connect/register', { bodyLimit: 16 * 1024 }, async (request, reply) => {
     registrations.check(`ip:${request.ip}`);
     const body = (request.body ?? {}) as Record<string, unknown>;
@@ -445,6 +464,11 @@ export async function createConnectRoutes(fastify: FastifyInstance) {
     const { sql } = getAuthHandle();
     const client = await authenticateClient(sql, params);
     if (!client) return invalidClient(reply, request);
+    // Off: no token is issued (neither grant), but a linked app sees a pause, not a dead link.
+    if (!(await mcEnabled(sql))) {
+      reply.header('retry-after', String(OFF_RETRY_AFTER_S));
+      return oauthError(reply, 503, 'temporarily_unavailable', 'Music Connections is turned off on this tagave.');
+    }
     let result: GrantResult;
     try {
       if (params['grant_type'] === 'authorization_code') result = await codeGrant(sql, client, params);

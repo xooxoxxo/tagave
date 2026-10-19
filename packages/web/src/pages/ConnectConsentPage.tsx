@@ -3,13 +3,15 @@
  * asks to read this person's data. The page names the app, the host the
  * answer goes back to and each scope in plain words; Approve or Deny sends
  * the browser back to that app. Only the signed-in person's own data is ever
- * shared (spec §2, Linking).
+ * shared (spec §2, Linking). With Music Connections turned off (Settings ›
+ * Modules) the page says so and offers nothing to approve.
  */
 import { useEffect, useState } from 'react';
 import { useSearch } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { api, type ApiError } from '../services/api';
 import { useMe } from '../hooks';
+import { useModuleOn } from '../hooks/useFacets';
 import { Button } from '../components/ui';
 import { forgetConsentRequest, isConsentRequestId } from './connectReturn';
 import styles from './ConnectConsentPage.module.css';
@@ -31,6 +33,7 @@ export function isFramed(win: { top: unknown; self: unknown } = window): boolean
 export function ConnectConsentPage() {
   const { request } = useSearch({ from: '/connect/consent' });
   const { data: user } = useMe();
+  const mcOn = useModuleOn('mc');
   const valid = isConsentRequestId(request);
   const view = useQuery({
     queryKey: ['connect-request', request],
@@ -58,6 +61,13 @@ export function ConnectConsentPage() {
     }
   };
 
+  if (mcOn === false) {
+    return (
+      <ConsentShell>
+        <ConsentOff />
+      </ConsentShell>
+    );
+  }
   if (!valid || view.isError) {
     return (
       <ConsentShell>
@@ -87,6 +97,17 @@ function ConsentShell({ children }: { children: React.ReactNode }) {
     <main className={styles.container}>
       <div className={styles.card}>{children}</div>
     </main>
+  );
+}
+
+/** Music Connections off here: no app can be linked, so no Approve or Deny. */
+export function ConsentOff() {
+  return (
+    <>
+      <p className={styles.eyebrow}>Music Connections</p>
+      <h1 className={styles.title}>Music Connections is turned off</h1>
+      <p className={styles.lede}>This tagave does not link to other apps right now, so there is nothing to approve. Its owner can turn it on in Settings › Modules; then start the link again from the other app.</p>
+    </>
   );
 }
 
