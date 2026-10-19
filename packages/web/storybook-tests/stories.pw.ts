@@ -20,7 +20,8 @@ test.use({ deviceScaleFactor: 2, viewport: { width: 960, height: 640 } });
 async function screenshot(page: Page, story: StoryEntry, theme: Theme) {
   const name = `${story.id}--${theme}.png`;
   if (story.tags.includes('shot-viewport') || story.tags.includes('phone')) {
-    await expect(page).toHaveScreenshot(name);
+    // shot-full: the whole page, for a story taller than the phone's screen (a whole tab)
+    await expect(page).toHaveScreenshot(name, story.tags.includes('shot-full') ? { fullPage: true } : {});
     return;
   }
   const box = await page.locator('#storybook-root').boundingBox();

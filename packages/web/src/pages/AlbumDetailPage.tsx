@@ -45,6 +45,7 @@ import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
 import { Button, Chip, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
+import { AlbumFacts } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
@@ -883,9 +884,7 @@ export function AlbumDetailPage() {
       value: 'about',
       label: 'About',
       content: (
-        <dl className={styles.facts}>
-          {aboutFacts.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}
-        </dl>
+        <AlbumFacts facts={aboutFacts} />
       ),
     },
     ...(album.releaseGroupId ? [{
@@ -1158,11 +1157,7 @@ export function AlbumDetailPage() {
           {tab === 'about' && (<>
             <section className={styles.plainSection}>
               <h2 className={styles.sectionTitle}>About this album</h2>
-              <dl className={styles.facts}>
-                {facts.filter(([, v]) => v !== null && v !== '' && v !== undefined).map(([k, v]) => (
-                  <div key={k}><dt>{k}</dt><dd>{v}</dd></div>
-                ))}
-              </dl>
+              <AlbumFacts facts={facts.filter(([, v]) => v !== null && v !== '' && v !== undefined)} />
             </section>
             {album.releaseGroupId ? (
               <Suspense fallback={null}>

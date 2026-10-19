@@ -1,0 +1,28 @@
+/* The album info drawer's frame, as the app sizes it at the story's width:
+   a bottom sheet (at most 640px) on a phone or tablet (≤ 900px, DRAWER_QUERY),
+   a 440px side sheet on a desktop (Sheet.module.css). */
+.frame {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+@media (min-width: 901px) {
+  .frame {
+    width: 440px;
+    margin: 0 0 0 auto;
+    border-left: 1px solid var(--line);
+  }
+}
+
+/* the album page's own About tab, in the wide page column */
+.page {
+  box-sizing: border-box;
+  max-width: 880px;
+  padding: 24px;
+  background: var(--canvas);
+  color: var(--ink);
+}

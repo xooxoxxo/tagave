@@ -38,3 +38,10 @@ export const LongContent: Story = {
 export const Several: Story = {
   render: () => <Row><Tooltip content="Above"><Button variant="secondary">Top</Button></Tooltip><Tooltip content="Below" side="bottom"><Button variant="secondary">Bottom</Button></Tooltip></Row>,
 };
+
+/** align="start": the tip begins at the trigger's start edge, for a trigger near the left of a panel that scrolls (the album's Reviews "Add…"). */
+export const AlignStart: Story = {
+  args: { side: 'bottom', align: 'start', content: 'Log a listen with a date, format or note, or keep a clipping', children: <Button variant="secondary">Add…</Button> },
+  tags: ['shot-padded'],
+  play: async ({ canvasElement }) => { await userEvent.tab(); await hover(canvasElement); },
+};
