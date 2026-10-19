@@ -16,14 +16,14 @@ const key = (over: Partial<PasskeyView> = {}): PasskeyView => ({
 describe('accountHealth', () => {
   it('warns loudly with no second factor', () => {
     expect(accountHealth(base)).toMatchObject({ tone: 'danger', factors: 0 });
-    expect(accountHealth(base).text).toMatch(/password only/);
+    expect(accountHealth(base).text).toBe('No second factor');
   });
 
   it('asks for a second factor with one, mentioning backup codes', () => {
     const h = accountHealth({ ...base, twoFactor: { enabled: true, backupCodesLeft: 9 } });
     expect(h).toMatchObject({ tone: 'warning', factors: 1 });
     expect(h.text).toContain('9 backup codes');
-    expect(accountHealth({ ...base, passkeys: [key()] }).text).toMatch(/shell access/);
+    expect(accountHealth({ ...base, passkeys: [key()] }).text).toMatch(/locks you out/);
   });
 
   it('is content with two', () => {

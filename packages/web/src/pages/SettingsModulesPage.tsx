@@ -349,10 +349,10 @@ export function McModuleRow({ view, pending = false, error = null, onTurnOn, onT
           <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
         </div>
         <p className={styles.purpose}>
-          Links tagave to other music apps you run, such as review-gatherer: their critic scores, which release each album is, and wantlist suggestions come in; your ratings, collection and listens go out to apps you approve.
+          Links tagave to other music apps you run, such as review-gatherer.
         </p>
         <p className={styles.meta}>
-          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items received{view.fills > 0 ? ` · ${view.fills} album IDs it filled in` : ''} · built in, nothing to download
+          {view.links === 1 ? '1 connection' : `${view.links} connections`} · {view.landed} items received{view.fills > 0 ? ` · ${view.fills} album IDs it filled in` : ''} · built in
         </p>
         <div className={styles.actions}>
           {view.enabled
@@ -397,14 +397,14 @@ function McModuleSection() {
       title: 'Turn off Music Connections?',
       message: (
         <>
-          <p>tagave stops pulling from linked apps and stops serving them; the Connections page, wantlist suggestions and linked apps’ critic scores hide. Everything it holds is kept for when you turn it back on, unless you tick the box.</p>
+          <p>Its data is kept unless you tick the box.</p>
           <label className={styles.check}>
             <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
-            <span>Also delete its data: revoke every connection and delete what they brought. This cannot be undone. Wantlist entries you accepted stay.</span>
+            <span>Also delete its data and revoke every connection. This cannot be undone.</span>
           </label>
           <label className={styles.check}>
             <input type="checkbox" onChange={(e) => { keepFills = e.target.checked; }} />
-            <span>When deleting, keep the album IDs it filled in (they become your library’s own).</span>
+            <span>Keep the album IDs it filled in</span>
           </label>
         </>
       ),

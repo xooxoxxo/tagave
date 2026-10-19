@@ -25,7 +25,7 @@ const CAPABILITY_LABELS: Record<string, string> = {
 const RETURN_ERRORS: Record<McLinkErrorCode, string> = {
   access_denied: 'The other app was not allowed to link. Nothing changed.',
   invalid_state: 'That approval expired or was already used. Start the link again.',
-  remote_error: 'The other app refused to finish the link. Try again, or check it is reachable from this tagave.',
+  remote_error: 'The other app refused to finish the link. Try again.',
   invalid_response: 'The other app answered in a way tagave does not understand. Nothing changed.',
 };
 
@@ -81,9 +81,8 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
   return (
     <>
       <h2>Connections</h2>
-      <p className={styles.description}>Link tagave to other music apps you run, such as review-gatherer. tagave reads what they offer (critic scores, which release an album is, wantlist suggestions) every 15 minutes. Your links are yours alone; nobody else on this tagave sees them.</p>
 
-      {returned && 'linked' in returned && <Banner tone="success">Linked{linkedOne?.service ? ` to ${linkedOne.service}` : ''}. The first sync is on its way.</Banner>}
+      {returned && 'linked' in returned && <Banner tone="success">Linked{linkedOne?.service ? ` to ${linkedOne.service}` : ''}</Banner>}
       {returned && 'error' in returned && <Banner tone="danger">{returnError(returned.error)}</Banner>}
 
       {links.length > 0 && (
@@ -103,7 +102,7 @@ export function ConnectionsPanel(props: ConnectionsPanelProps) {
           ))}
         </ul>
       )}
-      {view && links.length === 0 && <p className={styles.muted}>No connections yet.</p>}
+      {view && links.length === 0 && <p className={styles.muted}>No connections yet</p>}
 
       <AddConnection adding={adding} error={addError} onAdd={props.onAdd} />
 
@@ -122,10 +121,10 @@ export function ConnectionsOff({ modules = null }: { modules?: ReactNode }) {
     <>
       <h2>Connections</h2>
       <Banner tone="info">
-        Music Connections is turned off on this tagave, so nothing links or syncs.{' '}
+        Music Connections is turned off.{' '}
         {modules ? <>Turn it on in {modules}.</> : 'Ask the owner to turn it on in Settings › Modules.'}
       </Banner>
-      <p className={styles.description}>Once it is on, you can link tagave to other music apps you run, such as review-gatherer, and it reads what they offer every 15 minutes.</p>
+
     </>
   );
 }
@@ -144,7 +143,7 @@ function AddConnection({ adding, error, onAdd }: { adding: boolean; error: strin
     <form className={styles.form} onSubmit={submit} noValidate>
       <h3 className={styles.subTitle}>Add connection</h3>
       <TextField
-        label="Address of the other app"
+        label="App address"
         type="url"
         inputMode="url"
         autoComplete="url"
@@ -152,7 +151,7 @@ function AddConnection({ adding, error, onAdd }: { adding: boolean; error: strin
         placeholder="http://192.168.1.20:8080"
         value={url}
         onChange={(e) => setUrl(e.currentTarget.value)}
-        hint="Its address on your network or tailnet. tagave asks the other app to approve the link; you sign in there and choose what it shares."
+
         error={invalid ?? error ?? undefined}
       />
       <div className={styles.row}>
@@ -171,7 +170,7 @@ function LinkBack({ ownUrl, onCopy }: { ownUrl: string; onCopy?: (text: string) 
   return (
     <section className={styles.linkBack} aria-labelledby="connections-link-back">
       <h3 id="connections-link-back" className={styles.subTitle}>Link back</h3>
-      <p className={styles.hint}>The other app can read your ratings, collection and listens from tagave too. Each direction is its own approval: open the other app&rsquo;s Connections settings, add this address, and approve it here.</p>
+      <p className={styles.hint}>Add this address in the other app.</p>
       <div className={styles.row}>
         <code className={styles.address}>{ownUrl}</code>
         <Button variant="secondary" size="sm" onClick={() => void copy()}>Copy</Button>
@@ -213,11 +212,11 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
 
       {link.down && (
         <Banner tone="warning">
-          {link.service || 'The other app'} has not answered {link.lastSyncAt ? `since ${when(link.lastSyncAt)}` : 'since it was linked'}. tagave keeps trying{link.nextAttemptAt ? `; next try ${when(link.nextAttemptAt)}` : ''}. Check that it is running and reachable from this tagave.
+          {link.service || 'The other app'} has not answered {link.lastSyncAt ? `since ${when(link.lastSyncAt)}` : 'since it was linked'}{link.nextAttemptAt ? ` · next try ${when(link.nextAttemptAt)}` : ''}
         </Banner>
       )}
       {link.state === 'needs_reapproval' && (
-        <Banner tone="warning">The other app no longer accepts this link{link.lastError === 'needs re-approval' ? '' : ' at its new address'}. Approve it again to keep syncing; nothing pulled so far is lost.</Banner>
+        <Banner tone="warning">The other app no longer accepts this link{link.lastError === 'needs re-approval' ? '' : ' at its new address'}. Approve it again.</Banner>
       )}
 
       {!revoked && link.capabilities.length > 0 && (
@@ -238,10 +237,10 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
         <div><dt>Last sync</dt><dd>{link.lastSyncAt ? when(link.lastSyncAt) : 'Not yet'}</dd></div>
         {link.lastError && !revoked && <div><dt>Last error</dt><dd className={styles.errorText}>{link.lastError}</dd></div>}
         {(link.parkedDropped ?? 0) > 0 && !revoked && (
-          <div><dt>Not kept</dt><dd>{link.parkedDropped} items for albums not in your library were dropped: the connection held too many waiting at once.</dd></div>
+          <div><dt>Not kept</dt><dd>{link.parkedDropped} items for albums not in your library were dropped</dd></div>
         )}
         {(link.identityConflicts ?? 0) > 0 && !revoked && (
-          <div><dt>Disagreements</dt><dd>{link.identityConflicts === 1 ? 'One album ID it sent is' : `${link.identityConflicts} album IDs it sent are`} already another album’s here; left as they are.</dd></div>
+          <div><dt>Disagreements</dt><dd>{link.identityConflicts === 1 ? 'One album ID it sent is' : `${link.identityConflicts} album IDs it sent are`} already another album’s here</dd></div>
         )}
       </dl>
 
@@ -254,7 +253,7 @@ function LinkCard({ link, busy, error, onSync, onReapprove, onEditUrl, onRevoke 
             spellCheck={false}
             value={url}
             onChange={(e) => setUrl(e.currentTarget.value)}
-            hint="Where the same app answers now. What tagave pulled stays; the app asks you to approve the link again at its new address."
+
           />
           <div className={styles.row}>
             <Button type="submit" variant="secondary" size="sm" loading={busy}>Save address</Button>
@@ -332,8 +331,8 @@ export function SettingsConnectionsContent() {
   const onRevoke = async (link: McLinkView) => {
     const removing = link.state === 'revoked';
     const ok = await confirmDialog(removing
-      ? { title: 'Remove this connection?', message: 'It goes off this list. To read from that app again, add it as a new connection.', confirmLabel: 'Remove', tone: 'danger' }
-      : { title: `Revoke the link to ${link.service || 'this app'}?`, message: 'tagave stops syncing and gives the other app its approval back. You can link it again later; it then syncs from the start.', confirmLabel: 'Revoke', tone: 'danger' });
+      ? { title: 'Remove this connection?', message: 'It goes off this list.', confirmLabel: 'Remove', tone: 'danger' }
+      : { title: `Revoke the link to ${link.service || 'this app'}?`, message: 'tagave stops syncing. You can link it again later.', confirmLabel: 'Revoke', tone: 'danger' });
     if (ok) await run(link.id, () => revoke.mutateAsync(link.id), 'The connection could not be revoked.');
   };
 

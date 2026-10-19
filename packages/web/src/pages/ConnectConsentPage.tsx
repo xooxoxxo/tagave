@@ -73,7 +73,7 @@ export function ConnectConsentPage() {
       <ConsentShell>
         <h1 className={styles.title}>Link request not found</h1>
         <p className={styles.lede}>
-          {(view.error as ApiError | null)?.detail ?? 'This link request has expired or was already answered. Start the link again from the other app.'}
+          {(view.error as ApiError | null)?.detail ?? 'It expired or was already answered.'}
         </p>
       </ConsentShell>
     );
@@ -104,9 +104,8 @@ function ConsentShell({ children }: { children: React.ReactNode }) {
 export function ConsentOff() {
   return (
     <>
-      <p className={styles.eyebrow}>Music Connections</p>
       <h1 className={styles.title}>Music Connections is turned off</h1>
-      <p className={styles.lede}>This tagave does not link to other apps right now, so there is nothing to approve. Its owner can turn it on in Settings › Modules; then start the link again from the other app.</p>
+      <p className={styles.lede}>The owner can turn it on in Settings › Modules.</p>
     </>
   );
 }
@@ -132,7 +131,6 @@ export function ConsentCard({
   const lasting = view.scopes.some((s) => s.scope === 'offline_access');
   return (
     <>
-      <p className={styles.eyebrow}>Music Connections</p>
       <h1 className={styles.title}>Link {view.client.name}?</h1>
       <p className={styles.lede}>
         <strong>{view.client.name}</strong> at <code className={styles.host}>{view.client.redirectHost}</code> asks to:
@@ -143,9 +141,9 @@ export function ConsentCard({
         ))}
       </ul>
       <p className={styles.note}>
-        Only your own data{account ? <> (signed in as {account})</> : null}, never anyone else’s on this tagave.
-        {lasting ? ' The access lasts until you revoke it from the other app.' : ' The access ends after an hour.'}
-        {view.client.secure ? '' : ' The link runs over plain HTTP on your private network.'}
+        Only your own data{account ? <> ({account})</> : null}.
+        {lasting ? ' Access lasts until you revoke it.' : ' Access ends after an hour.'}
+        {view.client.secure ? '' : ' Runs over plain HTTP.'}
       </p>
       {error && (
         <div className={styles.error} role="alert">
@@ -154,7 +152,7 @@ export function ConsentCard({
       )}
       {framed ? (
         <p className={styles.error} role="alert">
-          This page is shown inside another site. Open tagave directly to approve or deny the link.
+          Shown inside another site. Open tagave directly.
         </p>
       ) : (
       <div className={styles.actions}>

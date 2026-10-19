@@ -43,17 +43,17 @@ export function WantlistPanel({ view, pending = null, errors = {}, onDecide }: W
     <section className={styles.section} aria-labelledby="wantlist-title">
       <div className={styles.head}>
         <h2 id="wantlist-title" className={styles.title}>Wantlist</h2>
-        <p className={styles.lede}>Albums you want. Accepted suggestions are kept here in tagave; they are not sent to Discogs.</p>
+        <p className={styles.lede}>Not sent to Discogs.</p>
       </div>
       {view.wantlist.length > 0
         ? <ul className={styles.list} aria-label="Your wantlist">{view.wantlist.map((e) => <Entry key={e.id} e={e} />)}</ul>
-        : <p className={styles.empty}>Nothing on the wantlist yet.</p>}
+        : <p className={styles.empty}>Nothing yet</p>}
 
       {view.available && (
         <>
           <h3 className={styles.subTitle}>Suggested by your linked apps</h3>
           {open.length === 0 ? (
-            <p className={styles.empty}>No suggestions waiting. Linked apps such as review-gatherer suggest albums here.</p>
+            <p className={styles.empty}>No suggestions</p>
           ) : (
             <ul className={styles.list} aria-label="Suggestions">
               {open.map((s) => {
