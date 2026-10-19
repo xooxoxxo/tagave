@@ -56,7 +56,7 @@ describe.skipIf(!url || !existsSync(cli))('purge-module (integration)', () => {
     expect((await run(['purge-module', 'lyrics', '--json'])).code).toBe(3);
     expect((await run(['purge-module'])).code).toBe(2);
     expect((await run(['purge-module', 'player', '--nope'])).code).toBe(2);
-  });
+  }, 20_000); // four CLI spawns; vitest's 5 s default was too tight on CI
 
   it('deletes the rows and answers one JSON line; the listens stay unless asked; the owner\'s settings stay', async () => {
     const first = await run(['purge-module', 'player', '--json']);
@@ -75,5 +75,5 @@ describe.skipIf(!url || !existsSync(cli))('purge-module (integration)', () => {
     expect(again.history).toMatchObject({ action: 'deleted' });
     expect(again.history.count).toBeGreaterThanOrEqual(1);
     expect(await sql`select source from listens where user_id = ${user}`).toEqual([{ source: 'manual' }]);
-  });
+  }, 20_000); // two CLI spawns
 });
