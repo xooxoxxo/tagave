@@ -56,7 +56,7 @@ When you need to rotate the secret (for example, after a compromise), you must r
 
 4. Update `.env` to remove `TAGAVE_OLD_APP_SECRET` and keep only the new `APP_SECRET`.
 
-The reseal command decrypts all stored credentials with the old secret and encrypts them with the new one. Until this completes, the app cannot decrypt credentials.
+The reseal command decrypts all stored credentials with the old secret and encrypts them with the new one. That includes Music Connections: each link's tokens and client secret, and the PKCE verifier and client secret of a link still in progress, so connections keep working. It checks the old secret first: if a stored provider secret opens with neither secret, it stops and changes nothing. A Music Connections value that opens with neither secret (a link already waiting for approval again, sealed before an earlier rotation) is left as it is, counted in a warning, and never stops the run, so running it twice is safe. Until this completes, the app cannot decrypt credentials.
 
 Rotating `APP_SECRET` also changes the sign-in secret, so **everyone is signed out** and signs in again with their password.
 
@@ -207,7 +207,7 @@ Music Connections lets another music app read one person's data from tagave, and
 - **Tokens.** An access token lasts 1 hour. A refresh token lasts 90 days and is replaced on every use. Using a replaced refresh token again revokes the whole approval. Revocation follows RFC 7009 at `/connect/revoke`. There is no userinfo or end-session endpoint.
 - **Feeds** take a bearer token. Each feed checks its own scope, answers only with the approving person's data and the install's first library, sets `Cache-Control: no-store`, and allows 60 requests a minute per token (`Retry-After`). The text of your reviews (`user_reviews.body_md`) never leaves: only ratings do.
 
-**Token storage.** As the provider, tagave keeps only SHA-256 hashes of what it hands out: access and refresh tokens, codes and client secrets. A database dump does not contain usable tokens. As a client, it seals each link's access token, refresh token and client secret together with `APP_SECRET` (AES-256-GCM, like the other credentials), as are the PKCE verifier and client secret of a link in progress. The link's `state` is kept only as a hash. Tokens never appear in logs, URLs or error messages. After `APP_SECRET` changes, every link asks for approval again.
+**Token storage.** As the provider, tagave keeps only SHA-256 hashes of what it hands out: access and refresh tokens, codes and client secrets. A database dump does not contain usable tokens. As a client, it seals each link's access token, refresh token and client secret together with `APP_SECRET` (AES-256-GCM, like the other credentials), as are the PKCE verifier and client secret of a link in progress. The link's `state` is kept only as a hash. Tokens never appear in logs, URLs or error messages. `tagave-doctor reseal` re-encrypts them when you rotate `APP_SECRET`, so links keep working; a link it cannot open with either secret is left as it is and asks for approval again.
 
 **Allow-lists.** tagave links only to remotes it may reach: private IPs, `localhost`, https hosts in `MC_TRUSTED_PUBLIC_HOSTS` (comma separated, https only), or a host name on your network such as a Docker service or `.lan` name. Every address the remote's manifest names must sit on the remote's own origin, so a token or client secret never travels to another host.
 
