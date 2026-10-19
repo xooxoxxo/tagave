@@ -20,7 +20,7 @@ git -C "$SRC" add -A && git -C "$SRC" commit --quiet -m one && git -C "$SRC" tag
 printf '{ "name": "music-connections", "version": "0.3.0" }\n' > "$SRC/package.json"
 git -C "$SRC" commit --quiet -am two && git -C "$SRC" tag v9.9.9
 
-DEST="$TMP/dest"; mkdir -p "$DEST"; echo x > "$DEST/VENDORED.md"
+DEST="$TMP/music-connections"
 mkdir -p "$DEST/node_modules/zod" "$DEST/src"
 echo 'stale' > "$DEST/src/stale.ts"
 echo 'hand edit' > "$DEST/HAND.md"
@@ -51,5 +51,20 @@ run "$SRC" v0.2.0
 check "the content hash is reproducible"     test "$(grep '^- Content:' "$DEST/VENDORED.md")" = "$H1"
 echo 'changed' >> "$DEST/src/index.ts"; run "$SRC" v0.2.0
 check "a restored tree has the same hash"    test "$(grep '^- Content:' "$DEST/VENDORED.md")" = "$H1"
+
+# The delete guard: a folder that is not a vendor folder is left alone.
+OTHER="$TMP/precious"
+mkdir -p "$OTHER"; echo keep > "$OTHER/keep.txt"
+check "refuses a non-empty folder not named music-connections without VENDORED.md" \
+  test "$(MC_VENDOR_DIR="$OTHER" "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -ne 0
+check "and leaves it untouched"              test -f "$OTHER/keep.txt"
+EMPTY="$TMP/empty-dir"; mkdir -p "$EMPTY"
+check "accepts an empty folder"              test "$(MC_VENDOR_DIR="$EMPTY" "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -eq 0
+VENDORED="$TMP/vendored-elsewhere"; mkdir -p "$VENDORED"; echo x > "$VENDORED/VENDORED.md"; echo y > "$VENDORED/other"
+check "accepts a folder that holds VENDORED.md" test "$(MC_VENDOR_DIR="$VENDORED" "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -eq 0
+check "refuses /"                            test "$(MC_VENDOR_DIR=/ "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -ne 0
+check "refuses \$HOME"                       test "$(MC_VENDOR_DIR="$HOME" "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -ne 0
+ln -s "$HOME" "$TMP/home-link"
+check "refuses a symlink to \$HOME"          test "$(MC_VENDOR_DIR="$TMP/home-link" "$SUT" "$SRC" v0.2.0 >/dev/null 2>&1; echo $?)" -ne 0
 
 exit "$fail"

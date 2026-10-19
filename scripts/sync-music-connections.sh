@@ -47,7 +47,22 @@ for f in "${FILES[@]}"; do
   fi
 done
 
+# The delete below must only ever hit a vendor folder. Refuse anything else:
+# the filesystem root, the home directory, or a directory that is neither
+# named music-connections, empty, nor already a vendored copy (VENDORED.md).
 mkdir -p "$DEST"
+DEST_REAL="$(cd "$DEST" && pwd -P)"
+if [ "$DEST_REAL" = "/" ] || [ "$DEST_REAL" = "$(cd "$HOME" && pwd -P)" ]; then
+  echo "sync-music-connections: refusing to clear $DEST_REAL" >&2
+  exit 1
+fi
+if [ "$(basename "$DEST_REAL")" != "music-connections" ] \
+  && [ -n "$(ls -A "$DEST_REAL")" ] \
+  && [ ! -e "$DEST_REAL/VENDORED.md" ]; then
+  echo "sync-music-connections: $DEST_REAL is not a vendor folder (not named music-connections, not empty, no VENDORED.md); refusing to clear it" >&2
+  exit 1
+fi
+
 # Replace everything except the installed node_modules.
 find "$DEST" -mindepth 1 -maxdepth 1 ! -name node_modules -exec rm -rf {} +
 for f in "${FILES[@]}"; do
