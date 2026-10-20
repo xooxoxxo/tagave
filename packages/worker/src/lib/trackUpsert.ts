@@ -98,8 +98,11 @@ export async function upsertTracks(
 
     if (gone.length > 0) await tx`delete from local_tracks where id = any(${gone.map((g) => g.id)}::uuid[])`;
 
+    let updated = 0;
     if (updates.length > 0) {
-      await tx`
+      // Only rows whose tag-derived values differ are written: an unchanged
+      // re-cluster leaves every row (and its xmin) alone.
+      updated = (await tx`
         update local_tracks lt set
           local_album_id = u.album, disc_no = u.disc, track_no = u.track, title_guess = u.title,
           artist_guess = u.artist, duration_ms = u.dur, origin = u.origin, cue_rel_path = u.cue_rel,
@@ -114,11 +117,19 @@ export async function upsertTracks(
           ${updates.map((u) => u.r.durationMs)}::int[], ${updates.map((u) => u.r.origin)}::text[],
           ${updates.map((u) => u.r.cueRelPath)}::text[]
         ) as u(id, album, disc, track, title, artist, dur, origin, cue_rel)
-        where lt.id = u.id`;
+        where lt.id = u.id
+          and (lt.local_album_id, lt.disc_no, lt.track_no, lt.title_guess, lt.artist_guess,
+               lt.duration_ms, lt.origin, lt.cue_rel_path)
+              is distinct from
+              (u.album, u.disc, u.track, u.title::varchar, u.artist::varchar,
+               u.dur, u.origin::varchar, u.cue_rel::varchar)
+        returning 1`).length;
     }
 
+    let inserted = 0;
     if (inserts.length > 0) {
-      await tx`
+      // A row another job wrote first (different lock key) is skipped, not counted.
+      inserted = (await tx`
         insert into local_tracks (local_album_id, audio_file_id, disc_no, track_no, title_guess, artist_guess,
                                   duration_ms, state, origin, cue_start_ms, cue_rel_path)
         select u.album, u.file, u.disc, u.track, u.title, u.artist, u.dur, 'unmatched', u.origin, u.cue_start, u.cue_rel
@@ -129,7 +140,8 @@ export async function upsertTracks(
             ${inserts.map((r) => r.durationMs)}::int[], ${inserts.map((r) => r.origin)}::text[],
             ${inserts.map((r) => r.cueStartMs)}::int[], ${inserts.map((r) => r.cueRelPath)}::text[]
           ) as u(album, file, disc, track, title, artist, dur, origin, cue_start, cue_rel)
-        on conflict (audio_file_id, cue_start_ms) do nothing`;
+        on conflict (audio_file_id, cue_start_ms) do nothing
+        returning 1`).length;
     }
 
     const relinkAlbumIds = [...relink];
@@ -137,6 +149,6 @@ export async function upsertTracks(
       await tx`update local_albums set tracks_linked_at = null
                where id = any(${relinkAlbumIds}::uuid[]) and tracks_linked_at is not null`;
     }
-    return { inserted: inserts.length, updated: updates.length, deleted: gone.length, relinkAlbumIds };
+    return { inserted, updated, deleted: gone.length, relinkAlbumIds };
   });
 }

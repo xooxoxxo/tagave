@@ -10,6 +10,7 @@ import pino from 'pino';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { clusterDirJob } from '../jobs/clusterDir.js';
+import { upsertTracks } from './trackUpsert.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', () => {
   let ctx: WorkerContext;
@@ -18,10 +19,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
   const libraryId = randomUUID();
   const rootId = randomUUID();
   const files = [randomUUID(), randomUUID(), randomUUID()];
+  const groupId = randomUUID();
+  const canonicalId = randomUUID();
+  const recordingId = randomUUID();
   const tags = (title: string, n: number, album = 'Album One') =>
     ({ common: { album, albumartist: 'Artist', artist: 'Artist', title, track: { no: n, of: 3 } } });
   const tracksOf = async () => sql`select lt.id, lt.audio_file_id, lt.local_album_id, lt.title_guess, lt.canonical_track_id
                                    from local_tracks lt where lt.audio_file_id = any(${files}::uuid[]) order by lt.track_no`;
+  const link = (trackId: string) => sql`update local_tracks
+      set canonical_track_id = ${canonicalId}, recording_id = ${recordingId}, match_distance = 0.125, state = 'matched'
+    where id = ${trackId}`;
+  const linkOf = async (trackId: string) => (await sql`select canonical_track_id, recording_id, match_distance::float8 as match_distance, state
+                                                        from local_tracks where id = ${trackId}`)[0];
   const cluster = (dirPath = 'Artist/Album One') => clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath });
 
   beforeAll(async () => {
@@ -35,6 +44,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
       await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, status, duration_ms, tags_raw)
                 values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album One/0${i + 1}.flac`}, 'present', 1000, ${JSON.stringify(tags(`Song ${i + 1}`, i + 1))}::text::jsonb)`;
     }
+    const releaseId = randomUUID();
+    await sql`insert into release_groups (id, mbid, title) values (${groupId}, ${groupId}, 'TU Release')`;
+    await sql`insert into releases (id, release_group_id, title) values (${releaseId}, ${groupId}, 'TU Release')`;
+    await sql`insert into canonical_tracks (id, release_id, title) values (${canonicalId}, ${releaseId}, 'Song 1')`;
   });
 
   afterAll(async () => {
@@ -42,6 +55,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     await sql`delete from scan_roots where id = ${rootId}`;
     await sql`delete from libraries where id = ${libraryId}`;
     await sql`delete from users where id = ${userId}`;
+    await sql`delete from release_groups where id = ${groupId}`;
     await sql.end({ timeout: 5 });
   });
 
@@ -60,20 +74,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     expect(a.tracks_linked_at).not.toBeNull();
   });
 
+  it('an unchanged re-cluster writes no track row (xmin stays)', async () => {
+    const xmins = async () => (await sql`select id, xmin::text as x from local_tracks
+                                         where audio_file_id = any(${files}::uuid[]) order by id`).map((r: any) => `${r.id}:${r.x}`);
+    const before = await xmins();
+    expect(before).toHaveLength(3);
+    await cluster();
+    expect(await xmins()).toEqual(before);
+  });
+
   it('a retitled track keeps its id and clears the album tracks_linked_at', async () => {
     const [first] = await tracksOf();
+    await link(first.id);
     await sql`update audio_files set tags_raw = ${JSON.stringify(tags('Renamed', 1))}::text::jsonb where id = ${files[0]}`;
     await cluster();
     const [again] = await tracksOf();
     expect(again.id).toBe(first.id);
     expect(again.title_guess).toBe('Renamed');
+    // Ruling 11: same album, so the link survives the retitle
+    expect(await linkOf(first.id)).toEqual({ canonical_track_id: canonicalId, recording_id: recordingId, match_distance: 0.125, state: 'matched' });
     const [a] = await sql`select tracks_linked_at from local_albums where id = ${first.local_album_id}`;
     expect(a.tracks_linked_at).toBeNull();
   });
 
   it('a file that leaves for another album keeps its track id but not its release link', async () => {
     const [first] = await tracksOf();
-    await sql`update local_tracks set canonical_track_id = null, recording_id = ${randomUUID()}, state = 'matched' where id = ${first.id}`;
+    await link(first.id);
     await sql`update audio_files set tags_raw = ${JSON.stringify(tags('Renamed', 1, 'Other Album'))}::text::jsonb where id = ${files[0]}`;
     await cluster();
     const [row] = await sql`select id, local_album_id, recording_id, state from local_tracks where audio_file_id = ${files[0]}`;
@@ -81,6 +107,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     expect(row.local_album_id).not.toBe(first.local_album_id);
     expect(row.recording_id).toBeNull();
     expect(row.state).toBe('unmatched');
+    expect(await linkOf(first.id)).toEqual({ canonical_track_id: null, recording_id: null, match_distance: null, state: 'unmatched' });
   });
 
   it('two concurrent cluster runs of a plain-file folder never duplicate tracks', async () => {
@@ -94,5 +121,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     await cluster();
     expect(await sql`select 1 from local_tracks where audio_file_id = ${files[2]}`).toHaveLength(1);
     await sql`update audio_files set status = 'present' where id = ${files[2]}`;
+  });
+
+  it('inserted counts only rows actually written', async () => {
+    // files[1]'s row exists but is outside fileIds, so its insert conflicts.
+    const [t] = await sql`select local_album_id from local_tracks where audio_file_id = ${files[1]}`;
+    const res = await upsertTracks(ctx, `tu-${randomUUID()}`, [files[2]!], [
+      { localAlbumId: t.local_album_id, audioFileId: files[1]!, discNo: null, trackNo: 2, titleGuess: 'Song 2', artistGuess: 'Artist',
+        durationMs: 1000, origin: 'file', cueStartMs: null, cueRelPath: null },
+    ]);
+    expect(res.inserted).toBe(0);
+    expect(res.deleted).toBe(1); // files[2] produced no row in this call
   });
 });
