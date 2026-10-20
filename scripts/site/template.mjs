@@ -94,8 +94,8 @@ function topbar(version) {
       <a href="${GITHUB}">GitHub</a>
       <div class="theme-pill" role="radiogroup" aria-label="Colour theme">
         <span class="bubble" aria-hidden="true"></span>
-        <label class="opt opt-light"><input type="radio" name="tagave-theme" value="light" aria-label="Light">${SUN}</label>
-        <label class="opt opt-dark"><input type="radio" name="tagave-theme" value="dark" aria-label="Dark">${MOON}</label>
+        <label class="opt opt-light"><input type="radio" name="tagave-theme" value="light" aria-label="Light" autocomplete="off">${SUN}</label>
+        <label class="opt opt-dark"><input type="radio" name="tagave-theme" value="dark" aria-label="Dark" autocomplete="off">${MOON}</label>
       </div>
     </div>
   </div>

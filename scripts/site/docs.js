@@ -51,11 +51,13 @@
   });
 
   /* Back/Forward restores the page from the bfcache without rerunning the head script,
-     so pick up a theme chosen meanwhile (on the landing page, say). */
+     so pick up a theme chosen meanwhile (on the landing page, say). A plain Back can also
+     restore the radios' old checked state after this script ran, so resync either way. */
   window.addEventListener('pageshow', function (ev) {
-    if (!ev.persisted) return;
-    var t = saved();
-    if (t) root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    if (ev.persisted) {
+      var t = saved();
+      if (t) root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    }
     syncRadios();
   });
 
