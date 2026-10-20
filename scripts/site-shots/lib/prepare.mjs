@@ -6,6 +6,8 @@
  */
 import { randomBytes } from 'node:crypto';
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 const rows = (x) => x?.data ?? x?.items ?? x;
 
 export const DEMO = { email: 'demo@example.com', name: 'Demo' };
@@ -44,13 +46,17 @@ export function apiClient(baseUrl) {
   };
 }
 
-/** Jobs the worker still has to run (scheduled sweeps far in the future do not count). */
+/**
+ * Jobs the worker still has to run. Scheduled sweeps far in the future do not
+ * count; a job waiting out its retry delay does, if the retry is due within
+ * five minutes (later ones are re-requested by the repair passes below).
+ */
 async function pendingJobs(sql) {
   return sql`
     select name, state, count(*)::int as n
       from pgboss.job
-     where state in ('created', 'retry', 'active')
-       and start_after < now() + interval '2 minutes'
+     where (state in ('created', 'active') and start_after < now() + interval '2 minutes')
+        or (state = 'retry' and start_after < now() + interval '5 minutes')
      group by name, state
      order by name`;
 }
@@ -100,13 +106,36 @@ export async function prepareLibrary({ stack, sql, musicDir, library, log, until
   await api.post(`/libraries/${libraryId}/identify/sweep`);
   await waitForIdle(sql, until, log);
 
+  // MusicBrainz and the Cover Art Archive have bad minutes: ask again for
+  // what is missing, a few times, before giving up.
+  const repair = async (what, missingFn, requestFn) => {
+    for (let attempt = 1; ; attempt++) {
+      const missing = await missingFn();
+      if (!missing.length) return;
+      const names = missing.map((a) => `${a.artist_guess} — ${a.title_guess}`).join('; ');
+      if (attempt > 3) throw new Error(`${what} still missing after 3 retries: ${names}`);
+      log(`  retry ${attempt}/3, ${what}: ${names}`);
+      await sleep(10_000 * 2 ** (attempt - 1));
+      await requestFn(missing);
+      await waitForIdle(sql, until, log);
+    }
+  };
+  const compilation = library.find((a) => a.case === 'compilation-split');
+  const isPiece = (a) => a.title_guess?.toLowerCase() === compilation.releaseTitle.toLowerCase();
+  const allAlbums = () => sql`select id, state, title_guess, artist_guess, release_group_id from local_albums where library_id = ${libraryId}`;
+
+  await repair('identification',
+    async () => (await allAlbums()).filter((a) => !isPiece(a) && a.state !== 'matched'),
+    (missing) => api.post(`/libraries/${libraryId}/identify/retry`, { albumIds: missing.map((a) => a.id) }));
+
   log('cover art');
-  const albums = await sql`select id, state, title_guess, artist_guess, release_group_id from local_albums where library_id = ${libraryId}`;
-  for (const a of albums) await api.post(`/libraries/${libraryId}/albums/${a.id}/fetch-art`);
+  for (const a of await allAlbums()) await api.post(`/libraries/${libraryId}/albums/${a.id}/fetch-art`);
   await waitForIdle(sql, until, log);
-  const noArt = await sql`select title_guess from local_albums la where library_id = ${libraryId}
-    and not exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front')`;
-  if (noArt.length) throw new Error(`no cover art for: ${noArt.map((r) => r.title_guess).join(', ')}`);
+  await repair('cover art',
+    () => sql`select id, title_guess, artist_guess from local_albums la where library_id = ${libraryId}
+      and not exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front')`,
+    async (missing) => { for (const a of missing) await api.post(`/libraries/${libraryId}/albums/${a.id}/fetch-art`); });
+  const albums = await allAlbums();
 
   log('library care');
   await api.post(`/libraries/${libraryId}/gaps/recompute`);
