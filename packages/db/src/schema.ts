@@ -11,6 +11,7 @@ import {
   smallint,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
@@ -455,6 +456,9 @@ export const localTracks = pgTable(
     // 0026: index for finding linked tracks
     canonicalTrackIdx: index('idx_local_tracks_canonical_track').on(table.canonicalTrackId),
     originCheck: check('origin_check', sql`origin in ('file', 'cue')`),
+    // 0053: tracks are upserted in place on this key; plain files have
+    // cue_start_ms NULL, so NULLS NOT DISTINCT (one row per plain file)
+    fileCueKey: unique('local_tracks_file_cue_key').on(table.audioFileId, table.cueStartMs).nullsNotDistinct(),
   })
 );
 
