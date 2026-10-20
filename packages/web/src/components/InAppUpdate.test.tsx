@@ -120,6 +120,24 @@ describe('the run view: sub-state and stalls', () => {
     expect(refused).toContain('Not enough free disk space');
   });
 
+  it('folds the log to just "Log" while the run runs: the step line says it already', () => {
+    for (const t of [18, 60, 82]) {
+      const out = html(simulatedRun(t), nowAt(t));
+      expect(out).toMatch(/<summary>Log<\/summary>/);
+    }
+    expect(html(stalledRun(), nowAt(240))).toMatch(/<summary>Log<\/summary>/);
+  });
+
+  it('after the run, previews only a warning or error that nothing above says', () => {
+    expect(html(simulatedRun(SIMULATED_END), nowAt(SIMULATED_END))).toMatch(/<summary>Log<\/summary>/);
+    const rolled = rolledBackRun();
+    // the warning repeats the reason under the failed step: no preview
+    const same = { ...rolled, log: [...rolled.log, { at: rolled.finishedAt!, level: 'warn' as const, message: 'the app did not answer healthy on 0.12.0: the app does not answer' }] };
+    expect(html(same, nowAt(400))).toMatch(/<summary>Log<\/summary>/);
+    const other = { ...rolled, log: [...rolled.log, { at: rolled.finishedAt!, level: 'warn' as const, message: 'the player did not report healthy within 2 minutes' }] };
+    expect(html(other, nowAt(400))).toContain('the player did not report healthy within 2 minutes</span></summary>');
+  });
+
   it('shows no stall once the run has ended', () => {
     const out = html({ ...updateRun('x', CRASH_LOOP), status: 'rolled_back', finishedAt: new Date().toISOString(), reason: 'the app did not answer healthy on 0.9.1' });
     expect(out).not.toContain('Stuck');

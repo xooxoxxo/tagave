@@ -143,8 +143,9 @@ export function runningNote(run: UpdateRun, step: RunStepLike, now: number): Ste
 }
 
 /** The run's log, folded away under its last line (which says what it waits for). */
-export function RunLog({ log }: { log: UpdateRun['log'] }) {
-  const last = log.at(-1);
+export function RunLog({ log, preview }: { log: UpdateRun['log']; preview?: string | null }) {
+  // `preview`: the line shown folded (null: none); by default the last one (Settings › Modules).
+  const last = preview === undefined ? log.at(-1) : preview === null ? undefined : { message: preview };
   return (
     <details className={styles.log}>
       <summary>Log{last ? <span className={styles.lastLine}>{last.message}</span> : null}</summary>
@@ -231,6 +232,21 @@ function RestartingNote({ restart }: { restart: UpdaterSelfReplace }) {
 /** Stalls that only ask for patience; the others need the owner. */
 const PATIENT: ReadonlyArray<UpdateStall['cause']> = ['slow', 'db_recovering'];
 
+/**
+ * The folded log's preview line: none while the run runs (the step's own
+ * line says what happens); after it, the last warning or error, unless a
+ * step or the head already says it.
+ */
+export function logPreview(run: UpdateRun, notes: Record<string, StepNote>): string | null {
+  if (run.status === 'running') return null;
+  const last = [...run.log].reverse().find((l) => l.level !== 'info');
+  if (!last) return null;
+  const norm = (t: string) => t.trim().replace(/\.$/, '').toLowerCase();
+  const shown = [...Object.values(notes).map((n) => n.text), run.reason ?? ''].map(norm).filter(Boolean);
+  const line = norm(last.message);
+  return shown.some((t) => t.includes(line) || line.includes(t)) ? null : last.message;
+}
+
 export function RunView({ run, disconnected, reloading, restart, onDismiss, now: fixedNow }: {
   run: UpdateRun;
   disconnected: boolean;
@@ -302,7 +318,7 @@ export function RunView({ run, disconnected, reloading, restart, onDismiss, now:
       {restart && !running && <RestartingNote restart={restart} />}
       <StepList run={run} rolling notes={notes} now={now} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
-      <RunLog log={run.log} />
+      <RunLog log={run.log} preview={logPreview(run, notes)} />
       {!running && (
         <div className={styles.row}>
           <Button size="sm" variant="secondary" onClick={onDismiss}>Done</Button>
