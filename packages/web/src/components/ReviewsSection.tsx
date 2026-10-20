@@ -12,15 +12,16 @@
  */
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type { ExternalReview, Listen, ListenFormat, ReviewsBundle } from '@tagave/shared';
+import { httpOnly, type Listen, type ListenFormat, type ReviewsBundle } from '@tagave/shared';
 import type { Edition } from '../hooks/useLibrary';
 import {
   useAddClipping, useAddListen, useDeleteClipping, useDeleteListen, useDeleteReview,
   useRefreshReviews, useReviewRevisions, useReviews, useSaveReview,
 } from '../hooks/useReviews';
 import { StarRating } from './StarRating';
-import { Button, IconButton, SegmentedControl, Tooltip, confirmDialog, showToast } from './ui';
+import { Button, CloseIcon, IconButton, SegmentedControl, Tooltip, confirmDialog, showToast } from './ui';
 import { shortDate } from '../utils/time';
+import { ArrowOutIcon, CriticLedger, WebLedger } from './ReviewsLedger';
 import styles from './ReviewsSection.module.css';
 
 interface ReviewsSectionProps {
@@ -37,13 +38,6 @@ const FORMATS: Array<{ value: ListenFormat; label: string }> = [
   { value: 'stream', label: 'Stream' },
   { value: 'other', label: 'Other' },
 ];
-
-const SOURCE_LABEL: Record<ExternalReview['source'], string> = {
-  critiquebrainz: 'CritiqueBrainz',
-  wikipedia: 'Wikipedia',
-  musicbrainz: 'MusicBrainz',
-  discogs: 'Discogs',
-};
 
 type AddKind = 'listen' | 'clipping';
 
@@ -118,10 +112,12 @@ function RatingRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
     <Row label="Your rating">
       <div className={styles.ratingLine}>
         <StarRating value={rating} size={34} onChange={(r) => save.mutate({ rating: r })} />
-        {rating != null ? (<>
-          <span className={styles.ratingHint}>{rating.toFixed(1)} of 5</span>
-          <Button variant="quiet" size="sm" className={styles.clear} onClick={() => save.mutate({ rating: null })} disabled={save.isPending}>Clear</Button>
-        </>) : null}
+        {rating != null ? (
+          <span className={styles.ratingAside}>
+            <span className={styles.ratingHint}>{rating.toFixed(1)} of 5</span>
+            <Button variant="quiet" size="sm" className={styles.clear} onClick={() => save.mutate({ rating: null })} disabled={save.isPending}>Clear</Button>
+          </span>
+        ) : null}
       </div>
       {save.isError && <p className={styles.error}>{(save.error as { detail?: string })?.detail ?? 'The rating was not saved.'}</p>}
     </Row>
@@ -184,15 +180,18 @@ function ReviewRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | 
           {own && (
             <div className={styles.meta}>
               <span>Revision {own.currentRevision} · updated {fmtDate(own.updatedAt)}</span>
-              <Button variant="quiet" size="sm" onClick={() => setShowHistory((s) => !s)} aria-expanded={showHistory}>{showHistory ? 'Hide history' : 'History'}</Button>
+              <span className={styles.metaActions}>
+              <Button variant="quiet" size="sm" className={styles.inlineAction} onClick={() => setShowHistory((s) => !s)} aria-expanded={showHistory}>{showHistory ? 'Hide history' : 'History'}</Button>
               <Button
                 variant="quiet-danger"
                 size="sm"
+                className={styles.inlineAction}
                 disabled={remove.isPending}
                 onClick={async () => { if (await confirmDialog({ title: 'Delete your review?', message: 'Your rating, review and all its revisions are deleted. This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' })) remove.mutate(); }}
               >
                 Delete
               </Button>
+              </span>
             </div>
           )}
           {showHistory && revisions.data && (
@@ -247,17 +246,21 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
           </p>
           <ul className={styles.list}>
             {shown.map((l) => (
-              <li key={l.id} className={styles.listRow}>
-                <span className={styles.listDate}>{fmtDate(l.listenedAt)}</span>
-                <span className={styles.chip}>{FORMATS.find((f) => f.value === l.format)?.label ?? l.format ?? 'Listened'}</span>
-                {l.releaseTitle && <span className={styles.muted} title="Edition">{l.releaseTitle}</span>}
-                {l.note && <span className={styles.note}>{l.note}</span>}
-                <IconButton variant="quiet" size="sm" className={styles.removeButton} label={`Remove the listen on ${fmtDate(l.listenedAt)}`} onClick={() => remove.mutate(l.id)} disabled={remove.isPending}><span aria-hidden="true">✕</span></IconButton>
+              <li key={l.id} className={styles.entry}>
+                <div className={styles.entryMain}>
+                  <div className={styles.entryLine}>
+                    <span className={styles.listDate}>{fmtDate(l.listenedAt)}</span>
+                    <span className={styles.chip}>{FORMATS.find((f) => f.value === l.format)?.label ?? l.format ?? 'Listened'}</span>
+                    {l.releaseTitle && <span className={styles.muted} title="Edition">{l.releaseTitle}</span>}
+                  </div>
+                  {l.note && <span className={styles.note}>{l.note}</span>}
+                </div>
+                <IconButton variant="quiet" size="sm" className={styles.removeButton} label={`Remove the listen on ${fmtDate(l.listenedAt)}`} onClick={() => remove.mutate(l.id)} disabled={remove.isPending}><CloseIcon /></IconButton>
               </li>
             ))}
           </ul>
           {listens.length > 3 && (
-            <Button variant="quiet" size="sm" onClick={() => setShowAll((s) => !s)} aria-expanded={showAll}>{showAll ? 'Show fewer' : `Show all ${listens.length}`}</Button>
+            <Button variant="quiet" size="sm" className={styles.inlineAction} onClick={() => setShowAll((s) => !s)} aria-expanded={showAll}>{showAll ? 'Show fewer' : `Show all ${listens.length}`}</Button>
           )}
         </>
       )}
@@ -266,65 +269,30 @@ function ListenRow({ libraryId, releaseGroupId, listens, onAdd }: { libraryId: s
   );
 }
 
-/* ---------- External reviews and ratings (REV-1) ---------- */
-
 /* ---------- Critic scores (the album.critic-scores facet) ---------- */
-const score10 = (n: number | null) => (n === null ? 'no score' : `${n.toFixed(1)} / 10`);
 
 /**
  * Every source of critic scores, labelled: CritiqueBrainz, and what each
- * linked app sent ("Pitchfork (via review-gatherer)"). Scores only, no text;
- * a link opens the review where it was published.
+ * linked app sent, its outlets under it (Pitchfork, via review-gatherer).
+ * Scores only, no text; a link opens the review where it was published.
  */
 export function CriticScoresRow({ bundle }: { bundle: ReviewsBundle }) {
   const values = bundle.criticScores?.available ? bundle.criticScores.values : [];
   if (values.length === 0) return null;
-  return (
-    <Row label="Critic scores">
-      <ul className={styles.list}>
-        {values.map((v) => (
-          <li key={`${v.source.module}:${v.source.ref ?? ''}`} className={styles.listRow}>
-            <span className={styles.chip}>{v.source.label}</span>
-            {v.aggregate && v.aggregate.score !== null && (
-              <span>{score10(v.aggregate.score)}{v.aggregate.tier ? ` · ${v.aggregate.tier}` : ''}{v.aggregate.reviewCount > 1 ? ` · ${v.aggregate.reviewCount} reviews` : ''}</span>
-            )}
-          </li>
-        ))}
-      </ul>
-      {values.some((v) => v.reviews.length > 0 || v.criticRatings.length > 0) && (
-        <div className={styles.ratingsRow}>
-          {values.flatMap((v) => [
-            ...v.reviews.filter((r) => r.label !== v.source.label).map((r, i) => (
-              <span key={`${v.source.module}:${v.source.ref ?? ''}:r${i}`} className={styles.ratingCard}>
-                <strong>{r.label}</strong>
-                <span>{r.scoreRaw && r.score === null ? r.scoreRaw : score10(r.score)}</span>
-                {r.url && <a href={r.url} target="_blank" rel="noopener noreferrer" className={styles.extLink} aria-label={`${r.label}: the review`}>↗</a>}
-              </span>
-            )),
-            ...v.criticRatings.map((r, i) => (
-              <span key={`${v.source.module}:${v.source.ref ?? ''}:c${i}`} className={styles.ratingCard}>
-                <strong>{r.label}</strong>
-                <span>{r.score === null ? r.scoreRaw : score10(r.score)}</span>
-              </span>
-            )),
-          ])}
-        </div>
-      )}
-    </Row>
-  );
+  return <Row label="Critic scores"><CriticLedger values={values} /></Row>;
 }
+
+/* ---------- External reviews and ratings (REV-1) ---------- */
 
 function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string | undefined; releaseGroupId: string; bundle: ReviewsBundle }) {
   const refresh = useRefreshReviews(libraryId, releaseGroupId);
-  const texts = bundle.external.filter((e) => e.source === 'wikipedia' || e.source === 'critiquebrainz');
-  const ratings = bundle.external.filter((e) => e.source === 'musicbrainz' || e.source === 'discogs');
   const busy = refresh.isPending || bundle.gathering;
 
   return (
     <Row
       label="From the web"
       control={(
-        <Button variant="quiet" className={styles.control} onClick={() => refresh.mutate()} disabled={busy} loading={busy}>
+        <Button variant="secondary" className={styles.control} onClick={() => refresh.mutate()} disabled={busy} loading={busy}>
           {busy ? 'Gathering…' : bundle.fetchedAt ? 'Refresh reviews' : 'Gather reviews'}
         </Button>
       )}
@@ -335,53 +303,7 @@ function ExternalRow({ libraryId, releaseGroupId, bundle }: { libraryId: string 
       {!bundle.gathering && !bundle.fetchedAt && bundle.external.length === 0 && (
         <p className={styles.empty}>Nothing gathered yet. Gather reviews looks this album up on CritiqueBrainz, MusicBrainz, Wikipedia and Discogs (one request each, only when you ask).</p>
       )}
-
-      {ratings.length > 0 && (
-        <div className={styles.ratingsRow}>
-          {ratings.map((r) => (
-            <span key={r.id} className={styles.ratingCard} title={r.license}>
-              <strong>{SOURCE_LABEL[r.source]}</strong>
-              <StarRating value={r.ratingRaw != null && r.ratingScale ? Math.round((r.ratingRaw / r.ratingScale) * 10) / 2 : null} size={14} />
-              <span>{r.ratingRaw != null ? `${r.ratingRaw.toFixed(2)} / ${r.ratingScale ?? 5}` : 'no rating'}</span>
-              {r.excerpt && <span className={styles.muted}>({r.excerpt})</span>}
-              {r.source === 'discogs' && (
-                <span className={styles.muted}>
-                  {r.stale ? `as of ${fmtDateTime(r.fetchedAt)} · updating` : `as of ${fmtDateTime(r.fetchedAt)}`}
-                  {' · '}
-                  <a href="https://www.discogs.com" target="_blank" rel="noreferrer" className={styles.extLink}>Data provided by Discogs</a>
-                </span>
-              )}
-              {r.url && <a href={r.url} target="_blank" rel="noreferrer" className={styles.extLink} aria-label={`${SOURCE_LABEL[r.source]} page`}>↗</a>}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {texts.map((r) => (
-        <article key={r.id} className={styles.reviewCard}>
-          <header className={styles.reviewHead}>
-            <span className={styles.chip}>{SOURCE_LABEL[r.source]}</span>
-            {r.title && <strong>{r.title}</strong>}
-            {r.author && <span>{r.author}</span>}
-            {r.publishedAt && <span className={styles.muted}>{fmtDate(r.publishedAt)}</span>}
-            {r.ratingRaw != null && <StarRating value={r.ratingScale ? Math.round((r.ratingRaw / r.ratingScale) * 10) / 2 : null} size={14} />}
-          </header>
-          <div className={styles.markdown}>
-            {r.source === 'wikipedia'
-              ? (r.bodyText ?? '').split(/\n{2,}/).map((p, i) => <p key={i}>{p}</p>)
-              : <ReactMarkdown>{r.bodyText ?? r.excerpt ?? ''}</ReactMarkdown>}
-          </div>
-          <footer className={styles.reviewFoot}>
-            <span>{r.license}</span>
-            {r.url && (
-              <a href={r.url} target="_blank" rel="noreferrer">
-                {r.source === 'wikipedia' ? 'Read on Wikipedia ↗' : 'Read on CritiqueBrainz ↗'}
-              </a>
-            )}
-          </footer>
-        </article>
-      ))}
-
+      {bundle.external.length > 0 && <WebLedger external={bundle.external} />}
       {bundle.fetchedAt && !bundle.gathering && (
         <p className={styles.muted}>
           {fmtDateTime(bundle.fetchedAt)}
@@ -417,7 +339,7 @@ function LinkChips({ bundle }: { bundle: ReviewsBundle }) {
 
 /* ---------- Clippings (REV-2) ---------- */
 
-function ClippingsRow({ releaseGroupId, bundle }: { releaseGroupId: string; bundle: ReviewsBundle }) {
+export function ClippingsRow({ releaseGroupId, bundle }: { releaseGroupId: string; bundle: ReviewsBundle }) {
   const remove = useDeleteClipping(releaseGroupId);
   return (
     <Row label="Clippings">
@@ -426,13 +348,19 @@ function ClippingsRow({ releaseGroupId, bundle }: { releaseGroupId: string; bund
       ) : (
         <ul className={styles.list}>
           {bundle.clippings.map((c) => (
-            <li key={c.id} className={styles.listRow}>
-              {c.sourceLabel && <span className={styles.chip}>{c.sourceLabel}</span>}
-              {c.scoreRaw != null && <span className={styles.score}>{c.scoreRaw}</span>}
-              {c.note && <span className={styles.note}>“{c.note}”</span>}
-              {c.url && <a href={c.url} target="_blank" rel="noreferrer" className={styles.extLink} aria-label="Open the clipping">↗</a>}
-              <span className={styles.muted}>{fmtDate(c.createdAt)}</span>
-              <IconButton variant="quiet" size="sm" className={styles.removeButton} label="Remove the clipping" onClick={() => remove.mutate(c.id)} disabled={remove.isPending}><span aria-hidden="true">✕</span></IconButton>
+            <li key={c.id} className={[styles.entry, httpOnly(c.url) ? styles.entryLinked : ''].join(' ')}>
+              <div className={styles.entryMain}>
+                <div className={styles.entryLine}>
+                  {c.sourceLabel && <span className={styles.chip}>{c.sourceLabel}</span>}
+                  {c.scoreRaw != null && <span className={styles.score}>{c.scoreRaw}</span>}
+                  <span className={styles.muted}>{fmtDate(c.createdAt)}</span>
+                </div>
+                {c.note && <span className={styles.note}>“{c.note}”</span>}
+                {/* a link that is not http(s) is kept as text, never as an href */}
+                {c.url && !httpOnly(c.url) && <span className={styles.muted}>{c.url}</span>}
+              </div>
+              {httpOnly(c.url) && <a href={httpOnly(c.url)!} target="_blank" rel="noopener noreferrer" className={styles.go} aria-label="Open the clipping" title="Open the clipping"><ArrowOutIcon /></a>}
+              <IconButton variant="quiet" size="sm" className={styles.removeButton} label="Remove the clipping" onClick={() => remove.mutate(c.id)} disabled={remove.isPending}><CloseIcon /></IconButton>
             </li>
           ))}
         </ul>

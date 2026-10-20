@@ -27,10 +27,6 @@
   padding: 0.75rem 0;
 }
 
-.title {
-  margin: 0;
-}
-
 /* the one place secondary additions live: a listen with details, a clipping */
 .addButton {
   min-height: 44px;
@@ -166,10 +162,6 @@
   gap: var(--space-xs) var(--space-sm);
   color: var(--ink-3);
   font-size: var(--font-size-xs);
-}
-
-.removeButton {
-  margin-left: auto;
 }
 
 .editor {
@@ -309,61 +301,6 @@
   gap: var(--space-xs);
 }
 
-.ratingsRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-sm);
-}
-
-.ratingCard {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-xs);
-  padding: 0.35rem 0.9rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--canvas);
-  font-size: var(--font-size-sm);
-}
-
-.reviewCard {
-  padding: 1rem 1.25rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-inner);
-  background: var(--canvas);
-}
-
-.reviewHead {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-xs);
-  font-size: var(--font-size-sm);
-}
-
-.reviewFoot {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  margin-top: var(--space-xs);
-  font-size: var(--font-size-xs);
-  color: var(--text-tertiary);
-}
-
-.reviewFoot a,
-.extLink {
-  color: var(--accent);
-  text-decoration: none;
-}
-
-.reviewFoot a:hover,
-.extLink:hover {
-  text-decoration: underline;
-}
-
 /* ---- the Add sheet: a card on a scrim; a bottom sheet on a phone ---- */
 
 .sheet {
@@ -486,4 +423,115 @@
   .sheet[open] {
     animation: none;
   }
+}
+
+/* ---------------- value, entries and inline actions ---------------- */
+
+/* the rating's value and its Clear wrap together, never Clear alone */
+.ratingAside {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+}
+
+/* History and Delete are one group: they wrap together, under the revision line */
+.metaActions {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: var(--space-xs);
+}
+
+/* a quiet text action inside a value: a 44px target whose label starts on the text edge */
+.inlineAction.inlineAction {
+  min-height: 44px;
+  align-self: flex-start;
+}
+
+@container reviews (max-width: 30rem) {
+  .meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+  }
+  .metaActions,
+  .rowValue > .inlineAction {
+    margin-inline-start: -12px;
+  }
+  .ratingAside {
+    gap: var(--space-sm);
+  }
+}
+
+/* a listen or a clipping: what it is (wrapping freely), the ✕ in its own column */
+.entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: start;
+  column-gap: var(--space-sm);
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--line);
+  font-size: var(--font-size-sm);
+}
+
+.entry:first-child {
+  border-top: 0;
+}
+
+.entryMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 0.6rem;
+}
+
+.entryLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+.removeButton.removeButton {
+  min-width: 44px;
+  min-height: 44px;
+  justify-self: end;
+}
+
+.removeButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+.entryLinked {
+  grid-template-columns: minmax(0, 1fr) 44px 44px;
+}
+
+.go {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-pill);
+  color: var(--dew);
+}
+
+.go:hover {
+  background: var(--mist);
+}
+
+.go:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Elsewhere: the link chips reach 44px too */
+.chipLink,
+.chipSearch {
+  min-height: 44px;
+}
+
+.clear.clear {
+  min-height: 44px;
 }

@@ -27,7 +27,7 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'The review panel’s critic scores: every source of the album.critic-scores facet, labelled. CritiqueBrainz comes from tagave’s own reviews; a linked app’s reviews say where they came from, for example “Pitchfork (via review-gatherer)”. Scores only, never review text.',
+        component: 'The review panel’s critic scores as a ledger: every source of the album.critic-scores facet with its aggregate first, a linked app’s outlets under it by their own name (Pitchfork, under review-gatherer). The score sits flush right in tabular figures and a link out has its own 44px column. CritiqueBrainz comes from tagave’s own reviews. Scores only, never review text.',
       },
     },
   },
