@@ -160,14 +160,18 @@ export const criticScoreSchema = z.object({
   source: z.object({ module: z.string(), ref: z.string().nullable(), label: z.string() }),
   aggregate: z.object({ score: z.number().nullable(), tier: z.string().nullable(), reviewCount: z.number() }).nullable(),
   reviews: z.array(z.object({
-    /** "Pitchfork (via review-gatherer)" */
+    /** "Pitchfork (via review-gatherer)"; kept for older clients, show `outlet` and `via` */
     label: z.string(),
+    /** the publication: "Pitchfork", "CritiqueBrainz" */
+    outlet: z.string(),
+    /** the app that relayed it ("review-gatherer"); null for a source tagave reads itself */
+    via: z.string().nullable(),
     score: z.number().nullable(),
     scoreRaw: z.string().nullable(),
     url: z.string().nullable(),
     publishedAt: z.string().nullable(),
   })),
-  criticRatings: z.array(z.object({ label: z.string(), score: z.number().nullable(), scoreRaw: z.string() })),
+  criticRatings: z.array(z.object({ label: z.string(), outlet: z.string(), via: z.string().nullable(), score: z.number().nullable(), scoreRaw: z.string() })),
   updatedAt: z.string().nullable(),
 }).strict();
 
@@ -187,3 +191,12 @@ export const reviewsBundleSchema = z.object({
 }).strict();
 
 export type ReviewsBundle = z.infer<typeof reviewsBundleSchema>;
+
+/**
+ * Only http(s) URLs reach a page as a link: anything else (javascript:,
+ * data:, a relative path) is null, so it renders as text or not at all.
+ */
+export function httpOnly(u: string | null | undefined): string | null {
+  // no URL global here (shared builds without DOM or Node types): the scheme, then a host, no whitespace
+  return u && /^https?:\/\/[^\s/?#]+[^\s]*$/i.test(u) ? u : null;
+}

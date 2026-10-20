@@ -48,13 +48,13 @@ const full: ReviewsBundle = {
     available: true,
     values: [
       { source: { module: 'reviews', ref: null, label: 'CritiqueBrainz' }, aggregate: { score: 8, tier: null, reviewCount: 1 },
-        reviews: [{ label: 'CritiqueBrainz', score: 8, scoreRaw: '80/100', url: 'https://critiquebrainz.org/review/1', publishedAt: null }], criticRatings: [], updatedAt: null },
+        reviews: [{ label: 'CritiqueBrainz', outlet: 'CritiqueBrainz', via: null, score: 8, scoreRaw: '80/100', url: 'https://critiquebrainz.org/review/1', publishedAt: null }], criticRatings: [], updatedAt: null },
       { source: { module: 'mc', ref: 'l1', label: 'review-gatherer' }, aggregate: { score: 8.7, tier: 'A', reviewCount: 3 },
         reviews: [
-          { label: 'Pitchfork (via review-gatherer)', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/reviews/1', publishedAt: null },
-          { label: 'The Quietus (via review-gatherer)', score: null, scoreRaw: 'unscored', url: 'https://thequietus.com/1', publishedAt: null },
+          { label: 'Pitchfork (via review-gatherer)', outlet: 'Pitchfork', via: 'review-gatherer', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/reviews/1', publishedAt: null },
+          { label: 'The Quietus (via review-gatherer)', outlet: 'The Quietus', via: 'review-gatherer', score: null, scoreRaw: 'unscored', url: 'https://thequietus.com/1', publishedAt: null },
         ],
-        criticRatings: [{ label: 'Metacritic (via review-gatherer)', score: 8.6, scoreRaw: '86' }], updatedAt: null },
+        criticRatings: [{ label: 'Metacritic (via review-gatherer)', outlet: 'Metacritic', via: 'review-gatherer', score: 8.6, scoreRaw: '86' }], updatedAt: null },
     ],
   },
   external: [

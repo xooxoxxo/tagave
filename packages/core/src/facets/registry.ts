@@ -46,6 +46,15 @@ export interface FacetValue {
   updatedAt: string | null;
 }
 
+/**
+ * Who relayed a value: the source's label when its module relays another
+ * app's data (mc: "review-gatherer"), null when tagave read the source itself
+ * (CritiqueBrainz, MusicBrainz, Discogs, Wikipedia).
+ */
+export function relayOf(modules: ReadonlyMap<string, ModuleManifest>, source: FacetSource): string | null {
+  return modules.get(source.module)?.relays ? source.label : null;
+}
+
 export type FacetReader = (entities: EntityRef[], scope: ScopeArgs) => Promise<Map<string, FacetValue[]>>;
 
 export interface FacetResult {

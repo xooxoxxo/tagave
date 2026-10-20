@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
-  createFacets, createRegistry, defineCast, defineFacet, defineModule, registry, scopeArgs,
+  createFacets, createRegistry, defineCast, defineFacet, defineModule, registry, relayOf, scopeArgs,
   MODULES, FACETS, ALBUM_CRITIC_SCORES,
   type FacetContext, type FacetReader, type ModuleContext,
 } from './index.js';
@@ -97,6 +97,15 @@ describe('compatibility rules', () => {
     expect(registry.isEnabled('player', on)).toBe(false);
     expect(registry.isEnabled('player', { ...on, playerUrl: 'http://navidrome:4533' })).toBe(true);
     expect(registry.isEnabled('library', off)).toBe(true);
+  });
+});
+
+describe('relayOf', () => {
+  it('names the relay for a module that relays another app’s data (mc), none for a source tagave reads itself', () => {
+    expect(relayOf(registry.modules, { module: 'mc', ref: 'link-1', label: 'review-gatherer' })).toBe('review-gatherer');
+    expect(relayOf(registry.modules, { module: 'reviews', ref: null, label: 'CritiqueBrainz' })).toBeNull();
+    expect(relayOf(registry.modules, { module: 'nobody', ref: null, label: 'x' })).toBeNull();
+    expect(MODULES.filter((m) => m.relays).map((m) => m.id)).toEqual(['mc']);
   });
 });
 

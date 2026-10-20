@@ -8,9 +8,9 @@
  *   album.wantlist-suggestion@1  mc: mc_wantlist_suggestions, the caller's own
  */
 import type postgres from 'postgres';
-import { createFacets, registry, type FacetContext, type FacetReader, type FacetValue } from '@tagave/core/facets';
+import { createFacets, registry, relayOf, type FacetContext, type FacetReader, type FacetValue } from '@tagave/core/facets';
 import { mcEnabled } from '@tagave/db';
-import type { CriticScore } from '@tagave/shared';
+import { httpOnly, type CriticScore } from '@tagave/shared';
 
 type Sql = postgres.Sql;
 
@@ -85,29 +85,22 @@ type CriticData = {
   critic_ratings?: Array<{ outlet: string; score: number | null; score_raw: string }>;
 };
 
-/** Only http(s) URLs reach the page (a stored one was checked on landing; this is the last guard). */
-const httpOnly = (u: string | null | undefined): string | null => {
-  if (!u) return null;
-  try {
-    const p = new URL(u).protocol;
-    return p === 'http:' || p === 'https:' ? u : null;
-  } catch {
-    return null;
-  }
-};
-
 /**
- * A facet value as the review panel shows it: each review labelled with
- * where it came from ("Pitchfork (via review-gatherer)").
+ * A facet value as the review panel shows it: each review's outlet
+ * ("Pitchfork") and the app that relayed it ("review-gatherer"; null for a
+ * source tagave reads itself), plus the combined label older clients show
+ * ("Pitchfork (via review-gatherer)").
  */
 export function criticScoreView(v: FacetValue): CriticScore {
   const d = (v.data ?? {}) as CriticData;
-  const via = (name: string) => (v.source.module === 'mc' ? `${name} (via ${v.source.label})` : name);
+  const relay = relayOf(registry.modules, v.source);
+  const named = (outlet: string) => ({ label: relay ? `${outlet} (via ${relay})` : outlet, outlet, via: relay });
   return {
     source: { module: v.source.module, ref: v.source.ref, label: v.source.label },
     aggregate: d.aggregate ? { score: d.aggregate.score, tier: d.aggregate.tier, reviewCount: d.aggregate.review_count } : null,
-    reviews: (d.reviews ?? []).map((r) => ({ label: via(r.source), score: r.score, scoreRaw: r.score_raw, url: httpOnly(r.url), publishedAt: r.published_at })),
-    criticRatings: (d.critic_ratings ?? []).map((r) => ({ label: via(r.outlet), score: r.score, scoreRaw: r.score_raw })),
+    // only http(s) URLs reach the page (a stored one was checked on landing; this is the last guard)
+    reviews: (d.reviews ?? []).map((r) => ({ ...named(r.source), score: r.score, scoreRaw: r.score_raw, url: httpOnly(r.url), publishedAt: r.published_at })),
+    criticRatings: (d.critic_ratings ?? []).map((r) => ({ ...named(r.outlet), score: r.score, scoreRaw: r.score_raw })),
     updatedAt: v.updatedAt,
   };
 }

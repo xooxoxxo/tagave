@@ -76,6 +76,8 @@ export const MC_MODULE = defineModule({
   gapFills: [{ kind: 'album', field: 'mbid' }],
   jobs: ['connections.pull', 'mc.purge'],
   prefix: 'mc_',
+  // a value is what a linked app sent: its source label is the app, the outlet is in the data
+  relays: true,
   tables: [
     'mc_links', 'mc_pending', 'mc_oauth_clients', 'mc_oauth_requests', 'mc_oauth_tokens',
     'mc_critic_scores', 'mc_identity', 'mc_wantlist_suggestions',

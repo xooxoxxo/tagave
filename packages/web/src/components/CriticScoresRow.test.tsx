@@ -18,8 +18,8 @@ describe('CriticScoresRow', () => {
     const html = renderToStaticMarkup(<CriticScoresRow bundle={bundle({ available: true, values: [
       { source: { module: 'reviews', ref: null, label: 'CritiqueBrainz' }, aggregate: { score: 8, tier: null, reviewCount: 1 }, reviews: [], criticRatings: [], updatedAt: null },
       { source: { module: 'mc', ref: 'l1', label: 'review-gatherer' }, aggregate: { score: 8.7, tier: 'A', reviewCount: 2 },
-        reviews: [{ label: 'Pitchfork (via review-gatherer)', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/r/1', publishedAt: null }],
-        criticRatings: [{ label: 'Metacritic (via review-gatherer)', score: 8.6, scoreRaw: '86' }], updatedAt: null },
+        reviews: [{ label: 'Pitchfork (via review-gatherer)', outlet: 'Pitchfork', via: 'review-gatherer', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/r/1', publishedAt: null }],
+        criticRatings: [{ label: 'Metacritic (via review-gatherer)', outlet: 'Metacritic', via: 'review-gatherer', score: 8.6, scoreRaw: '86' }], updatedAt: null },
     ] })} />);
     expect(html).toContain('Critic scores');
     expect(html).toContain('CritiqueBrainz');

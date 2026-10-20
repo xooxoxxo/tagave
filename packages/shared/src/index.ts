@@ -185,6 +185,7 @@ export {
   criticScoreSchema,
   type CriticScore,
   type ReviewsBundle,
+  httpOnly,
 } from './review.js';
 
 // Jobs and SSE events

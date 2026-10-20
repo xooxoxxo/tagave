@@ -9,7 +9,8 @@
  *     Discogs side never lists;
  *   - revoking a link deletes exactly its rows;
  *   - the review panel's critic scores: CritiqueBrainz and each linked app's,
- *     labelled "Pitchfork (via review-gatherer)", and the app's gone when the
+ *     each review's outlet ("Pitchfork") and relay ("review-gatherer", none
+ *     for CritiqueBrainz) beside the old label, and the app's gone when the
  *     module is off;
  *   - the echo rule on the identity feed;
  *   - the module switch (Settings › Modules): off hides the feeds and the
@@ -33,6 +34,7 @@ import { TEST_APP_SECRET, TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { initDb } from '../db.js';
 import { criticScoresFor } from '../lib/facets.js';
+import { reviewsBundleSchema } from '@tagave/shared';
 import { readFeed } from '../lib/mcFeeds.js';
 import { resetConnectionRouteLimits } from './mcConnections.js';
 import { DECISIONS_PER_MINUTE, resetWantlistDecisionLimit } from './mcWantlist.js';
@@ -277,9 +279,11 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     expect(got.available).toBe(true);
     expect(got.values.map((v) => v.source.label)).toEqual(['CritiqueBrainz', 'review-gatherer']);
     const mc = got.values[1]!;
-    expect(mc.reviews).toEqual([{ label: 'Pitchfork (via review-gatherer)', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/r/1', publishedAt: null }]);
-    expect(mc.criticRatings[0]!.label).toBe('Metacritic (via review-gatherer)');
-    expect(got.values[0]).toMatchObject({ aggregate: { score: 8 }, reviews: [{ label: 'CritiqueBrainz' }] });
+    expect(mc.reviews).toEqual([{ label: 'Pitchfork (via review-gatherer)', outlet: 'Pitchfork', via: 'review-gatherer', score: 9.1, scoreRaw: '9.1', url: 'https://pitchfork.com/r/1', publishedAt: null }]);
+    expect(mc.criticRatings[0]).toMatchObject({ label: 'Metacritic (via review-gatherer)', outlet: 'Metacritic', via: 'review-gatherer' });
+    expect(got.values[0]).toMatchObject({ aggregate: { score: 8 }, reviews: [{ label: 'CritiqueBrainz', outlet: 'CritiqueBrainz', via: null }] });
+    // the bundle's schema accepts the view as the route sends it
+    expect(reviewsBundleSchema.shape.criticScores.unwrap().safeParse(got).success).toBe(true);
     // another person sees CritiqueBrainz only
     expect((await criticScoresFor(sql, { userId: owner.userId, libraryId }, rg!.id)).values.map((v) => v.source.label)).toEqual(['CritiqueBrainz']);
     await setMcEnabled(sql, false);

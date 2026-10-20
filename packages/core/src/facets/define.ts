@@ -89,12 +89,18 @@ export interface ModuleManifest {
   tables: readonly string[];
   /** Table-name prefix the module owns (mc_, player_), if any. */
   prefix: string | null;
+  /**
+   * Its values are relayed from another app (mc: what a linked app sent), so
+   * a value's source label names the relay, not the outlet. Built-in modules
+   * read their sources themselves (false).
+   */
+  relays: boolean;
   enabled(ctx: ModuleContext): boolean;
 }
 
 const MODULE_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 
-export function defineModule(m: Omit<ModuleManifest, 'builtIn' | 'gapFills' | 'jobs' | 'tables' | 'prefix'> & Partial<Pick<ModuleManifest, 'builtIn' | 'gapFills' | 'jobs' | 'tables' | 'prefix'>>): ModuleManifest {
+export function defineModule(m: Omit<ModuleManifest, 'builtIn' | 'gapFills' | 'jobs' | 'tables' | 'prefix' | 'relays'> & Partial<Pick<ModuleManifest, 'builtIn' | 'gapFills' | 'jobs' | 'tables' | 'prefix' | 'relays'>>): ModuleManifest {
   if (!MODULE_ID_RE.test(m.id)) throw new Error(`not a module id: ${m.id}`);
   for (const p of m.provides) {
     if (!NAME_RE.test(p.facet)) throw new Error(`${m.id}: provides a facet by name, not id: ${p.facet}`);
@@ -104,7 +110,7 @@ export function defineModule(m: Omit<ModuleManifest, 'builtIn' | 'gapFills' | 'j
     if (!NAME_RE.test(c.facet)) throw new Error(`${m.id}: consumes a facet by name, not id: ${c.facet}`);
     parseRange(c.range);
   }
-  return { builtIn: false, gapFills: [], jobs: [], tables: [], prefix: null, ...m };
+  return { builtIn: false, gapFills: [], jobs: [], tables: [], prefix: null, relays: false, ...m };
 }
 
 /**
