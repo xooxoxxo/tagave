@@ -188,12 +188,13 @@ export function parseImageRef(ref: string): ImageRef {
   if (at >= 0) {
     reference = rest.slice(at + 1);
     rest = rest.slice(0, at);
-  } else {
-    const colon = rest.lastIndexOf(':');
-    if (colon > rest.lastIndexOf('/')) {
-      reference = rest.slice(colon + 1);
-      rest = rest.slice(0, colon);
-    }
+  }
+  // A tag, also in front of a digest (name:tag@sha256:…, as the release's
+  // pins write it): the digest wins and the tag is not part of the name.
+  const colon = rest.lastIndexOf(':');
+  if (colon > rest.lastIndexOf('/')) {
+    if (at < 0) reference = rest.slice(colon + 1);
+    rest = rest.slice(0, colon);
   }
   const parts = rest.split('/');
   const first = parts[0] ?? '';

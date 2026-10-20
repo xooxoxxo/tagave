@@ -10,6 +10,7 @@ import {
   parseImageRef,
   planSpace,
   registryClient,
+  repoOf,
   requiredBytes,
   backupsOnHostFolder,
   filesystemRelation,
@@ -124,6 +125,9 @@ describe('image references', () => {
     ['ghcr.io/xooxoxxo/tagave-app:0.9.0', { registry: 'ghcr.io', repository: 'xooxoxxo/tagave-app', reference: '0.9.0' }],
     ['localhost:5000/tagave-app', { registry: 'localhost:5000', repository: 'tagave-app', reference: 'latest' }],
     ['ghcr.io/x/y@sha256:abc', { registry: 'ghcr.io', repository: 'x/y', reference: 'sha256:abc' }],
+    // the shape the release's pins give compose: a tag and the digest
+    [`ghcr.io/xooxoxxo/tagave-updater:0.12.0@sha256:${'b12c'.repeat(16)}`, { registry: 'ghcr.io', repository: 'xooxoxxo/tagave-updater', reference: `sha256:${'b12c'.repeat(16)}` }],
+    ['localhost:5000/tagave-app:1.0@sha256:abc', { registry: 'localhost:5000', repository: 'tagave-app', reference: 'sha256:abc' }],
   ])('%s', (ref, want) => {
     expect(parseImageRef(ref)).toEqual(want);
   });
@@ -170,6 +174,29 @@ describe('the registry client', () => {
     expect(seen[1]!.url).toBe('https://ghcr.io/token?service=ghcr.io&scope=repository%3Ax%2Fapp%3Apull');
     // the token is reused for the second manifest
     expect(seen.filter((s) => s.url.startsWith('https://ghcr.io/token')).length).toBe(1);
+  });
+
+  it('reads a tag-and-digest reference by its digest, with a token for the repository alone', async () => {
+    // The 0.11.0 -> 0.12.0 run logged "could not read the size of
+    // ghcr.io/xooxoxxo/tagave-updater:0.12.0@sha256:…": the tag stayed in the
+    // repository name, so the token scope and the manifest URL were wrong.
+    const pinned = `sha256:${'b12c'.repeat(16)}`;
+    const seen: string[] = [];
+    const json = (status: number, body: unknown, headers: Record<string, string> = {}) => ({
+      status,
+      headers: { get: (n: string) => headers[n.toLowerCase()] ?? null },
+      json: async () => body,
+    });
+    const fetchImpl: Fetch = async (url, init) => {
+      seen.push(url);
+      if (url.startsWith('https://ghcr.io/token?')) return url.includes('scope=repository%3Axooxoxxo%2Ftagave-updater%3Apull') ? json(200, { token: 'T' }) : json(403, {});
+      if (init.headers['Authorization'] !== 'Bearer T') return json(401, {}, { 'www-authenticate': 'Bearer realm="https://ghcr.io/token",service="ghcr.io"' });
+      if (url === `https://ghcr.io/v2/xooxoxxo/tagave-updater/manifests/${pinned}`) return json(200, { layers: [{ digest: 'sha256:u1', size: 7 }] });
+      return json(404, {});
+    };
+    expect(await registryClient(fetchImpl, 'arm64')(`ghcr.io/xooxoxxo/tagave-updater:0.12.0@${pinned}`)).toEqual([{ digest: 'sha256:u1', size: 7 }]);
+    expect(seen.some((u) => u.includes(':0.12.0'))).toBe(false);
+    expect(repoOf(`ghcr.io/xooxoxxo/tagave-updater:0.12.0@${pinned}`)).toBe(repoOf('ghcr.io/xooxoxxo/tagave-updater@sha256:other'));
   });
 
   it('fails clearly for an architecture the index lacks, or a missing tag', async () => {
