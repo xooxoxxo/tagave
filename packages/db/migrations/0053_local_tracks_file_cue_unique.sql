@@ -5,7 +5,7 @@
 -- Existing duplicates are folded first. Per key the kept row is the one linked
 -- to a canonical track, then one the player mapped, then the smallest id.
 -- Plays, player events and favourite tracks pointing at a dropped twin move
--- to the kept row; the twin's player_track_map row cascades away.
+-- to the kept row (favourites keep their order); the twin's player_track_map row cascades away.
 create temp table _lt_dupes on commit drop as
 select id, keep_id from (
   select lt.id,
@@ -22,9 +22,13 @@ where rn > 1;
 update player_plays p set local_track_id = d.keep_id from _lt_dupes d where p.local_track_id = d.id;
 update player_events e set local_track_id = d.keep_id from _lt_dupes d where e.local_track_id = d.id;
 update user_reviews u
-   set favorite_track_ids = (select array_agg(distinct coalesce(d.keep_id, f))
-                               from unnest(u.favorite_track_ids) f
-                               left join _lt_dupes d on d.id = f)
+   set favorite_track_ids = (select array_agg(t.id order by t.ord)
+                               from (select m.id, m.ord,
+                                            row_number() over (partition by m.id order by m.ord) as rn
+                                       from (select coalesce(d.keep_id, f.id) as id, f.ord
+                                               from unnest(u.favorite_track_ids) with ordinality as f(id, ord)
+                                               left join _lt_dupes d on d.id = f.id) m) t
+                              where t.rn = 1)
  where u.favorite_track_ids && (select coalesce(array_agg(id), '{}') from _lt_dupes);
 delete from local_tracks lt using _lt_dupes d where lt.id = d.id;
 

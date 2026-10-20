@@ -89,8 +89,10 @@ describe.skipIf(!url)('0053 local_tracks unique key migration (integration)', ()
   let admin: postgres.Sql;
   let db: { url: string; name: string };
   let sql: postgres.Sql;
-  const ids = { lib: randomUUID(), root: randomUUID(), album: randomUUID(), file: randomUUID(), cue: randomUUID(), user: randomUUID() };
+  const ids = { lib: randomUUID(), root: randomUUID(), album: randomUUID(), file: randomUUID(), cue: randomUUID(), file2: randomUUID(), user: randomUUID() };
   const plain = { linked: randomUUID(), mapped: randomUUID(), bare: randomUUID() };
+  const second = { mapped: randomUUID(), bare: randomUUID() };
+  const other = { first: randomUUID(), last: randomUUID() };
   let releaseCanonical: string;
 
   beforeAll(async () => {
@@ -101,7 +103,8 @@ describe.skipIf(!url)('0053 local_tracks unique key migration (integration)', ()
     await sql`insert into users (id, email, display_name, password_hash) values (${ids.user}, ${`u-${ids.user}@test.com`}, 'U', 'x')`;
     await sql`insert into libraries (id, owner_user_id, name, settings) values (${ids.lib}, ${ids.user}, 'L', '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${ids.root}, ${ids.lib}, '/music', 'm')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${ids.file}, ${ids.lib}, ${ids.root}, 'A/1.flac'), (${ids.cue}, ${ids.lib}, ${ids.root}, 'A/img.flac')`;
+    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${ids.file}, ${ids.lib}, ${ids.root}, 'A/1.flac'), (${ids.cue}, ${ids.lib}, ${ids.root}, 'A/img.flac'),
+                     (${ids.file2}, ${ids.lib}, ${ids.root}, 'A/2.flac')`;
     await sql`insert into local_albums (id, library_id, cluster_key) values (${ids.album}, ${ids.lib}, 'k')`;
     const [rg] = await sql`insert into release_groups (mbid, title) values (${randomUUID()}, 'RG') returning id`;
     const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg!['id']}, ${randomUUID()}, 'R') returning id`;
@@ -117,10 +120,16 @@ describe.skipIf(!url)('0053 local_tracks unique key migration (integration)', ()
               values (${ids.user}, ${ids.lib}, 'd1', 'web', ${plain.bare}, 'T', now(), true, false)`;
     const [rgUser] = await sql`select id from release_groups limit 1`;
     await sql`insert into user_reviews (library_id, user_id, release_group_id, favorite_track_ids)
-              values (${ids.lib}, ${ids.user}, ${rgUser!['id']}, ${[plain.bare]}::uuid[])`;
+              values (${ids.lib}, ${ids.user}, ${rgUser!['id']}, ${[other.last, plain.bare, other.first]}::uuid[])`;
+    // A second plain file with no linked row: the player-mapped twin must win.
+    await sql`insert into local_tracks (id, local_album_id, audio_file_id, track_no) values
+              (${second.bare}, ${ids.album}, ${ids.file2}, 1), (${second.mapped}, ${ids.album}, ${ids.file2}, 1)`;
+    await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${second.mapped}, 'bundled', 's2', 'path')`;
+    await sql`insert into player_events (user_id, library_id, local_track_id, queue_id, kind, played_ms, position_ms, occurred_at)
+              values (${ids.user}, ${ids.lib}, ${plain.bare}, ${randomUUID()}, 'completed', 1000, 1000, now())`;
     // Two cue tracks of one image file with distinct starts stay.
-    await sql`insert into local_tracks (local_album_id, audio_file_id, track_no, origin, cue_start_ms) values
-              (${ids.album}, ${ids.cue}, 1, 'cue', 0), (${ids.album}, ${ids.cue}, 2, 'cue', 180000)`;
+    await sql`insert into local_tracks (id, local_album_id, audio_file_id, track_no, origin, cue_start_ms) values
+              (${other.first}, ${ids.album}, ${ids.cue}, 1, 'cue', 0), (${other.last}, ${ids.album}, ${ids.cue}, 2, 'cue', 180000)`;
     expect(await migrateAll(db.url)).toContain('0053_local_tracks_file_cue_unique.sql');
   }, 120_000);
 
@@ -137,7 +146,16 @@ describe.skipIf(!url)('0053 local_tracks unique key migration (integration)', ()
 
   it('re-points plays and favourites of a dropped twin to the kept row', async () => {
     expect((await sql`select local_track_id from player_plays where dedupe_key = 'd1'`)[0]!['local_track_id']).toBe(plain.linked);
-    expect((await sql`select favorite_track_ids from user_reviews where user_id = ${ids.user}`)[0]!['favorite_track_ids']).toEqual([plain.linked]);
+    expect((await sql`select favorite_track_ids from user_reviews where user_id = ${ids.user}`)[0]!['favorite_track_ids']).toEqual([other.last, plain.linked, other.first]);
+  });
+
+  it('re-points player events of a dropped twin to the kept row', async () => {
+    expect((await sql`select local_track_id from player_events where user_id = ${ids.user}`)[0]!['local_track_id']).toBe(plain.linked);
+  });
+
+  it('keeps the player-mapped row when no twin is linked', async () => {
+    const rows = await sql`select id from local_tracks where audio_file_id = ${ids.file2}`;
+    expect(rows.map((r) => r['id'])).toEqual([second.mapped]);
   });
 
   it('keeps cue tracks with different starts', async () => {
