@@ -1,7 +1,8 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   A_HDR, A_REST, B_HDR, B_REST, HEADER,
-  aboutExcerpt, albumLines, caretPath, countryName, fillerCentres, fillerDots, fillerHeight, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, releaseYear, seededRandom, shortFormat, wantsFiller,
+  aboutExcerpt, albumLines, caretPath, countryName, fillerCentres, fillerDots, paintFiller, rippleField, type FillerContext, flowState, formatLine, formatReleased, releaseYear, seededRandom, shortFormat, wantsFiller,
 } from './albumFlow';
 import type { DetailTrack } from './albumDetailTypes';
 
@@ -96,9 +97,18 @@ describe('album flow: generative filler', () => {
     expect(wantsFiller(4)).toBe(false);
   });
 
-  it('fills the screen under the stuck header and label, never under 320px', () => {
-    expect(fillerHeight(844, 46, 58)).toBe(844 - 64 - 46 - 58);
-    expect(fillerHeight(600, 46, 400)).toBe(320);
+  it('takes only the room the pane has left under the tracks: the page never scrolls for it', () => {
+    const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+    const css = read('./AlbumDetailPage.module.css');
+    const layout = read('../components/Layout.module.css');
+    // the page, its shell and the flow are at least the pane's height (player bar and all)
+    expect(layout).toMatch(/\.page:has\(\[data-album-flow\]\) \{ display: flex; flex-direction: column; \}/);
+    expect(layout).toMatch(/\.page:has\(\[data-album-flow\]\) > div \{ flex: 1 0 auto; \}/);
+    expect(css).toMatch(/\.flow \{[^}]*flex: 1 0 auto;/);
+    // the filler grows into what is left and shrinks to nothing, sized by no script
+    expect(css).toMatch(/\.filler \{[^}]*flex: 1 1 0;[^}]*min-height: 0;/);
+    expect(css).toMatch(/\.filler \+ \.foot:empty \{\s*padding: 0;/);
+    expect(read('./AlbumFiller.tsx')).not.toMatch(/style=\{\{ height/);
   });
 
   it('the same title gives the same piece; another title another', () => {

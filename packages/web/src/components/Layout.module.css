@@ -70,6 +70,11 @@ between browsing and upkeep: the hairline cut into the
 .page { min-height: 100%; }
 .page > div { width: 100%; }
 .page:has([data-virtual-page]) { height: 100%; }
+/* The album flow is at least the pane's height (header, player bar and all),
+   so a short album's filler can take the room left under its tracks without
+   making the page scroll (AlbumDetailPage.module.css .flow and .filler). */
+.page:has([data-album-flow]) { display: flex; flex-direction: column; }
+.page:has([data-album-flow]) > div { flex: 1 0 auto; }
 /* Home's kiosk view: exactly the pane's height on a desktop (DashboardPage) */
 /* The footer shares the pane with Home instead of sitting below a full-height
    page, so the whole view (Discogs notice included) fits without scrolling. */

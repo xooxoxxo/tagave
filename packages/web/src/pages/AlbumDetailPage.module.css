@@ -74,7 +74,8 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 100%;
+  /* the page shell is at least the pane's height (Layout.module.css): fill it */
+  flex: 1 0 auto;
 }
 
 .hero {
@@ -311,10 +312,21 @@
   min-width: 0;
 }
 
-/* short albums: the generative piece under the tracklist */
+/* short albums: the generative piece under the tracklist. It takes exactly
+   the room the pane has left under the tracks and adds none of its own:
+   nothing to scroll for, and nothing at all when the album already fills
+   the pane. */
 .filler {
   display: block;
   width: 100%;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* under the filler the foot holds nothing without Maintenance or a Discogs
+   credit: no room kept below the piece */
+.filler + .foot:empty {
+  padding: 0;
 }
 
 /* the album's other sections, after the tracks */

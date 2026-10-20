@@ -101,14 +101,8 @@ export function caretPath(k: number, w = CARET_W): string {
 
 /** Albums with this many tracks or fewer get the generative piece under the tracklist. */
 export const FILLER_MAX_TRACKS = 3;
-export const FILLER_MIN_HEIGHT = 320;
 
 export const wantsFiller = (trackCount: number) => trackCount <= FILLER_MAX_TRACKS;
-
-/** The filler fills the screen under the stuck header and TRACKLIST (never less than 320px). */
-export function fillerHeight(viewport: number, tlHeight: number, tracksHeight: number, header = HEADER): number {
-  return Math.max(Math.max(0, viewport - header - tlHeight - tracksHeight), FILLER_MIN_HEIGHT);
-}
 
 /** A repeatable random stream from a string: FNV-1a seed, xorshift steps, values in [0, 1). */
 export function seededRandom(str: string): () => number {

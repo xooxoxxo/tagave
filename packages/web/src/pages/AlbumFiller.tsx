@@ -76,13 +76,14 @@ export function attachFiller(cv: HTMLCanvasElement, title: string, painted: { cu
   };
 }
 
-export function AlbumFiller({ title, height }: { title: string; height: number }) {
+/** Its height is the room the pane has left under the tracks (CSS: .flow and .filler), never more. */
+export function AlbumFiller({ title }: { title: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   /** what is on the canvas now: size, density, ink and title */
   const painted = useRef('');
   useEffect(() => {
     const cv = ref.current;
     return cv ? attachFiller(cv, title, painted) : undefined;
-  }, [title, height]);
-  return <canvas ref={ref} className={styles.filler} style={{ height }} aria-hidden="true" data-album-filler="" />;
+  }, [title]);
+  return <canvas ref={ref} className={styles.filler} aria-hidden="true" data-album-filler="" />;
 }

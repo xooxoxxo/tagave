@@ -27,8 +27,8 @@ const reducedMotion = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: 
 export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
   const [docked, setDocked] = useState(false);
   const [glide, setGlide] = useState({ x: 0, y: 51 });
-  /** the scroll pane's height, for the hero's floor and the filler */
-  const [pane, setPane] = useState({ height: 0, phone: false, tlHeight: 0, tracksHeight: 0 });
+  /** the scroll pane's height, for the hero's floor */
+  const [pane, setPane] = useState({ height: 0, phone: false, tlHeight: 0 });
   const geo = useRef<FlowGeometry | null>(null);
   const scroller = useRef<HTMLElement | null>(null);
   const dockedRef = useRef(false);
@@ -52,7 +52,7 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
 
   const measure = useCallback(() => {
     const sc = scroller.current;
-    const { hero, cover, names, tl, tracks, root } = refs;
+    const { hero, cover, names, tl, root } = refs;
     if (!sc || !hero.current || !cover.current || !names.current || !tl.current || !root.current) return;
     const scRect = sc.getBoundingClientRect();
     const st = sc.scrollTop;
@@ -87,9 +87,8 @@ export function useAlbumFlow(refs: AlbumFlowRefs, ready: boolean) {
       height: sc.clientHeight,
       phone: !!globalThis.matchMedia?.(PHONE).matches,
       tlHeight: tl.current.offsetHeight,
-      tracksHeight: tracks.current?.offsetHeight ?? 0,
     };
-    setPane((cur) => (cur.height === next.height && cur.phone === next.phone && cur.tlHeight === next.tlHeight && cur.tracksHeight === next.tracksHeight ? cur : next));
+    setPane((cur) => (cur.height === next.height && cur.phone === next.phone && cur.tlHeight === next.tlHeight ? cur : next));
     layout();
   }, [refs, layout]);
 

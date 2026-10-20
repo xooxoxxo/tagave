@@ -59,7 +59,7 @@ const AlbumActionsSheet = lazy(() => import('./AlbumSheets').then((m) => ({ defa
 const AlbumInfoSheet = lazy(() => import('./AlbumSheets').then((m) => ({ default: m.AlbumInfoSheet })));
 import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayState } from './albumActions';
 import { AlbumFiller } from './AlbumFiller';
-import { aboutExcerpt, albumLines, caretPath, countryName, fillerHeight, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
+import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
 import { useReviews } from '../hooks/useReviews';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
@@ -1048,7 +1048,7 @@ export function AlbumDetailPage() {
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}
         {showFiller && (
-          <AlbumFiller title={title ?? 'Untitled'} height={fillerHeight(flow.pane.height, flow.pane.tlHeight, flow.pane.tracksHeight)} />
+          <AlbumFiller title={title ?? 'Untitled'} />
         )}
 
         {/* the album's other sections (Maintenance): the switcher sticks under the header in TRACKLIST's place */}
