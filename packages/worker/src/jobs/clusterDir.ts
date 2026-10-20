@@ -6,6 +6,7 @@ import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
+import { upsertTracks, type TrackRowInput } from '../lib/trackUpsert.js';
 import {
   clusterKey, discDirNumber, discTokenOfFolder, extractYear, extOf,
   filenameDiscPrefix, filenameDiscPrefixesApply, tagDiscsPlausible, normKey,
@@ -679,19 +680,7 @@ async function replaceTracks(
   // disc number on every track of a multi-disc album.
   const multiDisc = new Set([...discs.values()].map((d) => d ?? 1)).size >= 2;
 
-  const rows: Array<{
-    localAlbumId: string | null;
-    audioFileId: string;
-    discNo: number | null;
-    trackNo: number | null;
-    titleGuess: string | null;
-    artistGuess: string | null;
-    durationMs: number | null;
-    state: string;
-    origin?: string;
-    cueStartMs?: number | null;
-    cueRelPath?: string | null;
-  }> = [];
+  const rows: TrackRowInput[] = [];
 
   for (const f of files) {
     const name = relBasename(f.relPath);
@@ -712,7 +701,6 @@ async function replaceTracks(
           origin: 'cue',
           cueStartMs: track.startMs,
           cueRelPath: vt.cueRelPath,
-          state: 'unmatched',
         });
       }
     } else {
@@ -725,19 +713,15 @@ async function replaceTracks(
         titleGuess: f.tags.title ?? titleFromName(name),
         artistGuess: f.tags.artist ?? f.tags.albumartist ?? null,
         durationMs: f.durationMs,
-        state: 'unmatched',
+        origin: 'file',
+        cueStartMs: null,
+        cueRelPath: null,
       });
     }
   }
 
-  // Sibling folders of one multi-disc album are clustered by concurrent jobs
-  // that each carry every file of the set. Delete and insert as one unit
-  // under a per-album lock, or both jobs delete first and then both insert,
-  // doubling the album's tracks.
+  // Upsert in place under a per-album lock (see lib/trackUpsert.ts): track
+  // ids, canonical links and player map rows survive every re-cluster.
   const lockKey = albumId ?? `loose:${files.map((f) => f.id).sort()[0] ?? ''}`;
-  await ctx.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
-    await tx.delete(localTracks).where(inArray(localTracks.audioFileId, files.map((f) => f.id)));
-    if (rows.length > 0) await tx.insert(localTracks).values(rows);
-  });
+  await upsertTracks(ctx, lockKey, files.map((f) => f.id), rows);
 }
