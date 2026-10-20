@@ -224,24 +224,31 @@ Music Connections lets another music app read one person's data from tagave, and
 
 ## Reverse proxy and client addresses
 
-Every per-address limit (sign-in, invite links, the Music Connections endpoints and feeds) counts by the client's address. Behind a reverse proxy that address comes from `X-Forwarded-For`, and tagave takes it only from a proxy it trusts. You do not need to set anything for a proxy on the same Docker network or on your home network (Caddy, nginx, Traefik, cloudflared).
+Every per-address limit (sign-in, invite links, the Music Connections endpoints and feeds) counts by the client's address. Behind a reverse proxy that address comes from `X-Forwarded-For`, and tagave takes it only from a proxy it trusts. You do not need to set anything for a proxy on a private network: on tagave's Docker network, in another compose stack that reaches tagave's published port (it arrives from the Docker gateway), on this computer, or elsewhere on your home network (Caddy, nginx, Traefik, cloudflared).
 
-By default (`TRUST_PROXY` unset) any hop on a private network is trusted to name the client: loopback, link-local, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and fc00::/7. Two exceptions:
+By default (`TRUST_PROXY` unset) any hop on a private network is trusted to name the client: loopback, link-local, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and fc00::/7. A connection from a public address never names the client. On Linux Docker a visitor from the internet keeps its public address through a published port, so it cannot pick its own address.
 
-- A connection from a public address never names the client, so a visitor from the internet cannot pick its own address.
-- The gateways of the networks tagave's container is on (read from its routing table at start, such as 172.18.0.1) are not trusted either. A visitor who reaches tagave's published port through Docker's port forwarding (Docker Desktop, colima, rootless Docker, or a connection to localhost) arrives from that gateway, not from a proxy. A proxy on tagave's Docker network has an address of its own and is trusted.
+The trade-off: whatever connects from a private address can write any address into `X-Forwarded-For`. That only puts it in a rate-limit bucket of its choosing. Nothing in tagave grants access by address, and wrong passwords are also limited per account (10 in 15 minutes), so changing the address does not buy more guesses. Who connects from a private address:
 
-The trade-off: a device on your own network that connects to tagave's port directly can write any address into `X-Forwarded-For`. That only puts it in a rate-limit bucket of its choosing. Nothing in tagave grants access by address, and wrong passwords are also limited per account (10 in 15 minutes), so changing the address does not buy more guesses. To shut that door too, make tagave's port reachable only by your proxy: no published port when the proxy is on tagave's Docker network, or `127.0.0.1:3100:3000` when it runs on the same computer outside Docker (it then arrives from the gateway: set `TRUST_PROXY` to the address the Reverse Proxy check shows). For a proxy on another computer, name it (`TRUST_PROXY=192.168.1.2`): other devices then cannot name an address.
+- a device on your own network that reaches tagave's port directly;
+- on Docker Desktop, colima or rootless Docker, every client of a published port (it arrives from the gateway). On such a computer exposed to the internet, set `TRUST_PROXY` to your proxy's address, or publish the port on 127.0.0.1 only;
+- on Linux with public IPv6 and an IPv4-only Docker network, an internet client over IPv6: Docker's proxy accepts it on the published `[::]:3100` and forwards it from the gateway. Published ports also bypass ufw.
+
+Recommended setup, which closes all three:
+
+- **Proxy on a shared Docker network:** attach tagave's `app` service to the proxy's network and point the proxy at `app:3000`. Then remove the app's `ports:` entry.
+- **Port must stay published:** bind it to an address the internet cannot reach, `"127.0.0.1:3100:3000"` or a LAN address (`"192.168.1.10:3100:3000"`).
+- **Proxy on another computer:** name it, `TRUST_PROXY=192.168.1.2`; other devices then cannot name an address.
 
 `TRUST_PROXY` is an advanced option, needed only when your proxy is not on a private network:
 
-- the proxies' addresses or networks, `TRUST_PROXY=203.0.113.7` or `10.0.0.0/8,172.16.0.0/12`: only a connection from one of them may name the client (`loopback`, `linklocal` and `uniquelocal` work too). A network wider than /8 (`0.0.0.0/0`, `::/0`) is refused: it would trust nearly every peer.
+- the proxies' addresses or networks, `TRUST_PROXY=203.0.113.7` or `172.21.0.0/16`: only a connection from one of them may name the client (`loopback`, `linklocal` and `uniquelocal` work too). The Docker gateway is then not trusted unless it is in the list. A network wider than /8 (`0.0.0.0/0`, `::/0`) is refused: it would trust nearly every peer.
 - a hop count, `TRUST_PROXY=1`: the nearest hop is your proxy, and the rightmost address it appended is the client; entries further left, which the client could have written, are ignored. This trusts whatever connects directly, so tagave's port must be reachable only through the proxy. Prefer the address form.
 - `off` (or `false`, `0`): trust no proxy; the address of the connection is the client. Behind a proxy every caller then shares one limit.
 
 tagave never trusts every hop: a client could then write any address into `X-Forwarded-For` and step around every limit. `TRUST_PROXY=true` (and `yes`) from older releases now means `1`, with a warning in the log; remove it. Better Auth's sign-in limiter and the trusted-device list read the address tagave worked out this way, never the raw header. A value that is none of these stops the app at start.
 
-When requests keep arriving with `X-Forwarded-For` that tagave cannot use (a proxy on a public address, as some cloud load balancers are, or one that reaches tagave through the Docker gateway), the Reverse Proxy check in Settings › System and `tagave-doctor` warns and names the setting that fixes it. It stays quiet otherwise.
+When requests keep arriving with `X-Forwarded-For` that tagave cannot use (a proxy on a public address, as some cloud load balancers are, or one missing from `TRUST_PROXY`), the Reverse Proxy check in Settings › System and `tagave-doctor` warns and names the setting that fixes it. It stays quiet otherwise.
 
 ## TLS and HTTPS
 

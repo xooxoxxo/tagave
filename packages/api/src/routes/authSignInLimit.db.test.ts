@@ -41,7 +41,7 @@ describe.skipIf(!url)('sign-in limit per account (integration)', () => {
     await migrateAll(db.url);
     // Better Auth's own per-address limiter on, as in production
     handle = createAuth({ env: readAuthEnv({ APP_SECRET: TEST_APP_SECRET, PUBLIC_URL: TEST_PUBLIC_URL }), databaseUrl: db.url, rateLimit: true, maxConnections: 4 });
-    app = await buildAuthApp(handle, undefined, undefined, { trustProxy: fastifyTrustProxy(parseTrustProxy(undefined), { gateways: ['172.18.0.1'] }) });
+    app = await buildAuthApp(handle, undefined, undefined, { trustProxy: fastifyTrustProxy(parseTrustProxy(undefined)) });
     const setup = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/setup',

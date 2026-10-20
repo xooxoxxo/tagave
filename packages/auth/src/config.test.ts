@@ -4,13 +4,11 @@ import {
   deriveAuthSecret,
   fastifyTrustProxy,
   isPrivateAddress,
-  localGateways,
   parsePublicUrl,
   parseTrustProxy,
   passkeysCanWork,
   readAuthEnv,
   resetTrustProxyWarning,
-  routeGateways,
 } from './config.js';
 
 describe('PUBLIC_URL', () => {
@@ -86,18 +84,17 @@ describe('readAuthEnv', () => {
     expect(parseTrustProxy('172.18.0.2')).toEqual(['172.18.0.2']);
   });
 
-  it('by default, trusts private addresses as proxies, never public ones or the gateways', () => {
-    const trust = fastifyTrustProxy('private', { gateways: ['172.18.0.1'] }) as (a: string, hop: number) => boolean;
-    for (const a of ['127.0.0.1', '::1', '10.1.2.3', '172.18.0.5', '192.168.1.20', '169.254.1.1', 'fd12::5', 'fe80::1', '::ffff:192.168.1.20']) {
+  it('by default, trusts private addresses as proxies (the Docker gateway too), never public ones', () => {
+    const trust = fastifyTrustProxy('private') as (a: string, hop: number) => boolean;
+    for (const a of ['127.0.0.1', '::1', '10.1.2.3', '172.18.0.5', '192.168.80.1', '192.168.1.20', '169.254.1.1', 'fd12::5', 'fe80::1', '::ffff:192.168.1.20']) {
       expect(trust(a, 0), a).toBe(true);
     }
     for (const a of ['203.0.113.9', '8.8.8.8', '172.32.0.1', '100.64.0.1', '2001:db8::1', '::ffff:203.0.113.9', 'forged', '']) {
       expect(trust(a, 0), a).toBe(false);
     }
-    // a client reaching a published port through Docker's proxy arrives from the gateway
-    expect(trust('172.18.0.1', 0)).toBe(false);
-    expect(trust('::ffff:172.18.0.1', 1)).toBe(false);
-    expect(isPrivateAddress('172.18.0.1')).toBe(true);
+    // a proxy in another compose stack reaches the published port from tagave's network gateway
+    expect(trust('::ffff:192.168.80.1', 1)).toBe(true);
+    expect(isPrivateAddress('203.0.113.9')).toBe(false);
   });
 
   it('the other forms map to Fastify as before', () => {
@@ -106,20 +103,6 @@ describe('readAuthEnv', () => {
     const hop = fastifyTrustProxy(1) as (a: string, hop: number) => boolean;
     expect([hop('203.0.113.9', 0), hop('10.0.0.1', 1)]).toEqual([true, false]);
     expect(fastifyTrustProxy(['10.0.0.0/8'])).toEqual(['10.0.0.0/8']);
-  });
-
-  it('reads the gateways from a Linux routing table', () => {
-    const table = [
-      'Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT',
-      'eth0\t00000000\t010012AC\t0003\t0\t0\t0\t00000000\t0\t0\t0',
-      'eth0\t000012AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0',
-      'eth1\t000013AC\t00000000\t0001\t0\t0\t0\t0000FFFF\t0\t0\t0',
-      'eth1\t050013AC\t00000000\t0005\t0\t0\t0\tFFFFFFFF\t0\t0\t0',
-      'garbage',
-    ].join('\n');
-    expect(routeGateways(table).sort()).toEqual(['172.18.0.1', '172.19.0.1']);
-    expect(routeGateways('')).toEqual([]);
-    expect(localGateways('/nonexistent/route')).toEqual([]);
   });
 
   it('refuses to start without PUBLIC_URL', () => {

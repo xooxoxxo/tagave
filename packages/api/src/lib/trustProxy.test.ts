@@ -10,10 +10,11 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { CLIENT_IP_HEADER, fastifyTrustProxy, parseTrustProxy } from '@tagave/auth';
 import { setClientIpHeader } from '../middleware/auth.js';
 
-const GATEWAY = '172.18.0.1';
+/** tagave_default's gateway: a Caddy in its own compose stack reaching the published port arrives from it. */
+const GATEWAY = '192.168.80.1';
 
 async function appWith(raw: string | undefined): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, trustProxy: fastifyTrustProxy(parseTrustProxy(raw, () => undefined), { gateways: [GATEWAY] }) });
+  const app = Fastify({ logger: false, trustProxy: fastifyTrustProxy(parseTrustProxy(raw, () => undefined)) });
   app.addHook('onRequest', setClientIpHeader);
   app.get('/ip', async (request) => ({ ip: request.ip, header: request.headers[CLIENT_IP_HEADER] }));
   await app.ready();
@@ -27,6 +28,7 @@ describe('TRUST_PROXY and the client address', () => {
     apps['off'] = await appWith('off');
     apps['hop'] = await appWith('1');
     apps['cidr'] = await appWith('172.16.0.0/12');
+    apps['proxyNet'] = await appWith('172.21.0.0/16');
     apps['legacy'] = await appWith('true');
   });
   afterAll(async () => {
@@ -50,11 +52,14 @@ describe('TRUST_PROXY and the client address', () => {
     expect(await ask('default', '203.0.113.9', '198.51.100.1')).toEqual({ ip: '203.0.113.9', header: '203.0.113.9' });
   });
 
-  it('unset: the Docker gateway (a direct visitor through a published port) is not a proxy; a sibling container is', async () => {
-    expect((await ask('default', GATEWAY, '10.9.9.9')).ip).toBe(GATEWAY);
-    expect((await ask('default', '172.18.0.3', '10.9.9.9')).ip).toBe('10.9.9.9');
-    // nor does the walk go past a gateway entry a proxy appended
-    expect((await ask('default', '172.18.0.3', `10.9.9.9, ${GATEWAY}`)).ip).toBe(GATEWAY);
+  it('unset: a proxy in another compose stack, arriving from the Docker gateway, names the client', async () => {
+    expect(await ask('default', GATEWAY, '198.51.100.7')).toEqual({ ip: '198.51.100.7', header: '198.51.100.7' });
+    expect((await ask('default', '172.18.0.3', '198.51.100.7')).ip).toBe('198.51.100.7');
+  });
+
+  it('an explicit list naming the proxy network does not trust the gateway', async () => {
+    expect((await ask('proxyNet', GATEWAY, '198.51.100.7')).ip).toBe(GATEWAY);
+    expect((await ask('proxyNet', '172.21.0.2', '198.51.100.7')).ip).toBe('198.51.100.7');
   });
 
   it('off: X-Forwarded-For is ignored from any peer', async () => {

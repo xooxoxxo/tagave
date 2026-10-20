@@ -1,5 +1,4 @@
 import { hkdfSync } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { BlockList, isIP } from 'node:net';
 
 /** A configuration problem the app must refuse to start with (the message is for the operator). */
@@ -71,9 +70,10 @@ export function deriveAuthSecret(appSecret: string): string {
  * (CLIENT_IP_HEADER), never the raw header.
  *
  *   unset, private        any hop on a private network (loopback, link-local,
- *                         10/8, 172.16/12, 192.168/16, fc00::/7) except the
- *                         gateways of the networks tagave is on: a reverse
- *                         proxy on the same Docker network or LAN just works
+ *                         10/8, 172.16/12, 192.168/16, fc00::/7): a reverse proxy
+ *                         on the Docker network, in another compose stack
+ *                         (it arrives from the Docker gateway) or on the LAN
+ *                         just works
  *   off, false, no, 0     no proxy: the socket's address
  *   <n>                   the last n hops are proxies (TRUST_PROXY=1: one reverse proxy)
  *   <addr|cidr>,...       the proxies' addresses or networks (203.0.113.7, 10.0.0.0/8;
@@ -82,10 +82,12 @@ export function deriveAuthSecret(appSecret: string): string {
  *
  * Trusting every hop would let any client name itself in X-Forwarded-For
  * and step around every per-address limit, so that is not on offer. Under
- * the default an internet client cannot do it (its address is not private);
- * a client on the LAN can, which only moves it into a rate-limit bucket of
- * its choosing: no access in tagave depends on the client's address, and
- * sign-in is also limited per account.
+ * the default an internet client cannot do it: on Linux Docker a published
+ * port keeps its public source address. A client on the LAN can (and, on
+ * Docker Desktop, colima or rootless Docker, any client of a published port,
+ * which arrives from the gateway), which only moves it into a rate-limit
+ * bucket of its choosing: no access in tagave depends on the client's
+ * address, and wrong passwords are also limited per account.
  */
 export type TrustProxy = 'private' | false | number | string[];
 
@@ -158,59 +160,12 @@ export function isPrivateAddress(address: string | undefined): boolean {
 }
 
 /**
- * The IPv4 gateways of the networks this host (or container) is on, from a
- * Linux routing table (/proc/net/route): the default route's gateway and the
- * first address of every directly connected network, which is where Docker
- * puts a network's gateway. A client reaching a published port through
- * Docker's userland proxy, Docker Desktop, colima or rootless Docker arrives
- * from such a gateway, so the default does not trust it; a reverse proxy on
- * the same Docker network has an address of its own.
- */
-export function routeGateways(table: string): string[] {
-  const out = new Set<string>();
-  const hex = (h: string | undefined): number | null => (h && /^[0-9a-f]{8}$/i.test(h) ? Number.parseInt(h, 16) : null);
-  // the kernel prints addresses as little-endian hex: 0100A8C0 is 192.168.0.1
-  const ip = (n: number): string => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, n >>> 24].join('.');
-  for (const line of table.split('\n').slice(1)) {
-    const f = line.trim().split(/\s+/);
-    if (f.length < 8) continue;
-    const dest = hex(f[1]);
-    const gw = hex(f[2]);
-    const mask = hex(f[7]);
-    if (dest === null || gw === null || mask === null) continue;
-    if (gw !== 0) out.add(ip(gw));
-    else if (dest !== 0 && mask !== 0xffffffff) out.add(ip((dest + 0x01000000) >>> 0)); // the network's first address
-  }
-  return [...out];
-}
-
-/** routeGateways for this machine; none where there is no Linux routing table (macOS in development). */
-export function localGateways(path = '/proc/net/route'): string[] {
-  try {
-    return routeGateways(readFileSync(path, 'utf8'));
-  } catch {
-    return [];
-  }
-}
-
-export interface FastifyTrustProxyOptions {
-  /** Addresses the default never trusts (localGateways() at start). */
-  gateways?: readonly string[];
-}
-
-/**
  * Fastify's `trustProxy` for a TrustProxy: the default becomes a function
- * trusting private addresses other than the gateways, a hop count a function
- * trusting the nearest n hops (hop 0 is the socket's peer), a list stays a list.
+ * trusting private addresses, a hop count a function trusting the nearest n
+ * hops (hop 0 is the socket's peer), a list stays a list.
  */
-export function fastifyTrustProxy(
-  tp: TrustProxy,
-  opts: FastifyTrustProxyOptions = {},
-): false | string[] | ((address: string, hop: number) => boolean) {
-  if (tp === 'private') {
-    const gateways = new Set((opts.gateways ?? []).map((g) => plainAddress(g)?.address));
-    return (address) => isPrivateAddress(address) && !gateways.has(plainAddress(address)?.address);
-  }
+export function fastifyTrustProxy(tp: TrustProxy): false | string[] | ((address: string, hop: number) => boolean) {
+  if (tp === 'private') return (address) => isPrivateAddress(address);
   if (tp === false || tp === 0) return false;
   if (typeof tp === 'number') return (_address, hop) => hop < tp;
   return tp;

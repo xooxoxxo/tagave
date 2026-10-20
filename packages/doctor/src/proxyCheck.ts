@@ -3,8 +3,8 @@
  * private network without being told (TRUST_PROXY unset). The app notes
  * requests that carry the header from a peer it does not trust, in a small
  * file in the cache folder; this check warns when one peer keeps sending it,
- * so a proxy on a public address (some cloud load balancers) or one reaching
- * tagave through Docker's gateway is named with the fix. Silent otherwise.
+ * so a proxy on a public address (some cloud load balancers) or one missing
+ * from an explicit TRUST_PROXY list is named with the fix. Silent otherwise.
  */
 import fs from 'fs/promises';
 import os from 'os';
@@ -21,8 +21,8 @@ const FORWARDED_SEEN_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** How often the app rewrites the file while a peer keeps sending the header. */
 const WRITE_EVERY_MS = 10 * 60 * 1000;
 
-/** gateway: the Docker gateway (default setting); public: not private (default); unlisted: not in an explicit TRUST_PROXY list. */
-export type ForwardedPeerKind = 'gateway' | 'public' | 'unlisted';
+/** public: not a private address (default setting); unlisted: not in an explicit TRUST_PROXY list. */
+export type ForwardedPeerKind = 'public' | 'unlisted';
 
 export interface ForwardedSeen {
   peer: string;
@@ -37,8 +37,6 @@ export interface ForwardedObserverOptions {
   cacheDir?: string | undefined;
   /** TRUST_PROXY as set (unset is ''). */
   trustProxyRaw: string;
-  /** The gateways the default does not trust (localGateways()). */
-  gateways: readonly string[];
   now?: () => number;
 }
 
@@ -62,7 +60,6 @@ export function createForwardedObserver(
   const isDefault = lower === '' || lower === 'private';
   // TRUST_PROXY=off: the owner said there is no proxy; nothing to say
   const off = ['off', 'false', 'no', '0'].includes(lower);
-  const gateways = new Set(opts.gateways.map(plain));
   const now = opts.now ?? Date.now;
   const counts = new Map<string, number>();
   let lastWrite = 0;
@@ -73,7 +70,7 @@ export function createForwardedObserver(
     if (off || !forwarded || !peer) return null;
     const p = plain(peer);
     if (plain(ip) !== p) return null;
-    const kind: ForwardedPeerKind = !isDefault ? 'unlisted' : gateways.has(p) ? 'gateway' : 'public';
+    const kind: ForwardedPeerKind = isDefault ? 'public' : 'unlisted';
     if (!counts.has(p) && counts.size >= 100) counts.clear();
     const count = (counts.get(p) ?? 0) + 1;
     counts.set(p, count);
@@ -117,11 +114,6 @@ export async function checkForwardedHeaders(cacheDir?: string, env: NodeJS.Proce
   ) {
     return done('pass', setting);
   }
-  const why =
-    seen.kind === 'gateway'
-      ? 'the Docker gateway, which direct visitors come from too'
-      : seen.kind === 'unlisted'
-        ? 'not in TRUST_PROXY'
-        : 'not a private address';
+  const why = seen.kind === 'unlisted' ? 'not in TRUST_PROXY' : 'not a private address';
   return done('warn', `X-Forwarded-For from ${seen.peer} ignored: ${why}. Visitors share its rate limits.`);
 }
