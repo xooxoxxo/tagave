@@ -10,7 +10,10 @@ A self-hosted catalogue for the music you own.
 
 <br />
 
-<img src="docs/images/albums.jpg" alt="The tagave album grid: cover art with artist, format, track count and year under each album" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/img/albums-dark-1600.webp" />
+  <img src="site/img/albums-light-1600.webp" alt="The tagave album grid: cover art with artist, format, track count and year under each album" />
+</picture>
 
 </div>
 
