@@ -2,7 +2,33 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.11.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.11.0)
+## [v0.12.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.12.0)
+
+**Minor release (0.11 → 0.12).** A cleaner Backups page with the version of every backup, reverse proxies that work without setup, a per-account sign-in limit, and critic scores as one list.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+- **If you set `TRUST_PROXY` for 0.11:** you can remove it; proxies on private networks (Docker, your LAN) are now trusted without it. Keep it only for a proxy on a public address. ([01c99e3](https://github.com/xooxoxxo/tagave/commit/01c99e3))
+
+### New
+
+- **Backups page.** Each kind (Nightly, Before update, Manual) is one group of settings rows that save on their own, with its backups listed underneath: date · version · size · ⋯. The ⋯ menu has Download, Copy restore command and Delete; backups the next run removes are marked *Expires*. ([fc3f25a](https://github.com/xooxoxxo/tagave/commit/fc3f25a))
+- **Backup versions.** New backups record the tagave version they were taken from; older ones show a version worked out from the update history (~0.10.0), and before-update backups show from → to. ([88b6531](https://github.com/xooxoxxo/tagave/commit/88b6531))
+- **Critic scores as one list.** On the album's Reviews tab, critic scores and From the web read as one ledger, with outlet and source on each score; Clear, History and Delete sit together. ([a97bd32](https://github.com/xooxoxxo/tagave/commit/a97bd32), [4d31ee0](https://github.com/xooxoxxo/tagave/commit/4d31ee0))
+
+### Improved
+
+- **Reverse proxies need no setup.** Caddy, nginx, Traefik or a tunnel on the same Docker network or your LAN are trusted to name the visitor, so each visitor gets their own rate limits. Settings › System warns in one line only when a proxy on a public address sends headers tagave can't use. ([01c99e3](https://github.com/xooxoxxo/tagave/commit/01c99e3), [d6fd527](https://github.com/xooxoxxo/tagave/commit/d6fd527))
+- **Sign-in limit per account.** 10 wrong passwords in 15 minutes per account, whatever address the attempts come from. ([01c99e3](https://github.com/xooxoxxo/tagave/commit/01c99e3))
+
+### For self-hosters
+
+- **`TRUST_PROXY`** is now an advanced option: unset trusts private addresses; `off` trusts none; a hop count or addresses/CIDRs as before. The docs recommend reaching tagave over a shared Docker network or binding its port to a private address (docs/security.md › Reverse proxy and client addresses).
+
+**All changes:** [v0.11.0...v0.12.0](https://github.com/xooxoxxo/tagave/compare/v0.11.0...v0.12.0)
+
+## [v0.11.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.11.0) (2026-10-20)
 
 **Minor release (0.10 → 0.11).** Updates that finish clear themselves, a first-run setup checklist, a fixed Settings menu, page titles on phones, and security fixes.
 
