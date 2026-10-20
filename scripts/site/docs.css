@@ -101,7 +101,7 @@ a:hover{text-decoration-thickness:2px}
 .navlinks > a{color:var(--ink-2);text-decoration:none;font-size:15px}
 .navlinks > a:hover{color:var(--ink)}
 @media (max-width:600px){.navlinks{gap:14px}.navlinks .hide-s{display:none}.brandline{gap:10px}.section{padding-left:10px}}
-@media (max-width:374px){.section .dot,.section .ver{display:none}}
+@media (max-width:600px){.section{display:none}}
 
 /* ============ theme pill (SegmentedControl, small, icon options) ============ */
 .theme-pill{

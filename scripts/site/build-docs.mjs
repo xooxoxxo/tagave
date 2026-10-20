@@ -177,9 +177,16 @@ export function renderMarkdown(source, fromFile, opts = {}) {
     },
   });
 
-  const html = marked.parse(source);
-  const description = firstParagraph(source);
+  const body = opts.changelog ? dropIntro(source) : source;
+  const html = marked.parse(body);
+  const description = firstParagraph(body);
   return { title: title ?? fromFile, html, toc, description, images: [...images] };
+}
+
+// CHANGELOG.md opens with a note for maintainers (where it is assembled from).
+// The site leaves it out: everything between the title and the first release.
+export function dropIntro(source) {
+  return source.replace(/^(#\s[^\n]*\n)[\s\S]*?(?=^##\s)/m, '$1\n');
 }
 
 function formatDate(iso) {

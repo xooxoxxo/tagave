@@ -173,7 +173,7 @@ export function page(ctx, guide, doc) {
   const body = `<article class="doc${guide.slug === 'changelog' ? ' changelog' : ''}">
   <header class="doc-head">
     <span class="label">${escapeHtml(guide.group)}</span>
-    <h1>${escapeHtml(doc.title)}</h1>
+    <h1>${escapeHtml(doc.title)}</h1>${guide.slug === 'changelog' ? `\n    <p class="lede">${escapeHtml(guide.blurb)}</p>` : ''}
   </header>
   ${toc(doc.toc)}
   <div class="prose">
@@ -183,7 +183,7 @@ ${doc.html}
 </article>`;
   return shell(ctx, {
     title: `${guide.title} · tagave docs`,
-    description: doc.description || guide.blurb,
+    description: guide.slug === 'changelog' ? 'Every release of tagave, newest first.' : doc.description || guide.blurb,
     path: `/docs/${guide.slug}/`,
     current: guide.slug,
     body,

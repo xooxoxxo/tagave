@@ -10,6 +10,7 @@ import {
   rewriteHref,
   renderMarkdown,
   LinkError,
+  dropIntro,
   latestVersion,
   build,
   REPO_ROOT,
@@ -102,6 +103,15 @@ test('the changelog has one anchor per version, newest first', () => {
   assert.equal(latestVersion(CHANGELOG), 'v0.11.0');
 });
 
+test('the changelog page drops the maintainer intro', () => {
+  const src = '# Changelog\n\nAssembled from [`release-notes/`](release-notes/) by a script; edit the notes there.\n\n## [v1.0.0](https://x)\n\nBody.\n';
+  assert.doesNotMatch(dropIntro(src), /Assembled/);
+  assert.match(dropIntro(src), /^# Changelog\n/);
+  const doc = renderMarkdown(src, 'CHANGELOG.md', { probe, changelog: true });
+  assert.doesNotMatch(doc.html, /Assembled|release-notes/);
+  assert.match(doc.html, /Body\./);
+});
+
 test('tables get their own scrolling wrapper', () => {
   const doc = renderMarkdown('# T\n\n| a | b |\n|---|---|\n| 1 | 2 |\n', 'docs/install.md', { probe });
   assert.match(doc.html, /<div class="table-wrap"[^>]*><table>/);
@@ -126,6 +136,8 @@ test('the real docs build, one page per guide and a version per changelog entry'
       assert.equal(changelog.split(`id="${id}"`).length - 1, 1, id);
     }
     assert.equal(result.version, versions[0]);
+    assert.doesNotMatch(changelog, /Assembled from|edit the notes there/);
+    assert.match(changelog, /<p class="lede">Every release, newest first\.<\/p>/);
     assert.match(readFileSync(join(root, 'site/sitemap.xml'), 'utf8'), /https:\/\/tagave\.app\/docs\/changelog\//);
 
     // and a broken link stops it
