@@ -107,7 +107,7 @@ type Args = { tab: 'about' | 'reviews'; data: 'empty' | 'full'; place: 'drawer' 
 
 function InfoTab({ tab, data, place }: Args) {
   const body = tab === 'about'
-    ? <AlbumFacts facts={aboutFacts} />
+    ? <AlbumFacts facts={aboutFacts} source={{ discogs: true, mbid: 'b8c0c3a4-6f1e-4b4f-9a3e-1f2d3c4b5a69' }} />
     : <WithReviews bundle={data === 'full' ? full : empty}><ReviewsSection libraryId={LIB} releaseGroupId={RG} /></WithReviews>;
   return place === 'page' ? <div className={styles.page}>{body}</div> : <Drawer>{body}</Drawer>;
 }

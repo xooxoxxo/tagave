@@ -1,0 +1,102 @@
+/* The account row (AccountMenu.tsx). One control shape: a rounded square
+   (the menu's own radius), the embossed buttons' niche on hover, the ring
+   on keyboard focus. No border anywhere. */
+.anchor {
+  display: flex;
+  min-width: 0;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0.5rem;
+  border: 0;
+  border-radius: var(--r-inner);
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: box-shadow var(--dur) ease, color var(--dur) ease;
+}
+
+/* the global button baseline paints a fill and a press: neither here */
+.button:hover:not(:disabled),
+.button:active:not(:disabled) {
+  background: transparent;
+  transform: none;
+}
+
+@media (hover: hover) {
+  .button:hover:not(:disabled) { box-shadow: var(--emboss-niche); color: var(--ink); }
+}
+
+.button:active:not(:disabled),
+.button[aria-expanded="true"] { box-shadow: var(--emboss-niche-pressed); }
+
+.button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  box-shadow: var(--emboss-niche);
+}
+
+/* the initial: a raised tile in the active link's tint */
+.tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-kbd);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  font: 600 0.9375rem / 1 var(--font-body);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name,
+.email {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  font: 600 0.875rem / 1.25 var(--font-body);
+  color: var(--ink);
+}
+
+.email {
+  font: 400 0.75rem / 1.25 var(--font-body);
+  color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .button:hover:not(:disabled) { outline: 1px solid ButtonText; }
+  .button:focus-visible { outline: 2px solid Highlight; }
+  .tile { border: 1px solid ButtonText; }
+}
+
+/* tablet (Layout's top bar, 721-900px): the tile alone in the corner,
+   the name stays the button's accessible name */
+@media (min-width: 721px) and (max-width: 900px) {
+  .button { min-height: 44px; width: 44px; padding: 4px; justify-content: center; }
+  .text { display: none; }
+}

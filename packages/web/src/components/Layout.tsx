@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/react-router';
 import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
 import { SearchModal } from './SearchModal';
-import { Button, IconButton } from './ui';
+import { IconButton } from './ui';
+import { AccountMenu } from './AccountMenu';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -26,7 +27,7 @@ export function Layout() {
   const { pathname } = useLocation();
   const logout = useLogout();
   const [searchOpen, setSearchOpen] = useState(false);
-  // Phone only: the links and sign out live behind one menu button.
+  // Phone only: the links and the account live behind one menu button.
   const [menuOpen, setMenuOpen] = useState(false);
   const searchButton = useRef<HTMLButtonElement>(null);
   const menuButton = useRef<HTMLButtonElement>(null);
@@ -61,7 +62,8 @@ export function Layout() {
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setMenuOpen(false); menuButton.current?.focus(); }
+      // the account menu inside the sheet closes first (it takes its own Escape)
+      if (e.key === 'Escape' && !e.defaultPrevented) { setMenuOpen(false); menuButton.current?.focus(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -172,10 +174,17 @@ export function Layout() {
           {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>
         </nav>
-        <div className={styles.navUser}>
-          <span className={styles.userEmail} title={user.email}>{user.email}</span>
-          <Button variant="quiet" size="sm" className={styles.logoutBtn} disabled={logout.isPending} onClick={() => { stopPlayback(); logout.mutate(); }}>{logout.isPending ? 'Signing out…' : 'Sign out'}</Button>
-          {logout.isError && <p role="alert">Could not sign out. Please try again.</p>}
+        {/* the signed-in person: one button, its menu holds Account, Listening and Sign out */}
+        <div className={styles.account} data-account-row="">
+          {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
+          <AccountMenu
+            name={user.displayName}
+            email={user.email}
+            signingOut={logout.isPending}
+            onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
+            onListening={() => void navigate({ to: '/settings/$section', params: { section: 'listening' } })}
+            onSignOut={() => { stopPlayback(); logout.mutate(); }}
+          />
         </div>
         </div>
       </aside>

@@ -323,8 +323,8 @@
   min-height: 0;
 }
 
-/* under the filler the foot holds nothing without Maintenance or a Discogs
-   credit: no room kept below the piece */
+/* under the filler the foot holds nothing without Maintenance (the source
+   credit is in Album info): no room kept below the piece */
 .filler + .foot:empty {
   padding: 0;
 }
@@ -993,24 +993,21 @@ td.cellOff {
 }
 
 .attribution {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--border);
-  text-align: center;
+  margin: var(--space-md) 0 0;
   font-size: 0.75rem;
-}
-
-.attribution span {
-  color: var(--text-tertiary);
+  color: var(--ink-3);
 }
 
 .attribution a {
-  color: var(--accent);
-  text-decoration: none;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 2px;
 }
 
 .attribution a:hover {
-  text-decoration: underline;
+  color: var(--ink);
+  text-decoration-color: currentColor;
 }
 
 /* ---- phone: the album first, TRACKLIST waiting at the screen's bottom ---- */

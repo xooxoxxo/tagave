@@ -116,12 +116,16 @@ describe('page shells', () => {
     expect(rule(read('../components/ui/SegmentedControl.module.css'), '.track')).toMatch(/align-self:\s*flex-start/);
   });
 
-  it('sign out never pokes out of the sidebar with a negative margin', () => {
-    expect(rule(read('../components/Layout.module.css'), '.logoutBtn')).not.toMatch(/margin:[^;]*-/);
+  it('the account row: no rule above it, as tall as the player bar, no negative margin', () => {
+    const layout = read('../components/Layout.module.css');
+    expect(rule(layout, '.account')).not.toMatch(/border|margin:[^;]*-/);
+    expect(layout).toMatch(/html\[data-player-bar\]\) \.account \{ height: var\(--player-bar-h, 72px\)/);
+    expect(source('../components/Layout.tsx')).toMatch(/<AccountMenu/);
   });
 
-  it('the email keeps a full-width line of its own, full address on hover', () => {
-    expect(rule(read('../components/Layout.module.css'), '.navUser')).toMatch(/flex-direction:\s*column/);
-    expect(source('../components/Layout.tsx')).toMatch(/className=\{styles\.userEmail\} title=\{user\.email\}/);
+  it('the player bar draws no rule on top (one strip with the account row)', () => {
+    const bar = rule(read('../components/PlayerBar.module.css'), '.bar');
+    // forced colours keep a system rule (no glass there); every theme draws none
+    expect(bar).not.toMatch(/border-top:[^;]*var\(--line/);
   });
 });

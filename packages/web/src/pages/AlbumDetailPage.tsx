@@ -879,12 +879,14 @@ export function AlbumDetailPage() {
   const aboutFacts = facts.filter(([k, v]) => v !== null && v !== '' && v !== undefined && (canCare || (k !== 'Local folder' && k !== 'CUE sheet' && k !== 'Physical copy')));
   // "Your CD": the owner's physical copy, for library care (a listener's page is the music)
   const showOwnChip = ownsPhysical && canCare;
+  // Discogs' terms: its attribution wherever its data shows (the About tab's last line)
+  const usesDiscogs = !!(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId));
   const infoTabs: AlbumInfoTab[] = [
     {
       value: 'about',
       label: 'About',
       content: (
-        <AlbumFacts facts={aboutFacts} />
+        <AlbumFacts facts={aboutFacts} source={{ discogs: usesDiscogs, mbid: album.release?.mbid }} />
       ),
     },
     ...(album.releaseGroupId ? [{
@@ -1157,7 +1159,7 @@ export function AlbumDetailPage() {
           {tab === 'about' && (<>
             <section className={styles.plainSection}>
               <h2 className={styles.sectionTitle}>About this album</h2>
-              <AlbumFacts facts={facts.filter(([, v]) => v !== null && v !== '' && v !== undefined)} />
+              <AlbumFacts facts={facts.filter(([, v]) => v !== null && v !== '' && v !== undefined)} source={{ discogs: usesDiscogs, mbid: album.release?.mbid }} />
             </section>
             {album.releaseGroupId ? (
               <Suspense fallback={null}>
@@ -1210,14 +1212,6 @@ export function AlbumDetailPage() {
           </div>
           )}
 
-          {(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId)) && (
-            <div className={styles.attribution}>
-              <span>
-                Data provided by{' '}
-                <a href="https://www.discogs.com" target="_blank" rel="noreferrer">Discogs</a>
-              </span>
-            </div>
-          )}
         </div>
         {editingTags && libraryId && (
           <BulkTagEditor

@@ -1,5 +1,5 @@
 .container { display: flex; width: 100%; height: 100dvh; overflow: hidden; background: var(--bg-primary); color: var(--text-primary); }
-.nav { width: 248px; flex: 0 0 248px; display: flex; flex-direction: column; gap: 1.75rem; padding: .85rem 1.25rem 1.25rem; background: var(--bg-nav); overflow-y: auto; }
+.nav { width: 248px; flex: 0 0 248px; display: flex; flex-direction: column; gap: 1.75rem; padding: .85rem 1.25rem 0; background: var(--bg-nav); overflow-y: auto; }
 .brand { display: flex; align-items: center; flex-wrap: wrap; gap: .6rem; font-family: var(--font-display); font-size: 1.75rem; font-weight: 300; letter-spacing: -.01em; line-height: 1.1; color: var(--ink); padding-inline: .5rem; }
 .brand:hover { color: var(--ink); }
 /* The mark is the agave from the wordmark; the logo file carries its own
@@ -53,14 +53,14 @@ between browsing and upkeep: the hairline cut into the
 .navLink:hover { background: var(--mist); color: var(--ink); }
 .navLinkActive { composes: navLink; background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge); }
 .navLinkActive:hover { background: var(--dew-tint); color: var(--chip-on-ink); }
-/* The email keeps a full-width line of its own (the full address is the
-   hover text when it still does not fit), Sign out sits under it. No negative
-   margin: the email is indented by the button's own inline padding instead,
-   so both texts share one left edge (the nav links' text edge) and the
-   button's hover pill stays inside the sidebar. */
-.navUser { margin-top: auto; padding: 1rem 0 0 .25rem; border-top: 1px solid var(--line); font-size: .8125rem; color: var(--ink-3); display: flex; flex-direction: column; align-items: stretch; gap: .35rem; }
-.userEmail { display: block; min-width: 0; padding-inline: 12px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.logoutBtn { align-self: flex-start; }
+/* The account (AccountMenu): the sidebar's last row, no rule above it. It
+   is a band as tall as the player bar (72px, the bar's own minimum, until
+   the bar says otherwise through --player-bar-h) resting on the bottom
+   edge, so with a bar playing the two share one top edge and read as one
+   strip across the screen. */
+.account { position: relative; flex: none; margin-top: auto; height: 72px; display: flex; flex-direction: column; justify-content: center; }
+:global(html[data-player-bar]) .account { height: var(--player-bar-h, 72px); }
+.accountError { position: absolute; left: .5rem; right: .5rem; bottom: 100%; margin: 0; font-size: .8125rem; color: var(--danger); }
 /* open tasks on Library care */
 .navCount { display: inline-grid; place-items: center; min-width: 1.35rem; height: 1.35rem; margin-left: .5rem; padding: 0 .35rem; border-radius: var(--r-pill); background: var(--mist-2); color: var(--ink-2); font-size: .75rem; font-weight: 600; font-variant-numeric: tabular-nums; vertical-align: 1px; }
 .navLinkActive .navCount { background: var(--surface); color: var(--chip-on-ink); }
@@ -96,9 +96,8 @@ between browsing and upkeep: the hairline cut into the
      short labels fit on two rows at any tablet width. */
   .navLinks { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: .25rem; }
   .navLink { white-space: nowrap; padding: .5rem .8rem; font-size: .8125rem; }
-  .navUser { margin: 0; padding: 0; border: 0; grid-column: 2; grid-row: 1; }
-  .logoutBtn { margin: 0; }
-  .userEmail { display: none; }
+  /* tablet: the tile alone, in the bar's top corner */
+  .account, :global(html[data-player-bar]) .account { height: auto; margin: 0; grid-column: 2; grid-row: 1; }
   .searchButton { grid-column: 1; grid-row: 3; max-width: 20rem; }
   /* The divider above Library care belongs to the sidebar; in a wrapped row
      it pushed that one link down, out of line with the others. */
@@ -145,9 +144,8 @@ between browsing and upkeep: the hairline cut into the
   .navOpen .navLinks { flex-direction: column; flex-wrap: nowrap; gap: .15rem; }
   .navOpen .navLink { padding: .8rem 1rem; font-size: 1rem; }
   .navOpen .navLinks [data-group="manage"] { margin-top: .75rem; }
-  .navOpen .navUser { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .75rem; padding: .75rem .5rem 0; border-top: 1px solid var(--line); }
-  .navOpen .userEmail { display: block; min-width: 0; padding-inline: 0; }
-  .navOpen .logoutBtn { align-self: center; flex: none; }
+  /* phone: the account row ends the sheet, set off by space, not a rule */
+  .navOpen .account { margin-top: 1rem; }
 }
 
 /* ---- context-aware bar ---- */
