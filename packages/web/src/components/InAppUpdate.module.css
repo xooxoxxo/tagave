@@ -77,19 +77,6 @@
   overflow-wrap: anywhere;
 }
 
-.runDetail {
-  margin: var(--space-xs) 0 0;
-  color: var(--ink-2);
-  font-size: var(--font-size-sm);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.label {
-  font-weight: 600;
-  color: var(--ink);
-}
-
 .elapsed {
   font-variant-numeric: tabular-nums;
   color: var(--ink-2);
@@ -130,6 +117,30 @@
 }
 
 .steps li:last-child { border-bottom: 0; }
+
+/* A line under a step: what it does now, why it is stuck, or why it failed. */
+.stepNote {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.noteText { color: var(--ink-2); }
+.note-warn .noteText { color: var(--warn); }
+.note-error .noteText { color: var(--danger); }
+.noteAdvice { color: var(--ink-3); font-size: var(--font-size-xs); line-height: var(--line-height-relaxed); }
+
+/* The update's run: a step rolls in as a new line when it starts. */
+.rolling li { animation: roll-in 220ms ease-out both; }
+
+@keyframes roll-in {
+  from { opacity: 0; transform: translateY(-4px); }
+}
 
 .mark {
   display: inline-flex;
@@ -199,6 +210,7 @@
 @media (prefers-reduced-motion: reduce) {
   .spinner,
   .step-running .mark { animation-duration: 2s; }
+  .rolling li { animation: none; }
 }
 
 @media (forced-colors: active) {

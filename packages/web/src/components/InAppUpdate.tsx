@@ -71,23 +71,75 @@ const STEP_MARK: Record<UpdateStep['status'], string> = {
 /** A step of an update or a module run. */
 export type RunStepLike = Pick<UpdateStep, 'label' | 'status' | 'startedAt' | 'finishedAt'> & { id: string };
 
-/** The steps with their marks and times; the roll back only once it ran. Shared with Settings › Modules. */
-export function StepList({ run }: { run: { steps: RunStepLike[] } }) {
-  const steps = run.steps.filter((s) => s.id !== 'rollback' || (s.status !== 'pending' && s.status !== 'skipped'));
+/** A line under a step: what it does now, why it is stuck, or why it failed. */
+export interface StepNote {
+  text: string;
+  tone: 'live' | 'warn' | 'error';
+  /** What to do, for a stall that needs the owner. */
+  advice?: string | undefined;
+}
+
+/**
+ * The steps with their marks and times; the roll back only once it ran.
+ * Shared with Settings › Modules. `rolling`: only the steps that have
+ * started, each rolling in as a new line when it starts (the update's run).
+ * `notes`: a line under a step, by its id. `now`: the running step's clock.
+ */
+export function StepList({ run, rolling = false, notes = {}, now }: { run: { steps: RunStepLike[] }; rolling?: boolean; notes?: Record<string, StepNote>; now?: number }) {
+  const steps = run.steps.filter((s) =>
+    rolling ? s.status !== 'pending' && s.status !== 'skipped' : s.id !== 'rollback' || (s.status !== 'pending' && s.status !== 'skipped'),
+  );
   return (
-    <ol className={styles.steps}>
-      {steps.map((s) => (
-        <li key={s.id} className={styles[`step-${s.status}`]} aria-current={s.status === 'running' ? 'step' : undefined}>
-          <span className={styles.mark} aria-hidden="true">{STEP_MARK[s.status]}</span>
-          <span className={styles.stepLabel}>{s.label}</span>
-          <span className={styles.stepTime}>
-            {s.startedAt && s.finishedAt ? clock(Date.parse(s.finishedAt) - Date.parse(s.startedAt)) : s.status === 'running' ? 'now' : ''}
-          </span>
-          <span className="visually-hidden">{s.status}</span>
-        </li>
-      ))}
+    <ol className={`${styles.steps} ${rolling ? styles.rolling : ''}`}>
+      {steps.map((s) => {
+        const note = notes[s.id];
+        const time = s.startedAt && s.finishedAt
+          ? clock(Date.parse(s.finishedAt) - Date.parse(s.startedAt))
+          : s.status === 'running'
+            ? s.startedAt && now !== undefined ? clock(now - Date.parse(s.startedAt)) : 'now'
+            : '';
+        return (
+          <li key={s.id} className={styles[`step-${s.status}`]} aria-current={s.status === 'running' ? 'step' : undefined}>
+            <span className={styles.mark} aria-hidden="true">{STEP_MARK[s.status]}</span>
+            <span className={styles.stepLabel}>{s.label}</span>
+            <span className={styles.stepTime}>{time}</span>
+            <span className="visually-hidden">{s.status}</span>
+            {note && (
+              <span className={`${styles.stepNote} ${styles[`note-${note.tone}`]}`}>
+                <span className={styles.noteText}>{note.text}</span>
+                {note.advice && <span className={styles.noteAdvice}>{note.advice}</span>}
+              </span>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
+}
+
+/** "waiting for the app: x" → "Waiting for the app: x": capitalised, no full stop added. */
+export function detailText(text: string | null | undefined): string {
+  const t = (text ?? '').trim().replace(/\.$/, '');
+  return t ? t[0]!.toUpperCase() + t.slice(1) : '';
+}
+
+/**
+ * The line under the running step: the stall when it has not moved
+ * ("Stuck 3 min: …", with what to do when it needs the owner), else its
+ * sub-state. Never the step's label again (updaters before 0.12.1 start a
+ * step with its own label as the sub-state).
+ */
+export function runningNote(run: UpdateRun, step: RunStepLike, now: number): StepNote | null {
+  const stall = run.stall ?? null;
+  if (stall) {
+    const min = Math.max(1, Math.round((now - Date.parse(stall.since)) / 60_000));
+    // Patience-only causes keep the calm tone; the others need the owner.
+    return { text: `Stuck ${min} min: ${detailText(stall.message)}`, tone: PATIENT.includes(stall.cause) ? 'live' : 'warn', advice: stall.advice };
+  }
+  const p = run.progress;
+  if (!p || p.step !== step.id) return null;
+  if (p.message.trim().toLowerCase() === step.label.trim().toLowerCase()) return null;
+  return { text: detailText(p.message), tone: 'live' };
 }
 
 /** The run's log, folded away under its last line (which says what it waits for). */
@@ -179,78 +231,76 @@ function RestartingNote({ restart }: { restart: UpdaterSelfReplace }) {
 /** Stalls that only ask for patience; the others need the owner. */
 const PATIENT: ReadonlyArray<UpdateStall['cause']> = ['slow', 'db_recovering'];
 
-/**
- * A running step that has not moved: since when (the updater's time, so a
- * browser clock that is off does not matter), the likely cause and what to do.
- */
-export function StallNote({ stall }: { stall: UpdateStall }) {
-  const tone = PATIENT.includes(stall.cause) ? 'info' : 'warn';
-  return (
-    <div className={`${styles.runHead} ${styles[`tone-${tone}`]}`}>
-      <div>
-        <p className={styles.runTitle}>No progress since {time(stall.since)}</p>
-        <p className={styles.runBody}>{sentence(stall.message)}</p>
-        <p className={styles.runBody}><span className={styles.label}>What to do:</span> {stall.advice}</p>
-      </div>
-    </div>
-  );
-}
-
-export function RunView({ run, disconnected, reloading, restart, onDismiss }: { run: UpdateRun; disconnected: boolean; reloading: boolean; restart: UpdaterSelfReplace | null; onDismiss: () => void }) {
+export function RunView({ run, disconnected, reloading, restart, onDismiss, now: fixedNow }: {
+  run: UpdateRun;
+  disconnected: boolean;
+  reloading: boolean;
+  restart: UpdaterSelfReplace | null;
+  onDismiss: () => void;
+  /** A fixed clock (stories, tests); else the browser's, ticking while the run runs. */
+  now?: number;
+}) {
   const running = run.status === 'running';
-  const now = useNow(running);
+  const ticking = useNow(running && fixedNow === undefined);
+  const now = fixedNow ?? ticking;
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
   const current = run.steps.find((s) => s.status === 'running');
-  // The sub-state of the running step (updaters before 0.9.1 send none).
-  const detail = running && current && run.progress?.step === current.id ? sentence(run.progress.message) : '';
-  const stall = running ? run.stall ?? null : null;
+
+  // One line under one step: the running step's sub-state (or its stall),
+  // or, once the run ended, why the step that failed failed (the last one:
+  // a failed roll back's reason names the first failure too).
+  const notes: Record<string, StepNote> = {};
+  const failedStep = running ? undefined : [...run.steps].reverse().find((s) => s.status === 'failed');
+  if (running && current) {
+    const note = runningNote(run, current, now);
+    if (note) notes[current.id] = note;
+  } else if (failedStep && run.reason) {
+    notes[failedStep.id] = { text: detailText(run.reason), tone: 'error' };
+  }
+  // The reason under the step that failed; in the head only when no step carries it.
+  const reason = failedStep ? '' : sentence(run.reason);
 
   let head: { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined };
   switch (run.status) {
     case 'running':
-      head = { tone: 'info', title: `Updating to ${run.target}`, body: current ? `${current.label}…` : 'Starting…' };
+      head = { tone: 'info', title: `Updating to ${run.target}`, body: run.steps.some((s) => s.status !== 'pending') ? undefined : 'Starting' };
       break;
     case 'succeeded':
-      head = { tone: 'ok', title: `Updated to ${run.target}`, body: 'Every part reports healthy.' };
+      head = { tone: 'ok', title: `Updated to ${run.target}` };
       break;
     case 'rolled_back':
       head = {
         tone: 'warn',
         title: `The update to ${run.target} failed; tagave is back on ${run.rollback?.version ?? run.from}`,
-        body: `${sentence(run.reason)}${run.rollback?.restoredDatabase ? ' The new version had changed the database, so the backup from before the update was restored.' : ' The database was not changed.'}`,
+        body: `${reason ? `${reason} ` : ''}${run.rollback?.restoredDatabase ? 'The backup from before the update was restored.' : 'The database was not changed.'}`,
       };
       break;
     case 'failed':
-      head = { tone: 'warn', title: `The update to ${run.target} did not start`, body: sentence(run.reason) };
+      head = { tone: 'warn', title: `The update to ${run.target} did not start`, body: reason || undefined };
       break;
     case 'rollback_failed':
-      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, body: sentence(run.reason) };
+      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, body: reason || undefined };
       break;
     case 'interrupted':
     default:
-      head = { tone: 'error', title: `The update to ${run.target} was cut off`, body: sentence(run.reason) };
+      head = { tone: 'error', title: `The update to ${run.target} was cut off`, body: reason || undefined };
   }
 
   return (
     <div className={styles.run} aria-live="polite">
       <div className={`${styles.runHead} ${styles[`tone-${head.tone}`]}`}>
         <div>
-          <p className={styles.runTitle}>
-            {running && <span className={styles.spinner} aria-hidden="true" />}
-            {head.title}
-          </p>
+          <p className={styles.runTitle}>{head.title}</p>
           {head.body && <p className={styles.runBody}>{head.body}</p>}
-          {detail && <p className={styles.runDetail}>{detail}</p>}
         </div>
         <span className={styles.elapsed} title="Elapsed">{clock(elapsed)}</span>
       </div>
-      {stall && <StallNote stall={stall} />}
       {disconnected && running && (
         <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
       )}
       {reloading && <p className={styles.note}>Loading the new version…</p>}
       {restart && !running && <RestartingNote restart={restart} />}
-      <StepList run={run} />
+      <StepList run={run} rolling notes={notes} now={now} />
       {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
       <RunLog log={run.log} />
       {!running && (
