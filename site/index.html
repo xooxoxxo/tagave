@@ -69,14 +69,14 @@
   --dew-tint:#E3F0F5; --dew-hi:#5BA8C4; --dew:#276A82; --dew-lo:#1C556B; --dew-ink:#FFFFFF;
   --rim-a:rgba(255,255,255,.90); --rim-b:rgba(22,52,70,.28);
   --glass:rgba(255,255,255,.62); --glass-edge:rgba(22,32,42,.10); --glass-blur:18px;
-  --spec:rgba(255,255,255,.85);
+  --spec:rgba(255,255,255,.85); --clear-hi:rgba(255,255,255,.9);
   --shadow-tint:22,52,70;
   --ring:#276A82; --warn:#9A6A12;
   --wash:radial-gradient(1200px 600px at 80% -10%, color-mix(in srgb, var(--dew-tint) 70%, transparent), transparent 70%);
 
   --r-pill:999px; --r-card:28px; --r-cover:18px; --r-inner:14px; --r-kbd:8px;
   --h-control:48px; --h-control-sm:36px;
-  --dur-fast:80ms; --dur:180ms;
+  --dur-fast:80ms; --dur:180ms; --dur-indicator:300ms; --ease-out:cubic-bezier(.2,.8,.2,1);
   --ease-spring:cubic-bezier(.3,1.6,.5,1); --dur-pop:360ms; --ease-pop:cubic-bezier(.34,1.9,.55,1);
 }
 @media (prefers-color-scheme: dark){
@@ -87,7 +87,7 @@
     --dew-tint:#16303A; --dew-hi:#9AD3E6; --dew:#5FB0CC; --dew-lo:#2F7F9C; --dew-ink:#04202A;
     --rim-a:rgba(255,255,255,.35); --rim-b:rgba(0,0,0,.55);
     --glass:rgba(30,40,50,.55); --glass-edge:rgba(231,237,242,.10);
-    --spec:rgba(255,255,255,.55);
+    --spec:rgba(255,255,255,.55); --clear-hi:rgba(255,255,255,.14);
     --shadow-tint:0,0,0;
     --ring:#8ACBE0; --warn:#D9A94A;
     --wash:radial-gradient(1200px 600px at 80% -10%, rgba(22,48,58,.55), transparent 70%);
@@ -100,7 +100,7 @@
   --dew-tint:#16303A; --dew-hi:#9AD3E6; --dew:#5FB0CC; --dew-lo:#2F7F9C; --dew-ink:#04202A;
   --rim-a:rgba(255,255,255,.35); --rim-b:rgba(0,0,0,.55);
   --glass:rgba(30,40,50,.55); --glass-edge:rgba(231,237,242,.10);
-  --spec:rgba(255,255,255,.55);
+  --spec:rgba(255,255,255,.55); --clear-hi:rgba(255,255,255,.14);
   --shadow-tint:0,0,0;
   --ring:#8ACBE0; --warn:#D9A94A;
   --wash:radial-gradient(1200px 600px at 80% -10%, rgba(22,48,58,.55), transparent 70%);
@@ -108,7 +108,7 @@
 
 /* ============ base ============ */
 *,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:24px;interpolate-size:allow-keywords}
 html,body{margin:0}
 body{
   background:var(--canvas) var(--wash) no-repeat;
@@ -145,7 +145,8 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .navlinks{display:flex;gap:28px;align-items:center}
 .navlinks a{color:var(--ink-2);text-decoration:none;font-size:15px}
 .navlinks a:hover{color:var(--ink)}
-@media (max-width:600px){.navlinks .hide-s{display:none}.navlinks{gap:14px}}
+@media (max-width:600px){.navlinks .hide-s{display:none}.navlinks{gap:16px}}
+@media (max-width:380px){.navlinks .hide-xs{display:none}}
 
 /* ============ gummy glass buttons ============ */
 /* The capsule never moves: hover lights the surface, press sinks the content. */
@@ -252,19 +253,45 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 :root[data-theme="dark"] .btn.secondary:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px rgba(255,255,255,.08),inset 0 -4px 10px rgba(0,0,0,.42),0 10px 22px -14px rgba(0,0,0,.8)}
 :root[data-theme="dark"] .btn.secondary:active{box-shadow:inset 0 3px 7px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.06),0 10px 22px -14px rgba(0,0,0,.8)}
 
-/* theme toggle icon swap */
-.theme-toggle .moon{display:none}
+/* ============ theme switch: the app's segmented control, Light | Dark ============ */
+/* A recessed track and a clear bubble that slides between the options (transform only). The
+   bubble's place comes from the same theme selectors as the tokens, so first paint is right
+   before any script runs; the slide is switched on after that (.ready). */
+.theme-pill{--tp:34px;position:relative;display:inline-flex;flex:none;padding:3px;border-radius:var(--r-pill);
+  background:var(--mist);box-shadow:inset 0 1px 3px rgba(var(--shadow-tint),.1),inset 0 0 0 1px var(--glass-edge)}
+@media (pointer:coarse){.theme-pill{--tp:44px}}
+.tp-bubble{position:absolute;top:3px;left:3px;width:var(--tp);height:var(--tp);border-radius:var(--r-pill);pointer-events:none;
+  background:linear-gradient(180deg,var(--surface),color-mix(in srgb,var(--mist) 40%,var(--surface)));
+  box-shadow:inset 0 1px 0 var(--clear-hi),0 0 1px rgba(var(--shadow-tint),.18),0 1px 2px rgba(var(--shadow-tint),.1)}
+.theme-pill.ready .tp-bubble{transition:transform var(--dur-indicator) var(--ease-out)}
+.tp-opt{position:relative;z-index:1;display:grid;place-items:center;width:var(--tp);height:var(--tp);border-radius:var(--r-pill);
+  color:var(--ink-3);cursor:pointer;transition:color var(--dur-indicator) var(--ease-out);-webkit-tap-highlight-color:transparent}
+.tp-opt svg{width:17px;height:17px}
+.tp-opt input{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer;-webkit-appearance:none;appearance:none}
+.tp-opt:has(input:focus-visible){outline:2px solid var(--ring);outline-offset:-2px}
+.tp-opt.light{color:var(--ink)}
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]) .theme-toggle .sun{display:none}
-  :root:not([data-theme="light"]) .theme-toggle .moon{display:block}
+  :root:not([data-theme="light"]) .tp-bubble{transform:translateX(100%)}
+  :root:not([data-theme="light"]) .tp-opt.light{color:var(--ink-3)}
+  :root:not([data-theme="light"]) .tp-opt.dark{color:var(--ink)}
 }
-:root[data-theme="dark"] .theme-toggle .sun{display:none}
-:root[data-theme="dark"] .theme-toggle .moon{display:block}
+:root[data-theme="dark"] .tp-bubble{transform:translateX(100%)}
+:root[data-theme="dark"] .tp-opt.light{color:var(--ink-3)}
+:root[data-theme="dark"] .tp-opt.dark{color:var(--ink)}
+.theme-pill .tp-opt:hover{color:var(--ink)}
+
+/* Theme change: a soft crossfade of the page. The new view is live, so the pill's bubble
+   slides while the colours fade. */
+::view-transition-old(root),::view-transition-new(root){animation-duration:400ms;animation-timing-function:ease}
+
+/* ============ gentle entrance (set by script, only on what starts below the fold) ============ */
+.rv{opacity:0;transform:translateY(12px);transition:opacity 600ms var(--ease-out),transform 600ms var(--ease-out)}
+.rv.in{opacity:1;transform:none}
 
 /* ============ hero ============ */
 .hero{padding:88px 0 64px;text-align:center}
 .hero .display{margin-top:22px}
-.hero .lede{max-width:38ch;margin:28px auto 0}
+.hero .lede{max-width:38ch;margin:28px auto 0;text-wrap:balance}
 .actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:44px}
 @media (max-width:600px){
   .hero{padding:40px 0 48px}
@@ -281,6 +308,7 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .cmd code{flex:1;min-width:0;white-space:normal;overflow-wrap:anywhere;color:var(--ink);font:400 13.5px/1.6 var(--font-mono);padding:4px 0}
 .cmd .p{color:var(--ink-3);user-select:none;-webkit-user-select:none}
 .cmd .btn{flex:none;min-width:84px}
+.copy span{transition:opacity 160ms ease}
 .hero .cmd{margin:48px auto 0;max-width:760px}
 @media (max-width:600px){.cmd{flex-direction:column;align-items:stretch;padding:16px 16px 12px 18px}.cmd .btn{align-self:flex-end}}
 .hero .cmd-note{margin:14px auto 0;font-size:13px;color:var(--ink-3)}
@@ -295,10 +323,17 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 .zoom{display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;border-radius:var(--r-cover)}
 .zoom:focus-visible{outline:2px solid var(--ring);outline-offset:4px}
 /* full-size view of a screenshot */
-.lightbox{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:24px;border:0;background:transparent;display:none}
-.lightbox[open]{display:grid;place-items:center}
-.lightbox::backdrop{background:rgba(8,14,20,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
-.lightbox img{max-width:min(1600px,100%);max-height:calc(100dvh - 96px);width:auto;height:auto;border-radius:var(--r-cover);box-shadow:0 40px 80px -30px rgba(0,0,0,.6);cursor:zoom-out}
+.lightbox{width:100vw;height:100dvh;max-width:none;max-height:none;margin:0;padding:24px;border:0;background:transparent;display:none;place-items:center;
+  opacity:0;transition:opacity 280ms ease,display 280ms allow-discrete,overlay 280ms allow-discrete}
+.lightbox[open]{display:grid;opacity:1}
+.lightbox::backdrop{background:rgba(8,14,20,0);-webkit-backdrop-filter:blur(0);backdrop-filter:blur(0);
+  transition:background-color 280ms ease,backdrop-filter 280ms ease,-webkit-backdrop-filter 280ms ease,display 280ms allow-discrete,overlay 280ms allow-discrete}
+.lightbox[open]::backdrop{background:rgba(8,14,20,.78);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.lightbox img{max-width:min(1600px,100%);max-height:calc(100dvh - 96px);width:auto;height:auto;border-radius:var(--r-cover);box-shadow:0 40px 80px -30px rgba(0,0,0,.6);cursor:zoom-out;
+  transform:scale(.96);transition:transform 320ms var(--ease-out)}
+.lightbox[open] img{transform:none}
+/* opens and closes with a soft scale and fade (browsers without @starting-style: instant) */
+@starting-style{.lightbox[open]{opacity:0}.lightbox[open]::backdrop{background:rgba(8,14,20,0);-webkit-backdrop-filter:blur(0);backdrop-filter:blur(0)}.lightbox[open] img{transform:scale(.96)}}
 .lightbox .btn{position:fixed;top:16px;right:16px}
 .frame figcaption{font-size:13px;color:var(--ink-3);padding:12px 8px 2px;text-align:left}
 .showcase{padding:8px 0 24px}
@@ -307,7 +342,7 @@ p code,li code{font-size:.9em;padding:1px 6px;border-radius:6px;background:var(-
 section.block{padding:96px 0;border-top:1px solid var(--line)}
 section.block .wrap > header{max-width:640px;margin-bottom:56px}
 #status.block{padding:72px 0}
-section.block .wrap > header .headline{margin-top:14px}
+section.block .wrap > header .label + .headline{margin-top:14px}
 section.block .wrap > header .body{margin-top:16px}
 @media (max-width:600px){section.block{padding:72px 0}section.block .wrap > header{margin-bottom:40px}}
 
@@ -367,6 +402,11 @@ section.block .wrap > header .body{margin-top:16px}
 .faq details[open] summary::after{transform:rotate(45deg)}
 .faq summary:hover{color:var(--dew)}
 .faq .answer{padding:0 4px 24px;max-width:62ch}
+@supports selector(::details-content){
+  .faq details::details-content{block-size:0;opacity:0;overflow:clip;
+    transition:block-size 360ms var(--ease-out),opacity 360ms var(--ease-out),content-visibility 360ms allow-discrete}
+  .faq details[open]::details-content{block-size:auto;opacity:1}
+}
 .faq .answer p{margin:0 0 12px;color:var(--ink-2)}
 .faq .answer p:last-child{margin-bottom:0}
 
@@ -383,11 +423,15 @@ footer p{margin:0 0 8px;max-width:78ch}
   html{scroll-behavior:auto}
   *,*::before,*::after{transition:none!important;animation:none!important}
   .btn:active > *{transform:none}
+  ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}
+  .rv{opacity:1;transform:none}
 }
 @media (forced-colors: active){
   .btn{border:2px solid ButtonText;background:ButtonFace;color:ButtonText;forced-color-adjust:none}
   .btn::before{display:none}
   .ticks li::before{forced-color-adjust:none;background:CanvasText}
+  .theme-pill{border:1px solid CanvasText}
+  .tp-bubble{border:2px solid Highlight;background:Canvas}
 }
 </style>
 </head>
@@ -426,11 +470,15 @@ footer p{margin:0 0 8px;max-width:78ch}
       <a class="hide-s" href="#features">Features</a>
       <a class="hide-s" href="#install">Install</a>
       <a class="hide-s" href="#faq">FAQ</a>
-      <a href="https://github.com/xooxoxxo/tagave">GitHub</a>
-      <button class="btn secondary sm icon theme-toggle" id="theme" type="button" aria-label="Switch between light and dark theme">
-        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
-        <svg class="moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg>
-      </button>
+      <a href="/docs/">Docs</a>
+      <a class="hide-xs" href="https://github.com/xooxoxxo/tagave">GitHub</a>
+      <div class="theme-pill" id="theme" role="radiogroup" aria-label="Colour theme">
+        <span class="tp-bubble" aria-hidden="true"></span>
+        <label class="tp-opt light" title="Light"><input type="radio" name="theme" value="light" aria-label="Light">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg></label>
+        <label class="tp-opt dark" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/></svg></label>
+      </div>
     </div>
   </nav>
 </div>
@@ -440,7 +488,7 @@ footer p{margin:0 0 8px;max-width:78ch}
     <section class="hero">
       <span class="label">Self-hosted music catalogue</span>
       <h1 class="display">Your library,<br><em>quietly</em> in order.</h1>
-      <p class="lede">A self-hosted catalogue that identifies every album in your archive down to the pressing and corrects tags without breaking anything.</p>
+      <p class="lede">It identifies every album down to the pressing and corrects its tags, safely.</p>
       <div class="actions">
         <a class="btn" href="#install"><span>Install tagave</span></a>
         <a class="btn secondary" href="#tour"><span>See how it works</span></a>
@@ -449,7 +497,7 @@ footer p{margin:0 0 8px;max-width:78ch}
         <code id="cmd-hero"><span class="p" aria-hidden="true">$ </span>bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"</code>
         <button class="btn secondary sm copy" type="button" data-copy="cmd-hero"><span>Copy</span></button>
       </div>
-      <p class="cmd-note">Needs Docker with Compose 2.20 or later. Free and open source, AGPL-3.0.</p>
+      <p class="cmd-note">Needs Docker Compose 2.20 or later. Free and open source, AGPL-3.0.</p>
     </section>
 
     <div class="showcase">
@@ -461,7 +509,7 @@ footer p{margin:0 0 8px;max-width:78ch}
                    width="1600" height="1000" fetchpriority="high" alt="The album grid sorted by year, with cover art, artist, format, track count and year under each cover.">
             </picture>
           </button>
-        <figcaption>The album grid. Select a screenshot to see it full size.</figcaption>
+        <figcaption>The album grid. Select any screenshot to enlarge it.</figcaption>
       </figure>
     </div>
   </div>
@@ -469,25 +517,23 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="features">
     <div class="wrap">
       <header>
-        <span class="label">Why it exists</span>
-        <h2 class="headline">Players play music. tagave knows what it is.</h2>
-        <p class="body">For a collection you actually own: folders ripped over twenty years, tags from a dozen programs, and a shelf of records next to them.</p>
+        <h2 class="headline">What it does</h2>
       </header>
       <div class="fgrid">
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><circle cx="22" cy="22" r="9"/><circle cx="22" cy="22" r="2.2"/><path d="M22 13v-1.5M31 22h1.5" stroke-linecap="round"/></svg>
           <h3>Identifies to the pressing</h3>
-          <p class="body">Every album is matched against MusicBrainz and Discogs, with acoustic fingerprinting when the tags are wrong or missing. It finds the edition you have, with its catalogue number, and knows that folders named CD1 and CD2 are one release.</p>
+          <p class="body">Matches each album against MusicBrainz and Discogs, with acoustic fingerprints when tags are wrong. It finds your edition and its catalogue number.</p>
         </div>
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><path d="M15 22a7 7 0 1 0 2.2-5.1M15 14v3.5h3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           <h3>Reversible tag correction</h3>
-          <p class="body">Changes are proposed as a plan and previewed file by file before anything is written. Every write is journalled and can be reverted. A field whose correct value is unknown is never blanked, and files are never moved, split or converted.</p>
+          <p class="body">Changes come as a plan you preview file by file. Every write is journalled and can be reverted. Files are never moved, renamed or converted.</p>
         </div>
         <div>
           <svg class="ic" viewBox="0 0 44 44" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true"><circle cx="22" cy="22" r="20" stroke="var(--line)"/><rect x="13" y="14" width="18" height="16" rx="3"/><path d="M18 14v16M13 22h5" stroke-linecap="round" stroke-dasharray="2 2.5"/></svg>
           <h3>Gaps and ownership</h3>
-          <p class="body">Incomplete albums, duplicates and missing releases by artists you follow are listed for you. Sync a Discogs collection and the vinyl and CDs on your shelf join the same catalogue as the files.</p>
+          <p class="body">Lists incomplete albums, duplicates and missing releases by artists you follow. Sync Discogs and your records join the same catalogue.</p>
         </div>
       </div>
     </div>
@@ -496,22 +542,20 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="tour">
     <div class="wrap">
       <header>
-        <span class="label">How it works</span>
-        <h2 class="headline">Read first. Change gently.</h2>
+        <h2 class="headline">How it works</h2>
       </header>
       <div class="tour">
         <div class="row">
           <div class="text">
             <div class="intro">
               <span class="label">Tag plans</span>
-              <h3 class="headline">Every change, before it happens.</h3>
-              <p class="body">A plan lists each file, each field, the value it has now and the value it would get, and why. You apply it when it looks right, or change the policy and preview again.</p>
+              <h3 class="headline">Preview every change</h3>
+              <p class="body">A plan shows each file and field, its value now and the value it would get.</p>
             </div>
             <ul class="ticks">
               <li>Nothing is written until you apply</li>
-              <li>The audio is hashed before and after each write, and a mismatch stops the job</li>
-              <li>Any applied plan can be reverted from the journal</li>
-              <li>Locked fields keep your values through every rewrite</li>
+              <li>Audio is hashed before and after each write</li>
+              <li>Any plan can be reverted from the journal</li>
             </ul>
           </div>
           <figure class="frame">
@@ -529,13 +573,13 @@ footer p{margin:0 0 8px;max-width:78ch}
           <div class="text">
             <div class="intro">
               <span class="label">Compilations</span>
-              <h3 class="headline">One album again, without moving a file.</h3>
-              <p class="body">A compilation filed one folder per artist turns into a row of one-track albums. tagave notices the pieces that share a title and fit together, treats them as one album, and sets the album values for every track in one previewed plan.</p>
+              <h3 class="headline">Rejoin split compilations</h3>
+              <p class="body">A compilation filed one folder per artist becomes one album again, without moving a file.</p>
             </div>
             <ul class="ticks">
-              <li>Nothing on disk moves, and rescans keep the album together</li>
-              <li>Split it back into its pieces at any time</li>
-              <li>Album artist, title and the compilation flag are set for all tracks at once, after a preview</li>
+              <li>Rescans keep it together</li>
+              <li>Split it back at any time</li>
+              <li>Album fields are set in one previewed plan</li>
             </ul>
           </div>
           <figure class="frame">
@@ -553,14 +597,13 @@ footer p{margin:0 0 8px;max-width:78ch}
           <div class="text">
             <div class="intro">
               <span class="label">Library care</span>
-              <h3 class="headline">See what is missing.</h3>
-              <p class="body">Once albums are identified, tagave can tell which ones are short of tracks, which are duplicated across formats or editions, and which releases by artists you follow are not in the library at all.</p>
+              <h3 class="headline">See what is missing</h3>
+              <p class="body">Once albums are identified, tagave lists missing tracks, duplicates and releases you do not have yet.</p>
             </div>
             <ul class="ticks">
               <li>Incomplete albums name the missing tracks</li>
-              <li>Dismiss a gap once and it stays dismissed</li>
-              <li>A review queue for matches it is not sure about</li>
-              <li>Quality flags mark albums whose files still lack MusicBrainz IDs or cover art, which a tag plan and an art fetch fill in</li>
+              <li>A dismissed gap stays dismissed</li>
+              <li>Unsure matches wait in a review queue</li>
             </ul>
           </div>
           <figure class="frame">
@@ -580,19 +623,18 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="install">
     <div class="wrap">
       <header>
-        <span class="label">Get started</span>
-        <h2 class="headline">One command, then a browser.</h2>
-        <p class="body">The installer pulls the published images, asks where your music is, generates the secrets and starts everything in <code>~/tagave</code>. Running it again is safe.</p>
+        <h2 class="headline">Install</h2>
+        <p class="body">One command sets everything up in <code>~/tagave</code>. Running it again is safe.</p>
       </header>
       <div class="cmd" aria-label="Install command">
         <code id="cmd-install"><span class="p" aria-hidden="true">$ </span>bash -c "$(curl -fsSL https://raw.githubusercontent.com/xooxoxxo/tagave/main/install-tagave.sh)"</code>
         <button class="btn secondary sm copy" type="button" data-copy="cmd-install"><span>Copy</span></button>
       </div>
-      <p class="req">Requires Docker and Docker Compose 2.20 or later, on Linux or macOS.</p>
+      <p class="req">Docker Compose 2.20 or later, on Linux or macOS.</p>
       <ol class="steps">
         <li>
           <h3>Run the installer</h3>
-          <p class="body">Answer where your music lives. Every question also has a flag, so it can run unattended.</p>
+          <p class="body">Tell it where your music lives.</p>
         </li>
         <li>
           <h3>Open tagave</h3>
@@ -600,12 +642,12 @@ footer p{margin:0 0 8px;max-width:78ch}
         </li>
         <li>
           <h3>Add your music</h3>
-          <p class="body">When the setup asks for a scan root, enter <code>/mnt/music</code>. That is your music folder as the file worker sees it.</p>
+          <p class="body">Enter <code>/mnt/music</code> as the scan root.</p>
         </li>
       </ol>
       <div class="install-actions">
-        <a class="btn secondary" href="https://github.com/xooxoxxo/tagave/blob/main/docs/install.md"><span>Read the install guide</span></a>
-        <a class="btn quiet" href="https://github.com/xooxoxxo/tagave/blob/main/docs/install.md#music-on-another-computer"><span>Music on another computer?</span></a>
+        <a class="btn secondary" href="/docs/install/"><span>Read the install guide</span></a>
+        <a class="btn quiet" href="/docs/install/#music-on-another-computer"><span>Music on another computer?</span></a>
       </div>
     </div>
   </section>
@@ -615,8 +657,8 @@ footer p{margin:0 0 8px;max-width:78ch}
       <div class="status">
         <span class="dot" aria-hidden="true"></span>
         <div>
-          <h2 class="title" id="status-title">Early, and honest about it.</h2>
-          <p class="body">tagave catalogues one real library every day. It has one user so far, so expect rough edges, and read the <a href="https://github.com/xooxoxxo/tagave/blob/main/docs/operations.md">operations guide</a> before you trust it with anything you cannot re-rip.</p>
+          <h2 class="title" id="status-title">Early software</h2>
+          <p class="body">It runs one real library every day and has one user so far. Read the <a href="/docs/operations/">operations guide</a> before trusting it with anything you cannot re&#8209;rip.</p>
           <div class="nums">
             <div>27,000<span>albums</span></div>
             <div>240,000<span>files</span></div>
@@ -630,45 +672,45 @@ footer p{margin:0 0 8px;max-width:78ch}
   <section class="block" id="faq">
     <div class="wrap">
       <header>
-        <span class="label">Questions</span>
-        <h2 class="headline">What it is, and what it is not.</h2>
+        <h2 class="headline">Questions</h2>
       </header>
       <div class="faq">
         <details>
           <summary>What is tagave?</summary>
           <div class="answer">
-            <p>A catalogue for a music collection you own. It scans your folders, identifies each album against MusicBrainz and Discogs, shows what is incomplete or duplicated, and corrects tags through plans you preview first.</p>
+            <p>A catalogue for music you own. It identifies each album, shows what is incomplete or duplicated, and corrects tags through plans you preview.</p>
           </div>
         </details>
         <details>
           <summary>Is it a music player?</summary>
           <div class="answer">
-            <p>No. Navidrome, Jellyfin, Plexamp and Roon play your music, and they work better when the tags underneath are right. tagave is the part that gets them right.</p>
+            <p>No. Navidrome, Jellyfin, Plexamp and Roon play your music. tagave gets the tags under them right.</p>
           </div>
         </details>
         <details>
           <summary>Will it change my files?</summary>
           <div class="answer">
-            <p>Only their tags, only when you apply a plan, and only after you have seen the preview. Each write is journalled so it can be reverted, and the audio is hashed before and after so a write that touched the audio stops the job.</p>
-            <p>Files are never moved, renamed, split, converted or deleted. You can also mount your music read-only and use tagave as a catalogue alone.</p>
+            <p>Only their tags, and only when you apply a plan you have previewed. Each write is journalled and can be reverted. The audio is hashed before and after, and a mismatch stops the job.</p>
+            <p>Files are never moved, renamed, split, converted or deleted. You can also mount your music read-only.</p>
           </div>
         </details>
         <details>
           <summary>Does it need the cloud or an account?</summary>
           <div class="answer">
-            <p>No. It runs on your own computer or server in Docker, and your library and account stay there. It talks to the metadata services it uses (MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID if you add keys for them). Twice a day it asks GitHub for the list of tagave releases, so it can tell you about a new version; that request carries nothing about you or your library, and you can turn it off under Settings › Updates. Nothing else leaves your server, and there is no telemetry.</p>
+            <p>No. It runs in Docker on your own machine, and your library and account stay there.</p>
+            <p>It looks things up on MusicBrainz, Cover Art Archive, Wikipedia and Wikidata, plus Discogs and AcoustID if you add keys. Twice a day it checks GitHub for new tagave releases, sending nothing about you; turn that off in Settings › Updates. Nothing else leaves your server, and there is no telemetry.</p>
           </div>
         </details>
         <details>
-          <summary>What does it cost, and what is the licence?</summary>
+          <summary>What does it cost?</summary>
           <div class="answer">
-            <p>It is free. The code is open source under the <a href="https://github.com/xooxoxxo/tagave/blob/main/LICENSE">GNU AGPL-3.0</a>. The tag writer runs mutagen as a separate process.</p>
+            <p>Nothing. It is open source under the <a href="https://github.com/xooxoxxo/tagave/blob/main/LICENSE">GNU AGPL-3.0</a>. The tag writer runs mutagen as a separate process.</p>
           </div>
         </details>
         <details>
           <summary>Which formats does it handle?</summary>
           <div class="answer">
-            <p>It reads and writes tags in MP3, FLAC, M4A and ALAC, Ogg, Opus, WAV and AIFF. APE and WavPack tags are read but not written yet, and albums that come from a CUE sheet only get album-level fields.</p>
+            <p>It reads and writes tags in MP3, FLAC, M4A and ALAC, Ogg, Opus, WAV and AIFF. APE and WavPack are read only for now, and albums from a CUE sheet get album-level fields only.</p>
           </div>
         </details>
       </div>
@@ -681,14 +723,14 @@ footer p{margin:0 0 8px;max-width:78ch}
     <div class="top">
       <a class="brand" href="./"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><use href="#tagave-mark"/></svg>tagave</a>
       <div class="links">
+        <a href="/docs/">Documentation</a>
+        <a href="/docs/changelog/">Changelog</a>
         <a href="https://github.com/xooxoxxo/tagave">GitHub</a>
-        <a href="https://github.com/xooxoxxo/tagave/tree/main/docs">Documentation</a>
-        <a href="https://github.com/xooxoxxo/tagave/releases">Releases</a>
         <a href="https://github.com/xooxoxxo/tagave/blob/main/LICENSE">AGPL-3.0 licence</a>
       </div>
     </div>
     <p>Metadata comes from <a href="https://musicbrainz.org">MusicBrainz</a> and <a href="https://www.discogs.com">Discogs</a>. tagave uses the Discogs API but is not affiliated with, sponsored or endorsed by Discogs. Discogs is a trademark of Zink Media, LLC.</p>
-    <p>Screenshots show a small demo library taken from a real archive, with a demo account. Cover art is from the Cover Art Archive and belongs to its owners.</p>
+    <p>Screenshots show a small demo library. Cover art is from the Cover Art Archive and belongs to its owners.</p>
   </div>
 </footer>
 
@@ -700,14 +742,13 @@ footer p{margin:0 0 8px;max-width:78ch}
 <script>
 (function () {
   var root = document.documentElement;
-  var toggle = document.getElementById('theme');
+  var calm = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var sys = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
   function current() {
-    var t = root.getAttribute('data-theme');
-    if (t) return t;
-    return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return root.getAttribute('data-theme') || (sys && sys.matches ? 'dark' : 'light');
   }
   /* Screenshots follow the system theme through <picture> media queries; when the visitor has
-     picked a theme with the toggle, point the dark sources at that choice instead. */
+     picked a theme, point the dark sources at that choice instead. */
   var shots = document.querySelectorAll('source[data-theme-shot]');
   function syncShots() {
     var t = root.getAttribute('data-theme');
@@ -717,12 +758,53 @@ footer p{margin:0 0 8px;max-width:78ch}
     }
   }
   syncShots();
-  toggle.addEventListener('click', function () {
-    var next = current() === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    syncShots();
+
+  /* Theme switch: Light | Dark radios. The bubble is placed by CSS from first paint; the slide
+     is enabled a frame later so it never animates into place on load. With no saved choice the
+     pill shows, and follows, the system theme. */
+  var pill = document.getElementById('theme');
+  var radios = pill.querySelectorAll('input');
+  function syncPill() {
+    var t = current();
+    for (var i = 0; i < radios.length; i++) radios[i].checked = radios[i].value === t;
+  }
+  syncPill();
+  requestAnimationFrame(function () { requestAnimationFrame(function () { pill.classList.add('ready'); }); });
+  if (sys) {
+    var onSys = function () { if (!root.getAttribute('data-theme')) syncPill(); };
+    if (sys.addEventListener) sys.addEventListener('change', onSys); else if (sys.addListener) sys.addListener(onSys);
+  }
+  pill.addEventListener('change', function (ev) {
+    var next = ev.target.value;
+    function apply() { root.setAttribute('data-theme', next); syncShots(); }
     try { localStorage.setItem('tagave-theme', next); } catch (e) { /* not persisted */ }
+    if (document.startViewTransition && !calm) document.startViewTransition(apply); else apply();
   });
+
+  /* Gentle entrance: only what starts below the fold is hidden, and only here, so the page is
+     complete without script and with reduced motion. */
+  if (!calm && 'IntersectionObserver' in window) {
+    var picks = document.querySelectorAll('.showcase .frame, section.block .wrap > header, .fgrid > div, .row > .text, .row > .frame, #install .cmd, .steps > li, .install-actions, .status, .faq');
+    var io = new IntersectionObserver(function (entries) {
+      for (var i = 0; i < entries.length; i++) {
+        if (!entries[i].isIntersecting) continue;
+        var el = entries[i].target;
+        el.classList.add('in');
+        io.unobserve(el);
+        el.addEventListener('transitionend', function (e) {
+          if (e.propertyName === 'transform') { e.target.classList.remove('rv', 'in'); e.target.style.transitionDelay = ''; }
+        });
+      }
+    }, { rootMargin: '0px 0px -8% 0px' });
+    for (var r = 0; r < picks.length; r++) {
+      var el = picks[r];
+      if (el.getBoundingClientRect().top < window.innerHeight) continue;
+      var sib = Array.prototype.indexOf.call(el.parentNode.children, el);
+      if (/fgrid|steps/.test(el.parentNode.className)) el.style.transitionDelay = (Math.min(sib, 2) * 80) + 'ms';
+      el.classList.add('rv');
+      io.observe(el);
+    }
+  }
 
   /* Screenshots open full size in a modal dialog: Esc, the Close button or a click closes it. */
   var box = document.getElementById('lightbox');
@@ -740,6 +822,12 @@ footer p{margin:0 0 8px;max-width:78ch}
     if (ev.target === box || ev.target === big || ev.target.closest('[data-close]')) box.close();
   });
 
+  /* Copy: the label fades to its new word and back. */
+  function fadeTo(label, text) {
+    if (calm) { label.textContent = text; return; }
+    label.style.opacity = '0';
+    setTimeout(function () { label.textContent = text; label.style.opacity = ''; }, 160);
+  }
   var buttons = document.querySelectorAll('.copy');
   for (var i = 0; i < buttons.length; i++) {
     buttons[i].addEventListener('click', function (ev) {
@@ -748,8 +836,9 @@ footer p{margin:0 0 8px;max-width:78ch}
       var text = el.textContent.replace(/^\$\s*/, '');
       var label = btn.querySelector('span');
       function done(msg) {
-        label.textContent = msg;
-        setTimeout(function () { label.textContent = 'Copy'; }, 1600);
+        clearTimeout(btn._t);
+        fadeTo(label, msg);
+        btn._t = setTimeout(function () { fadeTo(label, 'Copy'); }, 1600);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(function () { done('Copied'); }, function () { done('Select it'); });
