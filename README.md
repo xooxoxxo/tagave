@@ -6,7 +6,7 @@
 
 A self-hosted catalogue for the music you own.
 
-[Website](https://tagave.app) · [Install](docs/install.md) · [Docs](docs/) · [Changelog](CHANGELOG.md)
+[Website](https://tagave.app) · [Install](docs/install.md) · [Docs](https://tagave.app/docs/) · [Changelog](https://tagave.app/docs/changelog/)
 
 <br />
 
