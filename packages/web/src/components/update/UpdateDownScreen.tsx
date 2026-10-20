@@ -13,7 +13,7 @@ import { useLocation } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { noticeTrouble, useAppDown } from '../../services/appDown';
 import { onJobStreamDrop } from '../../services/jobStream';
-import { usePlayerStore } from '../../player/engine';
+import { reloadWhenQuiet } from '../../services/quietReload';
 import { updaterKey, type SeenUpdaterView } from '../../hooks/useUpdater';
 import { useNow } from '../InAppUpdate';
 import { UpdateGlyph } from './UpdateGlyph';
@@ -35,13 +35,10 @@ export function UpdateDownScreen({ seed, version, progress, time }: { seed: stri
 /** How far a down screen's glyph has grown when the run is not known here: with the time down, over a minute. */
 export const downProgress = (downForMs: number) => 0.45 + 0.4 * Math.min(1, Math.max(0, downForMs) / 60_000);
 
-const PLAYING = new Set(['playing', 'loading', 'buffering']);
-
 /** Mounted once in Layout. */
 export function AppDownHost() {
   const { down, since, switchPending } = useAppDown();
   const { pathname } = useLocation();
-  const playing = usePlayerStore((s) => PLAYING.has(s.status));
   const queryClient = useQueryClient();
   const now = useNow(down);
 
@@ -57,9 +54,7 @@ export function AppDownHost() {
   }, [down]);
 
   // into the new build once nothing plays: now, or at the next pause, stop or end of the queue
-  useEffect(() => {
-    if (switchPending && !down && !playing) globalThis.location.reload();
-  }, [switchPending, down, playing]);
+  useEffect(() => (switchPending && !down ? reloadWhenQuiet() : undefined), [switchPending, down]);
 
   if (!down || pathname.startsWith('/settings/updates')) return null;
   // the owner's tab knows the run; everyone else only that the app is away

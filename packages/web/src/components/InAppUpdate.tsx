@@ -13,6 +13,7 @@ import { StepUpDialog } from './StepUpDialog';
 import { restartingOn, updaterKey, useStartUpdate, type SeenUpdaterView } from '../hooks/useUpdater';
 import { getStepUp } from '../services/stepUp';
 import { reloadIntoNewBuild } from '../services/buildCheck';
+import { reloadWhenQuiet } from '../services/quietReload';
 import { UpdateGlyph, type GlyphTone } from './update/UpdateGlyph';
 import { runProgress } from './update/glyphPaint';
 import styles from './InAppUpdate.module.css';
@@ -166,7 +167,7 @@ export const SETTLED_SHOW_MS = 5000;
 
 /**
  * The run this tab watched go from running to succeeded: after
- * RELOAD_AFTER_UPDATE_MS, reload into the new build (if the server runs one;
+ * RELOAD_AFTER_UPDATE_MS, reload into the new build once nothing plays (if the server runs one;
  * a dev bundle never reloads). Only a run seen running here counts, so the
  * reloaded page, which finds the run already finished, stays put.
  */
@@ -194,15 +195,19 @@ export function useReloadAfterUpdate(run: UpdateRun | null): { reloading: boolea
   useEffect(() => {
     if (!succeeded) return;
     let cancelled = false;
+    let stopWaiting: () => void = () => undefined;
     const started = Date.now();
     void reloadIntoNewBuild({
       reload: () => {
         if (cancelled) return;
-        setReloading(true);
-        setTimeout(() => { if (!cancelled) globalThis.location.reload(); }, Math.max(0, RELOAD_AFTER_UPDATE_MS - (Date.now() - started)));
+        setTimeout(() => {
+          if (cancelled) return;
+          // never in the middle of a track: now, or at the next pause, stop or end of the queue
+          stopWaiting = reloadWhenQuiet(() => { setReloading(true); globalThis.location.reload(); });
+        }, Math.max(0, RELOAD_AFTER_UPDATE_MS - (Date.now() - started)));
       },
     });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; stopWaiting(); };
   }, [succeeded]);
   return { reloading, showing };
 }
