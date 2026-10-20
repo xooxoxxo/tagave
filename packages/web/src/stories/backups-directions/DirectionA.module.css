@@ -1,0 +1,133 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  min-width: 0;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.muted {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.groupHead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  padding-inline: var(--space-md);
+}
+
+.groupTitle {
+  margin: 0;
+  font: var(--type-label);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+
+.groupMeta {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.saved {
+  color: var(--ink-3);
+  font-size: var(--font-size-xs);
+}
+
+.list {
+  border-radius: var(--r-inner);
+}
+
+/* a setting: label left, one compact control right */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-height: 52px;
+  padding: 0 8px 0 var(--space-md);
+  color: var(--ink);
+  font-size: 0.9375rem;
+}
+
+.row + .row { border-top: 1px solid var(--line); }
+
+.rowLabel { min-width: 0; }
+
+/* one width for every control on the page */
+.control { width: 9.5rem; flex: none; }
+
+.items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-md);
+  min-height: 52px;
+  padding: 0 8px 0 var(--space-md);
+  font-size: var(--font-size-sm);
+  color: var(--ink);
+}
+
+.item + .item { border-top: 1px solid var(--line); }
+
+.date {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  display: grid;
+  grid-template-columns: 9rem 5.5rem;
+  gap: var(--space-md);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.version { font-variant-numeric: tabular-nums; }
+.to { color: var(--ink-3); }
+.size { text-align: right; }
+
+@media (max-width: 640px) {
+  .item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+    padding-block: 8px;
+  }
+  .meta {
+    grid-column: 1;
+    grid-row: 2;
+    display: flex;
+    gap: 0.3em;
+    color: var(--ink-3);
+    font-size: var(--font-size-xs);
+  }
+  .meta > .size::before { content: '· '; }
+  .item > :last-child { grid-column: 2; grid-row: 1 / span 2; }
+  .control { width: 8.5rem; }
+}
