@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { remediationFor } from './remediation.js';
 
-const ids = ['database', 'migrations', 'contactString', 'workerHeartbeat', 'versions', 'scanRoots', 'cacheDir', 'providers', 'appSecret', 'disk'];
+const ids = ['database', 'migrations', 'contactString', 'workerHeartbeat', 'versions', 'scanRoots', 'cacheDir', 'providers', 'appSecret', 'disk', 'forwardedHeaders'];
 
 describe('remediationFor', () => {
   it('says nothing for a passing or skipped check', () => {

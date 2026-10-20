@@ -24,7 +24,7 @@
  *   - one that missed is remembered (by hash, 10,000 at most, 5 minutes) and
  *     answered 401 with no lookup again;
  *   - lookups that miss are limited per client address (request.ip, so
- *     TRUST_PROXY decides which hop that is; unset behind a proxy, every
+ *     TRUST_PROXY decides which hop that is; behind a proxy it does not trust, every
  *     caller shares one address): 300 a minute, counted with a slot taken
  *     before the lookup and given back when it succeeds, so requests at once
  *     cannot all pass. Past it the address's lookups run one at a time and

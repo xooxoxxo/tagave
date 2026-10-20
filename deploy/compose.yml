@@ -101,6 +101,8 @@ services:
       # Sign-in trusts this origin; passkeys are bound to its host name for good.
       PUBLIC_URL: ${PUBLIC_URL:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      # Advanced: only for a reverse proxy that is not on a private network
+      # (docs/security.md); unset, a proxy on the Docker network or LAN just works.
       TRUST_PROXY: ${TRUST_PROXY:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TZ: ${TZ:-UTC}

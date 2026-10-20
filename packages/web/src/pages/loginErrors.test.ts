@@ -8,6 +8,7 @@ describe('signInErrorMessage', () => {
 
   it('explains rate limiting', () => {
     expect(signInErrorMessage({ status: 429 })).toMatch(/Too many attempts/);
+    expect(signInErrorMessage({ status: 429, code: 'ACCOUNT_SIGN_IN_LIMITED' })).toBe('Too many wrong passwords for this account. Try again in 15 minutes.');
   });
 
   it('names the address and the fix when the origin is not trusted', () => {

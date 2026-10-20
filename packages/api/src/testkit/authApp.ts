@@ -8,7 +8,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
 import { MIGRATIONS_DIR, listMigrationFiles, runMigrations } from '@tagave/db';
@@ -56,8 +56,13 @@ export function testAuth(url: string, appSecret: string = TEST_APP_SECRET): Auth
 type Extra = (instance: FastifyInstance) => Promise<void>;
 
 /** `protectedRoutes` join the probe behind the sign-in check; `rootRoutes` sit next to the auth routes. */
-export async function buildAuthApp(handle: AuthHandle, protectedRoutes?: Extra, rootRoutes?: Extra): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false });
+export async function buildAuthApp(
+  handle: AuthHandle,
+  protectedRoutes?: Extra,
+  rootRoutes?: Extra,
+  serverOptions: Pick<FastifyServerOptions, 'trustProxy'> = {},
+): Promise<FastifyInstance> {
+  const app = Fastify({ logger: false, ...serverOptions });
   await app.register(fastifyCookie);
   initAuth(handle);
   await errorHandler(app);

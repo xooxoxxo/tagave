@@ -556,7 +556,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
   it('past the limit a miss is 429 with Retry-After; a valid token, seen before or new, is still served; another address is not held up', async () => {
     const seenLive = await newToken(person.userId, ALL);
     expect((await from(app, '10.9.9.9', seenLive)).statusCode).toBe(200);
-    // fresh X-Forwarded-For values change nothing: not trusted without TRUST_PROXY
+    // fresh X-Forwarded-For values change nothing: not trusted under TRUST_PROXY=off
     for (let i = 0; i < FAILED_LOOKUPS_PER_MINUTE; i++) expect((await from(app, '10.9.9.9', bogus(i), `203.0.113.${i % 250}`)).statusCode).toBe(401);
     const refused = await from(app, '10.9.9.9', bogus('last'));
     expect(refused.statusCode).toBe(429);
@@ -570,7 +570,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     expect((await from(app, '10.9.9.10', await newToken(person.userId, ALL))).statusCode).toBe(200);
   });
 
-  it('every caller on one address (behind a proxy, TRUST_PROXY unset): a flood of bad tokens never stops a linked app with a valid token', async () => {
+  it('every caller on one address (behind a proxy tagave does not trust): a flood of bad tokens never stops a linked app with a valid token', async () => {
     const seen = await newToken(person.userId, ALL);
     expect((await from(app, '172.18.0.2', seen)).statusCode).toBe(200);
     // as issueTokens does for every token it hands out

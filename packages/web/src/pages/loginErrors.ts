@@ -11,6 +11,7 @@ export function signInErrorMessage(error: AuthClientError | null | undefined, or
   if (code === 'INVALID_EMAIL_OR_PASSWORD' || code === 'INVALID_PASSWORD' || code === 'INVALID_EMAIL') {
     return 'Wrong email or password.';
   }
+  if (code === 'ACCOUNT_SIGN_IN_LIMITED') return 'Too many wrong passwords for this account. Try again in 15 minutes.';
   if (status === 429 || code === 'TOO_MANY_REQUESTS') {
     return 'Too many attempts. Wait a few seconds, then try again.';
   }

@@ -13,10 +13,12 @@ import {
 import { checkBackups } from './backupCheck.js';
 import { checkPublicUrl } from './authCheck.js';
 import { checkDisk } from './diskCheck.js';
+import { checkForwardedHeaders } from './proxyCheck.js';
 
 export type { Check, CheckStatus } from './checks.js';
 export { remediationFor } from './remediation.js';
 export { checkPublicUrl } from './authCheck.js';
+export { checkForwardedHeaders, createForwardedObserver } from './proxyCheck.js';
 export {
   checkDisk,
   diskSpace,
@@ -130,6 +132,7 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
   checks.push(await checkProviders(databaseUrl, offline, timeoutMs, offlineDetail));
   checks.push(await checkAppSecret(databaseUrl));
   checks.push(await checkPublicUrl(databaseUrl));
+  checks.push(await checkForwardedHeaders(cacheDir));
 
   // Determine if all checks passed (warnings are not failures)
   const ok = checks.every((c) => c.status !== 'fail');

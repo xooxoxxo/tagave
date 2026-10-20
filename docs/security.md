@@ -14,7 +14,7 @@ This page describes credential encryption, session security, backup handling, an
 - Signing in sets one cookie, `tagave.session_token` (`__Secure-tagave.session_token` when `PUBLIC_URL` is https). It is httpOnly, `SameSite=Lax`, and holds a random session token plus an HMAC signature made with the secret above. The server looks the token up in `auth_sessions` on every request, so signing out or revoking a session takes effect at once.
 - A session lasts 30 days and is extended once a day while you use it.
 - Sign-in requests are accepted only from `PUBLIC_URL` and the origins listed in `ALLOWED_ORIGINS` (Better Auth's origin and Fetch-Metadata checks). Open tagave at the address in `PUBLIC_URL`, or list the other addresses you use in `ALLOWED_ORIGINS`.
-- Repeated sign-in attempts are rate limited (Better Auth's limiter, stored in the database). Behind a reverse proxy that sets `X-Forwarded-For`, set `TRUST_PROXY` so the limit applies per client (see [Reverse proxy and client addresses](#reverse-proxy-and-client-addresses)).
+- Repeated sign-in attempts are rate limited (Better Auth's limiter, stored in the database). Wrong passwords are also limited per account (10 in 15 minutes), from any address. Behind a reverse proxy on a private network the limit applies per client with no setting (see [Reverse proxy and client addresses](#reverse-proxy-and-client-addresses)).
 - Passwords are hashed with argon2id. New passwords need at least 12 characters. Change yours in Settings › Security › Password; ticking **Sign out my other devices** ends every other session.
 - **Upgrading from 0.6:** you stay signed in. The first request with the old `sessionId` cookie swaps it for the new cookie, and your password is unchanged.
 
@@ -224,13 +224,24 @@ Music Connections lets another music app read one person's data from tagave, and
 
 ## Reverse proxy and client addresses
 
-Every per-address limit (sign-in, invite links, the Music Connections endpoints and feeds) counts by the client's address. Behind a reverse proxy that address comes from `X-Forwarded-For`, and `TRUST_PROXY` says which hops may set it:
+Every per-address limit (sign-in, invite links, the Music Connections endpoints and feeds) counts by the client's address. Behind a reverse proxy that address comes from `X-Forwarded-For`, and tagave takes it only from a proxy it trusts. You do not need to set anything for a proxy on the same Docker network or on your home network (Caddy, nginx, Traefik, cloudflared).
 
-- unset or `false`: no proxy; the address of the connection is the client. Behind a reverse proxy that is the proxy's address, so every caller shares one limit (a busy or misbehaving client slows sign-in for everyone); set one of the values below.
-- a hop count, `TRUST_PROXY=1`: the nearest hop is your proxy, and the rightmost address it appended is the client; entries further left, which the client could have written, are ignored. Use the number of proxies in front of tagave. This trusts whatever connects directly, so tagave's port must be reachable only through the proxy (publish it on 127.0.0.1, or only on the proxy's network): anyone who reaches the port directly can name any address. Prefer the network form below.
-- the proxies' addresses or networks, `TRUST_PROXY=10.0.0.0/8,172.16.0.0/12` (preferred): only a connection from one of them may name the client (`loopback`, `linklocal` and `uniquelocal` work too). A network wider than /8 (`0.0.0.0/0`, `::/0`) is refused: it would trust nearly every peer.
+By default (`TRUST_PROXY` unset) any hop on a private network is trusted to name the client: loopback, link-local, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and fc00::/7. Two exceptions:
 
-tagave never trusts every hop: a client could then write any address into `X-Forwarded-For` and step around every limit. `TRUST_PROXY=true` (and `yes`) from older releases now means `1`, with a warning in the log; set the hop count or the addresses instead. Better Auth's sign-in limiter and the trusted-device list read the address tagave worked out this way, never the raw header. A value that is none of these stops the app at start.
+- A connection from a public address never names the client, so a visitor from the internet cannot pick its own address.
+- The gateways of the networks tagave's container is on (read from its routing table at start, such as 172.18.0.1) are not trusted either. A visitor who reaches tagave's published port through Docker's port forwarding (Docker Desktop, colima, rootless Docker, or a connection to localhost) arrives from that gateway, not from a proxy. A proxy on tagave's Docker network has an address of its own and is trusted.
+
+The trade-off: a device on your own network that connects to tagave's port directly can write any address into `X-Forwarded-For`. That only puts it in a rate-limit bucket of its choosing. Nothing in tagave grants access by address, and wrong passwords are also limited per account (10 in 15 minutes), so changing the address does not buy more guesses. To shut that door too, make tagave's port reachable only by your proxy: no published port when the proxy is on tagave's Docker network, or `127.0.0.1:3100:3000` when it runs on the same computer outside Docker (it then arrives from the gateway: set `TRUST_PROXY` to the address the Reverse Proxy check shows). For a proxy on another computer, name it (`TRUST_PROXY=192.168.1.2`): other devices then cannot name an address.
+
+`TRUST_PROXY` is an advanced option, needed only when your proxy is not on a private network:
+
+- the proxies' addresses or networks, `TRUST_PROXY=203.0.113.7` or `10.0.0.0/8,172.16.0.0/12`: only a connection from one of them may name the client (`loopback`, `linklocal` and `uniquelocal` work too). A network wider than /8 (`0.0.0.0/0`, `::/0`) is refused: it would trust nearly every peer.
+- a hop count, `TRUST_PROXY=1`: the nearest hop is your proxy, and the rightmost address it appended is the client; entries further left, which the client could have written, are ignored. This trusts whatever connects directly, so tagave's port must be reachable only through the proxy. Prefer the address form.
+- `off` (or `false`, `0`): trust no proxy; the address of the connection is the client. Behind a proxy every caller then shares one limit.
+
+tagave never trusts every hop: a client could then write any address into `X-Forwarded-For` and step around every limit. `TRUST_PROXY=true` (and `yes`) from older releases now means `1`, with a warning in the log; remove it. Better Auth's sign-in limiter and the trusted-device list read the address tagave worked out this way, never the raw header. A value that is none of these stops the app at start.
+
+When requests keep arriving with `X-Forwarded-For` that tagave cannot use (a proxy on a public address, as some cloud load balancers are, or one that reaches tagave through the Docker gateway), the Reverse Proxy check in Settings › System and `tagave-doctor` warns and names the setting that fixes it. It stays quiet otherwise.
 
 ## TLS and HTTPS
 
@@ -239,7 +250,6 @@ tagave never trusts every hop: a client could then write any address into `X-For
 ```sh
 PUBLIC_URL=https://your-domain.com
 ALLOW_INSECURE_HTTP=false
-TRUST_PROXY=1
 ```
 
 With an https `PUBLIC_URL` the session cookie gets the `secure` flag and the `__Secure-` prefix. `ALLOW_INSECURE_HTTP=false` (the default) refuses to create the owner account over plain http.

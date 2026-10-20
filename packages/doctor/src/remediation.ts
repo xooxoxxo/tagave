@@ -62,6 +62,16 @@ export function remediationFor(check: Pick<Check, 'id' | 'status' | 'detail'>): 
         return 'Passkeys are bound to the host name they were made on. Set PUBLIC_URL back to that host and restart, or keep the new host, sign in with your password (and authenticator code) and add your passkeys again under Settings › Security.';
       }
       return 'Serve tagave over https (a reverse proxy with a certificate) and set PUBLIC_URL to the https address to use passkeys and security keys.';
+    case 'forwardedHeaders': {
+      const peer = /^X-Forwarded-For from (\S+) ignored/.exec(check.detail)?.[1] ?? 'that address';
+      if (/Docker gateway/.test(check.detail)) {
+        return `Your proxy reaches tagave through a published port, the way direct visitors do. Put the proxy on tagave's Docker network and point it at app:3000, or publish the port on this computer only (127.0.0.1:3100:3000) and set TRUST_PROXY=${peer} in .env. Then restart the app.`;
+      }
+      if (/not in TRUST_PROXY/.test(check.detail)) {
+        return `If ${peer} is your reverse proxy, add it to TRUST_PROXY in .env, or remove TRUST_PROXY when the proxy is on a private network. Then restart the app.`;
+      }
+      return `If ${peer} is your reverse proxy (a cloud load balancer, say), set TRUST_PROXY=${peer} in .env and restart the app. If it is not, something sends the header straight to tagave: make tagave reachable only through your proxy.`;
+    }
     default:
       return null;
   }

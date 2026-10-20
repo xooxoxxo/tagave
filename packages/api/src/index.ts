@@ -5,9 +5,9 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { makeDb } from '@tagave/db';
-import { AuthConfigError, fastifyTrustProxy, parseTrustProxy, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
+import { AuthConfigError, fastifyTrustProxy, localGateways, parseTrustProxy, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
 import { readBuildInfo } from '@tagave/core';
-import { migrateOnBoot } from '@tagave/doctor';
+import { createForwardedObserver, migrateOnBoot } from '@tagave/doctor';
 import { startUpdateChecks } from './routes/updates.js';
 import { startPlayerScanWorker } from './lib/player.js';
 import { startPlayerPeopleWorker } from './lib/playerSync.js';
@@ -50,6 +50,12 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
+// Which hops may name the client in X-Forwarded-For: unset, any proxy on a
+// private network except the gateways of the networks this container is on
+// (where direct visitors arrive through a published port).
+const trustProxyRaw = process.env.TRUST_PROXY ?? '';
+const proxyGateways = localGateways();
+
 // Create Fastify app
 const app = Fastify({
   // LOG_LEVEL applies to request logs too (was always info).
@@ -57,9 +63,16 @@ const app = Fastify({
   logger: { level: process.env.LOG_LEVEL || 'info', serializers: { req: requestSerializer } },
   requestIdHeader: 'x-request-id',
   requestIdLogLabel: 'requestId',
-  // which hops may name the client (TRUST_PROXY: a hop count or the proxies'
-  // addresses, never every hop): request.ip is then the client for every limiter
-  trustProxy: fastifyTrustProxy(parseTrustProxy(process.env.TRUST_PROXY)),
+  // request.ip is then the client for every limiter (never every hop)
+  trustProxy: fastifyTrustProxy(parseTrustProxy(trustProxyRaw), { gateways: proxyGateways }),
+});
+
+// X-Forwarded-For this setting could not use (a proxy on a public address or
+// behind the Docker gateway): noted for the reverse proxy check (Settings ›
+// System, tagave-doctor), which names the fix.
+const noteForwarded = createForwardedObserver({ cacheDir: process.env.CACHE_DIR || undefined, trustProxyRaw, gateways: proxyGateways });
+app.addHook('onRequest', async (request) => {
+  if (request.headers['x-forwarded-for'] !== undefined) void noteForwarded(request.socket.remoteAddress, request.ip, true);
 });
 
 // Validate APP_SECRET (required for credential encryption)
