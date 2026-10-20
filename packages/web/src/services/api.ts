@@ -8,6 +8,7 @@
  */
 
 import { ProblemDetails } from '@tagave/shared';
+import { isGoneStatus, noticeTrouble } from './appDown';
 
 export interface ApiError extends ProblemDetails {
   status: number;
@@ -44,11 +45,19 @@ class ApiClient {
       headers.set('Content-Type', 'application/json');
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-      credentials: 'include', // Include httpOnly cookies
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: 'include', // Include httpOnly cookies
+      });
+    } catch (err) {
+      // the network refused it, as it does while the app restarts: the down screen asks
+      if (!options.signal?.aborted) void noticeTrouble();
+      throw err;
+    }
+    if (isGoneStatus(response.status)) void noticeTrouble();
 
     // 401 is thrown as a typed error; routing decisions belong to the React
     // layer (App.tsx), never here — a hard redirect from the client caused an

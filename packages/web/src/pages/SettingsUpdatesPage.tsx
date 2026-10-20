@@ -14,7 +14,7 @@ import type { InstallMethod, ReleaseNote, UpdatesStatus, WorkerVersion } from '@
 import { useCurrentLibrary } from '../hooks';
 import { useCheckUpdates, useSetUpdatesFeed, useSkipUpdate, useUpdates } from '../hooks/useUpdates';
 import { useUpdater } from '../hooks/useUpdater';
-import { InAppUpdate } from '../components/InAppUpdate';
+import { InAppUpdate, RunView, useShownRun } from '../components/InAppUpdate';
 import { Banner, Button } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
 import styles from './SettingsUpdatesPage.module.css';
@@ -104,10 +104,10 @@ function ReleaseArticle({ release, open }: { release: ReleaseNote; open: boolean
 export function SettingsUpdatesPage() {
   const { libraryId } = useCurrentLibrary();
   const { data, isLoading } = useUpdates(libraryId);
-  if (isLoading) return <p className={styles.muted}>Loading…</p>;
+  if (isLoading) return <><h2>Updates</h2><p className={styles.muted}>Loading…</p></>;
   // A failed refetch keeps the last answer: during an in-app update the app
   // restarts and this page must stay put.
-  if (!data) return <Banner tone="danger">Could not load update status.</Banner>;
+  if (!data) return <><h2>Updates</h2><Banner tone="danger">Could not load update status.</Banner></>;
   return <UpdatesContent data={data} libraryId={libraryId} />;
 }
 
@@ -133,6 +133,12 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   const disconnected = !!updater.error || (!!uv?.installed && !uv.reachable);
   // "Up to date" only when a check actually ran and found nothing newer.
   const upToDate = feed.enabled && !!feed.lastCheckedAt && !feed.error && feed.newer.length === 0;
+  const shown = useShownRun(uv);
+
+  // While a run is on screen it is the whole page (the section list stays beside it).
+  if (inApp && shown.run) {
+    return <RunView run={shown.run} disconnected={disconnected} reloading={shown.reloading} restart={shown.restart} onDismiss={shown.dismiss} />;
+  }
 
   const manual = confirmed ? (
       <div className={styles.guide}>
@@ -157,6 +163,8 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
     );
 
   return (
+    <>
+    <h2>Updates</h2>
     <div className={styles.page}>
       {target && data.updateAvailable && (
         <Banner tone="info">
@@ -308,5 +316,6 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
         )}
       </section>
     </div>
+    </>
   );
 }

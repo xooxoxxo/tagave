@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReleaseNote, UpdateRun, UpdaterSelfReplace, UpdaterView } from '@tagave/shared';
-import { InAppUpdate, RunView, restartConflictError, showRun } from './InAppUpdate';
+import { InAppUpdate, RunView, restartConflictError, showRun, useShownRun } from './InAppUpdate';
 import { CRASH_LOOP, RECOVERING, SIMULATED_END, didNotStartRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from '../stories/updateFixtures';
 
 const release = { version: '0.9.0', tag: 'v0.9.0' } as ReleaseNote;
@@ -145,7 +145,16 @@ describe('the run view: sub-state and stalls', () => {
   });
 });
 
-describe('a finished run on the card', () => {
+/** Settings › Updates as the page decides it: the run in place of the page, else the release picker. */
+function Page({ v }: { v: UpdaterView }) {
+  const shown = useShownRun(v);
+  return shown.run
+    ? <RunView run={shown.run} reloading={shown.reloading} restart={shown.restart} onDismiss={shown.dismiss} />
+    : <InAppUpdate view={v} disconnected={false} current="0.8.0" releases={[release]} confirmed />;
+}
+
+describe('a finished run on the page', () => {
+  const render = (v: UpdaterView) => renderToStaticMarkup(<QueryClientProvider client={new QueryClient()}><Page v={v} /></QueryClientProvider>);
   const finished = (status: UpdateRun['status']): UpdateRun => ({ ...updateRun('x'), status, target: '0.8.0', finishedAt: new Date().toISOString(), progress: null, reason: status === 'succeeded' ? null : 'the app did not answer healthy' });
   const withRun = (run: UpdateRun, runSettled: boolean): UpdaterView => ({ ...view(null, '0.8.0'), updater: { ...view(null, '0.8.0').updater!, run }, runSettled });
 
@@ -179,5 +188,26 @@ describe('a finished run on the card', () => {
     expect(showRun(finished('rolled_back'), true, null, null)).toBe(true);
     // an older dismissal does not hide a newer run
     expect(showRun({ ...finished('failed'), id: 'run-2' }, false, 'run-1', null)).toBe(true);
+  });
+});
+
+describe('the run as the page: titles', () => {
+  const html = (run: UpdateRun, now: number) =>
+    renderToStaticMarkup(<RunView run={run} now={now} reloading={false} restart={null} onDismiss={() => undefined} />);
+
+  it('gives an end state a short title for a phone beside the long one', () => {
+    const out = html(rolledBackRun(), nowAt(400));
+    expect(out).toContain('The update to 0.12.0 failed; tagave is back on 0.11.0');
+    expect(out).toMatch(/class="[^"]*short[^"]*">Back on 0\.11\.0</);
+    expect(html(didNotStartRun(), nowAt(6))).toContain('>Did not start<');
+  });
+
+  it('keeps one title while the run runs and once it succeeded', () => {
+    expect(html(simulatedRun(60), nowAt(60))).not.toMatch(/class="[^"]*short/);
+    expect(html(simulatedRun(SIMULATED_END), nowAt(SIMULATED_END))).not.toMatch(/class="[^"]*short/);
+  });
+
+  it('draws the glyph, hidden from assistive technology', () => {
+    expect(html(simulatedRun(60), nowAt(60))).toMatch(/<canvas[^>]*aria-hidden="true"[^>]*data-update-glyph/);
   });
 });

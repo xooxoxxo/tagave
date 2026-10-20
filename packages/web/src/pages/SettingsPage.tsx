@@ -105,7 +105,7 @@ export function SettingsPage() {
         {section === 'system' && <><h2>System status</h2><SystemStatus /></>}
         {section === 'storage' && <><h2>Storage</h2><SettingsStorageContent /></>}
         {section === 'backups' && <><h2>Backups</h2><SettingsBackupsPage /></>}
-        {section === 'updates' && <><h2>Updates</h2><SettingsUpdatesPage /></>}
+        {section === 'updates' && <SettingsUpdatesPage />}
         {section === 'modules' && <><h2>Modules</h2><SettingsModulesContent /></>}
         {section === 'activity' && <><h2>Background activity</h2><JobsPage /></>}
         {section === 'setup-checklist' && <><h2>Setup checklist</h2><SetupChecklistContent /></>}

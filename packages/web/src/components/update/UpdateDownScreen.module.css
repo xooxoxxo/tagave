@@ -1,0 +1,61 @@
+/*
+ * The down screen: the lamp over the whole screen, "Updating" and the
+ * version in the middle. Under the player's row (PlayerBar lifts it while
+ * html[data-app-down] is set), over everything else.
+ */
+.down {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-backdrop);
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+}
+
+.glyph {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* light canvas: the dots read about a fifth weaker than on dark */
+  --glyph-boost: 1.2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .glyph { --glyph-boost: 1; }
+}
+:root[data-theme="dark"] .glyph { --glyph-boost: 1; }
+
+.text {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) var(--space-md);
+}
+
+.title {
+  margin: 0;
+  padding: 0 var(--space-md);
+  font: var(--type-display);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+  border-radius: var(--r-inner);
+}
+
+.version {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font: var(--type-mono);
+  font-size: var(--font-size-sm);
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+  border-radius: var(--r-pill);
+}
+
+@media (forced-colors: active) {
+  .glyph { display: none; }
+}

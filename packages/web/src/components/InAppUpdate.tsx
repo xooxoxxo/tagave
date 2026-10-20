@@ -13,6 +13,8 @@ import { StepUpDialog } from './StepUpDialog';
 import { restartingOn, updaterKey, useStartUpdate, type SeenUpdaterView } from '../hooks/useUpdater';
 import { getStepUp } from '../services/stepUp';
 import { reloadIntoNewBuild } from '../services/buildCheck';
+import { UpdateGlyph, type GlyphTone } from './update/UpdateGlyph';
+import { runProgress } from './update/glyphPaint';
 import styles from './InAppUpdate.module.css';
 
 const DISMISSED_KEY = 'tagave-update-run-dismissed';
@@ -247,14 +249,35 @@ export function logPreview(run: UpdateRun, notes: Record<string, StepNote>): str
   return shown.some((t) => t.includes(line) || line.includes(t)) ? null : last.message;
 }
 
-export function RunView({ run, disconnected, reloading, restart, onDismiss, now: fixedNow }: {
+/** The glyph's tone for a run: the accent while it runs or once it succeeded, warn or danger once it failed. */
+export function glyphTone(run: UpdateRun): GlyphTone {
+  switch (run.status) {
+    case 'running': return 'live';
+    case 'succeeded': return 'ok';
+    case 'rolled_back':
+    case 'failed': return 'warn';
+    default: return 'error';
+  }
+}
+
+/**
+ * The run, as the whole of Settings › Updates while it runs (and until Done
+ * once it ended): the lava-lamp glyph across the pane, seeded by the version
+ * and growing with the run, then the title and the time, the steps rolling
+ * in, the log folded away. The section list beside it stays: the rest of
+ * the app is usable until the restart.
+ */
+export function RunView({ run, reloading, restart, onDismiss, now: fixedNow, glyphTime }: {
   run: UpdateRun;
-  disconnected: boolean;
+  /** The view could not be refreshed (the app is restarting): the running step says so. */
+  disconnected?: boolean;
   reloading: boolean;
   restart: UpdaterSelfReplace | null;
   onDismiss: () => void;
   /** A fixed clock (stories, tests); else the browser's, ticking while the run runs. */
   now?: number;
+  /** A fixed lamp clock (stories): the glyph holds still. */
+  glyphTime?: number;
 }) {
   const running = run.status === 'running';
   const ticking = useNow(running && fixedNow === undefined);
@@ -263,33 +286,48 @@ export function RunView({ run, disconnected, reloading, restart, onDismiss, now:
   const { head, notes } = runSummary(run, now);
 
   return (
-    <div className={styles.run} aria-live="polite">
-      <div className={`${styles.runHead} ${styles[`tone-${head.tone}`]}`}>
-        <div>
-          <p className={styles.runTitle}>{head.title}</p>
-          {head.body && <p className={styles.runBody}>{head.body}</p>}
-        </div>
-        <span className={styles.elapsed} title="Elapsed">{clock(elapsed)}</span>
+    <section className={styles.takeover} aria-live="polite" aria-labelledby="update-run-title">
+      <UpdateGlyph
+        className={styles.glyph}
+        seed={run.target}
+        progress={runProgress(run, now)}
+        tone={glyphTone(run)}
+        moving={running}
+        time={glyphTime}
+        strength={2.2}
+      />
+      <div className={styles.run}>
+        <header className={styles.runHead}>
+          <h2 id="update-run-title" className={styles.runTitle}>
+            <span className={head.short ? styles.long : undefined}>{head.title}</span>
+            {head.short && <span className={styles.short}>{head.short}</span>}
+          </h2>
+          <span className={styles.elapsed} title="Elapsed">{clock(elapsed)}</span>
+        </header>
+        {head.body && <p className={styles.runBody}>{head.body}</p>}
+        {reloading && <p className={styles.note}>Loading the new version…</p>}
+        {restart && !running && <RestartingNote restart={restart} />}
+        <StepList run={run} rolling notes={notes} now={now} />
+        {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
+        <RunLog log={run.log} preview={logPreview(run, notes)} />
+        {!running && (
+          <div className={styles.row}>
+            <Button variant="secondary" onClick={onDismiss}>Done</Button>
+          </div>
+        )}
       </div>
-      {disconnected && running && (
-        <p className={styles.note}>tagave is restarting. This page reconnects on its own.</p>
-      )}
-      {reloading && <p className={styles.note}>Loading the new version…</p>}
-      {restart && !running && <RestartingNote restart={restart} />}
-      <StepList run={run} rolling notes={notes} now={now} />
-      {run.backup && <p className={styles.note}>Backup from before the update: <code>{run.backup}</code></p>}
-      <RunLog log={run.log} preview={logPreview(run, notes)} />
-      {!running && (
-        <div className={styles.row}>
-          <Button size="sm" variant="secondary" onClick={onDismiss}>Done</Button>
-        </div>
-      )}
-    </div>
+    </section>
   );
 }
 
 /** What the run's head says: its tone, its title and, when there is one, the line under it. */
-export interface RunHead { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined }
+export interface RunHead {
+  tone: 'info' | 'ok' | 'warn' | 'error';
+  title: string;
+  /** a shorter title for a phone, where the long one would wrap to three lines */
+  short?: string | undefined;
+  body?: string | undefined;
+}
 
 /** The run's head and the one line under one step (shared by the run's views). */
 export function runSummary(run: UpdateRun, now: number): { head: RunHead; notes: Record<string, StepNote> } {
@@ -321,18 +359,19 @@ export function runSummary(run: UpdateRun, now: number): { head: RunHead; notes:
       head = {
         tone: 'warn',
         title: `The update to ${run.target} failed; tagave is back on ${run.rollback?.version ?? run.from}`,
+        short: `Back on ${run.rollback?.version ?? run.from}`,
         body: `${reason ? `${reason} ` : ''}${run.rollback?.restoredDatabase ? 'The backup from before the update was restored.' : 'The database was not changed.'}`,
       };
       break;
     case 'failed':
-      head = { tone: 'warn', title: `The update to ${run.target} did not start`, body: reason || undefined };
+      head = { tone: 'warn', title: `The update to ${run.target} did not start`, short: 'Did not start', body: reason || undefined };
       break;
     case 'rollback_failed':
-      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, body: reason || undefined };
+      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, short: 'Roll back failed', body: reason || undefined };
       break;
     case 'interrupted':
     default:
-      head = { tone: 'error', title: `The update to ${run.target} was cut off`, body: reason || undefined };
+      head = { tone: 'error', title: `The update to ${run.target} was cut off`, short: 'Cut off', body: reason || undefined };
   }
   return { head, notes };
 }
@@ -360,33 +399,55 @@ export interface InAppUpdateProps {
   upToDate?: boolean;
 }
 
-export function InAppUpdate({ view, disconnected, current, releases, confirmed, upToDate = false }: InAppUpdateProps) {
+/** The run Settings › Updates shows in place of the page (null: none), and what it needs. */
+export interface ShownRun {
+  run: UpdateRun | null;
+  reloading: boolean;
+  restart: UpdaterSelfReplace | null;
+  dismiss: () => void;
+}
+
+/**
+ * The run to show, if any (showRun): Settings › Updates turns into it while
+ * it runs and until Done; a success the app runs clears itself. A run that
+ * just finished changes what runs, so the version table is refreshed.
+ */
+export function useShownRun(view: SeenUpdaterView | undefined): ShownRun {
+  const queryClient = useQueryClient();
+  const run = view?.updater?.run ?? null;
+  const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
+  const { reloading, showing } = useReloadAfterUpdate(run);
+  const finishedId = run && run.status !== 'running' ? run.id : null;
+  useEffect(() => {
+    if (finishedId) void queryClient.invalidateQueries({ queryKey: ['updates'] });
+  }, [finishedId, queryClient]);
+  const shown = run && showRun(run, !!view?.runSettled, dismissed, showing) ? run : null;
+  return {
+    run: shown,
+    reloading,
+    restart: restartingOn(view),
+    dismiss: () => { if (run) { writeDismissed(run.id); setDismissed(run.id); } },
+  };
+}
+
+/** Settings › Updates without a run on screen: pick a release, confirm it is you, start. */
+export function InAppUpdate({ view, current, releases, confirmed, upToDate = false }: InAppUpdateProps) {
   const queryClient = useQueryClient();
   const start = useStartUpdate();
-  const run = view.updater?.run ?? null;
-  const [dismissed, setDismissed] = useState<string | null>(() => readDismissed());
   const [picked, setPicked] = useState<string>(releases[0]?.version ?? '');
   const [stepUp, setStepUp] = useState<{ version: string; methods: StepUpMethod[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const versions = useMemo(() => releases.map((r) => r.version), [releases]);
-  const { reloading, showing } = useReloadAfterUpdate(run);
   const restart = restartingOn(view);
 
   useEffect(() => {
     if (!versions.includes(picked)) setPicked(versions[0] ?? '');
   }, [versions, picked]);
 
-  // A run that just finished changes what runs: refresh the version table.
-  const finishedId = run && run.status !== 'running' ? run.id : null;
-  useEffect(() => {
-    if (finishedId) void queryClient.invalidateQueries({ queryKey: ['updates'] });
-  }, [finishedId, queryClient]);
-
   const go = async (version: string) => {
     setError(null);
     try {
       await start.mutateAsync(version);
-      setDismissed(null);
     } catch (err) {
       const e = err as { status?: number; title?: string; detail?: string };
       if (e.status === 409 && e.title === RESTARTING_TITLE) {
@@ -424,18 +485,6 @@ export function InAppUpdate({ view, disconnected, current, releases, confirmed, 
     }
     await go(picked);
   };
-
-  if (run && showRun(run, !!view.runSettled, dismissed, showing)) {
-    return (
-      <RunView
-        run={run}
-        disconnected={disconnected}
-        reloading={reloading}
-        restart={restart}
-        onDismiss={() => { writeDismissed(run.id); setDismissed(run.id); }}
-      />
-    );
-  }
 
   return (
     <div className={styles.idle}>

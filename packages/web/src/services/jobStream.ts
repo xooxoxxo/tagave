@@ -201,7 +201,10 @@ class LibraryStream {
       }
     });
     source.addEventListener('error', () => {
-      if (this.source === source) this.dropped = true;
+      if (this.source === source) {
+        if (!this.dropped) notifyDrop();
+        this.dropped = true;
+      }
       // CONNECTING: the browser retries by itself. CLOSED: it gave up (an HTTP error status).
       if (source.readyState !== 2 || this.source !== source || this.stopped) return;
       source.close();
@@ -243,6 +246,23 @@ class LibraryStream {
 const streams = new Map<string, LibraryStream>();
 
 const reconnectListeners = new Set<() => void>();
+const dropListeners = new Set<() => void>();
+function notifyDrop(): void {
+  for (const listener of dropListeners) {
+    try {
+      listener();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** Called when this tab's stream drops (the app went away, or the network did): the down screen asks whether the app answers. */
+export function onJobStreamDrop(listener: () => void): () => void {
+  dropListeners.add(listener);
+  return () => { dropListeners.delete(listener); };
+}
+
 function notifyReconnect(): void {
   for (const listener of reconnectListeners) {
     try {

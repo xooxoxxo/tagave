@@ -17,6 +17,7 @@ import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
+import { AppDownHost } from './update/UpdateDownScreen';
 import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { stop as stopPlayback } from '../player/engine';
 import styles from './Layout.module.css';
@@ -212,6 +213,8 @@ export function Layout() {
         {/* mounted once here, under the page: route changes never unmount the audio */}
         <PlayerBar />
       </div>
+      {/* while the app is down for an update: a screen over the page, under the player */}
+      <AppDownHost />
       {searchOpen && <SearchModal onClose={closeSearch} />}
       <AlbumSelectionGuard />
     </div>

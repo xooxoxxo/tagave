@@ -11,6 +11,9 @@
   min-width: 0;
 }
 
+/* While the app is down for an update its screen covers the page; the player stays above it. */
+:global(html[data-app-down]) .dock { z-index: calc(var(--z-backdrop) + 1); }
+
 .bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(10rem, 1.4fr) auto auto;
