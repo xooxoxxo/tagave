@@ -122,7 +122,7 @@ export const BackupMenu: Story = {
   tags: ['shot-viewport'],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(canvas.getAllByRole('button', { name: /^More for the backup of/ })[0]!);
-    await expect(within(document.body).getByRole('menuitem', { name: 'Copy restore command' })).toBeVisible();
+    await userEvent.click((await canvas.findAllByRole('button', { name: /More for the backup of/ }))[0]!);
+    await expect(await within(document.body).findByRole('menuitem', { name: 'Copy restore command' })).toBeVisible();
   },
 };
