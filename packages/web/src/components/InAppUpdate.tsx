@@ -260,47 +260,7 @@ export function RunView({ run, disconnected, reloading, restart, onDismiss, now:
   const ticking = useNow(running && fixedNow === undefined);
   const now = fixedNow ?? ticking;
   const elapsed = (run.finishedAt ? Date.parse(run.finishedAt) : now) - Date.parse(run.startedAt);
-  const current = run.steps.find((s) => s.status === 'running');
-
-  // One line under one step: the running step's sub-state (or its stall),
-  // or, once the run ended, why the step that failed failed (the last one:
-  // a failed roll back's reason names the first failure too).
-  const notes: Record<string, StepNote> = {};
-  const failedStep = running ? undefined : [...run.steps].reverse().find((s) => s.status === 'failed');
-  if (running && current) {
-    const note = runningNote(run, current, now);
-    if (note) notes[current.id] = note;
-  } else if (failedStep && run.reason) {
-    notes[failedStep.id] = { text: detailText(run.reason), tone: 'error' };
-  }
-  // The reason under the step that failed; in the head only when no step carries it.
-  const reason = failedStep ? '' : sentence(run.reason);
-
-  let head: { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined };
-  switch (run.status) {
-    case 'running':
-      head = { tone: 'info', title: `Updating to ${run.target}`, body: run.steps.some((s) => s.status !== 'pending') ? undefined : 'Starting' };
-      break;
-    case 'succeeded':
-      head = { tone: 'ok', title: `Updated to ${run.target}` };
-      break;
-    case 'rolled_back':
-      head = {
-        tone: 'warn',
-        title: `The update to ${run.target} failed; tagave is back on ${run.rollback?.version ?? run.from}`,
-        body: `${reason ? `${reason} ` : ''}${run.rollback?.restoredDatabase ? 'The backup from before the update was restored.' : 'The database was not changed.'}`,
-      };
-      break;
-    case 'failed':
-      head = { tone: 'warn', title: `The update to ${run.target} did not start`, body: reason || undefined };
-      break;
-    case 'rollback_failed':
-      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, body: reason || undefined };
-      break;
-    case 'interrupted':
-    default:
-      head = { tone: 'error', title: `The update to ${run.target} was cut off`, body: reason || undefined };
-  }
+  const { head, notes } = runSummary(run, now);
 
   return (
     <div className={styles.run} aria-live="polite">
@@ -326,6 +286,55 @@ export function RunView({ run, disconnected, reloading, restart, onDismiss, now:
       )}
     </div>
   );
+}
+
+/** What the run's head says: its tone, its title and, when there is one, the line under it. */
+export interface RunHead { tone: 'info' | 'ok' | 'warn' | 'error'; title: string; body?: string | undefined }
+
+/** The run's head and the one line under one step (shared by the run's views). */
+export function runSummary(run: UpdateRun, now: number): { head: RunHead; notes: Record<string, StepNote> } {
+  const running = run.status === 'running';
+  const current = run.steps.find((s) => s.status === 'running');
+  // One line under one step: the running step's sub-state (or its stall),
+  // or, once the run ended, why the step that failed failed (the last one:
+  // a failed roll back's reason names the first failure too).
+  const notes: Record<string, StepNote> = {};
+  const failedStep = running ? undefined : [...run.steps].reverse().find((s) => s.status === 'failed');
+  if (running && current) {
+    const note = runningNote(run, current, now);
+    if (note) notes[current.id] = note;
+  } else if (failedStep && run.reason) {
+    notes[failedStep.id] = { text: detailText(run.reason), tone: 'error' };
+  }
+  // The reason under the step that failed; in the head only when no step carries it.
+  const reason = failedStep ? '' : sentence(run.reason);
+
+  let head: RunHead;
+  switch (run.status) {
+    case 'running':
+      head = { tone: 'info', title: `Updating to ${run.target}`, body: run.steps.some((s) => s.status !== 'pending') ? undefined : 'Starting' };
+      break;
+    case 'succeeded':
+      head = { tone: 'ok', title: `Updated to ${run.target}` };
+      break;
+    case 'rolled_back':
+      head = {
+        tone: 'warn',
+        title: `The update to ${run.target} failed; tagave is back on ${run.rollback?.version ?? run.from}`,
+        body: `${reason ? `${reason} ` : ''}${run.rollback?.restoredDatabase ? 'The backup from before the update was restored.' : 'The database was not changed.'}`,
+      };
+      break;
+    case 'failed':
+      head = { tone: 'warn', title: `The update to ${run.target} did not start`, body: reason || undefined };
+      break;
+    case 'rollback_failed':
+      head = { tone: 'error', title: `The update to ${run.target} failed, and so did the roll back`, body: reason || undefined };
+      break;
+    case 'interrupted':
+    default:
+      head = { tone: 'error', title: `The update to ${run.target} was cut off`, body: reason || undefined };
+  }
+  return { head, notes };
 }
 
 /**
