@@ -4,8 +4,9 @@
  * - Download progress: `docker pull` prints one line per layer event
  *   ("<12 hex>: Pulling fs layer", "Download complete", "Already exists",
  *   and "Downloading … 12.3MB/45.6MB" on a terminal). With the layer sizes
- *   from the registry (preflight-space.ts) that becomes "downloading image 2
- *   of 4 (340 MB of 1.1 GB)"; without them, a count of layers.
+ *   from the registry (preflight-space.ts) that becomes "downloading
+ *   tagave-app, image 2 of 4 (340 MB of 1.1 GB)"; without them, a count of
+ *   layers.
  * - Waiting for the app: the container's state (`docker inspect`) and its
  *   last log lines, and Postgres's, say what it does: backing up, applying a
  *   migration, Postgres recovering, out of disk, restarting.
@@ -55,16 +56,27 @@ export class PullProgress {
   private sizesKnown = true;
   private rest = '';
 
-  /** Starts image `index` (1-based) of `count`; `layers` from the registry, or null when unknown. */
-  beginImage(index: number, count: number, layers: Array<{ digest: string; size: number }> | null): void {
-    this.image = index;
-    this.images = count;
+  private name: string | null = null;
+
+  /**
+   * Counts an image's layers before its pull starts, so the byte total
+   * covers every image from the first one on; null: the registry did not say.
+   */
+  plan(layers: Array<{ digest: string; size: number }> | null): void {
     if (!layers) this.sizesKnown = false;
     for (const l of layers ?? []) {
       const id = shortLayerId(l.digest);
       this.sizes.set(id, l.size);
       if (!this.layers.has(id)) this.layers.set(id, 'waiting');
     }
+  }
+
+  /** Starts image `index` (1-based) of `count`; `layers` from the registry, or null when unknown; `name` as shown ("tagave-app"). */
+  beginImage(index: number, count: number, layers: Array<{ digest: string; size: number }> | null, name: string | null = null): void {
+    this.image = index;
+    this.images = count;
+    this.name = name;
+    this.plan(layers);
   }
 
   /** Feeds output as it comes; true when the summary changed. */
@@ -98,9 +110,17 @@ export class PullProgress {
     } else if (!was) this.layers.set(id, 'waiting');
   }
 
-  /** "downloading image 2 of 4 (340 MB of 1.1 GB)", or "(3 of 7 layers)" without sizes. */
+  /**
+   * "downloading tagave-app, image 2 of 4 (340 MB of 1.1 GB)" (one image:
+   * "downloading tagave-app (…)"; no name: "downloading image 2 of 4 (…)"),
+   * or "(3 of 7 layers)" without sizes.
+   */
   summary(): string {
-    const head = `downloading image ${this.image} of ${this.images}`;
+    const head = !this.name
+      ? `downloading image ${this.image} of ${this.images}`
+      : this.images > 1
+        ? `downloading ${this.name}, image ${this.image} of ${this.images}`
+        : `downloading ${this.name}`;
     const counted = [...this.layers].filter(([, s]) => s !== 'present');
     if (counted.length === 0) return head;
     const sized = this.sizesKnown && counted.every(([id]) => this.sizes.has(id));
@@ -112,6 +132,13 @@ export class PullProgress {
     const done = counted.filter(([, s]) => s === 'done').length;
     return `${head} (${done} of ${counted.length} layers)`;
   }
+}
+
+/** "ghcr.io/xooxoxxo/tagave-app:0.12.0" → "tagave-app": an image as the run names it. */
+export function imageName(ref: string): string {
+  const path = ref.split('@')[0]!;
+  const last = path.slice(path.lastIndexOf('/') + 1);
+  return last.replace(/:[^:]*$/, '') || ref;
 }
 
 /** A partial line kept between chunks is cut to this (a line longer than that is not one docker prints). */

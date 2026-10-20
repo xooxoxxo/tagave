@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PullProgress,
   appPhase,
+  imageName,
   ComposePullProgress,
   MAX_PARTIAL_LINE,
   diagnoseStall,
@@ -42,6 +43,27 @@ describe('download progress', () => {
     expect(p.summary()).toBe('downloading image 2 of 2 (715 MB of 1.1 GB)');
     expect(p.feed('cccccccccccc: Pull complete\n')).toBe(true);
     expect(p.summary()).toBe('downloading image 2 of 2 (1.1 GB of 1.1 GB)');
+  });
+
+  it('names the image, and counts every planned image in the total from the start', () => {
+    const p = new PullProgress();
+    p.plan([L('aaaaaaaaaaaa', 300 * MB)]);
+    p.plan([L('aaaaaaaaaaaa', 300 * MB), L('cccccccccccc', 200 * MB)]);
+    p.beginImage(1, 2, [L('aaaaaaaaaaaa', 300 * MB)], 'tagave-app');
+    expect(p.summary()).toBe('downloading tagave-app, image 1 of 2 (0 MB of 477 MB)');
+    p.feed('aaaaaaaaaaaa: Pull complete\n');
+    p.beginImage(2, 2, [L('aaaaaaaaaaaa', 300 * MB), L('cccccccccccc', 200 * MB)], 'tagave-worker');
+    expect(p.summary()).toBe('downloading tagave-worker, image 2 of 2 (286 MB of 477 MB)');
+    const one = new PullProgress();
+    one.beginImage(1, 1, [L('aaaaaaaaaaaa', 300 * MB)], 'postgres');
+    expect(one.summary()).toBe('downloading postgres (0 MB of 286 MB)');
+  });
+
+  it('names images the way the run shows them', () => {
+    expect(imageName('ghcr.io/xooxoxxo/tagave-app:0.12.0')).toBe('tagave-app');
+    expect(imageName(`ghcr.io/xooxoxxo/tagave-updater:0.12.0@sha256:${'b'.repeat(64)}`)).toBe('tagave-updater');
+    expect(imageName('postgres:16')).toBe('postgres');
+    expect(imageName('localhost:5000/navidrome')).toBe('navidrome');
   });
 
   it('counts layers when the registry gave no sizes, and keeps a split line', () => {

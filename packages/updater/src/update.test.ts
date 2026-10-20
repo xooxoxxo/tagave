@@ -6,7 +6,7 @@ import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
 import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
-import { DEFAULT_CONFIG, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
+import { DEFAULT_CONFIG, DUMP_PROBE_JS, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
 import { SelfReplaceGate, parseState, serializeState } from './self-replace.js';
 import { verifyRelease } from './release.js';
 import { digest, signed, testKey, testManifest } from './release.testkit.js';
@@ -562,8 +562,12 @@ describe('update state machine', () => {
       fake.app.health = async () => (fake.appVersion === '0.8.0' && polls++ < 3 ? { ok: false, detail: 'the app does not answer' } : inner());
       const run = await update('0.8.0');
       expect(run.status).toBe('succeeded');
-      expect(saved.some((r) => r.progress?.step === 'restart' && r.progress.message === 'waiting for the app: updating the database (0046_cover_thumbs.sql)')).toBe(true);
+      // what the app says it does reads as it is, without "waiting for the app:"
+      expect(saved.some((r) => r.progress?.step === 'restart' && r.progress.message === 'updating the database (0046_cover_thumbs.sql)')).toBe(true);
       expect(saved.some((r) => r.progress?.step === 'verify')).toBe(true);
+      // no sub-state repeats its step's label
+      const labels = new Set(run.steps.map((st) => st.label.toLowerCase()));
+      expect(saved.filter((r) => r.progress && labels.has(r.progress.message))).toEqual([]);
       expect(run.progress).toBeNull();
       expect(run.stall).toBeNull();
     });
@@ -578,7 +582,76 @@ describe('update state machine', () => {
       };
       const run = await update('0.8.0');
       expect(run.status).toBe('succeeded');
-      expect(saved.some((r) => r.progress?.message === 'workers: 1 of 2 on the new version')).toBe(true);
+      expect(saved.some((r) => r.progress?.step === 'verify' && r.progress.message === 'checking 3 parts run 0.8.0')).toBe(true);
+      expect(saved.some((r) => r.progress?.message === '2 of 3 parts run 0.8.0')).toBe(true);
+    });
+
+    it('starts every step on what it does first, and says when preflight measures the disk', async () => {
+      const run = await update('0.8.0');
+      expect(run.status).toBe('succeeded');
+      const first = (id: string) => saved.map((r) => r.progress).find((p) => p?.step === id)?.message;
+      expect(first('preflight')).toBe('checking the install');
+      expect(first('backup')).toBe('checking the database');
+      expect(first('config')).toBe('switching the configuration to 0.8.0');
+      expect(first('restart')).toBe('stopping the workers');
+      const preflight = [...new Set(saved.map((r) => r.progress).filter((p) => p?.step === 'preflight').map((p) => p!.message))];
+      expect(preflight.slice(0, 2)).toEqual(['checking the install', 'checking disk space']);
+      expect(preflight.at(-1)).toMatch(/^downloading the images \(\d of \d done\)$/);
+    });
+
+    it("shows the size of the new app's dump while it backs up before it migrates", async () => {
+      fake.containers.set('app', { states: states(1), restarts: [0], logs: 'backing up the database to /backups before applying 1 migration(s)...', calls: 0 });
+      const inner = fake.app.health;
+      let polls = 0;
+      fake.app.health = async () => (fake.appVersion === '0.8.0' && polls++ < 3 ? { ok: false, detail: 'the app does not answer' } : inner());
+      let bytes = 0;
+      const docker: Runner = async (args, opts) => {
+        if (args.join(' ') === `compose exec -T app node -e ${DUMP_PROBE_JS}`) {
+          bytes += 70 * MB;
+          return { code: 0, stdout: `${bytes}\n`, stderr: '' };
+        }
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', { observeEveryMs: 0 }, { docker });
+      expect(run.status).toBe('succeeded');
+      const restart = [...new Set(saved.map((r) => r.progress).filter((p) => p?.step === 'restart').map((p) => p!.message))];
+      // a size the probe read (saves come at most once a second, so not every one is kept)
+      expect(restart.some((m) => /^backing up the database \(\d+ MB\)$/.test(m))).toBe(true);
+      expect(restart).not.toContain('waiting for the app: backing up the database before 1 database update');
+    });
+
+    it("shows the size of the updater's own dump as it grows", async () => {
+      await writeFile(join(dir, '.env'), `${ENV}TAGAVE_SKIP_PREMIGRATE_BACKUP=1\n`);
+      fake.skipPremigrate = true;
+      let bytes = 0;
+      const docker: Runner = async (args, opts) => {
+        if (args.join(' ') === `compose exec -T app node -e ${DUMP_PROBE_JS}`) {
+          bytes += 210 * MB;
+          return { code: 0, stdout: `${bytes}\n`, stderr: '' };
+        }
+        if (args.includes('backup') && args.includes('packages/doctor/dist/cli.js')) await new Promise((r) => setTimeout(r, 80));
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', { observeEveryMs: 10 }, { docker });
+      expect(run.status).toBe('succeeded');
+      const backup = saved.map((r) => r.progress).filter((p) => p?.step === 'backup').map((p) => p!.message);
+      expect(backup).toContain('checking disk space');
+      expect(backup.some((m) => /^backing up the database \(\d+(\.\d)? [MG]B\)$/.test(m))).toBe(true);
+    });
+
+    it('reads the dump size from the partial file the doctor writes', async () => {
+      const { mkdtemp: mk, writeFile: wf } = await import('node:fs/promises');
+      const { execFileSync } = await import('node:child_process');
+      const backups = await mk(join(tmpdir(), 'tagave-dump-'));
+      try {
+        const run = () => execFileSync(process.execPath, ['-e', DUMP_PROBE_JS], { env: { BACKUP_DIR: backups } }).toString().trim();
+        expect(run()).toBe('');
+        await wf(join(backups, 'tagave-2026-10-20T10-00-00Z-nightly.pgdump'), 'x'.repeat(50));
+        await wf(join(backups, '.tagave-2026-10-20T11-00-00Z-before-update.pgdump.partial'), 'x'.repeat(12));
+        expect(run()).toBe('12');
+      } finally {
+        await rm(backups, { recursive: true, force: true });
+      }
     });
 
     it('shows a crash loop within the stall time, with what to do, and rolls back at the timeout', async () => {
@@ -1260,14 +1333,16 @@ describe('an update with a signed manifest', () => {
     const run = await update('0.8.0', {}, { release: verified(), docker, layers });
     expect(run.status).toBe('succeeded');
     const seen = [...new Set(saved.filter((r) => r.progress?.step === 'preflight').map((r) => r.progress!.message).filter((m) => m.startsWith('downloading')))];
-    expect(seen[0]).toMatch(/^downloading image 1 of \d \(0 MB of 300 MB\)$/);
+    // the registry sizes of every image are read first: the total holds from the first image on
+    expect(seen[0]).toMatch(/^downloading [\w-]+, image 1 of 4 \(0 MB of 900 MB\)$/);
     // sub-state changes are saved at most once a second (the clock stands still here): only the
     // first one and those a log line carries, not every layer event
     const downloadSaves = saved.filter((r) => r.progress?.step === 'preflight' && r.progress.message.startsWith('downloading')).length;
     // 12 changes (4 images: the start and two layer events each); the log's own writes carry some
     expect(downloadSaves).toBeLessThanOrEqual(6);
     // the shared layer counts once: 100 MB + 4 × 200 MB in all
-    expect(seen.at(-1)).toBe('downloading image 4 of 4 (900 MB of 900 MB)');
+    expect(seen.at(-1)).toMatch(/^downloading [\w-]+, image 4 of 4 \(900 MB of 900 MB\)$/);
+    expect(seen.some((m) => m.startsWith('downloading tagave-app, image'))).toBe(true);
   });
 
   it('refuses a TAGAVE_PLAYER_IMAGE override', async () => {

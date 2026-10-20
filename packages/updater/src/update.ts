@@ -57,7 +57,7 @@
  * running this code is never the one being recreated mid-run.
  */
 import { statfs } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { UpdateLogLine, UpdateRun, UpdateStep, UpdateStepId } from '@tagave/shared/updater';
 import { unlink } from 'node:fs/promises';
 import { envGet, envKeys, envSet, envUnset, migrateLegacyEnv, readText, writeFileAtomic } from './envFile.js';
@@ -67,6 +67,8 @@ import {
   DEFAULT_STALL_MS,
   INSPECT_FORMAT,
   PullProgress,
+  appPhase,
+  imageName,
   ComposePullProgress,
   diagnoseStall,
   parseInspect,
@@ -124,6 +126,19 @@ export const PLAYER_SNAPSHOT_SH = [
   'cp -a /data/navidrome /data/snapshots/pre-update',
   'echo saved',
 ].join('\n');
+/**
+ * Run in the app container: the size of the dump being written (the
+ * doctor's `.<name>.pgdump.partial` in the backups folder, found as
+ * BACKUPS_PROBE_JS finds the folder); prints nothing when there is none.
+ */
+export const DUMP_PROBE_JS = [
+  "const fs=require('fs'),path=require('path');",
+  "const e=process.env,dir=e.BACKUP_DIR||e.LINER_BACKUP_DIR||(e.CACHE_DIR?path.join(e.CACHE_DIR,'backups'):'/backups');",
+  'let best=null;',
+  "try{for(const n of fs.readdirSync(dir)){if(!/^\\..+\\.pgdump\\.partial$/.test(n))continue;const s=fs.statSync(path.join(dir,n));",
+  'if(s.isFile()&&(!best||s.mtimeMs>best.mtime))best={bytes:s.size,mtime:s.mtimeMs};}}catch{}',
+  "if(best)console.log(String(best.bytes));",
+].join('');
 /** Puts the snapshot back; the folder the new Navidrome changed is kept as rolled-back-<date>. */
 export const PLAYER_RESTORE_SH = [
   'set -e',
@@ -199,7 +214,11 @@ class StepFailed extends Error {}
 /** What waitFor watches while it polls: the containers to inspect, and how to word the sub-state. */
 interface Watch {
   services: string[];
-  /** `detail`: what the check said; `seen`: what the containers say (waitingFor), or null. */
+  /**
+   * `detail`: what the check said; `seen`: what the containers say is wrong
+   * (waitingFor), or null. What the app says it does (appPhase) is shown as
+   * it is, without describe.
+   */
   describe: (detail: string, seen: string | null) => string;
 }
 /** The roll back stops before it changes anything: the new version stays, matching the database it changed. */
@@ -319,8 +338,27 @@ export class Update {
     this.restartsAt.clear();
     this.lastObserved = 0;
     this.run.stall = null;
-    this.run.progress = { step: id, message: s.label.toLowerCase(), at: s.startedAt };
+    // What the step does first, not its label again: the page shows the label already.
+    this.run.progress = { step: id, message: this.firstSubState(id), at: s.startedAt };
     this.log('info', `${s.label}`);
+  }
+
+  /** A step's sub-state as it starts; the step replaces it as it moves. */
+  private firstSubState(id: UpdateStepId): string {
+    switch (id) {
+      case 'preflight': return 'checking the install';
+      case 'backup': return 'checking the database';
+      case 'config': return `switching the configuration to ${this.run.target}`;
+      case 'pull': return 'downloading the images';
+      case 'restart': return this.workers().length ? 'stopping the workers' : 'starting the new app';
+      case 'verify': return `checking ${this.partCount()} parts run ${this.run.target}`;
+      case 'rollback': return `rolling back to ${this.run.from}`;
+    }
+  }
+
+  /** The app and its local workers: what verify counts. */
+  private partCount(): number {
+    return 1 + this.workers().length;
   }
 
   // -- progress and stalls (progress.ts) -------------------------------------
@@ -507,6 +545,7 @@ export class Update {
 
   /** Stops the player and copies its data; a failure fails the step before the new app starts. */
   private async snapshotPlayer(): Promise<void> {
+    this.progress("copying the player's data");
     this.log('info', `the player moves from ${this.playerImageBefore} to ${this.playerImageAfter}; Navidrome changes its database only forward, so it is copied first`);
     const stop = await this.compose(['stop', PLAYER]);
     if (stop.code !== 0) this.fail('could not stop the player to copy its data');
@@ -571,6 +610,7 @@ export class Update {
     let last: string | null = 'not checked';
     let lastLogged = '';
     let seen: string | null = null;
+    let phase: string | null = null;
     for (;;) {
       last = await check();
       if (last === null) return null;
@@ -583,8 +623,20 @@ export class Update {
         if (this.now().getTime() - this.lastObserved >= this.deps.config.observeEveryMs) {
           readings = await this.observe(watch.services.filter((s) => s === 'postgres' || this.services.includes(s)));
           seen = waitingFor(readings);
+          // The app's own sub-state (appPhase) reads as it is; a problem stays "waiting for …: <problem>".
+          const app = readings.observations.find((o) => o.service === 'app');
+          const own = app ? appPhase(app.logs) : null;
+          phase = null;
+          if (seen !== null && seen === own) {
+            phase = own.replace(/^it /, 'the app ');
+            seen = null;
+            if (/^backing up the database/.test(own)) {
+              const bytes = await this.dumpBytes();
+              if (bytes !== null) phase = `backing up the database (${formatBytes(bytes)})`;
+            }
+          }
         }
-        this.progress(watch.describe(last, seen));
+        this.progress(phase ?? watch.describe(last, seen));
         await this.checkStall(watch.services, false, readings);
       }
       if (this.now().getTime() >= deadline) return last;
@@ -592,9 +644,20 @@ export class Update {
     }
   }
 
-  /** Waiting for an app to answer: what the containers say, else what the health check says. */
+  /** How far the dump being written has come, from its .partial file in the app container; null when none is found. */
+  private async dumpBytes(): Promise<number | null> {
+    const res = await this.compose(['exec', '-T', 'app', 'node', '-e', DUMP_PROBE_JS], { quiet: true, timeoutMs: 15_000 });
+    const out = res.stdout.trim();
+    const n = Number(out);
+    return res.code === 0 && out !== '' && Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  /**
+   * Waiting for an app to answer: what the containers say is wrong, else
+   * that it does not answer yet (the health check's own words go to the log).
+   */
   private appWatch(who: string): Watch {
-    return { services: ['app', 'postgres'], describe: (detail, seen) => `waiting for ${who}: ${seen ?? detail}` };
+    return { services: ['app', 'postgres'], describe: (_detail, seen) => (seen ? `waiting for ${who}: ${seen}` : `waiting for ${who} to answer`) };
   }
 
   private appOn(version: string | null, since: Date | null, requireWorkers: boolean): () => Promise<string | null> {
@@ -640,6 +703,7 @@ export class Update {
       this.fail('.env sets TAGAVE_PLAYER_IMAGE, which replaces the player image the release pins; remove that line and start the update again');
     }
     this.ownDump = ownDumpReason(env, await this.lastBackupRecord(), this.run.target);
+    this.progress('checking disk space');
     await this.checkSpace(this.run.target);
 
     if (release) {
@@ -654,8 +718,16 @@ export class Update {
       }
       const tracker = new PullProgress();
       const list = [...images];
+      // Every image's layers first, so the byte count covers the whole download from the start.
+      this.progress('measuring the download');
+      const sizes: Array<Layer[] | null> = [];
+      for (const image of list) {
+        const layers = await this.layerSizes(`${withRegistry(manifest.images[image]!.ref, this.registry)}@${digestFor(manifest, image, release.platform)}`);
+        sizes.push(layers);
+        tracker.plan(layers);
+      }
       for (const [i, image] of list.entries()) {
-        tracker.beginImage(i + 1, list.length, await this.layerSizes(`${withRegistry(manifest.images[image]!.ref, this.registry)}@${digestFor(manifest, image, release.platform)}`));
+        tracker.beginImage(i + 1, list.length, sizes[i] ?? null, imageName(manifest.images[image]!.ref));
         this.progress(tracker.summary());
         this.commandOutput = '';
         await this.watched([], true, pullVerified(this.deps.docker, manifest, image, release.platform, (l, m) => this.log(l, m), this.deps.config.commandTimeoutMs, this.registry, (chunk) => {
@@ -766,18 +838,19 @@ export class Update {
     if (this.ownDump === null && (this.migrationsBefore === null || this.backupsMaxId === null)) {
       this.ownDump = 'the database could not be read just before the update, so the backup the new app takes could not be found afterwards';
     }
+    this.progress('checking disk space');
     await this.checkSpace(null);
     if (this.ownDump === null) {
       this.log('info', 'no dump of its own: the new app backs the database up right before it changes it, and a roll back restores that backup');
       return;
     }
     this.log('info', `the updater backs the database up itself: ${this.ownDump}`);
-    this.progress('the updater backs up the database');
-    let res = await this.watched(['app', 'postgres'], false, this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--kind', 'before-update', '--json']));
+    this.progress('backing up the database');
+    let res = await this.dumping(this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--kind', 'before-update', '--json']));
     if (res.code !== 0 && /unknown option --kind/.test(`${res.stderr}${res.stdout}`)) {
       // The running app's doctor is from before --kind (0.8 or older): its dump is filed as manual.
       this.log('info', 'the running app does not know --kind yet; its dump is listed under Manual in Settings › Backups');
-      res = await this.watched(['app', 'postgres'], false, this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']));
+      res = await this.dumping(this.compose(['exec', '-T', 'app', ...DOCTOR, 'backup', '--json']));
     }
     if (res.code !== 0) this.fail(`the backup failed: ${tail(res.stderr || res.stdout, 3)}`);
     let path: string | undefined;
@@ -791,6 +864,23 @@ export class Update {
     if (!path) this.fail('the backup did not say where it wrote the dump');
     this.ownDumpPath = path;
     this.run.backup = path;
+  }
+
+  /** The updater's own dump, watched for a stall, with its size so far as the sub-state (a growing dump is progress). */
+  private async dumping(work: Promise<CommandResult>): Promise<CommandResult> {
+    let done = false;
+    const tick = async () => {
+      const bytes = await this.dumpBytes();
+      if (!done && bytes !== null) this.progress(`backing up the database (${formatBytes(bytes)})`);
+    };
+    const timer = setInterval(() => { void tick(); }, this.deps.config.observeEveryMs);
+    timer.unref?.();
+    try {
+      return await this.watched(['app', 'postgres'], false, work);
+    } finally {
+      done = true;
+      clearInterval(timer);
+    }
   }
 
   /**
@@ -902,6 +992,7 @@ export class Update {
     if (this.deps.release) env = await this.pinRelease(env);
     await writeFileAtomic(this.envPath, env);
     this.log('info', `TAGAVE_VERSION=${this.run.target} in .env (was ${this.run.from}; old file kept as .env.bak)`);
+    this.progress('checking the new configuration');
     const check = await this.compose(['config', '--quiet'], { timeoutMs: 60_000 });
     if (check.code !== 0) this.fail(`docker compose rejects the new configuration: ${tail(check.stderr, 3)}`);
     if (this.deps.release) await this.checkPinned();
@@ -1015,9 +1106,11 @@ export class Update {
     const issue = await this.waitFor(this.appOn(target, since, true), this.deps.config.healthTimeoutMs, {
       services: ['app', ...this.workers()],
       describe: (detail, seen) => {
+        // The app answers on the target by now: it counts as one of the parts.
         const m = /^(\d+) of (\d+) workers report/.exec(detail);
-        if (m) return `workers: ${m[1]} of ${m[2]} on the new version`;
-        return `waiting for the app: ${seen ?? detail}`;
+        if (m) return `${Number(m[1]) + 1} of ${Number(m[2]) + 1} parts run ${target}`;
+        if (seen) return `waiting for the app: ${seen}`;
+        return `checking ${this.partCount()} parts run ${target}`;
       },
     });
     if (issue) this.fail(`not every part reports ${target}: ${issue}`);
@@ -1026,6 +1119,7 @@ export class Update {
 
   /** Warns, never fails: tagave runs fine while the player is down. */
   private async checkPlayer(): Promise<void> {
+    this.progress('checking the player');
     const issue = await this.waitFor(() => this.playerHealth(), this.deps.config.playerHealthTimeoutMs);
     if (issue === null) {
       this.log('info', 'the player reports healthy');
@@ -1095,7 +1189,7 @@ export class Update {
 
       if (restoreFrom) {
         this.log('warn', `the new version changed the database; restoring ${restoreFrom}, the backup from before it did`);
-        this.progress(`restoring ${restoreFrom}`);
+        this.progress(`restoring the database from ${basename(restoreFrom)}`);
         const res = await this.watched(['postgres'], false, this.compose(['run', '--rm', '--no-deps', '-T', 'app', ...DOCTOR, 'restore', restoreFrom, '--yes', '--json']));
         if (res.code !== 0) throw new Error(`tagave-doctor restore failed: ${tail(res.stderr || res.stdout, 3)}`);
         restored = true;
@@ -1111,11 +1205,13 @@ export class Update {
 
       if (this.playerSnapshot && this.playerStarted) await this.restorePlayer();
 
+      this.progress(`starting ${this.run.from}`);
       const up = await this.compose(['up', '-d', 'app']);
       if (up.code !== 0) throw new Error(`the old app did not start: ${tail(up.stderr, 3)}`);
       const from = /^\d+\.\d+\.\d+/.test(this.run.from) ? this.run.from : null;
       const issue = await this.waitFor(this.appOn(from, null, false), this.deps.config.healthTimeoutMs, this.appWatch(`${this.run.from}`));
       if (issue) throw new Error(`the old version did not answer healthy: ${issue}`);
+      this.progress('starting the workers');
       const rest = await this.compose(['up', '-d', ...this.services]);
       if (rest.code !== 0) throw new Error(`the workers did not start: ${tail(rest.stderr, 3)}`);
       healthy = true;
