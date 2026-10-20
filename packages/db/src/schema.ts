@@ -320,12 +320,16 @@ export const audioFiles = pgTable(
     tagsRaw: jsonb('tags_raw'),
     tagsDigest: varchar('tags_digest', { length: 64 }),
     tagsReadAt: timestamp('tags_read_at', { withTimezone: true }),
+    /** 0052: normalized tag signature for Tier 2 move detection (helpers.coreTagsDigest) */
+    coreTagsDigest: varchar('core_tags_digest', { length: 64 }),
     audioHash: varchar('audio_hash', { length: 64 }),
     audioHashAt: timestamp('audio_hash_at', { withTimezone: true }),
     fingerprint: varchar({ length: 255 }),
     fingerprintDuration: integer('fingerprint_duration'),
     status: varchar({ length: 20 }).notNull().default('present'),
     parseError: text('parse_error'),
+    /** 0052: cluster.dir waits for Tier 2 on this row's folder (max one hour) */
+    reconcileHoldAt: timestamp('reconcile_hold_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -337,6 +341,8 @@ export const audioFiles = pgTable(
     libraryIdx: index('idx_audio_files_library').on(table.libraryId),
     scanRootIdx: index('idx_audio_files_scan_root').on(table.scanRootId),
     statusIdx: index('idx_audio_files_status').on(table.status),
+    librarySizeIdx: index('idx_audio_files_library_size').on(table.libraryId, table.sizeBytes),
+    reconcileHoldIdx: index('idx_audio_files_reconcile_hold').on(table.scanRootId).where(sql`reconcile_hold_at is not null`),
   })
 );
 
@@ -803,9 +809,10 @@ export const images = pgTable(
     imageSourceId: uuid('image_source_id').references(() => imageSources.id, {
       onDelete: 'set null',
     }),
-    audioFileId: uuid('audio_file_id').references(() => audioFiles.id, { onDelete: 'set null' }),
+    // 0052: the origin CHECK forbids SET NULL
+    audioFileId: uuid('audio_file_id').references(() => audioFiles.id, { onDelete: 'cascade' }),
     sidecarFileId: uuid('sidecar_file_id').references(() => sidecarFiles.id, {
-      onDelete: 'set null',
+      onDelete: 'cascade',
     }),
     localPath: varchar('local_path', { length: 2048 }),
     width: integer(),
