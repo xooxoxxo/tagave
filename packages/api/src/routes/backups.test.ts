@@ -13,7 +13,7 @@ import type { SessionUser } from '@tagave/shared/auth';
 import type { BackupsStatus } from '@tagave/shared';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { BackupService, applyBackupSchedule, nightlyCron } from '../lib/backupService.js';
-import { createBackupRoutes } from './backups.js';
+import { createBackupRoutes, restoreCommand } from './backups.js';
 
 const owner: SessionUser = { id: 'u1', email: 'o@example.com', displayName: 'Owner', role: 'owner', createdAt: new Date().toISOString() };
 const viewer: SessionUser = { ...owner, id: 'u2', role: 'listener' };
@@ -31,6 +31,8 @@ describe('backup routes', () => {
     service = new BackupService({
       databaseUrl: 'postgres://unused/db',
       env: { BACKUP_DIR: dir, TZ: 'Europe/Amsterdam' },
+      // one update with database changes, 0.9.0 to 0.10.0 on 1 Sept
+      history: async () => [{ createdAt: new Date('2026-09-01T10:00:00Z'), path: null, fromVersion: '0.9.0', toVersion: '0.10.0' }],
       // A fake dump that finishes when the test says so. Typed here, not left
       // to inference: tsgo's parallel checkers sometimes lose the contextual type.
       run: async ({ dir: out, kind }: { dir: string; kind: 'nightly' | 'manual' }) => {
@@ -86,6 +88,19 @@ describe('backup routes', () => {
       expect(list.running).toBe(false);
       expect(list.backups).toEqual([expect.objectContaining({ name: 'tagave-2026-09-29T03-00-00Z.pgdump', kind: 'manual', bytes: 15, verified: true })]);
     });
+  });
+
+  it('works out the version of a dump without one from the update history; a recorded one wins', async () => {
+    let list = (await app.inject({ method: 'GET', url: '/api/v1/backups' })).json<BackupsStatus>();
+    expect(list.backups[0]).toMatchObject({ version: '0.10.0', versionInferred: true, toVersion: null });
+    const recorded = 'tagave-2026-09-30T03-00-00Z-pre-migration.pgdump';
+    await writeFile(join(dir, recorded), 'PGDMP');
+    await writeFile(join(dir, `${recorded}.json`), JSON.stringify({ kind: 'pre-migration', verified: true, bytes: 5, appVersion: '0.10.0', toVersion: '0.11.0' }));
+    list = (await app.inject({ method: 'GET', url: '/api/v1/backups' })).json<BackupsStatus>();
+    expect(list.backups.find((b) => b.name === recorded)).toMatchObject({ version: '0.10.0', versionInferred: false, toVersion: '0.11.0' });
+    expect(list.restoreCommand).toContain('restore {file} --yes');
+    await rm(join(dir, recorded));
+    await rm(join(dir, `${recorded}.json`));
   });
 
   it('streams a download as an attachment', async () => {
@@ -145,6 +160,20 @@ describe('backup routes', () => {
     const res = await app.inject({ method: 'DELETE', url: '/api/v1/backups/tagave-2026-09-29T03-00-00Z.pgdump' });
     expect(res.statusCode).toBe(204);
     expect((await readdir(dir)).filter((f) => f.startsWith('tagave-'))).toEqual([]);
+  });
+});
+
+describe('restoreCommand', () => {
+  it('stops the stack, restores from a one-off container and starts it again in Docker', () => {
+    expect(restoreCommand({ TAGAVE_INSTALL_METHOD: 'installer' }).split('\n')).toEqual([
+      'docker compose stop app worker-identify worker-files',
+      'docker compose run --rm --no-deps app node packages/doctor/dist/cli.js restore {file} --yes',
+      'docker compose up -d',
+    ]);
+  });
+
+  it('runs the doctor directly in a source checkout', () => {
+    expect(restoreCommand({ TAGAVE_INSTALL_METHOD: 'source' })).toBe('node packages/doctor/dist/cli.js restore {file} --yes');
   });
 });
 

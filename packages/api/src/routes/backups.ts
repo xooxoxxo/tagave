@@ -9,8 +9,10 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import { readBuildInfo } from '@tagave/core';
 import {
   deleteBackup,
+  inferBackupVersions,
   isSafeBackupName,
   listBackups,
   readBackupStatus,
@@ -27,6 +29,25 @@ import { backupSettingsSchema, type BackupsStatus } from '@tagave/shared';
 const settingsInputSchema = backupSettingsSchema.partial({ keepPreUpdate: true, keepManual: true });
 import { ApiError } from '../middleware/errorHandler.js';
 import type { BackupService } from '../lib/backupService.js';
+import { detectInstall } from '../lib/updatesFeed.js';
+
+const DOCTOR = 'node packages/doctor/dist/cli.js';
+
+/**
+ * The restore command for this install, with {file} for the dump's name
+ * (docs/operations.md, Restore a backup). In Docker: stop the app and
+ * workers, restore from a one-off container, start again, run in the
+ * install folder. A source checkout runs the doctor directly.
+ */
+export function restoreCommand(env: NodeJS.ProcessEnv = process.env): string {
+  const { method } = detectInstall(env, readBuildInfo());
+  if (method === 'source') return `${DOCTOR} restore {file} --yes`;
+  return [
+    'docker compose stop app worker-identify worker-files',
+    `docker compose run --rm --no-deps app ${DOCTOR} restore {file} --yes`,
+    'docker compose up -d',
+  ].join('\n');
+}
 
 export interface BackupRoutesOptions {
   service: BackupService;
@@ -54,6 +75,9 @@ export async function buildBackupsStatus(service: BackupService): Promise<Backup
   } catch (err) {
     error = `Could not read the backups folder: ${(err as Error).message}`;
   }
+  if (backups.some((b) => !b.version || (b.kind === 'pre-migration' && !b.toVersion))) {
+    backups = inferBackupVersions(backups, await service.history());
+  }
   const status = await readBackupStatus(service.dir);
   const settings = await service.settings();
   return {
@@ -65,6 +89,7 @@ export async function buildBackupsStatus(service: BackupService): Promise<Backup
     lastRun: status.lastRun,
     lastNightly: status.lastNightly,
     backups,
+    restoreCommand: restoreCommand(),
     kinds: summarizeKinds(backups, settings, service.timeZone),
     totalBytes: backups.reduce((sum, b) => sum + b.bytes, 0),
     error,

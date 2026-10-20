@@ -10,7 +10,9 @@ import type { PgBoss } from 'pg-boss';
 import {
   defaultBackupDir,
   readBackupSettings,
+  readUpdateHistory,
   runRecordedBackup,
+  type UpdateHistoryRow,
   type BackupRunRecord,
   type BackupSettings,
 } from '@tagave/doctor';
@@ -31,6 +33,14 @@ export interface BackupServiceOptions {
   env?: NodeJS.ProcessEnv;
   /** Replaced in tests. */
   run?: RunFn;
+  /** The update history (_migration_backups) the backup versions are worked out from; replaced in tests. */
+  history?: () => Promise<UpdateHistoryRow[]>;
+}
+
+/** The history from the app's database pool; none before the pool exists. */
+async function historyFromDb(): Promise<UpdateHistoryRow[]> {
+  const { getSql } = await import('../db.js');
+  return readUpdateHistory(getSql() as unknown as Parameters<typeof readUpdateHistory>[0]);
 }
 
 export function nightlyCron(settings: BackupSettings): string {
@@ -45,6 +55,7 @@ export class BackupService {
   private readonly databaseUrl: string;
   private readonly env: NodeJS.ProcessEnv;
   private readonly runFn: RunFn;
+  private readonly historyFn: () => Promise<UpdateHistoryRow[]>;
   private chain: Promise<unknown> = Promise.resolve();
   private active = 0;
 
@@ -55,6 +66,16 @@ export class BackupService {
     this.dedicated = !!(this.env['BACKUP_DIR'] || readRenamedEnv('BACKUP_DIR', 'LINER_BACKUP_DIR', this.env));
     this.timeZone = this.env['TZ'] || 'UTC';
     this.runFn = opts.run ?? runRecordedBackup;
+    this.historyFn = opts.history ?? historyFromDb;
+  }
+
+  /** The update history, or none when it cannot be read (the versions then show as unknown). */
+  async history(): Promise<UpdateHistoryRow[]> {
+    try {
+      return await this.historyFn();
+    } catch {
+      return [];
+    }
   }
 
   get running(): boolean {

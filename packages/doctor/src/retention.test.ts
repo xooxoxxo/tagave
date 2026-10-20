@@ -265,7 +265,7 @@ describe('review fixes', () => {
 });
 
 describe('Settings › Backups blocks', () => {
-  const entry = (name: string, kind: BackupKind, createdAt: string, bytes = 10) => ({ name, kind, createdAt, bytes, verified: true });
+  const entry = (name: string, kind: BackupKind, createdAt: string, bytes = 10) => ({ name, kind, createdAt, bytes, verified: true, version: null, versionInferred: false, toVersion: null });
 
   it('has nightly, before update and manual always, before restore only when present', () => {
     expect(summarizeKinds([], settings(), 'UTC').map((k) => k.kind)).toEqual(['nightly', 'pre-migration', 'manual']);

@@ -13,6 +13,12 @@ export const backupEntrySchema = z.object({
   createdAt: z.string(),
   bytes: z.number().int(),
   verified: z.boolean().nullable().describe('Read back with pg_restore when written; null when there is no record'),
+  /** The tagave version whose database is in the dump; null when unknown. */
+  version: z.string().nullable(),
+  /** True when `version` comes from the update history rather than the dump's own record ("~0.10.0" on the page). */
+  versionInferred: z.boolean(),
+  /** Before an update: the version it was updating to. */
+  toVersion: z.string().nullable(),
 }).strict();
 export type BackupEntryView = z.infer<typeof backupEntrySchema>;
 
@@ -61,6 +67,11 @@ export const backupsStatusSchema = z.object({
   lastRun: backupRunSchema.nullable(),
   lastNightly: backupRunSchema.nullable(),
   backups: z.array(backupEntrySchema),
+  /**
+   * The command that restores a backup on this install, with {file} where
+   * the file name goes (Settings › Backups copies it for one backup).
+   */
+  restoreCommand: z.string(),
   /** Nightly, before update and manual always; before restore only when there is one. */
   kinds: z.array(backupKindSummarySchema),
   totalBytes: z.number().int(),

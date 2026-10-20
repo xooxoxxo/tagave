@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import postgres from 'postgres';
@@ -90,6 +90,16 @@ describe.skipIf(!!missing)('backup and restore (integration)', () => {
     expect(result.tocEntries).toBeGreaterThan(0);
     const list = await listBackups(dir);
     expect(list).toEqual([expect.objectContaining({ name: basename(dump), kind: 'manual', verified: true, bytes: result.bytes })]);
+  }, 60_000);
+
+  it('records the version and the newest migration in the sidecar', async () => {
+    const result = await runBackup({ databaseUrl: scratchUrl, outDir: dir, kind: 'pre-migration', appVersion: '0.10.0', toVersion: '0.11.0', now: new Date('2026-09-01T00:00:00Z') });
+    const sidecar = JSON.parse(await readFile(`${result.path}.json`, 'utf8')) as Record<string, unknown>;
+    expect(sidecar).toMatchObject({ kind: 'pre-migration', appVersion: '0.10.0', toVersion: '0.11.0', lastMigration: '0001_x.sql' });
+    const entry = (await listBackups(dir)).find((e) => e.name === basename(result.path));
+    expect(entry).toMatchObject({ version: '0.10.0', versionInferred: false, toVersion: '0.11.0' });
+    await rm(result.path);
+    await rm(`${result.path}.json`);
   }, 60_000);
 
   it('records a nightly run and prunes nightly dumps by the saved settings', async () => {

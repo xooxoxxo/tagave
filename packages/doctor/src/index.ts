@@ -73,6 +73,7 @@ export {
   type BackupStatusFile,
   type RetentionPolicy,
 } from './backup.js';
+export { inferBackupVersions, readUpdateHistory, type UpdateHistoryRow } from './backupVersions.js';
 export { runRestore, type RestoreOptions, type RestoreResult } from './restore.js';
 export { MODULE_DATA, PurgeRefused, describePurge, purgeModuleData, type ModuleData, type PurgeResult } from './modulePurge.js';
 

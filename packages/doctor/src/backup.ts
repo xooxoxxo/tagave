@@ -4,6 +4,7 @@ import { statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { readRenamedEnv, tagaveEnv } from '@tagave/shared/env';
+import postgres from 'postgres';
 import { ensureDir } from './ensureDir.js';
 
 const run = promisify(execFile);
@@ -179,6 +180,14 @@ export interface BackupOptions {
   now?: Date;
   pgDump?: string;
   pgRestore?: string;
+  /**
+   * The tagave version whose database this dump holds, for the sidecar. Left
+   * out: this build's version. A pre-migration dump passes the version that
+   * last migrated the database (its data is from before this build).
+   */
+  appVersion?: string | null;
+  /** Before an update: the version being updated to. */
+  toVersion?: string | null;
 }
 
 export interface BackupResult {
@@ -196,6 +205,39 @@ export interface BackupSidecar {
   verified: boolean;
   tocEntries: number;
   bytes: number;
+  /** The tagave version whose database is in the dump (from 0.12; absent on older dumps). */
+  appVersion?: string | null;
+  /** The newest migration applied to the database when it was dumped. */
+  lastMigration?: string | null;
+  /** Before an update: the version being updated to. */
+  toVersion?: string | null;
+}
+
+/** This build's version, or null when it cannot be read. */
+async function buildVersion(): Promise<string | null> {
+  try {
+    const { readBuildInfo } = await import('@tagave/core');
+    const v = readBuildInfo().version;
+    return v && v !== '0.0.0' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The newest row of the migration ledger, or null (no ledger yet, or the database could not be asked). */
+export async function lastAppliedMigration(databaseUrl: string): Promise<string | null> {
+  let sql: ReturnType<typeof postgres> | null = null;
+  try {
+    sql = postgres(databaseUrl, { max: 1, connect_timeout: 5, idle_timeout: 1, onnotice: () => undefined });
+    const t = await sql`select to_regclass('public._migrations') as t`;
+    if (!t[0]?.['t']) return null;
+    const rows = await sql`select name from _migrations order by name desc limit 1`;
+    return (rows[0]?.['name'] as string | undefined) ?? null;
+  } catch {
+    return null;
+  } finally {
+    await sql?.end({ timeout: 1 }).catch(() => undefined);
+  }
 }
 
 /** Replace the password in any postgres:// URL (and password=… parameters) in `text`. */
@@ -340,8 +382,20 @@ export async function runBackup(opts: BackupOptions): Promise<BackupResult> {
     throw err;
   }
   const bytes = (await stat(partial)).size;
+  // asked before the rename, so the dump never shows up without its record
+  const appVersion = opts.appVersion !== undefined ? opts.appVersion : await buildVersion();
+  const lastMigration = await lastAppliedMigration(opts.databaseUrl);
   await rename(partial, path);
-  const sidecar: BackupSidecar = { kind, createdAt: now.toISOString(), verified: true, tocEntries, bytes };
+  const sidecar: BackupSidecar = {
+    kind,
+    createdAt: now.toISOString(),
+    verified: true,
+    tocEntries,
+    bytes,
+    appVersion,
+    lastMigration,
+    ...(opts.toVersion ? { toVersion: opts.toVersion } : {}),
+  };
   await writeFile(path + SIDECAR_SUFFIX, JSON.stringify(sidecar, null, 2) + '\n').catch(() => undefined);
 
   const pruned: string[] = [];
@@ -440,6 +494,12 @@ export interface BackupEntry {
   bytes: number;
   /** true: read back with pg_restore when written. null: no record (copied in by hand, or written by an older release). */
   verified: boolean | null;
+  /** The tagave version whose database is in the dump; null when unknown. */
+  version: string | null;
+  /** True when `version` was worked out from the update history rather than recorded with the dump. */
+  versionInferred: boolean;
+  /** Before an update: the version it was updating to; null otherwise or when unknown. */
+  toVersion: string | null;
 }
 
 /** Every *.pgdump in `dir`, newest first. A missing directory is an empty list. */
@@ -476,6 +536,9 @@ export async function listBackups(dir: string): Promise<BackupEntry[]> {
       createdAt: createdAt.toISOString(),
       bytes: st.size,
       verified: typeof sidecar?.verified === 'boolean' ? sidecar.verified && sidecar.bytes === st.size : null,
+      version: typeof sidecar?.appVersion === 'string' && sidecar.appVersion ? sidecar.appVersion : null,
+      versionInferred: false,
+      toVersion: typeof sidecar?.toVersion === 'string' && sidecar.toVersion ? sidecar.toVersion : null,
     });
   }
   return entries.sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.name.localeCompare(a.name));

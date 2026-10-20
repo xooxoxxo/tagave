@@ -200,6 +200,9 @@ export function preMigrationBackup(
         databaseUrl: opts.databaseUrl,
         outDir,
         kind: PREMIGRATE_KIND,
+        // the data is from the version that last migrated it, not this build
+        appVersion: state.schemaAppVersion,
+        toVersion: opts.appVersion ?? null,
       });
       if (!(result.bytes > 0) || !(result.tocEntries > 0)) {
         throw new Error('the dump is empty');
