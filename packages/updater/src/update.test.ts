@@ -606,7 +606,7 @@ describe('update state machine', () => {
       fake.app.health = async () => (fake.appVersion === '0.8.0' && polls++ < 3 ? { ok: false, detail: 'the app does not answer' } : inner());
       let bytes = 0;
       const docker: Runner = async (args, opts) => {
-        if (args.join(' ') === `compose exec -T app node -e ${DUMP_PROBE_JS}`) {
+        if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
           bytes += 70 * MB;
           return { code: 0, stdout: `${bytes}\n`, stderr: '' };
         }
@@ -625,7 +625,7 @@ describe('update state machine', () => {
       fake.skipPremigrate = true;
       let bytes = 0;
       const docker: Runner = async (args, opts) => {
-        if (args.join(' ') === `compose exec -T app node -e ${DUMP_PROBE_JS}`) {
+        if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
           bytes += 210 * MB;
           return { code: 0, stdout: `${bytes}\n`, stderr: '' };
         }
@@ -639,16 +639,54 @@ describe('update state machine', () => {
       expect(backup.some((m) => /^backing up the database \(\d+(\.\d)? [MG]B\)$/.test(m))).toBe(true);
     });
 
+    it('probes the dump one at a time, never while the last probe still runs', async () => {
+      await writeFile(join(dir, '.env'), `${ENV}TAGAVE_SKIP_PREMIGRATE_BACKUP=1\n`);
+      fake.skipPremigrate = true;
+      let inFlight = 0;
+      let most = 0;
+      let probes = 0;
+      const sinces: string[] = [];
+      const docker: Runner = async (args, opts) => {
+        if (args[1] === 'exec' && args.at(-1) === DUMP_PROBE_JS) {
+          probes += 1;
+          sinces.push(args[args.indexOf('-e') + 1]!);
+          inFlight += 1;
+          most = Math.max(most, inFlight);
+          await new Promise((r) => setTimeout(r, 30));
+          inFlight -= 1;
+          return { code: 0, stdout: `${probes * MB}\n`, stderr: '' };
+        }
+        if (args.includes('backup') && args.includes('packages/doctor/dist/cli.js')) await new Promise((r) => setTimeout(r, 200));
+        return fake.runner(args, opts);
+      };
+      const run = await update('0.8.0', { observeEveryMs: 1 }, { docker });
+      expect(run.status).toBe('succeeded');
+      expect(probes).toBeGreaterThan(1);
+      expect(most).toBe(1);
+      // the probe only counts a partial written since the step began
+      expect(sinces[0]).toMatch(/^TAGAVE_DUMP_SINCE=\d+$/);
+    });
+
     it('reads the dump size from the partial file the doctor writes', async () => {
-      const { mkdtemp: mk, writeFile: wf } = await import('node:fs/promises');
+      const { mkdtemp: mk, writeFile: wf, utimes } = await import('node:fs/promises');
       const { execFileSync } = await import('node:child_process');
       const backups = await mk(join(tmpdir(), 'tagave-dump-'));
       try {
-        const run = () => execFileSync(process.execPath, ['-e', DUMP_PROBE_JS], { env: { BACKUP_DIR: backups } }).toString().trim();
+        const run = (since = 0) => execFileSync(process.execPath, ['-e', DUMP_PROBE_JS], { env: { BACKUP_DIR: backups, TAGAVE_DUMP_SINCE: String(since) } }).toString().trim();
         expect(run()).toBe('');
         await wf(join(backups, 'tagave-2026-10-20T10-00-00Z-nightly.pgdump'), 'x'.repeat(50));
+        // a partial left by a dump that died an hour ago, next to the one being written
+        const stale = join(backups, '.tagave-2026-10-20T09-00-00Z-before-update.pgdump.partial');
+        await wf(stale, 'x'.repeat(99));
+        const hourAgo = new Date(Date.now() - 3600_000);
+        await utimes(stale, hourAgo, hourAgo);
+        const stepStart = Date.now() - 60_000;
+        expect(run(stepStart)).toBe('');
         await wf(join(backups, '.tagave-2026-10-20T11-00-00Z-before-update.pgdump.partial'), 'x'.repeat(12));
-        expect(run()).toBe('12');
+        expect(run(stepStart)).toBe('12');
+        // the stale one alone, set newer than the fresh one, still does not count after the step's start
+        await utimes(stale, new Date(stepStart - 1000), new Date(stepStart - 1000));
+        expect(run(stepStart)).toBe('12');
       } finally {
         await rm(backups, { recursive: true, force: true });
       }

@@ -130,15 +130,18 @@ export const PLAYER_SNAPSHOT_SH = [
  * Run in the app container: the size of the dump being written (the
  * doctor's `.<name>.pgdump.partial` in the backups folder, found as
  * BACKUPS_PROBE_JS finds the folder); prints nothing when there is none.
+ * A partial last written before TAGAVE_DUMP_SINCE (ms since the epoch: the
+ * step's start) is left over from a dump that died, and does not count.
  */
 export const DUMP_PROBE_JS = [
   "const fs=require('fs'),path=require('path');",
   "const e=process.env,dir=e.BACKUP_DIR||e.LINER_BACKUP_DIR||(e.CACHE_DIR?path.join(e.CACHE_DIR,'backups'):'/backups');",
-  'let best=null;',
+  "const since=Number(e.TAGAVE_DUMP_SINCE)||0;let best=null;",
   "try{for(const n of fs.readdirSync(dir)){if(!/^\\..+\\.pgdump\\.partial$/.test(n))continue;const s=fs.statSync(path.join(dir,n));",
-  'if(s.isFile()&&(!best||s.mtimeMs>best.mtime))best={bytes:s.size,mtime:s.mtimeMs};}}catch{}',
+  'if(s.isFile()&&s.mtimeMs>=since&&(!best||s.mtimeMs>best.mtime))best={bytes:s.size,mtime:s.mtimeMs};}}catch{}',
   "if(best)console.log(String(best.bytes));",
 ].join('');
+const DUMP_SINCE_SLACK_MS = 5_000;
 /** Puts the snapshot back; the folder the new Navidrome changed is kept as rolled-back-<date>. */
 export const PLAYER_RESTORE_SH = [
   'set -e',
@@ -646,7 +649,11 @@ export class Update {
 
   /** How far the dump being written has come, from its .partial file in the app container; null when none is found. */
   private async dumpBytes(): Promise<number | null> {
-    const res = await this.compose(['exec', '-T', 'app', 'node', '-e', DUMP_PROBE_JS], { quiet: true, timeoutMs: 15_000 });
+    // Only a partial written since the running step began (a little slack for the clocks).
+    const started = this.run.steps.find((s) => s.status === 'running')?.startedAt;
+    const since = started ? Date.parse(started) - DUMP_SINCE_SLACK_MS : 0;
+    // Short: it is awaited in the wait loop, between the health and stall checks.
+    const res = await this.compose(['exec', '-T', '-e', `TAGAVE_DUMP_SINCE=${since}`, 'app', 'node', '-e', DUMP_PROBE_JS], { quiet: true, timeoutMs: 5_000 });
     const out = res.stdout.trim();
     const n = Number(out);
     return res.code === 0 && out !== '' && Number.isFinite(n) && n > 0 ? n : null;
@@ -869,17 +876,24 @@ export class Update {
   /** The updater's own dump, watched for a stall, with its size so far as the sub-state (a growing dump is progress). */
   private async dumping(work: Promise<CommandResult>): Promise<CommandResult> {
     let done = false;
-    const tick = async () => {
-      const bytes = await this.dumpBytes();
-      if (!done && bytes !== null) this.progress(`backing up the database (${formatBytes(bytes)})`);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    // One probe at a time: the next is scheduled once the last one answered.
+    const next = () => {
+      timer = setTimeout(() => {
+        void this.dumpBytes().then((bytes) => {
+          if (done) return;
+          if (bytes !== null) this.progress(`backing up the database (${formatBytes(bytes)})`);
+          next();
+        });
+      }, this.deps.config.observeEveryMs);
+      timer.unref?.();
     };
-    const timer = setInterval(() => { void tick(); }, this.deps.config.observeEveryMs);
-    timer.unref?.();
+    next();
     try {
       return await this.watched(['app', 'postgres'], false, work);
     } finally {
       done = true;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     }
   }
 
@@ -1103,14 +1117,18 @@ export class Update {
 
   private async verify(since: Date): Promise<void> {
     const target = this.run.target;
+    // The app and the workers appOn waits for (this install's own), as in the step's first sub-state.
+    let total = this.partCount();
     const issue = await this.waitFor(this.appOn(target, since, true), this.deps.config.healthTimeoutMs, {
       services: ['app', ...this.workers()],
       describe: (detail, seen) => {
         // The app answers on the target by now: it counts as one of the parts.
         const m = /^(\d+) of (\d+) workers report/.exec(detail);
-        if (m) return `${Number(m[1]) + 1} of ${Number(m[2]) + 1} parts run ${target}`;
+        // Once the check says how many workers it waits for, that is the count from then on.
+        if (m) total = Number(m[2]) + 1;
+        if (m) return `${Number(m[1]) + 1} of ${total} parts run ${target}`;
         if (seen) return `waiting for the app: ${seen}`;
-        return `checking ${this.partCount()} parts run ${target}`;
+        return `checking ${total} parts run ${target}`;
       },
     });
     if (issue) this.fail(`not every part reports ${target}: ${issue}`);
