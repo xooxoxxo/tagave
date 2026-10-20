@@ -50,6 +50,15 @@
     syncRadios();
   });
 
+  /* Back/Forward restores the page from the bfcache without rerunning the head script,
+     so pick up a theme chosen meanwhile (on the landing page, say). */
+  window.addEventListener('pageshow', function (ev) {
+    if (!ev.persisted) return;
+    var t = saved();
+    if (t) root.setAttribute('data-theme', t); else root.removeAttribute('data-theme');
+    syncRadios();
+  });
+
   /* The sidebar folds on phones and the contents list below the wide layout; both open
      again when the window grows past their breakpoint. */
   var folds = document.querySelectorAll('details[data-fold]');
