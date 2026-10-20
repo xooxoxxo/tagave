@@ -1,79 +1,184 @@
 /**
- * Settings › Backups: every database dump in the backups folder (nightly,
- * manual, before an update, before a restore), "Back up now", download and
- * delete, the nightly schedule, how many of each kind are kept, and where
- * the files live and how to get a copy off this computer.
+ * Settings › Backups: one grouped list per kind of database dump (nightly,
+ * before update, manual, and before restore when there is one). Each kind's
+ * settings are rows with one compact select on the right, saved as soon as
+ * they change; under them, that kind's backups: date · version · size · ⋯
+ * (Download, Copy restore command, Delete). "Back up now" and the totals sit
+ * on top, the folder and how to restore at the foot.
  */
-import { useState } from 'react';
-import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSettingsView } from '@tagave/shared';
-import { Badge, Banner, Button, Input, SegmentedControl, Select, buttonClassName, confirmDialog, type BadgeTone } from '../components/ui';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { BackupEntryView, BackupKindSummaryView, BackupKindView, BackupSettingsView, BackupsStatus } from '@tagave/shared';
+import { Badge, Banner, Button, Menu, Select, Surface, confirmDialog, showToast } from '../components/ui';
 import { backupDownloadUrl, useBackUpNow, useBackups, useDeleteBackup, useSaveBackupSettings } from '../hooks/useBackups';
 import { formatBytes } from '../utils/format';
 import { shortDate } from '../utils/time';
 import { docsUrl } from '../utils/docs';
+import { copyText } from './AlbumFolders';
 import styles from './SettingsBackupsPage.module.css';
 
-const KIND: Record<BackupKindView, { label: string; tone: BadgeTone }> = {
-  nightly: { label: 'Nightly', tone: 'neutral' },
-  manual: { label: 'Manual', tone: 'info' },
-  'pre-migration': { label: 'Before update', tone: 'accent' },
-  'pre-restore': { label: 'Before restore', tone: 'warning' },
+const KIND_LABEL: Record<BackupKindView, string> = {
+  nightly: 'Nightly',
+  'pre-migration': 'Before update',
+  manual: 'Manual',
+  'pre-restore': 'Before restore',
 };
 
-const HOURS = Array.from({ length: 24 }, (_, h) => h);
-
 const when = (iso: string) => shortDate(iso);
+const hourLabel = (h: number) => `${String(h).padStart(2, '0')}:00`;
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-function hourLabel(h: number): string {
-  return `${String(h).padStart(2, '0')}:00`;
+/** The choices of a count select: a short ladder, plus the saved value when it is not on it. */
+function ladder(values: number[], current: number | null): number[] {
+  const set = new Set(values);
+  if (current !== null) set.add(current);
+  return [...set].sort((a, b) => a - b);
 }
 
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`;
+/** "0.11.0", "~0.10.0" (worked out from the update history) or "—". */
+export function versionLabel(b: Pick<BackupEntryView, 'version' | 'versionInferred'>): string {
+  if (!b.version) return '—';
+  return `${b.versionInferred ? '~' : ''}${b.version}`;
 }
 
-/** "3 backups, 1.2 GB, newest 16 Oct 2026, 03:00" for one kind. */
-function kindSummary(k: BackupKindSummaryView | undefined): string {
-  if (!k || k.count === 0) return 'None';
-  return `${plural(k.count, 'backup')} · ${formatBytes(k.bytes)}`;
+function versionTitle(b: BackupEntryView): string | undefined {
+  if (!b.version) return 'Version unknown';
+  return b.versionInferred ? 'From the update history' : undefined;
 }
 
-/**
- * What the next run of a kind deletes under the saved settings (D5: lowering
- * a number deletes nothing on save). The dates are the ones in the list above.
- */
-function PendingDelete({ kind, backups, edited }: { kind: BackupKindSummaryView | undefined; backups: BackupEntryView[]; edited: boolean }) {
-  if (edited) return null;
-  if (!kind || kind.pendingDelete.count === 0) return null;
-  const byName = new Map(backups.map((b) => [b.name, b]));
-  const dates = kind.pendingDelete.names.map((n) => byName.get(n)).filter((b): b is BackupEntryView => !!b);
-  const shown = dates.slice(0, 3).map((b) => when(b.createdAt));
-  const more = dates.length - shown.length;
+function download(name: string) {
+  const a = document.createElement('a');
+  a.href = backupDownloadUrl(name);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function Row({ label, title, children }: { label: string; title?: string | undefined; children: ReactNode }) {
   return (
-    <p className={styles.hint}>
-      Next run deletes {plural(kind.pendingDelete.count, 'older backup')} ({formatBytes(kind.pendingDelete.bytes)}):{' '}
-      <span title={kind.pendingDelete.names.join('\n')}>{shown.join('; ')}{more > 0 ? `; and ${more} more` : ''}</span>
-    </p>
+    <label className={styles.row}>
+      <span className={styles.rowLabel} title={title}>{label}</span>
+      {children}
+    </label>
   );
 }
 
+function BackupRow({ b, expires, restoreCommand, onDelete, deleting }: { b: BackupEntryView; expires: boolean; restoreCommand: string; onDelete: (b: BackupEntryView) => void; deleting: boolean }) {
+  return (
+    <li className={styles.item}>
+      <span className={styles.date}>
+        <span title={b.name}>{when(b.createdAt)}</span>
+        {expires && <Badge className={`${styles.expires}`}>Expires</Badge>}
+        {b.verified === false && <span className={styles.bad} title="The file changed size after it was written">Changed since</span>}
+      </span>
+      <span className={styles.meta}>
+        <span className={styles.version} title={versionTitle(b)}>
+          {versionLabel(b)}
+          {b.toVersion && <span className={styles.to}> → {b.toVersion}</span>}
+        </span>
+        <span className={styles.size}>{formatBytes(b.bytes)}</span>
+      </span>
+      <Menu
+        size="sm"
+        label={`More for the backup of ${when(b.createdAt)}`}
+        items={[
+          { key: 'download', label: 'Download', onSelect: () => download(b.name) },
+          {
+            key: 'restore',
+            label: 'Copy restore command',
+            onSelect: () => {
+              void copyText(restoreCommand.replaceAll('{file}', b.name)).then((ok) =>
+                showToast(ok ? { message: 'Copied', durationMs: 2000 } : { message: 'Could not copy', tone: 'danger', durationMs: 3500 }),
+              );
+            },
+          },
+          { key: 'delete', label: 'Delete', tone: 'danger', separated: true, disabled: deleting, onSelect: () => onDelete(b) },
+        ]}
+      />
+    </li>
+  );
+}
+
+type SaveState = 'saved' | 'error' | null;
+
+function Group({ kind, summary, backups, status, save, restoreCommand, onDelete, deleting, children }: {
+  kind: BackupKindView;
+  summary: BackupKindSummaryView | undefined;
+  backups: BackupEntryView[];
+  status: SaveState;
+  save?: string | null;
+  restoreCommand: string;
+  onDelete: (b: BackupEntryView) => void;
+  deleting: boolean;
+  children?: ReactNode;
+}) {
+  const list = backups.filter((b) => b.kind === kind);
+  const expiring = new Set(summary?.pendingDelete.names ?? []);
+  return (
+    <section className={styles.group} aria-label={KIND_LABEL[kind]}>
+      <div className={styles.groupHead}>
+        <h3 className={styles.groupTitle}>{KIND_LABEL[kind]}</h3>
+        {status === 'saved' && <span className={styles.saved} role="status">✓ Saved</span>}
+        {status === 'error' && <span className={styles.bad} role="alert">{save ?? 'Not saved'}</span>}
+        {list.length > 0 && <span className={styles.groupMeta}>{list.length} · {formatBytes(list.reduce((s, b) => s + b.bytes, 0))}</span>}
+      </div>
+      {children && <Surface padded={false} className={styles.list}>{children}</Surface>}
+      {list.length > 0 && (
+        <Surface padded={false} className={styles.list}>
+          <ul className={styles.items}>
+            {list.map((b) => <BackupRow key={b.name} b={b} expires={expiring.has(b.name)} restoreCommand={restoreCommand} onDelete={onDelete} deleting={deleting} />)}
+          </ul>
+        </Surface>
+      )}
+    </section>
+  );
+}
+
+const GROUP_OF: Record<keyof BackupSettingsView, BackupKindView> = {
+  enabled: 'nightly', hour: 'nightly', keepDaily: 'nightly', keepWeekly: 'nightly', keepPreUpdate: 'pre-migration', keepManual: 'manual',
+};
 
 export function SettingsBackupsPage() {
   const { data, isLoading, error } = useBackups();
+  if (isLoading) return <p className={styles.muted}>Loading backups…</p>;
+  if (error || !data) return <Banner tone="danger">Couldn’t load backups.</Banner>;
+  return <Backups data={data} />;
+}
+
+function Backups({ data }: { data: BackupsStatus }) {
   const backUp = useBackUpNow();
   const remove = useDeleteBackup();
   const save = useSaveBackupSettings();
-  // Unsaved edits to the schedule; null while the form shows what is saved.
-  const [edits, setEdits] = useState<BackupSettingsView | null>(null);
+  // The value shown while its save is on its way; cleared when the answer comes.
+  const [pending, setPending] = useState<BackupSettingsView | null>(null);
+  const [state, setState] = useState<{ kind: BackupKindView; status: SaveState; detail: string | null } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
-  if (isLoading) return <p className={styles.muted}>Loading backups…</p>;
-  if (error || !data) return <Banner tone="danger">Couldn’t load backups.</Banner>;
-
-  const draft = edits ?? data.settings;
-  const setDraft = (next: BackupSettingsView) => setEdits(next);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(data.settings);
+  const settings = pending ?? data.settings;
+  const kind = (k: BackupKindView) => data.kinds.find((s) => s.kind === k);
   const lastNight = data.lastNightly;
   const lastManualFailed = data.lastRun && !data.lastRun.ok && data.lastRun.kind === 'manual' ? data.lastRun : null;
+
+  /** Save one changed setting at once; "✓ Saved" on its group for a moment, or why it was not. */
+  const change = (patch: Partial<BackupSettingsView>) => {
+    const next = { ...settings, ...patch };
+    const group = GROUP_OF[Object.keys(patch)[0] as keyof BackupSettingsView];
+    setPending(next);
+    clearTimeout(timer.current);
+    setState(null);
+    save.mutate(next, {
+      onSuccess: () => {
+        setPending(null);
+        setState({ kind: group, status: 'saved', detail: null });
+        timer.current = setTimeout(() => setState(null), 2500);
+      },
+      onError: (err) => {
+        setPending(null);
+        setState({ kind: group, status: 'error', detail: (err as { detail?: string }).detail ?? null });
+      },
+    });
+  };
 
   const onDelete = async (b: BackupEntryView) => {
     const ok = await confirmDialog({
@@ -85,15 +190,9 @@ export function SettingsBackupsPage() {
     if (ok) remove.mutate(b.name);
   };
 
-  const setNumber = (field: 'keepDaily' | 'keepWeekly' | 'keepPreUpdate' | 'keepManual', raw: string, min: number, max: number) => {
-    const n = parseInt(raw, 10);
-    setDraft({ ...draft, [field]: Number.isInteger(n) ? Math.min(max, Math.max(min, n)) : min });
-  };
-  const saved = data.settings;
-  const kinds = data.kinds;
-  const kind = (k: BackupKindView) => kinds.find((b) => b.kind === k);
-  const nightlyEdited = draft.enabled !== saved.enabled || draft.hour !== saved.hour || draft.keepDaily !== saved.keepDaily || draft.keepWeekly !== saved.keepWeekly;
-  const restore = kind('pre-restore');
+  const status = (k: BackupKindView): SaveState => (state?.kind === k ? state.status : null);
+  const detail = (k: BackupKindView) => (state?.kind === k ? state.detail : null);
+  const common = { backups: data.backups, restoreCommand: data.restoreCommand, onDelete: (b: BackupEntryView) => void onDelete(b), deleting: remove.isPending };
 
   return (
     <div className={styles.page}>
@@ -109,118 +208,68 @@ export function SettingsBackupsPage() {
         </Banner>
       )}
       {data.error && <Banner tone="danger">{data.error}</Banner>}
+      {backUp.error && <Banner tone="danger">Could not start the backup.</Banner>}
 
-      <section className={styles.section} aria-label="Backups">
-        <div className={styles.head}>
-          <Button onClick={() => backUp.mutate()} loading={data.running || backUp.isPending} disabled={data.running}>
-            {data.running ? 'Backing up…' : 'Back up now'}
-          </Button>
-        </div>
-        {backUp.error && <Banner tone="danger">Could not start the backup.</Banner>}
-        {data.backups.length === 0 ? (
-          <p className={styles.muted}>No backups yet</p>
-        ) : (
-          <>
-            <div className={styles.tableScroll}>
-              <table className={styles.table}>
-                <tbody>
-                  {data.backups.map((b) => (
-                    <tr key={b.name}>
-                      <td><span title={b.name}>{when(b.createdAt)}</span></td>
-                      <td><Badge tone={KIND[b.kind].tone}>{KIND[b.kind].label}</Badge></td>
-                      <td className={styles.num}>{formatBytes(b.bytes)}</td>
-                      <td>
-                        {b.verified === false && <span className={styles.bad} title="The file changed size after it was written">Changed since</span>}
-                        {b.verified === null && <span className={styles.muted}>Not checked</span>}
-                      </td>
-                      <td className={styles.actions}>
-                        <a className={buttonClassName({ variant: 'quiet', size: 'sm' })} href={backupDownloadUrl(b.name)} download={b.name}>Download</a>
-                        <Button variant="quiet-danger" size="sm" onClick={() => void onDelete(b)} disabled={remove.isPending}>Delete</Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className={styles.muted}>
-              {data.backups.length} backup{data.backups.length === 1 ? '' : 's'} · {formatBytes(data.totalBytes)} · <code>{data.dir}</code> · <a href={docsUrl('operations.md#backups')} target="_blank" rel="noreferrer">How to restore</a>
-            </p>
-          </>
-        )}
-      </section>
+      <div className={styles.top}>
+        <span className={styles.muted}>
+          {data.backups.length === 0 ? 'No backups yet' : `${data.backups.length} · ${formatBytes(data.totalBytes)}`}
+        </span>
+        <Button size="sm" onClick={() => backUp.mutate()} loading={data.running || backUp.isPending} disabled={data.running}>
+          {data.running ? 'Backing up…' : 'Back up now'}
+        </Button>
+      </div>
 
-      <section className={styles.section} aria-label="Keeping backups">
+      <Group kind="nightly" summary={kind('nightly')} status={status('nightly')} save={detail('nightly')} {...common}>
+        <Row label="Time" title={data.timeZone}>
+          <Select
+            dense
+            className={styles.control}
+            value={settings.enabled ? String(settings.hour) : 'off'}
+            onChange={(e) => change(e.target.value === 'off' ? { enabled: false } : { enabled: true, hour: parseInt(e.target.value, 10) })}
+          >
+            <option value="off">Off</option>
+            {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+          </Select>
+        </Row>
+        <Row label="Daily">
+          <Select dense className={styles.control} value={settings.keepDaily} onChange={(e) => change({ keepDaily: parseInt(e.target.value, 10) })}>
+            {ladder([1, 2, 3, 5, 7, 10, 14, 30, 60, 90], settings.keepDaily).map((n) => <option key={n} value={n}>{plural(n, 'day')}</option>)}
+          </Select>
+        </Row>
+        <Row label="Weekly">
+          <Select dense className={styles.control} value={settings.keepWeekly} onChange={(e) => change({ keepWeekly: parseInt(e.target.value, 10) })}>
+            {ladder([0, 1, 2, 4, 8, 12, 26, 52], settings.keepWeekly).map((n) => <option key={n} value={n}>{n === 0 ? 'None' : plural(n, 'week')}</option>)}
+          </Select>
+        </Row>
+      </Group>
 
-        <h4 className={styles.subTitle}>Nightly</h4>
-        <p className={styles.muted}>{kindSummary(kind('nightly'))}</p>
-        <div className={styles.fields}>
-          <div className={styles.field}>
-            <SegmentedControl label="Nightly backup" value={draft.enabled ? 'on' : 'off'} onChange={(v) => setDraft({ ...draft, enabled: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
-          </div>
-          <label className={styles.field}>
-            <span className={styles.label} title={data.timeZone}>Time</span>
-            <Select value={draft.hour} disabled={!draft.enabled} onChange={(e) => setDraft({ ...draft, hour: parseInt(e.target.value, 10) })}>
-              {HOURS.map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
-            </Select>
-          </label>
-          <label className={styles.field}>
-            <span className={styles.label}>Days</span>
-            <Input type="number" inputMode="numeric" min={1} max={90} value={draft.keepDaily} onChange={(e) => setNumber('keepDaily', e.target.value, 1, 90)} />
-          </label>
-          <label className={styles.field}>
-            <span className={styles.label}>Weeks</span>
-            <Input type="number" inputMode="numeric" min={0} max={52} value={draft.keepWeekly} onChange={(e) => setNumber('keepWeekly', e.target.value, 0, 52)} />
-          </label>
-        </div>
+      <Group kind="pre-migration" summary={kind('pre-migration')} status={status('pre-migration')} save={detail('pre-migration')} {...common}>
+        <Row label="Keep">
+          <Select dense className={styles.control} value={settings.keepPreUpdate} onChange={(e) => change({ keepPreUpdate: parseInt(e.target.value, 10) })}>
+            {ladder([1, 2, 3, 5, 10, 20, 50], settings.keepPreUpdate).map((n) => <option key={n} value={n}>{n}</option>)}
+          </Select>
+        </Row>
+      </Group>
 
-        <PendingDelete kind={kind('nightly')} backups={data.backups} edited={nightlyEdited} />
+      <Group kind="manual" summary={kind('manual')} status={status('manual')} save={detail('manual')} {...common}>
+        <Row label="Keep">
+          <Select
+            dense
+            className={styles.control}
+            value={settings.keepManual === null ? 'all' : String(settings.keepManual)}
+            onChange={(e) => change({ keepManual: e.target.value === 'all' ? null : parseInt(e.target.value, 10) })}
+          >
+            <option value="all">All</option>
+            {ladder([1, 2, 3, 5, 10, 20, 50, 100], settings.keepManual).map((n) => <option key={n} value={n}>{n}</option>)}
+          </Select>
+        </Row>
+      </Group>
 
-        <h4 className={styles.subTitle}>Before update</h4>
-        <p className={styles.muted}>{kindSummary(kind('pre-migration'))}</p>
-        <div className={styles.fields}>
-          <label className={styles.field}>
-            <span className={styles.label}>Keep</span>
-            <Input type="number" inputMode="numeric" min={1} max={50} value={draft.keepPreUpdate} onChange={(e) => setNumber('keepPreUpdate', e.target.value, 1, 50)} />
-          </label>
-        </div>
+      {kind('pre-restore') && <Group kind="pre-restore" summary={kind('pre-restore')} status={null} {...common} />}
 
-        <PendingDelete kind={kind('pre-migration')} backups={data.backups} edited={draft.keepPreUpdate !== saved.keepPreUpdate} />
-
-        <h4 className={styles.subTitle}>Manual</h4>
-        <p className={styles.muted}>{kindSummary(kind('manual'))}</p>
-        <div className={styles.fields}>
-          <div className={styles.field}>
-            <span className={styles.label}>Keep</span>
-            <SegmentedControl
-              label="Keep manual backups"
-              value={draft.keepManual === null ? 'all' : 'newest'}
-              onChange={(v) => setDraft({ ...draft, keepManual: v === 'all' ? null : (saved.keepManual ?? Math.max(1, kind('manual')?.count ?? 1)) })}
-              options={[{ value: 'all', label: 'All' }, { value: 'newest', label: 'Newest' }]}
-            />
-          </div>
-          <label className={styles.field}>
-            <span className={styles.label}>Count</span>
-            <Input type="number" inputMode="numeric" min={1} max={100} disabled={draft.keepManual === null} value={draft.keepManual ?? ''} onChange={(e) => setNumber('keepManual', e.target.value, 1, 100)} />
-          </label>
-        </div>
-
-        <PendingDelete kind={kind('manual')} backups={data.backups} edited={draft.keepManual !== saved.keepManual} />
-
-        {restore && (
-          <>
-            <h4 className={styles.subTitle}>Before restore</h4>
-            <p className={styles.muted}>{kindSummary(restore)}</p>
-
-          </>
-        )}
-
-        <div className={styles.row}>
-          <Button onClick={() => save.mutate(draft, { onSuccess: () => setEdits(null) })} disabled={!dirty} loading={save.isPending}>Save</Button>
-          {dirty && <Button variant="quiet" onClick={() => setEdits(null)}>Cancel</Button>}
-          {save.error && <span className={styles.bad}>{(save.error as { detail?: string }).detail ?? 'Could not save.'}</span>}
-        </div>
-      </section>
-
+      <p className={styles.muted}>
+        <code>{data.dir}</code> · <a href={docsUrl('operations.md#restore-a-backup')} target="_blank" rel="noreferrer">How to restore</a>
+      </p>
     </div>
   );
 }

@@ -274,7 +274,9 @@ The commands below are for an install made with the installer: run them in its f
 
 ## Backups
 
-The app backs the database up every night and keeps a set of recent dumps, and it takes one on its own before an update changes the database (see [What happens when you update](#what-happens-when-you-update)). Settings › Backups lists them, takes one on demand, downloads or deletes one, and changes the schedule and how many are kept.
+The app backs the database up every night and keeps a set of recent dumps, and it takes one on its own before an update changes the database (see [What happens when you update](#what-happens-when-you-update)). Settings › Backups lists them, takes one on demand, downloads or deletes one, copies the command that restores one, and changes the schedule and how many are kept (each change is saved as you make it).
+
+Each backup shows the tagave version whose database it holds, and a before-update one also the version it was updating to (`0.10.0 → 0.11.0`). A dump records its version in the `.json` file next to it. For a dump written before it did, the version is worked out from the updates the app recorded and shown with `~` (`~0.10.0`), because an update without database changes leaves no record; `—` means it is not known. "Expires" marks the backups the next run of that kind deletes.
 
 Every backup is a custom-format `pg_dump`, read back in full with `pg_restore --list` before it counts as written. A dump that fails that check is removed, and the failure is shown on the Backups page.
 
