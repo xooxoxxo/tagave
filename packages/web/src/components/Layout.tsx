@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate, useRouter } from '@tanstack/rea
 import { useMe, useCurrentLibrary, useJobEvents, useLogout, useGapCounts, useCan } from '../hooks';
 import { SearchModal } from './SearchModal';
 import { IconButton } from './ui';
-import { AccountMenu } from './AccountMenu';
+import { AccountCompartment } from './AccountCompartment';
 import { useMaintenance, isMaintenanceShortcut } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { MaintenancePill } from './MaintenanceToggle';
@@ -175,13 +175,14 @@ export function Layout() {
           {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>
         </nav>
-        {/* the signed-in person: one button, its menu holds Account, Listening and Sign out */}
+        {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
         <div className={styles.account} data-account-row="">
           {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}
-          <AccountMenu
+          <AccountCompartment
             name={user.displayName}
             email={user.email}
             signingOut={logout.isPending}
+            closeKey={pathname}
             onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
             onListening={() => void navigate({ to: '/settings/$section', params: { section: 'listening' } })}
             onSignOut={() => { stopPlayback(); logout.mutate(); }}

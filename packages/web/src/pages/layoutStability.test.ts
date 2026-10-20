@@ -116,11 +116,14 @@ describe('page shells', () => {
     expect(rule(read('../components/ui/SegmentedControl.module.css'), '.track')).toMatch(/align-self:\s*flex-start/);
   });
 
-  it('the account row: no rule above it, as tall as the player bar, no negative margin', () => {
+  it('the account row: no rule above it, edge to edge across the sidebar, on the bottom edge', () => {
     const layout = read('../components/Layout.module.css');
-    expect(rule(layout, '.account')).not.toMatch(/border|margin:[^;]*-/);
-    expect(layout).toMatch(/html\[data-player-bar\]\) \.account \{ height: var\(--player-bar-h, 72px\)/);
-    expect(source('../components/Layout.tsx')).toMatch(/<AccountMenu/);
+    const account = rule(layout, '.account');
+    expect(account).not.toMatch(/border/);
+    // it spans exactly the sidebar's padding, nothing more
+    expect(account).toMatch(/margin-inline: calc\(-1 \* var\(--nav-pad-x\)\)/);
+    expect(account).toMatch(/margin-top: auto/);
+    expect(source('../components/Layout.tsx')).toMatch(/<AccountCompartment/);
   });
 
   it('the player bar draws no rule on top (one strip with the account row)', () => {

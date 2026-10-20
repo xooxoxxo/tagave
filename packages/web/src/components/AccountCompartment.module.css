@@ -1,0 +1,270 @@
+/* The account row and the compartment it opens (AccountCompartment.tsx).
+   The row is a band, not a card: the sidebar's full width, the player
+   bar's height and the bar's paint (its glass over the canvas the bar
+   sits on), so the foot of the screen is one strip. The compartment above
+   it is the sidebar's own surface, a shade recessed; it grows up from the
+   row and nothing else in the sidebar moves. No borders, no shadows that
+   lift anything off the page, no ring after a click. */
+.root {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* ---- the row ---- */
+.row {
+  --strip: linear-gradient(var(--glass), var(--glass)), var(--canvas);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+  /* the player bar's own minimum, until the bar reports its height */
+  height: 72px;
+  min-height: 0;
+  margin: 0;
+  padding: 0 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--strip);
+  color: var(--ink-2);
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--dur) ease, color var(--dur) ease;
+}
+
+:global(html[data-player-bar]) .row { height: var(--player-bar-h, 72px); }
+
+/* the global button baseline paints a fill and a press: neither here */
+.row:hover:not(:disabled),
+.row:active:not(:disabled) {
+  background: var(--strip);
+  transform: none;
+}
+
+@media (hover: hover) {
+  .row:hover:not(:disabled) {
+    background: linear-gradient(color-mix(in srgb, var(--ink) 4%, transparent), color-mix(in srgb, var(--ink) 4%, transparent)), var(--strip);
+    color: var(--ink);
+  }
+}
+
+/* keyboard focus only, the app's ring, drawn inside the band (it touches
+   the window's edges) */
+.row:focus { outline: none; }
+.row:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+.chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--ink-3);
+  transform: rotate(180deg);
+  transition: transform 200ms var(--ease-out), color var(--dur) ease;
+}
+
+.root[data-open] .chevron { transform: none; color: var(--ink-2); }
+
+/* the initial: a raised tile in the active link's tint */
+.tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-kbd);
+  background: var(--dew-tint);
+  color: var(--chip-on-ink);
+  box-shadow: inset 0 1px 0 var(--highlight), inset 0 0 0 1px var(--glass-edge);
+  font: 600 0.9375rem / 1 var(--font-body);
+}
+
+.text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name,
+.email {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  font: 600 0.875rem / 1.25 var(--font-body);
+  color: var(--ink);
+}
+
+.email {
+  font: 400 0.75rem / 1.25 var(--font-body);
+  color: var(--ink-3);
+}
+
+/* ---- the compartment ---- */
+/* 0fr to 1fr: the height animates to the content's own, whatever it is */
+.compartment {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  background: color-mix(in srgb, var(--mist) 55%, var(--bg-nav));
+  /* recessed: a soft shade falls in from the top edge, nothing lifts */
+  box-shadow: inset 0 10px 12px -12px rgba(var(--shadow-tint), 0.35);
+  transition: grid-template-rows 200ms var(--ease-out), visibility 0s linear 200ms;
+}
+
+/* collapsing, it takes no presses */
+.root:not([data-open]) .compartment { pointer-events: none; }
+
+.root[data-open] .compartment {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition: grid-template-rows 200ms var(--ease-out), visibility 0s;
+}
+
+.clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  /* the sidebar's own inset: the items line up with the links above */
+  padding: 0.5rem 1.25rem 0.75rem;
+}
+
+/* focus lands on the section itself when it opens: no ring on a container */
+.panel:focus,
+.panel:focus-visible { outline: none; }
+
+/* Who is signed in. On a desktop and in the phone's sheet the row right
+   under the compartment already says it (tile, name, address), so the
+   line shows only on a tablet, where the row is the tile alone. */
+.identity {
+  display: none;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0 0 0.375rem;
+}
+
+.items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 40px;
+  margin: 0;
+  /* a link's metrics (Layout .navLink): the same pill, the same text edge */
+  padding: 0 1rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-2);
+  font: 500 0.875rem / 1.25 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur) ease, color var(--dur) ease;
+}
+
+.item:hover:not(:disabled),
+.item:active:not(:disabled) { background: transparent; transform: none; }
+
+@media (hover: hover) {
+  .item:hover:not(:disabled) { background: var(--mist); color: var(--ink); }
+}
+
+.item:active:not(:disabled) { background: var(--mist-2); }
+.item:focus { outline: none; }
+.item:focus-visible { outline: var(--focus-ring); outline-offset: -2px; }
+
+/* the way out, last and quiet: the danger colour, no fill */
+.signOut,
+.signOut:hover:not(:disabled) { color: var(--danger); }
+
+.appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.375rem 0 0.5rem;
+}
+
+.appearanceLabel {
+  padding-inline: 1rem;
+  font: 500 0.875rem / 1.25 var(--font-body);
+  color: var(--ink-2);
+}
+
+/* the theme control fills the line, three equal options */
+.appearance > [role="radiogroup"] { align-self: stretch; width: auto; display: grid; grid-template-columns: repeat(3, 1fr); }
+
+@media (prefers-reduced-motion: reduce) {
+  .row, .item, .chevron, .compartment, .root[data-open] .compartment { transition: none; }
+  /* index.css gives every element a 0.01ms transition here, and with the
+     default transition-property (all) the inherited visibility would take
+     a few frames to arrive: the section refused focus right after opening */
+  .compartment * { transition-property: none; }
+}
+
+@media (forced-colors: active) {
+  .row { border-top: 1px solid CanvasText; }
+  .row:focus-visible, .item:focus-visible { outline: 2px solid Highlight; }
+  .tile { border: 1px solid ButtonText; }
+  .compartment { border-top: 1px solid CanvasText; }
+}
+
+/* tablet (Layout's top bar, 721-900px): the tile alone in the bar's
+   corner; the compartment slides down from under the bar across the full
+   width, the sidebar's surface, like the phone's menu sheet */
+@media (min-width: 721px) and (max-width: 900px) {
+  .root { display: contents; }
+  .row,
+  :global(html[data-player-bar]) .row {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    width: 44px;
+    height: 44px;
+    padding: 4px;
+    justify-content: center;
+    border-radius: var(--r-inner);
+    background: transparent;
+  }
+  .row:hover:not(:disabled),
+  .row:active:not(:disabled) { background: transparent; }
+  @media (hover: hover) { .row:hover:not(:disabled) { background: var(--mist); } }
+  .row .text, .chevron { display: none; }
+  .compartment {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: var(--bg-nav);
+    border-bottom: 1px solid var(--line);
+  }
+  .root:not([data-open]) .compartment { border-bottom-color: transparent; }
+  .panel { padding: 0.75rem 1.25rem 1rem; max-width: 24rem; }
+  .identity { display: flex; }
+}
+
+/* phone: the row ends the menu sheet as its own strip; the compartment
+   opens above it inside the sheet */
+@media (max-width: 720px) {
+  .root { margin: 0 -1rem -1rem; }
+  .row,
+  :global(html[data-player-bar]) .row { height: 64px; padding-inline: 1rem; }
+  .panel { padding-inline: 1rem; }
+}

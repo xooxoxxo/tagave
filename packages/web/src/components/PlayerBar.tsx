@@ -189,7 +189,9 @@ export function PlayerBar() {
     const node = ref.current;
     if (!root || !node || !hasQueue) return;
     root.dataset['playerBar'] = '';
-    const write = () => root.style.setProperty('--player-bar-h', `${Math.round(node.getBoundingClientRect().height)}px`);
+    // unrounded: the sidebar's account row takes this height and must share
+    // the bar's top edge to the sub-pixel
+    const write = () => root.style.setProperty('--player-bar-h', `${node.getBoundingClientRect().height}px`);
     write();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(write) : null;
     ro?.observe(node);
