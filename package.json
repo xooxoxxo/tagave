@@ -13,11 +13,15 @@
     "test": "pnpm -r test",
     "dev": "pnpm --parallel --filter @tagave/api --filter @tagave/web --filter @tagave/worker dev",
     "db:migrate": "pnpm --filter @tagave/db migrate",
-    "doctor": "node packages/doctor/dist/cli.js doctor"
+    "doctor": "node packages/doctor/dist/cli.js doctor",
+    "site:docs": "node scripts/site/build-docs.mjs"
   },
   "pnpm": {
     "overrides": {
       "@better-auth/utils": "0.4.2"
     }
+  },
+  "devDependencies": {
+    "marked": "18.1.1"
   }
 }

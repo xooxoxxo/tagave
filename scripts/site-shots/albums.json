@@ -1,0 +1,27 @@
+{
+  "_comment": "The demo library for the site screenshots. Each entry is a MusicBrainz release (with front art on the Cover Art Archive). The track lists are fetched at run time; the files are digital silence at the real track lengths. 'case' marks the albums that set up a shot: messy-tags (a tag plan with real changes), missing (Library care gaps: the track positions left out), multi-disc (CD1/CD2 folders), compilation-split (one folder per artist, so tagave offers to treat the pieces as one album). 'feature' is the album page shown with its About and Reviews.",
+  "albums": [
+    { "mbid": "f8f79f3a-3a63-3286-a43d-0135c1a59fea", "artist": "Miles Davis", "title": "Kind of Blue" },
+    { "mbid": "9e53c190-5621-3848-8ae4-39ad9f7d9ace", "artist": "The Beatles", "title": "Abbey Road" },
+    { "mbid": "8eb1532a-bccb-4cc4-b590-5be19386a6f7", "artist": "Pink Floyd", "title": "The Wall", "case": "multi-disc" },
+    { "mbid": "1a8c4ac3-6f47-4570-aedb-f1928a0498ea", "artist": "Fleetwood Mac", "title": "Rumours" },
+    { "mbid": "6bc658fc-c2ad-38ec-a829-0cf8ffef53d8", "artist": "Michael Jackson", "title": "Thriller" },
+    { "mbid": "45c7c7b7-5f62-4f30-84b5-a0dc31f3a278", "artist": "Prince and The Revolution", "title": "Purple Rain" },
+    { "mbid": "f8ac50bf-63a9-3ec9-aa20-732e36b4a55f", "artist": "Kate Bush", "title": "Hounds of Love" },
+    { "mbid": "347666eb-86f7-488a-a427-895f6f7ac203", "artist": "Nirvana", "title": "Nevermind" },
+    { "mbid": "2fa63133-a4c9-3f41-8deb-162189de83ff", "artist": "Massive Attack", "title": "Mezzanine", "case": "messy-tags" },
+    { "mbid": "1834eae1-741b-3c03-9ca5-0df3decb43ea", "artist": "Radiohead", "title": "OK Computer", "feature": true },
+    { "mbid": "952d8e63-8afd-4049-a746-7f50aaeaa3e2", "artist": "Lauryn Hill", "title": "The Miseducation of Lauryn Hill" },
+    { "mbid": "30e45d86-707d-4042-9df5-93724557aadb", "artist": "Daft Punk", "title": "Discovery" },
+    { "mbid": "59d53bb2-fbd8-4b5c-88aa-00398fa67200", "artist": "Amy Winehouse", "title": "Back to Black" },
+    { "mbid": "26cdc327-38f2-4200-b5dc-f2fa0e13fcfe", "artist": "Arcade Fire", "title": "Funeral", "case": "missing", "missing": [3, 7] },
+    { "mbid": "8a426098-714d-4897-b180-dfd8f0a70fc9", "artist": "Kendrick Lamar", "title": "To Pimp a Butterfly" },
+    { "mbid": "6789dd53-0ec6-410c-9c71-c4a75c12d214", "artist": "Billie Eilish", "title": "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?" },
+    { "mbid": "0e37136f-a317-45d6-97a6-0aa6192ba232", "artist": "Taylor Swift", "title": "folklore" },
+    { "mbid": "96cba92f-afeb-3637-8506-2d16d77a24cc", "artist": "Buena Vista Social Club", "title": "Buena Vista Social Club" },
+    { "mbid": "8925c61b-3066-4bd6-a2a9-56f88c16d44f", "artist": "Björk", "title": "Homogenic" },
+    { "mbid": "814e41a7-5c87-4d71-90ea-06f6cbf95dce", "artist": "Bob Marley & The Wailers", "title": "Exodus" },
+    { "mbid": "09ef6117-9339-4bcf-b627-79a40d36255a", "artist": "Johnny Cash", "title": "At Folsom Prison", "case": "missing", "missing": [11] },
+    { "mbid": "ae0c4e7d-a2cf-4e1b-81d1-cac184c2d51b", "artist": "Various Artists", "title": "Trainspotting", "case": "compilation-split" }
+  ]
+}

@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://tagave.app/</loc></url>
+  <url><loc>https://tagave.app/docs/</loc></url>
+  <url><loc>https://tagave.app/docs/install/</loc></url>
+  <url><loc>https://tagave.app/docs/features/</loc></url>
+  <url><loc>https://tagave.app/docs/tag-correction/</loc></url>
+  <url><loc>https://tagave.app/docs/operations/</loc></url>
+  <url><loc>https://tagave.app/docs/security/</loc></url>
+  <url><loc>https://tagave.app/docs/architecture/</loc></url>
+  <url><loc>https://tagave.app/docs/design-system/</loc></url>
+  <url><loc>https://tagave.app/docs/changelog/</loc></url>
 </urlset>

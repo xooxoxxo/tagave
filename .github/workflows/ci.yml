@@ -84,6 +84,11 @@ jobs:
       - name: Release scripts
         run: node --test scripts/release-notes.test.mjs
 
+      # scripts/site/build-docs.mjs: heading ids, link rewriting, the changelog
+      # page, and a full build of docs/ that fails on a broken link.
+      - name: Docs site
+        run: node --test 'scripts/site/*.test.mjs'
+
       - name: Tag matches manifest version
         if: startsWith(github.ref, 'refs/tags/v')
         run: ./scripts/check-version-tag.sh "${GITHUB_REF_NAME}"

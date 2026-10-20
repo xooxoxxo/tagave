@@ -23,3 +23,6 @@ storybook-test-results/
 storybook-test-report/
 packages/web/.storybook-docker/
 packages/*/.vitest/
+
+# tagave.app/docs, generated from docs/ by scripts/site/build-docs.mjs
+site/docs/
