@@ -1200,7 +1200,7 @@ export function AlbumDetailPage() {
                 <dt>Candidates</dt>
                 <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — compare them under Editions.</dd>
                 <dt>Cover art</dt>
-                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the Manage menu queues a lookup'}</dd>
+                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the ⋮ menu'}</dd>
                 <dt>Editions</dt>
                 <dd>{editions ? (editions.fetchedAt ? `fetched ${new Date(editions.fetchedAt).toLocaleString()}` : editions.fetching ? 'fetching now' : 'not fetched') : 'open the Editions tab to see or fetch them'}</dd>
                 <dt>Reviews</dt>
