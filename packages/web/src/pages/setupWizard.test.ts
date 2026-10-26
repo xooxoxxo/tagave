@@ -74,6 +74,11 @@ describe('system checks before the account exists', () => {
     expect(infrastructureChecks(checks).map((c) => c.id)).toEqual(['database', 'migrations', 'workerHeartbeat']);
   });
 
+  it('keeps the disk check /health reports (QA Q-11: "All good", then a disk banner)', () => {
+    const disk: SystemCheck = { id: 'disk', title: 'Disk space', status: 'warn' };
+    expect(infrastructureChecks([...checks, disk]).map((c) => c.id)).toContain('disk');
+  });
+
   it('blocks the account only on the database or its schema', () => {
     expect(setupBlocked(checks)).toBe(false);
     expect(setupBlocked([{ id: 'migrations', title: 'Migrations', status: 'fail' }])).toBe(true);
