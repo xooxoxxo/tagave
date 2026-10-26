@@ -62,6 +62,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
       album('Road Salt One', 'Pain of Salvation', rgId),
       album('Sea Salt Songs', 'Salt Cellar'),
       album('Salty Dog', 'Procol Harum'),
+      // QA 2026-10-26 Q-08: one folder, tags with and without the umlaut
+      album('Homogenic', 'Björk'),
+      album('Debut', 'bjork'),
+      album('Ágætis byrjun', 'Sigur Rós'),
     ]);
     // A compilation: the album artist is Various Artists, each track its own.
     const rootId = randomUUID();
@@ -134,6 +138,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
   it('falls back to the album artist for a track without its own', async () => {
     const { tracks } = await search('opener');
     expect(tracks[0]).toMatchObject({ title: 'Opener', artist: 'Various Artists' });
+  });
+
+  it('ignores diacritics both ways (QA Q-08: "bjork" did not find "Björk")', async () => {
+    const plain = await search('bjork');
+    expect(plain.albums.map((a) => a.title)).toEqual(expect.arrayContaining(['Homogenic', 'Debut']));
+    expect(plain.artists.map((a) => a.name)).toEqual(expect.arrayContaining(['Björk', 'bjork']));
+    const accented = await search('Björk');
+    expect(accented.albums.map((a) => a.title)).toEqual(expect.arrayContaining(['Homogenic', 'Debut']));
+    expect((await search('agaetis')).albums.map((a) => a.title)).toContain('Ágætis byrjun'); // unaccent spells æ as ae
+    expect((await search('sigur ros')).albums.map((a) => a.title)).toContain('Ágætis byrjun');
+    expect((await search('agætis')).albums.map((a) => a.title)).toContain('Ágætis byrjun');
+  });
+
+  it('ranks an accent-folded exact match like an exact one', async () => {
+    const { artists: found } = await search('bjork');
+    expect(found.slice(0, 2).map((a) => a.name).sort()).toEqual(['Björk', 'bjork'].sort());
   });
 
   it('treats LIKE wildcards in the query literally', async () => {

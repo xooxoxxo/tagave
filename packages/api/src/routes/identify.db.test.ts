@@ -57,6 +57,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('identify routes (db)', () => {
       // tried ten minutes ago: the five-minute sweep leaves it alone for hours
       { id: recent, libraryId, clusterKey: `idr-${recent}`, dirPaths: ['R'], titleGuess: 'Recent', artistGuess: 'X', state: 'pending', identifyAttempts: 1, lastIdentifyAt: tried, identifyReason: 'discogs_pass' },
       { id: matched, libraryId, clusterKey: `idr-${matched}`, dirPaths: ['M'], titleGuess: 'Done', artistGuess: 'X', state: 'matched' },
+      { libraryId, clusterKey: `idr-${randomUUID()}`, dirPaths: ['B'], titleGuess: 'Homogenic', artistGuess: 'Björk', state: 'unidentified', identifyReason: 'no_candidates' },
       { id: elsewhere, libraryId: otherLibraryId, clusterKey: `idr-${elsewhere}`, dirPaths: ['E'], titleGuess: 'Else', artistGuess: 'X', state: 'pending' },
     ]);
 
@@ -111,6 +112,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('identify routes (db)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().detail ?? res.json().message).toMatch(/album/i);
     });
+  });
+
+  it('triage search ignores diacritics (QA Q-08)', async () => {
+    const res = await app.inject({ method: 'GET', url: `/libraries/${libraryId}/identify/triage?q=bjork`, headers: as });
+    expect(res.json().items.map((i: { title: string }) => i.title)).toEqual(['Homogenic']);
   });
 
   describe('POST /identify/sweep (Identify now)', () => {

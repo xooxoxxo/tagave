@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, sql, type SQL } from 'drizzle-orm';
 import { libraries } from '@tagave/db';
 import { getDb } from '../db.js';
+import { containsPattern, escapeLike, foldedColumn, foldedValue, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /**
@@ -19,22 +20,20 @@ import { ApiError } from '../middleware/errorHandler.js';
  * word match.
  */
 export function rankSql(column: SQL, lowered: string, words: string, like: string): SQL {
-  const folded = sql`(' ' || regexp_replace(lower(coalesce(${column}, '')), '[^[:alnum:]]+', ' ', 'g') || ' ')`;
+  const plain = foldedColumn(column);
+  const folded = sql`(' ' || regexp_replace(${plain}, '[^[:alnum:]]+', ' ', 'g') || ' ')`;
   const w = escapeLike(words);
   const hasWords = words !== '';
   return sql`(case
-    when lower(${column}) = ${lowered} then 0
-    ${hasWords ? sql`when ${folded} like ${' ' + w + ' %'} then 1
-    when ${folded} like ${'% ' + w + ' %'} then 2` : sql``}
-    when lower(${column}) like ${escapeLike(lowered) + '%'} then 3
-    ${hasWords ? sql`when ${folded} like ${'% ' + w + '%'} then 4` : sql``}
-    when ${column} ilike ${like} then 5
+    when ${plain} = ${foldedValue(lowered)} then 0
+    ${hasWords ? sql`when ${folded} like ${foldedValue(' ' + w + ' %')} then 1
+    when ${folded} like ${foldedValue('% ' + w + ' %')} then 2` : sql``}
+    when ${plain} like ${foldedValue(escapeLike(lowered) + '%')} then 3
+    ${hasWords ? sql`when ${folded} like ${foldedValue('% ' + w + '%')} then 4` : sql``}
+    when ${textMatches(column, like)} then 5
     else 6 end)`;
 }
 
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => '\\' + c);
-}
 
 /** The query folded to lowercase words, the same way rankSql folds a column. */
 export function foldWords(query: string): string {
@@ -68,7 +67,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       return;
     }
     const useSimilarity = query.length >= 4;
-    const like = '%' + escapeLike(query) + '%';
+    const like = containsPattern(query);
     const lowered = query.toLowerCase();
     const words = foldWords(query);
     const rank = (column: SQL) => rankSql(column, lowered, words, like);
@@ -80,8 +79,8 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
              greatest(similarity(la.title_guess, ${query}), similarity(coalesce(la.artist_guess, ''), ${query})) as score
       from local_albums la
       where la.library_id = ${libraryId}
-        and (la.title_guess ilike ${like}
-             or la.artist_guess ilike ${like}
+        and (${textMatches(sql`la.title_guess`, like)}
+             or ${textMatches(sql`la.artist_guess`, like)}
              ${useSimilarity ? sql`or la.title_guess % ${query} or la.artist_guess % ${query}` : sql``})
       order by rank asc, score desc nulls last, lower(la.title_guess) asc
       limit 8`) as unknown as Record<string, unknown>[];
@@ -106,9 +105,9 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
         join release_group_artists rga on rga.release_group_id = rg.id
         join artists a on a.id = rga.artist_id
         where la.library_id = ${libraryId}
-          and (a.name ilike ${like}
-               or a.sort_name ilike ${like}
-               or array_to_string(a.aliases, ' ') ilike ${like}
+          and (${textMatches(sql`a.name`, like)}
+               or ${textMatches(sql`a.sort_name`, like)}
+               or ${textMatches(sql`array_to_string(a.aliases, ' ')`, like)}
                ${useSimilarity ? sql`or a.name % ${query} or a.sort_name % ${query} or array_to_string(a.aliases, ' ') % ${query}` : sql``})
         group by a.id, a.name, a.sort_name, a.aliases
       ),
@@ -121,7 +120,7 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
           and la.artist_guess is not null
           and (la.release_group_id is null or not exists (
             select 1 from release_group_artists rga where rga.release_group_id = la.release_group_id))
-          and (la.artist_guess ilike ${like}
+          and (${textMatches(sql`la.artist_guess`, like)}
                ${useSimilarity ? sql`or la.artist_guess % ${query}` : sql``})
           and not exists (select 1 from canon c where lower(c.name) = lower(la.artist_guess))
         group by la.artist_guess
@@ -141,8 +140,8 @@ export async function createSearchRoutes(fastify: FastifyInstance) {
       from local_tracks lt
       join local_albums la on la.id = lt.local_album_id
       where la.library_id = ${libraryId}
-        and (lt.title_guess ilike ${like}
-             or lt.artist_guess ilike ${like}
+        and (${textMatches(sql`lt.title_guess`, like)}
+             or ${textMatches(sql`lt.artist_guess`, like)}
              ${useSimilarity ? sql`or lt.title_guess % ${query} or lt.artist_guess % ${query}` : sql``})
       order by rank asc, score desc nulls last, lower(lt.title_guess) asc
       limit 8`) as unknown as Record<string, unknown>[];

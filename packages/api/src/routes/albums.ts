@@ -18,6 +18,7 @@ import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
+import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
@@ -81,7 +82,8 @@ export function albumQueryParts(
   if (search) {
     // Column references stay qualified: the facet queries join tables that
     // carry the same names (gaps.state, releases.date, …).
-    conds.push(sql`(${localAlbums.titleGuess} ilike ${'%' + search + '%'} or ${localAlbums.artistGuess} ilike ${'%' + search + '%'})`);
+    const like = containsPattern(search);
+    conds.push(sql`(${textMatches(sql`${localAlbums.titleGuess}`, like)} or ${textMatches(sql`${localAlbums.artistGuess}`, like)})`);
   }
   const states = arr(q['state'] ?? q['filter']).filter((s) => s !== 'all');
   if (states.length) conds.push(sql`${localAlbums.state} in ${inList(states)}`);

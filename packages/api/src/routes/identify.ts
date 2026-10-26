@@ -14,6 +14,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
+import { containsPattern, textMatches } from '../lib/textMatch.js';
 import {
   IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob,
   identifyRequestStates, recordCancelled,
@@ -219,7 +220,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const limit = Math.min(Math.max(parseInt(q.limit ?? '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(q.offset ?? '0', 10) || 0, 0);
     const reason = q.reason && (IDENTIFY_REASONS as readonly string[]).includes(q.reason) ? q.reason as IdentifyReason : undefined;
-    const search = q.q?.trim() ? `%${q.q.trim()}%` : null;
+    const search = q.q?.trim() ? containsPattern(q.q.trim()) : null;
     const db = getDb();
 
     if (reason === 'job_failed') {
@@ -234,7 +235,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
                  order by j.data->>'localAlbumId', j.completed_on desc) f
           join local_albums la on la.id = f.album_id
          where la.library_id = ${libraryId} and la.state = 'pending'
-           ${search ? sql`and (la.title_guess ilike ${search} or la.artist_guess ilike ${search})` : sql``}
+           ${search ? sql`and (${textMatches(sql`la.title_guess`, search)} or ${textMatches(sql`la.artist_guess`, search)})` : sql``}
          order by f.failed_at desc
          limit ${limit} offset ${offset}`) as unknown as Array<Record<string, unknown>>;
       reply.send({
@@ -271,7 +272,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
         left join releases r on r.id = b.release_id
        where la.library_id = ${libraryId} and la.state = 'unidentified'
          ${reason ? sql`and la.identify_reason = ${reason}` : sql``}
-         ${search ? sql`and (la.title_guess ilike ${search} or la.artist_guess ilike ${search})` : sql``}
+         ${search ? sql`and (${textMatches(sql`la.title_guess`, search)} or ${textMatches(sql`la.artist_guess`, search)})` : sql``}
        order by la.last_identify_at desc nulls last, la.created_at
        limit ${limit} offset ${offset}`) as unknown as Array<Record<string, unknown>>;
     reply.send({
