@@ -228,6 +228,12 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
       .where(eq(localAlbums.id, albumId));
     const boss = await getBoss();
     await boss.send('enrich.release', { releaseId: cand.releaseId }, { singletonKey: `enrich:${cand.releaseId}` });
+    // the cover, as Fetch art does (its local art first; a cover already stored stays)
+    try {
+      await boss.send('art.fetch', { localAlbumId: albumId }, { singletonKey: `art:${albumId}` });
+    } catch (err) {
+      request.log.warn({ err }, 'art.fetch enqueue failed (queue not created yet?)');
+    }
     try {
       await boss.send('tracks.link', { localAlbumId: albumId }, { singletonKey: `tracks.link:${albumId}` });
     } catch (err) {
