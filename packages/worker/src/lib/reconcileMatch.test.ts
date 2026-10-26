@@ -15,13 +15,21 @@ const moved = (o: MatchFile, relPath: string, over: Partial<MatchFile> = {}): Ma
 const ids = (p: ReturnType<typeof planPairs>) => p.pairs.map((x) => `${x.oldId}>${x.freshId}`).sort();
 
 describe('signatureMatches', () => {
-  it('Tier 1: same dev:ino and size, or same size, mtime and name (case and NFD folded)', () => {
+  it('Tier 1: same size and mtime, plus same dev:ino or same name (case and NFD folded)', () => {
     const o = old('A/Caf\u00e9.flac', { inode: '1:2' });
     expect(signatureMatches(1, o, moved(o, 'B/other.flac'))).toBe(true);                       // dev:ino
     expect(signatureMatches(1, o, moved(o, 'B/other.flac', { inode: '9:9' }))).toBe(false);    // ino differs, name differs
     expect(signatureMatches(1, o, moved(o, 'B/CAFE\u0301.flac', { inode: null }))).toBe(true);
     expect(signatureMatches(1, o, moved(o, 'B/Café.flac', { inode: '9:9', mtime: 1 }))).toBe(false);
     expect(signatureMatches(1, o, moved(o, 'B/x', { sizeBytes: 1 }))).toBe(false);             // size must match even with dev:ino
+  });
+  it('Tier 1 dev:ino needs the same mtime, and an inode of 0 or an empty one never pairs', () => {
+    const o = old('A/a.flac', { inode: '1:2' });
+    expect(signatureMatches(1, o, moved(o, 'B/b.flac', { mtime: 1 }))).toBe(false);            // inode reused after a delete
+    const z = old('A/a.flac', { inode: '1:0' });
+    expect(signatureMatches(1, z, moved(z, 'B/b.flac'))).toBe(false);
+    const e = old('A/a.flac', { inode: '' });
+    expect(signatureMatches(1, e, moved(e, 'B/b.flac'))).toBe(false);
   });
   it('Tier 2: size + duration + core digest, or audio hash', () => {
     const o = old('A/1.flac', { durationMs: 5000, coreTagsDigest: 'd1' });
@@ -133,5 +141,155 @@ describe('planPairs', () => {
     const t = Date.now();
     expect(planPairs(1, olds, freshs).pairs).toHaveLength(5000);
     expect(Date.now() - t).toBeLessThan(1000);
+  });
+});
+
+// Fix round 1: order independence, the edition guard over the final pair set, scale.
+function rng(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffle<T>(xs: T[], r: () => number): T[] {
+  const a = [...xs];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(r() * (i + 1));
+    [a[i], a[j]] = [a[j]!, a[i]!];
+  }
+  return a;
+}
+
+type Scenario = { tier: 1 | 2; olds: MatchFile[]; freshs: MatchFile[] };
+
+/** Identical files from D1/ and D2/ flattened into Al/: only one Al/00 silence.flac exists. */
+function flattenScenario(): Scenario & { s1: MatchFile; s2: MatchFile; d1: MatchFile[]; d2: MatchFile[] } {
+  const s1 = old('D1/00 silence.flac', { sizeBytes: 50, mtime: 7 });
+  const s2 = old('D2/00 silence.flac', { sizeBytes: 50, mtime: 7 });
+  const d1 = [1, 2, 3, 4].map((i) => old(`D1/${i}.flac`));
+  const d2 = [5, 6, 7, 8].map((i) => old(`D2/${i}.flac`));
+  const freshs = [...d1, ...d2].map((o) => moved(o, `Al/${relBase(o.relPath)}`));
+  freshs.push({ ...moved(s1, 'Al/00 silence.flac'), id: 'f-silence' });
+  return { tier: 1, olds: [s1, s2, ...d1, ...d2], freshs, s1, s2, d1, d2 };
+}
+
+/** A/ and B/ both move into C/; each has one file with a twin copy in E/. */
+function twoIntoOneScenario(): Scenario & { x: MatchFile; y: MatchFile } {
+  const a = [1, 2, 3, 4].map((i) => old(`A/${i}.flac`));
+  const b = [5, 6, 7, 8].map((i) => old(`B/${i}.flac`));
+  const x = old('A/x.flac'); const y = old('B/y.flac');
+  const freshs = [...a, ...b, x, y].map((o) => moved(o, `C/${relBase(o.relPath)}`));
+  freshs.push({ ...moved(x, 'E/x.flac'), id: 'e-x' }, { ...moved(y, 'E/y.flac'), id: 'e-y' });
+  return { tier: 1, olds: [...a, ...b, x, y], freshs, x, y };
+}
+
+function deluxeScenario(): Scenario & { std: MatchFile[] } {
+  const std = [1, 2, 3, 4, 5].map((i) => old(`Std/${i}.flac`));
+  const freshs = [
+    ...std.slice(0, 3).map((o) => moved(o, `Deluxe/${relBase(o.relPath)}`)),
+    { ...moved(std[3]!, 'Deluxe/4.flac'), id: 'remaster4', sizeBytes: 9004 },
+    { ...moved(std[4]!, 'Deluxe/5.flac'), id: 'remaster5', sizeBytes: 9005 },
+    { ...moved(std[0]!, 'Deluxe/6 bonus.flac'), id: 'bonus6', sizeBytes: 9006 },
+  ];
+  return { tier: 1, olds: std, freshs, std };
+}
+
+function tier2SettleScenario(): Scenario {
+  const base = { sizeBytes: 77, durationMs: 1000, coreTagsDigest: 'same' };
+  const a = old('T/dup-a.flac', { ...base, trackNo: 1 }); const b = old('T/dup-b.flac', { ...base, trackNo: 2 });
+  const rest = [3, 4, 5, 6, 7, 8, 9, 10].map((i) => old(`T/${i}.flac`, { durationMs: i, coreTagsDigest: `c${i}` }));
+  const freshs = [moved(a, 'U/x1.flac'), moved(b, 'U/x2.flac'), ...rest.map((o) => moved(o, o.relPath.replace('T/', 'U/'), { mtime: 1 }))];
+  return { tier: 2, olds: [a, b, ...rest], freshs };
+}
+
+function relBase(p: string) { return p.slice(p.lastIndexOf('/') + 1); }
+
+describe('planPairs, fix round 1', () => {
+  it('one old row matching two fresh rows through different Tier 1 kinds pairs neither', () => {
+    const o = old('A/x.flac', { inode: '1:2' });
+    const byInode = moved(o, 'B/y.flac');
+    const byName = { ...moved(o, 'C/x.flac', { inode: '3:4' }), id: 'f2' };
+    const p = planPairs(1, [o], [byInode, byName]);
+    expect(p.pairs).toEqual([]);
+    expect(p.possibleMoves).toEqual([{ oldIds: [o.id], freshIds: [byInode.id, 'f2'].sort(), reason: 'ambiguous' }]);
+  });
+
+  it('two old rows matching one fresh row pairs neither', () => {
+    const a = old('A/x.flac');
+    const b = { ...a, id: 'b-twin', relPath: 'B/x.flac' };
+    const f = moved(a, 'C/x.flac');
+    const p = planPairs(1, [a, b], [f]);
+    expect(p.pairs).toEqual([]);
+    expect(p.possibleMoves.map((m) => m.oldIds[0]).sort()).toEqual([a.id, 'b-twin'].sort());
+    expect(p.possibleMoves.every((m) => m.reason === 'ambiguous' && m.freshIds[0] === f.id)).toBe(true);
+  });
+
+  it('D1/ and D2/ flattened into Al/: the shared silence file has no owner, and the guard drops the folder', () => {
+    const s = flattenScenario();
+    const p = planPairs(1, s.olds, s.freshs);
+    expect(p.pairs.find((x) => x.freshId === 'f-silence')).toBeUndefined();
+    // Al/ keeps an unpaired new file, so no pair into it stands (Ruling 3 + guard after settling).
+    expect(p.pairs).toEqual([]);
+    expect(p.possibleMoves.filter((m) => m.reason === 'edition').map((m) => m.oldIds)).toEqual(
+      [s.d1.map((o) => o.id).sort(), s.d2.map((o) => o.id).sort()].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)),
+    );
+    expect(p.possibleMoves.filter((m) => m.reason === 'ambiguous')).toEqual(
+      [s.s1, s.s2].map((o) => ({ oldIds: [o.id], freshIds: ['f-silence'], reason: 'ambiguous' }))
+        .sort((a, b) => (a.oldIds[0]! < b.oldIds[0]! ? -1 : 1)),
+    );
+  });
+
+  it('A/ and B/ into C/, each with an ambiguous file: both settle, the guard sees the final pair set', () => {
+    const s = twoIntoOneScenario();
+    const p = planPairs(1, s.olds, s.freshs);
+    expect(p.pairs).toHaveLength(10);
+    expect(p.pairs.every((x) => x.dirPair)).toBe(true);
+    expect(ids(p)).toContain(`${s.x.id}>f-${s.x.id}`);
+    expect(ids(p)).toContain(`${s.y.id}>f-${s.y.id}`);
+    expect(p.possibleMoves).toEqual([]);
+  });
+
+  it('edition guard covers unique pairs outside a dir pair (5 tracks, 3 unchanged + 2 remastered + 1 bonus)', () => {
+    const s = deluxeScenario();
+    const p = planPairs(1, s.olds, s.freshs);
+    expect(p.pairs).toEqual([]);
+    const kept = s.std.slice(0, 3);
+    expect(p.possibleMoves).toEqual([{ oldIds: kept.map((o) => o.id).sort(), freshIds: kept.map((o) => `f-${o.id}`).sort(), reason: 'edition' }]);
+  });
+
+  it('the guard uses the paired rows only: an old row missing since long ago does not tighten it', () => {
+    const LONG_AGO = new Date('2026-01-01T00:00:00Z');
+    const four = [1, 2, 3, 4].map((i) => old(`A/${i}.flac`));
+    const ancient = old('A/gone.flac', { lastSeenAt: LONG_AGO, firstSeenAt: LONG_AGO, sizeBytes: 1 });
+    // Resident in B/ first seen between the ancient row and the others vanishing: older than the paired rows.
+    const resident = { ...old('B/0.flac', { sizeBytes: 2 }), firstSeenAt: new Date('2026-06-01T00:00:00Z') };
+    const p = planPairs(1, [...four, ancient], [...four.map((o) => moved(o, o.relPath.replace('A/', 'B/'))), resident]);
+    expect(p.pairs).toHaveLength(4);
+    expect(p.pairs.every((x) => x.dirPair)).toBe(true); // 4 of 5 vanished rows: a dir pair
+  });
+
+  it('gives identical output under 20 seeded random input orders', () => {
+    const scenarios = [flattenScenario(), twoIntoOneScenario(), deluxeScenario(), tier2SettleScenario()];
+    for (const s of scenarios) {
+      const want = planPairs(s.tier, s.olds, s.freshs);
+      for (let seed = 1; seed <= 20; seed++) {
+        const r = rng(seed);
+        expect(planPairs(s.tier, shuffle(s.olds, r), shuffle(s.freshs, r))).toEqual(want);
+      }
+    }
+  });
+
+  it('plans 6,000 renamed folders x 10 files (60k rows) under one parent in well under a second', () => {
+    const olds: MatchFile[] = [];
+    for (let d = 0; d < 6000; d++) for (let i = 0; i < 10; i++) olds.push(old(`Old/D${d}/${i}.flac`));
+    const freshs = olds.map((o) => moved(o, o.relPath.replace(/^Old\//, 'New/')));
+    const t = Date.now();
+    const p = planPairs(1, olds, freshs);
+    const ms = Date.now() - t;
+    expect(p.pairs).toHaveLength(60000);
+    expect(p.pairs.every((x) => x.dirPair)).toBe(true);
+    expect(ms).toBeLessThan(2000);
   });
 });
