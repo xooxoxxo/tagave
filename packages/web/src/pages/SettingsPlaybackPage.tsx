@@ -11,6 +11,7 @@ import { Link } from '@tanstack/react-router';
 import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
+import { useModules } from '../hooks/useModules';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
@@ -32,6 +33,15 @@ export function playerStatus(cap: PlayerCapability | null | undefined): { tone: 
   return { tone: 'success', label: 'Connected', detail: `${backendName(cap.backend)}${cap.version ? ` ${cap.version}` : ''}, ${where}` };
 }
 
+/**
+ * Whether Settings › Modules offers the player. A source build or an install
+ * without the updater lists no player module; its own-server form below is
+ * the way in, so no link to Modules.
+ */
+export function modulesOfferPlayer(view: { modules: ReadonlyArray<{ id: string }> } | undefined): boolean {
+  return !!view?.modules.some((m) => m.id === 'player');
+}
+
 const problem = (err: unknown, fallback: string) => {
   const e = err as Partial<ApiError> | null;
   return e?.detail || e?.title || fallback;
@@ -48,6 +58,7 @@ export function SettingsPlaybackContent() {
   const cap = settings.data?.capability ?? caps.data?.player;
   const status = playerStatus(cap);
   const scan = useScanPlayer(libraryId);
+  const modules = useModules(owner && !!cap && !cap.installed);
 
   return (
     <>
@@ -58,7 +69,7 @@ export function SettingsPlaybackContent() {
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
 
-      {owner && cap && !cap.installed && (
+      {owner && cap && !cap.installed && modulesOfferPlayer(modules.data) && (
         <p className={styles.hint}><Link to="/settings/$section" params={{ section: 'modules' }}>Turn on in Modules</Link></p>
       )}
 
