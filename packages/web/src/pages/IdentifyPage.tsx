@@ -4,7 +4,7 @@
  * When nothing is pending the page says so plainly: no rate, no ETA, no
  * sweep button — the sweep runs by itself every five minutes.
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useId } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
 import { formatRelativeTime } from '../utils/time';
@@ -43,6 +43,7 @@ export function IdentifyPanel() {
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  const selectAllId = useId();
 
   // 300 ms trailing debounce so typing does not fire a request per key
   useEffect(() => {
@@ -301,14 +302,15 @@ export function IdentifyPanel() {
           {/* Checkbox row */}
           <div className={styles.checkboxRow}>
             <input
+              id={selectAllId}
               type="checkbox"
               className={styles.checkboxInput}
               checked={selectedIds.size === triage.items.length && triage.items.length > 0}
               onChange={(e) => handleToggleAll(e.target.checked)}
             />
-            <span className={styles.checkboxLabel}>
+            <label htmlFor={selectAllId} className={styles.checkboxLabel}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
-            </span>
+            </label>
             {selectedIds.size > 0 && (
               <Button
                 variant="secondary"
