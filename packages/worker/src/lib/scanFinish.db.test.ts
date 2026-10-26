@@ -5,7 +5,7 @@
  * nothing that was just seen. dev:ino is stored on every stat.
  */
 import { describe, it, expect, beforeAll, afterAll, vi, afterEach } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -97,6 +97,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
     const f = await finishWalk(ctx, root, w);
     expect(f.missing).toBe(0);
     expect((await byPath()).get('B/03.mp3')!.status).toBe('present');
+  });
+
+  it('a new file the size of a missing one is held for Tier 2; others are not (Task 10)', async () => {
+    // A/02.mp3 (3 bytes) is missing since the test above; a different name and an
+    // old mtime keep Tier 1 from pairing the newcomer
+    await mkdir(path.join(rootPath, 'C'));
+    await writeFile(path.join(rootPath, 'C', 'new.mp3'), 'zzz');
+    await writeFile(path.join(rootPath, 'C', 'other.mp3'), 'zzzzzzz');
+    const old = new Date('2001-01-01T00:00:00Z');
+    await utimes(path.join(rootPath, 'C', 'new.mp3'), old, old);
+    const w = await walkTree(ctx, root, { mode: 'full' });
+    const f = await finishWalk(ctx, root, w);
+    expect(f).toMatchObject({ merged: 0, held: 1 });
+    const holds = await sql`select rel_path, reconcile_hold_at is not null as held from audio_files where scan_root_id = ${rootId} and rel_path like 'C/%' order by rel_path`;
+    expect(holds.map((r: any) => [r.rel_path, r.held])).toEqual([['C/new.mp3', true], ['C/other.mp3', false]]);
   });
 
   it('walkStart is the database clock', async () => {

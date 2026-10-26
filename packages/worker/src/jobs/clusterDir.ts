@@ -1,6 +1,7 @@
 import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
+import { scopeHoldState } from '../lib/clusterHold.js';
 import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
@@ -157,6 +158,14 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     if (inScopeDir(relDirname(r.relPath))) inScope.push(toFileRow(r));
   }
   if (inScope.length === 0) return;
+
+  // A moved file with a new mtime is only recognised after parsing (Tier 2):
+  // building an album now would make a new pending album next to the old one.
+  // No re-send: pg-boss 'stately' would drop the release's own send (Ruling 7).
+  if ((await scopeHoldState(ctx, inScope.map((f) => f.id))) === 'held') {
+    ctx.logger.info({ scope }, 'cluster.dir: folder held until its new files are checked for moves');
+    return;
+  }
 
   /**
    * Disc number per file (spec: cue sheet > tag disk.no > disc subfolder >

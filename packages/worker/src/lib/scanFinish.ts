@@ -10,6 +10,7 @@ import { escapeLike, relDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
+import { placeHolds } from './clusterHold.js';
 
 export type { MoveRecord, DirRef } from './reconcile.js';
 
@@ -160,9 +161,15 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
       return { ...empty, ...reconciled, failedDirs, heldMissing: { count: gone.length, threshold: hold.threshold } };
     }
     const marked = await markMissing(ctx, root, gone, walk.walkStart);
+    // Only a scan that reconciled may hold: Tier 2 is reconciliation too. The
+    // unmounted-looking root (the one reconcile skip) returned above, so every
+    // scan that gets here reconciled. Holds go on before the caller sends
+    // scan.parse and cluster.dir for these rows.
+    const heldIds = await placeHolds(ctx, walk.insertedIds);
     await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
     return {
       ...empty, ...reconciled, failedDirs,
+      held: heldIds.length,
       missing: marked.length,
       dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],
     };

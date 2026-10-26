@@ -8,6 +8,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
+import { releaseExpiredHolds } from '../lib/clusterHold.js';
 
 export interface ScanSweepJobData {
   /** default 7 days */
@@ -72,6 +73,9 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
     }
   }
   ctx.logger.info({ roots: roots.length, enqueued }, 'scan sweep');
+
+  // Cluster holds past the one-hour cap (move-safe scanning §1).
+  await releaseExpiredHolds(ctx);
 }
 
 // keep `and` referenced for future filters without an unused-import error
