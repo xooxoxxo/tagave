@@ -14,6 +14,7 @@ import { AlbumGrid, Bar, BioSource, DetailsNote, FollowButton, ProviderLinks, Sk
 import type { ArtistLayoutProps } from './ArtistNameFirst';
 import { ALBUM_KINDS, KIND_HEADINGS, albumKind, kindLine, mosaicAlbums, ownedLine, paragraphs, regionName, yearsLine } from './artistPageView';
 import type { ArtistAlbum } from '../hooks';
+import { shownAliases } from './artistAliases';
 import styles from './ArtistPage.module.css';
 
 function Mosaic({ albums, name }: { albums: ArtistAlbum[]; name: string }) {
@@ -47,7 +48,8 @@ export function ArtistLikeAlbums(p: ArtistLayoutProps) {
     if (from) facts.push(['From', from]);
     // a group's active years; a person's birth (or life)
     if (years) facts.push([artist.type === 'Person' ? (artist.endDate ? 'Lived' : 'Born') : 'Active', years.replace(/^Born /, '')]);
-    if (artist.aliases.length) facts.push(['Also known as', artist.aliases.join(', ')]);
+    const aliases = shownAliases(artist.name, artist.aliases);
+    if (aliases.length) facts.push(['Also known as', aliases.join(', ')]);
     facts.push(['In your library', ownedLine(artist.owned)]);
     if (details === 'done' && !artist.bio) facts.push(['Biography', 'None on Wikipedia', true]);
   }
