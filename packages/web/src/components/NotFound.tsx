@@ -29,7 +29,9 @@ export function shouldRetryQuery(failureCount: number, err: unknown): boolean {
 
 export function NotFoundPage({ title = 'Not found', to = '/', label = 'Back to Home' }: { title?: string; to?: string; label?: string }) {
   return (
-    <PageShell title={title} back={to !== '/'} barTitle={null}>
+    // `back`: a detail-page header, so the heading also shows on a phone
+    // (a top-level page's heading is hidden there, and no route names this one)
+    <PageShell title={title} back barTitle={null}>
       <p role="alert"><Link to={to}>{label}</Link></p>
     </PageShell>
   );
