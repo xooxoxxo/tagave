@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { IdentifyRequestView } from '@tagave/shared';
 import type { IdentifyStatusItem } from '../hooks/useIdentifyStatus';
-import { identifyLines, planAlbumScope } from './planIdentifyStatus';
+import { identifyButtonLabel, identifyLines, planAlbumScope } from './planIdentifyStatus';
 
 const req = (over: Partial<IdentifyRequestView>): IdentifyRequestView => ({
   status: 'done', jobId: 'j', kind: 'reidentify', pinned: null, createdAt: null, startedAt: null, jobsAhead: 0, outcome: null, ...over,
@@ -40,5 +40,19 @@ describe('planAlbumScope', () => {
   it('is null without an album scope or before the status loads', () => {
     expect(planAlbumScope(null, [])).toBeNull();
     expect(planAlbumScope(['a'], undefined)).toBeNull();
+  });
+});
+
+describe('identifyButtonLabel', () => {
+  it('names every album when all of them are still to ask', () => {
+    expect(identifyButtonLabel(1, 1, false)).toBe('Identify the album');
+    expect(identifyButtonLabel(3, 3, false)).toBe('Identify 3 albums');
+    expect(identifyButtonLabel(3, 3, true)).toBe('Identify 3 albums again');
+  });
+
+  it('says "the other" when some are already being identified (QA Q-43: "3 albums" beside "Identify 2 albums")', () => {
+    expect(identifyButtonLabel(2, 3, false)).toBe('Identify the other 2');
+    expect(identifyButtonLabel(1, 3, false)).toBe('Identify the other one');
+    expect(identifyButtonLabel(2, 3, true)).toBe('Identify the other 2 again');
   });
 });

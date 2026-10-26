@@ -69,3 +69,15 @@ export function planAlbumScope(planAlbumIds: readonly string[] | null, items: re
   const gone = planAlbumIds.filter((id) => known.get(id) === false).length;
   return { made: planAlbumIds.length, gone, now: planAlbumIds.length - gone };
 }
+
+/**
+ * The plan notice's Identify button. When some of the albums named in the
+ * line above are already being identified, it says it asks for the others,
+ * so its number never reads as a different count of the same albums.
+ */
+export function identifyButtonLabel(ask: number, total: number, again: boolean): string {
+  const what = ask >= total
+    ? (ask === 1 ? 'the album' : `${ask.toLocaleString()} albums`)
+    : (ask === 1 ? 'the other one' : `the other ${ask.toLocaleString()}`);
+  return `Identify ${what}${again ? ' again' : ''}`;
+}

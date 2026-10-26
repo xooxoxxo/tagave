@@ -38,7 +38,7 @@ import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
 import { useIdentifyStatus, type IdentifyStatusItem } from '../hooks/useIdentifyStatus';
-import { identifyLines, planAlbumScope } from './planIdentifyStatus';
+import { identifyButtonLabel, identifyLines, planAlbumScope } from './planIdentifyStatus';
 import { InlineRename } from '../components/InlineRename';
 import { PlanResults, PlanReverted } from './PlanResults';
 import { KEPT_PLAN_NOTE, RESULT_STATUSES } from './planResultsText';
@@ -129,7 +129,7 @@ function PreviewOutcomeNotice({
             <span className={styles.reasonActions}>
               {stillToAsk.length > 0 && (
                 <Button variant="secondary" size="sm" loading={identifying} onClick={() => onIdentify(stillToAsk)}>
-                  Identify {stillToAsk.length === 1 ? 'the album' : `${stillToAsk.length.toLocaleString()} albums`}{lines.some((l) => l.kind === 'ended') ? ' again' : ''}
+                  {identifyButtonLabel(stillToAsk.length, lines.length > 0 ? lines.filter((l) => l.kind !== 'gone').length : toIdentify.length, lines.some((l) => l.kind === 'ended'))}
                 </Button>
               )}
               {anyMatchedNow && <Button variant="primary" size="sm" loading={previewing} onClick={onPreviewAgain}>Preview again</Button>}
