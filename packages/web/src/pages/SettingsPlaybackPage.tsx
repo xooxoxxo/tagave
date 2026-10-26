@@ -13,7 +13,6 @@ import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, c
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useModules } from '../hooks/useModules';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
-import { useModules } from '../hooks/useModules';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
 import { shortDate } from '../utils/time';
