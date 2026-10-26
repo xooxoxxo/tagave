@@ -37,6 +37,9 @@ export const STALE_RUNNING_MS = 12 * 3600_000;
 
 export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): Promise<void> {
   const fullEveryDays = data.fullEveryDays ?? 7;
+  // Cluster holds past the one-hour cap (move-safe scanning §1). First, so a
+  // root that fails below cannot keep the cap from firing.
+  await releaseExpiredHolds(ctx);
   const roots = await ctx.db.select().from(scanRoots).where(eq(scanRoots.enabled, true));
   const now = new Date();
   let enqueued = 0;
@@ -74,8 +77,6 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
   }
   ctx.logger.info({ roots: roots.length, enqueued }, 'scan sweep');
 
-  // Cluster holds past the one-hour cap (move-safe scanning §1).
-  await releaseExpiredHolds(ctx);
 }
 
 // keep `and` referenced for future filters without an unused-import error

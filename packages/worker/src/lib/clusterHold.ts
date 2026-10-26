@@ -17,6 +17,23 @@ export const CLUSTER_HOLD_CAP_MS = 3_600_000;
 const CAP_SECONDS = CLUSTER_HOLD_CAP_MS / 1000;
 const UPDATE_BATCH = 2000;
 
+/** A folder to cluster after a release, with the library it belongs to. */
+export interface ReleasedDir extends DirRef { libraryId: string }
+
+/**
+ * cluster.dir for a folder whose hold was just cleared. No singletonSeconds,
+ * on purpose: a throttle slot is unique on (name, slot, key) for every state
+ * but cancelled, so a cluster.dir that returned early on this hold and
+ * completed in the same 30 s slot would silently swallow this send, and the
+ * folder would never be clustered. The stately policy and the singletonKey
+ * still drop a duplicate while one is queued, and that queued job runs after
+ * the release, so it clusters the folder.
+ */
+export async function sendReleasedCluster(ctx: Pick<WorkerContext, 'boss'>, d: ReleasedDir, startAfter?: number): Promise<void> {
+  await ctx.boss.send('cluster.dir', { libraryId: d.libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
+    { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), ...(startAfter ? { startAfter } : {}) });
+}
+
 /** Holds the fresh rows that have a size-equal missing row last seen no later than they were first seen. */
 export async function placeHolds(ctx: Pick<WorkerContext, 'sql'>, freshIds: string[]): Promise<string[]> {
   const held: string[] = [];
@@ -73,9 +90,14 @@ export async function releaseDirHolds(ctx: WorkerContext, libraryId: string, sca
   return { released, reclusterDirs: [] };
 }
 
-/** scan.parse: folders it touched whose held rows are now all parsed or failed. Returns extra dirs to cluster. */
-export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ libraryId: string; scanRootId: string; dirPath: string }>): Promise<DirRef[]> {
-  const extra: DirRef[] = [];
+/**
+ * scan.parse: releases the touched folders whose held rows are now all parsed
+ * or failed. Returns every folder to cluster because of a release: the
+ * released folders themselves plus Tier 2's extra folders (Task 11). The
+ * caller sends these with sendReleasedCluster, not its throttled send.
+ */
+export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ libraryId: string; scanRootId: string; dirPath: string }>): Promise<ReleasedDir[]> {
+  const out: ReleasedDir[] = [];
   const byRoot = new Map<string, { libraryId: string; dirs: Set<string> }>();
   for (const t of touched) {
     const e = byRoot.get(t.scanRootId) ?? { libraryId: t.libraryId, dirs: new Set<string>() };
@@ -90,9 +112,11 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
     }
     const ready = [...pending].filter(([, allParsed]) => allParsed).map(([d]) => d);
     if (ready.length === 0) continue;
-    for (const d of (await releaseDirHolds(ctx, libraryId, scanRootId, ready)).reclusterDirs) extra.push(d);
+    const res = await releaseDirHolds(ctx, libraryId, scanRootId, ready);
+    for (const dirPath of ready) out.push({ libraryId, scanRootId, dirPath });
+    for (const d of res.reclusterDirs) out.push({ libraryId, ...d });
   }
-  return extra;
+  return out;
 }
 
 /** scan.sweep: holds past the cap are released and their folders clustered. */
@@ -107,10 +131,8 @@ export async function releaseExpiredHolds(ctx: WorkerContext): Promise<number> {
     const libraryId = r['library_id'] as string; const scanRootId = r['scan_root_id'] as string; const dirPath = r['dir'] as string;
     const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath]);
     released += res.released;
-    for (const d of [{ scanRootId, dirPath }, ...res.reclusterDirs]) {
-      await ctx.boss.send('cluster.dir', { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
-        { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), singletonSeconds: 30 });
-    }
+    await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
+    for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
   }
   if (released > 0) ctx.logger.info({ released }, 'cluster holds released after the one-hour cap');
   return released;

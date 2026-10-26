@@ -6,7 +6,7 @@ import { audioFiles, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest, coreTagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
-import { releaseReadyHolds } from '../lib/clusterHold.js';
+import { releaseReadyHolds, sendReleasedCluster } from '../lib/clusterHold.js';
 
 export interface ScanParseJobData {
   audioFileIds: string[];
@@ -114,11 +114,12 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   }
 
   // Folders whose held rows are now all parsed: release them (Tier 2 runs
-  // there, Task 11) before their cluster.dir is sent below.
+  // there, Task 11) before their cluster.dir is sent below. Their sends skip
+  // the 30 s throttle slot (see sendReleasedCluster).
   const touched = [...dirsTouched].map(([key, info]) => ({ ...info, dirPath: key.split('\n')[1] ?? '' }));
-  for (const d of await releaseReadyHolds(ctx, touched)) {
-    dirsTouched.set(`${d.scanRootId}\n${d.dirPath}`, { libraryId: touched[0]!.libraryId, scanRootId: d.scanRootId });
-  }
+  const released = await releaseReadyHolds(ctx, touched);
+  for (const d of released) dirsTouched.delete(`${d.scanRootId}\n${d.dirPath}`);
+  for (const d of released) await sendReleasedCluster(ctx, d, 30);
 
   // Debounced re-cluster of every touched directory (singleton per dir).
   for (const [key, info] of dirsTouched) {
