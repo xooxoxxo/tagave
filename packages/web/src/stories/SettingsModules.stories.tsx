@@ -33,6 +33,10 @@ export const Failed: Story = {
 export const WithoutUpdater: Story = {
   args: { view: { ...BASE_VIEW, mode: 'command', modules: [PLAYER, { ...DUMMY, state: 'off' }] } },
 };
+/** Run from source: no updater, no release keys, so nothing to run; the player as it is. */
+export const NotAvailableHere: Story = {
+  args: { view: { ...BASE_VIEW, mode: 'command', verified: false, problem: null, modules: [{ ...PLAYER, available: false, reason: 'Not available on this install.' }] } },
+};
 export const NotSigned: Story = {
   args: { view: { ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature: it was changed after tagave signed it (key 3f0c9a1e5b7d2c44)', modules: [] } },
 };
