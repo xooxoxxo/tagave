@@ -13,6 +13,7 @@ import { Banner, Button } from '../components/ui';
 import { useSystemChecks } from '../hooks/useSystem';
 import { workerLive } from './setupWizard';
 import { actionProblem, identifyNowNote, identifyProgressLine } from './identifyNow';
+import { reasonChipCount } from './identifyCounts';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -268,7 +269,7 @@ export function IdentifyPanel() {
               setSelectedIds(new Set());
             }}
           >
-            {r.label} {reasonCounts[r.key as keyof typeof reasonCounts] ?? 0}
+            {r.label} {reasonChipCount(r.key, stats)}
           </button>
         ))}
       </div>
