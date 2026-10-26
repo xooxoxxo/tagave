@@ -4,7 +4,7 @@ import {
   extractYear, extOf, filenameDiscPrefix, filenameDiscPrefixesApply, isAudioFile, normKey,
   relBasename, relDirname, sidecarKind, storagePath, stripDiscTokenFromTitle, tagsDigest,
   titleFromName, trackNoFromName,
-  tagDiscsPlausible,
+  tagDiscsPlausible, coreTagsDigest,
 } from './helpers.js';
 
 describe('discDirNumber', () => {
@@ -284,5 +284,26 @@ describe('tagDiscsPlausible', () => {
   it('rejects absurd values and one-file discs', () => {
     expect(tagDiscsPlausible([{ disc: 1, track: 1 }, { disc: 99, track: 2 }, { disc: 1, track: 3 }])).toBe(false);
     expect(tagDiscsPlausible([{ disc: 1, track: 5 }, { disc: 2, track: 7 }, { disc: 3, track: 9 }])).toBe(false);
+  });
+});
+
+describe('coreTagsDigest', () => {
+  const common = { artist: 'Artist', albumartist: 'Artist', album: 'Album One', title: 'Song', track: { no: 3, of: 9 }, disk: { no: 1, of: 1 }, date: '2001-05-04', musicbrainz_recordingid: 'rec-1' };
+  it('ignores case, spacing, NFC/NFD, key order and the full date', () => {
+    const a = coreTagsDigest({ common });
+    expect(a).toMatch(/^[0-9a-f]{40}$/);
+    expect(coreTagsDigest({ common: { ...common, title: '  SONG ', date: '2001' } })).toBe(a);
+    expect(coreTagsDigest({ common: { ...common, album: 'Album One'.normalize('NFD') } })).toBe(a);
+    expect(coreTagsDigest({ native: {}, common: Object.fromEntries(Object.entries(common).reverse()) })).toBe(a);
+  });
+  it('changes with any core field', () => {
+    const a = coreTagsDigest({ common });
+    expect(coreTagsDigest({ common: { ...common, track: { no: 4, of: 9 } } })).not.toBe(a);
+    expect(coreTagsDigest({ common: { ...common, musicbrainz_recordingid: 'rec-2' } })).not.toBe(a);
+  });
+  it('ignores non-core fields and is null for an untagged file', () => {
+    expect(coreTagsDigest({ common: { ...common, comment: ['ripped by x'], genre: ['Rock'] } })).toBe(coreTagsDigest({ common }));
+    expect(coreTagsDigest({ common: {} })).toBeNull();
+    expect(coreTagsDigest(null)).toBeNull();
   });
 });

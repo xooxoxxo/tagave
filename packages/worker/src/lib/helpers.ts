@@ -275,6 +275,42 @@ export function tagsDigest(tags: unknown): string {
   return createHash('sha1').update(stableStringify(tags)).digest('hex');
 }
 
+const CORE_TEXT_FIELDS = ['artist', 'albumartist', 'album', 'title'] as const;
+const CORE_MBID_FIELDS = [
+  'musicbrainz_recordingid', 'musicbrainz_trackid', 'musicbrainz_albumid',
+  'musicbrainz_releasegroupid', 'musicbrainz_albumartistid', 'musicbrainz_artistid',
+] as const;
+
+function coreText(v: unknown): string {
+  const s = Array.isArray(v) ? v.map((x) => String(x)).join('\u0001') : v === null || v === undefined ? '' : String(v);
+  return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Tier 2's tag signature (move-safe scanning §1, R13): a hash of the fields a
+ * move never changes, normalized so a tag-library upgrade (spacing, case,
+ * Unicode form, a full date instead of a year) does not hide a pair. Null for
+ * a file with none of them: untagged files would all look alike (Ruling 13).
+ */
+export function coreTagsDigest(tagsRaw: unknown): string | null {
+  const common = (tagsRaw as { common?: Record<string, unknown> } | null)?.common;
+  if (!common || typeof common !== 'object') return null;
+  const no = (k: string): number | null => {
+    const v = (common[k] as { no?: unknown } | undefined)?.no;
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(v, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const yearV = common['year'];
+  const year = typeof yearV === 'number' && yearV > 1000 ? yearV : extractYear(typeof common['date'] === 'string' ? common['date'] : null);
+  const text = Object.fromEntries(CORE_TEXT_FIELDS.map((k) => [k, coreText(common[k])]));
+  const mbids = Object.fromEntries(CORE_MBID_FIELDS.map((k) => [k, coreText(common[k])]));
+  const track = no('track');
+  const disc = no('disk');
+  const any = Object.values(text).some(Boolean) || Object.values(mbids).some(Boolean) || track !== null;
+  if (!any) return null;
+  return createHash('sha1').update(stableStringify({ v: 1, ...text, ...mbids, track, disc, year })).digest('hex');
+}
+
 function stableStringify(v: unknown): string {
   if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
   if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';

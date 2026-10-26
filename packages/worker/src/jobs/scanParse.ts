@@ -4,7 +4,7 @@ import { parseFile } from 'music-metadata';
 import { eq, inArray } from 'drizzle-orm';
 import { audioFiles, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
+import { relDirname, tagsDigest, coreTagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 
 export interface ScanParseJobData {
@@ -87,6 +87,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
           hasEmbeddedArt: (meta.common.picture?.length ?? 0) > 0,
           tagsRaw,
           tagsDigest: tagsDigest(tagsRaw),
+          coreTagsDigest: coreTagsDigest(tagsRaw),
           tagsReadAt: new Date(),
           status: 'present',
           parseError: null,
