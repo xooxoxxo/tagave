@@ -1,0 +1,24 @@
+/* The preview frame: Layout's own classes do the work; this adds the row
+   that holds the page beside direction A's right-hand panel. */
+.frame { position: relative; }
+.row { position: relative; flex: 1 1 auto; min-height: 0; display: flex; }
+.row > main { flex: 1 1 auto; }
+
+.backKey {
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+}
+.backKey:hover:not(:disabled) { background: transparent; }
+
+/* a phone detail page keeps its bar slim and drops the wordmark row */
+@media (max-width: 720px) {
+  .detail { grid-template-columns: minmax(0, 1fr) auto auto; }
+}
