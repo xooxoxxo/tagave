@@ -44,7 +44,8 @@ describe('describeQualityFlags', () => {
     expect(byKey(rows, 'emptyRequiredFields').affected).toEqual(['Tracks 1, 2, 3 and 11']);
     expect(byKey(rows, 'lowBitrate').count).toBe('14 tracks');
     expect(byKey(rows, 'noCover').action).toBe('art');
-    expect(byKey(rows, 'noEmbeddedArt').guidance).toMatch(/cover art above clears this/);
+    // fetching a cover stores it beside the files, not in them (QA Q-19)
+    expect(byKey(rows, 'noEmbeddedArt').guidance).toBe('Nothing to do unless your music player needs artwork inside the files.');
   });
 
   it('describes repeated track numbers as repeats, not as missing numbers', () => {

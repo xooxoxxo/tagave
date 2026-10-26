@@ -123,9 +123,7 @@ function describeOne(key: string, value: unknown, all: Record<string, unknown>, 
         key,
         title: 'No embedded art',
         explain: 'None of the music files carry a cover picture, so players that read the files directly show no artwork.',
-        guidance: 'noCover' in all
-          ? 'Fetching the cover art above clears this too.'
-          : 'Nothing to do unless your music player needs artwork inside the files.',
+        guidance: 'Nothing to do unless your music player needs artwork inside the files.',
       };
     case 'missingMbIds': {
       const tracks = numbers(field(value, 'missing'));
@@ -255,8 +253,7 @@ function describeOne(key: string, value: unknown, all: Record<string, unknown>, 
 
 /**
  * One flag's row. Quality gaps are one row per flag since 0032; `all` is every
- * open flag of the album, which some rows mention ("fetching the cover art
- * above clears this too").
+ * open flag of the album, which some rows may mention.
  */
 export function describeQualityFlag(key: string, value: unknown, all: Record<string, unknown> = { [key]: value }, opts: DescribeOptions = {}): QualityIssue {
   return describeOne(key, value, all, opts);
