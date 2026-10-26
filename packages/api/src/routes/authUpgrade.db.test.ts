@@ -91,7 +91,8 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     // player's per-person tables; 0047: Music Connections requests and tokens;
     // 0048: the facet change log; 0049: Music Connections links
     // and authorizations in flight, tagave as a client; 0050: who confirmed a
-    // gap fill, and the person of each landed Music Connections row).
+    // gap fill, and the person of each landed Music Connections row; 0054: each
+    // person's Listen elsewhere platforms).
     const fksAfter = await fkQuery();
     const key = (f: any) => `${f.table_name}.${f.conname}`;
     const before = new Set(fksBefore.map(key));
@@ -99,7 +100,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     expect(fksAfter.filter((f: any) => before.has(key(f)) && key(f) !== restricted)).toEqual(fksBefore.filter((f: any) => key(f) !== restricted));
     expect(fksAfter.find((f: any) => key(f) === restricted)?.def).toBe('FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT');
     expect(fksAfter.filter((f: any) => !before.has(key(f))).map((f: any) => f.table_name)).toEqual([
-      'facet_changes', 'identity_fills', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
+      'facet_changes', 'identity_fills', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
       'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_rating_sync', 'player_song_counts', 'player_users',
       'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites',
     ]);
