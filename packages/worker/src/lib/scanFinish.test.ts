@@ -22,6 +22,14 @@ describe('isUnderFailedPath', () => {
     expect(isUnderFailedPath('A/1.flac', ['A/1.flac'])).toBe(true);
     expect(isUnderFailedPath('x.flac', [''])).toBe(true);
   });
+  it('takes a Set and checks every ancestor level', () => {
+    const failed = new Set(['A/B/C', 'X/1.flac']);
+    expect(isUnderFailedPath('A/B/C/D/1.flac', failed)).toBe(true);
+    expect(isUnderFailedPath('A/B/1.flac', failed)).toBe(false);
+    expect(isUnderFailedPath('X/1.flac', failed)).toBe(true);
+    expect(isUnderFailedPath('X/1.flac.bak', failed)).toBe(false);
+    expect(isUnderFailedPath('A/1.flac', new Set())).toBe(false);
+  });
 });
 
 describe('finishNotes', () => {

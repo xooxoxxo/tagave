@@ -48,22 +48,32 @@ export async function markMissing(
 /**
  * Sidecars in scope the walk did not see: their images first (cascade since 0052), then the rows.
  * Sidecars under a failed path were not seen because they could not be read, not because they
- * left, so they stay (F5: dropping one would cascade its cover away).
+ * left, so they stay (F5: dropping one would cascade its cover away). The candidates are
+ * filtered in JS with one set lookup per path level, then deleted by id (the last_seen guard
+ * is re-checked, so a row a concurrent walk just saw stays).
  */
 export async function dropStaleSidecars(
-  ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, subtree: string, walkStart: Date, failedPaths: string[] = [],
+  ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, subtree: string, walkStart: Date,
+  failedPaths: Iterable<string> = [],
 ): Promise<number> {
-  if (failedPaths.includes('')) return 0;
+  const failed = failedPaths instanceof Set ? failedPaths as ReadonlySet<string> : new Set(failedPaths);
+  if (failed.has('')) return 0;
   const prefix = subtree ? subtree + '/' : '';
-  const gone = await ctx.sql`
-    delete from sidecar_files s
-     where s.scan_root_id = ${root.id} and s.last_seen_at < ${walkStart.toISOString()}::timestamptz
-       and (${prefix} = '' or s.rel_path like ${escapeLike(prefix) + '%'})
-       and not exists (
-         select 1 from unnest(${failedPaths}::text[]) as f(p)
-          where s.rel_path = f.p or left(s.rel_path, length(f.p) + 1) = f.p || '/')
-    returning s.id`;
-  return gone.length;
+  const since = walkStart.toISOString();
+  const stale = (await ctx.sql`
+    select s.id, s.rel_path as "relPath" from sidecar_files s
+     where s.scan_root_id = ${root.id} and s.last_seen_at < ${since}::timestamptz
+       and (${prefix} = '' or s.rel_path like ${escapeLike(prefix) + '%'})`) as unknown as Array<{ id: string; relPath: string }>;
+  const ids = (failed.size ? stale.filter((r) => !isUnderFailedPath(r.relPath, failed)) : stale).map((r) => r.id);
+  let dropped = 0;
+  for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
+    const gone = await ctx.sql`
+      delete from sidecar_files s
+       where s.id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[]) and s.last_seen_at < ${since}::timestamptz
+      returning s.id`;
+    dropped += gone.length;
+  }
+  return dropped;
 }
 
 /** Ruling 5: never hold a loss of this many files or fewer. */
@@ -79,8 +89,19 @@ export function missingHold(count: number, presentInRoot: number): { held: boole
   return { held: count > threshold, threshold };
 }
 
-export function isUnderFailedPath(relPath: string, failedPaths: string[]): boolean {
-  return failedPaths.some((p) => p === '' || relPath === p || relPath.startsWith(p + '/'));
+/**
+ * True when relPath is a failed path or lies under one. A folder that lists but cannot be
+ * searched puts every file in it on failedPaths, so this does one set lookup per path level
+ * (pass a Set to skip rebuilding it per call), never one comparison per failed path.
+ */
+export function isUnderFailedPath(relPath: string, failedPaths: Iterable<string>): boolean {
+  const failed = failedPaths instanceof Set ? failedPaths as ReadonlySet<string> : new Set(failedPaths);
+  if (failed.size === 0) return false;
+  if (failed.has('') || failed.has(relPath)) return true;
+  for (let i = relPath.indexOf('/'); i !== -1; i = relPath.indexOf('/', i + 1)) {
+    if (failed.has(relPath.slice(0, i))) return true;
+  }
+  return false;
 }
 
 /** The Activity suffix for what a scan did not do and why ('' when it did everything). */
@@ -95,6 +116,12 @@ export function finishNotes(f: Pick<FinishResult, 'failedDirs' | 'heldMissing' |
   return notes.length ? '; ' + notes.join('; ') : '';
 }
 
+async function forgetDirMtimes(ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, dirs: string[]): Promise<void> {
+  for (let i = 0; i < dirs.length; i += UPDATE_BATCH) {
+    await ctx.sql`delete from scan_dirs where scan_root_id = ${root.id} and rel_path = any(${dirs.slice(i, i + UPDATE_BATCH)}::text[])`;
+  }
+}
+
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
     missing: 0, dirsWithMissing: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
@@ -104,7 +131,8 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
   // F3: an unmounted-looking root marks nothing, but still names what it could not read.
   if (walk.looksUnmounted) return { ...empty, failedDirs };
   // Doubt: an unreadable folder or file is not evidence that anything left.
-  let gone = walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedDirs));
+  const failedSet = new Set(failedDirs);
+  let gone = failedSet.size ? walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedSet)) : walk.unseen;
   const reconcileSkipped = walk.errored > 0
     ? `${walk.errored} folder(s) or file(s) could not be read, so moved files are not matched in this scan`
     : null;
@@ -112,10 +140,14 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
   const hold = missingHold(gone.length, walk.presentInRoot);
   if (hold.held && !opts.confirmMissing) {
     // F5: a held scan drops no sidecars either (the 0052 cascade would take their covers).
+    // A quick scan must not forget the hold: the walk just stamped fresh mtimes on the
+    // folders that lost files, so the next quick scan would skip them and count the held
+    // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
+    await forgetDirMtimes(ctx, root, [...new Set(gone.map((r) => relDirname(r.relPath)))]);
     return { ...empty, failedDirs, reconcileSkipped, heldMissing: { count: gone.length, threshold: hold.threshold } };
   }
   const marked = await markMissing(ctx, root, gone, walk.walkStart);
-  await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedDirs);
+  await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
   return {
     ...empty, failedDirs, reconcileSkipped,
     missing: marked.length,

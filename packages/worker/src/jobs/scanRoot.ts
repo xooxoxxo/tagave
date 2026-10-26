@@ -15,7 +15,7 @@ export interface ScanRootJobData {
    * the weekly sweep and "Scan now" run full.
    */
   mode?: WalkMode;
-  /** set by release B's Missing list › Confirm missing; skips the partly-unmounted hold */
+  /** set by release B's Missing list › Confirm missing; skips the partly-unmounted hold (always a full walk) */
   confirmMissing?: boolean;
 }
 
@@ -31,7 +31,9 @@ const WALK_CONCURRENCY = 8;
  * walk, and never when the root looks unmounted.
  */
 export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Promise<void> {
-  const mode: WalkMode = data.mode === 'quick' ? 'quick' : 'full';
+  // confirmMissing always walks in full: a quick walk counts the rows of an unchanged
+  // folder as seen, so it would confirm nothing.
+  const mode: WalkMode = data.mode === 'quick' && data.confirmMissing !== true ? 'quick' : 'full';
   const rootRows = await ctx.db
     .select()
     .from(scanRoots)
