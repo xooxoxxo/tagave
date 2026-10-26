@@ -9,6 +9,7 @@ import { eq } from 'drizzle-orm';
 import { scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot } from '../lib/walk.js';
+import { finishNotes } from '../lib/scanFinish.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
 import { enqueueReclusters } from './scanRoot.js';
@@ -66,9 +67,9 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
   await enqueueReclusters(ctx, root, [dirPath, ...walk.dirsWithMissing], { startAfter: walk.changedIds.length ? 20 : 0 });
 
   const elapsedS = Math.round((Date.now() - started) / 1000);
-  const message = walk.subtreeGone
+  const message = (walk.subtreeGone
     ? `folder is gone: ${walk.missing} file(s) marked missing`
-    : `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${elapsedS}s`;
+    : `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${elapsedS}s`) + finishNotes(walk);
   await reportProgress(ctx, jobRunId, {
     libraryId: root.libraryId, type: 'scan.dir', state: 'completed',
     done: walk.filesSeen, total: walk.filesSeen, message,

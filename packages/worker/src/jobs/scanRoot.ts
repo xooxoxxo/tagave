@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
+import { finishNotes } from '../lib/scanFinish.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
 import { clusterSingletonKey } from '../lib/helpers.js';
@@ -14,6 +15,8 @@ export interface ScanRootJobData {
    * the weekly sweep and "Scan now" run full.
    */
   mode?: WalkMode;
+  /** set by release B's Missing list › Confirm missing; skips the partly-unmounted hold */
+  confirmMissing?: boolean;
 }
 
 const PARSE_BATCH = 50;
@@ -90,6 +93,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     walk = await walkRoot(ctx, root, {
       mode,
       concurrency: WALK_CONCURRENCY,
+      confirmMissing: data.confirmMissing === true,
       onProgress: async (filesSeen, dir) => {
         await ctx.db.update(scans).set({ cursor: { lastDir: dir, filesSeen } }).where(eq(scans.id, scanId));
         await reportProgress(ctx, jobRunId, {
@@ -105,7 +109,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
 
   // LIB-5: previously non-empty root that now yields nothing = unmounted share.
   if (walk.looksUnmounted) {
-    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing');
+    await fail('aborted', 'root yielded zero files but previously had files — treating as unmounted, nothing marked missing' + finishNotes(walk));
     return;
   }
 
@@ -131,6 +135,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     filesSeen: walk.filesSeen, added: walk.added, changed: walk.changed, missing: walk.missing,
     errored: walk.errored, sidecars: walk.sidecars, dirsSeen: walk.dirsSeen, dirsSkipped: walk.dirsSkipped,
     formats: walk.formats, elapsedS,
+    failedDirs: walk.failedDirs.slice(0, 20), heldMissing: walk.heldMissing, reconcileSkipped: walk.reconcileSkipped,
   };
   await ctx.db
     .update(scans)
@@ -143,7 +148,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   await reportProgress(ctx, jobRunId, {
     libraryId: root.libraryId, type: 'scan.root', state: 'completed',
     done: walk.filesSeen, total: walk.filesSeen,
-    message: `${mode}: ${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${walk.dirsSkipped}/${walk.dirsSeen} dirs skipped, ${elapsedS}s`,
+    message: `${mode}: ${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${walk.dirsSkipped}/${walk.dirsSeen} dirs skipped, ${elapsedS}s${finishNotes(walk)}`,
   });
   ctx.logger.info({ scanRootId: root.id, ...stats }, 'scan complete');
 }

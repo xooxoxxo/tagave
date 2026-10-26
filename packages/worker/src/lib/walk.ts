@@ -72,7 +72,7 @@ export interface WalkResult {
 export interface UnseenRow { id: string; relPath: string; sizeBytes: number | null }
 export interface WalkTreeResult extends WalkResult {
   walkStart: Date;            // select now() before the walk
-  unseen: UnseenRow[];        // present/error rows in scope the walk did not see, minus failed paths
+  unseen: UnseenRow[];        // present/error rows in scope the walk did not see (finishWalk drops those under failedPaths)
   insertedIds: string[];      // rows this walk created (not conflict-updated)
   failedPaths: string[];      // rel dirs whose opendir failed + rel files whose stat failed
   presentInRoot: number;      // present+error rows of the whole root before the walk
@@ -354,7 +354,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
               seenSidecars.push({ relPath, kind, sizeBytes: Number(st.size), mtime: Math.floor(Number(st.mtimeMs) / 1000) });
               result.sidecars += 1;
             } catch {
-              /* sidecar stat failures are not worth aborting anything */
+              // Not worth aborting anything, but an unread sidecar has not left:
+              // finishWalk keeps its row (and its cover) when it is on failedPaths.
+              failedPaths.push(relPath);
             }
           }
         }
