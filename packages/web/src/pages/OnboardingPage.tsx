@@ -158,7 +158,7 @@ export function OnboardingPage() {
   const job = scanJob.data;
   const found = stats.data?.total ?? 0;
   const matched = stats.data?.states.matched ?? 0;
-  const scanState = firstScanState({ scanStatus: job?.status, albumsFound: found, grouping: stats.data?.grouping, statsLoaded: !!stats.data });
+  const scanState = firstScanState({ scanStatus: job?.status, albumsFound: found, grouping: stats.data?.grouping, statsLoaded: !!stats.data, pending: stats.data?.states.pending });
 
   return (
     <div className={styles.container}>
@@ -325,6 +325,11 @@ export function OnboardingPage() {
               ) : scanState === 'empty' ? (
                 <Banner tone="warning">
                   No albums found. Check the folder above.
+                </Banner>
+              ) : scanState === 'decided' ? (
+                <Banner tone="warning">
+                  No album was identified.{' '}
+                  <Link to="/work" search={{ tab: stats.data?.states.needsReview ? 'review' : 'identify' }}>Open Library care</Link>
                 </Banner>
               ) : scanState === 'found' ? (
                 <Banner tone="info">

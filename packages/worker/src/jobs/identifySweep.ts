@@ -70,7 +70,7 @@ async function sweepLibrary(ctx: WorkerContext, libraryId: string, limit: number
   if (!topUp || before.queued < LOW_WATER) {
     const retryBefore = new Date(Date.now() - RETRY_AFTER_HOURS * 3600_000);
     const pending = await ctx.db
-      .select({ id: localAlbums.id, attempts: localAlbums.identifyAttempts })
+      .select({ id: localAlbums.id })
       .from(localAlbums)
       .where(and(
         eq(localAlbums.libraryId, libraryId),
@@ -80,9 +80,9 @@ async function sweepLibrary(ctx: WorkerContext, libraryId: string, limit: number
       .orderBy(localAlbums.identifyAttempts, localAlbums.createdAt)
       .limit(limit);
     for (const row of pending) {
-      // XO-379: an album's first pass is Discogs-only; its later passes (after
-      // RETRY_AFTER_HOURS) run MusicBrainz first. Manual/triage keep MB first.
-      const id = await ctx.boss.send('identify.album', { localAlbumId: row.id, discogsFirst: (row.attempts ?? 0) === 0 }, {
+      // Every pass runs MusicBrainz first (QA 2026-10-26: the Discogs-only
+      // first pass held a fresh install without a Discogs token for 6 h).
+      const id = await ctx.boss.send('identify.album', { localAlbumId: row.id }, {
         singletonKey: `identify:${row.id}`,
         retryLimit: 3,
         retryDelay: 60,

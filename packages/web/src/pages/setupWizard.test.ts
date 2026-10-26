@@ -157,6 +157,14 @@ describe('folderCheckerLive', () => {
 
 describe('firstScanState', () => {
   const base = { scanStatus: 'done', albumsFound: 0, grouping: 0, statsLoaded: true };
+  it('finishes once every album found has been decided (QA Q-01: it said "Identifying albums…" for good)', () => {
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 7 })).toBe('found');
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 0 })).toBe('decided');
+    // an older API without the count keeps the old behaviour
+    expect(firstScanState({ ...base, albumsFound: 7 })).toBe('found');
+    // files still being grouped can add albums
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 0, grouping: 3 })).toBe('found');
+  });
   it('waits for queued grouping jobs before calling a finished scan empty', () => {
     expect(firstScanState({ ...base, grouping: 14 })).toBe('grouping');
     expect(firstScanState(base)).toBe('empty');
