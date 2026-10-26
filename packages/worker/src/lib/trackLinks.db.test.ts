@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
   audioFiles, canonicalTracks, libraries, localAlbums, localTracks,
   releases, releaseGroups, scanRoots, users, providerCache, makeDb,
@@ -14,6 +14,25 @@ import pino from 'pino';
 import { linkAlbumTracks, fillTrackIdsFromCache } from './trackLinks.js';
 import type { WorkerContext } from './context.js';
 import type { CanonicalRelease } from '@tagave/core';
+
+/** Delete every row hanging off one release group (releases, canonical tracks, the group itself). */
+async function deleteReleaseGroupTree(db: any, releaseGroupId: string) {
+  const relIds = db.select({ id: releases.id }).from(releases).where(eq(releases.releaseGroupId, releaseGroupId));
+  await db.delete(canonicalTracks).where(inArray(canonicalTracks.releaseId, relIds));
+  await db.delete(releases).where(eq(releases.releaseGroupId, releaseGroupId));
+  await db.delete(releaseGroups).where(eq(releaseGroups.id, releaseGroupId));
+}
+
+/** Delete every local album/track/audio file of one library. */
+async function deleteLibraryTree(db: any, libraryId: string) {
+  const albumIds = db.select({ id: localAlbums.id }).from(localAlbums).where(eq(localAlbums.libraryId, libraryId));
+  await db.delete(localTracks).where(inArray(localTracks.localAlbumId, albumIds));
+  await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+  await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
+}
+
+// Per-run suffix so unique keys (mbid, cache_key) never collide across runs or parallel files.
+const RUN = randomUUID().slice(0, 8);
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
   let ctx: WorkerContext;
@@ -45,22 +64,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
 
     releaseGroupId = randomUUID();
     await db.insert(releaseGroups).values({
-      id: releaseGroupId, mbid: 'link-rg-1', title: 'Link Test Album', artistCredit: [],
+      id: releaseGroupId, mbid: `link-rg-1-${RUN}`, title: 'Link Test Album', artistCredit: [],
     });
 
     releaseId = randomUUID();
     await db.insert(releases).values({
-      id: releaseId, releaseGroupId, mbid: 'link-rel-1', title: 'Link Test Album',
+      id: releaseId, releaseGroupId, mbid: `link-rel-1-${RUN}`, title: 'Link Test Album',
     });
   });
 
   afterAll(async () => {
-    await db.delete(localTracks).where(eq(localTracks.localAlbumId, albumId));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
-    await db.delete(localAlbums).where(eq(localAlbums.id, albumId));
-    await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, releaseId));
-    await db.delete(releases).where(eq(releases.id, releaseId));
-    await db.delete(releaseGroups).where(eq(releaseGroups.id, releaseGroupId));
+    await deleteLibraryTree(db, libraryId);
+    await deleteReleaseGroupTree(db, releaseGroupId);
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
@@ -72,7 +87,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     // Create a specific release for this test
     const testReleaseId = randomUUID();
     await db.insert(releases).values({
-      id: testReleaseId, releaseGroupId, mbid: 'link-rel-flat', title: 'Flat Album',
+      id: testReleaseId, releaseGroupId, mbid: `link-rel-flat-${RUN}`, title: 'Flat Album',
     });
 
     await db.insert(localAlbums).values({
@@ -132,7 +147,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     const album2Id = randomUUID();
     const testReleaseId = randomUUID();
     await db.insert(releases).values({
-      id: testReleaseId, releaseGroupId, mbid: 'link-rel-multi', title: 'Multi Album',
+      id: testReleaseId, releaseGroupId, mbid: `link-rel-multi-${RUN}`, title: 'Multi Album',
     });
 
     await db.insert(localAlbums).values({
@@ -177,7 +192,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     const album3Id = randomUUID();
     const testReleaseId = randomUUID();
     await db.insert(releases).values({
-      id: testReleaseId, releaseGroupId, mbid: 'link-rel-partial', title: 'Partial Album',
+      id: testReleaseId, releaseGroupId, mbid: `link-rel-partial-${RUN}`, title: 'Partial Album',
     });
 
     await db.insert(localAlbums).values({
@@ -233,7 +248,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     const album4Id = randomUUID();
     const testReleaseId = randomUUID();
     await db.insert(releases).values({
-      id: testReleaseId, releaseGroupId, mbid: 'link-rel-idem', title: 'Idempotent Album',
+      id: testReleaseId, releaseGroupId, mbid: `link-rel-idem-${RUN}`, title: 'Idempotent Album',
     });
 
     await db.insert(localAlbums).values({
@@ -289,6 +304,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
   });
 });
 
+const FILL_CACHE_KEY = `v2:release:fill-rel-1-${RUN}`;
+
 describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', () => {
   let ctx: WorkerContext;
   let db: any;
@@ -314,20 +331,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', ()
 
     releaseGroupId = randomUUID();
     await db.insert(releaseGroups).values({
-      id: releaseGroupId, mbid: 'fill-rg-1', title: 'Fill Test', artistCredit: [],
+      id: releaseGroupId, mbid: `fill-rg-1-${RUN}`, title: 'Fill Test', artistCredit: [],
     });
 
     releaseId = randomUUID();
     await db.insert(releases).values({
-      id: releaseId, releaseGroupId, mbid: 'fill-rel-1', title: 'Fill Test',
+      id: releaseId, releaseGroupId, mbid: `fill-rel-1-${RUN}`, title: 'Fill Test',
     });
   });
 
   afterAll(async () => {
-    await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, releaseId));
-    await db.delete(providerCache).where(eq(providerCache.provider, 'musicbrainz'));
-    await db.delete(releases).where(eq(releases.id, releaseId));
-    await db.delete(releaseGroups).where(eq(releaseGroups.id, releaseGroupId));
+    await db.delete(providerCache).where(eq(providerCache.cacheKey, FILL_CACHE_KEY));
+    await deleteReleaseGroupTree(db, releaseGroupId);
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
     await client.end({ timeout: 5 });
@@ -342,10 +357,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', ()
     ]);
 
     const payload: CanonicalRelease = {
-      id: 'fill-rel-1',
+      id: `fill-rel-1-${RUN}`,
       source: 'musicbrainz',
       title: 'Fill Test',
-      releaseGroupId: 'fill-rg-1',
+      releaseGroupId: `fill-rg-1-${RUN}`,
       artists: [],
       tracks: [
         {
@@ -371,7 +386,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', ()
 
     await db.insert(providerCache).values({
       provider: 'musicbrainz',
-      cacheKey: 'v2:release:fill-rel-1',
+      cacheKey: FILL_CACHE_KEY,
       payload,
       expiresAt: new Date(Date.now() + 86400000),
     });
@@ -397,10 +412,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', ()
     });
 
     const payload: CanonicalRelease = {
-      id: 'fill-rel-1',
+      id: `fill-rel-1-${RUN}`,
       source: 'musicbrainz',
       title: 'Fill Test',
-      releaseGroupId: 'fill-rg-1',
+      releaseGroupId: `fill-rg-1-${RUN}`,
       artists: [],
       tracks: [
         {
@@ -414,10 +429,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('fillTrackIdsFromCache (db)', ()
       ],
     };
 
-    await db.delete(providerCache).where(eq(providerCache.provider, 'musicbrainz'));
+    await db.delete(providerCache).where(eq(providerCache.cacheKey, FILL_CACHE_KEY));
     await db.insert(providerCache).values({
       provider: 'musicbrainz',
-      cacheKey: 'v2:release:fill-rel-1',
+      cacheKey: FILL_CACHE_KEY,
       payload,
       expiresAt: new Date(Date.now() + 86400000),
     });
@@ -460,17 +475,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
 
     releaseGroupId = randomUUID();
     await db.insert(releaseGroups).values({
-      id: releaseGroupId, mbid: 'sweep-rg-1', title: 'Sweep Test', artistCredit: [],
+      id: releaseGroupId, mbid: `sweep-rg-1-${RUN}`, title: 'Sweep Test', artistCredit: [],
     });
   });
 
   afterAll(async () => {
-    // Cleanup in reverse order of creation
-    await db.delete(localTracks).where(eq(localTracks.id, localTracks.id)); // simplified cleanup
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
-    await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-    await db.delete(canonicalTracks).where(eq(canonicalTracks.id, canonicalTracks.id)); // simplified cleanup
-    await db.delete(releases).where(eq(releases.id, releases.id)); // simplified cleanup
+    await deleteLibraryTree(db, libraryId);
+    await deleteReleaseGroupTree(db, releaseGroupId);
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
@@ -485,8 +496,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
     const rel1Id = randomUUID();
     const rel2Id = randomUUID();
     await db.insert(releases).values([
-      { id: rel1Id, releaseGroupId, mbid: 'sweep-rel-1', title: 'Sweep Album 1' },
-      { id: rel2Id, releaseGroupId, mbid: 'sweep-rel-2', title: 'Sweep Album 2' },
+      { id: rel1Id, releaseGroupId, mbid: `sweep-rel-1-${RUN}`, title: 'Sweep Album 1' },
+      { id: rel2Id, releaseGroupId, mbid: `sweep-rel-2-${RUN}`, title: 'Sweep Album 2' },
     ]);
 
     // Create canonical tracks for both releases (with trackMbid set to skip ensureTrackMbids)

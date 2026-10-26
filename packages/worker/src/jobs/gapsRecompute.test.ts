@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import {
   users,
   libraries,
@@ -134,7 +134,9 @@ describe.skipIf(!hasDatabaseUrl)('gapsRecomputeJob - missing_album gaps', () => 
     await db.delete(gaps).where(eq(gaps.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(releaseGroupArtists).where(eq(releaseGroupArtists.artistId, artistId));
-    await db.delete(releaseGroups);
+    await db.delete(releaseGroups).where(
+      inArray(releaseGroups.id, [releaseGroupId1, releaseGroupId2, releaseGroupId3]),
+    );
     await db.delete(followedArtists).where(eq(followedArtists.libraryId, libraryId));
     await db.delete(artists).where(eq(artists.id, artistId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
