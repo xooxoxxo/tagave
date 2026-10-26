@@ -22,10 +22,11 @@
  */
 import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { and, eq, inArray, like, lt, or, sql as dsql } from 'drizzle-orm';
-import { audioFiles, images, scanDirs, sidecarFiles } from '@tagave/db';
+import { and, eq, like, lt, or, sql as dsql } from 'drizzle-orm';
+import { audioFiles, scanDirs, sidecarFiles } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { isAudioFile, sidecarKind, storagePath, extOf, relDirname } from './helpers.js';
+import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
 
 export type WalkMode = 'full' | 'quick';
 
@@ -66,6 +67,16 @@ export interface WalkResult {
   looksUnmounted: boolean;
   /** subtree mode: the directory itself is gone */
   subtreeGone: boolean;
+}
+
+export interface UnseenRow { id: string; relPath: string; sizeBytes: number | null }
+export interface WalkTreeResult extends WalkResult {
+  walkStart: Date;            // select now() before the walk
+  unseen: UnseenRow[];        // present/error rows in scope the walk did not see, minus failed paths
+  insertedIds: string[];      // rows this walk created (not conflict-updated)
+  failedPaths: string[];      // rel dirs whose opendir failed + rel files whose stat failed
+  presentInRoot: number;      // present+error rows of the whole root before the walk
+  subtree: string;            // the normalized subtree, '' for a whole root
 }
 
 const INSERT_BATCH = 500;
@@ -119,11 +130,21 @@ class Semaphore {
   }
 }
 
-export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOptions): Promise<WalkResult> {
+/**
+ * The filesystem half of a scan: walks, writes what it saw (last_seen_at by
+ * the database's clock, dev:ino on every stat) and reports what it did not
+ * see. Nothing is marked missing here; finishWalk does that.
+ */
+export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOptions): Promise<WalkTreeResult> {
   const subtree = storagePath(opts.subtree ?? '').replace(/^\/+|\/+$/g, '');
   const prefix = subtree ? subtree + '/' : '';
   const concurrency = Math.max(1, opts.concurrency ?? 8);
-  const startedAt = new Date();
+  // The database's clock, never the worker's: every last_seen_at below is now().
+  // The shared client returns timestamptz as text; ms truncation only rounds down.
+  const [clock] = (await ctx.sql`select now() as now`) as unknown as Array<{ now: string | Date }>;
+  const walkStart = new Date(clock!.now);
+  const [present] = (await ctx.sql`select count(*)::int as n from audio_files
+                                   where scan_root_id = ${root.id} and status in ('present', 'error')`) as unknown as Array<{ n: number }>;
 
   const scopeLike = prefix ? like(audioFiles.relPath, escapeLike(prefix) + '%') : undefined;
   const existing = await ctx.db
@@ -182,12 +203,14 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   const seen = new Set<string>();
   const seenSidecars: Array<{ relPath: string; kind: string; sizeBytes: number | null; mtime: number | null }> = [];
   const dirRows: Array<{ relPath: string; mtime: number }> = [];
+  const insertedIds: string[] = [];
+  const failedPaths: string[] = [];
 
   // Batched writes. Arrays are shared by the concurrent directory workers;
   // each flush takes a snapshot and the flushes themselves run in order.
-  let pendingInserts: Array<{ relPath: string; sizeBytes: number; mtime: number }> = [];
-  let pendingChanged: Array<{ id: string; sizeBytes: number; mtime: number }> = [];
-  let pendingUnchanged: string[] = [];
+  const pendingInserts: Array<{ relPath: string; sizeBytes: number; mtime: number; inode: string }> = [];
+  const pendingChanged: Array<{ id: string; sizeBytes: number; mtime: number; inode: string }> = [];
+  const pendingUnchanged: Array<{ id: string; inode: string | null }> = [];
   let chain: Promise<void> = Promise.resolve();
   const enqueue = (work: () => Promise<void>) => {
     chain = chain.then(work, work);
@@ -197,18 +220,17 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     if (pendingInserts.length === 0) return chain;
     const batch = pendingInserts.splice(0);
     return enqueue(async () => {
-      const inserted = await ctx.db
-        .insert(audioFiles)
-        .values(batch.map((f) => ({
-          libraryId: root.libraryId, scanRootId: root.id, relPath: f.relPath,
-          sizeBytes: f.sizeBytes, mtime: f.mtime, status: 'present',
-        })))
-        .onConflictDoUpdate({
-          target: [audioFiles.scanRootId, audioFiles.relPath],
-          set: { status: 'present', lastSeenAt: new Date() },
-        })
-        .returning({ id: audioFiles.id });
-      result.changedIds.push(...inserted.map((r) => r.id));
+      const rows = (await ctx.sql`
+        insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, inode, status)
+        select ${root.libraryId}, ${root.id}, u.rel_path, u.size_bytes, u.mtime, u.inode, 'present'
+          from unnest(${batch.map((f) => f.relPath)}::text[], ${batch.map((f) => f.sizeBytes)}::bigint[],
+                      ${batch.map((f) => f.mtime)}::bigint[], ${batch.map((f) => f.inode)}::text[])
+               as u(rel_path, size_bytes, mtime, inode)
+        on conflict (scan_root_id, rel_path) do update
+          set status = 'present', last_seen_at = now(), inode = coalesce(excluded.inode, audio_files.inode)
+        returning id, (xmax = 0) as inserted`) as unknown as Array<{ id: string; inserted: boolean }>;
+      result.changedIds.push(...rows.map((r) => r.id));
+      insertedIds.push(...rows.filter((r) => r.inserted).map((r) => r.id));
     });
   };
   const flushChanged = () => {
@@ -217,9 +239,10 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     return enqueue(async () => {
       await ctx.sql`
         update audio_files af
-           set size_bytes = c.size_bytes, mtime = c.mtime, status = 'present', last_seen_at = now()
-          from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.sizeBytes)}::bigint[], ${batch.map((b) => b.mtime)}::bigint[])
-               as c(id, size_bytes, mtime)
+           set size_bytes = c.size_bytes, mtime = c.mtime, inode = c.inode, status = 'present', last_seen_at = now()
+          from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.sizeBytes)}::bigint[], ${batch.map((b) => b.mtime)}::bigint[],
+                      ${batch.map((b) => b.inode)}::text[])
+               as c(id, size_bytes, mtime, inode)
          where af.id = c.id`;
       result.changedIds.push(...batch.map((b) => b.id));
     });
@@ -228,7 +251,10 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     if (pendingUnchanged.length === 0) return chain;
     const batch = pendingUnchanged.splice(0);
     return enqueue(async () => {
-      await ctx.sql`update audio_files set last_seen_at = now() where id = any(${batch}::uuid[])`;
+      await ctx.sql`
+        update audio_files af set last_seen_at = now(), inode = coalesce(c.inode, af.inode)
+          from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.inode)}::text[]) as c(id, inode)
+         where af.id = c.id`;
     });
   };
 
@@ -260,6 +286,7 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     } catch (err) {
       ctx.logger.warn({ dir: dirAbs, err: (err as Error).message }, 'unreadable directory, skipping');
       result.errored += 1;
+      failedPaths.push(relDir);
       return [];
     }
     result.dirsSeen += 1;
@@ -281,7 +308,7 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
         if (r.status === 'missing' || r.status === 'archived') continue;
         seen.add(r.relPath);
         countFile(r.relPath);
-        pendingUnchanged.push(r.id);
+        pendingUnchanged.push({ id: r.id, inode: null });
       }
       for (const s of sidecarsByDir.get(relDir) ?? []) {
         seenSidecars.push(s);
@@ -298,24 +325,26 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           } catch (err) {
             ctx.logger.warn({ file: absPath, err: (err as Error).message }, 'stat failed');
             result.errored += 1;
+            failedPaths.push(relPath);
             continue;
           }
           countFile(name);
           seen.add(relPath);
           const prior = byRelPath.get(relPath);
           const mtimeS = Math.floor(st.mtimeMs / 1000);
+          const inode = `${st.dev}:${st.ino}`;
           if (!prior) {
             result.added += 1;
-            pendingInserts.push({ relPath, sizeBytes: st.size, mtime: mtimeS });
+            pendingInserts.push({ relPath, sizeBytes: st.size, mtime: mtimeS, inode });
           } else if (
             prior.sizeBytes !== st.size || prior.mtime !== mtimeS
             || prior.status === 'missing' || prior.status === 'archived'
             || (opts.reparseErrors === true && prior.status === 'error')
           ) {
             result.changed += 1;
-            pendingChanged.push({ id: prior.id, sizeBytes: st.size, mtime: mtimeS });
+            pendingChanged.push({ id: prior.id, sizeBytes: st.size, mtime: mtimeS, inode });
           } else {
-            pendingUnchanged.push(prior.id);
+            pendingUnchanged.push({ id: prior.id, inode });
           }
         } else {
           const kind = sidecarKind(name);
@@ -369,28 +398,19 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // rows already missing or archived would trip the guard on a root that
   // was legitimately emptied.
   const expected = existing.some((r) => r.status === 'present' || r.status === 'error');
+  const tail = { walkStart, insertedIds, failedPaths, presentInRoot: present!.n, subtree };
   if (!prefix && result.filesSeen === 0 && expected) {
     result.looksUnmounted = true;
-    return result;
+    return { ...result, ...tail, unseen: [] };
   }
-
-  // Complete walk: anything indexed in scope but unseen is now missing.
-  const unseen = existing.filter((r) => !seen.has(r.relPath) && r.status !== 'missing' && r.status !== 'archived');
-  for (let i = 0; i < unseen.length; i += UPDATE_BATCH) {
-    const chunk = unseen.slice(i, i + UPDATE_BATCH).map((r) => r.id);
-    await ctx.db.update(audioFiles).set({ status: 'missing' }).where(inArray(audioFiles.id, chunk));
-  }
-  result.missing = unseen.length;
-  result.dirsWithMissing = [...new Set(unseen.map((r) => relDirname(r.relPath)))];
 
   // Sidecars: upsert what the walk saw (rows keep their ids, so the images
-  // that came from them stay valid), then drop the rows in scope it did not
-  // see — their images first, because images.origin = 'sidecar' requires the
-  // reference and ON DELETE SET NULL would trip that check.
+  // that came from them stay valid). Rows in scope it did not see are
+  // dropped by finishWalk.
   for (let i = 0; i < seenSidecars.length; i += INSERT_BATCH) {
     const chunk = seenSidecars.slice(i, i + INSERT_BATCH).map((s) => ({
       libraryId: root.libraryId, scanRootId: root.id, relPath: s.relPath, kind: s.kind,
-      sizeBytes: s.sizeBytes, mtime: s.mtime, lastSeenAt: new Date(),
+      sizeBytes: s.sizeBytes, mtime: s.mtime, lastSeenAt: dsql`now()`,
     }));
     if (chunk.length > 0) {
       await ctx.db.insert(sidecarFiles).values(chunk).onConflictDoUpdate({
@@ -399,34 +419,36 @@ export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           kind: dsql`excluded.kind`,
           sizeBytes: dsql`excluded.size_bytes`,
           mtime: dsql`excluded.mtime`,
-          lastSeenAt: new Date(),
+          lastSeenAt: dsql`now()`,
         },
       });
     }
   }
-  const staleSidecars = and(eq(sidecarFiles.scanRootId, root.id), lt(sidecarFiles.lastSeenAt, startedAt), sidecarScope);
-  const staleIds = await ctx.db.select({ id: sidecarFiles.id }).from(sidecarFiles).where(staleSidecars);
-  for (let i = 0; i < staleIds.length; i += UPDATE_BATCH) {
-    const chunk = staleIds.slice(i, i + UPDATE_BATCH).map((r) => r.id);
-    await ctx.db.delete(images).where(inArray(images.sidecarFileId, chunk));
-    await ctx.db.delete(sidecarFiles).where(inArray(sidecarFiles.id, chunk));
-  }
-
   // Directory mtimes for the next quick scan; directories that vanished drop out.
   for (let i = 0; i < dirRows.length; i += INSERT_BATCH) {
     const chunk = dirRows.slice(i, i + INSERT_BATCH);
     await ctx.db.insert(scanDirs)
-      .values(chunk.map((d) => ({ scanRootId: root.id, relPath: d.relPath, mtime: d.mtime, lastSeenAt: new Date() })))
+      .values(chunk.map((d) => ({ scanRootId: root.id, relPath: d.relPath, mtime: d.mtime, lastSeenAt: dsql`now()` })))
       .onConflictDoUpdate({
         target: [scanDirs.scanRootId, scanDirs.relPath],
-        set: { mtime: dsql`excluded.mtime`, lastSeenAt: new Date() },
+        set: { mtime: dsql`excluded.mtime`, lastSeenAt: dsql`now()` },
       });
   }
   await ctx.db.delete(scanDirs).where(and(
     eq(scanDirs.scanRootId, root.id),
-    lt(scanDirs.lastSeenAt, startedAt),
+    lt(scanDirs.lastSeenAt, walkStart),
     dirScope,
   ));
 
-  return result;
+  const unseen: UnseenRow[] = existing
+    .filter((r) => !seen.has(r.relPath) && (r.status === 'present' || r.status === 'error'))
+    .map((r) => ({ id: r.id, relPath: r.relPath, sizeBytes: r.sizeBytes }));
+  return { ...result, ...tail, unseen };
+}
+
+/** walkTree + finishWalk: what scan.root, scan.dir and the tests call. */
+export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOptions & FinishOptions): Promise<WalkResult & FinishResult & { walkStart: Date }> {
+  const walk = await walkTree(ctx, root, opts);
+  const finish = await finishWalk(ctx, root, walk, opts);
+  return { ...walk, ...finish };
 }
