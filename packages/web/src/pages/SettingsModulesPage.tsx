@@ -6,12 +6,13 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type McModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { moduleCommand, type ListenLinksModuleView, type McModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
 import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
+import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
 import { getStepUp } from '../services/stepUp';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
@@ -430,11 +431,106 @@ function McModuleSection() {
   );
 }
 
+/* ---------- Listen elsewhere: a module switched by a setting ---------- */
+
+export interface ListenLinksModuleRowProps {
+  view: ListenLinksModuleView;
+  pending?: boolean;
+  error?: string | null;
+  onTurnOn: () => void;
+  onTurnOff: () => void;
+}
+
+/** The Listen elsewhere row: the same shape as Music Connections'. */
+export function ListenLinksModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: ListenLinksModuleRowProps) {
+  return (
+    <ul className={styles.list} aria-label="Listen elsewhere">
+      <li className={styles.item}>
+        <div className={styles.head}>
+          <h3 className={styles.name}>Listen elsewhere</h3>
+          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
+        </div>
+        <p className={styles.purpose}>Links albums to Qobuz, Spotify, Apple Music and other streaming platforms. Each person picks their own.</p>
+        <p className={styles.meta}>
+          {view.albums === 1 ? '1 album' : `${view.albums} albums`} · {view.artists === 1 ? '1 artist' : `${view.artists} artists`} · {view.people === 1 ? '1 person' : `${view.people} people`}
+        </p>
+        <div className={styles.actions}>
+          {view.enabled
+            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
+            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
+        </div>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </li>
+    </ul>
+  );
+}
+
+type ListenAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
+
+function ListenLinksModuleSection() {
+  const mod = useListenLinksModule();
+  const setOn = useSetListenLinksModule();
+  const remove = useRemoveListenLinksData();
+  const [error, setError] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: ListenAction; methods: StepUpMethod[] } | null>(null);
+
+  const run = async (act: ListenAction) => {
+    setError(null);
+    try {
+      if (act.kind === 'remove') await remove.mutateAsync();
+      else await setOn.mutateAsync(act.kind === 'on');
+    } catch (err) {
+      const e = err as { status?: number; title?: string; detail?: string };
+      if (e.status === 403 && e.title === 'Step-up required') {
+        const s = await getStepUp();
+        setStepUp({ act, methods: s.methods });
+      } else {
+        setError(sentence(e.detail ?? e.title) || 'Listen elsewhere could not be changed.');
+      }
+    }
+  };
+
+  const turnOff = async () => {
+    let deleteData = false;
+    const ok = await confirmDialog({
+      title: 'Turn off Listen elsewhere?',
+      message: (
+        <>
+          <p>Its links and everyone’s platforms are kept unless you tick the box.</p>
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
+            <span>Also delete its data. This cannot be undone.</span>
+          </label>
+        </>
+      ),
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
+  };
+
+  if (!mod.data) return null;
+  return (
+    <>
+      <ListenLinksModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
+      {stepUp && (
+        <StepUpDialog
+          action={stepUp.act.kind === 'on' ? 'Turning on Listen elsewhere' : 'Turning off Listen elsewhere'}
+          methods={stepUp.methods}
+          onCancel={() => setStepUp(null)}
+          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
+        />
+      )}
+    </>
+  );
+}
+
 export function SettingsModulesContent() {
   return (
     <div className={styles.page}>
       <CatalogueModules />
       <McModuleSection />
+      <ListenLinksModuleSection />
     </div>
   );
 }

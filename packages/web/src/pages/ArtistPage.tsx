@@ -28,6 +28,8 @@ import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
 import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
 import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './artistPageView';
 import { useArtistFlow } from './useArtistFlow';
+import { MissingListenLinks } from '../components/ListenControl';
+import { useArtistListenLinks } from '../hooks/useListenLinks';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -56,6 +58,8 @@ export function ArtistPage() {
   );
   const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
+  // Listen elsewhere: links for the albums a followed artist is missing
+  const listen = useArtistListenLinks(libraryId, artistId, shelves.missing.length > 0);
 
   if (error) {
     return <PageShell back title="Couldn’t load this artist" barTitle={null}>{null}</PageShell>;
@@ -92,9 +96,11 @@ export function ArtistPage() {
               reopening: reopenMutation.isPending,
               canFollow: canCare,
             };
-            return nameFirst
-              ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
-              : <ArtistLikeAlbums {...props} />;
+            return <MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
+              {nameFirst
+                ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
+                : <ArtistLikeAlbums {...props} />}
+            </MissingListenLinks.Provider>;
           })()}
         {maintenance && showReleaseTypes && artist?.followed && (
           <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />

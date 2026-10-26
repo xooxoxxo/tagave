@@ -196,7 +196,7 @@ export function Menu({ label, items, heading, icon, size, className, triggerClas
               </>
             );
             return item.href ? (
-              <a key={item.key} role="menuitem" tabIndex={-1} className={cls} href={item.href} target="_blank" rel="noreferrer" onClick={() => close()}>
+              <a key={item.key} role="menuitem" tabIndex={-1} className={cls} href={item.href} target="_blank" rel="noopener noreferrer" onClick={() => close()}>
                 {body}
               </a>
             ) : (

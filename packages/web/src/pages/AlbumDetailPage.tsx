@@ -61,6 +61,7 @@ import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayStat
 import { AlbumFiller } from './AlbumFiller';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
+import { useAlbumListenLinks } from '../hooks/useListenLinks';
 import { useReviews } from '../hooks/useReviews';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
@@ -276,6 +277,8 @@ export function AlbumDetailPage() {
   const opener = useRef<HTMLElement | null>(null);
   // the excerpt under the names: the album's Wikipedia text or a review, when one is stored
   const reviews = useReviews(libraryId, album?.releaseGroupId ?? null);
+  // Listen elsewhere (the listen-links module): the person's platforms, in the ⋮
+  const listenLinks = useAlbumListenLinks(libraryId, album?.releaseGroupId ?? null);
   // a section opened from elsewhere on the page (or a ?tab link) is brought into view;
   // the sections live in Maintenance, so opening one turns it on
   const openSection = (next: AlbumTab) => {
@@ -864,6 +867,7 @@ export function AlbumDetailPage() {
     onInfo: () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; openInfo('about'); },
     tools,
     onToggleMaintenance: () => setMaintenance(!maintenance),
+    listen: listenLinks.data?.available ? listenLinks.data.links : [],
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
   // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header

@@ -1,0 +1,31 @@
+/* The Listen control (ListenControl.tsx): the embossed icon with one word
+   beside it, the same niche on hover as the other embossed keys. */
+.anchor { display: inline-flex; }
+
+.control {
+  width: auto;
+  height: 36px;
+  min-height: 36px;
+  gap: 6px;
+  grid-auto-flow: column;
+  justify-content: start;
+  padding: 0 8px 0 6px;
+  margin-left: -6px;
+  text-decoration: none;
+  font: 500 13px/1 var(--font-body);
+  color: var(--ink-2);
+}
+.control:hover { text-decoration: none; }
+.control svg { width: 18px; height: 18px; }
+
+.word { white-space: nowrap; }
+.kind {
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--ink-3);
+}
+.kind::before { content: "·"; margin-right: 6px; }
+
+@media (pointer: coarse) {
+  .control { height: 44px; min-height: 44px; }
+}

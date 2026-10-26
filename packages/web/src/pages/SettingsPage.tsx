@@ -20,6 +20,7 @@ import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { SettingsListeningContent } from './SettingsListeningPage';
 import { ConnectionsOff, SettingsConnectionsContent } from './SettingsConnectionsPage';
+import { ListenElsewhereOff, SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
@@ -61,6 +62,8 @@ const sections: Section[] = [
   { value: 'appearance', label: 'Appearance', group: 'Account' },
   { value: 'security', label: 'Security', group: 'Account' },
   { value: 'listening', label: 'Listening', group: 'Account' },
+  // Listen elsewhere: the streaming platforms each person's Listen control offers
+  { value: 'listen-elsewhere', label: 'Listen elsewhere', group: 'Account' },
   // Music Connections: each person links tagave to other music apps for themselves
   { value: 'connections', label: 'Connections', group: 'Account' },
 ];
@@ -74,7 +77,9 @@ export function SettingsPage() {
   const role = useRole();
   // Music Connections off (Settings › Modules, off by default): Connections says so
   const mcOn = useModuleOn('mc');
-  const visible = settingsNav(role);
+  const listenOn = useModuleOn('listen-links');
+  // Listen elsewhere is listed only while its module is on (a direct link says it is off)
+  const visible = settingsNav(role).filter((item) => item.value !== 'listen-elsewhere' || listenOn === true);
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
@@ -112,6 +117,7 @@ export function SettingsPage() {
         {section === 'listening' && <SettingsListeningContent />}
         {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
         {section === 'security' && <><h2>Security</h2><SettingsSecurityPage /></>}
+        {section === 'listen-elsewhere' && (listenOn === false ? <ListenElsewhereOff owner={can(role, 'system.manage')} /> : listenOn ? <SettingsListenElsewhereContent /> : null)}
         </>}
       </div>
     </div>

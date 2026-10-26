@@ -12,7 +12,7 @@ export { PageShell } from './PageShell';
 export { Input, Select, Textarea, TextField, SearchField, PendingValue, type TextFieldProps, type SearchFieldProps } from './FormControl';
 export { SegmentedControl, ThemeSwitch, type SegmentedOption } from './SegmentedControl';
 export { ConfirmDialog, ConfirmHost, confirmDialog, type ConfirmOptions } from './ConfirmDialog';
-export { UndoIcon, PlayIcon, PauseIcon, ShuffleIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, ChevronUpIcon, ChevronDownIcon, KebabIcon, BackIcon, InfoIcon, PersonIcon, DiscIcon, WrenchIcon } from './icons';
+export { UndoIcon, PlayIcon, PauseIcon, ShuffleIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, ChevronUpIcon, ChevronDownIcon, KebabIcon, BackIcon, InfoIcon, PersonIcon, DiscIcon, WrenchIcon, ListenIcon } from './icons';
 export { EmbossIconButton, embossClassName, type EmbossIconButtonProps, type EmbossPlace } from './EmbossIconButton';
 export { CoverArt, CoverChip, coverHue, coverInitials, type CoverChipTone } from './CoverArt';
 export { Menu, MoreIcon, type MenuItem, type MenuProps } from './Menu';

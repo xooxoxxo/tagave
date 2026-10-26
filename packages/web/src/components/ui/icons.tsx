@@ -169,3 +169,14 @@ export function ChevronDownIcon() {
     </svg>
   );
 }
+
+/** Headphones: listen elsewhere (a streaming platform). */
+export function ListenIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M4.5 15.5v-3a7.5 7.5 0 0 1 15 0v3" />
+      <rect x="3.5" y="14" width="4" height="6" rx="1.6" />
+      <rect x="16.5" y="14" width="4" height="6" rx="1.6" />
+    </svg>
+  );
+}
