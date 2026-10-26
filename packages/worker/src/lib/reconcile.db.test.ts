@@ -7,7 +7,7 @@
  * back, and a second scan right after a merge.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, rename, chmod } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, rename, chmod, stat, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -15,7 +15,9 @@ import pino from 'pino';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { walkRoot } from './walk.js';
-import { withLibraryLock, describeMoves } from './reconcile.js';
+import { withLibraryLock, describeMoves, rowsInDirs, sqlDirname } from './reconcile.js';
+import { finishNotes } from './scanFinish.js';
+import { scanDirMessage } from '../jobs/scanDir.js';
 
 describe('describeMoves', () => {
   it('names the biggest folder move and counts the rest', () => {
@@ -148,22 +150,71 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     expect(await files()).toEqual(before);
   });
 
-  it.skipIf(process.getuid?.() === 0)('an errored scan matches nothing and says why', async () => {
+  it.skipIf(process.getuid?.() === 0)('a scan with an unreadable folder still matches moves, and pairs nothing under that folder', async () => {
     const locked = path.join(base, 'a', 'Locked');
     await mkdir(locked);
+    await writeFile(path.join(locked, 'l.flac'), 'locked-file');
+    await walkRoot(ctx, A(), { mode: 'full' });
+    const lockedId = await idOf('Locked/l.flac');
+    const st = await stat(path.join(locked, 'l.flac'));
     await chmod(locked, 0o000);
     try {
+      // same name, size and mtime elsewhere: would pair if the locked row counted as vanished
+      await mkdir(path.join(base, 'a', 'Other'));
+      await writeFile(path.join(base, 'a', 'Other', 'l.flac'), 'locked-file');
+      await utimes(path.join(base, 'a', 'Other', 'l.flac'), st.atime, st.mtime);
       const id = await idOf('top.flac');
       await rename(path.join(base, 'a', 'top.flac'), path.join(base, 'a', 'top-renamed.flac'));
       const r = await walkRoot(ctx, A(), { mode: 'full' });
-      expect(r.merged).toBe(0);
-      expect(r.moves).toEqual([]);
-      expect(r.reconcileSkipped).toMatch(/could not be read/);
-      expect(await idOf('top-renamed.flac')).not.toBe(id);
-      expect((await sql`select status from audio_files where id = ${id}`)[0].status).toBe('missing');
+      expect(r).toMatchObject({ merged: 1, missing: 0, added: 1, failedDirs: ['Locked'], reconcileSkipped: null });
+      expect(await idOf('top-renamed.flac')).toBe(id);
+      expect((await sql`select status from audio_files where id = ${lockedId}`)[0].status).toBe('present');
+      expect(await idOf('Other/l.flac')).not.toBe(lockedId);
+      expect(finishNotes(r)).toMatch(/could not read Locked/);
     } finally {
       await chmod(locked, 0o755);
     }
+  });
+
+  it('a folder whose files moved elsewhere, rescanned on its own, says where they went', async () => {
+    await mkdir(path.join(base, 'a', 'Gone'));
+    await writeFile(path.join(base, 'a', 'Gone', 'g.flac'), 'gone-folder-file');
+    await walkRoot(ctx, A(), { mode: 'full' });
+    const id = await idOf('Gone/g.flac');
+    await rename(path.join(base, 'a', 'Gone'), path.join(base, 'a', 'Here'));
+    await walkRoot(ctx, A(), { mode: 'full', subtree: 'Here' });     // destination first: a new row
+    const r = await walkRoot(ctx, A(), { mode: 'full', subtree: 'Gone' });
+    expect(r).toMatchObject({ subtreeGone: true, merged: 1, missing: 0 });
+    expect(scanDirMessage(r, 0)).toBe('folder moved: 1 file(s) now at Here');
+    expect(await idOf('Here/g.flac')).toBe(id);
+  });
+
+  it('the lock is released and its connection returned when fn throws', async () => {
+    for (let i = 0; i < 15; i++) {        // more than the pool's 10 connections
+      await expect(withLibraryLock(ctx, libraryId, async () => { throw new Error(`boom ${i}`); })).rejects.toThrow(`boom ${i}`);
+    }
+    const key = `files.reconcile:${libraryId}`;
+    const other = await makeDb(process.env.TEST_DATABASE_URL!);
+    try {
+      expect((await other.client`select pg_try_advisory_lock(hashtextextended(${key}, 0)) as got`)[0]?.["got"]).toBe(true);
+      await other.client`select pg_advisory_unlock(hashtextextended(${key}, 0))`;
+    } finally {
+      await other.client.end({ timeout: 5 });
+    }
+  });
+
+  it('the indexed folder lookup returns exactly the rows sqlDirname groups into those folders', async () => {
+    const rootC = randomUUID();
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootC}, ${libraryId}, ${path.join(base, 'c')}, 'c', 'ok')`;
+    const paths = ['X/a.flac', 'X/Y/b.flac', 'X0/c.flac', 'X-/d.flac', 'X /e.flac', 'Xa/f.flac', 'x/g.flac', 'top.flac', '\u00c9/h.flac', 'X/Y/Z/i.flac', 'X%/j.flac', 'X_/k.flac'];
+    for (const p of paths) await sql`insert into audio_files (library_id, scan_root_id, rel_path, status) values (${libraryId}, ${rootC}, ${p}, 'missing')`;
+    const dirs = ['X', 'X/Y', '', '\u00c9', 'X%', 'Nope'].map((dirPath) => ({ scanRootId: rootC, dirPath }));
+    const got = (await rowsInDirs(ctx, libraryId, dirs, sql`true`)).map((f) => f.relPath).sort();
+    const want = (await sql`select rel_path from audio_files af where af.scan_root_id = ${rootC}
+                              and ${sql.unsafe(sqlDirname('af'))} = any(${dirs.map((d) => d.dirPath)}::text[])`).map((r: any) => r.rel_path).sort();
+    expect(got).toEqual(want);
+    expect(got).toEqual(['X%/j.flac', 'X/Y/b.flac', 'X/a.flac', 'top.flac', '\u00c9/h.flac'].sort());
+    await sql`delete from scan_roots where id = ${rootC}`;
   });
 
   it('two reconciles of one library run one after the other', async () => {

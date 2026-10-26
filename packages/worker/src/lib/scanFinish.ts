@@ -9,7 +9,7 @@
 import { escapeLike, relDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
-import { emptyReconcile, reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
+import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
 
 export type { MoveRecord, DirRef } from './reconcile.js';
 
@@ -134,13 +134,12 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     // Doubt: an unreadable folder or file is not evidence that anything left.
     const failedSet = new Set(failedDirs);
     let gone = failedSet.size ? walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedSet)) : walk.unseen;
-    // Any failed path (an unreadable folder, a file or sidecar whose stat failed,
-    // say ENOENT mid-walk) means the walk's picture is incomplete: match nothing.
-    const unread = Math.max(walk.errored, failedDirs.length);
-    const reconcileSkipped = unread > 0
-      ? `${unread} folder(s) or file(s) could not be read, so moved files are not matched in this scan`
-      : null;
-    const rec = reconcileSkipped === null ? await reconcileTier1(ctx, root, walk) : emptyReconcile();
+    // Failed paths do not stop matching (an unreadable folder would otherwise
+    // disable move detection for the whole root): rows under them are not in
+    // `gone` and are no fresh candidates, so nothing there is paired or marked.
+    // Only an unmounted-looking root (returned above) skips reconcile; the
+    // Activity note for failed paths comes from failedDirs (reconcileSkipped stays null).
+    const rec = await reconcileTier1(ctx, root, walk);
     const mergedOld = new Set(rec.outcomes.map((o) => o.oldId));
     gone = gone.filter((r) => !mergedOld.has(r.id));
     // scan.parse gets what is left of the fresh rows plus merged rows whose size or mtime changed
@@ -155,12 +154,12 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
       // folders that lost files, so the next quick scan would skip them and count the held
       // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
       await forgetDirMtimes(ctx, root, [...new Set(gone.map((r) => relDirname(r.relPath)))]);
-      return { ...empty, ...reconciled, failedDirs, reconcileSkipped, heldMissing: { count: gone.length, threshold: hold.threshold } };
+      return { ...empty, ...reconciled, failedDirs, heldMissing: { count: gone.length, threshold: hold.threshold } };
     }
     const marked = await markMissing(ctx, root, gone, walk.walkStart);
     await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
     return {
-      ...empty, ...reconciled, failedDirs, reconcileSkipped,
+      ...empty, ...reconciled, failedDirs,
       missing: marked.length,
       dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],
     };

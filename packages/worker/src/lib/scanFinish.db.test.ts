@@ -158,14 +158,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
     await rm(lonePath, { recursive: true, force: true });
   });
 
-  it('files under an unreadable folder are not marked missing; the folder is reported; reconcile is skipped', async () => {
+  it('files under an unreadable folder are not marked missing; the folder is reported; reconcile still runs', async () => {
     const { chmod } = await import('node:fs/promises');
     await chmod(path.join(rootPath, 'Locked'), 0o000);
     const w = await walkTree(ctx, root, { mode: 'full' });
     const f = await finishWalk(ctx, root, w);
     expect(f.failedDirs).toEqual(['Locked']);
     expect(f.missing).toBe(0);
-    expect(f.reconcileSkipped).toMatch(/could not be read/);
+    expect(f.reconcileSkipped).toBeNull();
     expect(await statusOf('Locked/1.mp3')).toBe('present');
     // F5: its cover sidecar (and through the 0052 cascade, its image) stays
     expect(await sidecarKept('Locked/cover.jpg')).toBe(true);

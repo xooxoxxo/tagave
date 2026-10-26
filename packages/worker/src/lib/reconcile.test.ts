@@ -11,7 +11,7 @@ import type { MatchFile } from './reconcileMatch.js';
 
 const mergeFilePair = vi.fn();
 vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
-const { runMerges, sqlDirname } = await import('./reconcile.js');
+const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');
 const t1 = new Date('2026-01-02T00:00:00Z');
@@ -59,5 +59,46 @@ describe('sqlDirname', () => {
   it('takes only a plain alias', () => {
     expect(sqlDirname('af')).toContain("strpos(af.rel_path, '/') = 0 then ''");
     expect(() => sqlDirname('af; drop table x')).toThrow();
+  });
+});
+
+describe('earliestLastSeen', () => {
+  it('handles 150k rows (Math.min(...xs) throws RangeError past ~125k)', () => {
+    const rows = Array.from({ length: 150_000 }, (_, i) => file(`o${i}`, `d/${i}.flac`, i, new Date(t1.getTime() + i)));
+    rows[123_456] = file('early', 'd/e.flac', 1, t0);
+    expect(earliestLastSeen(rows)).toEqual(t0);
+  });
+});
+
+describe('withLibraryLock without a database', () => {
+  /** A reserved connection whose unlock answers `unlocked` or throws. */
+  const fakeCtx = (unlock: () => unknown) => {
+    const released = vi.fn();
+    const conn = Object.assign(async (strings: TemplateStringsArray) => {
+      if (strings.join('').includes('pg_advisory_unlock')) return [{ unlocked: unlock() }];
+      return [{}];
+    }, { release: released });
+    const warn = vi.fn();
+    return { ctx: { sql: { reserve: async () => conn } as any, logger: { warn } }, released, warn };
+  };
+
+  it('warns when the lock was not held at unlock', async () => {
+    const { ctx, released, warn } = fakeCtx(() => false);
+    await expect(withLibraryLock(ctx, 'lib', async () => 7)).resolves.toBe(7);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(released).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows fn's error, not the unlock error, and logs the unlock error", async () => {
+    const { ctx, released, warn } = fakeCtx(() => { throw new Error('unlock broke'); });
+    await expect(withLibraryLock(ctx, 'lib', async () => { throw new Error('fn broke'); })).rejects.toThrow('fn broke');
+    expect(warn.mock.calls[0]![0]).toMatchObject({ err: 'unlock broke' });
+    expect(released).toHaveBeenCalledTimes(1);
+  });
+
+  it('surfaces an unlock error when fn succeeded', async () => {
+    const { ctx, released } = fakeCtx(() => { throw new Error('unlock broke'); });
+    await expect(withLibraryLock(ctx, 'lib', async () => 1)).rejects.toThrow('unlock broke');
+    expect(released).toHaveBeenCalledTimes(1);
   });
 });

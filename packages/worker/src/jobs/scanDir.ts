@@ -8,8 +8,8 @@
 import { eq } from 'drizzle-orm';
 import { scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { walkRoot } from '../lib/walk.js';
-import { finishNotes } from '../lib/scanFinish.js';
+import { walkRoot, type WalkResult } from '../lib/walk.js';
+import { finishNotes, type FinishResult } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
@@ -24,6 +24,32 @@ export interface ScanDirJobData {
 }
 
 const PARSE_BATCH = 50;
+
+type ScanDirWalk = Pick<WalkResult & FinishResult,
+  'subtreeGone' | 'filesSeen' | 'added' | 'changed' | 'missing' | 'merged' | 'moves' | 'possibleMoves'
+  | 'failedDirs' | 'heldMissing' | 'reconcileSkipped'>;
+
+/** The Activity line for a folder rescan. A gone folder whose files were merged elsewhere says where they went. */
+export function scanDirMessage(walk: ScanDirWalk, elapsedS: number): string {
+  let head: string;
+  if (walk.subtreeGone && walk.merged > 0) {
+    const top = walk.moves[0]!;
+    const rest = walk.moves.length - 1;
+    head = `folder moved: ${walk.merged} file(s) now at ${top.toDir === '' ? '(top folder)' : top.toDir}`
+      + (rest > 0 ? ` (and ${rest} more folder${rest === 1 ? '' : 's'})` : '')
+      + (walk.missing ? `, ${walk.missing} file(s) marked missing` : '')
+      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '');
+  } else if (walk.subtreeGone) {
+    head = `folder is gone: ${walk.missing} file(s) marked missing`
+      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '');
+  } else {
+    head = `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing`
+      + (walk.merged ? `, ${describeMoves(walk.moves)}` : '')
+      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '')
+      + `, ${elapsedS}s`;
+  }
+  return head + finishNotes(walk);
+}
 
 export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Promise<void> {
   const [root] = await ctx.db.select().from(scanRoots).where(eq(scanRoots.id, data.scanRootId)).limit(1);
@@ -68,12 +94,7 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
   await enqueueReclusters(ctx, root, [dirPath, ...walk.dirsWithMissing], { startAfter: walk.changedIds.length ? 20 : 0 });
 
   const elapsedS = Math.round((Date.now() - started) / 1000);
-  const message = (walk.subtreeGone
-    ? `folder is gone: ${walk.missing} file(s) marked missing`
-    : `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing`
-      + (walk.merged ? `, ${describeMoves(walk.moves)}` : '')
-      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '')
-      + `, ${elapsedS}s`) + finishNotes(walk);
+  const message = scanDirMessage(walk, elapsedS);
   await reportProgress(ctx, jobRunId, {
     libraryId: root.libraryId, type: 'scan.dir', state: 'completed',
     done: walk.filesSeen, total: walk.filesSeen, message,

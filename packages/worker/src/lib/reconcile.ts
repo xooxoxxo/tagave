@@ -10,6 +10,7 @@ import type postgres from 'postgres';
 import type { WorkerContext } from './context.js';
 import { pgErrorCode, errorMessage } from './dbErrors.js';
 import { relDirname } from './helpers.js';
+import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
@@ -27,16 +28,34 @@ export function emptyReconcile(): ReconcileResult {
   return { merged: 0, moves: [], possibleMoves: 0, mergedFreshIds: [], reparseIds: [], reclusterDirs: [], outcomes: [] };
 }
 
-export async function withLibraryLock<T>(ctx: Pick<WorkerContext, 'sql'>, libraryId: string, fn: () => Promise<T>): Promise<T> {
+/**
+ * Runs fn while holding the library's reconcile lock. When fn throws, its
+ * error is what the caller sees (an unlock failure next to it is only
+ * logged); the reserved connection always goes back to the pool.
+ */
+export async function withLibraryLock<T>(
+  ctx: Pick<WorkerContext, 'sql'> & { logger?: Pick<WorkerContext['logger'], 'warn'> },
+  libraryId: string, fn: () => Promise<T>,
+): Promise<T> {
   const key = RECONCILE_LOCK_PREFIX + libraryId;
   const conn = await ctx.sql.reserve();
   try {
     await conn`select pg_advisory_lock(hashtextextended(${key}, 0))`;
+    let out: { ok: true; value: T } | { ok: false; err: unknown };
     try {
-      return await fn();
-    } finally {
-      await conn`select pg_advisory_unlock(hashtextextended(${key}, 0))`;
+      out = { ok: true, value: await fn() };
+    } catch (err) {
+      out = { ok: false, err };
     }
+    try {
+      const [row] = (await conn`select pg_advisory_unlock(hashtextextended(${key}, 0)) as unlocked`) as unknown as Array<{ unlocked: boolean }>;
+      if (row?.unlocked !== true) ctx.logger?.warn({ libraryId }, 'files.reconcile: lock was not held at unlock');
+    } catch (unlockErr) {
+      if (out.ok) throw unlockErr;
+      ctx.logger?.warn({ libraryId, err: errorMessage(unlockErr) }, 'files.reconcile: unlock failed after an error');
+    }
+    if (!out.ok) throw out.err;
+    return out.value;
   } finally {
     conn.release();
   }
@@ -57,6 +76,11 @@ type Fragment = postgres.PendingQuery<postgres.Row[]>;
 
 /** The client reads timestamptz as text, so times come back as epoch milliseconds. */
 export async function loadMatchFiles(ctx: Pick<WorkerContext, 'sql'>, where: Fragment): Promise<MatchFile[]> {
+  return matchRows(ctx, ctx.sql`audio_files af where ${where}`);
+}
+
+/** `source` is everything after FROM; it must expose the audio_files row as `af`. */
+async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Promise<MatchFile[]> {
   const rows = (await ctx.sql`
     select af.id, af.scan_root_id, af.rel_path, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
            af.duration_ms, af.core_tags_digest, af.audio_hash,
@@ -64,7 +88,7 @@ export async function loadMatchFiles(ctx: Pick<WorkerContext, 'sql'>, where: Fra
            case when af.tags_raw->'common'->'disk'->>'no' ~ '^[0-9]+$' then (af.tags_raw->'common'->'disk'->>'no')::int end as disc_no,
            (extract(epoch from af.first_seen_at) * 1000)::float8 as first_seen_ms,
            (extract(epoch from af.last_seen_at) * 1000)::float8 as last_seen_ms
-      from audio_files af where ${where}`) as unknown as Array<Record<string, any>>;
+      from ${source}`) as unknown as Array<Record<string, any>>;
   return rows.map((r) => ({
     id: r['id'], scanRootId: r['scan_root_id'], relPath: r['rel_path'], sizeBytes: r['size_bytes'], mtime: r['mtime'],
     inode: r['inode'], durationMs: r['duration_ms'], coreTagsDigest: r['core_tags_digest'], audioHash: r['audio_hash'],
@@ -79,14 +103,51 @@ const dirsOf = (fs: MatchFile[]) => {
   return [...m.values()];
 };
 
-/** Every row of these folders matching `cond` (the 80% denominator, the edition guard's extras). */
-async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: string, dirs: DirRef[], cond: Fragment): Promise<MatchFile[]> {
-  if (dirs.length === 0) return [];
-  return loadMatchFiles(ctx, ctx.sql`af.library_id = ${libraryId} and ${cond} and (af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))}) in
-    (select * from unnest(${dirs.map((d) => d.scanRootId)}::uuid[], ${dirs.map((d) => d.dirPath)}::text[]))`);
+/**
+ * Every row of these folders matching `cond` (the 80% denominator, the edition
+ * guard's extras). Same grouping as sqlDirname, but written so each folder is
+ * one range scan of idx_audio_files_relpath_prefix (scan_root_id, rel_path
+ * text_pattern_ops): `dir/` <= rel_path < `dir0` ('0' follows '/'), then no
+ * further '/'. `offset 0` fences the lateral so the outer filters are not
+ * pushed in: with them the planner (estimating a run-time prefix generically)
+ * walked the whole root on idx_audio_files_scan_root, 23 ms against 0.06 ms
+ * per folder at 200k rows. Top-level folders ('') have no prefix: one pass over each such
+ * root's rows by scan_root_id, keeping paths without a '/'.
+ */
+export async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: string, dirs: DirRef[], cond: Fragment): Promise<MatchFile[]> {
+  const sql = ctx.sql;
+  const nested = dirs.filter((d) => d.dirPath !== '');
+  const topRoots = [...new Set(dirs.filter((d) => d.dirPath === '').map((d) => d.scanRootId))];
+  const out: MatchFile[] = [];
+  for (let i = 0; i < nested.length; i += DIR_BATCH) {
+    const chunk = nested.slice(i, i + DIR_BATCH);
+    out.push(...await matchRows(ctx, sql`
+      unnest(${chunk.map((d) => d.scanRootId)}::uuid[], ${chunk.map((d) => d.dirPath)}::text[]) as d(root_id, dir)
+      cross join lateral (
+        select * from audio_files x
+         where x.scan_root_id = d.root_id
+           and x.rel_path ~>=~ (d.dir || '/') and x.rel_path ~<~ (d.dir || '0')
+           and strpos(substr(x.rel_path, length(d.dir) + 2), '/') = 0
+        offset 0
+      ) af
+      where af.library_id = ${libraryId} and ${cond}`));
+  }
+  if (topRoots.length) {
+    out.push(...await loadMatchFiles(ctx, sql`af.scan_root_id = any(${topRoots}::uuid[]) and strpos(af.rel_path, '/') = 0
+                                               and af.library_id = ${libraryId} and ${cond}`));
+  }
+  return out;
 }
+const DIR_BATCH = 500;
 
 const uniqById = (fs: MatchFile[]) => [...new Map(fs.map((f) => [f.id, f])).values()];
+
+/** Earliest last_seen_at over these rows. A loop, not Math.min(...xs): spreading 125k+ arguments throws. */
+export function earliestLastSeen(fs: MatchFile[]): Date {
+  let min = Infinity;
+  for (const f of fs) { const t = f.lastSeenAt.getTime(); if (t < min) min = t; }
+  return new Date(min);
+}
 
 /** Deadlock and serialization failures: the pair is worth one more try. */
 const RETRYABLE = new Set(['40P01', '40001']);
@@ -149,24 +210,32 @@ export async function runMerges(
  * Tier 1: this walk's vanished rows (and the library's missing rows of the
  * sizes this walk added) against this walk's new rows (and any row of the
  * library, any root, first seen after them; Ruling 17). A row on the old side
- * is never a candidate on the new side: it is the one that vanished.
+ * is never a candidate on the new side: it is the one that vanished. Rows
+ * under the walk's failed paths take no part on either side: the walk could
+ * not read them, so they are neither gone nor a new copy (finishWalk keeps
+ * them out of missing-marking the same way).
  */
 export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult): Promise<ReconcileResult> {
   const sql = ctx.sql;
-  const unseenIds = walk.unseen.map((u) => u.id);
-  if (unseenIds.length === 0 && walk.insertedIds.length === 0) return emptyReconcile();
-  const unseenSizes = [...new Set(walk.unseen.map((u) => u.sizeBytes).filter((s): s is number => s !== null))];
+  const walkStart = walk.walkStart.toISOString();
+  const failed = new Set(walk.failedPaths);
+  const unseen = failed.size ? walk.unseen.filter((u) => !isUnderFailedPath(u.relPath, failed)) : walk.unseen;
+  // Old side first. Vanished rows count only while still where the walk saw
+  // them and not seen since it began (a concurrent scan.dir may have re-pointed
+  // or seen them), so oldAt is the walk's own picture.
+  const unseenOlds = unseen.length ? await loadMatchFiles(ctx, sql`
+    af.scan_root_id = ${root.id} and af.status in ('present', 'error') and af.last_seen_at < ${walkStart}::timestamptz
+    and (af.id, af.rel_path) in (select * from unnest(${unseen.map((u) => u.id)}::uuid[], ${unseen.map((u) => u.relPath)}::text[]))`) : [];
+  const missingOlds = walk.insertedIds.length ? await loadMatchFiles(ctx, sql`
+    af.library_id = ${root.libraryId} and af.status = 'missing'
+    and af.size_bytes in (select i.size_bytes from audio_files i where i.id = any(${walk.insertedIds}::uuid[]))`) : [];
+  let olds = uniqById([...unseenOlds, ...missingOlds]);
+  if (olds.length === 0) return emptyReconcile();
+  const unseenIds = unseenOlds.map((o) => o.id);
+  const unseenSizes = [...new Set(unseenOlds.map((u) => u.sizeBytes).filter((s): s is number => s !== null))];
+  const earliest = earliestLastSeen(olds).toISOString();
   const inserted = walk.insertedIds.length
     ? await loadMatchFiles(ctx, sql`af.id = any(${walk.insertedIds}::uuid[])`) : [];
-  const insertedSizes = [...new Set(inserted.map((f) => f.sizeBytes).filter((s): s is number => s !== null))];
-
-  let olds = [
-    ...(unseenIds.length ? await loadMatchFiles(ctx, sql`af.id = any(${unseenIds}::uuid[])`) : []),
-    ...(insertedSizes.length ? await loadMatchFiles(ctx, sql`af.library_id = ${root.libraryId} and af.status = 'missing'
-                                                             and af.size_bytes = any(${insertedSizes}::bigint[])`) : []),
-  ];
-  if (olds.length === 0) return emptyReconcile();
-  const earliest = new Date(Math.min(...olds.map((o) => o.lastSeenAt.getTime()))).toISOString();
   let freshs = [
     ...inserted,
     ...(unseenSizes.length ? await loadMatchFiles(ctx, sql`af.library_id = ${root.libraryId} and af.status in ('present', 'error')
@@ -179,7 +248,7 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
   const oldIds = new Set(olds.map((o) => o.id));
   freshs = uniqById([...freshs, ...await rowsInDirs(ctx, root.libraryId, dirsOf(freshs),
     sql`af.status in ('present', 'error') and af.first_seen_at >= ${earliest}::timestamptz`)])
-    .filter((f) => !oldIds.has(f.id));
+    .filter((f) => !oldIds.has(f.id) && !(f.scanRootId === root.id && isUnderFailedPath(f.relPath, failed)));
   return runMerges(ctx, 1, olds, freshs, walk.walkStart, false);
 }
 
