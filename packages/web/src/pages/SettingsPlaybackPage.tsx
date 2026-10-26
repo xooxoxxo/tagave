@@ -125,7 +125,8 @@ function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined;
     if (ok) remove.mutate(undefined, { onSuccess: () => { setUrl(''); setUsername(''); setPassword(''); } });
   };
 
-  const hint = saved?.passwordHint ? `Saved …${saved.passwordHint}` : saved ? 'Saved' : undefined;
+  // never any characters of the password (QA 2026-10-26 Q-36)
+  const hint = saved ? 'Saved' : undefined;
 
   return (
     <form className={styles.form} onSubmit={onSubmit} noValidate>

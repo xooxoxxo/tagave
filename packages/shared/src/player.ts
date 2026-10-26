@@ -45,8 +45,8 @@ export interface PlayerSettingsView {
   external: {
     url: string;
     username: string;
-    /** last four characters of the saved password, for recognition */
-    passwordHint: string | null;
+    /** a password is saved; no part of it is ever sent back */
+    passwordSaved: boolean;
   } | null;
   /** the last scan tagave asked the server for, and how it went */
   lastScan: { requestedAt: string; state: 'requested' | 'failed'; error: string | null } | null;

@@ -23,7 +23,7 @@
  */
 import { Readable } from 'node:stream';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { computeHint, sealSecret } from '@tagave/core';
+import { sealSecret } from '@tagave/core';
 import { ping, streamUrl, SubsonicError } from '@tagave/core/player';
 import {
   playEventSchema,
@@ -91,7 +91,8 @@ async function settingsView(settings: PlayerLibrarySettings, fresh = false): Pro
   const capability = await capabilityOf(backend, { fresh });
   const bundled = backend?.managed === 'bundled';
   const external = typeof settings.playerUrl === 'string' && typeof settings.playerUser === 'string'
-    ? { url: settings.playerUrl, username: settings.playerUser, passwordHint: typeof settings.playerPasswordHint === 'string' ? settings.playerPasswordHint : null }
+    // never any part of the password (QA 2026-10-26 Q-36), only that one is saved
+    ? { url: settings.playerUrl, username: settings.playerUser, passwordSaved: typeof settings.playerPassword === 'string' }
     : null;
   return { capability, bundled, external, lastScan: settings.playerLastScan ?? null };
 }
@@ -135,12 +136,13 @@ export async function createPlayerRoutes(fastify: FastifyInstance) {
     } catch (err) {
       throw new ApiError(400, 'Bad Request', `Could not connect: ${(err as Error).message}`);
     }
+    // a hint from before 0.13.2 (the password's last four characters) goes
+    const { playerPasswordHint: _legacyHint, ...kept } = lib.settings;
     const next: PlayerLibrarySettings = {
-      ...lib.settings,
+      ...kept,
       playerUrl: url,
       playerUser: parsed.data.username,
       playerPassword: sealSecret(password, appSecretValue()),
-      playerPasswordHint: computeHint(password),
     };
     await sql`update libraries set settings = ${JSON.stringify(next)}::text::jsonb where id = ${libraryId}`;
     clearCapabilityCache();

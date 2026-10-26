@@ -162,10 +162,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(viewer.statusCode).toBe(403);
     const ok = await app.inject({ method: 'PUT', url: `/api/v1/libraries/${libraryId}/player/server`, headers: as(ownerId), payload: { url: `${base}/`, username: 'admin', password: PASSWORD } });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ bundled: false, external: { url: base, username: 'admin', passwordHint: 't-pw' }, capability: { installed: true, managed: 'external', reachable: true } });
+    expect(ok.json()).toMatchObject({ bundled: false, external: { url: base, username: 'admin', passwordSaved: true }, capability: { installed: true, managed: 'external', reachable: true } });
+    // QA 2026-10-26 Q-36: no part of the password ever leaves the server ("Saved …t-pw")
+    expect(ok.json().external).not.toHaveProperty('passwordHint');
+    expect(ok.body).not.toContain(PASSWORD.slice(-4));
+    const read = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player`, headers: as(ownerId) });
+    expect(read.json().external).toMatchObject({ passwordSaved: true });
+    expect(read.body).not.toContain(PASSWORD.slice(-4));
     const [row] = await sql`select settings from libraries where id = ${libraryId}`;
     expect(row.settings.playerPassword).toMatch(/^enc:v1:/);
     expect(JSON.stringify(row.settings)).not.toContain(PASSWORD);
+    expect(row.settings).not.toHaveProperty('playerPasswordHint');
     // a new address alone keeps the saved password
     const again = await app.inject({ method: 'PUT', url: `/api/v1/libraries/${libraryId}/player/server`, headers: as(ownerId), payload: { url: base, username: 'admin' } });
     expect(again.statusCode).toBe(200);
