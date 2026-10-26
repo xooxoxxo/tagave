@@ -38,6 +38,7 @@ import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequ
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { PageBackActionContext } from '../components/ui/PageShell';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
@@ -160,7 +161,7 @@ export function AlbumDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['albums'] });
     }, delayMs);
 
-  const { data: album, isLoading, isError, refetch } = useQuery({
+  const { data: album, isLoading, isError, error: albumError, refetch } = useQuery({
     queryKey: ['album', albumId],
     queryFn: () => api.get<AlbumDetail>(`/libraries/${libraryId}/albums/${albumId}`),
     enabled: !!libraryId && !!albumId,
@@ -350,6 +351,7 @@ export function AlbumDetailPage() {
   const errorDetail = (m: { error: unknown }): string | null =>
     (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
 
+  if (isError && isNotFound(albumError)) return <NotFoundPage title="Album not found" to="/albums" label="Back to albums" />;
   if (isError) return <PageShell back title="Couldn’t load this album" barTitle={null}><div className={styles.container} role="alert"><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div></PageShell>;
   if (isLoading || !album) return <PageShell back title={<span className={styles.muted}>Loading album…</span>} barTitle={null}>{null}</PageShell>;
 

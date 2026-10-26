@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
 import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -542,6 +543,7 @@ export function PlanPage() {
   const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
 
   if (!libraryId || planQ.isLoading) return <PageShell back title="Loading" barTitle={null}>Loading plan…</PageShell>;
+  if (planQ.isError && isNotFound(planQ.error)) return <NotFoundPage title="Plan not found" to="/plans" label="Back to Tag changes" />;
   if (planQ.isError || !p) {
     return (
       <PageShell back title="Plan not found" barTitle={null}>

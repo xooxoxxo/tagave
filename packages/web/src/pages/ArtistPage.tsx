@@ -20,6 +20,7 @@ import {
 } from '../hooks';
 import { PageShell, Button, CloseIcon, IconButton } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { artistLabel } from '@tagave/shared';
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
@@ -61,6 +62,7 @@ export function ArtistPage() {
   // Listen elsewhere: links for the albums a followed artist is missing
   const listen = useArtistListenLinks(libraryId, artistId, shelves.missing.length > 0);
 
+  if (error && isNotFound(error)) return <NotFoundPage title="Artist not found" to="/artists" label="Back to artists" />;
   if (error) {
     return <PageShell back title="Couldn’t load this artist" barTitle={null}>{null}</PageShell>;
   }

@@ -1,6 +1,7 @@
 import { RootRoute, Router, Route, redirect, lazyRouteComponent } from '@tanstack/react-router';
 import { App } from './components/App';
 import { Layout } from './components/Layout';
+import { NotFoundPage } from './components/NotFound';
 import { DashboardPage } from './pages/DashboardPage';
 
 // Every page but Home is its own chunk, fetched on first visit (and on hover
@@ -276,6 +277,13 @@ const logoutRoute = new Route({
   },
 });
 
+// Any other address: "Not found" in the app frame, with a way home
+const notFoundRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '$',
+  component: () => <NotFoundPage />,
+});
+
 // Build route tree
 const routeTree = rootRoute.addChildren([
   setupRoute,
@@ -312,12 +320,14 @@ const routeTree = rootRoute.addChildren([
     followRulesRedirect,
     settingsUpdatesRoute,
     logoutRoute,
+    notFoundRoute,
   ]),
 ]);
 
 export const router = new Router({
   routeTree,
   defaultPreload: 'intent',
+  defaultNotFoundComponent: () => <NotFoundPage />,
 });
 
 declare module '@tanstack/react-router' {
