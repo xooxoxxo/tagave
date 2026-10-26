@@ -178,12 +178,12 @@ export function SettingsModulesView({ view, disconnected = false, pending = null
   return (
     <div className={styles.page}>
       {view.mode === 'unreachable' && <Banner tone="danger">The updater does not answer. {sentence(view.error)}</Banner>}
-      {command && (
+      {command && view.modules.some((m) => m.available) && (
         <p className={styles.hint}>
           Run in the install folder:
         </p>
       )}
-      {!view.verified && view.mode !== 'unreachable' && (
+      {!view.verified && view.mode !== 'unreachable' && view.modules.length === 0 && (
         <Banner tone="warning">No module can be turned on: {sentence(view.problem) || 'the signed catalogue of this release is not here.'}</Banner>
       )}
       {run && run.id !== dismissed && <ModuleRunView run={run} disconnected={disconnected} onDismiss={() => onDismiss(run.id)} />}

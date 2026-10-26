@@ -8,11 +8,12 @@
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from '@tanstack/react-router';
-import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
+import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type ModulesView, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
 import { useModules } from '../hooks/useModules';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
+import { useModules } from '../hooks/useModules';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
 import { shortDate } from '../utils/time';
@@ -33,13 +34,10 @@ export function playerStatus(cap: PlayerCapability | null | undefined): { tone: 
   return { tone: 'success', label: 'Connected', detail: `${backendName(cap.backend)}${cap.version ? ` ${cap.version}` : ''}, ${where}` };
 }
 
-/**
- * Whether Settings › Modules offers the player. A source build or an install
- * without the updater lists no player module; its own-server form below is
- * the way in, so no link to Modules.
- */
-export function modulesOfferPlayer(view: { modules: ReadonlyArray<{ id: string }> } | undefined): boolean {
-  return !!view?.modules.some((m) => m.id === 'player');
+/** Settings › Modules can turn the player on (a button, or the command without the updater). */
+export function modulesOffersPlayer(view: ModulesView | undefined): boolean {
+  if (!view || !view.verified || view.mode === 'unreachable') return false;
+  return view.modules.some((m) => m.id === 'player' && m.available);
 }
 
 const problem = (err: unknown, fallback: string) => {
@@ -69,7 +67,7 @@ export function SettingsPlaybackContent() {
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
 
-      {owner && cap && !cap.installed && modulesOfferPlayer(modules.data) && (
+      {owner && cap && !cap.installed && modulesOffersPlayer(modules.data) && (
         <p className={styles.hint}><Link to="/settings/$section" params={{ section: 'modules' }}>Turn on in Modules</Link></p>
       )}
 
