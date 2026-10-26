@@ -176,7 +176,9 @@
   border: 1px solid var(--line);
   color: var(--ink);
   font-size: var(--font-size-xs);
-  overflow-x: auto;
+  /* a long command wraps inside its box instead of running past the edge */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .gateText { margin: 0 0 var(--space-xs); line-height: var(--line-height-relaxed); }
