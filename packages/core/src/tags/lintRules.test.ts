@@ -230,6 +230,17 @@ describe('lintAlbum', () => {
     expect(flag?.details?.issues).toContainEqual(expect.stringContaining('duplicate tracknumber'));
   });
 
+  it('per-disc numbering on a two-disc album is not a duplicate (QA 2026-10-26 Q-21)', () => {
+    const t = (disc: string, n: string): RawTrackTags => ({
+      title: `Track ${disc}-${n}`, artist: 'Pink Floyd', album: 'The Wall', tracknumber: n, discnumber: disc, musicbrainz_recordingid: `rec-${disc}-${n}`,
+    });
+    const tracks = [t('1', '1'), t('1', '2'), t('1', '3'), t('2/2', '1'), t('2/2', '2'), t('2/2', '3')];
+    expect(lintAlbum(tracks).find((f) => f.rule === 'trackNumberIssues')).toBeUndefined();
+    // the same number twice on one disc still is
+    const flag = lintAlbum([...tracks, t('2', '3')]).find((f) => f.rule === 'trackNumberIssues');
+    expect(flag?.details?.issues).toEqual(['duplicate tracknumber 3 at indices 5, 6']);
+  });
+
   it('detects title case anomalies (all lowercase)', () => {
     const tracks: RawTrackTags[] = [
       {
