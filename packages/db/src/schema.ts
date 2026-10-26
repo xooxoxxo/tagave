@@ -1844,3 +1844,51 @@ export const mcPending = pgTable(
     createdIdx: index('idx_mc_pending_created').on(table.createdAt),
   })
 );
+
+// Listen elsewhere, the listen-links module (0054): links from albums and
+// artists to streaming platforms, when each was last looked up, and each
+// person's platforms. Its own tables; no core table references them.
+// Written by worker › jobs/listenLinksResolve.ts and api › routes/listenLinks.ts.
+export const listenLinks = pgTable(
+  'listen_links',
+  {
+    releaseGroupId: uuid('release_group_id').notNull().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    platform: text().notNull(),
+    url: text().notNull(),
+    source: text().notNull(),
+    resolvedAt: tstz('resolved_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.releaseGroupId, table.platform] }) })
+);
+
+export const listenArtistLinks = pgTable(
+  'listen_artist_links',
+  {
+    artistId: uuid('artist_id').notNull().references(() => artists.id, { onDelete: 'cascade' }),
+    platform: text().notNull(),
+    url: text().notNull(),
+    source: text().notNull(),
+    resolvedAt: tstz('resolved_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.artistId, table.platform] }) })
+);
+
+export const listenAlbumChecks = pgTable('listen_album_checks', {
+  releaseGroupId: uuid('release_group_id').primaryKey().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+  checkedAt: tstz('checked_at').notNull().defaultNow(),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+});
+
+export const listenArtistChecks = pgTable('listen_artist_checks', {
+  artistId: uuid('artist_id').primaryKey().references(() => artists.id, { onDelete: 'cascade' }),
+  checkedAt: tstz('checked_at').notNull().defaultNow(),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+});
+
+export const listenPrefs = pgTable('listen_prefs', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});

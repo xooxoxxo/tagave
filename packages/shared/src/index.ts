@@ -516,3 +516,21 @@ export {
   wantlistDecisionSchema,
   type WantlistDecision,
 } from './facets.js';
+
+// Listen elsewhere (the listen-links module): links to streaming platforms
+export {
+  LISTEN_PLATFORMS,
+  LISTEN_PLATFORM_NAMES,
+  listenPlatformSchema,
+  type ListenPlatform,
+  type ListenLinkKind,
+  type ListenLinkSource,
+  listenSearchUrl,
+  type ListenLinkView,
+  type AlbumListenLinksView,
+  type ArtistListenLinksView,
+  type ListenPrefsView,
+  listenPrefsSchema,
+  type ListenLinksModuleView,
+  listenLinksModuleSchema,
+} from './listenLinks.js';
