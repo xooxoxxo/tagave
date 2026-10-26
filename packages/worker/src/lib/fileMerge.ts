@@ -7,7 +7,9 @@
  *   3. check the fresh row has no local_tracks, cluster_overrides, images or
  *      tag_plan_items (if it has, Task 16's absorb path or skip);
  *   4. copy the fresh row's parse when it has one, delete the fresh row,
- *      re-point the old row (root, path, present, last_seen_at = now()).
+ *      re-point the old row (root, path, present, last_seen_at = now());
+ *      track-scope field locks move with it, and changed bytes clear the
+ *      old row's audio hash and fingerprint.
  *
  * The FOR UPDATE lock also covers a concurrent cluster.dir or tag plan: their
  * inserts take FOR KEY SHARE on the fresh row, so they either committed before
@@ -39,7 +41,7 @@ export type MergeOutcome = MergeDone | { kind: 'skipped'; reason: 'old_moved' | 
 interface FileRow {
   id: string; library_id: string; scan_root_id: string; rel_path: string; status: string;
   size_bytes: string | null; mtime: string | null; inode: string | null;
-  tags_read_at: string | null;
+  tags_read_at: string | null; parse_error: string | null;
   /** last_seen_at < walkStart, null without a walkStart. The client reads timestamptz as text, so the DB compares. */
   seen_before_walk: boolean | null;
 }
@@ -54,12 +56,14 @@ export async function mergeFilePair(ctx: Pick<WorkerContext, 'sql'>, req: MergeR
   const walkStart = req.walkStart ? req.walkStart.toISOString() : null;
   return ctx.sql.begin(async (tx) => {
     const rows = (await tx`
-      select id, library_id, scan_root_id, rel_path, status, size_bytes, mtime, inode, tags_read_at,
+      select id, library_id, scan_root_id, rel_path, status, size_bytes, mtime, inode, tags_read_at, parse_error,
              last_seen_at < ${walkStart}::timestamptz as seen_before_walk
         from audio_files where id = any(${[req.oldId, req.freshId].sort()}::uuid[]) order by id for update`) as unknown as FileRow[];
     const old = rows.find((r) => r.id === req.oldId);
     const fresh = rows.find((r) => r.id === req.freshId);
     if (!fresh) return { kind: 'skipped', reason: 'fresh_gone' } as const;
+    // A later walk marked the fresh path missing (or it was archived): it is no longer the live copy.
+    if (fresh.status !== 'present' && fresh.status !== 'error') return { kind: 'skipped', reason: 'fresh_touched' } as const;
     if (!old || old.scan_root_id !== req.oldAt.scanRootId || old.rel_path !== req.oldAt.relPath) {
       return { kind: 'skipped', reason: 'old_moved' } as const;
     }
@@ -79,7 +83,8 @@ export async function mergeFilePair(ctx: Pick<WorkerContext, 'sql'>, req: MergeR
       return { kind: 'skipped', reason: 'fresh_has_data' } as const; // Task 16 replaces this line
     }
 
-    const parsed = fresh.tags_read_at !== null;
+    // A failed parse is a parse too: its status 'error' and parse_error come over with it.
+    const parsed = fresh.tags_read_at !== null || fresh.parse_error !== null;
     const reparse = !parsed && (Number(old.size_bytes) !== Number(fresh.size_bytes) || Number(old.mtime) !== Number(fresh.mtime));
     if (parsed) {
       const cols = PARSE_COLUMNS.join(', ');
@@ -88,6 +93,13 @@ export async function mergeFilePair(ctx: Pick<WorkerContext, 'sql'>, req: MergeR
     // Parsed: status came with the parse. Unparsed: present, except an
     // unparseable (error) old row with no re-parse due keeps 'error' (pre-flight F13).
     const status = parsed ? null : old.status === 'error' && !reparse ? 'error' : 'present';
+    // Track-scope locks key on the audio file id without a FK: move the fresh
+    // row's locks over, except where the old row already locks that field.
+    await tx`
+      delete from field_locks f
+       where f.scope = 'track' and f.scope_id = ${fresh.id}
+         and exists (select 1 from field_locks o where o.scope = 'track' and o.scope_id = ${old.id} and o.field = f.field)`;
+    await tx`update field_locks set scope_id = ${old.id} where scope = 'track' and scope_id = ${fresh.id}`;
     await tx`delete from audio_files where id = ${fresh.id}`;
     await tx`
       update audio_files set
@@ -96,6 +108,13 @@ export async function mergeFilePair(ctx: Pick<WorkerContext, 'sql'>, req: MergeR
         size_bytes = ${fresh.size_bytes}, mtime = ${fresh.mtime}, inode = coalesce(${fresh.inode}, inode),
         last_seen_at = now(), reconcile_hold_at = null
       where id = ${old.id}`;
+    if (reparse) {
+      // The bytes changed: the old audio identity no longer describes this file.
+      await tx`
+        update audio_files set audio_hash = null, audio_hash_at = null,
+          fingerprint = null, fingerprint_duration = null, fingerprinted_at = null, fingerprint_error = null
+        where id = ${old.id}`;
+    }
     return {
       kind, oldId: old.id, libraryId: old.library_id,
       from: { scanRootId: old.scan_root_id, relPath: old.rel_path },

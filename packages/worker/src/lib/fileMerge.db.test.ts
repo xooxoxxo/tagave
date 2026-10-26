@@ -156,4 +156,58 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
     expect(out).toEqual({ kind: 'skipped', reason: 'fresh_gone' });
     expect((await row(oldId)).status).toBe('missing');
   });
+  describe('fix round 1', () => {
+    const merge = (oldId: string, freshId: string, relPath: string) =>
+      mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath }, walkStart: null, allowAbsorb: false });
+
+    it('a fresh row whose parse failed counts as parsed: its error comes over', async () => {
+      const oldId = await file(rootA, 'X/12.flac', { status: 'missing' });
+      const freshId = await file(rootA, 'O/12.flac', { status: 'error', parse_error: 'bad header' });
+      const out = await merge(oldId, freshId, 'X/12.flac');
+      expect(out).toMatchObject({ kind: 'merged', reparse: false });
+      const [r] = await sql`select status, parse_error from audio_files where id = ${oldId}`;
+      expect(r).toEqual({ status: 'error', parse_error: 'bad header' });
+    });
+
+    it('skips a fresh row a later walk marked missing (fresh_touched) and deletes nothing', async () => {
+      const oldId = await file(rootA, 'X/13.flac', { status: 'missing' });
+      const freshId = await file(rootA, 'N/13.flac', { status: 'missing' });
+      expect(await merge(oldId, freshId, 'X/13.flac')).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
+      expect(await row(freshId)).toBeDefined();
+      expect((await row(oldId)).rel_path).toBe('X/13.flac');
+    });
+
+    it('moves track-scope locks from the fresh id to the old id; the old lock wins a shared field', async () => {
+      const oldId = await file(rootA, 'X/14.flac', { status: 'missing' });
+      const freshId = await file(rootA, 'M/14.flac');
+      const lock = async (scopeId: string, field: string, value: string) => (await sql`
+        insert into field_locks (library_id, scope, scope_id, field, value, created_by)
+        values (${libraryId}, 'track', ${scopeId}, ${field}, ${JSON.stringify(value)}::text::jsonb, ${userId}) returning id`)[0].id as string;
+      const oldTitle = await lock(oldId, 'title', 'Old');
+      const freshTitle = await lock(freshId, 'title', 'Fresh');
+      const freshGenre = await lock(freshId, 'genre', 'Jazz');
+      expect(await merge(oldId, freshId, 'X/14.flac')).toMatchObject({ kind: 'merged' });
+      const locks = await sql`select id, scope_id, field, value from field_locks where scope = 'track' and scope_id in (${oldId}, ${freshId}) order by field`;
+      expect(locks).toEqual([
+        { id: freshGenre, scope_id: oldId, field: 'genre', value: 'Jazz' },
+        { id: oldTitle, scope_id: oldId, field: 'title', value: 'Old' },
+      ]);
+      expect((await sql`select 1 from field_locks where id = ${freshTitle}`).length).toBe(0);
+    });
+
+    it('clears audio hash and fingerprint when the bytes changed, keeps them when not', async () => {
+      const ident = { audio_hash: 'h1', audio_hash_at: new Date().toISOString(), fingerprint: 'fp', fingerprint_duration: 120, fingerprinted_at: new Date().toISOString() };
+      const read = async (id: string) => (await sql`select audio_hash, fingerprint, fingerprint_duration, audio_hash_at is null as no_hash_at, fingerprinted_at is null as no_fp_at from audio_files where id = ${id}`)[0];
+
+      const changedOld = await file(rootA, 'X/15.flac', { status: 'missing', ...ident });
+      const changedFresh = await file(rootA, 'L/15.flac', { size_bytes: 11 });
+      expect(await merge(changedOld, changedFresh, 'X/15.flac')).toMatchObject({ kind: 'merged', reparse: true });
+      expect(await read(changedOld)).toEqual({ audio_hash: null, fingerprint: null, fingerprint_duration: null, no_hash_at: true, no_fp_at: true });
+
+      const sameOld = await file(rootA, 'X/16.flac', { status: 'missing', ...ident });
+      const sameFresh = await file(rootA, 'L/16.flac');
+      expect(await merge(sameOld, sameFresh, 'X/16.flac')).toMatchObject({ kind: 'merged', reparse: false });
+      expect(await read(sameOld)).toEqual({ audio_hash: 'h1', fingerprint: 'fp', fingerprint_duration: 120, no_hash_at: false, no_fp_at: false });
+    });
+  });
 });
