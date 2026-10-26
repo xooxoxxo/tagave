@@ -74,6 +74,10 @@ between browsing and upkeep: the hairline cut into the
    making the page scroll (AlbumDetailPage.module.css .flow and .filler). */
 .page:has([data-album-flow]) { display: flex; flex-direction: column; }
 .page:has([data-album-flow]) > div { flex: 1 0 auto; }
+/* What sits above the page in the pane (the disk-space notice) comes out of
+   that height, so the album never scrolls by the notice's height. */
+.main:has([data-album-flow]) { display: flex; flex-direction: column; }
+.page:has([data-album-flow]) { flex: 1 0 auto; min-height: 0; }
 /* Home's kiosk view: exactly the pane's height on a desktop (DashboardPage) */
 /* The footer shares the pane with Home instead of sitting below a full-height
    page, so the whole view (Discogs notice included) fits without scrolling. */

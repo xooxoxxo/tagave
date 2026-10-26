@@ -11,7 +11,7 @@ export interface DisplayPrefs {
   /** 'below': the search pill on its own line under the logo; 'beside': on the logo's row. */
   searchPlacement: 'below' | 'beside';
   showWordmark: boolean;
-  /** The ripple artwork under albums of three tracks or fewer. */
+  /** The ripple artwork under albums of five tracks or fewer, where the pane has room. */
   shortAlbumArt: boolean;
   /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
   artistLayout: 'name' | 'albums';

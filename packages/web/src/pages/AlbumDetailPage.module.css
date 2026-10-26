@@ -323,6 +323,11 @@
   min-height: 0;
 }
 
+/* less room than the piece needs (AlbumFiller: FILLER_MIN_HEIGHT): no sliver */
+.filler[data-thin] {
+  visibility: hidden;
+}
+
 /* under the filler the foot holds nothing without Maintenance (the source
    credit is in Album info): no room kept below the piece */
 .filler + .foot:empty {
