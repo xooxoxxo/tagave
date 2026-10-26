@@ -22,6 +22,7 @@ import {
 } from './albumSelection';
 import { PlanWizard } from '../components/PlanWizard';
 import { useMaintenance } from '../maintenance';
+import { plural } from '../utils/qualityFlags';
 import styles from './AlbumsPage.module.css';
 
 const VIEW_OPTIONS: SegmentedOption<'grid' | 'list'>[] = [{ value: 'grid', label: 'Grid' }, { value: 'list', label: 'List' }];
@@ -383,7 +384,7 @@ export function AlbumsPage() {
             <option value="listened">Last listened</option>
           </Select>
           <span className={styles.countInfo}>
-            {facets ? `${total.toLocaleString()} albums` : ''}
+            {facets ? plural(total, 'album') : ''}
           </span>
           <div className={styles.viewToggle}>
             <SegmentedControl size="sm" label="View mode" name="view-mode" value={view} onChange={(next) => (next === 'grid' ? setSearch({ view: undefined }) : setSearch({ view: 'list' }))} options={VIEW_OPTIONS} />

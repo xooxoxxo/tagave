@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@tagave/shared';
 import { isMultiActive } from '../pages/albumsSearch';
+import { plural } from '../utils/qualityFlags';
 import { Button, CloseIcon, IconButton } from './ui';
 import styles from './FilterRail.module.css';
 
@@ -139,7 +140,7 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
   return (
     <aside className={styles.rail}>
       <div className={styles.railHead}>
-        <span className={styles.total}>{facets ? `${facets.total.toLocaleString()} albums` : '…'}</span>
+        <span className={styles.total}>{facets ? plural(facets.total, 'album') : '…'}</span>
         {activeCount > 0 && <Button variant="quiet" size="sm" onClick={onClear}>Clear {activeCount}</Button>}
       </div>
 
