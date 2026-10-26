@@ -10,6 +10,7 @@ import { scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
+import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
 import { enqueueReclusters } from './scanRoot.js';
@@ -69,10 +70,17 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
   const elapsedS = Math.round((Date.now() - started) / 1000);
   const message = (walk.subtreeGone
     ? `folder is gone: ${walk.missing} file(s) marked missing`
-    : `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${elapsedS}s`) + finishNotes(walk);
+    : `${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing`
+      + (walk.merged ? `, ${describeMoves(walk.moves)}` : '')
+      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '')
+      + `, ${elapsedS}s`) + finishNotes(walk);
   await reportProgress(ctx, jobRunId, {
     libraryId: root.libraryId, type: 'scan.dir', state: 'completed',
     done: walk.filesSeen, total: walk.filesSeen, message,
   });
-  ctx.logger.info({ scanRootId: root.id, dirPath, reason: data.reason ?? null, ...walk, changedIds: walk.changedIds.length }, 'scan.dir complete');
+  ctx.logger.info({
+    scanRootId: root.id, dirPath, reason: data.reason ?? null, ...walk,
+    changedIds: walk.changedIds.length,
+    merged: walk.merged, possibleMoves: walk.possibleMoves, moves: walk.moves.slice(0, 50),
+  }, 'scan.dir complete');
 }

@@ -1,6 +1,7 @@
 /**
- * What runs after a walk (move-safe scanning §1, §3): reconciliation (Task 8),
- * missing-marking with its guards, cluster holds (Task 10), stale sidecars.
+ * What runs after a walk (move-safe scanning §1, §3), under the library's
+ * reconcile lock: Tier 1 reconciliation, missing-marking with its guards,
+ * cluster holds (Task 10), stale sidecars.
  * Missing-marking only touches a row that is still where the walk's snapshot
  * saw it and was last seen before the walk began, by the database's clock: a
  * row a concurrent scan.dir re-pointed is never marked missing (R7).
@@ -8,6 +9,9 @@
 import { escapeLike, relDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
+import { emptyReconcile, reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
+
+export type { MoveRecord, DirRef } from './reconcile.js';
 
 export interface FinishOptions {
   /** skip the partly-unmounted hold (release B's Missing list › Confirm missing) */
@@ -19,10 +23,6 @@ export interface FinishResult {
   merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Task 8
   held: number;                                                                                                       // Task 10
 }
-// Temporary home: Task 8 moves these to reconcile.ts and re-exports them.
-export interface DirRef { scanRootId: string; dirPath: string }
-export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: string; toDir: string; files: number }
-
 const UPDATE_BATCH = 2000;
 
 export async function markMissing(
@@ -130,27 +130,39 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
   const failedDirs = walk.failedPaths;
   // F3: an unmounted-looking root marks nothing, but still names what it could not read.
   if (walk.looksUnmounted) return { ...empty, failedDirs };
-  // Doubt: an unreadable folder or file is not evidence that anything left.
-  const failedSet = new Set(failedDirs);
-  let gone = failedSet.size ? walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedSet)) : walk.unseen;
-  const reconcileSkipped = walk.errored > 0
-    ? `${walk.errored} folder(s) or file(s) could not be read, so moved files are not matched in this scan`
-    : null;
-  // Task 8 inserts Tier 1 here (only when reconcileSkipped is null) and removes merged rows from `gone`.
-  const hold = missingHold(gone.length, walk.presentInRoot);
-  if (hold.held && !opts.confirmMissing) {
-    // F5: a held scan drops no sidecars either (the 0052 cascade would take their covers).
-    // A quick scan must not forget the hold: the walk just stamped fresh mtimes on the
-    // folders that lost files, so the next quick scan would skip them and count the held
-    // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
-    await forgetDirMtimes(ctx, root, [...new Set(gone.map((r) => relDirname(r.relPath)))]);
-    return { ...empty, failedDirs, reconcileSkipped, heldMissing: { count: gone.length, threshold: hold.threshold } };
-  }
-  const marked = await markMissing(ctx, root, gone, walk.walkStart);
-  await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
-  return {
-    ...empty, failedDirs, reconcileSkipped,
-    missing: marked.length,
-    dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],
-  };
+  return withLibraryLock(ctx, root.libraryId, async () => {
+    // Doubt: an unreadable folder or file is not evidence that anything left.
+    const failedSet = new Set(failedDirs);
+    let gone = failedSet.size ? walk.unseen.filter((r) => !isUnderFailedPath(r.relPath, failedSet)) : walk.unseen;
+    // Any failed path (an unreadable folder, a file or sidecar whose stat failed,
+    // say ENOENT mid-walk) means the walk's picture is incomplete: match nothing.
+    const unread = Math.max(walk.errored, failedDirs.length);
+    const reconcileSkipped = unread > 0
+      ? `${unread} folder(s) or file(s) could not be read, so moved files are not matched in this scan`
+      : null;
+    const rec = reconcileSkipped === null ? await reconcileTier1(ctx, root, walk) : emptyReconcile();
+    const mergedOld = new Set(rec.outcomes.map((o) => o.oldId));
+    gone = gone.filter((r) => !mergedOld.has(r.id));
+    // scan.parse gets what is left of the fresh rows plus merged rows whose size or mtime changed
+    const mergedFresh = new Set(rec.mergedFreshIds);
+    walk.changedIds = [...walk.changedIds.filter((id) => !mergedFresh.has(id)), ...rec.reparseIds];
+    walk.insertedIds = walk.insertedIds.filter((id) => !mergedFresh.has(id));
+    const reconciled = { merged: rec.merged, moves: rec.moves, possibleMoves: rec.possibleMoves, reclusterDirs: rec.reclusterDirs };
+    const hold = missingHold(gone.length, walk.presentInRoot);
+    if (hold.held && !opts.confirmMissing) {
+      // F5: a held scan drops no sidecars either (the 0052 cascade would take their covers).
+      // A quick scan must not forget the hold: the walk just stamped fresh mtimes on the
+      // folders that lost files, so the next quick scan would skip them and count the held
+      // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
+      await forgetDirMtimes(ctx, root, [...new Set(gone.map((r) => relDirname(r.relPath)))]);
+      return { ...empty, ...reconciled, failedDirs, reconcileSkipped, heldMissing: { count: gone.length, threshold: hold.threshold } };
+    }
+    const marked = await markMissing(ctx, root, gone, walk.walkStart);
+    await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
+    return {
+      ...empty, ...reconciled, failedDirs, reconcileSkipped,
+      missing: marked.length,
+      dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],
+    };
+  });
 }

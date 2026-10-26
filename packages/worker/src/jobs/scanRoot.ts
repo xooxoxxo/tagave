@@ -3,6 +3,7 @@ import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
+import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
 import { clusterSingletonKey } from '../lib/helpers.js';
@@ -138,6 +139,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     errored: walk.errored, sidecars: walk.sidecars, dirsSeen: walk.dirsSeen, dirsSkipped: walk.dirsSkipped,
     formats: walk.formats, elapsedS,
     failedDirs: walk.failedDirs.slice(0, 20), heldMissing: walk.heldMissing, reconcileSkipped: walk.reconcileSkipped,
+    merged: walk.merged, possibleMoves: walk.possibleMoves, moves: walk.moves.slice(0, 50),
   };
   await ctx.db
     .update(scans)
@@ -150,7 +152,10 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   await reportProgress(ctx, jobRunId, {
     libraryId: root.libraryId, type: 'scan.root', state: 'completed',
     done: walk.filesSeen, total: walk.filesSeen,
-    message: `${mode}: ${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing, ${walk.dirsSkipped}/${walk.dirsSeen} dirs skipped, ${elapsedS}s${finishNotes(walk)}`,
+    message: `${mode}: ${walk.filesSeen} seen, ${walk.added} added, ${walk.changed} changed, ${walk.missing} missing`
+      + (walk.merged ? `, ${describeMoves(walk.moves)}` : '')
+      + (walk.possibleMoves ? `, ${walk.possibleMoves} possible move(s) left alone` : '')
+      + `, ${walk.dirsSkipped}/${walk.dirsSeen} dirs skipped, ${elapsedS}s` + finishNotes(walk),
   });
   ctx.logger.info({ scanRootId: root.id, ...stats }, 'scan complete');
 }
