@@ -52,6 +52,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/wantlist-suggestions/:id/decision': 'self',
   // Facets (routes/facets.ts): which facets and modules are on, for the app to hide what is off.
   'GET /api/v1/facets': 'self',
+  // Settings › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
+  'GET /api/v1/me/listen-links': 'self',
+  'PUT /api/v1/me/listen-links': 'self',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',
@@ -68,11 +71,13 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/albums/facets': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/artists/:artistId': 'catalog.read',
+  'GET /api/v1/libraries/:libraryId/artists/:artistId/listen-links': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/clippings': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/listens': 'catalog.read',
   'DELETE /api/v1/libraries/:libraryId/release-groups/:rgId/review': 'catalog.read',
   'PUT /api/v1/libraries/:libraryId/release-groups/:rgId/review': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/release-groups/:rgId/review/revisions': 'catalog.read',
+  'GET /api/v1/libraries/:libraryId/release-groups/:rgId/listen-links': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/release-groups/:rgId/reviews': 'catalog.read',
   'POST /api/v1/libraries/:libraryId/release-groups/:rgId/reviews/refresh': 'catalog.read',
   'GET /api/v1/libraries/:libraryId/saved-views': 'catalog.read',
@@ -206,6 +211,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/music-connections': 'system.manage',
   'PUT /api/v1/settings/music-connections': 'system.manage',
   'POST /api/v1/settings/music-connections/remove-data': 'system.manage',
+  // Settings › Modules, the Listen elsewhere row (routes/listenLinks.ts): owner, and a fresh step-up to change it.
+  'GET /api/v1/settings/listen-links': 'system.manage',
+  'PUT /api/v1/settings/listen-links': 'system.manage',
+  'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
   'GET /api/v1/storage': 'system.manage',
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',

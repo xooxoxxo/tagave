@@ -15,7 +15,7 @@
  *   - the echo rule on the identity feed;
  *   - the module switch (Settings › Modules): off hides the feeds and the
  *     manifest and refuses new links; remove data;
- *   - every mc_ and player_ table, and facet_changes, facet_cursors and
+ *   - every mc_, player_ and listen_ table, and facet_changes, facet_cursors and
  *     identity_fills, is listed in exactly one module's manifest.
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -357,13 +357,13 @@ describe.skipIf(!adminUrl)('music connections landing: wantlist decisions, revok
     }
   });
 
-  it('every mc_ and player_ table, and the facet transport tables, is listed in exactly one module’s manifest, and every listed table exists', async () => {
+  it('every mc_, player_ and listen_ table, and the facet transport tables, is listed in exactly one module’s manifest, and every listed table exists', async () => {
     const tables = (await sql<Array<{ t: string }>>`select table_name as t from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'`).map((r) => r.t);
     const owners = new Map<string, string[]>();
     for (const m of MODULES) for (const t of m.tables) owners.set(t, [...(owners.get(t) ?? []), m.id]);
     // a module-ish table: a module prefix, or the core facet transport
     const CORE_FACET_TABLES = ['facet_changes', 'facet_cursors', 'identity_fills'];
-    const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || CORE_FACET_TABLES.includes(t));
+    const mustOwn = tables.filter((t) => t.startsWith('mc_') || t.startsWith('player_') || t.startsWith('listen_') || CORE_FACET_TABLES.includes(t));
     expect(mustOwn.length).toBeGreaterThan(CORE_FACET_TABLES.length);
     for (const t of CORE_FACET_TABLES) expect(tables, t).toContain(t);
     const unlisted = mustOwn.filter((t) => !owners.has(t));
