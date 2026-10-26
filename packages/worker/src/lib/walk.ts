@@ -25,7 +25,7 @@ import path from 'node:path';
 import { and, eq, like, lt, or, sql as dsql } from 'drizzle-orm';
 import { audioFiles, scanDirs, sidecarFiles } from '@tagave/db';
 import type { WorkerContext } from './context.js';
-import { isAudioFile, sidecarKind, storagePath, extOf, relDirname } from './helpers.js';
+import { isAudioFile, sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
 
 export type WalkMode = 'full' | 'quick';
@@ -82,8 +82,6 @@ export interface WalkTreeResult extends WalkResult {
 const INSERT_BATCH = 500;
 const UPDATE_BATCH = 2000;
 const PROGRESS_EVERY = 5000;
-
-const escapeLike = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 
 /**
  * Directories that never hold music: dot-dirs, NAS housekeeping (Synology
@@ -276,7 +274,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const relDir = storagePath(path.relative(root.path, dirAbs));
     let dirMtime: number | null = null;
     try {
-      dirMtime = Math.floor((await stat(dirAbs)).mtimeMs / 1000);
+      dirMtime = Math.floor(Number((await stat(dirAbs, { bigint: true })).mtimeMs) / 1000);
     } catch {
       /* mtime unknown: the directory is walked in full */
     }
@@ -321,7 +319,8 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
         if (isAudioFile(name)) {
           let st;
           try {
-            st = await stat(absPath);
+            // bigint: 64-bit inode numbers (SMB/CIFS, btrfs, XFS) lose precision as a JS number
+            st = await stat(absPath, { bigint: true });
           } catch (err) {
             ctx.logger.warn({ file: absPath, err: (err as Error).message }, 'stat failed');
             result.errored += 1;
@@ -331,18 +330,19 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           countFile(name);
           seen.add(relPath);
           const prior = byRelPath.get(relPath);
-          const mtimeS = Math.floor(st.mtimeMs / 1000);
+          const mtimeS = Math.floor(Number(st.mtimeMs) / 1000);
+          const sizeBytes = Number(st.size);
           const inode = `${st.dev}:${st.ino}`;
           if (!prior) {
             result.added += 1;
-            pendingInserts.push({ relPath, sizeBytes: st.size, mtime: mtimeS, inode });
+            pendingInserts.push({ relPath, sizeBytes, mtime: mtimeS, inode });
           } else if (
-            prior.sizeBytes !== st.size || prior.mtime !== mtimeS
+            prior.sizeBytes !== sizeBytes || prior.mtime !== mtimeS
             || prior.status === 'missing' || prior.status === 'archived'
             || (opts.reparseErrors === true && prior.status === 'error')
           ) {
             result.changed += 1;
-            pendingChanged.push({ id: prior.id, sizeBytes: st.size, mtime: mtimeS, inode });
+            pendingChanged.push({ id: prior.id, sizeBytes, mtime: mtimeS, inode });
           } else {
             pendingUnchanged.push({ id: prior.id, inode });
           }
@@ -350,8 +350,8 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           const kind = sidecarKind(name);
           if (kind) {
             try {
-              const st = await stat(absPath);
-              seenSidecars.push({ relPath, kind, sizeBytes: st.size, mtime: Math.floor(st.mtimeMs / 1000) });
+              const st = await stat(absPath, { bigint: true });
+              seenSidecars.push({ relPath, kind, sizeBytes: Number(st.size), mtime: Math.floor(Number(st.mtimeMs) / 1000) });
               result.sidecars += 1;
             } catch {
               /* sidecar stat failures are not worth aborting anything */

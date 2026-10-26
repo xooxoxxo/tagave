@@ -5,7 +5,7 @@
  * saw it and was last seen before the walk began, by the database's clock: a
  * row a concurrent scan.dir re-pointed is never marked missing (R7).
  */
-import { relDirname } from './helpers.js';
+import { escapeLike, relDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
@@ -21,7 +21,6 @@ export interface DirRef { scanRootId: string; dirPath: string }
 export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: string; toDir: string; files: number }
 
 const UPDATE_BATCH = 2000;
-const escapeLike = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 
 export async function markMissing(
   ctx: Pick<WorkerContext, 'sql'>,

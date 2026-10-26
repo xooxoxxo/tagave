@@ -283,6 +283,9 @@ function stableStringify(v: unknown): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + stableStringify(o[k])).join(',') + '}';
 }
 
+/** Escapes LIKE wildcards (and the escape character) so a rel path matches literally. */
+export const escapeLike = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+
 /** POSIX dirname for rel paths ('' for top level). */
 export function relDirname(relPath: string): string {
   const i = relPath.lastIndexOf('/');

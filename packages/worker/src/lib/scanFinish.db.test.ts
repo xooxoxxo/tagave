@@ -52,18 +52,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
   it('stores dev:ino and reports inserted rows', async () => {
     const w = await walkTree(ctx, root, { mode: 'full' });
     expect(w.insertedIds).toHaveLength(2);
-    const st = await stat(path.join(rootPath, 'A', '01.mp3'));
+    const st = await stat(path.join(rootPath, 'A', '01.mp3'), { bigint: true });
     expect((await byPath()).get('A/01.mp3')!.inode).toBe(`${st.dev}:${st.ino}`);
     await finishWalk(ctx, root, w);
   });
 
   it('a worker clock an hour ahead marks nothing that the walk just saw', async () => {
+    // an indexed file the walk will not see, last seen a day ago
+    await sql`insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, last_seen_at)
+              values (${libraryId}, ${rootId}, 'A/ghost.mp3', 9, 1, 'present', now() - interval '1 day')`;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.now() + 3_600_000);
     const w = await walkTree(ctx, root, { mode: 'full' });
     const f = await finishWalk(ctx, root, w);
-    expect(f.missing).toBe(0);
-    for (const r of (await byPath()).values()) expect(r.status).toBe('present');
+    vi.useRealTimers();
+    expect(f).toMatchObject({ missing: 1, dirsWithMissing: ['A'] });
+    const [db] = await sql`select now() as now`;
+    const rows = await byPath();
+    expect(rows.get('A/ghost.mp3')!.status).toBe('missing');
+    for (const p of ['A/01.mp3', 'A/02.mp3']) {
+      expect(rows.get(p)!.status).toBe('present');
+      // written by the database's clock, not the worker's hour-ahead one
+      expect(new Date(rows.get(p)!.last_seen_at).getTime()).toBeLessThanOrEqual(new Date(db.now).getTime());
+    }
   });
 
   it('a removed file is marked missing; its dir is reported', async () => {
@@ -80,8 +91,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
     await walkTree(ctx, root, { mode: 'full' }).then((w) => finishWalk(ctx, root, w));
     await rm(path.join(rootPath, 'A', '03.mp3'));
     const w = await walkTree(ctx, root, { mode: 'full' });
-    // a concurrent scan.dir re-points the row to another path meanwhile
-    await sql`update audio_files set rel_path = 'B/03.mp3', last_seen_at = now() where scan_root_id = ${rootId} and rel_path = 'A/03.mp3'`;
+    // a concurrent scan.dir re-points the row to another path meanwhile; last_seen_at
+    // stays older than walkStart, so only the rel_path snapshot guard protects it
+    await sql`update audio_files set rel_path = 'B/03.mp3' where scan_root_id = ${rootId} and rel_path = 'A/03.mp3'`;
     const f = await finishWalk(ctx, root, w);
     expect(f.missing).toBe(0);
     expect((await byPath()).get('B/03.mp3')!.status).toBe('present');
