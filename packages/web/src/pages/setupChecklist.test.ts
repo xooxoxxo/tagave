@@ -40,3 +40,17 @@ describe('the Settings nav', () => {
     expect(owner).toContain('updates');
   });
 });
+
+describe('the Settings nav with modules off', () => {
+  it('a listener does not see Connections while Music Connections is off (QA Q-42)', () => {
+    expect(settingsNav('listener', { mcOn: false }).map((s) => s.value)).not.toContain('connections');
+    expect(settingsNav('listener', { mcOn: true }).map((s) => s.value)).toContain('connections');
+    // the owner keeps it: it says where to turn the module on
+    expect(settingsNav('owner', { mcOn: false }).map((s) => s.value)).toContain('connections');
+  });
+
+  it('lists Listen elsewhere only while its module is on', () => {
+    expect(settingsNav('listener', { listenOn: false }).map((s) => s.value)).not.toContain('listen-elsewhere');
+    expect(settingsNav('listener', { listenOn: true }).map((s) => s.value)).toContain('listen-elsewhere');
+  });
+});

@@ -68,9 +68,15 @@ const sections: Section[] = [
   { value: 'connections', label: 'Connections', group: 'Account' },
 ];
 
-/** The sections the nav lists for a role. */
-export function settingsNav(role: Parameters<typeof can>[0]): Section[] {
-  return sections.filter((item) => !item.unlisted && (!item.permission || can(role, item.permission)));
+/**
+ * The sections the nav lists for a role. A module that is off hides its
+ * section: Listen elsewhere for everyone, Connections for all but the owner
+ * (who is told where to turn it on). Null or undefined while the modules load.
+ */
+export function settingsNav(role: Parameters<typeof can>[0], modules: { mcOn?: boolean | null | undefined; listenOn?: boolean | null | undefined } = {}): Section[] {
+  return sections.filter((item) => !item.unlisted && (!item.permission || can(role, item.permission))
+    && (item.value !== 'listen-elsewhere' || modules.listenOn !== false)
+    && (item.value !== 'connections' || modules.mcOn !== false || can(role, 'system.manage')));
 }
 
 export function SettingsPage() {
@@ -79,7 +85,7 @@ export function SettingsPage() {
   const mcOn = useModuleOn('mc');
   const listenOn = useModuleOn('listen-links');
   // Listen elsewhere is listed only while its module is on (a direct link says it is off)
-  const visible = settingsNav(role).filter((item) => item.value !== 'listen-elsewhere' || listenOn === true);
+  const visible = settingsNav(role, { mcOn, listenOn }).filter((item) => item.value !== 'listen-elsewhere' || listenOn === true);
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
