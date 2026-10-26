@@ -46,7 +46,7 @@ import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
 import { Button, Chip, CloseIcon, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
-import { AlbumFacts } from './AlbumFacts';
+import { AlbumFacts, showsDiscogsData } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
@@ -886,7 +886,7 @@ export function AlbumDetailPage() {
   // "Your CD": the owner's physical copy, for library care (a listener's page is the music)
   const showOwnChip = ownsPhysical && canCare;
   // Discogs' terms: its attribution wherever its data shows (the About tab's last line)
-  const usesDiscogs = !!(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId));
+  const usesDiscogs = showsDiscogsData(album.release);
   const infoTabs: AlbumInfoTab[] = [
     {
       value: 'about',

@@ -23,6 +23,15 @@ export interface AlbumSource {
   mbid?: string | null | undefined;
 }
 
+/**
+ * Whether About shows Discogs data: the album's release came with a Discogs
+ * release or master. Candidates of an album never matched do not count;
+ * nothing of theirs is shown here.
+ */
+export function showsDiscogsData(release: { discogsReleaseId?: unknown; discogsMasterId?: unknown } | null | undefined): boolean {
+  return !!(release?.discogsReleaseId || release?.discogsMasterId);
+}
+
 export function AlbumFacts({ facts, source }: { facts: AlbumFact[]; source?: AlbumSource }) {
   const links: ReactNode[] = [];
   if (source?.discogs) links.push(<a key="discogs" href="https://www.discogs.com" target="_blank" rel="noopener noreferrer">Data provided by Discogs</a>);

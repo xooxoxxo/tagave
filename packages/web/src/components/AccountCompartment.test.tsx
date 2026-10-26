@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AccountCompartment, accountInitial } from './AccountCompartment';
-import { AlbumFacts } from '../pages/AlbumFacts';
+import { AlbumFacts, showsDiscogsData } from '../pages/AlbumFacts';
 
 const noop = () => undefined;
 const text = (html: string) => html.replace(/<[^>]+>/g, '');
@@ -87,6 +87,14 @@ describe('AlbumFacts source line', () => {
     const html = renderToStaticMarkup(createElement(AlbumFacts, { facts: [['Released', '2012']], source: { discogs: true, mbid: 'abc' } }));
     expect(html).toMatch(/<a href="https:\/\/www\.discogs\.com"[^>]*>Data provided by Discogs<\/a>/);
     expect(html).toMatch(/href="https:\/\/musicbrainz\.org\/release\/abc"/);
+  });
+
+  it('credits Discogs only when the shown release came with Discogs data (QA Q-24)', () => {
+    expect(showsDiscogsData({ discogsReleaseId: 123 })).toBe(true);
+    expect(showsDiscogsData({ discogsMasterId: 9 })).toBe(true);
+    // an unidentified album: Discogs candidates in Editions, nothing of theirs in About
+    expect(showsDiscogsData(null)).toBe(false);
+    expect(showsDiscogsData({ discogsReleaseId: null, discogsMasterId: null })).toBe(false);
   });
 
   it('nothing from Discogs or MusicBrainz: no line', () => {
