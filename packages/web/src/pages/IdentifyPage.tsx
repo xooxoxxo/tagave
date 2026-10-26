@@ -14,6 +14,7 @@ import { useSystemChecks } from '../hooks/useSystem';
 import { workerLive } from './setupWizard';
 import { actionProblem, identifyNowNote, identifyProgressLine } from './identifyNow';
 import { reasonChipCount } from './identifyCounts';
+import { plural } from './planOutcome';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -354,7 +355,7 @@ export function IdentifyPanel() {
                     {item.artist ? `${item.artist} — ` : ''}{item.title ?? '(untitled)'}{item.year ? ` (${item.year})` : ''}
                   </div>
                   <div className={styles.itemSecondary}>
-                    {item.trackCount} tracks · {item.formats.join(', ')}{item.dirPath ? ` · ${item.dirPath}` : ''}
+                    {plural(item.trackCount, 'track')} · {item.formats.join(', ')}{item.dirPath ? ` · ${item.dirPath}` : ''}
                   </div>
                 </div>
 
@@ -362,7 +363,7 @@ export function IdentifyPanel() {
                   <div className={styles.itemReason}>{REASON_LABEL[item.reason] ?? item.reason}</div>
                   {item.best && (
                     <div className={styles.itemBest}>
-                      best: {item.best.title} ({item.best.distance.toFixed(2)}, {item.best.source})
+                      Closest: {item.best.title}{item.best.year ? ` (${item.best.year})` : ''}
                     </div>
                   )}
                   {item.error && (
