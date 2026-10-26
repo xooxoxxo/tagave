@@ -281,9 +281,27 @@ const CORE_MBID_FIELDS = [
   'musicbrainz_releasegroupid', 'musicbrainz_albumartistid', 'musicbrainz_artistid',
 ] as const;
 
+function coreScalar(v: unknown): string {
+  if (typeof v === 'string') return v.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+  if (typeof v === 'boolean') return String(v);
+  return '';
+}
+
+/** Multi-value tags are sorted after normalizing, so tag order from another
+ * library version or a rewrite does not change the digest. */
 function coreText(v: unknown): string {
-  const s = Array.isArray(v) ? v.map((x) => String(x)).join('\u0001') : v === null || v === undefined ? '' : String(v);
-  return s.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  return Array.isArray(v) ? v.map(coreScalar).sort().join('\u0001') : coreScalar(v);
+}
+
+const YEAR4 = /(?<!\d)([12]\d{3})(?!\d)/;
+
+/** One year rule for `year` and `date` (Ruling 13): a 4-digit year 1000-2999. */
+function yearOf(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isInteger(v) && v >= 1000 && v <= 2999 ? v : null;
+  if (typeof v !== 'string') return null;
+  const m = YEAR4.exec(v);
+  return m ? Number(m[1]) : null;
 }
 
 /**
@@ -300,8 +318,7 @@ export function coreTagsDigest(tagsRaw: unknown): string | null {
     const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(v, 10) : NaN;
     return Number.isFinite(n) && n > 0 ? n : null;
   };
-  const yearV = common['year'];
-  const year = typeof yearV === 'number' && yearV > 1000 ? yearV : extractYear(typeof common['date'] === 'string' ? common['date'] : null);
+  const year = yearOf(common['year']) ?? yearOf(common['date']);
   const text = Object.fromEntries(CORE_TEXT_FIELDS.map((k) => [k, coreText(common[k])]));
   const mbids = Object.fromEntries(CORE_MBID_FIELDS.map((k) => [k, coreText(common[k])]));
   const track = no('track');

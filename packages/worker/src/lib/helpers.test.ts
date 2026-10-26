@@ -306,4 +306,21 @@ describe('coreTagsDigest', () => {
     expect(coreTagsDigest({ common: {} })).toBeNull();
     expect(coreTagsDigest(null)).toBeNull();
   });
+  it('applies one year rule to year and date', () => {
+    const { date: _d, ...noDate } = common;
+    expect(coreTagsDigest({ common: { ...noDate, date: '1850-01-01' } })).toBe(coreTagsDigest({ common: { ...noDate, year: 1850 } }));
+    expect(coreTagsDigest({ common: { ...noDate, year: 2001 } })).toBe(coreTagsDigest({ common: { ...noDate, date: '2001-05-04' } }));
+    expect(coreTagsDigest({ common: { ...noDate, year: '2001' } })).toBe(coreTagsDigest({ common: { ...noDate, year: 2001 } }));
+    expect(coreTagsDigest({ common: { ...noDate, year: 99999 } })).toBe(coreTagsDigest({ common: noDate }));
+    expect(coreTagsDigest({ common: { ...noDate, year: 99999 } })).not.toBe(coreTagsDigest({ common: { ...noDate, year: 2001 } }));
+  });
+  it('folds MBID case, multi-value order and zero-padded track numbers', () => {
+    expect(coreTagsDigest({ common: { ...common, musicbrainz_recordingid: 'REC-1' } })).toBe(coreTagsDigest({ common }));
+    expect(coreTagsDigest({ common: { ...common, artist: ['A', 'B'] } })).toBe(coreTagsDigest({ common: { ...common, artist: ['B', 'A'] } }));
+    expect(coreTagsDigest({ common: { ...common, track: { no: '01', of: 9 } } })).toBe(coreTagsDigest({ common: { ...common, track: { no: 1, of: 9 } } }));
+  });
+  it('maps objects and non-finite numbers to empty', () => {
+    expect(coreTagsDigest({ common: { ...common, album: { x: 1 } } })).toBe(coreTagsDigest({ common: { ...common, album: '' } }));
+    expect(coreTagsDigest({ common: { ...common, title: Number.NaN } })).toBe(coreTagsDigest({ common: { ...common, title: '' } }));
+  });
 });
