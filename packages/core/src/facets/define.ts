@@ -69,7 +69,7 @@ export function defineFacet(d: { name: string; version: string; scope: FacetScop
 
 /** What a module's `enabled` reads: the install's switches. */
 export interface ModuleContext {
-  settings: { mcEnabled: boolean };
+  settings: { mcEnabled: boolean; /** Listen elsewhere (Settings › Modules); absent is off */ listenLinksEnabled?: boolean };
   /** TAGAVE_PLAYER_URL, when the player runs */
   playerUrl: string | null;
 }

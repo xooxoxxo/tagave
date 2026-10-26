@@ -85,4 +85,21 @@ export const MC_MODULE = defineModule({
   enabled: (ctx) => ctx.settings.mcEnabled,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE];
+/**
+ * Listen elsewhere (vault "tagave - External Players Scoping", phase 1):
+ * links from albums to the streaming platforms each person picks. Off: the
+ * resolve job skips and the Listen control hides; the data stays until
+ * "Delete its data" (api › routes/listenLinks.ts).
+ */
+export const LISTEN_LINKS_MODULE = defineModule({
+  id: 'listen-links',
+  version: '1.0.0',
+  provides: [],
+  consumes: [],
+  jobs: ['listenLinks.resolve'],
+  prefix: 'listen_',
+  tables: ['listen_links', 'listen_artist_links', 'listen_album_checks', 'listen_artist_checks', 'listen_prefs'],
+  enabled: (ctx) => ctx.settings.listenLinksEnabled === true,
+});
+
+export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE];

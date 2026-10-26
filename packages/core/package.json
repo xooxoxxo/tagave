@@ -12,7 +12,8 @@
     "./player": "./dist/player/index.js",
     "./scrobble": "./dist/scrobble/index.js",
     "./mc": "./dist/mc/index.js",
-    "./facets": "./dist/facets/index.js"
+    "./facets": "./dist/facets/index.js",
+    "./listen-links": "./dist/listenLinks/index.js"
   },
   "files": [
     "dist"
