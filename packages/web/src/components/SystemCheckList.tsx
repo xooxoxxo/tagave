@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Badge, type BadgeTone } from './ui';
 import type { SystemCheck } from '../pages/setupWizard';
 import styles from './SystemCheckList.module.css';
@@ -18,10 +19,16 @@ const TITLES: Record<string, string> = {
   versions: 'Build versions',
   scanRoots: 'Music folders',
   cacheDir: 'Cache folder',
+  disk: 'Disk space',
   backups: 'Backups before updates',
   providers: 'Metadata services',
   appSecret: 'App secret',
 };
+
+/** "Run `df -h`" with the command as code, without the backticks. */
+function withCode(text: string): ReactNode[] {
+  return text.split(/`([^`]+)`/).map((part, i) => (i % 2 ? <code key={i}>{part}</code> : part));
+}
 
 /**
  * Checks that did not pass, in full (what was found and how to fix it);
@@ -54,9 +61,9 @@ function CheckRows({ checks }: { checks: SystemCheck[] }) {
               <span className={styles.title}>{TITLES[check.id] ?? check.title}</span>
               <Badge tone={status.tone}>{status.label}</Badge>
             </div>
-            {check.detail && <p className={styles.detail}>{check.detail}</p>}
+            {check.detail && <p className={styles.detail}>{withCode(check.detail)}</p>}
             {check.remediation && (
-              <p className={styles.fix}>{check.remediation}</p>
+              <p className={styles.fix}>{withCode(check.remediation)}</p>
             )}
           </li>
         );
