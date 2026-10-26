@@ -122,6 +122,9 @@ async function forgetDirMtimes(ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, 
   }
 }
 
+/** The only reason Tier 1 is skipped: a root that looks unmounted marks and matches nothing. */
+export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not matched in this scan';
+
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
     missing: 0, dirsWithMissing: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
@@ -129,7 +132,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
   };
   const failedDirs = walk.failedPaths;
   // F3: an unmounted-looking root marks nothing, but still names what it could not read.
-  if (walk.looksUnmounted) return { ...empty, failedDirs };
+  if (walk.looksUnmounted) return { ...empty, failedDirs, reconcileSkipped: UNMOUNTED_SKIP };
   return withLibraryLock(ctx, root.libraryId, async () => {
     // Doubt: an unreadable folder or file is not evidence that anything left.
     const failedSet = new Set(failedDirs);
@@ -138,7 +141,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     // disable move detection for the whole root): rows under them are not in
     // `gone` and are no fresh candidates, so nothing there is paired or marked.
     // Only an unmounted-looking root (returned above) skips reconcile; the
-    // Activity note for failed paths comes from failedDirs (reconcileSkipped stays null).
+    // Activity note for failed paths comes from failedDirs; reconcileSkipped is null here.
     const rec = await reconcileTier1(ctx, root, walk);
     const mergedOld = new Set(rec.outcomes.map((o) => o.oldId));
     gone = gone.filter((r) => !mergedOld.has(r.id));

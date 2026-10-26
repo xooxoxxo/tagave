@@ -121,7 +121,7 @@ export async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: str
   const out: MatchFile[] = [];
   for (let i = 0; i < nested.length; i += DIR_BATCH) {
     const chunk = nested.slice(i, i + DIR_BATCH);
-    out.push(...await matchRows(ctx, sql`
+    appendAll(out, await matchRows(ctx, sql`
       unnest(${chunk.map((d) => d.scanRootId)}::uuid[], ${chunk.map((d) => d.dirPath)}::text[]) as d(root_id, dir)
       cross join lateral (
         select * from audio_files x
@@ -133,12 +133,17 @@ export async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: str
       where af.library_id = ${libraryId} and ${cond}`));
   }
   if (topRoots.length) {
-    out.push(...await loadMatchFiles(ctx, sql`af.scan_root_id = any(${topRoots}::uuid[]) and strpos(af.rel_path, '/') = 0
+    appendAll(out, await loadMatchFiles(ctx, sql`af.scan_root_id = any(${topRoots}::uuid[]) and strpos(af.rel_path, '/') = 0
                                                and af.library_id = ${libraryId} and ${cond}`));
   }
   return out;
 }
 const DIR_BATCH = 500;
+
+/** out.push(...xs) spreads xs into call arguments and throws past ~125k; a loop does not. */
+function appendAll<T>(out: T[], xs: readonly T[]): void {
+  for (const x of xs) out.push(x);
+}
 
 const uniqById = (fs: MatchFile[]) => [...new Map(fs.map((f) => [f.id, f])).values()];
 
@@ -211,9 +216,10 @@ export async function runMerges(
  * sizes this walk added) against this walk's new rows (and any row of the
  * library, any root, first seen after them; Ruling 17). A row on the old side
  * is never a candidate on the new side: it is the one that vanished. Rows
- * under the walk's failed paths take no part on either side: the walk could
- * not read them, so they are neither gone nor a new copy (finishWalk keeps
- * them out of missing-marking the same way).
+ * under the walk's failed paths never pair: the walk could not read them, so
+ * they are neither known gone nor a known new copy (finishWalk keeps them out
+ * of missing-marking the same way). On the new side they still count for the
+ * edition guard.
  */
 export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult): Promise<ReconcileResult> {
   const sql = ctx.sql;
@@ -248,7 +254,11 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
   const oldIds = new Set(olds.map((o) => o.id));
   freshs = uniqById([...freshs, ...await rowsInDirs(ctx, root.libraryId, dirsOf(freshs),
     sql`af.status in ('present', 'error') and af.first_seen_at >= ${earliest}::timestamptz`)])
-    .filter((f) => !oldIds.has(f.id) && !(f.scanRootId === root.id && isUnderFailedPath(f.relPath, failed)));
+    .filter((f) => !oldIds.has(f.id))
+    // A row the walk could not read may itself be gone, so it never pairs; it still
+    // counts for the edition guard (as an extra or a resident, by first_seen_at).
+    // Tier 1 pairs only on equal size, so a null size bars it from every pairing.
+    .map((f) => f.scanRootId === root.id && isUnderFailedPath(f.relPath, failed) ? { ...f, sizeBytes: null, inode: null } : f);
   return runMerges(ctx, 1, olds, freshs, walk.walkStart, false);
 }
 

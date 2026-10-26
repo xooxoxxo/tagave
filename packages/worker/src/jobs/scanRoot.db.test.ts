@@ -89,7 +89,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('sca
     await scanRootJob(ctx, { scanRootId: loneId, mode: 'full' });
     const scan = await lastScan(loneId);
     expect(scan.status).toBe('aborted');
-    expect(scan.stats.error).toMatch(/nothing marked missing; could not read Only; nothing under them was marked missing$/);
+    expect(scan.stats.error).toMatch(/nothing marked missing; could not read Only; nothing under them was marked missing; the root looks unmounted, so moved files are not matched in this scan$/);
     expect((await lastRun(loneId)).error).toBe(scan.stats.error);
     await chmod(path.join(lonePath, 'Only'), 0o755);
   });

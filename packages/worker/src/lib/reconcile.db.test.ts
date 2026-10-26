@@ -14,9 +14,9 @@ import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
-import { walkRoot } from './walk.js';
+import { walkRoot, walkTree } from './walk.js';
 import { withLibraryLock, describeMoves, rowsInDirs, sqlDirname } from './reconcile.js';
-import { finishNotes } from './scanFinish.js';
+import { finishNotes, finishWalk } from './scanFinish.js';
 import { scanDirMessage } from '../jobs/scanDir.js';
 
 describe('describeMoves', () => {
@@ -171,6 +171,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
       expect((await sql`select status from audio_files where id = ${lockedId}`)[0].status).toBe('present');
       expect(await idOf('Other/l.flac')).not.toBe(lockedId);
       expect(finishNotes(r)).toMatch(/could not read Locked/);
+      expect(finishNotes(r)).not.toMatch(/not matched/);
     } finally {
       await chmod(locked, 0o755);
     }
@@ -188,6 +189,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     expect(scanDirMessage(r, 0)).toBe('folder moved: 1 file(s) now at Here');
     expect(await idOf('Here/g.flac')).toBe(id);
   });
+
+  it('a fresh-folder row on a failed path still counts as an edition extra (never pairs)', async () => {
+    await mkdir(path.join(base, 'a', 'Ed', 'Std'), { recursive: true });
+    await writeFile(path.join(base, 'a', 'Ed', 'Std', 's1.flac'), 'standard-edition-one-xx');
+    await writeFile(path.join(base, 'a', 'Ed', 'Std', 's2.flac'), 'standard-edition-two-xxxx');
+    await walkRoot(ctx, A(), { mode: 'full' });
+    const olds = [await idOf('Ed/Std/s1.flac'), await idOf('Ed/Std/s2.flac')];
+    // a row in the destination, first seen after the standard files: the walk below cannot stat it
+    await sql`insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, status)
+              values (${libraryId}, ${rootA}, 'Ed/Deluxe/bonus.flac', 424242, 1, 'present')`;
+    const bonus = await idOf('Ed/Deluxe/bonus.flac');
+    await rename(path.join(base, 'a', 'Ed', 'Std'), path.join(base, 'a', 'Ed', 'Deluxe'));
+    const w = await walkTree(ctx, A(), { mode: 'full' });
+    w.failedPaths.push('Ed/Deluxe/bonus.flac');                   // as a stat failure would
+    const f = await finishWalk(ctx, A(), w);
+    expect(f.merged).toBe(0);
+    expect(f.possibleMoves).toBeGreaterThan(0);
+    expect(await idOf('Ed/Deluxe/s1.flac')).not.toBe(olds[0]);
+    expect((await sql`select status from audio_files where id = ${bonus}`)[0].status).toBe('present');
+  });
+
+  it('folder lookups of more than 125k rows (top level and nested) do not overflow the call stack', async () => {
+    const rootD = randomUUID();
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootD}, ${libraryId}, ${path.join(base, 'd')}, 'd', 'ok')`;
+    await sql`insert into audio_files (library_id, scan_root_id, rel_path, status)
+              select ${libraryId}, ${rootD}, case when g % 2 = 0 then 'F/' else '' end || g || '.flac', 'missing'
+                from generate_series(1, 300000) g`;
+    const got = await rowsInDirs(ctx, libraryId, [{ scanRootId: rootD, dirPath: '' }, { scanRootId: rootD, dirPath: 'F' }], sql`true`);
+    expect(got.length).toBe(300000);
+    await sql`delete from scan_roots where id = ${rootD}`;
+  }, 60_000);
 
   it('the lock is released and its connection returned when fn throws', async () => {
     for (let i = 0; i < 15; i++) {        // more than the pool's 10 connections

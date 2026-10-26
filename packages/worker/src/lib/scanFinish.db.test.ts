@@ -13,7 +13,7 @@ import pino from 'pino';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
 import { walkTree } from './walk.js';
-import { finishWalk } from './scanFinish.js';
+import { finishWalk, finishNotes, UNMOUNTED_SKIP } from './scanFinish.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
   let ctx: WorkerContext;
@@ -192,7 +192,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
     const w = await walkTree(ctx, lone, { mode: 'full' });
     expect(w.looksUnmounted).toBe(true);
     const f = await finishWalk(ctx, lone, w);
-    expect(f).toMatchObject({ failedDirs: ['Only'], missing: 0 });
+    expect(f).toMatchObject({ failedDirs: ['Only'], missing: 0, merged: 0, reconcileSkipped: UNMOUNTED_SKIP });
+    expect(finishNotes(f)).toBe(`; could not read Only; nothing under them was marked missing; ${UNMOUNTED_SKIP}`);
     await chmod(path.join(lonePath, 'Only'), 0o755);
   });
 
