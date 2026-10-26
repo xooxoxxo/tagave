@@ -38,6 +38,12 @@ const NO_LIVE_JOB = sql`not exists (
    where q.name = 'identify.album' and q.state in ('created', 'retry', 'active')
      and q.data->>'localAlbumId' = j.data->>'localAlbumId')`;
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The distinct uuid strings of a request body field; anything else is dropped. */
+function uuidsOf(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === 'string' && UUID.test(x)))] : [];
+}
+
 async function ownedLibrary(userId: string, libraryId: string) {
   const db = getDb();
   const rows = await db.select().from(libraries)
@@ -302,9 +308,12 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
 
     let ids: string[];
     if (Array.isArray(body.albumIds) && body.albumIds.length) {
+      // drizzle binds a JS array as a row ($1, $2, …), not as uuid[]: list them
+      const wanted = uuidsOf(body.albumIds).slice(0, RETRY_CAP);
+      if (wanted.length === 0) throw new ApiError(400, 'Bad Request', 'None of the selected albums exist');
       const rows = await db.execute(sql`
         select id from local_albums where library_id = ${libraryId}
-           and id = any(${body.albumIds.slice(0, RETRY_CAP)}::uuid[])`) as unknown as Array<{ id: string }>;
+           and id in (${sql.join(wanted.map((id) => sql`${id}::uuid`), sql`, `)})`) as unknown as Array<{ id: string }>;
       ids = rows.map((r) => r.id);
     } else if (body.reason === 'job_failed') {
       const rows = await db.execute(sql`
@@ -377,9 +386,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     await ownedLibrary(request.user.id, libraryId);
     const body = (request.body ?? {}) as { albumIds?: unknown };
-    const ids = Array.isArray(body.albumIds)
-      ? [...new Set(body.albumIds.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x)))].slice(0, STATUS_CAP)
-      : [];
+    const ids = uuidsOf(body.albumIds).slice(0, STATUS_CAP);
     if (ids.length === 0) { reply.send({ items: [] }); return; }
     const rows = await getDb().execute(sql`
       select id, title_guess, artist_guess, state, identify_reason from local_albums

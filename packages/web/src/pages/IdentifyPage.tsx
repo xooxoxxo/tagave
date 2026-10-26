@@ -9,7 +9,8 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
 import { formatEta, formatRelativeTime } from '../utils/time';
 import { docsUrl } from '../utils/docs';
-import { Button } from '../components/ui';
+import { Banner, Button } from '../components/ui';
+import { actionProblem } from './identifyNow';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -284,6 +285,8 @@ export function IdentifyPanel() {
           }}
         />
       </div>
+
+      {retry.isError && <Banner tone="danger">{actionProblem(retry.error, 'Could not queue the albums.')}</Banner>}
 
       {/* Triage list */}
       {triageLoading && <div className={styles.loading}>Loading items...</div>}
