@@ -31,6 +31,7 @@
  * of their own, the Last.fm API key); only the player's scan status goes.
  */
 import type postgres from 'postgres';
+import { LISTEN_LINKS_TABLES, listenLinksEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
 
@@ -43,6 +44,8 @@ export interface ModuleData {
   history: { table: string; where: string } | null;
   /** Set in the app's environment while the module is on: the purge refuses then. */
   onWhenEnv: readonly string[];
+  /** A module switched by a setting in the database (Listen elsewhere): on, the purge refuses. */
+  onWhenSettings?: (sql: Sql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
    * the owner's own, Settings › Playback). `libraries` finds the libraries
@@ -111,6 +114,18 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       },
     },
   },
+  // Listen elsewhere (migration 0054): links to streaming platforms, when each
+  // album and artist was looked up, and each person's platforms. No history
+  // in the core; its switch (libraries.settings.modules) is the owner's
+  // setting and stays. The same tables as Settings › Modules' "Delete its
+  // data" (api › routes/listenLinks.ts, @tagave/db removeListenLinksData).
+  'listen-links': {
+    tables: [...LISTEN_LINKS_TABLES],
+    librarySettingsKeys: [],
+    history: null,
+    onWhenEnv: [],
+    onWhenSettings: (sql) => listenLinksEnabled(sql),
+  },
 };
 
 export class PurgeRefused extends Error {}
@@ -137,6 +152,7 @@ export async function purgeModuleData(
   const env = opts.env ?? process.env;
   const on = data.onWhenEnv.filter((k) => (env[k] ?? '').trim() !== '');
   if (on.length) throw new PurgeRefused(`${moduleId} is still on here (${on.join(', ')} is set); turn it off first`);
+  if (data.onWhenSettings && (await data.onWhenSettings(sql))) throw new PurgeRefused(`${moduleId} is still on here (Settings › Modules); turn it off first`);
   const deleteHistory = opts.deleteHistory === true;
 
   return sql.begin(async (tx) => {
