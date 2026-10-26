@@ -65,6 +65,21 @@ interface WizardStep2State {
 type WizardStep = 1 | 2;
 type WizardMode = 'new-plan' | 'add-to-plan';
 
+/**
+ * The preset a new plan starts from: the library's default policy (Settings ›
+ * Tag preferences); a manual or revert default is not a preset to pick.
+ */
+export function defaultPresetOf(policy: { preset: string } | null | undefined): WizardStep2State['preset'] {
+  const p = policy?.preset;
+  return p === 'fill_blanks_only' || p === 'overwrite_all' || p === 'custom' || p === 'canonical_ids_and_fill' ? p : 'canonical_ids_and_fill';
+}
+
+/** "1997 · 11 tracks · flac/mp3" under an album in the picker. */
+export function albumPickMeta(al: { year?: number | null | undefined; trackCount: number; formats: string[] }): string {
+  return [al.year ? String(al.year) : null, `${al.trackCount.toLocaleString()} ${al.trackCount === 1 ? 'track' : 'tracks'}`, al.formats.join('/') || null]
+    .filter(Boolean).join(' · ');
+}
+
 interface PlanWizardProps {
   libraryId: string;
   onClose: () => void;
@@ -136,9 +151,9 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone, replaceHi
       case 'albumIds': {
         const ids = step1.albumIds ?? [];
         if (ids.length === 1) return `${step1.albumLabels?.[ids[0]!] ?? '1 album'} tags`;
-        return `${ids.length} albums tags`;
+        return `Tags for ${ids.length} albums`;
       }
-      case 'filterQuery': return 'Filtered albums tags';
+      case 'filterQuery': return 'Tags for filtered albums';
       case 'library': return 'Whole library tags';
       default: return 'New tag plan';
     }
@@ -169,7 +184,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone, replaceHi
     if (policySeeded || !settings.data?.tagPolicy) return;
     const p = settings.data.tagPolicy;
     setStep2({
-      preset: p.preset === 'manual' || p.preset === 'revert' ? 'canonical_ids_and_fill' : p.preset,
+      preset: defaultPresetOf(p),
       id3Version: p.id3Version,
       multiValueSeparator: p.multiValueSeparator,
       ...(p.overrides ? { overrides: p.overrides } : {}),
@@ -411,6 +426,7 @@ export function PlanWizard({ libraryId, onClose, initialScope, onDone, replaceHi
             onNext={handleCreatePlan}
             onBack={() => setStep(1)}
             isLoading={createPlanMutation.isPending}
+            defaultPreset={defaultPresetOf(settings.data?.tagPolicy)}
           />
         )}
 
@@ -715,7 +731,7 @@ function AlbumPicker({
                   <input type="checkbox" checked={checked} disabled={inPlan} onChange={() => toggle(al.id, label)} />
                   <span>{label}</span>
                   <span className={styles.comboMeta}>
-                    {inPlan ? 'Already in this plan' : `${al.year ?? '—'} · ${al.trackCount} tracks · ${al.formats.join('/')}`}
+                    {inPlan ? 'Already in this plan' : albumPickMeta(al)}
                   </span>
                 </label>
               </li>
@@ -852,6 +868,7 @@ function Step2PolicyPicker({
   onNext,
   onBack,
   isLoading,
+  defaultPreset,
 }: {
   state: WizardStep2State;
   onChange: (state: WizardStep2State) => void;
@@ -862,7 +879,9 @@ function Step2PolicyPicker({
   onNext: () => void;
   onBack: () => void;
   isLoading: boolean;
+  defaultPreset: WizardStep2State['preset'];
 }) {
+  const dflt = (preset: WizardStep2State['preset']) => (preset === defaultPreset ? ' (default)' : '');
   return (
     <div className={styles.step}>
       <p className={styles.stepTitle}>How should the tags be fixed?</p>
@@ -891,7 +910,7 @@ function Step2PolicyPicker({
             onChange={() => onChange({ ...state, preset: 'canonical_ids_and_fill' })}
           />
           <span className={styles.choiceText}>
-            <span className={styles.choiceLabel}>Canonical IDs + fill (default)</span>
+            <span className={styles.choiceLabel}>Canonical IDs + fill{dflt('canonical_ids_and_fill')}</span>
             <span className={styles.choiceMeta}>Overwrite ID tags and key fields; fill blanks for title, artist, genre, compilation</span>
           </span>
         </label>
@@ -905,7 +924,7 @@ function Step2PolicyPicker({
             onChange={() => onChange({ ...state, preset: 'fill_blanks_only' })}
           />
           <span className={styles.choiceText}>
-            <span className={styles.choiceLabel}>Fill blanks only</span>
+            <span className={styles.choiceLabel}>Fill blanks only{dflt('fill_blanks_only')}</span>
             <span className={styles.choiceMeta}>Never overwrite; only set empty fields</span>
           </span>
         </label>
@@ -919,7 +938,7 @@ function Step2PolicyPicker({
             onChange={() => onChange({ ...state, preset: 'overwrite_all' })}
           />
           <span className={styles.choiceText}>
-            <span className={styles.choiceLabel}>Overwrite all</span>
+            <span className={styles.choiceLabel}>Overwrite all{dflt('overwrite_all')}</span>
             <span className={styles.choiceMeta}>Replace all canonical fields with new values</span>
           </span>
         </label>
@@ -933,7 +952,7 @@ function Step2PolicyPicker({
             onChange={() => onChange({ ...state, preset: 'custom' })}
           />
           <span className={styles.choiceText}>
-            <span className={styles.choiceLabel}>Custom (per-field rules)</span>
+            <span className={styles.choiceLabel}>Custom (per-field rules){dflt('custom')}</span>
             <span className={styles.choiceMeta}>Advanced: configure each field individually</span>
           </span>
         </label>
