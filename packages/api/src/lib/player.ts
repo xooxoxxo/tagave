@@ -277,6 +277,7 @@ export interface AlbumRow {
   title_guess: string | null;
   artist_guess: string | null;
   release_id: string | null;
+  release_group_id: string | null;
   release_title: string | null;
   release_mbid: string | null;
   embedded_mbid: string | null;
@@ -286,7 +287,7 @@ export interface AlbumRow {
 export async function albumById(sql: Sql, albumId: string): Promise<AlbumRow | null> {
   if (!/^[0-9a-f-]{36}$/i.test(albumId)) return null;
   const rows = await sql<AlbumRow[]>`
-    select la.id, la.library_id, la.title_guess, la.artist_guess, la.release_id,
+    select la.id, la.library_id, la.title_guess, la.artist_guess, la.release_id, la.release_group_id,
            r.title as release_title, r.mbid as release_mbid, la.embedded_mbid,
            exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front') as has_art
     from local_albums la
@@ -434,10 +435,20 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
   if (tracks.some((t) => t.reason === 'not_scanned')) {
     scan = await playerScanStatus(deps.sql, backend, album.library_id, deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {}).catch(() => null);
   }
+  // the credited artists with ids, so the player can link to their pages
+  const artists = album.release_group_id
+    ? await deps.sql<Array<{ id: string; name: string }>>`
+        select rga.artist_id as id, coalesce(nullif(rga.credited_name, ''), a.name) as name
+        from release_group_artists rga
+        join artists a on a.id = rga.artist_id
+        where rga.release_group_id = ${album.release_group_id}
+        order by rga.position`
+    : [];
   return {
     albumId: album.id,
     album: albumTitle,
     albumArtist,
+    artists: artists.map((a) => ({ id: a.id, name: a.name })),
     coverUrl: album.has_art ? `/api/v1/images/album/${album.id}` : null,
     tracks,
     scanRequested,

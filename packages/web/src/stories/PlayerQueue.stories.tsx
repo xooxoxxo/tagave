@@ -14,6 +14,9 @@ const meta = {
   tags: ['no-shot'],
   args: {
     album: 'Kind of Blue',
+    albumId: 'kind-of-blue',
+    albumArtist: 'Miles Davis',
+    artists: [{ id: 'miles-davis', name: 'Miles Davis' }],
     tracks: [t(1, 'So What'), t(2, 'Freddie Freeloader'), t(3, 'Blue in Green'), t(4, 'All Blues'), t(5, 'Flamenco Sketches')],
     index: 1,
     onPlay: () => undefined,
@@ -26,7 +29,7 @@ const meta = {
     docs: {
       story: { inline: false, iframeHeight: 560 },
       description: {
-        component: 'The play queue, opened with the queue key in the player bar. The album’s tracks in play order: played ones quiet, the playing one marked with a still dot and "Now playing", the ones to come movable up and down and removable. A row plays its track. The header says where the music plays: this device (tagave never hands playback to another one). Escape or a press outside closes it.',
+        component: 'The play queue, opened with the queue key in the player bar. The album’s tracks in play order: played ones quiet, the playing one marked with a still dot and "Now playing", the ones to come movable up and down and removable. A row plays its track; the album name and the artist under a track link to their pages. The header says where the music plays: this device (tagave never hands playback to another one). Escape or a press outside closes it.',
       },
     },
   },

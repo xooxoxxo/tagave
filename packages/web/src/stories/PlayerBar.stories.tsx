@@ -13,6 +13,8 @@ const meta = {
     title: 'So What',
     artist: 'Miles Davis',
     album: 'Kind of Blue',
+    artists: [{ id: 'miles-davis', name: 'Miles Davis' }],
+    albumId: 'kind-of-blue',
     coverUrl: COVER_SRC,
     status: 'playing',
     message: null,
@@ -39,7 +41,7 @@ const meta = {
     docs: {
       story: { inline: false, iframeHeight: 160 },
       description: {
-        component: 'The player of the opt-in player module (Settings › Playback): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and close (stops and clears the queue). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine and appears only while a queue exists and a player is installed. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
+        component: 'The player of the opt-in player module (Settings › Playback): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and close (stops and clears the queue). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine and appears only while a queue exists and a player is installed. The artist names and the album name link to their pages (plain text until hover or keyboard focus; following one keeps the music playing); an album tagave has not identified has no artist links. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
       },
     },
   },
@@ -62,6 +64,11 @@ export const LongTitles: Story = {
     duration: 4321,
   },
 };
+export const TwoArtists: Story = {
+  name: 'Two artists',
+  args: { title: 'Alone Together', artist: 'Chet Baker & Bill Evans', album: 'Chet', artists: [{ id: 'chet-baker', name: 'Chet Baker' }, { id: 'bill-evans', name: 'Bill Evans' }] },
+};
+export const NotIdentified: Story = { name: 'Artist not identified (no links)', args: { artists: null, albumId: null } };
 export const NoCover: Story = { args: { coverUrl: null } };
 export const AtTheEnd: Story = { args: { canNext: false, position: 296 } };
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } } };

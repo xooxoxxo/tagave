@@ -96,6 +96,8 @@ export interface PlayerQueueView {
   albumId: string;
   album: string;
   albumArtist: string;
+  /** the album's credited artists with their tagave ids, in credit order, for links to their pages (absent from an older API; empty before the album is identified) */
+  artists?: Array<{ id: string; name: string }>;
   /** tagave's own cover art, the same URL the album page uses */
   coverUrl: string | null;
   /** disc, then track order; unavailable tracks are included (the UI skips them) */

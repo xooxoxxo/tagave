@@ -13,12 +13,17 @@ import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, moveInQueue, next, playAt, previous, removeFromQueue, retry, seek, setVolume, stop, toggle, usePlayerStore, type PlayerStatus } from '../player/engine';
 import { PlayerQueueView } from './PlayerQueue';
+import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
 
 export interface PlayerBarViewProps {
   title: string;
   artist: string;
   album: string;
+  /** the artists `artist` stands for, with ids: each becomes a link to their page */
+  artists?: readonly CreditedArtist[] | null | undefined;
+  /** the album's id: its name becomes a link to its page */
+  albumId?: string | null | undefined;
   coverUrl: string | null;
   status: PlayerStatus;
   /** the plain sentence of the error state */
@@ -44,7 +49,7 @@ export interface PlayerBarViewProps {
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -64,7 +69,13 @@ export function PlayerBarView({ title, artist, album, coverUrl, status, message,
         <CoverArt src={coverUrl} title={album || title} compact className={styles.cover} />
         <div className={styles.names}>
           <span className={styles.title} title={title} dir="auto">{title}</span>
-          {subtitle && <span className={styles.artist} title={subtitle} dir="auto">{subtitle}</span>}
+          {subtitle && (
+            <span className={styles.artist} title={subtitle} dir="auto" {...lineReset}>
+              {artists && artists.length > 0 ? <ArtistLinks artists={artists} /> : artist}
+              {artist && album && ' · '}
+              {album && (albumId ? <AlbumLink albumId={albumId}>{album}</AlbumLink> : album)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -205,23 +216,30 @@ export function PlayerBar() {
   if (!s.queue || !hasQueue) return null;
   const track = currentTrack(s);
   const tracks = s.queue.tracks;
+  const barArtist = track?.artist || s.queue.albumArtist;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
       {queueOpen && (
         <PlayerQueueView
           album={s.queue.album}
+          albumId={s.queue.albumId}
+          albumArtist={s.queue.albumArtist}
+          artists={s.queue.artists}
           tracks={tracks}
           index={s.index}
           onPlay={playAt}
           onMove={moveInQueue}
           onRemove={removeFromQueue}
           onClose={closeQueue}
+          onNavigate={() => setQueueOpen(false)}
         />
       )}
       <PlayerBarView
         title={track?.title ?? s.queue.album}
-        artist={track?.artist || s.queue.albumArtist}
+        artist={barArtist}
         album={track ? s.queue.album : ''}
+        artists={linkedArtists(barArtist, s.queue.albumArtist, s.queue.artists)}
+        albumId={s.queue.albumId}
         coverUrl={s.queue.coverUrl}
         status={s.status}
         message={s.message}

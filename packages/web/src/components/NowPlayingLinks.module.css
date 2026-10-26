@@ -1,0 +1,30 @@
+/*
+ * The player's artist and album links read as the text around them; only
+ * hover and keyboard focus show they are links. They sit in one-line,
+ * clipped text, where a focus ring would be cut off: keyboard focus is the
+ * underline (thicker) and the brighter ink. A focused link past the
+ * ellipsis scrolls into view; the line scrolls back when focus leaves it
+ * (lineReset).
+ */
+.link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.link:hover,
+.link:focus-visible {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link:focus-visible {
+  outline: none;
+  text-decoration-thickness: 2px;
+}
+
+@media (forced-colors: active) {
+  .link {
+    color: LinkText;
+  }
+}
