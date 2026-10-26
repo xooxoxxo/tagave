@@ -8,11 +8,14 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { releaseExpiredHolds, releaseParsedHolds } from '../lib/clusterHold.js';
+import { releaseExpiredHolds, releaseParsedHolds, type HoldScope } from '../lib/clusterHold.js';
+import { errorMessage } from '../lib/dbErrors.js';
 
 export interface ScanSweepJobData {
   /** default 7 days */
   fullEveryDays?: number;
+  /** Hold releases for one library only; tests on the shared database. Production sends none. */
+  scope?: HoldScope;
 }
 
 export function scanDecision(input: {
@@ -39,9 +42,17 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
   const fullEveryDays = data.fullEveryDays ?? 7;
   // Cluster holds past the one-hour cap (move-safe scanning §1). First, so a
   // root that fails below cannot keep the cap from firing.
-  await releaseExpiredHolds(ctx);
+  try {
+    await releaseExpiredHolds(ctx, data.scope);
+  } catch (err) {
+    ctx.logger.warn({ err: errorMessage(err) }, 'scan sweep: releasing capped cluster holds failed');
+  }
   // Parsed folders whose release found the library lock busy: Tier 2 again.
-  await releaseParsedHolds(ctx);
+  try {
+    await releaseParsedHolds(ctx, data.scope);
+  } catch (err) {
+    ctx.logger.warn({ err: errorMessage(err) }, 'scan sweep: retrying parsed cluster holds failed');
+  }
   const roots = await ctx.db.select().from(scanRoots).where(eq(scanRoots.enabled, true));
   const now = new Date();
   let enqueued = 0;

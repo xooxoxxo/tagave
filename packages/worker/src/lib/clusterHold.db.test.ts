@@ -92,7 +92,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     await placeHolds(ctx, [twin]);
     await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
     expect(await scopeHoldState(ctx, [twin])).toBe('expired');
-    expect(await releaseExpiredHolds(ctx)).toBe(1);
+    expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
     expect(await holdOf(twin)).toBeNull();
     expect(sent).toEqual([expect.objectContaining({ name: 'cluster.dir', data: { libraryId, scanRootId: rootId, dirPath: 'New' } })]);
   });
@@ -165,7 +165,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds with a real pg-bo
     await placeHolds(ctx, [twin]);
     await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
     await earlyReturn();
-    expect(await releaseExpiredHolds(ctx)).toBe(1);
+    expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
     expect(await queued()).toBe(1);
   }, 30_000);
 });

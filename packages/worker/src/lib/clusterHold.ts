@@ -15,7 +15,8 @@
  */
 import type { WorkerContext } from './context.js';
 import { clusterSingletonKey, relDirname } from './helpers.js';
-import { describeMoves, reconcileTier2, sqlDirname, type DirRef } from './reconcile.js';
+import { describeMoves, emptyReconcile, reconcileTier2, sqlDirname, type DirRef } from './reconcile.js';
+import { errorMessage } from './dbErrors.js';
 
 export const CLUSTER_HOLD_CAP_MS = 3_600_000;
 const CAP_SECONDS = CLUSTER_HOLD_CAP_MS / 1000;
@@ -99,10 +100,19 @@ export async function releaseDirHolds(
   const wanted = new Set(dirs);
   const held = (await heldRows(ctx, scanRootId)).filter((h) => wanted.has(h.dir));
   if (held.length === 0) return { released: 0, reclusterDirs: [], deferred: false };
-  const rec = await reconcileTier2(ctx, libraryId, held.filter((h) => h.parsed).map((h) => h.id));
+  const parsedIds = held.filter((h) => h.parsed).map((h) => h.id);
+  let rec: Awaited<ReturnType<typeof reconcileTier2>>;
+  try {
+    rec = await reconcileTier2(ctx, libraryId, parsedIds);
+  } catch (err) {
+    // At the cap a hold never outlives the hour: a failed Tier 2 releases unpaired.
+    if (!opts.atCap) throw err;
+    ctx.logger.warn({ scanRootId, dirs: dirs.length, err: errorMessage(err) }, 'files.reconcile: Tier 2 failed at the hold cap, released without it');
+    rec = { ...emptyReconcile(), lockBusy: false };
+  }
   if (rec.lockBusy) {
     if (!opts.atCap) {
-      ctx.logger.info({ scanRootId, dirs: dirs.length }, 'files.reconcile: library busy, Tier 2 and the hold release wait for the next sweep');
+      ctx.logger.debug({ scanRootId, dirs: dirs.length }, 'files.reconcile: library busy, Tier 2 and the hold release wait for the next sweep');
       return { released: 0, reclusterDirs: [], deferred: true };
     }
     ctx.logger.warn({ scanRootId, dirs: dirs.length }, 'files.reconcile: library busy at the hold cap, released without Tier 2');
@@ -160,42 +170,59 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
   return out;
 }
 
-/** scan.sweep: holds past the cap are released and their folders clustered. */
-export async function releaseExpiredHolds(ctx: WorkerContext): Promise<number> {
+/** Limits a sweep to one library (tests on the shared database); production sweeps everything. */
+export interface HoldScope { libraryId: string }
+
+/**
+ * scan.sweep: holds past the cap are released and their folders clustered.
+ * Tier 2 still runs for their parsed rows, but neither a busy library lock nor
+ * a Tier 2 error keeps the hold, and one folder's error never stops the rest.
+ * Returns the number of folders released.
+ */
+export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select distinct af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
       from audio_files af
      where af.reconcile_hold_at is not null
-       and af.reconcile_hold_at <= now() - ${CAP_SECONDS}::int * interval '1 second'`;
-  let released = 0;
+       and af.reconcile_hold_at <= now() - ${CAP_SECONDS}::int * interval '1 second'
+       ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}`;
+  let folders = 0;
   for (const r of rows) {
     const libraryId = r['library_id'] as string; const scanRootId = r['scan_root_id'] as string; const dirPath = r['dir'] as string;
-    const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath], { atCap: true });
-    released += res.released;
-    await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
-    for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
+    try {
+      const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath], { atCap: true });
+      if (res.released > 0) folders += 1;
+      await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
+      for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
+    } catch (err) {
+      ctx.logger.warn({ scanRootId, dirPath, err: errorMessage(err) }, 'cluster hold release at the cap failed for a folder');
+    }
   }
-  if (released > 0) ctx.logger.info({ released }, 'cluster holds released after the one-hour cap');
-  return released;
+  if (folders > 0) ctx.logger.info({ folders }, 'cluster holds released after the one-hour cap');
+  return folders;
 }
 
 /**
  * scan.sweep: folders whose held rows are all parsed but still held, because
  * Tier 2 found the library lock busy when scan.parse released them, get
- * another try (and their cluster.dir once released). Still busy: they wait
- * for the next sweep, and the cap releases them in any case.
+ * another try (and their cluster.dir once released, plus the folders Tier 2
+ * took files from). Still busy: they wait for the next sweep, and the cap
+ * releases them in any case. Returns the number of folders released (the
+ * same unit as releaseExpiredHolds; the extra Tier 2 folders do not count).
  */
-export async function releaseParsedHolds(ctx: WorkerContext): Promise<number> {
+export async function releaseParsedHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
       from audio_files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second'
+       ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}
      group by 1, 2, 3
     having bool_and(af.tags_read_at is not null or af.status = 'error')`;
   if (rows.length === 0) return 0;
   const touched = rows.map((r) => ({ libraryId: r['library_id'] as string, scanRootId: r['scan_root_id'] as string, dirPath: r['dir'] as string }));
+  const wanted = new Set(touched.map((t) => `${t.scanRootId}\n${t.dirPath}`));
   const out = await releaseReadyHolds(ctx, touched);
   for (const d of out) await sendReleasedCluster(ctx, d);
-  return out.length;
+  return out.filter((d) => wanted.has(`${d.scanRootId}\n${d.dirPath}`)).length;
 }

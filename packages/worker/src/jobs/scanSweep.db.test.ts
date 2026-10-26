@@ -47,7 +47,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scanSweepJob (db)', () => {
     const staleStart = new Date(Date.now() - STALE_RUNNING_MS - 60_000);
     const [stale] = await db.insert(scans).values({ scanRootId: rootId, status: 'running', startedAt: staleStart, stats: {} }).returning({ id: scans.id });
 
-    await scanSweepJob(ctx, {});
+    await scanSweepJob(ctx, { scope: { libraryId } });
 
     const [row] = await db.select().from(scans).where(eq(scans.id, stale.id));
     expect(row.status).toBe('aborted');
@@ -63,7 +63,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scanSweepJob (db)', () => {
   it('leaves a fresh running scan alone', async () => {
     sent.length = 0;
     await db.insert(scans).values({ scanRootId: rootId, status: 'running', startedAt: new Date(), stats: { mode: 'full' } });
-    await scanSweepJob(ctx, {});
+    await scanSweepJob(ctx, { scope: { libraryId } });
     expect(sent.filter((s) => (s.data as { scanRootId?: string }).scanRootId === rootId)).toHaveLength(0);
   });
 });

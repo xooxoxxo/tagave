@@ -150,12 +150,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
       expect(await releaseReadyHolds(ctx, [{ libraryId, scanRootId: rootId, dirPath: 'New' }])).toEqual([]);
       expect(await holdOf(fresh)).not.toBeNull();
       expect(await exists(fresh)).toBe(true);
-      expect(await releaseParsedHolds(ctx)).toBe(0);   // still busy: still held
+      expect(await releaseParsedHolds(ctx, { libraryId })).toBe(0);   // still busy: still held
       expect(await holdOf(fresh)).not.toBeNull();
     } finally {
       await unlock();
     }
-    expect(await releaseParsedHolds(ctx)).toBe(2);
+    expect(await releaseParsedHolds(ctx, { libraryId })).toBe(1);
     expect(await exists(fresh)).toBe(false);
     expect(await exists(old)).toBe(true);
     expect(clustered()).toEqual(['New', 'Old']);
@@ -166,10 +166,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
     const unlock = await holdLock();
     try {
-      expect(await releaseExpiredHolds(ctx)).toBe(1);
+      expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
     } finally {
       await unlock();
     }
+    expect(await holdOf(fresh)).toBeNull();
+    expect(await exists(fresh)).toBe(true);
+    expect((await sql`select status from audio_files where id = ${old}`)[0].status).toBe('missing');
+    expect(clustered()).toEqual(['New']);
+  });
+
+  it('Tier 2 failing at the cap still releases the hold and clusters the folder', async () => {
+    const { old, fresh } = await copied();
+    await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
+    // Tier 2 cannot get its connection; every other query goes through.
+    const failing = new Proxy(sql, { get: (t, k) => k === 'reserve' ? async () => { throw new Error('no connection'); } : Reflect.get(t, k) });
+    expect(await releaseExpiredHolds({ ...ctx, sql: failing }, { libraryId })).toBe(1);
     expect(await holdOf(fresh)).toBeNull();
     expect(await exists(fresh)).toBe(true);
     expect((await sql`select status from audio_files where id = ${old}`)[0].status).toBe('missing');
