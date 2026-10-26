@@ -25,6 +25,7 @@ import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefres
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
+import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -90,6 +91,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'tracks.link': 'stately',
   // one queued per link (singletonKey connections.pull:<link id>) behind the running one
   'connections.pull': 'stately',
+  // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
+  'listenLinks.resolve': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -293,6 +296,16 @@ async function main() {
       for (const job of jobs) await connectionsPullJob(ctx, job.data);
     });
     await boss.schedule('connections.pull', '*/15 * * * *', {}, { singletonKey: 'connections.pull:tick' });
+  }
+  // Listen elsewhere's link lookups (the listen-links module), on the identify
+  // worker: MusicBrainz shares identify's pacer. Pages send one album's or
+  // artist's job when opened; a nightly sweep looks up a few followed
+  // artists' missing albums. Off (Settings › Modules), every run skips.
+  if (wants('identify.album')) {
+    await boss.work<ListenLinksResolveJobData>('listenLinks.resolve', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await listenLinksResolveJob(ctx, job.data);
+    });
+    await boss.schedule('listenLinks.resolve', '40 3 * * *', { sweep: true }, { singletonKey: 'listen:sweep' });
   }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));
