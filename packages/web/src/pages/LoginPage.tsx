@@ -165,12 +165,20 @@ export function LoginPage() {
           )}
         </form>
 
-        <div className={styles.footer}>
-          <p>
-            <a href="/setup">Create owner account</a>
-          </p>
-        </div>
+        <SetupLink setupRequired={setupRequired.data} />
       </div>
+    </div>
+  );
+}
+
+/** The way to first-run setup, only while the server says no owner exists. */
+export function SetupLink({ setupRequired }: { setupRequired: boolean | undefined }) {
+  if (setupRequired !== true) return null;
+  return (
+    <div className={styles.footer}>
+      <p>
+        <a href="/setup">Create owner account</a>
+      </p>
     </div>
   );
 }
