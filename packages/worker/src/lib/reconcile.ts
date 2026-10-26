@@ -1,8 +1,9 @@
 /**
  * Reconciliation (move-safe scanning §1). Tier 1 runs at the end of each walk
- * (scan.root, scan.dir); Tier 2 after parsing (Task 11). Both run under one
- * session-level advisory lock per library, taken on a reserved connection and
- * held only for reconcile plus missing-marking, never for the walk: no
+ * (scan.root, scan.dir); Tier 2 when a cluster hold is released (scan.parse,
+ * scan.sweep). Both run under one session-level advisory lock per library,
+ * taken on a reserved connection and held only for reconcile plus
+ * missing-marking (Tier 2 only tries it, never waits), never for the walk: no
  * hours-long transaction, and a "Rescan this folder" never waits behind a
  * full walk, only behind another finish step.
  */
@@ -37,10 +38,37 @@ export async function withLibraryLock<T>(
   ctx: Pick<WorkerContext, 'sql'> & { logger?: Pick<WorkerContext['logger'], 'warn'> },
   libraryId: string, fn: () => Promise<T>,
 ): Promise<T> {
+  const out = await runLocked(ctx, libraryId, false, fn);
+  return (out as { locked: true; value: T }).value;
+}
+
+/**
+ * withLibraryLock without the wait: when another session holds the lock, fn
+ * does not run and `{ locked: false }` comes back at once. For callers that
+ * must not park a pooled connection behind a full scan's finish step
+ * (scan.parse, scan.sweep). Never call it, or withLibraryLock, inside fn:
+ * the lock is per session and the nested call would take a second one.
+ */
+export async function tryWithLibraryLock<T>(
+  ctx: Pick<WorkerContext, 'sql'> & { logger?: Pick<WorkerContext['logger'], 'warn'> },
+  libraryId: string, fn: () => Promise<T>,
+): Promise<{ locked: true; value: T } | { locked: false }> {
+  return runLocked(ctx, libraryId, true, fn);
+}
+
+async function runLocked<T>(
+  ctx: Pick<WorkerContext, 'sql'> & { logger?: Pick<WorkerContext['logger'], 'warn'> },
+  libraryId: string, tryOnly: boolean, fn: () => Promise<T>,
+): Promise<{ locked: true; value: T } | { locked: false }> {
   const key = RECONCILE_LOCK_PREFIX + libraryId;
   const conn = await ctx.sql.reserve();
   try {
-    await conn`select pg_advisory_lock(hashtextextended(${key}, 0))`;
+    if (tryOnly) {
+      const [got] = (await conn`select pg_try_advisory_lock(hashtextextended(${key}, 0)) as locked`) as unknown as Array<{ locked: boolean }>;
+      if (got?.locked !== true) return { locked: false };
+    } else {
+      await conn`select pg_advisory_lock(hashtextextended(${key}, 0))`;
+    }
     let out: { ok: true; value: T } | { ok: false; err: unknown };
     try {
       out = { ok: true, value: await fn() };
@@ -55,7 +83,7 @@ export async function withLibraryLock<T>(
       ctx.logger?.warn({ libraryId, err: errorMessage(unlockErr) }, 'files.reconcile: unlock failed after an error');
     }
     if (!out.ok) throw out.err;
-    return out.value;
+    return { locked: true, value: out.value };
   } finally {
     conn.release();
   }
@@ -260,6 +288,41 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
     // Tier 1 pairs only on equal size, so a null size bars it from every pairing.
     .map((f) => f.scanRootId === root.id && isUnderFailedPath(f.relPath, failed) ? { ...f, sizeBytes: null, inode: null } : f);
   return runMerges(ctx, 1, olds, freshs, walk.walkStart, false);
+}
+
+/** Tier 2's result; `lockBusy` means it did not run because another session held the library lock. */
+export interface Tier2Result extends ReconcileResult { lockBusy: boolean }
+
+/**
+ * Tier 2: parsed new rows against the library's missing rows by size +
+ * duration + core tag digest, or audio hash when both have one. The old row
+ * must already be missing (walkStart null). It takes the library lock with a
+ * try-lock: it runs inside scan.parse and scan.sweep, which must not hold a
+ * pooled connection while a full scan reconciles. On a busy lock nothing is
+ * paired and `lockBusy` is set; the caller keeps the holds and tries again.
+ */
+export async function reconcileTier2(ctx: WorkerContext, libraryId: string, freshIds: string[]): Promise<Tier2Result> {
+  if (freshIds.length === 0) return { ...emptyReconcile(), lockBusy: false };
+  const out = await tryWithLibraryLock(ctx, libraryId, async () => {
+    const sql = ctx.sql;
+    const parsed = await loadMatchFiles(ctx, sql`af.id = any(${freshIds}::uuid[]) and af.library_id = ${libraryId}
+                                                 and af.status in ('present', 'error')`);
+    if (parsed.length === 0) return emptyReconcile();
+    const sizes = [...new Set(parsed.map((f) => f.sizeBytes).filter((s): s is number => s !== null))];
+    const hashes = [...new Set(parsed.map((f) => f.audioHash).filter((h): h is string => !!h))];
+    let latestMs = -Infinity;
+    for (const f of parsed) { const t = f.firstSeenAt.getTime(); if (t > latestMs) latestMs = t; }
+    const latest = new Date(latestMs).toISOString();
+    let olds = await loadMatchFiles(ctx, sql`af.library_id = ${libraryId} and af.status = 'missing' and af.last_seen_at <= ${latest}::timestamptz
+      and (af.size_bytes = any(${sizes}::bigint[]) or af.audio_hash = any(${hashes}::text[]))`);
+    if (olds.length === 0) return emptyReconcile();
+    const earliest = earliestLastSeen(olds).toISOString();
+    olds = uniqById([...olds, ...await rowsInDirs(ctx, libraryId, dirsOf(olds), sql`af.status = 'missing'`)]);
+    const freshs = uniqById([...parsed, ...await rowsInDirs(ctx, libraryId, dirsOf(parsed),
+      sql`af.status in ('present', 'error') and af.first_seen_at >= ${earliest}::timestamptz`)]);
+    return runMerges(ctx, 2, olds, freshs, null, false);
+  });
+  return out.locked ? { ...out.value, lockBusy: false } : { ...emptyReconcile(), lockBusy: true };
 }
 
 export function describeMoves(moves: MoveRecord[]): string {

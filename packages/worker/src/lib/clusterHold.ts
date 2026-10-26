@@ -6,16 +6,22 @@
  * every held row of the folder is parsed or failed to parse, and in any case
  * after an hour (Ruling 7: scan.sweep releases it, every 10 minutes).
  *
- * Nothing here takes the library's reconcile lock: a release runs inside
- * scan.parse and scan.sweep, which must not wait behind a full scan.
+ * A release runs Tier 2 for the folder's parsed held rows first. It runs
+ * inside scan.parse and scan.sweep, which must not wait behind a full scan, so
+ * Tier 2 only tries the library's reconcile lock. When the lock is busy a
+ * folder that is ready keeps its holds (nothing is clustered) and scan.sweep
+ * tries again within ten minutes (releaseParsedHolds); at the cap the hold is
+ * released all the same and the rows fall through to clustering unpaired.
  */
 import type { WorkerContext } from './context.js';
 import { clusterSingletonKey, relDirname } from './helpers.js';
-import { sqlDirname, type DirRef } from './reconcile.js';
+import { describeMoves, reconcileTier2, sqlDirname, type DirRef } from './reconcile.js';
 
 export const CLUSTER_HOLD_CAP_MS = 3_600_000;
 const CAP_SECONDS = CLUSTER_HOLD_CAP_MS / 1000;
 const UPDATE_BATCH = 2000;
+/** scan.parse batch size for Tier 2 merges whose bytes changed (scan.root and scan.dir use the same). */
+const PARSE_BATCH = 50;
 
 /** A folder to cluster after a release, with the library it belongs to. */
 export interface ReleasedDir extends DirRef { libraryId: string }
@@ -73,12 +79,36 @@ export async function heldRows(ctx: Pick<WorkerContext, 'sql'>, scanRootId: stri
   }));
 }
 
-/** Clears the holds of these folders (Task 11 runs Tier 2 for their parsed rows first). */
-export async function releaseDirHolds(ctx: WorkerContext, libraryId: string, scanRootId: string, dirs: string[]): Promise<{ released: number; reclusterDirs: DirRef[] }> {
+export interface DirRelease {
+  released: number;
+  /** Folders Tier 2 took files from, other than the released ones (those the caller clusters anyway). */
+  reclusterDirs: DirRef[];
+  /** The library lock was busy, so Tier 2 did not run and the holds were kept (never at the cap). */
+  deferred: boolean;
+}
+
+/**
+ * Runs Tier 2 for the parsed held rows of these folders, then clears their
+ * holds. Rows still unparsed lose Tier 2 (Ruling 7). On a busy library lock
+ * the holds stay and nothing changes (`deferred`), unless `atCap`: a hold
+ * never outlives the hour, so then the holds go and the rows stay unpaired.
+ */
+export async function releaseDirHolds(
+  ctx: WorkerContext, libraryId: string, scanRootId: string, dirs: string[], opts: { atCap?: boolean } = {},
+): Promise<DirRelease> {
   const wanted = new Set(dirs);
-  const ids = (await heldRows(ctx, scanRootId)).filter((h) => wanted.has(h.dir)).map((h) => h.id);
-  if (ids.length === 0) return { released: 0, reclusterDirs: [] };
-  void libraryId; // used by Tier 2 (Task 11)
+  const held = (await heldRows(ctx, scanRootId)).filter((h) => wanted.has(h.dir));
+  if (held.length === 0) return { released: 0, reclusterDirs: [], deferred: false };
+  const rec = await reconcileTier2(ctx, libraryId, held.filter((h) => h.parsed).map((h) => h.id));
+  if (rec.lockBusy) {
+    if (!opts.atCap) {
+      ctx.logger.info({ scanRootId, dirs: dirs.length }, 'files.reconcile: library busy, Tier 2 and the hold release wait for the next sweep');
+      return { released: 0, reclusterDirs: [], deferred: true };
+    }
+    ctx.logger.warn({ scanRootId, dirs: dirs.length }, 'files.reconcile: library busy at the hold cap, released without Tier 2');
+  }
+  // A merged old row's hold was cleared by mergeFilePair; the fresh row it came from is gone.
+  const ids = held.map((h) => h.id);
   let released = 0;
   for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
     const out = await ctx.sql`
@@ -87,14 +117,24 @@ export async function releaseDirHolds(ctx: WorkerContext, libraryId: string, sca
       returning id`;
     released += out.length;
   }
-  return { released, reclusterDirs: [] };
+  // A merge that took an unparsed row with other bytes needs the old row parsed again.
+  for (let i = 0; i < rec.reparseIds.length; i += PARSE_BATCH) {
+    await ctx.boss.send('scan.parse', { audioFileIds: rec.reparseIds.slice(i, i + PARSE_BATCH) });
+  }
+  if (rec.merged > 0) ctx.logger.info({ scanRootId, merged: rec.merged, moves: describeMoves(rec.moves) }, 'files.reconcile: Tier 2');
+  // Old folders lost files; the released ones are clustered by the caller already.
+  const reclusterDirs = rec.reclusterDirs.filter((d) => !(d.scanRootId === scanRootId && wanted.has(d.dirPath)));
+  const heldIds = new Set(ids);
+  for (const id of rec.mergedFreshIds) if (heldIds.has(id)) released += 1;
+  return { released, reclusterDirs, deferred: false };
 }
 
 /**
  * scan.parse: releases the touched folders whose held rows are now all parsed
  * or failed. Returns every folder to cluster because of a release: the
- * released folders themselves plus Tier 2's extra folders (Task 11). The
- * caller sends these with sendReleasedCluster, not its throttled send.
+ * released folders themselves plus the folders Tier 2 took files from. A
+ * folder deferred on a busy library lock is not returned (it stays held).
+ * The caller sends these with sendReleasedCluster, not its throttled send.
  */
 export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ libraryId: string; scanRootId: string; dirPath: string }>): Promise<ReleasedDir[]> {
   const out: ReleasedDir[] = [];
@@ -113,6 +153,7 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
     const ready = [...pending].filter(([, allParsed]) => allParsed).map(([d]) => d);
     if (ready.length === 0) continue;
     const res = await releaseDirHolds(ctx, libraryId, scanRootId, ready);
+    if (res.deferred) continue;
     for (const dirPath of ready) out.push({ libraryId, scanRootId, dirPath });
     for (const d of res.reclusterDirs) out.push({ libraryId, ...d });
   }
@@ -129,11 +170,32 @@ export async function releaseExpiredHolds(ctx: WorkerContext): Promise<number> {
   let released = 0;
   for (const r of rows) {
     const libraryId = r['library_id'] as string; const scanRootId = r['scan_root_id'] as string; const dirPath = r['dir'] as string;
-    const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath]);
+    const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath], { atCap: true });
     released += res.released;
     await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
     for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
   }
   if (released > 0) ctx.logger.info({ released }, 'cluster holds released after the one-hour cap');
   return released;
+}
+
+/**
+ * scan.sweep: folders whose held rows are all parsed but still held, because
+ * Tier 2 found the library lock busy when scan.parse released them, get
+ * another try (and their cluster.dir once released). Still busy: they wait
+ * for the next sweep, and the cap releases them in any case.
+ */
+export async function releaseParsedHolds(ctx: WorkerContext): Promise<number> {
+  const rows = await ctx.sql`
+    select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
+      from audio_files af
+     where af.reconcile_hold_at is not null
+       and af.reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second'
+     group by 1, 2, 3
+    having bool_and(af.tags_read_at is not null or af.status = 'error')`;
+  if (rows.length === 0) return 0;
+  const touched = rows.map((r) => ({ libraryId: r['library_id'] as string, scanRootId: r['scan_root_id'] as string, dirPath: r['dir'] as string }));
+  const out = await releaseReadyHolds(ctx, touched);
+  for (const d of out) await sendReleasedCluster(ctx, d);
+  return out.length;
 }

@@ -8,7 +8,7 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { releaseExpiredHolds } from '../lib/clusterHold.js';
+import { releaseExpiredHolds, releaseParsedHolds } from '../lib/clusterHold.js';
 
 export interface ScanSweepJobData {
   /** default 7 days */
@@ -40,6 +40,8 @@ export async function scanSweepJob(ctx: WorkerContext, data: ScanSweepJobData): 
   // Cluster holds past the one-hour cap (move-safe scanning §1). First, so a
   // root that fails below cannot keep the cap from firing.
   await releaseExpiredHolds(ctx);
+  // Parsed folders whose release found the library lock busy: Tier 2 again.
+  await releaseParsedHolds(ctx);
   const roots = await ctx.db.select().from(scanRoots).where(eq(scanRoots.enabled, true));
   const now = new Date();
   let enqueued = 0;
