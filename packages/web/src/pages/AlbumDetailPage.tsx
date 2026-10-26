@@ -43,7 +43,7 @@ import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, CloseIcon, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
 import { AlbumFacts } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
@@ -1002,7 +1002,7 @@ export function AlbumDetailPage() {
                   {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
                   <span>{statusNote.text}</span>
                   {!statusNote.live && (
-                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss">✕</button>
+                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss"><CloseIcon /></button>
                   )}
                 </p>
               )}

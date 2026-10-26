@@ -396,6 +396,16 @@
   font-size: 0.75rem;
 }
 
+.statusDismiss svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.statusDismiss:active:not(:disabled) {
+  transform: none;
+}
+
 .statusDismiss:hover:not(:disabled) {
   background: var(--mist);
   color: var(--ink);

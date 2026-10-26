@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useSyncExternalStore } from 'react';
-import { Button } from './Button';
+import { Button, IconButton } from './Button';
+import { CloseIcon } from './icons';
 import styles from './Toast.module.css';
 
 /**
@@ -70,7 +71,7 @@ export function ToastHost() {
               {toast.action.label}
             </Button>
           )}
-          <button type="button" className={styles.close} aria-label="Dismiss" onClick={() => dismissToast(toast.id)}>×</button>
+          <IconButton variant="quiet" size="sm" label="Dismiss" className={styles.close} onClick={() => dismissToast(toast.id)}><CloseIcon /></IconButton>
         </div>
       )}
     </div>

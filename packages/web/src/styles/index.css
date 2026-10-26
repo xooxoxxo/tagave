@@ -157,9 +157,10 @@ body {
   background-color: var(--accent-hover);
 }
 
+/* press: the fill deepens; the button never moves (a 1px nudge made rows,
+   tabs and keys jump, and most of them had to switch it off) */
 :where(button:active:not(:disabled)) {
   background-color: var(--accent-active);
-  transform: translateY(1px);
 }
 
 :where(button:disabled) {

@@ -25,7 +25,7 @@
 
 .interactive {
   cursor: pointer;
-  transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) ease, color var(--dur) ease;
+  transition: box-shadow var(--dur-fast) ease-out, color var(--dur) ease;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -40,7 +40,8 @@
 }
 
 .interactive:active:not(:disabled) {
-  transform: translateY(1px) scale(0.98);
+  /* pressed in, not shrunk: the chip stays where it is, like every key */
+  transform: none;
   box-shadow: inset 0 2px 4px rgba(var(--shadow-tint), 0.18), inset 0 0 0 1px var(--glass-edge);
 }
 

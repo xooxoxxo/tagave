@@ -25,7 +25,7 @@
   width: 22px;
   height: 22px;
   filter: drop-shadow(0 -0.5px 0 var(--emboss-hi)) drop-shadow(0 1px 1px var(--emboss-lo));
-  transition: filter var(--dur-fast) ease, transform var(--dur-fast) ease;
+  transition: filter var(--dur-fast) ease, transform var(--dur-fast) ease, opacity var(--dur-fast) ease;
 }
 
 /* every state keeps the button clear: the global button baseline paints a fill */
@@ -47,6 +47,12 @@
   transform: translateY(0.5px);
 }
 .page:active:not(:disabled) { box-shadow: var(--emboss-niche-pressed); }
+/* in a header there is no niche to press into: the glyph itself answers,
+   sinking and dimming for the length of the press */
+.header:active:not(:disabled) svg {
+  opacity: 0.7;
+  transform: translateY(1px);
+}
 
 /* keyboard focus: a clear ring everywhere, the header included */
 .emboss:focus-visible {

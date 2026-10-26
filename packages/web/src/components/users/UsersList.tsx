@@ -86,7 +86,7 @@ export function UserRow({ user, actions, busy = false, children }: UserRowProps)
             </Select>
           </>
         )}
-        {!user.isSelf && <Menu label={`More for ${user.name}`} items={menu} />}
+        {!user.isSelf && <Menu size="sm" label={`More for ${user.name}`} items={menu} />}
       </div>
       {children && <div className={styles.under}>{children}</div>}
     </li>

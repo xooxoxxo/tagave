@@ -242,9 +242,14 @@
 .folderLinkInput {
   flex: 1 1 16rem;
   min-width: 0;
-  min-height: 44px;
+  /* the height of the small Save button beside it */
+  min-height: var(--h-control-sm);
   font-family: var(--font-mono);
   font-size: 0.8125rem;
+}
+
+@media (pointer: coarse) {
+  .folderLinkInput { min-height: 44px; }
 }
 
 .folderLinkHelp {

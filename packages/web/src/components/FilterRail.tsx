@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@tagave/shared';
 import { isMultiActive } from '../pages/albumsSearch';
-import { Button, IconButton } from './ui';
+import { Button, CloseIcon, IconButton } from './ui';
 import styles from './FilterRail.module.css';
 
 interface FilterRailProps {
@@ -149,7 +149,7 @@ export function FilterRail({ query, facets, savedViews, activeCount, onToggle, o
             <button className={styles.option} onClick={() => onApplyView(v)} onPointerEnter={titleIfTruncated}>
               <span className={styles.optionLabel} data-option-label>{v.name}</span>
             </button>
-            <IconButton variant="quiet" size="sm" label="Delete view" onClick={() => onDeleteView(v.id)}><span aria-hidden="true">✕</span></IconButton>
+            <IconButton variant="quiet" size="sm" label="Delete view" onClick={() => onDeleteView(v.id)}><CloseIcon /></IconButton>
           </div>
         )) : <div className={styles.muted}>No saved views yet</div>}
         <Button variant="secondary" size="sm" className={styles.saveView} onClick={onSaveView} disabled={activeCount === 0 && !query.sort}>

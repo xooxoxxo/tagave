@@ -6,7 +6,8 @@
  * this tab.
  */
 import { useEffect, useState } from 'react';
-import { Button } from './ui';
+import { Button, IconButton } from './ui';
+import { CloseIcon } from './ui/icons';
 import { startBuildWatch, useNewBuild } from '../services/buildCheck';
 import { onJobStreamReconnect } from '../services/jobStream';
 import styles from './NewBuildNotice.module.css';
@@ -23,7 +24,7 @@ export function NewBuildNoticeView({ onReload, onDismiss }: NewBuildNoticeViewPr
       <div className={styles.notice}>
         <span className={styles.message}>tagave was updated.</span>
         <Button size="sm" variant="secondary" onClick={onReload}>Reload</Button>
-        <button type="button" className={styles.close} aria-label="Dismiss" onClick={onDismiss}>×</button>
+        <IconButton variant="quiet" size="sm" label="Dismiss" className={styles.close} onClick={onDismiss}><CloseIcon /></IconButton>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react';
-import { Collapse } from '../components/ui';
+import { CloseIcon, Collapse } from '../components/ui';
 import styles from './PlanPage.module.css';
 
 export interface FieldFilterEntry {
@@ -54,7 +54,7 @@ export function PlanFieldFilter({ entries, field, onPick, defaultOpen = false }:
               aria-label={`Clear the field filter (${pickedLabel}); show all fields`}
               title="Show all fields"
             >
-              ×
+              <CloseIcon />
             </button>
           </span>
         )}

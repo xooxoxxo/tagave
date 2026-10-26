@@ -18,7 +18,7 @@ import {
   useCan, useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
   usePatchArtistFollowRules, useResetArtistFollowRules,
 } from '../hooks';
-import { PageShell, Button, IconButton } from '../components/ui';
+import { PageShell, Button, CloseIcon, IconButton } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
 import { artistLabel } from '@tagave/shared';
 import { useMaintenance } from '../maintenance';
@@ -138,7 +138,7 @@ function ReleaseTypes({ libraryId, artistId, onClose }: { libraryId: string | un
       <div className={styles.typesDialog} role="dialog" aria-modal="true" aria-labelledby="release-types-title">
         <div className={styles.typesHeader}>
           <h3 id="release-types-title" className={styles.typesTitle}>Release types</h3>
-          <IconButton variant="quiet" size="sm" label="Close" onClick={onClose}><span aria-hidden="true">✕</span></IconButton>
+          <IconButton variant="quiet" size="sm" label="Close" onClick={onClose}><CloseIcon /></IconButton>
         </div>
         <fieldset className={styles.typesGroup}>
           <legend className={styles.label}>Count as missing</legend>

@@ -51,24 +51,6 @@
 
 .close {
   flex: none;
-  width: 32px;
-  height: 32px;
-  border: 0;
-  border-radius: var(--r-pill);
-  background: transparent;
-  color: var(--ink-3);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.close:hover {
-  color: var(--ink);
-}
-
-.close:focus-visible {
-  outline: 2px solid var(--dew);
-  outline-offset: 2px;
 }
 
 @keyframes toastIn {
