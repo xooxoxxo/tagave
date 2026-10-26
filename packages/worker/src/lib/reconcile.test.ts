@@ -11,7 +11,7 @@ import type { MatchFile } from './reconcileMatch.js';
 
 const mergeFilePair = vi.fn();
 vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
-const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock } = await import('./reconcile.js');
+const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');
 const t1 = new Date('2026-01-02T00:00:00Z');
@@ -62,11 +62,28 @@ describe('sqlDirname', () => {
   });
 });
 
+const BIG = 300_000;
+
 describe('earliestLastSeen', () => {
-  it('handles 150k rows (Math.min(...xs) throws RangeError past ~125k)', () => {
-    const rows = Array.from({ length: 150_000 }, (_, i) => file(`o${i}`, `d/${i}.flac`, i, new Date(t1.getTime() + i)));
+  it('handles 300k rows (Math.min(...xs) throws RangeError past ~125k)', () => {
+    const rows = Array.from({ length: BIG }, (_, i) => file(`o${i}`, `d/${i}.flac`, i, new Date(t1.getTime() + i)));
     rows[123_456] = file('early', 'd/e.flac', 1, t0);
     expect(earliestLastSeen(rows)).toEqual(t0);
+  });
+});
+
+describe('rowsInDirs without a database', () => {
+  it('appends 300k-row query results without spreading them into a call', async () => {
+    const raw = Array.from({ length: BIG }, (_, i) => ({
+      id: `f${i}`, scan_root_id: 'r', rel_path: `F/${i}.flac`, size_bytes: i, mtime: 1, inode: null,
+      duration_ms: null, core_tags_digest: null, audio_hash: null, track_no: null, disc_no: null,
+      first_seen_ms: t0.getTime(), last_seen_ms: t0.getTime(),
+    }));
+    // Every tagged call returns the 300k rows; fragments are never awaited, the two lookups are.
+    const sql = Object.assign((..._args: unknown[]) => Promise.resolve(raw), { unsafe: () => Promise.resolve(raw) });
+    const got = await rowsInDirs({ sql } as any, 'lib', [{ scanRootId: 'r', dirPath: '' }, { scanRootId: 'r', dirPath: 'F' }], {} as any);
+    expect(got).toHaveLength(2 * BIG);              // nested batch + top-level query
+    expect(got[BIG + 5]).toMatchObject({ id: 'f5', relPath: 'F/5.flac', sizeBytes: 5 });
   });
 });
 

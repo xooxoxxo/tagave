@@ -210,17 +210,6 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     expect((await sql`select status from audio_files where id = ${bonus}`)[0].status).toBe('present');
   });
 
-  it('folder lookups of more than 125k rows (top level and nested) do not overflow the call stack', async () => {
-    const rootD = randomUUID();
-    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootD}, ${libraryId}, ${path.join(base, 'd')}, 'd', 'ok')`;
-    await sql`insert into audio_files (library_id, scan_root_id, rel_path, status)
-              select ${libraryId}, ${rootD}, case when g % 2 = 0 then 'F/' else '' end || g || '.flac', 'missing'
-                from generate_series(1, 300000) g`;
-    const got = await rowsInDirs(ctx, libraryId, [{ scanRootId: rootD, dirPath: '' }, { scanRootId: rootD, dirPath: 'F' }], sql`true`);
-    expect(got.length).toBe(300000);
-    await sql`delete from scan_roots where id = ${rootD}`;
-  }, 60_000);
-
   it('the lock is released and its connection returned when fn throws', async () => {
     for (let i = 0; i < 15; i++) {        // more than the pool's 10 connections
       await expect(withLibraryLock(ctx, libraryId, async () => { throw new Error(`boom ${i}`); })).rejects.toThrow(`boom ${i}`);
