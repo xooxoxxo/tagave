@@ -26,7 +26,8 @@ export interface ArtFetchJobData {
 /** singletonKey of a refresh, apart from art:<id> (the album page watches that one). */
 export const artRefreshKey = (albumId: string) => `artRefresh:${albumId}`;
 export interface ArtSweepJobData {
-  libraryId: string;
+  /** Only this library; every library when left out. */
+  libraryId?: string;
   limit?: number;
 }
 
@@ -341,8 +342,8 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
  * night; until then the album page said "No cover art · Fetch art" under the
  * cover it was showing. Resolve the flag at once (as the recompute's sweep
  * would: a hidden flag or a task included, the task keeping accepted_at so
- * it reads as done), then re-lint just this album, so flags that read the
- * art (noEmbeddedArt) are recomputed too.
+ * it reads as done), then re-lint just this album. (noEmbeddedArt reads the
+ * files, not this cover, so a cover found online leaves it as it is.)
  */
 export async function settleCoverGap(ctx: WorkerContext, libraryId: string, albumId: string): Promise<void> {
   await ctx.sql`
@@ -356,18 +357,31 @@ export async function settleCoverGap(ctx: WorkerContext, libraryId: string, albu
   }
 }
 
-/** Enqueue art.fetch for albums without a front image yet. */
+/**
+ * Enqueue art.fetch for albums without a front image yet, each once: an album
+ * looked up since it last changed (a match, a rescan) is left until it
+ * changes again. This is what reads a newly scanned album's embedded art or
+ * folder image; it runs every few minutes, so a first scan shows its local
+ * covers without anyone pressing Fetch art. pg-boss drops a finished job
+ * after its retention, so an album with no art anywhere is tried again then.
+ * Without a library: every library.
+ */
 export async function artSweepJob(ctx: WorkerContext, data: ArtSweepJobData): Promise<void> {
   const limit = data.limit ?? 2000;
+  const libraryId = data.libraryId ?? null;
   const rows = await ctx.db.execute(dsql`
     select la.id from local_albums la
-    where la.library_id = ${data.libraryId}
+    where (${libraryId}::uuid is null or la.library_id = ${libraryId}::uuid)
       and la.state != 'ignored'
       and not exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front')
+      and not exists (
+        select 1 from pgboss.job j
+        where j.name = 'art.fetch' and j.singleton_key = 'art:' || la.id::text
+          and j.created_on >= la.updated_at)
     order by la.state = 'matched' desc, la.created_at
     limit ${limit}`) as unknown as { id: string }[];
   for (const r of rows) {
     await ctx.boss.send('art.fetch', { localAlbumId: r.id }, { singletonKey: `art:${r.id}` });
   }
-  ctx.logger.info({ libraryId: data.libraryId, enqueued: rows.length }, 'art sweep');
+  if (rows.length > 0) ctx.logger.info({ libraryId, enqueued: rows.length }, 'art sweep');
 }

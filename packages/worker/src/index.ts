@@ -67,6 +67,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'enrich.release': 'stately',
   'enrich.sweep': 'stately',
   'art.fetch': 'stately',
+  'art.sweep': 'stately',
   'art.thumb': 'stately',
   'art.thumbSweep': 'stately',
   'identify.album': 'stately',
@@ -387,9 +388,18 @@ async function main() {
     await boss.schedule('art.thumbSweep', '30 4 * * *', {}, { singletonKey: 'art.thumbSweep' });
   }
 
-  if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await artSweepJob(ctx, job.data);
-  });
+  if (wants('art.sweep')) {
+    // Albums without a cover get one lookup each (embedded art, the folder's
+    // cover.jpg, then online art), so a scan's local covers show within
+    // minutes. Nothing else queues art.fetch for a newly scanned album.
+    const artLibrary = pinnedLibraryId();
+    await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        await artSweepJob(ctx, { ...(artLibrary ? { libraryId: artLibrary } : {}), ...(job.data ?? {}) });
+      }
+    });
+    await boss.schedule('art.sweep', '*/5 * * * *', {}, { singletonKey: 'art.sweep' });
+  }
 
   if (wants('queue.autoaccept')) await boss.work<QueueAutoAcceptJobData>('queue.autoaccept', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await queueAutoAcceptJob(ctx, job.data);
