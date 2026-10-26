@@ -26,6 +26,7 @@ import { api } from '../services/api';
 import { Banner, Button, Card, Input, TextField } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
 import { firstScanState, folderAdvice, folderCheckerLive, workerLive, validateContact } from './setupWizard';
+import { actionProblem, identifyNowNote } from './identifyNow';
 import styles from './OnboardingPage.module.css';
 
 const LIVE_MS = 5000;
@@ -331,6 +332,8 @@ export function OnboardingPage() {
                   <Button variant="secondary" size="sm" loading={kickSweep.isPending} onClick={() => kickSweep.mutate()}>
                     Identify now
                   </Button>
+                  {kickSweep.isSuccess && identifyNowNote(kickSweep.data) && <> {identifyNowNote(kickSweep.data)}</>}
+                  {kickSweep.isError && <> {actionProblem(kickSweep.error, 'Could not queue the albums.')}</>}
                 </Banner>
               ) : (
                 <Banner tone="info">Scanning…</Banner>

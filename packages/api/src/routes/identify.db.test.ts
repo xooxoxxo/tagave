@@ -1,6 +1,7 @@
 /**
  * Library care › Identify through the real routes (fastify.inject, test
- * database): "Retry selected" queues the ticked albums.
+ * database): "Retry selected" queues the ticked albums, and "Identify now"
+ * queues every waiting album, also the ones tried in the last hours.
  * pg-boss never runs: sends are recorded.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -109,6 +110,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('identify routes (db)', () => {
       const res = await post(`/libraries/${libraryId}/identify/retry`, { albumIds: ['nope'] });
       expect(res.statusCode).toBe(400);
       expect(res.json().detail ?? res.json().message).toMatch(/album/i);
+    });
+  });
+
+  describe('POST /identify/sweep (Identify now)', () => {
+    it('queues every waiting album at once, including the ones tried a few minutes ago', async () => {
+      const res = await post(`/libraries/${libraryId}/identify/sweep`, {});
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toMatchObject({ waiting: 2, enqueued: 2 });
+      const albums = sent.filter((s) => s.name === 'identify.album').map((s) => s.data.localAlbumId).sort();
+      expect(albums).toEqual([a2, recent].sort());
+    });
+
+    it('reports nothing to do when no album is waiting', async () => {
+      const res = await post(`/libraries/${otherLibraryId}/identify/sweep`, {});
+      expect(res.json()).toMatchObject({ waiting: 1 });
+      await db.update(localAlbums).set({ state: 'unidentified' }).where(eq(localAlbums.id, elsewhere));
+      sent.length = 0;
+      const none = await post(`/libraries/${otherLibraryId}/identify/sweep`, {});
+      expect(none.statusCode).toBe(202);
+      expect(none.json()).toMatchObject({ waiting: 0, enqueued: 0 });
+      expect(sent.filter((s) => s.name === 'identify.album')).toEqual([]);
     });
   });
 });

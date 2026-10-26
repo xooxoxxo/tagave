@@ -30,6 +30,8 @@ export const IDENTIFY_REASONS = ['no_tags', 'no_candidates', 'weak_candidates', 
 export type IdentifyReason = (typeof IDENTIFY_REASONS)[number];
 
 const RETRY_CAP = 500;
+/** albums one "Identify now" queues directly; the sweep takes the rest */
+const IDENTIFY_NOW_CAP = 500;
 
 /** A failed identify job is history once a fresh job is waiting for the same
  * album (the sweep re-enqueues pending albums); only orphaned failures count. */
@@ -352,9 +354,34 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     await ownedLibrary(request.user.id, libraryId);
+    // "Identify now" is the owner asking: every waiting album is queued now,
+    // also the ones the five-minute sweep holds back because they were tried
+    // in the last hours (provider outages, a Discogs pass that found nothing).
+    const db = getDb();
+    const [{ waiting = 0 } = {}] = await db.execute(sql`
+      select count(*)::int as waiting from local_albums
+       where library_id = ${libraryId} and state = 'pending'`) as unknown as Array<{ waiting: number }>;
+    const rows = await db.execute(sql`
+      select id from local_albums
+       where library_id = ${libraryId} and state = 'pending'
+       order by identify_attempts, created_at
+       limit ${IDENTIFY_NOW_CAP}`) as unknown as Array<{ id: string }>;
     const boss = await getBoss();
-    await boss.send('identify.sweep', { libraryId, topUp: true }, { singletonKey: `identify.sweep:${libraryId}` });
-    reply.status(202).send({ ok: true });
+    let enqueued = 0;
+    for (const { id } of rows) {
+      const jobId = await boss.send('identify.album', { localAlbumId: id }, {
+        singletonKey: IDENTIFY_SINGLETON(id),
+        priority: IDENTIFY_PRIORITY.sweep,
+        retryLimit: 3,
+        retryDelay: 60,
+        retryBackoff: true,
+      });
+      if (jobId) enqueued++;
+    }
+    // the sweep keeps the progress row and queues the rest past the cap
+    if (rows.length) await boss.send('identify.sweep', { libraryId }, { singletonKey: `identify.sweep:${libraryId}` });
+    // waiting − enqueued albums already had a job in the queue
+    reply.status(202).send({ waiting, enqueued });
   });
 
   // Owner-initiated identification requests still waiting (pinned ids,

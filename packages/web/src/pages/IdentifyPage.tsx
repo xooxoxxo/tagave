@@ -7,10 +7,12 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
-import { formatEta, formatRelativeTime } from '../utils/time';
+import { formatRelativeTime } from '../utils/time';
 import { docsUrl } from '../utils/docs';
 import { Banner, Button } from '../components/ui';
-import { actionProblem } from './identifyNow';
+import { useSystemChecks } from '../hooks/useSystem';
+import { workerLive } from './setupWizard';
+import { actionProblem, identifyNowNote, identifyProgressLine } from './identifyNow';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -56,6 +58,8 @@ export function IdentifyPanel() {
   });
   const retry = useRetryIdentify(libraryId);
   const kickSweep = useKickSweep(libraryId);
+  const system = useSystemChecks();
+  const kickNote = kickSweep.isSuccess ? identifyNowNote(kickSweep.data) : null;
   const { data: requests } = useIdentifyRequests(libraryId);
   const cancelRequest = useCancelIdentifyRequest(libraryId);
   const REQUEST_KIND: Record<string, string> = { mbid: 'MusicBrainz release', release_group: 'MusicBrainz release group', discogs: 'Discogs', reidentify: 'Re-identify', sweep: 'Sweep' };
@@ -115,11 +119,7 @@ export function IdentifyPanel() {
   const settled = waiting === 0;
   // Rate and ETA only mean something while albums wait; the rate counts
   // albums decided in the last 15 minutes.
-  const progressLine = perMin > 0 && stats.etaSeconds
-    ? `${perMin.toLocaleString()}/min · ${formatEta(stats.etaSeconds)} left`
-    : queue.active > 0
-      ? 'Working'
-      : 'Waiting for the worker';
+  const progressLine = identifyProgressLine({ perMin, etaSeconds: stats.etaSeconds, queue, workerLive: workerLive(system.data?.checks) });
   const scrollToUnmatched = () => document.getElementById('could-not-match')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Provenance of the live matches + the embedded-MBID fast path (XO-309).
@@ -180,6 +180,8 @@ export function IdentifyPanel() {
               <div className={styles.statusNote}>
                 {progressLine}{queue.queued > 0 ? ` · ${queue.queued.toLocaleString()} queued` : ''}{queue.active > 0 ? ` · ${queue.active.toLocaleString()} running` : ''}{queue.retry > 0 ? ` · ${queue.retry.toLocaleString()} retrying` : ''}
               </div>
+              {kickNote && <div className={styles.statusNote}>{kickNote}</div>}
+              {kickSweep.isError && <div className={styles.statusNote} role="alert">{actionProblem(kickSweep.error, 'Could not queue the albums.')}</div>}
             </div>
             <Button variant="secondary" size="sm" onClick={() => kickSweep.mutate()} loading={kickSweep.isPending} title="Queue the waiting albums now instead of at the next five-minute sweep">
               Identify now
