@@ -148,6 +148,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
     }
   });
 
+  it("counts a rules batch's accept by its kind, live ones only", async () => {
+    const before = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json().acceptedTotal;
+    const albumId = albumIds[1]!;
+    const rel = releaseIds[0]!;
+    await db.insert(albumMatches).values([
+      { libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0200', status: 'auto', decidedBy: 'system', decidedKind: 'rule', reason: 'accepted by the rules' },
+      // undone: keeps its kind and reason, no longer an accept
+      { libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0200', status: 'rejected', decidedBy: 'system', decidedKind: 'rule', reason: 'accepted by the rules' },
+    ]);
+    try {
+      const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
+      expect(view.acceptedTotal).toBe(before + 1);
+      expect(view.recent.map((r: { albumId: string }) => r.albumId)).toContain(albumId);
+    } finally {
+      await db.delete(albumMatches).where(eq(albumMatches.localAlbumId, albumId));
+    }
+  });
+
   it('finds no unknown library or album (every library on the install is shared, 0043)', async () => {
     const unknown = randomUUID();
     expect((await req('GET', `/libraries/${unknown}/auto-accept`, undefined, strangerId)).statusCode).toBe(404);

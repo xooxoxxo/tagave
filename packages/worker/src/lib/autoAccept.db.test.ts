@@ -16,6 +16,7 @@ import { AUTO_ACCEPT_REASON_PREFIX } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { acceptByRules } from './autoAccept.js';
 import { queueAutoAcceptJob } from '../jobs/queueAutoAccept.js';
+import { runUndoBatch } from '../jobs/deciderUndo.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => {
   let ctx: WorkerContext;
@@ -73,6 +74,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
   beforeEach(async () => {
     send.mockClear();
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
+    await client`delete from decider_batches where library_id = ${libraryId}`;
     await db.delete(jobRuns).where(eq(jobRuns.libraryId, libraryId));
   });
 
@@ -161,5 +163,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     const rows = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
     expect(rows.find((r: any) => r.status === 'rejected')?.reason).toBe('auto-accept: distance 0.0500 (musicbrainz)');
     expect(rows.find((r: any) => r.status === 'auto')?.decidedKind).toBe('rule');
+  });
+
+  it('"Accept N now" is one undoable batch of the owner\'s rules', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    const b = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    await queueAutoAcceptJob(ctx, { libraryId, mode: 'rules', requestedByUserId: userId });
+    const [batch] = await client`select id, decider_id, decided_kind, decider_version, started_by_user_id, state from decider_batches where library_id = ${libraryId}`;
+    expect(batch).toMatchObject({ decider_id: 'rules', decided_kind: 'rule', started_by_user_id: userId, state: 'accepted' });
+    expect(batch.decider_version).toMatch(/^rules@[0-9a-f]{8}$/);
+    const m = await client`select decided_kind, batch_id, reason from album_matches where local_album_id in (${a}, ${b}) and status = 'auto'`;
+    expect(m).toHaveLength(2);
+    expect(m.every((x: any) => x.decided_kind === 'rule' && x.batch_id === batch.id && x.reason.startsWith(AUTO_ACCEPT_REASON_PREFIX))).toBe(true);
+    await runUndoBatch(ctx, batch.id);
+    expect((await stateOf(a)).state).toBe('needs_review');
+  });
+
+  it('the identify-time hook accepts one album without a batch', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    await acceptByRules(ctx, libraryId, { albumIds: [a], requireEnabled: true });
+    expect(await client`select 1 from decider_batches where library_id = ${libraryId}`).toHaveLength(0);
+    const [m] = await client`select decided_kind, batch_id from album_matches where local_album_id = ${a} and status = 'auto'`;
+    expect(m).toMatchObject({ decided_kind: 'rule', batch_id: null });
+  });
+
+  it('no album the rules accept: no empty batch', async () => {
+    await setRules({ minMatch: 100 });
+    await album([{ releaseId: await release(), distance: '0.0200' }]);
+    await queueAutoAcceptJob(ctx, { libraryId, mode: 'rules' });
+    expect(await client`select 1 from decider_batches where library_id = ${libraryId}`).toHaveLength(0);
+  });
+
+  it('a rules run without a person (an older queued job) records no runner', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    const run = await acceptByRules(ctx, libraryId, { requireEnabled: false, viaBatch: true });
+    expect(run).toMatchObject({ considered: 1, accepted: 1 });
+    expect(run.acceptedAlbums.map((x) => x.albumId)).toEqual([a]);
+    const [batch] = await client`select id, started_by_user_id from decider_batches where library_id = ${libraryId}`;
+    expect(run.batchId).toBe(batch.id);
+    expect(batch.started_by_user_id).toBeNull();
+    // who decided stays empty on the match: the run's starter is on the batch
+    const [m] = await client`select decided_by_user_id from album_matches where local_album_id = ${a} and status = 'auto'`;
+    expect(m.decided_by_user_id).toBeNull();
   });
 });

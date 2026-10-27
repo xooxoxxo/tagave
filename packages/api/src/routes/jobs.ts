@@ -224,7 +224,9 @@ export async function createJobRoutes(fastify: FastifyInstance) {
 
       const boss = await getBoss();
       await boss.createQueue(req.queue);
-      const pgbossId = await boss.send(req.queue, req.data, { singletonKey: req.singletonKey });
+      // a rules run records who started it again
+      const data = req.queue === 'queue.autoaccept' ? { ...req.data, requestedByUserId: request.user.id } : req.data;
+      const pgbossId = await boss.send(req.queue, data, { singletonKey: req.singletonKey });
 
       // Show the retry as waiting until the worker writes its own row.
       let newJobId: string | null = null;
