@@ -21,7 +21,8 @@ import { clusterDirJob } from '../jobs/clusterDir.js';
 export interface Sent { name: string; data: any; opts?: any }
 export interface Snapshot {
   counts: { files: number; albums: number; tracks: number };
-  files: string[];
+  /** each file row and where it sits (root index into lab.roots, rel_path) */
+  files: Array<{ id: string; root: number; relPath: string; status: string }>;
   tracks: Array<{ id: string; fileId: string; albumId: string | null; canonical: string | null }>;
   albums: Array<{ id: string; state: string; releaseId: string | null }>;
   owner: Record<string, unknown>;
@@ -55,6 +56,27 @@ export async function drainJobs(ctx: WorkerContext, queue: Sent[], opts: { only?
   if (left > 0) throw new Error(`drainJobs: ${left} scan.parse/cluster.dir job(s) still queued after 20 rounds`);
 }
 
+/** SQL: the parent folder of a folder expression ('' for a top-level folder). */
+function parentOf(dirExpr: string): string {
+  return `(case when strpos(${dirExpr}, '/') = 0 then '' else regexp_replace(${dirExpr}, '/[^/]*$', '') end)`;
+}
+
+/** A file or folder move: every file at or under `from` (root index, rel path) sits under `to` after it. */
+export interface PathMove { from: [number, string]; to: [number, string] }
+
+/** Where `before`'s files must sit after the moves (files no move covers stay put). */
+export function expectedFiles(before: Snapshot, moves: PathMove[]): Snapshot['files'] {
+  return before.files.map((f) => {
+    for (const m of moves) {
+      const [root, prefix] = m.from;
+      if (f.root !== root) continue;
+      if (f.relPath === prefix) return { ...f, root: m.to[0], relPath: m.to[1] };
+      if (f.relPath.startsWith(`${prefix}/`)) return { ...f, root: m.to[0], relPath: `${m.to[1]}${f.relPath.slice(prefix.length)}` };
+    }
+    return f;
+  });
+}
+
 let clock = Math.floor(Date.now() / 1000) + 10;
 /** Directory mtimes have one-second resolution; quick scans need them to move. */
 export async function bumpDir(abs: string): Promise<void> {
@@ -72,17 +94,32 @@ export async function makeLab(rootCount = 1) {
     logger: pino({ level: 'silent' }),
   };
   const userId = randomUUID(); const libraryId = randomUUID();
-  await sql`insert into users (id, email, password_hash) values (${userId}, ${`lab-${userId}@test.com`}, 'x')`;
-  await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Lab', ${userId}, '{}')`;
-  const base = await mkdtemp(path.join(tmpdir(), 'tagave-lab-'));
   const roots: Array<{ id: string; path: string }> = [];
-  for (let i = 0; i < rootCount; i++) {
-    const p = path.join(base, `root${i}`);
-    await mkdir(p, { recursive: true });
-    const id = randomUUID();
-    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${id}, ${libraryId}, ${p}, ${`root${i}`}, 'ok')`;
-    roots.push({ id, path: p });
+  let base: string | null = null;
+  try {
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`lab-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'Lab', ${userId}, '{}')`;
+    base = await mkdtemp(path.join(tmpdir(), 'tagave-lab-'));
+    for (let i = 0; i < rootCount; i++) {
+      const p = path.join(base, `root${i}`);
+      await mkdir(p, { recursive: true });
+      const id = randomUUID();
+      await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${id}, ${libraryId}, ${p}, ${`root${i}`}, 'ok')`;
+      roots.push({ id, path: p });
+    }
+  } catch (error) {
+    // setup failed half way: remove what it made (the roots cascade from the library)
+    try {
+      await sql`delete from libraries where id = ${libraryId}`;
+      await sql`delete from users where id = ${userId}`;
+    } finally {
+      await sql.end({ timeout: 5 });
+      if (base) await rm(base, { recursive: true, force: true });
+    }
+    throw error;
   }
+  const baseDir = base;
+  const rootIndex = new Map(roots.map((r, i) => [r.id, i]));
   const globals: string[] = []; // release groups this lab created (global tables)
 
   const drain = (opts: { only?: string[] } = {}) => drainJobs(ctx, sent, opts);
@@ -110,8 +147,12 @@ export async function makeLab(rootCount = 1) {
                           where af.scan_root_id = ${roots[root]!.id} and af.rel_path = ${relPath}`;
       return (r[0]?.local_album_id as string | undefined) ?? null;
     },
-    /** Everything owner-set or history-carrying the spec lists, on one album. */
-    async ownerData(albumId: string) {
+    /**
+     * Everything owner-set or history-carrying the spec lists, on one album.
+     * The sidecar cover is the album folder's image sidecar (or its parent's,
+     * the multi-disc layout); it throws when there is none, unless cover: false.
+     */
+    async ownerData(albumId: string, o: { cover?: boolean } = {}) {
       const [rg] = await sql`insert into release_groups (mbid, title) values (${randomUUID()}, 'RG') returning id`;
       globals.push(rg.id);
       const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg.id}, ${randomUUID()}, 'R') returning id`;
@@ -129,7 +170,11 @@ export async function makeLab(rootCount = 1) {
       await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, audio_file_id, license_note)
                 values (${libraryId}, 'local_album', ${albumId}, ${albumId}, 'front', 'embedded', ${tracks[0]!.audio_file_id}, 't')`;
       const [sc] = await sql`select s.id from sidecar_files s join local_albums la on la.id = ${albumId}
-                             where s.library_id = ${libraryId} and s.kind = 'image' and (${sql.unsafe(sqlDirname('s'))}) = any(la.dir_paths) limit 1`;
+                              cross join lateral unnest(la.dir_paths) d
+                             where s.library_id = ${libraryId} and s.kind = 'image'
+                               and (${sql.unsafe(sqlDirname('s'))}) in (d, ${sql.unsafe(parentOf('d'))})
+                             order by (${sql.unsafe(sqlDirname('s'))}) = d desc limit 1`;
+      if (!sc && o.cover !== false) throw new Error(`ownerData: no image sidecar beside album ${albumId}`);
       if (sc) {
         await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
                   values (${libraryId}, 'local_album', ${albumId}, ${albumId}, 'back', 'sidecar', ${sc.id}, 't')`;
@@ -144,7 +189,8 @@ export async function makeLab(rootCount = 1) {
                 values (${plan.id}, ${tracks[0]!.audio_file_id}, ${JSON.stringify({ title: 'x' })}::jsonb, ${JSON.stringify({ title: 'Song 1' })}::jsonb, ${JSON.stringify([])}::jsonb, 'pending')`;
     },
     async snapshot(): Promise<Snapshot> {
-      const files = (await sql`select id from audio_files where library_id = ${libraryId} order by id`).map((r: any) => r.id as string);
+      const files = (await sql`select id, scan_root_id, rel_path, status from audio_files where library_id = ${libraryId} order by id`)
+        .map((r: any) => ({ id: r.id as string, root: rootIndex.get(r.scan_root_id) ?? -1, relPath: r.rel_path as string, status: r.status as string }));
       const tracks = (await sql`select lt.id, lt.audio_file_id, lt.local_album_id, lt.canonical_track_id from local_tracks lt
                                 join audio_files af on af.id = lt.audio_file_id where af.library_id = ${libraryId} order by lt.id`)
         .map((r: any) => ({ id: r.id as string, fileId: r.audio_file_id as string, albumId: r.local_album_id as string | null, canonical: r.canonical_track_id as string | null }));
@@ -154,13 +200,16 @@ export async function makeLab(rootCount = 1) {
         matches: await sql`select local_album_id, release_id, status, decided_by from album_matches where library_id = ${libraryId} order by 1, 2`,
         locks: await sql`select scope, scope_id, field from field_locks where library_id = ${libraryId} order by 1, 2, 3`,
         // pre-flight F9: the sidecar cover counts. Its sidecar row is re-pointed to the new folder's, so the
-        // id may change; what must hold is that it names a sidecar beside a present file of the image's album.
+        // id may change; what must hold is where it sits: 'present' when it is in the folder (or the parent
+        // folder, for disc sets) of a present file of the image's album, else 'missing' when only missing
+        // files of the album are there (a kept ghost), else null (a lost or misplaced cover).
         images: await sql`select i.id, i.local_album_id, i.kind, i.origin, i.audio_file_id,
-                                 exists (select 1 from sidecar_files s
-                                           join audio_files af on af.scan_root_id = s.scan_root_id and af.status = 'present'
-                                                              and ${sql.unsafe(sqlDirname('af'))} = ${sql.unsafe(sqlDirname('s'))}
-                                           join local_tracks lt on lt.audio_file_id = af.id and lt.local_album_id = i.local_album_id
-                                          where s.id = i.sidecar_file_id) as sidecar_beside_album
+                                 (select case when bool_or(af.status = 'present') then 'present' else 'missing' end
+                                    from sidecar_files s
+                                    join audio_files af on af.scan_root_id = s.scan_root_id
+                                                       and ${sql.unsafe(sqlDirname('s'))} in (${sql.unsafe(sqlDirname('af'))}, ${sql.unsafe(parentOf(sqlDirname('af')))})
+                                    join local_tracks lt on lt.audio_file_id = af.id and lt.local_album_id = i.local_album_id
+                                   where s.id = i.sidecar_file_id) as sidecar_beside
                             from images i where i.library_id = ${libraryId} order by i.id`,
         collection: await sql`select id, local_album_id from collection_items where library_id = ${libraryId} order by id`,
         listens: await sql`select id, local_album_id from player_listens where library_id = ${libraryId} order by id`,
@@ -182,7 +231,7 @@ export async function makeLab(rootCount = 1) {
         await sql`delete from release_groups where id = any(${globals}::uuid[])`;
       }
       await sql.end({ timeout: 5 });
-      await rm(base, { recursive: true, force: true });
+      await rm(baseDir, { recursive: true, force: true });
     },
   };
   return lab;
@@ -191,15 +240,17 @@ export async function makeLab(rootCount = 1) {
 export type Lab = Awaited<ReturnType<typeof makeLab>>;
 
 /**
- * The spec's invariant: same ids everywhere, no row count grows. With
+ * The spec's invariant: same ids everywhere, each file where `moves` puts
+ * it, no row count grows. With
  * mapRebuilt the moved tracks' player map rows were dropped (stale, Ruling 10;
  * the app rebuilds them on the next play): what is left is a strict subset.
  */
-export function expectKept(before: Snapshot, after: Snapshot, opts: { mapRebuilt?: boolean } = {}): void {
+export function expectKept(before: Snapshot, after: Snapshot, opts: { mapRebuilt?: boolean; moves?: PathMove[] } = {}): void {
   expect(after.counts.files).toBeLessThanOrEqual(before.counts.files);
   expect(after.counts.albums).toBeLessThanOrEqual(before.counts.albums);
   expect(after.counts.tracks).toBeLessThanOrEqual(before.counts.tracks);
-  expect(after.files).toEqual(before.files);
+  // same ids, each at the path its move says (a swapped pairing fails here)
+  expect(after.files).toEqual(expectedFiles(before, opts.moves ?? []));
   expect(after.tracks).toEqual(before.tracks);
   expect(after.albums).toEqual(before.albums);
   const { playerMap: mapBefore, ...ownerBefore } = before.owner;
