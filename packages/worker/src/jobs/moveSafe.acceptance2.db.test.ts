@@ -302,9 +302,14 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     await lab.album(0, 'Old', 1);
     await lab.scan(0);
     const st = await stat(abs(lab, 'Old/01 - Song 1.flac'));
-    await rm(abs(lab, 'Old'), { recursive: true });
+    // Same size, not a FLAC, and not Old's file to Tier 1: it is written while Old still
+    // exists (so it cannot get Old's freed inode, which ext4 reuses at once) and its mtime
+    // is set apart (a write in the same second would match Old's mtime). With both equal,
+    // Tier 1 rightly reads it as a rename and merges it, and nothing is held.
     await mkdir(abs(lab, 'New'));
-    await writeFile(abs(lab, 'New/x.flac'), Buffer.alloc(st.size)); // same size, not a FLAC
+    await writeFile(abs(lab, 'New/x.flac'), Buffer.alloc(st.size));
+    await utimes(abs(lab, 'New/x.flac'), st.mtimeMs / 1000 + 900, st.mtimeMs / 1000 + 900);
+    await rm(abs(lab, 'Old'), { recursive: true });
     await scanRootJob(lab.ctx, { scanRootId: lab.roots[0]!.id, mode: 'full' });
     const [h] = await lab.sql`select reconcile_hold_at from audio_files where library_id = ${lab.libraryId} and rel_path = 'New/x.flac'`;
     expect(h.reconcile_hold_at).not.toBeNull();                   // held: it may be Old's file
