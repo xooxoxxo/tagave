@@ -3,7 +3,7 @@ import { scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
-import { describeMoves, type DirRef } from '../lib/reconcile.js';
+import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
 import { clusterSingletonKey } from '../lib/helpers.js';
@@ -122,10 +122,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
   }
   await enqueueReclusters(ctx, root, walk.dirsWithMissing);
-  // Old and new folders of every Tier 1 merge (the old one possibly on another
-  // root): the moved album follows its files, and a new folder whose merged
-  // rows need no re-parse would otherwise never be clustered.
-  await enqueueDirs(ctx, root.libraryId, walk.reclusterDirs, { throttle: false });
+  // finishWalk already queued the old and new folders of every Tier 1 merge.
   // Files came or went: check the gaps again once parsing and clustering have
   // had time to settle, so a task like "find the 4 missing tracks" is crossed
   // out by the scan that saw the files arrive, not by the nightly run. One
@@ -164,40 +161,18 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   ctx.logger.info({ scanRootId: root.id, ...stats }, 'scan complete');
 }
 
-/**
- * One debounced cluster.dir per (root, folder), same key the parser uses.
- * throttle: false drops singletonSeconds (see sendReleasedCluster): the old
- * and new folders of a merge must be clustered even when a cluster.dir for
- * the same folder already completed in the current 30 s slot, or the moved
- * album would keep its old folder and the new one would stay unclustered.
- * The singletonKey under the stately policy still drops a duplicate while
- * one is queued.
- */
-export async function enqueueDirs(
-  ctx: WorkerContext,
-  libraryId: string,
-  dirs: DirRef[],
-  opts: { startAfter?: number; throttle?: boolean } = {},
-): Promise<void> {
-  const seen = new Set<string>();
-  const startAfter = opts.startAfter ?? 30;
-  for (const d of dirs) {
-    const k = `${d.scanRootId}\n${d.dirPath}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    await ctx.boss.send('cluster.dir', { libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
-      opts.throttle === false
-        ? { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), ...(startAfter ? { startAfter } : {}) }
-        : { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), singletonSeconds: 30, startAfter });
-  }
-}
-
-/** One debounced cluster.dir per directory of one root. */
+/** One debounced cluster.dir per directory, same key the parser uses. */
 export async function enqueueReclusters(
   ctx: WorkerContext,
   root: { id: string; libraryId: string },
   dirs: string[],
   opts: { startAfter?: number } = {},
 ): Promise<void> {
-  await enqueueDirs(ctx, root.libraryId, dirs.map((dirPath) => ({ scanRootId: root.id, dirPath })), opts);
+  for (const dirPath of new Set(dirs)) {
+    await ctx.boss.send(
+      'cluster.dir',
+      { libraryId: root.libraryId, scanRootId: root.id, dirPath },
+      { singletonKey: clusterSingletonKey(root.id, dirPath), singletonSeconds: 30, startAfter: opts.startAfter ?? 30 },
+    );
+  }
 }

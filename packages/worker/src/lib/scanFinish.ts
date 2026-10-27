@@ -10,13 +10,18 @@ import { escapeLike, relDirname, sqlDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
-import { placeHolds } from './clusterHold.js';
+import { placeHolds, sendReleasedCluster } from './clusterHold.js';
 
 export type { MoveRecord, DirRef } from './reconcile.js';
 
 export interface FinishOptions {
   /** skip the partly-unmounted hold (release B's Missing list › Confirm missing) */
   confirmMissing?: boolean;
+  /**
+   * scan.dir: cluster the merged folders right away, or after 20 s when rows
+   * wait for scan.parse. Otherwise (scan.root) after 30 s.
+   */
+  reclusterSoon?: boolean;
 }
 export interface FinishResult {
   missing: number; dirsWithMissing: string[];
@@ -215,6 +220,24 @@ async function forgetDirMtimes(ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, 
   }
 }
 
+/**
+ * cluster.dir for the old and new folders of every merge (the old one possibly
+ * on another root), sent as soon as the merges are in, not by the caller after
+ * the scan, so a crash in between cannot leave a moved album on its old folder
+ * and the new folder unclustered. No singletonSeconds (see sendReleasedCluster):
+ * a cluster.dir for the same folder that completed in the current 30 s slot
+ * would swallow the send.
+ */
+async function sendMergeReclusters(ctx: WorkerContext, libraryId: string, dirs: DirRef[], startAfter: number): Promise<void> {
+  const seen = new Set<string>();
+  for (const d of dirs) {
+    const k = `${d.scanRootId}\n${d.dirPath}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    await sendReleasedCluster(ctx, { libraryId, ...d }, startAfter);
+  }
+}
+
 /** The only reason Tier 1 is skipped: a root that looks unmounted marks and matches nothing. */
 export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not matched in this scan';
 
@@ -242,6 +265,8 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     const mergedFresh = new Set(rec.mergedFreshIds);
     walk.changedIds = [...walk.changedIds.filter((id) => !mergedFresh.has(id)), ...rec.reparseIds];
     walk.insertedIds = walk.insertedIds.filter((id) => !mergedFresh.has(id));
+    await sendMergeReclusters(ctx, root.libraryId, rec.reclusterDirs,
+      opts.reclusterSoon ? (walk.changedIds.length ? 20 : 0) : 30);
     const reconciled = { merged: rec.merged, moves: rec.moves, possibleMoves: rec.possibleMoves, reclusterDirs: rec.reclusterDirs };
     const hold = missingHold(gone.length, walk.presentInRoot);
     let toMark = gone;

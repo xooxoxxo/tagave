@@ -193,6 +193,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination c
 describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
   let ctx: WorkerContext; let sql: any; let base: string;
   const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
+  const sends: Array<{ name: string; data: any; opts: any }> = [];
   const A = () => ({ id: rootA, libraryId, path: path.join(base, 'a') });
   const B = () => ({ id: rootB, libraryId, path: path.join(base, 'b') });
   const files = async () => sql`select id, scan_root_id, rel_path, status from audio_files where library_id = ${libraryId} order by rel_path`;
@@ -201,7 +202,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
   beforeAll(async () => {
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
     sql = made.client;
-    ctx = { db: made.db, sql: made.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
+    ctx = { db: made.db, sql: made.client, boss: { send: async (name: string, data: any, opts: any) => { sends.push({ name, data, opts }); return randomUUID(); } } as any, logger: pino({ level: 'silent' }) };
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`rc-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'RC', ${userId}, '{}')`;
     base = await mkdtemp(path.join(tmpdir(), 'tagave-rc-'));
@@ -234,11 +235,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
 
   it('a renamed folder keeps every id and reports the move', async () => {
     const before = (await files()).map((f: any) => f.id).sort();
+    sends.length = 0;
     await rename(path.join(base, 'a', 'Artist', 'Old'), path.join(base, 'a', 'Artist', 'New'));
     const r = await walkRoot(ctx, A(), { mode: 'full' });
     expect(r).toMatchObject({ merged: 3, missing: 0 });
     expect(r.moves).toEqual([{ fromRootId: rootA, fromDir: 'Artist/Old', toRootId: rootA, toDir: 'Artist/New', files: 3 }]);
     expect(r.reclusterDirs).toEqual(expect.arrayContaining([{ scanRootId: rootA, dirPath: 'Artist/Old' }, { scanRootId: rootA, dirPath: 'Artist/New' }]));
+    // finishWalk itself queues both folders (no caller involved), without the throttle slot
+    const queued = sends.filter((j) => j.name === 'cluster.dir' && j.data.dirPath.startsWith('Artist/'));
+    expect(queued.map((j) => j.data.dirPath).sort()).toEqual(['Artist/New', 'Artist/Old']);
+    for (const j of queued) expect(j.opts).toEqual({ singletonKey: expect.any(String), startAfter: 30 });
     expect((await files()).map((f: any) => f.id).sort()).toEqual(before);
   });
 
