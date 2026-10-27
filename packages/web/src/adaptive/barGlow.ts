@@ -27,7 +27,7 @@ const lin = (v: number) => { const c = v / 255; return c <= 0.04045 ? c / 12.92 
 const lum = ([r, g, b]: RGB) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 const ratio = (a: RGB, b: RGB) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 /** What the browser paints: `top` at alpha `a` over `bottom`, in sRGB. */
-export const over = (top: RGB, a: number, bottom: RGB): RGB => [0, 1, 2].map((i) => Math.round(top[i]! * a + bottom[i]! * (1 - a))) as RGB;
+const over = (top: RGB, a: number, bottom: RGB): RGB => [0, 1, 2].map((i) => Math.round(top[i]! * a + bottom[i]! * (1 - a))) as RGB;
 
 export interface BarInks {
   /** text on the bar (its title, its second line): 4.5:1 */

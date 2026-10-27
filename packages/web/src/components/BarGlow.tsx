@@ -21,7 +21,7 @@ function subscribeReduce(cb: () => void) {
   mq?.addEventListener('change', cb);
   return () => mq?.removeEventListener('change', cb);
 }
-export function useReducedMotion(): boolean {
+function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribeReduce, () => !!globalThis.matchMedia?.(reduceQuery).matches, () => false);
 }
 
