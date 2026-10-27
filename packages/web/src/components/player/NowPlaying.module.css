@@ -131,6 +131,8 @@
 /* ---- phone: the mini bar ---- */
 .mini {
   position: relative;
+  /* the equalizer glow (BarGlow) lies under the content, over the fill */
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 2px;

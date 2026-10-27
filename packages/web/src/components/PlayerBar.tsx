@@ -27,7 +27,7 @@ import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
 import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } from '../hooks/usePlaylists';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
 import { TrackActions } from './player/TrackActions';
-import { SeekGlow } from './SeekGlow';
+import { BarGlow } from './BarGlow';
 import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
@@ -63,7 +63,7 @@ export interface PlayerBarViewProps {
   queueOpen?: boolean;
   /** opens and closes the queue; without it there is no queue key */
   onQueue?: () => void;
-  /** the equalizer glow, laid under the seek bar (SeekGlow) */
+  /** the equalizer glow, behind the bar's content (BarGlow) */
   glow?: ReactNode;
 }
 
@@ -84,6 +84,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 
   return (
     <section className={styles.bar} aria-label="Player" data-status={status} data-empty={empty ? '' : undefined}>
+      {status === 'error' ? null : glow}
       {empty ? <div className={styles.now} /> : <div className={styles.now}>
         <CoverArt src={coverUrl} title={album || title} compact className={styles.cover} />
         <div className={styles.names}>
@@ -125,7 +126,6 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
         <div className={styles.seek}>
           <span className={styles.time} aria-hidden="true">{empty ? '-:--' : clock(shown)}</span>
           <span className={styles.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
-            {glow}
             <input
               type="range"
               className={styles.range}
@@ -173,6 +173,21 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
       <span className={styles.srOnly} role="status" aria-live="polite">{busy ? 'Loading' : ''}</span>
     </section>
   );
+}
+
+/**
+ * The equalizer glow's piece under the sidebar's account row, beside the
+ * bar, so the glow runs the whole foot of the window (a desktop only: on a
+ * tablet or a phone the row is not at the foot). Its own component, so the
+ * player's ticks re-render only it.
+ */
+export function AccountGlow() {
+  const [prefs] = useDisplayPrefs();
+  const narrow = useMediaQuery('(max-width: 900px)');
+  const status = usePlayerStore((p) => p.status);
+  const queued = usePlayerStore((p) => !!p.queue && p.queue.tracks.length > 0);
+  if (!prefs.eqGlow || narrow || !queued || status === 'error') return null;
+  return <BarGlow playing={status === 'playing'} />;
 }
 
 /**
@@ -307,6 +322,8 @@ export function PlayerBar() {
     />
   );
   const barArtist = track.artist || track.albumArtist;
+  // one glow, in the bar (or the phone's mini bar); none while a track fails
+  const glow = prefs.eqGlow && s.status !== 'error' ? <BarGlow playing={s.status === 'playing'} /> : null;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
       {phone ? (
@@ -322,6 +339,7 @@ export function PlayerBar() {
             onToggle={toggle}
             onNext={next}
             onRetry={retry}
+            glow={glow}
           />
           {nowOpen && (
             <NowPlayingScreen
@@ -339,7 +357,6 @@ export function PlayerBar() {
               onClose={close}
               onNavigate={() => setNowOpen(false)}
               actions={actions}
-              glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
             />
           )}
         </>
@@ -369,7 +386,7 @@ export function PlayerBar() {
             onRetry={retry}
             queueOpen={nowOpen}
             onQueue={() => setNowOpen((o) => !o)}
-            glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
+            glow={glow}
           />
         </>
       )}

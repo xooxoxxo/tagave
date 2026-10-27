@@ -17,6 +17,9 @@
 :global(html[data-app-down]) .dock:not([data-empty]) { z-index: calc(var(--z-backdrop) + 1); }
 
 .bar {
+  /* the equalizer glow (BarGlow) lies under the content, over the fill */
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(10rem, 1.4fr) auto auto;
   grid-template-areas: "now keys seek volume close";
@@ -165,7 +168,7 @@
   text-align: right;
 }
 
-/* the range and, under it, the equalizer glow (SeekGlow) */
+/* the range */
 .track {
   position: relative;
   display: flex;
@@ -175,66 +178,6 @@
 .track .range {
   position: relative;
   z-index: 1;
-}
-
-/* ---- the equalizer glow: light along the played part, a halo at the playhead ---- */
-.glow {
-  position: absolute;
-  inset: -16px 0;
-  pointer-events: none;
-  /* fades out before the track's ends, where the time labels are */
-  -webkit-mask-image: linear-gradient(90deg, transparent, black 14px, black calc(100% - 14px), transparent);
-  mask-image: linear-gradient(90deg, transparent, black 14px, black calc(100% - 14px), transparent);
-}
-.glowLine {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: var(--fill, 0%);
-  height: 10px;
-  margin-top: -5px;
-  border-radius: var(--r-pill);
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--seek-glow) 55%, transparent));
-  filter: blur(5px);
-  opacity: 0.5;
-  transition: opacity 400ms ease;
-}
-.glowHalo {
-  position: absolute;
-  left: var(--fill, 0%);
-  top: 50%;
-  width: 64px;
-  height: 36px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--seek-glow) 60%, transparent), transparent);
-  transform: translate(-50%, -50%) scale(0.85);
-  opacity: 0.6;
-  transition: opacity 400ms ease, transform 400ms ease;
-}
-.glow[data-mode="live"] .glowLine,
-.glow[data-mode="live"] .glowHalo {
-  transition: none;
-}
-.glow[data-mode="calm"] .glowHalo {
-  animation: haloBreathe 5.2s ease-in-out infinite;
-}
-.glow[data-mode="calm"] .glowLine {
-  animation: lineBreathe 5.2s ease-in-out infinite;
-  animation-delay: -1.6s;
-}
-.glow[data-playing="false"] .glowHalo,
-.glow[data-playing="false"] .glowLine {
-  animation: none;
-  opacity: 0.25;
-}
-/* opacity and transform only: the compositor runs it, no style pass per frame */
-@keyframes haloBreathe {
-  0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(0.75); }
-  50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.05); }
-}
-@keyframes lineBreathe {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.65; }
 }
 
 .problem {
@@ -419,11 +362,6 @@
 @media (prefers-reduced-motion: reduce) {
   .bar {
     animation: none;
-  }
-  .glowLine,
-  .glowHalo {
-    animation: none !important;
-    transition: none;
   }
   /* a still ring: it still says "loading" without moving */
   .spinner {

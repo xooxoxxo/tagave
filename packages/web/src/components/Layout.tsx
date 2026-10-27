@@ -16,7 +16,7 @@ import { UpdateDot } from './UpdateDot';
 import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
-import { PlayerBar } from './PlayerBar';
+import { AccountGlow, PlayerBar } from './PlayerBar';
 import { MenuPlaylists } from './playlists/MenuPlaylists';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
 import { AdaptiveColour } from '../adaptive/AdaptiveColour';
@@ -194,6 +194,7 @@ export function Layout() {
             onAccount={() => void navigate({ to: '/settings/$section', params: { section: 'account' } })}
             onListening={() => void navigate({ to: '/settings/$section', params: { section: 'listening' } })}
             onSignOut={() => { stopPlayback(); logout.mutate(); }}
+            glow={<AccountGlow />}
           />
         </div>
         </div>

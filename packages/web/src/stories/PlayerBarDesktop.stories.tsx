@@ -7,13 +7,14 @@
  */
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { PlayerBarView } from '../components/PlayerBar';
+import { BarGlow } from '../components/BarGlow';
 import { CoverArt, PageShell } from '../components/ui';
 import { COVERS, COVER_KEYS } from './adaptiveCovers';
 import { DesktopFrame } from './DesktopFrame';
 import s from './DesktopFrame.module.css';
 
 type BarState = 'empty' | 'paused' | 'playing';
-interface Args { state: BarState; compartmentOpen?: boolean }
+interface Args { state: BarState; compartmentOpen?: boolean; glow?: boolean }
 
 const noop = () => undefined;
 const TRACK = COVERS.moody;
@@ -34,7 +35,7 @@ function Albums() {
   );
 }
 
-function Bar({ state }: { state: BarState }) {
+function Bar({ state, glow = false }: { state: BarState; glow?: boolean }) {
   const empty = state === 'empty';
   return (
     <PlayerBarView
@@ -42,13 +43,15 @@ function Bar({ state }: { state: BarState }) {
       status={empty ? 'idle' : state} position={empty ? 0 : state === 'paused' ? 96 : 141} duration={empty ? null : 321} volume={0.8}
       canPrevious={!empty} canNext={!empty} empty={empty}
       onToggle={noop} onPrevious={noop} onNext={noop} onSeek={noop} onVolume={noop} onRetry={noop} onQueue={noop}
+      glow={glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : null}
     />
   );
 }
 
-function InTheApp({ state, compartmentOpen = false }: Args) {
+function InTheApp({ state, compartmentOpen = false, glow = false }: Args) {
+  const accountGlow = glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : undefined;
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} />}>
+    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} />} accountGlow={accountGlow}>
       <Albums />
     </DesktopFrame>
   );
@@ -72,6 +75,9 @@ export const Empty: Story = { tags: wide };
 export const Paused: Story = { tags: wide, args: { state: 'paused' } };
 export const Playing: Story = { tags: wide, args: { state: 'playing' } };
 export const CompartmentOpen: Story = { tags: wide, args: { state: 'paused', compartmentOpen: true } };
+/** Equalizer glow on, held at a loud peak (half the bar), and paused (the low line). */
+export const GlowPeak: Story = { name: 'Equalizer glow, peak', tags: wide, args: { state: 'playing', glow: true } };
+export const GlowPaused: Story = { name: 'Equalizer glow, paused', tags: wide, args: { state: 'paused', glow: true } };
 export const Empty1000: Story = { name: 'Empty, 1000', tags: narrow };
 export const Paused1000: Story = { name: 'Paused, 1000', tags: narrow, args: { state: 'paused' } };
 export const Playing1000: Story = { name: 'Playing, 1000', tags: narrow, args: { state: 'playing' } };

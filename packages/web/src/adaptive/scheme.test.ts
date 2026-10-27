@@ -3,6 +3,17 @@ import { Hct, argbFromHex } from '@material/material-color-utilities';
 import { adaptiveTokens, sourceColour } from './scheme';
 import { THEME_INKS, WASH_MAX, argbOfHex, extremes, saturate, washOpacity, type Extremes } from './wash';
 import { BRAND_TOKENS } from './brand';
+import { auroraHolds, coreShows } from './aurora';
+
+/** The aurora's veils and cores, and whether the bar's text, keys and seek fill read over it (aurora.ts). */
+function auroraOf(get: (k: string) => number, prefix = 'ad-') {
+  const veils = [1, 2, 3].map((i) => get(`--${prefix}aur-veil-${i}`)), cores = [1, 2, 3].map((i) => get(`--${prefix}aur-core-${i}`));
+  const bar = get('--ad-bar');
+  return {
+    holds: auroraHolds(bar, veils, cores, { texts: [get('--ad-bar-ink'), get('--ad-bar-ink-2')], marks: [get('--ad-bar-accent')] }),
+    shows: Math.max(...cores.map((c) => coreShows(c, bar))),
+  };
+}
 
 type RGB = [number, number, number];
 const parse = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -34,13 +45,12 @@ function check(tokens: Record<string, string>, theme: 'light' | 'dark', label: s
     expect(ratio(parse(tokens[fg]!), parse(tokens[bg]!)), `${label} ${theme}: ${name}`).toBeGreaterThanOrEqual(min);
   }
   expect(ratio(parse(INK[theme].ink3), parse(tokens['--ad-canvas']!)), `${label} ${theme}: ink-3 on canvas`).toBeGreaterThanOrEqual(4.5);
-  // the seek fill still reads where the glow lies under it (its line at most 0.55 x 0.9 strong)
-  const bar = parse(tokens['--ad-bar']!), glow = parse(tokens['--ad-glow']!);
-  const lit = [0, 1, 2].map((i) => Math.round(glow[i]! * 0.5 + bar[i]! * 0.5)) as RGB;
-  expect(ratio(parse(tokens['--ad-bar-accent']!), lit), `${label} ${theme}: seek fill on the glow`).toBeGreaterThanOrEqual(3);
-  // the same on Now Playing's seek bar, which lies on the canvas
+  // the equalizer glow, an aurora under the bar's text: the title and second line still read 4.5:1 and the
+  // keys and seek fill 3:1 over any amount of it; its brightest core stands apart from the bar
+  const aurora = auroraOf((k) => argbOfHex(tokens[k]!));
+  expect(aurora.holds, `${label} ${theme}: the bar's inks over the aurora`).toBe(true);
+  expect(aurora.shows, `${label} ${theme}: the aurora shows`).toBeGreaterThanOrEqual(1.35);
   const canvas = parse(tokens['--ad-canvas']!);
-  expect(ratio(parse(tokens['--ad-accent']!), overRgb(glow, 0.5, canvas)), `${label} ${theme}: seek fill on the glow, on the canvas`).toBeGreaterThanOrEqual(3);
   // the bar is a clear step from the page it sits on
   expect(ratio(parse(tokens['--ad-bar']!), canvas), `${label} ${theme}: bar vs canvas`).toBeGreaterThanOrEqual(1.4);
   // Now Playing: the blurred cover over the cover's canvas, at its darkest and lightest pixel
@@ -113,6 +123,8 @@ describe('adaptiveTokens: AA whatever the cover', () => {
   }, 30_000); // hundreds of covers: CI runners are slower than a laptop
   it('the brand values pass the same pairs (the fade back to brand)', () => {
     for (const theme of ['light', 'dark'] as const) {
+      const b = BRAND_TOKENS[theme];
+      expect(auroraOf((k) => argbOfHex(b[k]!)).holds, `${theme}: brand aurora`).toBe(true);
       for (const [name, fg, bg, min] of PAIRS) {
         if (fg.startsWith('--ad-bar') || bg === '--ad-bar') continue; // the brand bar is glass, measured in tokenContrast.test.ts
         expect(ratio(parse(BRAND_TOKENS[theme][fg]!), parse(BRAND_TOKENS[theme][bg]!)), `${theme} ${name}`).toBeGreaterThanOrEqual(min);
@@ -166,6 +178,13 @@ describe('the 600 ms cross-fade never dips below the minimum', () => {
             const r = ratio(mix(parse(a[fg]!), parse(b[fg]!), t), mix(parse(a[bg]!), parse(b[bg]!), t));
             worst = Math.min(worst, r / min);
             expect(r, `${theme} ${name} at t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(min);
+          }
+        }
+        // the equalizer glow in the bar, mid-fade
+        if (a !== schemes[theme][0] && b !== schemes[theme][0]) {
+          for (let t = 0; t <= 1; t += 0.1) {
+            const at = (k: string) => { const [r, g, bl] = mix(parse(a[k]!), parse(b[k]!), t); return ((0xff << 24) | (r << 16) | (g << 8) | bl) >>> 0; };
+            expect(auroraOf(at).holds, `${theme} aurora at t=${t.toFixed(1)}`).toBe(true);
           }
         }
       }
