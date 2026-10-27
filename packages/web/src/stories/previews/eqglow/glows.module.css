@@ -1,0 +1,80 @@
+/* The equalizer-glow previews (rr55, branch-local). The glow layer sits on
+   the player bar's top edge, behind the page: the page's content paints over
+   it and the bar is untouched. */
+
+/* the content column, so the glow can sit behind the page */
+.area { isolation: isolate; position: relative; }
+
+.layer {
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  bottom: var(--player-bar-h, 72px);
+  height: var(--glow-h, 168px);
+  pointer-events: none;
+}
+
+/* Hearth: the tongues, painted at half size and blurred together; taller than the horizon */
+.layer:has(.hearth) { --glow-h: 210px; }
+.hearth {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: blur(6px);
+}
+
+/* Horizon: seven wide lobes and a bed along the bar, transform and opacity only */
+.horizon {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+:root[data-theme="dark"] .horizon { mix-blend-mode: screen; }
+
+.lobe {
+  position: absolute;
+  bottom: 0;
+  width: 30%;
+  height: 100%;
+  transform-origin: 50% 100%;
+  transform: translateX(-50%) scaleY(0.4);
+  background: radial-gradient(50% 100% at 50% 100%, color-mix(in srgb, var(--seek-glow) 80%, transparent), color-mix(in srgb, var(--seek-glow) 26%, transparent) 50%, transparent 100%);
+  will-change: transform, opacity;
+}
+:root[data-theme="light"] .lobe {
+  background: radial-gradient(50% 100% at 50% 100%, color-mix(in srgb, var(--seek-glow) 32%, transparent), color-mix(in srgb, var(--seek-glow) 10%, transparent) 55%, transparent 100%);
+}
+
+.horizonBed {
+  position: absolute;
+  inset: auto 0 0;
+  height: 38%;
+  background: linear-gradient(to top, color-mix(in srgb, var(--seek-glow) 42%, transparent), transparent);
+  will-change: opacity;
+}
+:root[data-theme="light"] .horizonBed {
+  background: linear-gradient(to top, color-mix(in srgb, var(--seek-glow) 16%, transparent), transparent);
+}
+
+/* phone: the page and the mini bar */
+.phone {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  background: var(--canvas);
+}
+.phoneMain {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-md);
+}
+.phone .layer, .phone .layer:has(.hearth) { --glow-h: 130px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--space-lg); }
+.phone .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.album { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; font-size: .875rem; }
+.album a { color: var(--ink); }
+.album span:last-child { color: var(--ink-2); }

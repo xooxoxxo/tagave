@@ -13,7 +13,14 @@ import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
 
-export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false }: { children: ReactNode; dock: ReactNode; empty?: boolean; compartmentOpen?: boolean }) {
+export function DesktopFrame({ children, dock, behind, empty = false, compartmentOpen = false }: {
+  children: ReactNode;
+  dock: ReactNode;
+  /** a layer behind the page in the content column (the equalizer-glow previews) */
+  behind?: ReactNode;
+  empty?: boolean;
+  compartmentOpen?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -63,7 +70,8 @@ export function DesktopFrame({ children, dock, empty = false, compartmentOpen = 
           </div>
         </div>
       </aside>
-      <div className={layout.contentArea}>
+      <div className={layout.contentArea} style={behind ? { position: 'relative', isolation: 'isolate' } : undefined}>
+        {behind}
         <main id="main-content" tabIndex={-1} className={layout.main}>
           <div className={layout.page}>{children}</div>
         </main>
