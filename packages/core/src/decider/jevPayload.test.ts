@@ -79,6 +79,11 @@ describe('buildJevRequest privacy', () => {
     try { buildJevRequest(ev, groups, 'm'); } catch (e) { expect((e as NotSendableError).reason).toBe('album_title'); }
   });
 
+  it('refuses an album when a tracklist is over the alignment cap', () => {
+    const capped = groups.map((g, i) => (i === 0 ? { ...g, members: g.members.map((m, j) => (j === 0 ? { ...m, evidence: { ...m.evidence, capped: true, align: [] } } : m)) } : g));
+    try { buildJevRequest(album('tag', 'tag'), capped, 'm'); expect.unreachable(); } catch (e) { expect((e as NotSendableError).reason).toBe('capped'); }
+  });
+
   it('no value from a file name or a folder name appears anywhere in the request', () => {
     const ev = buildAlbumEvidence({ artist: 'Ensemble Nord', title: 'Lichtung', titleSource: 'tag', year: 1777, yearSource: 'folder', discsKnown: false, discCount: null,
       tracks: [

@@ -25,9 +25,9 @@ export interface JevRequest { model: string; state: JevState; questions: Record<
 
 /** The album cannot be sent without a value that did not come from its tags. */
 export class NotSendableError extends Error {
-  readonly reason: 'album_title';
-  constructor(reason: 'album_title') {
-    super(`album not sendable: ${reason === 'album_title' ? 'its title did not come from its tags' : reason}`);
+  readonly reason: 'album_title' | 'capped';
+  constructor(reason: 'album_title' | 'capped') {
+    super(`album not sendable: ${reason === 'album_title' ? 'its title did not come from its tags' : 'a tracklist is over the alignment cap, so no pairing exists to send'}`);
     this.name = 'NotSendableError';
     this.reason = reason;
   }
@@ -54,7 +54,7 @@ const byLabel = (a: TracklistGroup, b: TracklistGroup): number =>
 
 /** Anchor first, then by distance; ties by release id, which is used for order only and never sent. */
 function orderedMembers(g: TracklistGroup): GroupingCandidate[] {
-  const rest = g.members.filter((m) => m !== g.anchor);
+  const rest = g.members.filter((m) => m.releaseId !== g.anchor.releaseId);
   rest.sort((a, b) => a.distance - b.distance || (a.releaseId < b.releaseId ? -1 : a.releaseId > b.releaseId ? 1 : 0));
   return [g.anchor, ...rest];
 }
@@ -102,6 +102,8 @@ function tracklist(g: TracklistGroup, localCount: number): JevTracklist {
  */
 export function buildJevRequest(album: AlbumEvidence, groups: TracklistGroup[], model: string, spec: JevSpec = JEV_SPEC): JevRequest {
   if (album.titleSource !== 'tag') throw new NotSendableError('album_title');
+  // over the cap the scorer aligned nothing: "all unpaired" would read as "nothing matches"
+  if (groups.some((g) => g.members.some((m) => m.evidence.capped))) throw new NotSendableError('capped');
   const localCount = album.tracks.length;
   const tracks: JevLocalTrack[] = album.tracks.map((t, i) => ({
     n: i + 1,
@@ -136,5 +138,5 @@ export function buildJevRequest(album: AlbumEvidence, groups: TracklistGroup[], 
 
 /** UTF-8 bytes of JSON.stringify(req), the size the service sees. */
 export function requestBytes(req: JevRequest): number {
-  return Buffer.byteLength(JSON.stringify(req), 'utf8');
+  return new TextEncoder().encode(JSON.stringify(req)).length;
 }
