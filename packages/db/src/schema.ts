@@ -2,6 +2,7 @@ import {
   bigint,
   customType,
   boolean,
+  char,
   date,
   integer,
   jsonb,
@@ -973,6 +974,89 @@ export const albumMatches = pgTable(
     liveIdx: uniqueIndex('idx_album_matches_live')
       .on(table.localAlbumId)
       .where(sql`status IN ('auto', 'confirmed')`),
+  })
+);
+
+/**
+ * 0071: accept batches, one row per batch accepted at once (the owner's
+ * rules or a decider run). run_id has no foreign key: the decider module can
+ * be removed and its batches stay undoable.
+ */
+export const deciderBatches = pgTable(
+  'decider_batches',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id')
+      .notNull()
+      .references(() => libraries.id, { onDelete: 'cascade' }),
+    deciderId: varchar('decider_id', { length: 40 }).notNull(),
+    deciderVersion: varchar('decider_version', { length: 80 }),
+    /** rule | model */
+    decidedKind: varchar('decided_kind', { length: 10 }).notNull(),
+    runId: uuid('run_id'),
+    band: varchar({ length: 10 }),
+    /** the album states a batch may accept from */
+    acceptFrom: text('accept_from').array().notNull().default(sql`'{needs_review}'`),
+    /** queued | accepting | accepted | undoing | undone | failed */
+    state: varchar({ length: 16 }).notNull().default('queued'),
+    message: text(),
+    startedByUserId: uuid('started_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    undoByUserId: uuid('undo_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    undoRequestedAt: timestamp('undo_requested_at', { withTimezone: true }),
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
+  },
+  (table) => ({
+    libraryIdx: index('idx_decider_batches_library').on(table.libraryId, table.createdAt.desc()),
+    kindCheck: check('decider_batches_decided_kind_check', sql`decided_kind in ('rule', 'model')`),
+    stateCheck: check('decider_batches_state_check', sql`state in ('queued', 'accepting', 'accepted', 'undoing', 'undone', 'failed')`),
+  })
+);
+
+/**
+ * 0071: one row per album in a batch, with the snapshot undo restores
+ * (prior_*). local_album_id has no foreign key, so an album merged away
+ * meanwhile is reported, not lost.
+ */
+export const deciderBatchItems = pgTable(
+  'decider_batch_items',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    batchId: uuid('batch_id')
+      .notNull()
+      .references(() => deciderBatches.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').notNull(),
+    releaseId: uuid('release_id').notNull(),
+    distance: numeric({ precision: 5, scale: 4 }).notNull(),
+    source: varchar({ length: 50 }),
+    probability: numeric({ precision: 5, scale: 4 }),
+    evidenceHash: char('evidence_hash', { length: 64 }),
+    expectLastIdentifyAt: timestamp('expect_last_identify_at', { withTimezone: true }),
+    reason: text().notNull(),
+    /** pending | accepted | skipped | undone | left */
+    status: varchar({ length: 10 }).notNull().default('pending'),
+    /** why an item was skipped (accept) or left (undo) */
+    skipReason: varchar('skip_reason', { length: 24 }),
+    matchId: uuid('match_id'),
+    priorState: varchar('prior_state', { length: 20 }),
+    priorIdentifyReason: varchar('prior_identify_reason', { length: 40 }),
+    priorReleaseId: uuid('prior_release_id'),
+    priorReleaseGroupId: uuid('prior_release_group_id'),
+    priorIdentifiedAt: timestamp('prior_identified_at', { withTimezone: true }),
+    priorMatchId: uuid('prior_match_id'),
+    priorMatchStatus: varchar('prior_match_status', { length: 20 }),
+    priorMatchReason: text('prior_match_reason'),
+    acceptedAt: timestamp('accepted_at', { withTimezone: true }),
+    undoneAt: timestamp('undone_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    batchAlbumUnique: unique('decider_batch_items_batch_id_local_album_id_key').on(table.batchId, table.localAlbumId),
+    albumIdx: index('idx_decider_batch_items_album').on(table.localAlbumId),
+    statusIdx: index('idx_decider_batch_items_status').on(table.batchId, table.status),
+    probabilityCheck: check('decider_batch_items_probability_check', sql`probability is null or (probability >= 0 and probability <= 1)`),
+    statusCheck: check('decider_batch_items_status_check', sql`status in ('pending', 'accepted', 'skipped', 'undone', 'left')`),
   })
 );
 

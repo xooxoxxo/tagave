@@ -8,6 +8,7 @@ export * from './schema.js';
 export * from './artistRows.js';
 export * from './autoAccept.js';
 export * from './acceptMatch.js';
+export * from './deciderBatches.js';
 export * from './mcLinks.js';
 
 /**
