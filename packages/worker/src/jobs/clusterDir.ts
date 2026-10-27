@@ -74,6 +74,8 @@ interface FileRow {
   durationMs: number | null;
   format: string;
   tags: FileTags;
+  /** scan.parse has read the file's tags (a row the walk only indexed has none yet) */
+  parsed: boolean;
   virtual?: {
     tracks: VirtualTrack[];
     cueRelPath: string;
@@ -330,14 +332,22 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   const stripDiscToken = (title: string): string =>
     scopeSpansDiscs ? stripDiscTokenFromTitle(title) : title;
 
-  interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string>; various: boolean }
+  interface Group { albumKey: string; artistKey: string; files: FileRow[]; dirs: Set<string>; various: boolean; untagged?: boolean }
   const byAlbum = new Map<string, FileRow[]>();
   const loose: FileRow[] = [];
+  const untagged: FileRow[] = [];
   for (const f of inScope) {
     if (pinned.has(f.id)) continue;
     const albumTag = f.tags.album ?? (f.virtual?.sheet.title ?? null);
     if (!albumTag) {
-      loose.push(f);
+      // A parsed file without an album tag used to stay a loose track row,
+      // in no album, and so in no list, search or Library care issue (QA
+      // 2026-10-26 Q-05). The folder's untagged files form one album of
+      // their own, named after the folder. A row not parsed yet stays loose:
+      // its tags are unknown, and the re-cluster after parsing places it. So
+      // does a file without a duration (null or 0 ms): a damaged or empty
+      // file would make an album of nothing ("Broken", 0 ms).
+      (f.parsed && (f.durationMs ?? 0) > 0 ? untagged : loose).push(f);
       continue;
     }
     const albumKey = normKey(stripDiscToken(albumTag));
@@ -388,6 +398,36 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     }
   }
 
+  // One tagged album in the folder and untagged files beside it is most
+  // often an album with a track that lost its album tag: the files join it,
+  // unless one names a different artist. With two or more tagged albums
+  // there is no telling which one they belong to, so they stay a folder
+  // album of their own.
+  const tagged = [...groups.values()];
+  const only = tagged.length === 1 ? tagged[0]! : null;
+  if (only && untagged.length > 0 && untagged.every((f) => {
+    const a = f.tags.albumartist ?? f.tags.artist;
+    return only.various || !a || normKey(a) === only.artistKey;
+  })) {
+    for (const f of untagged.splice(0)) {
+      only.files.push(f);
+      only.dirs.add(relDirname(f.relPath));
+    }
+  }
+
+  if (untagged.length > 0) {
+    // The album key '' never comes from a tag (normKey of a non-blank album
+    // title is never blank), and the artist key names the group: tagging the
+    // files later gives them a real key, and carryOverRekeyedAlbum keeps the
+    // album's id across that change.
+    groups.set(UNTAGGED_ARTIST_KEY, {
+      albumKey: '', artistKey: UNTAGGED_ARTIST_KEY, files: untagged,
+      dirs: new Set(untagged.map((f) => relDirname(f.relPath))), various: false, untagged: true,
+    });
+  }
+
+  /** an album this run inserted (not one that already existed) */
+  let created = false;
   for (const g of groups.values()) {
     const dirPaths = [...g.dirs].sort();
     const ckey = clusterKey(data.libraryId, dirPaths, g.albumKey, g.artistKey);
@@ -407,12 +447,16 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     }
 
     const albumValues: AlbumValues = {
-      titleGuess: sample.tags.album
-        ? stripDiscToken(sample.tags.album)
-        : sample.virtual?.sheet.title ?? null,
+      titleGuess: g.untagged
+        ? folderTitle(siblingDirs !== null && scopeToken ? scopeToken.title : relBasename(scope))
+        : sample.tags.album
+          ? stripDiscToken(sample.tags.album)
+          : sample.virtual?.sheet.title ?? null,
       artistGuess: g.various
         ? VARIOUS_ARTISTS
-        : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
+        : g.untagged
+          ? soleArtist(g.files)
+          : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
       yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
         ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null)
         ?? extractYear(relBasename(dirPaths[0] ?? '')) ?? null,
@@ -462,8 +506,9 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       const [row] = await tx`
         insert into local_albums ${tx({ library_id: data.libraryId, cluster_key: ckey, state: 'pending', ...columns })}
         on conflict (library_id, cluster_key) do update set ${tx(columns)}, updated_at = now()
-        returning id::text as id`;
+        returning id::text as id, (xmax = 0) as inserted`;
       if (!row) throw new Error('local_albums upsert returned no row');
+      if (row['inserted'] === true) created = true;
       await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
     }));
   }
@@ -502,10 +547,54 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     }
   }
 
+  // A new album is identified soon after the scan that found it, not at the
+  // next five-minute sweep. One identify.sweep top-up per library, throttled
+  // to a 30 s slot (singletonNextSlot keeps one more for the next slot, so
+  // an album made just after a sweep started is not missed): the sweep picks
+  // the pending albums itself and stops at its low-water mark, so a first
+  // scan of tens of thousands of folders sends a sweep every 30 s at most,
+  // never one identify job per album past the queue's cap. Best effort: the
+  // scheduled sweep still covers a send that fails.
+  if (created) {
+    try {
+      await ctx.boss.send('identify.sweep', { libraryId: data.libraryId, topUp: true }, {
+        singletonKey: identifySweepKey(data.libraryId),
+        singletonSeconds: 30,
+        singletonNextSlot: true,
+        startAfter: 15,
+      });
+    } catch (err) {
+      ctx.logger.warn({ scope, err: (err as Error).message }, 'could not queue identification of the new albums');
+    }
+  }
+
   ctx.logger.debug(
-    { scope, siblingDirs, groups: groups.size, loose: loose.length, pinned: pinned.size },
+    { scope, siblingDirs, groups: groups.size, untagged: untagged.length, loose: loose.length, pinned: pinned.size, created },
     'clustered directory',
   );
+}
+
+/** The artist key of a folder's files without album tags (see clusterDirJob). */
+const UNTAGGED_ARTIST_KEY = '\u0000untagged';
+
+/** Same key the Jobs page uses to retry the sweep (api › lib/jobView.ts). */
+export const identifySweepKey = (libraryId: string): string => `identify.sweep:${libraryId}`;
+
+/**
+ * An album title from a folder name: "bjork_homogenic" reads "bjork
+ * homogenic". Underscores only stand for spaces in a name without any.
+ * null for the top of a root, which has no name of its own.
+ */
+export function folderTitle(name: string): string | null {
+  const t = (/\s/.test(name) ? name : name.replaceAll('_', ' ')).replace(/\s+/g, ' ').trim();
+  return t === '' ? null : t;
+}
+
+/** The one artist every untagged file that names one agrees on; null otherwise. */
+function soleArtist(files: FileRow[]): string | null {
+  const names = files.map((f) => f.tags.albumartist ?? f.tags.artist).filter((a): a is string => !!a);
+  if (names.length === 0) return null;
+  return new Set(names.map((a) => normKey(a))).size === 1 ? names[0]! : null;
 }
 
 export { albumKeyLock };
@@ -596,7 +685,7 @@ export async function carryOverRekeyedAlbum(
   // Albums holding these files now, with how many of their files are in the
   // group and how many they hold in all.
   const owners = (await ctx.sql`
-    select la.id::text as id, la.state, la.cluster_key as "clusterKey",
+    select la.id::text as id, la.state, la.cluster_key as "clusterKey", la.identify_reason as "identifyReason",
            count(distinct lt.audio_file_id) filter (where lt.audio_file_id = any(${fileIds}::uuid[]))::int as inside,
            -- only live files: an album that already had a missing track, or
            -- whose files left behind went missing, still carries over (a partial move)
@@ -608,12 +697,15 @@ export async function carryOverRekeyedAlbum(
        and la.cluster_key not like 'split:%'
        and la.cluster_key not like 'merge:%'
        and la.id in (select local_album_id from local_tracks where audio_file_id = any(${fileIds}::uuid[]) and local_album_id is not null)
-     group by la.id`) as unknown as Array<{ id: string; state: string; clusterKey: string; inside: number; total: number }>;
+     group by la.id`) as unknown as Array<{ id: string; state: string; clusterKey: string; identifyReason: string | null; inside: number; total: number }>;
   const absorbed = owners.filter((o) => o.inside === o.total && o.clusterKey !== newKey);
   if (absorbed.length === 0) return;
   const keep = [...absorbed].sort((a, b) =>
     Number(b.state === 'matched') - Number(a.state === 'matched') || b.inside - a.inside)[0]!;
   const grows = fileIds.length > keep.total;
+  // An album given up on for want of tags (a folder of untagged files) that
+  // now regroups under real tags has something to search with: try again.
+  const retag = keep.state === 'unidentified' && keep.identifyReason === 'no_tags';
 
   try {
     await ctx.sql`
@@ -621,7 +713,8 @@ export async function carryOverRekeyedAlbum(
         cluster_key = ${newKey},
         ${grows && keep.state === 'matched'
           ? ctx.sql`state = 'pending', release_id = null, release_group_id = null, identify_reason = null, tracks_linked_at = null,`
-          : ctx.sql``}
+          // last_identify_at too: the sweep's 6 h retry rule would hold it
+          : retag ? ctx.sql`state = 'pending', identify_reason = null, last_identify_at = null,` : ctx.sql``}
         updated_at = now()
       where id = ${keep.id}
         and not exists (select 1 from local_albums o where o.library_id = ${libraryId} and o.cluster_key = ${newKey})`;
@@ -767,6 +860,7 @@ function toFileRow(r: { id: string; relPath: string; durationMs: number | null; 
     durationMs: r.durationMs,
     format: extOf(relBasename(r.relPath)).slice(1),
     tags: tagsOf(r.tagsRaw),
+    parsed: r.tagsRaw != null,
   };
 }
 

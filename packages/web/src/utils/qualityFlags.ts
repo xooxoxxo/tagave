@@ -118,6 +118,13 @@ function describeOne(key: string, value: unknown, all: Record<string, unknown>, 
         action: 'art',
         guidance: 'Looks the cover up online and saves it.',
       };
+    case 'noAlbumTags':
+      return {
+        key,
+        title: 'No album tags',
+        explain: 'Title from folder name',
+        action: 'tags',
+      };
     case 'noEmbeddedArt':
       return {
         key,

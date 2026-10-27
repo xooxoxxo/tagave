@@ -171,6 +171,7 @@ export function taskText(gap: GapLike, subject: TaskSubject): string {
       const folder = subject.folder ? ` in ${subject.folder}` : '';
       switch (f.key) {
         case 'noCover': return `Add cover art to ${title}`;
+        case 'noAlbumTags': return subject.folder ? `Tag files in ${subject.folder}` : `Tag files of ${title}`;
         case 'noEmbeddedArt': return `Embed cover art in the files of ${title}`;
         case 'missingMbIds': return `Write MusicBrainz IDs to ${title}${count} with Fix tags`;
         case 'parseErrors': return `Replace the ${n === 1 ? 'unreadable file' : `${n} unreadable files`} of ${title}${folder}`;

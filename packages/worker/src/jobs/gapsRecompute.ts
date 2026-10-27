@@ -135,7 +135,10 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
              'noCover', case when i.id is null then true else null end,
              'parseErrors', nullif(err.n, 0),
              'mixedLossless', case when losslessness.kinds = 2 then true else null end,
-             'lowBitrate', nullif(lowbr.n, 0)
+             'lowBitrate', nullif(lowbr.n, 0),
+             -- a folder of files without album tags, titled after the folder
+             -- (cluster.dir; QA 2026-10-26 Q-05)
+             'noAlbumTags', case when notags.n > 0 and notags.tagged = 0 then true else null end
            )) as audio_flags,
            -- the files' own pictures (scan.parse), not the stored front cover:
            -- an album with art in its files but no cover fetched yet is not
@@ -157,6 +160,12 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
       select count(*) filter (where af.lossless = false and af.bitrate_kbps < 192) as n
       from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = la.id) lowbr on true
+    join lateral (
+      select count(*) as n,
+             count(*) filter (where lt.origin = 'cue'
+                                 or nullif(btrim(af.tags_raw->'common'->>'album'), '') is not null) as tagged
+      from local_tracks lt join files af on af.id = lt.audio_file_id
+      where lt.local_album_id = la.id) notags on true
     where la.library_id = ${lib} and la.state not in ('ignored')
       and (${!scoped} or la.id = any(${albumScope}::uuid[]))
   ` as unknown as Array<{ id: string; audio_flags: Record<string, unknown>; has_embedded_art: boolean }>;
