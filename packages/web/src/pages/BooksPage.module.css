@@ -1,0 +1,17 @@
+/* Books (BooksPage.tsx): the playlists grid's tiles (PlaylistsPage.module.css), not links: a cover, the title and the authors under it. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 28px 24px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tile { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--ink); }
+.tileCover { width: 100%; border-radius: var(--r-cover); }
+.tileName { margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px / 1.25 var(--font-body); }
+.tileMeta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 13px / 1.2 var(--font-body); color: var(--ink-3); }
+
+@media (max-width: 720px) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 14px; }
+}

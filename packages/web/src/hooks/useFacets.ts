@@ -24,3 +24,13 @@ export function useModuleOn(id: string): boolean | null {
   const m = data?.modules.find((x) => x.id === id);
   return m ? m.enabled : null;
 }
+
+/**
+ * Whether an app is on (GET /facets apps): true, false, or null while
+ * unknown. A server that lists no apps (an older one) has music alone.
+ */
+export function useAppOn(id: string): boolean | null {
+  const { data } = useFacets();
+  if (!data) return null;
+  return (data.apps ?? ['music']).includes(id);
+}

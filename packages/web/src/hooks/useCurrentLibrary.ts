@@ -1,19 +1,20 @@
 /**
- * Current library selection - in v1 there is one library per user
+ * Current library selection - in v1 there is one music library per user
  */
 
 import { useMe } from './useAuth';
 import { useLibraries } from './useLibrary';
 
 /**
- * Get the current library ID (auto-selected as the first available library since v1 has only one per user)
+ * Get the current library ID: the first music library (one app per library;
+ * a books library, the spike's, is never the current one). A library without
+ * an app (an older server) is music.
  */
 export function useCurrentLibrary() {
   const { data: user, isLoading: userLoading } = useMe();
   const { data: libraries, isLoading: librariesLoading } = useLibraries();
 
-  // In v1, return the first (only) library ID when available
-  const libraryId = libraries?.[0]?.id;
+  const libraryId = libraries?.find((l) => (l.app ?? 'music') === 'music')?.id;
 
   return {
     libraryId: libraryId || undefined,

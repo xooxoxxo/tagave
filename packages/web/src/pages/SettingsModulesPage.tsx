@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { moduleCommand, type BooksModuleView, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
 import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
@@ -14,6 +14,7 @@ import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
 import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
+import { useBooksModule, useSetBooksModule } from '../hooks/useBooks';
 import { getStepUp } from '../services/stepUp';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
@@ -621,6 +622,79 @@ function PlaylistsModuleSection() {
   );
 }
 
+/* ---------- Books: an app in development (TAGAVE_DEV_APPS), no row without it ---------- */
+
+export interface BooksModuleRowProps {
+  view: BooksModuleView;
+  pending?: boolean;
+  error?: string | null;
+  onTurnOn: () => void;
+  onTurnOff: () => void;
+}
+
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** The Books row: the same shape as Playlists', values only. */
+export function BooksModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: BooksModuleRowProps) {
+  return (
+    <ul className={styles.list} aria-label="Books">
+      <li className={styles.item}>
+        <div className={styles.head}>
+          <h3 className={styles.name}>Books</h3>
+          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
+        </div>
+        <p className={styles.meta}>
+          {count(view.folders, 'folder', 'folders')} · {count(view.works, 'work', 'works')} · {count(view.files, 'file', 'files')}
+        </p>
+        <div className={styles.actions}>
+          {view.enabled
+            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
+            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
+        </div>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </li>
+    </ul>
+  );
+}
+
+function BooksModuleSection() {
+  const mod = useBooksModule();
+  const setOn = useSetBooksModule();
+  const [error, setError] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ on: boolean; methods: StepUpMethod[] } | null>(null);
+
+  const run = async (on: boolean) => {
+    setError(null);
+    try {
+      await setOn.mutateAsync(on);
+    } catch (err) {
+      const e = err as { status?: number; title?: string; detail?: string };
+      if (e.status === 403 && e.title === 'Step-up required') {
+        const s = await getStepUp();
+        setStepUp({ on, methods: s.methods });
+      } else {
+        setError(sentence(e.detail ?? e.title) || 'Books could not be changed.');
+      }
+    }
+  };
+
+  // without TAGAVE_DEV_APPS=books the row's request answers 404: no row
+  if (!mod.data) return null;
+  return (
+    <>
+      <BooksModuleRow view={mod.data} pending={setOn.isPending} error={error} onTurnOn={() => void run(true)} onTurnOff={() => void run(false)} />
+      {stepUp && (
+        <StepUpDialog
+          action={stepUp.on ? 'Turning on Books' : 'Turning off Books'}
+          methods={stepUp.methods}
+          onCancel={() => setStepUp(null)}
+          onDone={() => { const s = stepUp; setStepUp(null); void run(s.on); }}
+        />
+      )}
+    </>
+  );
+}
+
 export function SettingsModulesContent() {
   return (
     <div className={styles.page}>
@@ -628,6 +702,7 @@ export function SettingsModulesContent() {
       <McModuleSection />
       <ListenLinksModuleSection />
       <PlaylistsModuleSection />
+      <BooksModuleSection />
     </div>
   );
 }

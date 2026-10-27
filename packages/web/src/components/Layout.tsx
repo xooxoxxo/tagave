@@ -19,6 +19,7 @@ import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
 import { MenuPlaylists } from './playlists/MenuPlaylists';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
+import { useBooksOn } from '../hooks/useBooks';
 import { AdaptiveColour } from '../adaptive/AdaptiveColour';
 import { ThemeColours } from '../themes/ThemeColours';
 import { AppDownHost } from './update/UpdateDownScreen';
@@ -54,6 +55,7 @@ export function Layout() {
   const canCare = useCan('library.edit');
   const canSystem = useCan('system.manage');
   const playlistsOn = usePlaylistsOn();
+  const booksOn = useBooksOn();
   useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
   const taskCount = useGapCounts(user && canCare ? libraryId : undefined).data?.tasks?.todo ?? 0;
@@ -177,6 +179,7 @@ export function Layout() {
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
           {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
+          {booksOn && <Link to="/books" className={linkClass(pathname.startsWith('/books'))}>{pageTitles['/books']}</Link>}
           {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">{pageTitles['/work']}{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
           {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>

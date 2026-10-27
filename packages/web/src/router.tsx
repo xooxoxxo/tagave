@@ -24,6 +24,7 @@ const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'Invit
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
 const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
+const BooksPage = lazyRouteComponent(() => import('./pages/BooksPage'), 'BooksPage');
 const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'PlaylistPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
@@ -146,6 +147,13 @@ const playlistRoute = new Route({
   getParentRoute: () => layoutRoute,
   path: '/playlists/$playlistId',
   component: PlaylistPage,
+});
+
+// Books (the books app, the spike behind TAGAVE_DEV_APPS): read-only works
+const booksRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/books',
+  component: BooksPage,
 });
 
 const plansRoute = new Route({
@@ -314,6 +322,7 @@ const routeTree = rootRoute.addChildren([
     artistDetailRoute,
     playlistsRoute,
     playlistRoute,
+    booksRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,

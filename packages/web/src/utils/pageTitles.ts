@@ -9,6 +9,8 @@ export const pageTitles = {
   '/artists': 'Artists',
   '/collection': 'Physical collection',
   '/playlists': 'Playlists',
+  // the books app (the spike, behind TAGAVE_DEV_APPS): linked only while it is on
+  '/books': 'Books',
   '/work': 'Library care',
   '/plans': 'Tag changes',
   '/settings': 'Settings',
