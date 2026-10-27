@@ -84,7 +84,9 @@ export async function refreshLibraryFacets(
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
                                    and am.decided_by = 'user' and am.reason not like 'manual MBID%') then 'by_me' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
-                                   and am.reason like 'manual MBID%') then 'manual_mbid' end
+                                   and am.reason like 'manual MBID%') then 'manual_mbid' end,
+               case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
+                                   and am.decided_kind = 'model') then 'model' end
              ]::text[], null)
       from local_albums la
       left join lateral (

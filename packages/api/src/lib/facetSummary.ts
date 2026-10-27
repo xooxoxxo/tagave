@@ -21,7 +21,7 @@ const SUMMARY_KEYS = new Set(['state', 'filter', 'genre', 'decade', 'format', 'l
 // `_` is the conventional cache-buster parameter; it never filters anything.
 const IGNORED_KEYS = new Set(['sort', 'order', 'page', 'limit', 'offset', 'cursor', 'view', 'pageSize', '_']);
 const FORMAT_CLASSES = new Set(['lossless', 'lossy', 'mixed']);
-const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid'] as const;
+const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid', 'model'] as const;
 
 export type FacetDim = 'state' | 'genre' | 'decade' | 'format' | 'label' | 'gap';
 

@@ -131,6 +131,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches routes', () => {
     expect(view.recent).toEqual([expect.objectContaining({ albumId: decided, title: 'Kosmonument', percent: 99 })]);
   });
 
+  it("does not count a model's accept among the rules' accepts", async () => {
+    const before = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json().acceptedTotal;
+    const albumId = albumIds[0]!;
+    const rel = releaseIds[0]!;
+    await db.insert(albumMatches).values({
+      libraryId, localAlbumId: albumId, releaseId: rel, distance: '0.0300', status: 'auto', decidedBy: 'system', decidedKind: 'model',
+      deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: '0.9940', reason: 'model accept: jev-2026-09-15, probability 0.9940',
+    });
+    try {
+      const view = (await req('GET', `/libraries/${libraryId}/auto-accept`)).json();
+      expect(view.acceptedTotal).toBe(before);
+      expect(view.recent.map((r: { albumId: string }) => r.albumId)).not.toContain(albumId);
+    } finally {
+      await db.delete(albumMatches).where(eq(albumMatches.localAlbumId, albumId));
+    }
+  });
+
   it('finds no unknown library or album (every library on the install is shared, 0043)', async () => {
     const unknown = randomUUID();
     expect((await req('GET', `/libraries/${unknown}/auto-accept`, undefined, strangerId)).statusCode).toBe(404);

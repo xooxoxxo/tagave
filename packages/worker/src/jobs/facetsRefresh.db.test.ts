@@ -16,6 +16,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('refreshLibraryFacets staleness 
   let client: any;
   let userId: string;
   let libraryId: string;
+  const rgIds: string[] = [];
 
   beforeAll(async () => {
     const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -30,6 +31,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('refreshLibraryFacets staleness 
   });
 
   afterAll(async () => {
+    await client`delete from album_facets where library_id = ${libraryId}`;
+    await client`delete from local_albums where library_id = ${libraryId}`;
+    await client`delete from release_groups where id = any(${rgIds}::uuid[])`;
     await client`delete from facet_state where library_id = ${libraryId}`;
     await client`delete from libraries where id = ${libraryId}`;
     await client`delete from users where id = ${userId}`;
@@ -54,5 +58,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('refreshLibraryFacets staleness 
     await client`update facet_state set computed_at = now() - interval '1 hour', dirty_at = null where library_id = ${libraryId}`;
     const result = await refreshLibraryFacets(ctx, libraryId, false);
     expect(result.skipped).toBe(false);
+  });
+
+  it('files a model-matched album under its own match kind', async () => {
+    const rgId = randomUUID();
+    rgIds.push(rgId);
+    const releaseId = randomUUID();
+    const albumId = randomUUID();
+    const master = 900_000_000 + Math.floor(Math.random() * 99_000_000);
+    await client`insert into release_groups (id, title, discogs_master_id) values (${rgId}, 'Facets', ${master})`;
+    await client`insert into releases (id, release_group_id, title) values (${releaseId}, ${rgId}, 'Facets')`;
+    await client`insert into local_albums (id, library_id, cluster_key, state, release_group_id, release_id)
+                 values (${albumId}, ${libraryId}, ${`facets:${albumId}`}, 'matched', ${rgId}, ${releaseId})`;
+    await client`
+      insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind,
+                                 decider_id, decider_version, probability, reason)
+      values (${libraryId}, ${albumId}, ${releaseId}, 0.0500, 'auto', 'system', 'model',
+              'jev', 'jev-2026-09-15', 0.9940, 'model accept: jev-2026-09-15, probability 0.9940')`;
+
+    await refreshLibraryFacets(ctx, libraryId, true);
+
+    const rows = await client`select decided from album_facets where album_id = ${albumId}`;
+    expect(rows[0]!['decided']).toEqual(['model']);
   });
 });

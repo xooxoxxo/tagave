@@ -34,6 +34,8 @@ const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
   first_candidate: sql`am.decided_by = 'system' and am.reason like 'first-candidate%'`,
   by_me: sql`am.decided_by = 'user' and am.reason not like 'manual MBID%'`,
   manual_mbid: sql`am.reason like 'manual MBID%'`,
+  // a decision model's accept: automatic, and never the owner's
+  model: sql`am.decided_kind = 'model'`,
 };
 const decidedExists = (clause: ReturnType<typeof sql>) => sql`exists (
   select 1 from album_matches am
@@ -365,15 +367,16 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         const flagged = new Set(gapRows.map((g) => g.subjectId));
         const matchRows = albums.length
           ? ((await db.execute(sql`
-              select distinct on (local_album_id) local_album_id, decided_by, reason
+              select distinct on (local_album_id) local_album_id, decided_by, decided_kind, reason
               from album_matches
               where local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
                 and status in ('auto', 'confirmed')
               order by local_album_id, decided_at desc nulls last`)) as unknown as {
-              local_album_id: string; decided_by: string; reason: string | null;
+              local_album_id: string; decided_by: string; decided_kind: string; reason: string | null;
             }[])
           : [];
-        const kindOf = (r: { decided_by: string; reason: string | null }): string => {
+        const kindOf = (r: { decided_by: string; decided_kind: string; reason: string | null }): string => {
+          if (r.decided_kind === 'model') return 'model';
           const reason = r.reason ?? '';
           if (reason.startsWith('manual MBID')) return 'manual_mbid';
           if (reason.startsWith('chip-rule')) return 'chip_rule';

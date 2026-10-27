@@ -60,7 +60,7 @@ export const albumSummarySchema = z.object({
   trackCount: z.number().int().nonnegative().describe('Number of local files'),
   needsAttention: z.boolean().optional()
     .describe('Album has an open incomplete/duplicate gap (XO-300)'),
-  matchKind: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid']).nullish()
+  matchKind: z.enum(['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid', 'model']).nullish()
     .describe('How the live match was decided, for provenance filtering'),
   canonicalTrackCount: z.number().int().nonnegative().nullish().describe('Tracks on the matched release'),
   coverUrl: z.string().url().nullable().optional().describe('Cover art URL (300px thumbnail)'),

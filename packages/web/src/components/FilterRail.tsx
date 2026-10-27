@@ -36,7 +36,7 @@ const REVIEW_LABEL: Record<string, string> = { reviewed: 'Reviewed', unreviewed:
 const GAP_LABEL: Record<string, string> = { incomplete_album: 'Incomplete', duplicate: 'Duplicate', quality: 'Quality flags', none: 'No open issues' };
 const OWNED_LABEL: Record<string, string> = { both: 'Also on physical', digital: 'Digital only' };
 const DECIDED_LABEL: Record<string, string> = {
-  auto_strong: 'Auto (strong)', chip_rule: 'Auto (chip rule)', first_candidate: 'Auto (first candidate)', by_me: 'Accepted by me', manual_mbid: 'Manual MBID',
+  auto_strong: 'Auto (strong)', chip_rule: 'Auto (chip rule)', first_candidate: 'Auto (first candidate)', by_me: 'Accepted by me', manual_mbid: 'Manual MBID', model: 'Auto (model)',
 };
 
 type FacetItem = { value: string; label?: string | undefined; count: number };

@@ -50,6 +50,7 @@ const KIND_TAG: Record<string, { text: string; title: string }> = {
   first_candidate: { text: 'first pick', title: 'Matched to the closest candidate without a clear winner' },
   by_me: { text: 'by you', title: 'You chose this match' },
   manual_mbid: { text: 'by link', title: 'Matched from a release link you pasted' },
+  model: { text: 'model', title: 'Matched by a decision model' },
 };
 const BULK_LABEL: Record<BulkAlbumAction, string> = {
   identify: 'Re-identify', fetch_art: 'Fetch art', as_is: 'Keep as-is', ignore: 'Ignore', unignore: 'Un-ignore', prefer: 'Mark preferred',
