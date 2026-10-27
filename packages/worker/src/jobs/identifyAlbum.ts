@@ -1,6 +1,6 @@
 import { eq, inArray } from 'drizzle-orm';
 import {
-  albumEvidenceLock, albumMatches, files, localAlbums, localTracks, releases,
+  acceptInTx, albumEvidenceLock, files, localAlbums, localTracks, releases,
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
@@ -610,36 +610,19 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   ): Promise<IdentifyOutcome> => {
     // One live match per album: a re-identification (manual entry, or a
     // fingerprint-backed run on an album the sweep matched meanwhile)
-    // supersedes the previous decision instead of tripping the unique index.
-    // The earlier decision keeps its reason: it says why that one was made.
-    await ctx.sql`
-      update album_matches set status = 'rejected'
-      where local_album_id = ${album.id} and status in ('auto', 'confirmed')`;
-    await ctx.db.insert(albumMatches).values({
-      libraryId: album.libraryId,
-      localAlbumId: album.id,
-      releaseId: releaseDb,
-      distance: distance.toFixed(4),
-      status,
-      decidedBy,
-      reason,
-      source,
-      decidedKind: decidedBy === 'user' ? 'user' : 'system',
+    // supersedes the previous decision instead of tripping the unique index,
+    // under the album row lock every accept takes. The earlier decision
+    // keeps its reason: it says why that one was made. Identification
+    // decides whatever state the album is in.
+    const res = await ctx.sql.begin((tx) => acceptInTx(tx, {
+      libraryId: album.libraryId, albumId: album.id, releaseId: releaseDb, distance, source, reason,
+      status, decidedBy, decidedKind: decidedBy === 'user' ? 'user' : 'system',
       decidedByUserId: decidedBy === 'user' ? data.requestedByUserId ?? null : null,
-    });
-    const rgRow = await ctx.db
-      .select({ rgId: releases.releaseGroupId })
-      .from(releases).where(eq(releases.id, releaseDb)).limit(1);
-    await ctx.db.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: releaseDb,
-        releaseGroupId: rgRow[0]?.rgId ?? null,
-        identifyReason: null,
-        identifiedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(localAlbums.id, album.id));
+      fromStates: null,
+    }));
+    // The album or the release went away while it was being identified:
+    // fail the job, as the insert's foreign key did before.
+    if (!res.ok) throw new Error(`identify: could not record the match (${res.reason === 'gone' ? 'album no longer stored' : 'release no longer stored'})`);
     await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
     // ENR-1: bridge + enrich the release of record
     await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });

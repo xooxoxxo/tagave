@@ -6,7 +6,10 @@
  * (enrichment, track linking, cover, queue notice) is the caller's choice,
  * so a batch can leave it to the nightly sweeps.
  *
- * Locks, in this order: the album row (local_albums, for update), then the
+ * Locks, in this order: the album row (local_albums, for no key update, so
+ * rows that only reference the album, such as its tracks or candidates, can
+ * still be written), the release row (for key share, so it cannot be
+ * deleted between the check and the insert that references it), then the
  * album's live match row (album_matches, for update). It never takes the
  * per-album evidence advisory lock: transactions that hold that lock take
  * it before anything else, and taking it here after the album row could
@@ -31,30 +34,39 @@ export interface PriorSnapshot {
 }
 export type AcceptResult = { ok: true; matchId: string; prior: PriorSnapshot } | { ok: false; reason: 'gone' | 'state' | 'release_gone' };
 
+/** Every model accept's reason starts with this, so no reader takes it for the owner's. */
+export const MODEL_ACCEPT_REASON_PREFIX = 'model accept:';
+
 /**
- * A model's probability is what readers show as its confidence, so a model
- * accept without a usable one is refused outright rather than stored as a
- * gap that readers would fill with some other number.
+ * Checks an accept before anything touches the database: callers that want
+ * to refuse a bad input before opening a transaction call it themselves;
+ * acceptInTx calls it again first thing. A model's probability is what
+ * readers show as its confidence, so a model accept without a usable one
+ * is refused outright rather than stored as a gap readers would fill with
+ * another number; and its reason must say it is the model's.
  */
-function checkProbability(a: AcceptInput): void {
+export function assertAcceptInput(a: AcceptInput): void {
   const p = a.probability;
   if (p == null) {
     if (a.decidedKind === 'model') throw new RangeError('a model accept needs a probability between 0 and 1');
-    return;
+  } else if (!Number.isFinite(p) || p < 0 || p > 1) {
+    throw new RangeError(`probability must be between 0 and 1, got ${p}`);
   }
-  if (!Number.isFinite(p) || p < 0 || p > 1) throw new RangeError(`probability must be between 0 and 1, got ${p}`);
+  if (a.decidedKind === 'model' && !a.reason.startsWith(MODEL_ACCEPT_REASON_PREFIX)) {
+    throw new RangeError(`a model accept's reason must start with "${MODEL_ACCEPT_REASON_PREFIX}"`);
+  }
 }
 
 /** Lock the album row, check, supersede the live match (reason kept), insert the new one, move the album. No sends: downstream is the caller's. */
 export async function acceptInTx(tx: Tx, a: AcceptInput): Promise<AcceptResult> {
-  checkProbability(a);
+  assertAcceptInput(a);
   const [album] = await tx<Array<{ state: string; identify_reason: string | null; release_id: string | null; release_group_id: string | null; identified_at: Date | string | null }>>`
     select state, identify_reason, release_id, release_group_id, identified_at
-      from local_albums where id = ${a.albumId} and library_id = ${a.libraryId} for update`;
+      from local_albums where id = ${a.albumId} and library_id = ${a.libraryId} for no key update`;
   if (!album) return { ok: false, reason: 'gone' };
   const from = a.fromStates === undefined ? ['needs_review'] : a.fromStates;
   if (from !== null && !from.includes(album.state)) return { ok: false, reason: 'state' };
-  const [rel] = await tx<Array<{ release_group_id: string | null }>>`select release_group_id from releases where id = ${a.releaseId}`;
+  const [rel] = await tx<Array<{ release_group_id: string | null }>>`select release_group_id from releases where id = ${a.releaseId} for key share`;
   if (!rel) return { ok: false, reason: 'release_gone' };
   // At most one live match per album (a unique index holds it); the one
   // being replaced is read for the caller before it is superseded.

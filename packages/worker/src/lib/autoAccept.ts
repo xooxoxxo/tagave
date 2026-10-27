@@ -73,7 +73,12 @@ export async function acceptCandidate(ctx: WorkerContext, a: {
   libraryId: string; albumId: string; releaseId: string; distance: number; source: string | null; reason: string;
 }): Promise<boolean> {
   const res = await ctx.sql.begin((tx) => acceptInTx(tx, { ...a, status: 'auto', decidedBy: 'system', decidedKind: 'rule' }));
-  if (!res.ok) return false;
+  if (!res.ok) {
+    if (res.reason === 'release_gone') {
+      ctx.logger.warn({ localAlbumId: a.albumId, releaseId: a.releaseId }, 'auto-accept rules: release no longer stored, not accepted');
+    }
+    return false;
+  }
 
   await notifyQueueChanged(ctx, a.libraryId, a.albumId, 'matched');
   // ENR-1 + 0026, as for any other accepted match.

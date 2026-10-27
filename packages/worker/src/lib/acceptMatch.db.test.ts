@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  acceptInTx, libraries, localAlbums, releaseGroups, releases, users, makeDb, type AcceptInput,
+  acceptInTx, assertAcceptInput, libraries, localAlbums, releaseGroups, releases, users, makeDb, type AcceptInput,
 } from '@tagave/db';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('acceptInTx (db)', () => {
@@ -54,12 +54,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('acceptInTx (db)', () => {
   it('moves the album, writes the match with its provenance and returns what it replaced', async () => {
     await client`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, reason, decided_kind)
                  values (${libraryId}, ${albumId}, ${otherRelease}, 0.0500, 'auto', 'system', 'auto-accept: distance 0.0500 (musicbrainz)', 'system')`;
-    const res = await run({ decidedKind: 'model', deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: 0.994, batchId });
+    const res = await run({ decidedKind: 'model', deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: 0.994, batchId, reason: 'model accept: test' });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(res.prior).toMatchObject({ state: 'needs_review', liveMatchStatus: 'auto', liveMatchReason: 'auto-accept: distance 0.0500 (musicbrainz)' });
     const rows = await client`select status, reason, decided_kind, probability::text, batch_id from album_matches where local_album_id = ${albumId} order by created_at`;
-    expect(rows.map((r: any) => [r.status, r.reason])).toEqual([['rejected', 'auto-accept: distance 0.0500 (musicbrainz)'], ['auto', 'r']]);
+    expect(rows.map((r: any) => [r.status, r.reason])).toEqual([['rejected', 'auto-accept: distance 0.0500 (musicbrainz)'], ['auto', 'model accept: test']]);
     expect(rows[1]).toMatchObject({ decided_kind: 'model', probability: '0.9940', batch_id: batchId });
     const [a] = await client`select state, release_id, release_group_id, identify_reason from local_albums where id = ${albumId}`;
     expect(a).toMatchObject({ state: 'matched', release_id: releaseId, release_group_id: rgId, identify_reason: null });
@@ -123,6 +123,52 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('acceptInTx (db)', () => {
     const [a] = await client`select state from local_albums where id = ${albumId}`;
     expect(a.state).toBe('needs_review');
     expect((await run({ ...model, probability: 1 })).ok).toBe(true);
+  });
+
+  it("a model accept's reason must say it is the model's, and nothing is written otherwise", async () => {
+    const model = { decidedKind: 'model' as const, deciderId: 'jev', deciderVersion: 'jev-2026-09-15', probability: 0.99 };
+    for (const reason of ['r', 'accepted in review queue', 'Model accept: x']) {
+      await expect(run({ ...model, reason })).rejects.toBeInstanceOf(RangeError);
+    }
+    expect(() => assertAcceptInput({
+      libraryId, albumId, releaseId, distance: 0.02, source: null, reason: 'r', status: 'auto', decidedBy: 'system', ...model,
+    })).toThrow(RangeError);
+    expect(await client`select 1 from album_matches where local_album_id = ${albumId}`).toHaveLength(0);
+    const [a] = await client`select state from local_albums where id = ${albumId}`;
+    expect(a.state).toBe('needs_review');
+  });
+
+  it('a release cannot be deleted between the check and the insert that references it', async () => {
+    const doomed = randomUUID();
+    await db.insert(releases).values({ id: doomed, releaseGroupId: rgId, mbid: randomUUID(), title: 'Kosmonument', trackCount: 3, sourceOfTruth: 'musicbrainz' });
+    let deleted = false;
+    let deletion: Promise<unknown> | undefined;
+    // Right after the accept has read the release, a second connection
+    // tries to delete it (as relinking a release to a new id does).
+    const res = await client.begin(async (tx: any) => {
+      const spy = (strings: TemplateStringsArray, ...vals: unknown[]) => {
+        const q = tx(strings, ...vals);
+        if (!strings.join('?').includes('from releases')) return q;
+        return q.then(async (rows: unknown) => {
+          deletion = client`delete from releases where id = ${doomed}`.then(() => { deleted = true; });
+          // wait until the delete is blocked on a lock (or, without one, done)
+          for (let i = 0; i < 100 && !deleted; i++) {
+            const waiting = await client`select 1 from pg_stat_activity
+                                          where wait_event_type = 'Lock' and query like 'delete from releases where id = %'`;
+            if (waiting.length > 0) break;
+            await new Promise((r) => setTimeout(r, 20));
+          }
+          return rows;
+        });
+      };
+      return acceptInTx(spy as any, {
+        libraryId, albumId, releaseId: doomed, distance: 0.02, source: 'mb_search', reason: 'r', status: 'auto', decidedBy: 'system', decidedKind: 'rule',
+      });
+    });
+    expect(deleted).toBe(false);
+    expect(res.ok).toBe(true);
+    await deletion;
+    expect(deleted).toBe(true);
   });
 
   it('any probability given must be within 0..1; other kinds may leave it out', async () => {
