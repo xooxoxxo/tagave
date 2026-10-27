@@ -152,10 +152,10 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
   });
 
   it('the TypeSafe key: re-encrypted once, a second run changes nothing', async () => {
-    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 1, alreadyCurrent: 0, cleared: [] });
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 1, alreadyCurrent: 0, cleared: [], unreadable: 0 });
     const after = await typesafe();
     expect(openSecret(after, NEW)).toBe(TYPESAFE);
-    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 1, cleared: [] });
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 1, cleared: [], unreadable: 0 });
     expect(await typesafe()).toBe(after);
   });
 
@@ -171,17 +171,34 @@ describe.skipIf(!url)('reseal: Music Connections links (integration)', () => {
     expect(openSecret(await discogs(), NEW)).toBe('discogs-token');
     const [link] = await sql<Array<{ sealed_tokens: string }>>`select sealed_tokens from mc_links where state = 'active'`;
     expect(openTokens(link!.sealed_tokens, NEW)).toEqual(tokens);
-    // on its own: listed by library, and nothing left to remove on a second run
+    // on its own: left as it is unless removing is asked for; then listed by library, and nothing left to remove on a second run
     await setTypesafeKey(sql, libraryId, lost, 'k9z1');
-    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [{ label: 'TypeSafe key', libraryId }] });
-    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [] });
+    expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 1 });
+    expect(await typesafe()).toBe(lost);
+    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [{ label: 'TypeSafe key', libraryId }], unreadable: 0 });
+    expect(await resealModuleKeys(sql, OLD, NEW, { clearUnreadable: true })).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
+  });
+
+  it('a mistyped old secret never removes a key: with only a TypeSafe key, the run stops and changes nothing', async () => {
+    await sql`update libraries set settings = '{}'::jsonb where id = ${libraryId}`;
+    const sealed = await typesafe();
+    const before = await snapshot();
+    const err = await doctor('typo-secret-0123456789abcdef0123456789').then(() => null, (e: Error) => e);
+    expect(err?.message).toMatch(/TAGAVE_OLD_APP_SECRET opens no sealed key here, and 1 TypeSafe key\(s\) open with neither secret; is it right\? Nothing was changed/);
+    for (const leak of [TYPESAFE, sealed, 'k9z1']) expect(err!.message).not.toContain(leak);
+    expect(await snapshot()).toEqual(before);
+    expect(await typesafe()).toBe(sealed);
+    expect(await typesafeKeyHint(sql, libraryId)).toBe('k9z1');
+    // with the right old secret it goes through
+    expect((await doctor()).warned).toBe('');
+    expect(openSecret(await typesafe(), NEW)).toBe(TYPESAFE);
   });
 
   it('runs where the module\'s table was never made', async () => {
     // moved aside (to_regclass finds no table by its name) and put back, so the order of the tests does not matter
     await sql`alter table decider_library_settings rename to decider_library_settings_aside`;
     try {
-      expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [] });
+      expect(await resealModuleKeys(sql, OLD, NEW)).toEqual({ resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 });
       const { warned } = await doctor();
       expect(warned).toBe('');
       expect(openSecret(await discogs(), NEW)).toBe('discogs-token');

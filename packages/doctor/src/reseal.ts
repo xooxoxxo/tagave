@@ -87,6 +87,8 @@ export interface ModuleKeyResealResult {
   alreadyCurrent: number;
   /** libraries whose key opened with neither secret: the key and its hint were removed (the owner enters it again) */
   cleared: Array<{ label: string; libraryId: string }>;
+  /** keys on neither secret left as they are (removing them was not asked for) */
+  unreadable: number;
 }
 
 /** The module key rows, `[]` when the module's table was never made. */
@@ -101,18 +103,23 @@ async function moduleKeyRows(sql: postgres.Sql | postgres.TransactionSql, table:
 /**
  * Re-encrypt the modules' sealed keys from `oldSecret` to `newSecret`, in one
  * transaction. Idempotent: a key already on the new secret is skipped. A key
- * neither secret opens is lost: it and its hint are removed (Settings then
- * shows no key and the owner enters it again), it is listed by library in
+ * neither secret opens is counted and left as it is, unless `clearUnreadable`
+ * (the caller has proof the old secret is right: another sealed key opened
+ * with it): then it is lost, it and its hint are removed (Settings then shows
+ * no key and the owner enters it again), it is listed by library in
  * `cleared`, and the run carries on.
  */
-export async function resealModuleKeys(sql: postgres.Sql, oldSecret: string, newSecret: string): Promise<ModuleKeyResealResult> {
+export async function resealModuleKeys(
+  sql: postgres.Sql, oldSecret: string, newSecret: string, opts: { clearUnreadable?: boolean } = {},
+): Promise<ModuleKeyResealResult> {
   return sql.begin(async (tx) => {
-    const out: ModuleKeyResealResult = { resealed: 0, alreadyCurrent: 0, cleared: [] };
+    const out: ModuleKeyResealResult = { resealed: 0, alreadyCurrent: 0, cleared: [], unreadable: 0 };
     for (const [table, label] of MODULE_SEALED_KEYS) {
       for (const row of await moduleKeyRows(tx, table, true)) {
         const state = sealedState(row.v, oldSecret, newSecret);
         if (state === 'new') { out.alreadyCurrent += 1; continue; }
         if (state === 'neither') {
+          if (!opts.clearUnreadable) { out.unreadable += 1; continue; }
           await tx.unsafe(`update ${table} set sealed_key = null, key_hint = null, updated_at = now() where library_id::text = $1`, [row.k]);
           out.cleared.push({ label, libraryId: row.k });
           continue;
@@ -132,6 +139,10 @@ export interface OldSecretCheck {
   opensWithOld: number;
   /** provider secrets (libraries.settings) on neither secret: the run would fail on them */
   libraryUnreadable: string[];
+  /** provider secrets (libraries.settings) and modules' keys the old secret opens: proof it is right */
+  keysOpenWithOld: number;
+  /** modules' keys on neither secret */
+  moduleUnreadable: number;
   /** Music Connections values on neither secret (stale links; or a wrong old secret) */
   mcUnreadable: number;
 }
@@ -158,22 +169,24 @@ function sealedState(value: string, oldSecret: string, newSecret: string): 'new'
  * wrong (or that value is lost) and the run stops with nothing changed.
  */
 export async function checkOldSecret(sql: postgres.Sql, libraries: LibraryRow[], oldSecret: string, newSecret: string): Promise<OldSecretCheck> {
-  const out: OldSecretCheck = { opensWithOld: 0, libraryUnreadable: [], mcUnreadable: 0 };
+  const out: OldSecretCheck = { opensWithOld: 0, libraryUnreadable: [], keysOpenWithOld: 0, moduleUnreadable: 0, mcUnreadable: 0 };
   for (const row of libraries) {
     const settings = typeof row.settings === 'string' ? JSON.parse(row.settings) : row.settings;
     for (const key of SEALED_LIBRARY_KEYS) {
       const value = settings?.[key];
       if (typeof value !== 'string' || !isSealed(value)) continue;
       const state = sealedState(value, oldSecret, newSecret);
-      if (state === 'old') out.opensWithOld += 1;
+      if (state === 'old') { out.opensWithOld += 1; out.keysOpenWithOld += 1; }
       else if (state === 'neither') out.libraryUnreadable.push(`${key} of library ${row.id}`);
     }
   }
   // the modules' keys count towards the old secret being right; one on
-  // neither secret never stops the run (resealModuleKeys removes it)
+  // neither secret is removed only with that proof (resealCredentials)
   for (const [table] of MODULE_SEALED_KEYS) {
     for (const row of await moduleKeyRows(sql, table, false)) {
-      if (sealedState(row.v, oldSecret, newSecret) === 'old') out.opensWithOld += 1;
+      const state = sealedState(row.v, oldSecret, newSecret);
+      if (state === 'old') { out.opensWithOld += 1; out.keysOpenWithOld += 1; }
+      else if (state === 'neither') out.moduleUnreadable += 1;
     }
   }
   for (const [table, key, column] of MC_SEALED_COLUMNS) {
@@ -221,6 +234,14 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
         `${check.libraryUnreadable.join(', ')} open(s) with neither secret; is TAGAVE_OLD_APP_SECRET right? Nothing was changed.`,
       );
     }
+    // A module key on neither secret is removed only when the old secret is
+    // shown right (a provider secret or module key opened with it): a
+    // mistyped old secret must never remove keys.
+    if (check.moduleUnreadable > 0 && check.keysOpenWithOld === 0) {
+      throw new Error(
+        `TAGAVE_OLD_APP_SECRET opens no sealed key here, and ${check.moduleUnreadable} TypeSafe key(s) open with neither secret; is it right? Nothing was changed.`,
+      );
+    }
 
     // Authenticator apps: one transaction, and it refuses (changing
     // nothing) if a secret opens with neither APP_SECRET.
@@ -250,8 +271,9 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
     // transaction, the libraries loop below row by row), so a run that stops
     // part way leaves some values on the new secret; a rerun with the same two
     // secrets skips those and finishes the rest ('a re-run is a no-op' in
-    // mcReseal.db.test.ts). A key neither secret opens is removed, never a stop.
-    const moduleKeys = await resealModuleKeys(sql, oldSecret, newSecret);
+    // mcReseal.db.test.ts). A key neither secret opens is removed (the check
+    // above made sure the old secret is right), never a stop.
+    const moduleKeys = await resealModuleKeys(sql, oldSecret, newSecret, { clearUnreadable: check.keysOpenWithOld > 0 });
     if (moduleKeys.resealed + moduleKeys.alreadyCurrent + moduleKeys.cleared.length > 0) {
       console.log(`Module keys: ${moduleKeys.resealed} re-encrypted, ${moduleKeys.alreadyCurrent} already on the new secret, ${moduleKeys.cleared.length} removed.`);
     }
