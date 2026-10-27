@@ -7,6 +7,7 @@ import { albumKeyLock, files, clusterOverrides, localTracks, scanRoots, sidecarF
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { MUSIC_HANDLERS } from '../lib/musicFiles.js';
 import { expandFilesWithCues } from '../lib/cueExpand.js';
 import { upsertTracks, type TrackRowInput } from '../lib/trackUpsert.js';
 import {
@@ -179,6 +180,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     .where(and(
       eq(files.scanRootId, data.scanRootId),
       or(eq(files.status, 'present'), eq(files.status, 'error')),
+      // only files music groups (its manifest's handlers): a book in an album folder is not a track
+      inArray(files.handler, [...MUSIC_HANDLERS]),
       pathFilter,
     ));
 
