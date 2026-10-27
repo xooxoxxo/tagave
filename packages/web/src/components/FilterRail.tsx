@@ -5,7 +5,7 @@
  * single-select. Every choice is written to the URL by the page.
  */
 import { useState } from 'react';
-import type { AlbumFacets, AlbumsQuery, MultiFilterKey, SavedView } from '@tagave/shared';
+import type { AlbumFilterCounts, AlbumsQuery, MultiFilterKey, SavedView } from '@tagave/shared';
 import { isMultiActive } from '../pages/albumsSearch';
 import { plural } from '../utils/qualityFlags';
 import { Button, CloseIcon, IconButton } from './ui';
@@ -13,7 +13,7 @@ import styles from './FilterRail.module.css';
 
 interface FilterRailProps {
   query: AlbumsQuery;
-  facets: AlbumFacets | undefined;
+  facets: AlbumFilterCounts | undefined;
   savedViews: SavedView[] | undefined;
   activeCount: number;
   /** Toggle one value of a multi-select dimension. */

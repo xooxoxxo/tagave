@@ -31,7 +31,8 @@
  * of their own, the Last.fm API key); only the player's scan status goes.
  */
 import type postgres from 'postgres';
-import { LISTEN_LINKS_TABLES, PLAYLISTS_TABLES, listenLinksEnabled, playlistsEnabled } from '@tagave/db';
+import { MODULES, type ModuleManifest } from '@tagave/core/facets';
+import { moduleEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
 
@@ -44,7 +45,7 @@ export interface ModuleData {
   history: { table: string; where: string } | null;
   /** Set in the app's environment while the module is on: the purge refuses then. */
   onWhenEnv: readonly string[];
-  /** A module switched by a setting in the database (Listen elsewhere): on, the purge refuses. */
+  /** A module switched in the database (the module ledger): on, the purge refuses. */
   onWhenSettings?: (sql: Sql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
@@ -73,7 +74,43 @@ const BUNDLED_OR_UNSERVED = `server_key = ${BUNDLED} or library_id <> all($1::uu
 const SETTINGS = `(case when jsonb_typeof(settings) = 'string' and (settings #>> '{}') is json object
   then (settings #>> '{}')::jsonb else settings end)`;
 
+/**
+ * An in-process module's data, read from its manifest (manifest v2): its
+ * tables in the manifest's order (a table before the ones it references),
+ * no history in the core, refused while its ledger switch is on. Its switch
+ * and its own settings (installed_modules) are the owner's and stay.
+ */
+export function moduleDataOf(m: ModuleManifest): ModuleData {
+  return {
+    tables: [...m.tables],
+    librarySettingsKeys: [],
+    history: null,
+    onWhenEnv: [],
+    onWhenSettings: (sql) => moduleEnabled(sql, m.id),
+  };
+}
+
+/**
+ * In-process modules whose data is exactly their tables. Left out: built-in
+ * parts of the app, and a module that fills core gaps (Music Connections:
+ * only its own removal, Settings › Modules, reverts the MBIDs it filled; a
+ * table wipe would leave them, rule 3).
+ */
+export const PURGEABLE_BY_MANIFEST: readonly ModuleManifest[] = MODULES.filter(
+  (m) => !m.builtIn && m.kind === 'in-process' && m.tables.length > 0 && m.gapFills.length === 0,
+);
+
+/** Modules that keep data in tagave but remove it themselves, and where. */
+const OWN_REMOVAL: Readonly<Record<string, string>> = Object.fromEntries(
+  MODULES.filter((m) => !m.builtIn && m.kind === 'in-process' && m.gapFills.length > 0).map((m) => [m.id, 'Settings › Modules (it reverts the values it filled in)']),
+);
+
 export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
+  // Listen elsewhere (0054), playlists (0056), and every in-process module
+  // that comes later: from their manifests (packages/core/src/facets/manifests.ts).
+  ...Object.fromEntries(PURGEABLE_BY_MANIFEST.map((m) => [m.id, moduleDataOf(m)])),
+  // The player is a container module with its own rules: a server of the
+  // owner's own may still use some of its rows.
   player: {
     tables: [
       'player_scrobbles',
@@ -117,29 +154,6 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       },
     },
   },
-  // Listen elsewhere (migration 0054): links to streaming platforms, when each
-  // album and artist was looked up, and each person's platforms. No history
-  // in the core; its switch (libraries.settings.modules) is the owner's
-  // setting and stays. The same tables as Settings › Modules' "Delete its
-  // data" (api › routes/listenLinks.ts, @tagave/db removeListenLinksData).
-  'listen-links': {
-    tables: [...LISTEN_LINKS_TABLES],
-    librarySettingsKeys: [],
-    history: null,
-    onWhenEnv: [],
-    onWhenSettings: (sql) => listenLinksEnabled(sql),
-  },
-  // Playlists (migration 0056): each person's lists and their tracks. No
-  // history in the core; its switch is the owner's setting and stays. The
-  // same tables as Settings › Modules' "Delete its data" (api ›
-  // routes/playlists.ts, @tagave/db removePlaylistsData).
-  playlists: {
-    tables: [...PLAYLISTS_TABLES],
-    librarySettingsKeys: [],
-    history: null,
-    onWhenEnv: [],
-    onWhenSettings: (sql) => playlistsEnabled(sql),
-  },
 };
 
 export class PurgeRefused extends Error {}
@@ -162,6 +176,8 @@ export async function purgeModuleData(
   opts: { deleteHistory?: boolean; env?: NodeJS.ProcessEnv } = {},
 ): Promise<PurgeResult> {
   const data = MODULE_DATA[moduleId];
+  const own = OWN_REMOVAL[moduleId];
+  if (!data && own) throw new PurgeRefused(`${moduleId} removes its own data, in ${own}`);
   if (!data) throw new PurgeRefused(`tagave keeps no data of its own for a module called ${moduleId}`);
   const env = opts.env ?? process.env;
   const on = data.onWhenEnv.filter((k) => (env[k] ?? '').trim() !== '');

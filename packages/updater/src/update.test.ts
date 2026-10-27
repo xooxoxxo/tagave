@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { UpdateRun } from '@tagave/shared/updater';
 import { envGet } from './envFile.js';
+import { LEDGER_ENTRIES_SQL } from './heavy-migrations.js';
 import type { Layer } from './preflight-space.js';
 import type { AppProbe, CommandResult, Runner } from './runner.js';
 import { DEFAULT_CONFIG, DUMP_PROBE_JS, IMAGE_DEPLOY_DIR, Update, newRun, type UpdateDeps } from './update.js';
@@ -176,11 +177,11 @@ class FakeInstall {
     }
     if (a.startsWith('compose exec -T postgres') && this.psqlFails) return bad('service "postgres" is not running');
     if (a.includes('select count(*) from _migrations')) return ok(`${this.migrations}\n`);
-    if (a.includes('select name from _migrations')) return ok(`${this.appliedMigrations.join('\n')}\n`);
+    if (a.includes(LEDGER_ENTRIES_SQL)) return ok(`${this.appliedMigrations.join('\n')}\n`);
     if (a.includes('sum(octet_length(thumb_bytes))')) return ok(`${this.thumbBytes}\n`);
     if (a === 'compose config --images app') return ok(`ghcr.io/xooxoxxo/tagave-app:${await this.envVersion(opts?.env)}\n`);
-    if (args[0] === 'run' && args.includes('ls') && args.at(-1) === '/app/packages/db/migrations') {
-      return this.imageMigrations ? ok(`${this.imageMigrations.join('\n')}\n`) : bad('ls: cannot access');
+    if (args[0] === 'run' && args.includes('find') && args.includes('/app/packages/db/migrations')) {
+      return this.imageMigrations ? ok(`${this.imageMigrations.map((f) => `/app/packages/db/migrations/${f}`).join('\n')}\n`) : bad('find: cannot access');
     }
     if (a.includes("to_regclass('public._migration_backups')")) return ok(this.backupRows ? 't\n' : 'f\n');
     if (a.includes('select max(id) from _migration_backups')) {
@@ -444,7 +445,7 @@ describe('update state machine', () => {
       expect(run.reason).toMatch(/has 6\.0 GB free and the update needs 7\.4 GB.*measured again after the new images were downloaded/);
       expect(run.log.some((l) => l.message.includes('moving the cover thumbnails into their own table (0046_cover_thumbs.sql, 1.0 GB × 3)'))).toBe(true);
       // read from the image preflight pulled, never a fresh download
-      expect(fake.calls.find((c) => c.includes('ls'))).toEqual(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'ls', 'ghcr.io/xooxoxxo/tagave-app:0.8.0', '/app/packages/db/migrations']);
+      expect(fake.calls.find((c) => c.includes('find'))).toEqual(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'find', 'ghcr.io/xooxoxxo/tagave-app:0.8.0', '/app/packages/db/migrations', '-name', '*.sql']);
     });
 
     it('does not count a heavy migration the database has applied, nor one it cannot see', async () => {

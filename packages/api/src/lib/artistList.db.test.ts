@@ -51,7 +51,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
 
   afterAll(async () => {
     await client`delete from artist_list where library_id = ${libraryId}`;
-    await client`delete from facet_state where library_id = ${libraryId}`;
+    await client`delete from filter_rail_state where library_id = ${libraryId}`;
     await db.delete(images).where(eq(images.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
         album_count: p.row.albumCount, track_count: p.row.trackCount, year_from: p.row.yearFrom,
         year_to: p.row.yearTo, added_at: p.row.addedAt, group_key: p.group,
       })))}`;
-      await client`insert into facet_state (library_id, artists_at) values (${libraryId}, now())
+      await client`insert into filter_rail_state (library_id, artists_at) values (${libraryId}, now())
                    on conflict (library_id) do update set artists_at = now(), dirty_at = null`;
     }
 
@@ -128,7 +128,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artists list (db)', () => {
 
     it('steps aside while a bulk action has marked the facets stale', async () => {
       await buildList();
-      await client`update facet_state set dirty_at = now() + interval '1 second' where library_id = ${libraryId}`;
+      await client`update filter_rail_state set dirty_at = now() + interval '1 second' where library_id = ${libraryId}`;
       expect(await readArtistListPage(db, libraryId, { sort: 'name', group: null, offset: 0, limit: 10 })).toBeNull();
     });
   });

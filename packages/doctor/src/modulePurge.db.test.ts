@@ -11,6 +11,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { listenLinksEnabled, setListenLinksEnabled } from '@tagave/db';
 import { MODULE_DATA } from './modulePurge.js';
 
 const url = process.env.TEST_DATABASE_URL;
@@ -103,11 +104,13 @@ describe.skipIf(!url || !existsSync(cli))('purge-module listen-links (integratio
   const libraryId = randomUUID();
   const rg = randomUUID();
   const artist = randomUUID();
-  const setOn = (on: boolean) => sql`update libraries set settings = jsonb_build_object('modules', jsonb_build_object('listen-links', jsonb_build_object('enabled', ${on}::boolean))) where id = ${libraryId}`;
+  // the switch is the module ledger's row (installed_modules), as it was before is put back
+  const setOn = (on: boolean) => setListenLinksEnabled(sql, on);
+  let was = false;
 
   beforeAll(async () => {
     sql = postgres(url!, { max: 1, onnotice: () => undefined });
-    // the install's first library holds the switch
+    was = await listenLinksEnabled(sql);
     await sql`insert into users (id, email, password_hash) values (${user}, ${`purge-ll-${user}@t.com`}, 'x')`;
     await sql`insert into libraries (id, owner_user_id, name, created_at) values (${libraryId}, ${user}, 'Purge listen', '1970-01-01')`;
     await sql`insert into release_groups (id, mbid, title) values (${rg}, ${randomUUID()}, 'Linked')`;
@@ -120,6 +123,7 @@ describe.skipIf(!url || !existsSync(cli))('purge-module listen-links (integratio
   });
 
   afterAll(async () => {
+    await setOn(was);
     await sql`delete from libraries where id = ${libraryId}`;
     await sql`delete from release_groups where id = ${rg}`;
     await sql`delete from artists where id = ${artist}`;

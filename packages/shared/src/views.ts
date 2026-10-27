@@ -45,7 +45,7 @@ export { MULTI_FILTER_KEYS, type MultiFilterKey } from './viewKeys.js';
 
 export const facetCountSchema = z.object({ value: z.string(), label: z.string().optional(), count: z.number().int() }).strict();
 
-export const albumFacetsSchema = z.object({
+export const albumFilterCountsSchema = z.object({
   total: z.number().int(),
   states: z.array(facetCountSchema),
   formats: z.array(facetCountSchema).describe('lossless / lossy / mixed'),
@@ -59,7 +59,7 @@ export const albumFacetsSchema = z.object({
   decided: z.array(facetCountSchema),
 }).strict();
 
-export type AlbumFacets = z.infer<typeof albumFacetsSchema>;
+export type AlbumFilterCounts = z.infer<typeof albumFilterCountsSchema>;
 
 export const savedViewSchema = z.object({
   id: z.string().uuid(),

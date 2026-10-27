@@ -14,7 +14,7 @@
  * that fails it is left out (fail closed), as is a provider of another
  * major that no cast joins.
  */
-import { parseFacetId, parseRange, parseVersion, type CastDescriptor, type FacetDescriptor, type FacetScope, type ModuleContext, type ModuleManifest } from './define.js';
+import { parseFacetId, parseRange, parseVersion, versionMeets, type AppManifest, type CastDescriptor, type FacetDescriptor, type FacetScope, type ModuleContext, type ModuleManifest } from './define.js';
 
 export interface EntityRef {
   kind: string;
@@ -85,6 +85,11 @@ export interface FacetState {
 export interface Registry {
   facets: ReadonlyMap<string, FacetDescriptor>;
   modules: ReadonlyMap<string, ModuleManifest>;
+  apps: ReadonlyMap<string, AppManifest>;
+  /** An app is on: built in, or switched on in the module ledger. */
+  appEnabled(appId: string, ctx: ModuleContext): boolean;
+  /** Why a module cannot run with the apps as they are (missing, off, another version), or null. */
+  appProblem(moduleId: string, ctx: ModuleContext): string | null;
   isEnabled(moduleId: string, ctx: ModuleContext): boolean;
   /** Turning `moduleId` on (or keeping it on) with the others as they are. */
   canTurnOn(moduleId: string, ctx: ModuleContext): { ok: true } | { ok: false; reason: string };
@@ -96,17 +101,40 @@ export interface Registry {
 
 const nameOf = (id: string) => parseFacetId(id).name;
 
-export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modules: readonly ModuleManifest[]; casts?: readonly CastDescriptor[] }): Registry {
+export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modules: readonly ModuleManifest[]; apps?: readonly AppManifest[]; casts?: readonly CastDescriptor[] }): Registry {
   const facets = new Map<string, FacetDescriptor>();
   for (const f of opts.facets) {
     if (facets.has(f.id)) throw new Error(`facet defined twice: ${f.id}`);
     facets.set(f.id, f);
   }
+  // Apps and modules share the ledger's ids (installed_modules.id).
+  const apps = new Map<string, AppManifest>();
+  for (const a of opts.apps ?? []) {
+    if (apps.has(a.id)) throw new Error(`app listed twice: ${a.id}`);
+    apps.set(a.id, a);
+  }
   const modules = new Map<string, ModuleManifest>();
   for (const m of opts.modules) {
-    if (modules.has(m.id)) throw new Error(`module listed twice: ${m.id}`);
+    if (modules.has(m.id) || apps.has(m.id)) throw new Error(`module listed twice: ${m.id}`);
     modules.set(m.id, m);
   }
+
+  const appEnabled = (appId: string, ctx: ModuleContext): boolean => {
+    const a = apps.get(appId);
+    return a !== undefined && (a.builtIn || ctx.enabled(a.id));
+  };
+
+  const appProblem = (id: string, ctx: ModuleContext): string | null => {
+    const m = modules.get(id);
+    if (!m) return null;
+    for (const c of m.compatibleWith) {
+      const a = apps.get(c.app);
+      if (!a) return `${m.id} needs the ${c.app} app, which this install does not have`;
+      if (!versionMeets(a.version, c.range)) return `${m.id} needs ${c.app} ${c.range}, and this is ${c.app} ${a.version}`;
+      if (!appEnabled(a.id, ctx)) return `${m.id} needs the ${c.app} app turned on`;
+    }
+    return null;
+  };
   const casts = opts.casts ?? [];
   const castJoins = (name: string, fromMajor: number, toMajor: number) =>
     fromMajor === toMajor || casts.some((c) => {
@@ -119,7 +147,7 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
   const isEnabled = (id: string, ctx: ModuleContext): boolean => {
     const m = modules.get(id);
     if (!m) return false;
-    return m.builtIn || m.enabled(ctx);
+    return m.builtIn || (m.enabled(ctx) && appProblem(id, ctx) === null);
   };
 
   /** Enabled providers of a facet name, with their versions. */
@@ -159,6 +187,9 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
   const canTurnOn = (id: string, ctx: ModuleContext): { ok: true } | { ok: false; reason: string } => {
     const m = modules.get(id);
     if (!m) return { ok: false, reason: `no module ${id}` };
+    // its apps: present, in range and on
+    const app = appProblem(id, ctx);
+    if (app) return { ok: false, reason: app };
     // as a consumer: a provider of another major that nobody casts
     const own = consumerProblems(m, ctx, id);
     if (own.refused.length) return { ok: false, reason: own.refused[0]! };
@@ -188,6 +219,9 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
   return {
     facets,
     modules,
+    apps,
+    appEnabled,
+    appProblem,
     isEnabled,
     canTurnOn,
     available,
@@ -195,7 +229,8 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
       const ms: ModuleState[] = [...modules.values()].map((m) => {
         const enabled = isEnabled(m.id, ctx);
         const p = consumerProblems(m, ctx);
-        return { id: m.id, enabled, builtIn: m.builtIn, needs: p.needs, refused: p.refused };
+        const app = m.builtIn ? null : appProblem(m.id, ctx);
+        return { id: m.id, enabled, builtIn: m.builtIn, needs: p.needs, refused: app ? [app, ...p.refused] : p.refused };
       });
       const fs: FacetState[] = [...facets.values()].map((f) => {
         const ps = providersOf(f.name, ctx).filter((p) => p.major === f.major || castJoins(f.name, p.major, f.major));
@@ -209,6 +244,11 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
       for (const m of modules.values()) {
         for (const p of m.provides) if (!known.has(p.facet)) out.push(`${m.id} provides ${p.facet}, which no facet defines`);
         for (const c of m.consumes) if (!known.has(c.facet)) out.push(`${m.id} consumes ${c.facet}, which no facet defines`);
+        for (const c of m.compatibleWith) {
+          const a = apps.get(c.app);
+          if (!a) out.push(`${m.id} works with the ${c.app} app, which no app defines`);
+          else if (!versionMeets(a.version, c.range)) out.push(`${m.id} works with ${c.app} ${c.range}, and this build has ${c.app} ${a.version}`);
+        }
       }
       return out;
     },

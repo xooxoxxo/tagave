@@ -35,6 +35,7 @@ import {
   type ManualTagValues, type TagPlanScope, type TagPolicies, type TagDiffEntry, type TagPlanStats,
 } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
+import { MUSIC_HANDLERS } from '../lib/musicFiles.js';
 import { errorMessage } from '../lib/dbErrors.js';
 import { resolveMetadataForFile } from '../lib/resolvedMetadata.js';
 import { currentFieldsFrom } from '../lib/canonicalTags.js';
@@ -130,11 +131,14 @@ export function decideField(
 const likeEscape = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
 
 /** Audio file ids in scope; only present files, and (for albums) only tracks of those albums. */
-async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
+export async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
   const db = ctx.db;
+  // Library and folder scopes start from file rows: only files whose handler
+  // music claims (its manifest) take its tags. Album scopes go through tracks.
+  const music = inArray(files.handler, [...MUSIC_HANDLERS]);
   if (scope.type === 'library') {
     const rows = await db.select({ id: files.id }).from(files)
-      .where(and(eq(files.libraryId, libraryId), eq(files.status, 'present')));
+      .where(and(eq(files.libraryId, libraryId), eq(files.status, 'present'), music));
     return rows.map((f) => f.id);
   }
   if (scope.type === 'folder') {
@@ -145,6 +149,7 @@ async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, sco
       .where(and(
         eq(files.libraryId, libraryId),
         eq(files.status, 'present'),
+        music,
         scope.scanRootId ? eq(files.scanRootId, scope.scanRootId) : undefined,
         like(files.relPath, `${likeEscape(dir)}/%`),
       ));

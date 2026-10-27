@@ -233,18 +233,42 @@ export function diffKeys(before, after) {
   return { added, removed, renamed };
 }
 
-/** "0042–0045" for a run of numbered migrations, else a comma list. */
+/**
+ * The chain a migration file belongs to: an app's or a module's own folder
+ * (packages/db/migrations/apps/<id>/, modules/<id>/, numbered on their own),
+ * or null for the core chain.
+ */
+export const migrationChainOf = (file) => /(?:^|\/)(?:apps|modules)\/([^/]+)\/[^/]+$/.exec(file)?.[1] ?? null;
+
+/** "0042–0045" for a run of numbered migrations, else a comma list; an app's or module's own chain is named. */
 export function migrationRange(files) {
-  const nums = files.map((f) => /(\d+)[^/]*$/.exec(f.split('/').at(-1))?.[1]).filter(Boolean).sort();
-  if (!nums.length) return '';
-  if (nums.length === 1) return `migration ${nums[0]}`;
-  const ints = nums.map(Number);
-  const consecutive = ints.every((n, i) => i === 0 || n === ints[i - 1] + 1);
-  return consecutive ? `migrations ${nums[0]}–${nums.at(-1)}` : `migrations ${nums.join(', ')}`;
+  const chains = new Map();
+  for (const f of files) {
+    const n = /(\d+)[^/]*$/.exec(f.split('/').at(-1))?.[1];
+    if (!n) continue;
+    const chain = migrationChainOf(f);
+    if (!chains.has(chain)) chains.set(chain, []);
+    chains.get(chain).push(n);
+  }
+  const one = (chain, nums) => {
+    nums.sort();
+    const label = chain === null ? '' : `${chain} `;
+    if (nums.length === 1) return `${label}migration ${nums[0]}`;
+    const ints = nums.map(Number);
+    const consecutive = ints.every((n, i) => i === 0 || n === ints[i - 1] + 1);
+    return consecutive ? `${label}migrations ${nums[0]}–${nums.at(-1)}` : `${label}migrations ${nums.join(', ')}`;
+  };
+  // the core chain first, then each app or module by id
+  const order = [...chains.keys()].sort((a, b) => (a === null ? -1 : b === null ? 1 : a.localeCompare(b)));
+  return order.map((c) => one(c, chains.get(c))).join(' and ');
 }
 
-/** "0046_cover_thumbs.sql" → "0046 cover thumbs". */
-const migrationTitle = (file) => file.split('/').at(-1).replace(/\.sql$/, '').replace(/^(\d+)_/, '$1 ').replace(/_/g, ' ');
+/** "0046_cover_thumbs.sql" → "0046 cover thumbs"; a module's own: "decider 0001 runs". */
+const migrationTitle = (file) => {
+  const chain = migrationChainOf(file);
+  const title = file.split('/').at(-1).replace(/\.sql$/, '').replace(/^(\d+)_/, '$1 ').replace(/_/g, ' ');
+  return chain === null ? title : `${chain} ${title}`;
+};
 
 // -- git -------------------------------------------------------------------------------
 
@@ -294,6 +318,7 @@ export function previousTag(git, version) {
 export function readTreeChanges(git, from, to) {
   const names = (filter, path) => git('diff', '--name-only', `--diff-filter=${filter}`, from, to, '--', path)
     .split('\n').map((s) => s.trim()).filter(Boolean);
+  // the core chain and every app's and module's own (the pathspec takes subfolders too)
   const migrations = names('A', MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
   const env = ENV_FILES.map((file) => ({ file, ...diffKeys(envKeys(showFile(git, from, file)), envKeys(showFile(git, to, file))) }));
   const keysAdded = names('A', RELEASE_KEYS_DIR);

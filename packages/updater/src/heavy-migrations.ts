@@ -36,14 +36,43 @@ export const HEAVY_MIGRATIONS: HeavyMigration[] = [
 /** Where the app image keeps the migrations (docker/app.Dockerfile: WORKDIR /app, packages/db/migrations). */
 export const IMAGE_MIGRATIONS_DIR = '/app/packages/db/migrations';
 
+/**
+ * The ledger's rows as entries (@tagave/db readLedger): a core file by name,
+ * an app's or module's own as <id>/<name>. Either ledger shape (0066 added
+ * `module`); no double quotes, for psql -c "…".
+ */
+export const LEDGER_ENTRIES_SQL =
+  "select case when coalesce(to_jsonb(m)->>'module', 'core') = 'core' then name else (to_jsonb(m)->>'module') || '/' || name end from _migrations m";
+
 const lines = (s: string) => s.split('\n').map((l) => l.trim()).filter(Boolean);
 
-/** The heavy migrations among the image's files that the database has not applied. */
+/**
+ * One line of the image's listing (`find <dir> -name '*.sql'`, or a bare
+ * name) as a ledger entry: <dir>/0046_x.sql → 0046_x.sql, an app's or
+ * module's own <dir>/modules/<id>/0001_x.sql → <id>/0001_x.sql. Null for
+ * anything else.
+ */
+export function imageMigrationEntry(line: string, dir: string = IMAGE_MIGRATIONS_DIR): string | null {
+  const rel = line.startsWith(`${dir}/`) ? line.slice(dir.length + 1) : line.replace(/^\.\//, '');
+  if (!rel.endsWith('.sql')) return null;
+  const parts = rel.split('/');
+  if (parts.length === 1) return rel;
+  if (parts.length === 3 && (parts[0] === 'apps' || parts[0] === 'modules')) return `${parts[1]}/${parts[2]}`;
+  return null;
+}
+
+/**
+ * The heavy migrations among the image's files that the database has not
+ * applied, the core chain's and every app's and module's own. `applied`
+ * holds ledger entries (LEDGER_ENTRIES_SQL); a module's heavy migration is
+ * listed by its entry (/^decider\/\d{4}_x\.sql$/).
+ */
 export function pendingHeavy(imageFiles: string, applied: string, table: HeavyMigration[] = HEAVY_MIGRATIONS): Array<{ name: string; migration: HeavyMigration }> {
   const done = new Set(lines(applied));
   const out: Array<{ name: string; migration: HeavyMigration }> = [];
-  for (const name of lines(imageFiles)) {
-    if (!name.endsWith('.sql') || done.has(name)) continue;
+  for (const line of lines(imageFiles)) {
+    const name = imageMigrationEntry(line);
+    if (name === null || done.has(name)) continue;
     const migration = table.find((m) => m.file.test(name));
     if (migration) out.push({ name, migration });
   }

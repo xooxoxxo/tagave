@@ -5,13 +5,13 @@
  * routes) plus one protected probe route.
  */
 import { createHmac, randomUUID } from 'node:crypto';
-import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
-import { MIGRATIONS_DIR, listMigrationFiles, runMigrations } from '@tagave/db';
+import { MIGRATIONS_DIR, listMigrationChain, migrationFilePath, parseMigrationEntry, runMigrations } from '@tagave/db';
 import { createAuth, readAuthEnv, type AuthHandle } from '@tagave/auth';
 import { errorHandler } from '../middleware/errorHandler.js';
 import { authMiddleware, initAuth } from '../middleware/auth.js';
@@ -31,12 +31,39 @@ export async function createScratchDb(adminUrl: string, admin: postgres.Sql): Pr
   return { url: u.toString(), name };
 }
 
-/** Migrate a database to the last schema before `beforeFile` (e.g. the 0.6.1 shape). */
-export async function migrateUpTo(url: string, beforeFile: string): Promise<void> {
+/**
+ * The migrations, in the order they apply (the core chain, then each app's
+ * and module's own), that come before `before`: a core file name or prefix
+ * ('0035': the 0.6.1 shape, no app or module chain) or a chain's entry
+ * ('decider/0002': the whole core chain, the chains before decider's, and
+ * decider's files before 0002).
+ */
+export async function migrationsBefore(before: string, dir: string = MIGRATIONS_DIR): Promise<string[]> {
+  const cut = parseMigrationEntry(before);
+  const out: string[] = [];
+  let inCutChain = false;
+  for (const entry of await listMigrationChain(dir)) {
+    const { module, name } = parseMigrationEntry(entry);
+    if (module === cut.module) {
+      inCutChain = true;
+      if (name >= cut.name) break;
+    } else if (inCutChain || (cut.module === 'core' && module !== 'core')) {
+      break;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+/** Migrate a database to the last schema before `before` (e.g. the 0.6.1 shape), module chains included. */
+export async function migrateUpTo(url: string, before: string): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'tagave-auth-migs-'));
   try {
-    for (const f of await listMigrationFiles()) {
-      if (f < beforeFile) await copyFile(join(MIGRATIONS_DIR, f), join(dir, f));
+    for (const entry of await migrationsBefore(before)) {
+      const src = await migrationFilePath(MIGRATIONS_DIR, entry);
+      const dest = join(dir, relative(MIGRATIONS_DIR, src));
+      await mkdir(dirname(dest), { recursive: true });
+      await copyFile(src, dest);
     }
     await runMigrations(url, { migrationsDir: dir, log: quiet });
   } finally {

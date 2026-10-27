@@ -4,7 +4,7 @@ import os from 'os';
 import { ensureDir } from './ensureDir.js';
 import postgres from 'postgres';
 import type { DiskSpaceView } from '@tagave/shared';
-import { MIGRATIONS_DIR, classifySkew, compareVersions, readSchemaState } from '@tagave/db';
+import { MIGRATIONS_DIR, classifySkew, compareVersions, listMigrationChain, readLedger, readSchemaState } from '@tagave/db';
 import { MusicBrainzProvider, DiscogsProvider, defaultCacheDir, isSealed, openSecret, unservedWork } from '@tagave/core';
 
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skip';
@@ -30,23 +30,22 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// Helper to parse migrations from directory
-export async function getMigrationFiles(): Promise<string[]> {
-  try {
-    const files = await fs.readdir(MIGRATIONS_DIR);
-    return files.filter((f) => f.endsWith('.sql')).sort();
-  } catch {
-    return [];
-  }
+/**
+ * Every migration this build carries: the core chain, then each app's and
+ * module's own. Throws when the folder cannot be listed (a folder that is not
+ * a module id, two folders for one id) or holds no file, so the check fails
+ * with the reason instead of passing on "0 migrations".
+ */
+export async function getMigrationFiles(dir: string = MIGRATIONS_DIR): Promise<string[]> {
+  const files = await listMigrationChain(dir);
+  if (files.length === 0) throw new Error(`this build carries no migration files (${dir})`);
+  return files;
 }
 
 // Helper to get applied migrations from database
 export async function getAppliedMigrations(sql: postgres.Sql): Promise<Set<string>> {
   try {
-    const applied = new Set(
-      (await sql`select name from _migrations`).map((r) => r['name'] as string),
-    );
-    return applied;
+    return new Set(await readLedger(sql));
   } catch {
     return new Set();
   }

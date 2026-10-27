@@ -66,8 +66,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
 
   afterAll(async () => {
     await app?.close();
-    await client`delete from facet_state where library_id = ${lib}`;
-    await client`delete from album_facets where library_id = ${lib}`;
+    await client`delete from filter_rail_state where library_id = ${lib}`;
+    await client`delete from album_filter_counts where library_id = ${lib}`;
     await client`delete from local_albums where library_id = ${lib}`;
     await client`delete from release_groups where id = ${rgId}`;
     await client`delete from libraries where id = ${lib}`;
@@ -94,10 +94,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
 
   it('counts a model match from the facet summary too', async () => {
     // what the worker's facets.refresh writes for these two albums
-    await client`insert into album_facets (album_id, library_id, release_group_id, state, format, decided) values
+    await client`insert into album_filter_counts (album_id, library_id, release_group_id, state, format, decided) values
       (${modelAlbum}, ${lib}, ${rgId}, 'matched', 'lossy', ${['model']}::text[]),
       (${ruleAlbum}, ${lib}, ${rgId}, 'matched', 'lossy', ${['chip_rule']}::text[])`;
-    await client`insert into facet_state (library_id, computed_at) values (${lib}, now())
+    await client`insert into filter_rail_state (library_id, computed_at) values (${lib}, now())
                  on conflict (library_id) do update set computed_at = now(), dirty_at = null`;
     // another viewer: the first test's answer sits in the per-viewer cache
     const { body: facets, headers } = await get(`/api/v1/libraries/${lib}/albums/facets`, otherUserId);

@@ -4,7 +4,8 @@ import pino from 'pino';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-import { makeDb } from '@tagave/db';
+import { makeDb, syncInstalledModules } from '@tagave/db';
+import { ledgerEntries } from '@tagave/core/facets';
 import { AuthConfigError, fastifyTrustProxy, parseTrustProxy, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
 import { readBuildInfo } from '@tagave/core';
 import { createForwardedObserver, migrateOnBoot } from '@tagave/doctor';
@@ -141,6 +142,16 @@ try {
   const healed = await ensureCredentialAccounts(authHandle.sql);
   if (healed > 0) logger.info(`Created the sign-in account for ${healed} user(s) written by an older version`);
   logger.info('Database initialized successfully');
+
+  // The module ledger: a row for every app and in-process module this build
+  // carries (new ones at their default switch), versions brought up to date.
+  // A switch the owner set is never changed here.
+  try {
+    const added = await syncInstalledModules(db.client, ledgerEntries());
+    if (added.length > 0) logger.info({ modules: added }, 'Module ledger: new modules recorded');
+  } catch (err) {
+    logger.error({ err }, 'Module ledger sync failed (non-fatal)');
+  }
 
   // One-time boot migration: seal plaintext credentials (PLT-5)
   try {

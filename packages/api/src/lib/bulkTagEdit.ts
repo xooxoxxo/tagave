@@ -8,6 +8,7 @@
  */
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import { files, localAlbums, localTracks } from '@tagave/db';
+import { MUSIC_APP } from '@tagave/core/facets';
 import {
   VARIOUS_ARTISTS, isVariousArtists, leadingNumberOf, stripTrackNumberPrefix,
   type ManualTagValues, type TagPlanScope,
@@ -15,6 +16,9 @@ import {
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;
+
+/** The file-type handlers music claims (its manifest): the files a folder edit covers. */
+const MUSIC_HANDLERS: readonly string[] = MUSIC_APP.fileTypes;
 
 /** The tags of one file that the album-level editor cares about. */
 export interface BulkFileTags {
@@ -221,6 +225,8 @@ export async function filesInFolder(
     .where(and(
       eq(files.libraryId, libraryId),
       eq(files.status, 'present'),
+      // only files whose handler music claims (its manifest) carry music tags
+      inArray(files.handler, [...MUSIC_HANDLERS]),
       scanRootId ? eq(files.scanRootId, scanRootId) : undefined,
       like(files.relPath, `${likeEscape(dir)}/%`),
     ));

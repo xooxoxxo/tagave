@@ -6,15 +6,19 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import {
+  MIGRATIONS_DIR,
   MIGRATION_LOCK_KEY,
   PreMigrationBackupError,
   SchemaTooNewError,
+  listMigrationChain,
+  readLedger,
+  readSchemaState,
   runMigrations,
 } from '@tagave/db';
 import { checkMigrations } from './checks.js';
@@ -326,5 +330,101 @@ describe.skipIf(!url)('migration safety (integration)', () => {
     expect(check.status).toBe('warn');
     expect(check.detail).toMatch(/not writable/);
     expect(remediationFor(check)).toMatch(/refuses to update/);
+  });
+});
+
+describe.skipIf(!url)('the ledger by module (integration)', () => {
+  let admin: postgres.Sql;
+  const dbs: string[] = [];
+  const dirs: string[] = [];
+  const fresh = async () => {
+    const db = await scratchDb(admin);
+    dbs.push(db.name);
+    return db.url;
+  };
+  const dir = async (files: Record<string, string>) => {
+    const d = await mkdtemp(join(tmpdir(), 'tagave-migs-'));
+    dirs.push(d);
+    for (const [name, body] of Object.entries(files)) {
+      await mkdir(dirname(join(d, name)), { recursive: true });
+      await writeFile(join(d, name), body);
+    }
+    return d;
+  };
+  const ledger = async (db: string) => {
+    const sql = postgres(db, { max: 1, onnotice: () => undefined });
+    try {
+      return (await sql`select module, name from _migrations order by module = 'core' desc, module, name`).map((r) => `${r['module']}:${r['name']}`);
+    } finally {
+      await sql.end({ timeout: 2 });
+    }
+  };
+
+  beforeAll(() => {
+    admin = postgres(url!, { max: 1, onnotice: () => undefined });
+  });
+
+  afterAll(async () => {
+    for (const name of dbs) await admin.unsafe(`drop database if exists ${name} with (force)`).catch(() => undefined);
+    await admin.end({ timeout: 2 });
+    for (const d of dirs) await rm(d, { recursive: true, force: true });
+  });
+
+  it('applies the core chain, then each app’s, then each module’s, and records each under its module', async () => {
+    const db = await fresh();
+    const migs = await dir({
+      '0001_core.sql': 'create table core_a (id int primary key);',
+      'modules/decider/0001_core.sql': 'create table decider_a (id int references core_a(id));',
+      'apps/books/0001_books.sql': 'create table books_a (id int references core_a(id));',
+      'modules/decider/0002_more.sql': 'alter table decider_a add column b int;',
+    });
+    expect(await listMigrationChain(migs)).toEqual(['0001_core.sql', 'books/0001_books.sql', 'decider/0001_core.sql', 'decider/0002_more.sql']);
+    const r = await runMigrations(db, { migrationsDir: migs, log: quiet });
+    expect(r.applied).toEqual(['0001_core.sql', 'books/0001_books.sql', 'decider/0001_core.sql', 'decider/0002_more.sql']);
+    // a module may reuse a core file's name: the ledger keys (module, name)
+    expect(await ledger(db)).toEqual(['core:0001_core.sql', 'books:0001_books.sql', 'decider:0001_core.sql', 'decider:0002_more.sql']);
+    expect(r.state.pending).toEqual([]);
+
+    // a later file in one chain is pending on its own
+    await writeFile(join(migs, 'modules/decider/0003_c.sql'), 'alter table decider_a add column c int;');
+    const sql = postgres(db, { max: 1, onnotice: () => undefined });
+    try {
+      const state = await readSchemaState(sql, await listMigrationChain(migs));
+      expect(state).toMatchObject({ pending: ['decider/0003_c.sql'], unknown: [], newer: [] });
+      expect(await readLedger(sql)).toEqual(['0001_core.sql', 'books/0001_books.sql', 'decider/0001_core.sql', 'decider/0002_more.sql']);
+      // a row of a chain this build carries, past its last file: a newer build ran it
+      await sql`insert into _migrations (module, name) values ('decider', '0009_future.sql'), ('gone', '0001_x.sql')`;
+      const skewed = await readSchemaState(sql, await listMigrationChain(migs));
+      expect(skewed.newer).toEqual(['decider/0009_future.sql']);
+      expect(skewed.unknown).toEqual(['decider/0009_future.sql', 'gone/0001_x.sql']);
+    } finally {
+      await sql.end({ timeout: 2 });
+    }
+  });
+
+  it('an older ledger (name alone) is read as the core’s; a module file waits for 0066’s column', async () => {
+    const db = await fresh();
+    const sql = postgres(db, { max: 1, onnotice: () => undefined });
+    try {
+      await sql`create table _migrations (name text primary key, applied_at timestamptz not null default now())`;
+      await sql`insert into _migrations (name) values ('0001_core.sql')`;
+      await sql`create table core_a (id int primary key)`;
+      expect(await readLedger(sql)).toEqual(['0001_core.sql']);
+      const migs = await dir({
+        '0001_core.sql': 'create table core_a (id int primary key);',
+        'modules/decider/0001_d.sql': 'create table decider_a (id int);',
+      });
+      await expect(runMigrations(db, { migrationsDir: migs, log: quiet })).rejects.toThrow(/no module column/);
+      expect(await sql`select to_regclass('public.decider_a') as t`).toEqual([{ t: null }]);
+      // with 0066 in the core chain, the same run upgrades the ledger first
+      await writeFile(join(migs, '0066_migrations_by_module.sql'), await readFile(join(MIGRATIONS_DIR, '0066_migrations_by_module.sql'), 'utf8'));
+      const r = await runMigrations(db, { migrationsDir: migs, log: quiet });
+      expect(r.applied).toEqual(['0066_migrations_by_module.sql', 'decider/0001_d.sql']);
+      expect(await ledger(db)).toEqual(['core:0001_core.sql', 'core:0066_migrations_by_module.sql', 'decider:0001_d.sql']);
+      const pk = await sql`select pg_get_constraintdef(oid) as def from pg_constraint where conrelid = '_migrations'::regclass and contype = 'p'`;
+      expect(pk).toEqual([{ def: 'PRIMARY KEY (module, name)' }]);
+    } finally {
+      await sql.end({ timeout: 2 });
+    }
   });
 });

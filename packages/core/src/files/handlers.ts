@@ -1,10 +1,11 @@
 /**
  * File-type handlers (vault "tagave - Core Platform Architecture" §2.3, step 1).
  * A handler owns one kind of file: which names it claims, how its metadata is
- * read (and, when it can be, written), what identifies a moved copy of it, and
- * which app's grouping job turns its files into items. files.handler stores
- * the handler id of each row; the walk indexes only names a handler claims,
- * and scan.parse reads each row with its own handler.
+ * read (and, when it can be, written) and what identifies a moved copy of it.
+ * Apps claim handlers in their manifests (AppManifest.fileTypes, manifest v2):
+ * files.handler stores the handler id of each row, the walk indexes only
+ * names a handler of an app that is on claims, and scan.parse reads each row
+ * with its own handler.
  *
  * There is one handler today, `audio`, claimed by the music app. Sidecars
  * (images, cue sheets, logs, text) are not files yet: they stay in
@@ -16,6 +17,7 @@ import type { TagSet } from '@tagave/shared';
 import { hashAudioStream } from '../audio/streamHash.js';
 import type { TagWriter, WriteOptions } from '../providers/types.js';
 import { coreTagsDigest, noNul, tagSnapshotOf } from './audioMetadata.js';
+import { APPS } from '../facets/manifests.js';
 
 /**
  * The typed columns of a files row a handler fills when it reads the file.
@@ -46,8 +48,6 @@ export interface FileTypeHandler {
   readonly id: string;
   /** Bumped when parse output changes in a way stored rows should be re-read for. */
   readonly version: string;
-  /** The app that claims this handler's files; its grouping job (music: cluster.dir) runs for them. */
-  readonly app: string;
   /** Lower-case extensions with the dot ('.flac'). */
   readonly extensions: ReadonlySet<string>;
   /** The MIME type of a file with this extension (lower-case, with the dot). */
@@ -99,7 +99,6 @@ const AUDIO_MEDIA_TYPES: Readonly<Record<string, string>> = {
 export const audioHandler: FileTypeHandler = {
   id: 'audio',
   version: '1',
-  app: 'music',
   extensions: new Set(Object.keys(AUDIO_MEDIA_TYPES)),
   mediaType: (ext) => AUDIO_MEDIA_TYPES[ext] ?? null,
   async parse(absPath) {
@@ -137,12 +136,23 @@ export function fileTypeHandler(id: string | null | undefined): FileTypeHandler 
   return (id && byId.get(id)) || null;
 }
 
-/** The handler that claims a file name, by extension; null when none does (the walk skips the file). */
-export function handlerForName(name: string): FileTypeHandler | null {
-  return byExt.get(extOf(name)) ?? null;
+/**
+ * The handler that claims a file name, by extension; null when none does (the
+ * walk skips the file). With `claimed`, only those handler ids count.
+ */
+export function handlerForName(name: string, claimed?: ReadonlySet<string>): FileTypeHandler | null {
+  const h = byExt.get(extOf(name)) ?? null;
+  return h && (!claimed || claimed.has(h.id)) ? h : null;
 }
 
-/** Ids of the handlers an app claims ('music' → ['audio']). */
+/** Ids of the handlers an app claims ('music' → ['audio']), from its manifest; [] for an app this build does not have. */
 export function handlerIdsOf(app: string): string[] {
-  return FILE_TYPE_HANDLERS.filter((h) => h.app === app).map((h) => h.id);
+  return (APPS.find((a) => a.id === app)?.fileTypes ?? []).filter((id) => byId.has(id));
+}
+
+/** Ids of the handlers claimed by the apps that are on (a built-in app always is): what the walk indexes. */
+export function claimedHandlerIds(appOn: (appId: string) => boolean): Set<string> {
+  const out = new Set<string>();
+  for (const a of APPS) if (a.builtIn || appOn(a.id)) for (const id of a.fileTypes) if (byId.has(id)) out.add(id);
+  return out;
 }

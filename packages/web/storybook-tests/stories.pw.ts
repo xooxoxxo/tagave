@@ -19,21 +19,57 @@ test.use({ deviceScaleFactor: 2, viewport: { width: 960, height: 640 } });
 /** A story of a whole desktop window (the app's frame): tagged with its size, shot as the viewport. */
 const DESKTOP: Array<[tag: string, width: number, height: number]> = [['viewport-1440', 1440, 900], ['viewport-1000', 1000, 620]];
 
+/**
+ * A page taller than the window is shot with the window grown to the page,
+ * never with fullPage. A fullPage capture re-rasters the page beyond the
+ * window, and text on a half pixel (the label of a 48px button under a
+ * fractional-height paragraph) came out one pixel higher or lower from one
+ * capture to the next: Reviews · empty failed about one run in five
+ * (2026-10-27). Laid out once at its full height, every capture is the same.
+ *
+ * A page whose layout follows the window's height (centred in 100vh) would
+ * move when the window grows: the window goes back and it keeps fullPage.
+ * Returns whether the screenshot still needs fullPage.
+ */
+async function fitWindowToPage(page: Page): Promise<boolean> {
+  const size = page.viewportSize() ?? { width: 960, height: 640 };
+  const layout = () => page.evaluate(() => {
+    const root = document.querySelector('#storybook-root')?.getBoundingClientRect();
+    return { full: Math.ceil(document.documentElement.scrollHeight), root: root ? `${root.x},${root.y},${root.width},${root.height}` : '' };
+  });
+  const settle = async () => {
+    // the resize lays the page out again: let it, and anything that observes it, settle
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))));
+    await page.waitForTimeout(150);
+  };
+  const before = await layout();
+  if (before.full <= size.height) return false;
+  await page.setViewportSize({ width: size.width, height: before.full });
+  await settle();
+  const after = await layout();
+  if (after.full === before.full && after.root === before.root) return false;
+  await page.setViewportSize(size);
+  await settle();
+  return true;
+}
+
 /** The screenshot comes first: axe scrolls nodes into view, which closes an open menu. */
 async function screenshot(page: Page, story: StoryEntry, theme: Theme) {
   const name = `${story.id}--${theme}.png`;
   if (story.tags.includes('shot-viewport') || story.tags.includes('phone') || DESKTOP.some(([tag]) => story.tags.includes(tag))) {
     // shot-full: the whole page, for a story taller than the phone's screen (a whole tab)
-    await expect(page).toHaveScreenshot(name, story.tags.includes('shot-full') ? { fullPage: true } : {});
+    const fullPage = story.tags.includes('shot-full') && await fitWindowToPage(page);
+    await expect(page).toHaveScreenshot(name, { fullPage });
     return;
   }
+  const fullPage = await fitWindowToPage(page);
   const box = await page.locator('#storybook-root').boundingBox();
   if (!box) throw new Error(`no root box for ${story.id}`);
   const pad = story.tags.includes('shot-padded') ? 88 : 8;
   const x = Math.max(0, Math.floor(box.x - pad));
   const y = Math.max(0, Math.floor(box.y - pad));
   const clip = { x, y, width: Math.ceil(box.width + 2 * pad), height: Math.ceil(box.height + 2 * pad) };
-  await expect(page).toHaveScreenshot(name, { clip, fullPage: true });
+  await expect(page).toHaveScreenshot(name, { clip, fullPage });
 }
 
 for (const story of stories()) {

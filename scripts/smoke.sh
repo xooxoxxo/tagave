@@ -222,7 +222,7 @@ if [ "$WORKERS" = "1" ]; then
   fi
   echo "✓ Scan root validated by worker-files"
 
-  # Facet summary (XO-363): the file worker builds album_facets at boot; the
+  # Facet summary (XO-363): the file worker builds album_filter_counts at boot; the
   # facets endpoint must then answer from it, and its body must equal the live
   # path's (forced by stamping the library dirty).
   echo "Waiting for the facet summary (x-tagave-facets: summary)..."
@@ -233,13 +233,13 @@ if [ "$WORKERS" = "1" ]; then
     exit 1
   fi
   curl -s -b "$COOKIE_JAR" "$FACETS_URL?_=1" > "$DUMP_TMP_FACETS_S"
-  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update facet_state set dirty_at = now()" >/dev/null
+  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update filter_rail_state set dirty_at = now()" >/dev/null
   LIVE_HDR=$(curl -s -D - -o "$DUMP_TMP_FACETS_L" -b "$COOKIE_JAR" "$FACETS_URL?_=2")
   echo "$LIVE_HDR" | grep -qi 'x-tagave-facets: live' || { echo "✗ FAIL: a dirty summary did not fall back to the live path"; exit 1; }
   if ! python3 -c "import json,sys; a=json.load(open(sys.argv[1])); b=json.load(open(sys.argv[2])); sys.exit(0 if a == b else 1)" "$DUMP_TMP_FACETS_S" "$DUMP_TMP_FACETS_L"; then
     echo "✗ FAIL: facet summary body differs from the live body"; cat "$DUMP_TMP_FACETS_S"; echo; cat "$DUMP_TMP_FACETS_L"; exit 1
   fi
-  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update facet_state set dirty_at = null" >/dev/null
+  compose exec -T postgres psql -q -U tagave -d tagave -Atc "update filter_rail_state set dirty_at = null" >/dev/null
   echo "✓ Facet summary served and equal to the live counts"
 fi
 

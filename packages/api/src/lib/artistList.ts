@@ -42,7 +42,7 @@ export async function readArtistListPage(
   opts: { sort: ArtistSort; group: ArtistGroupKey | null; offset: number; limit: number },
 ): Promise<ArtistListPage | null> {
   const [state] = (await db.execute(sql`
-    select artists_at, dirty_at from facet_state where library_id = ${libraryId}`)) as Array<{
+    select artists_at, dirty_at from filter_rail_state where library_id = ${libraryId}`)) as Array<{
     artists_at: Date | string | null; dirty_at: Date | string | null;
   }>;
   // raw timestamps come back as strings on the shared client: compare as Dates

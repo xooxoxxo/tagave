@@ -14,9 +14,9 @@
  * "Keep" is ticked (then they are confirmed and stay).
  */
 import type { FastifyInstance } from 'fastify';
-import { registry } from '@tagave/core/facets';
+import { moduleContext, registry } from '@tagave/core/facets';
 import { openTokens, revokeAtRemote } from '@tagave/core/mc';
-import { mcEnabled, removeMcData, setMcEnabled } from '@tagave/db';
+import { mcEnabled, moduleSwitches, removeMcData, setMcEnabled } from '@tagave/db';
 import { mcModuleSchema, mcRemoveDataSchema, type FacetsView, type McModuleView } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
@@ -49,7 +49,7 @@ export async function createFacetRoutes(fastify: FastifyInstance) {
     await requireFreshStepUp(request);
     const { sql } = getAuthHandle();
     if (parsed.data.enabled) {
-      const can = registry.canTurnOn('mc', { settings: { mcEnabled: true }, playerUrl: process.env['TAGAVE_PLAYER_URL'] || null });
+      const can = registry.canTurnOn('mc', moduleContext({ ...(await moduleSwitches(sql)), mc: true }, process.env['TAGAVE_PLAYER_URL'] || null));
       if (!can.ok) throw new ApiError(409, 'Conflict', `Music Connections cannot be turned on: ${can.reason}.`);
     }
     await setMcEnabled(sql, parsed.data.enabled);
