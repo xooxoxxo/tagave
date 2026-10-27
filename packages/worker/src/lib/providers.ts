@@ -76,6 +76,36 @@ export async function libraryProviderSettings(ctx: WorkerContext, libraryId: str
   return out;
 }
 
+/**
+ * The library's TypeSafe key (Settings › Modules › Autotagger), opened with
+ * this host's APP_SECRET; null when it has none, when the module's tables were
+ * never made, or when the key does not open here (warned once). The key is
+ * only ever stored sealed (the table refuses a plain one). The warnings name
+ * the library, never the key or its hint.
+ */
+export async function libraryTypesafeKey(ctx: WorkerContext, libraryId: string): Promise<string | null> {
+  let rows: Array<{ key: string | null }>;
+  try {
+    rows = await ctx.sql`select sealed_key as key from decider_library_settings where library_id = ${libraryId}` as unknown as Array<{ key: string | null }>;
+  } catch (err) {
+    if ((err as { code?: string }).code === '42P01') return null;
+    throw err;
+  }
+  const value = rows[0]?.key;
+  if (!value) return null;
+  const appSecret = process.env.APP_SECRET;
+  if (!appSecret) {
+    warnOnce(ctx, 'APP_SECRET missing on this host; sealed credentials unusable — the autotagger cannot call TypeSafe');
+    return null;
+  }
+  try {
+    return openSecret(value, appSecret);
+  } catch {
+    warnOnce(ctx, `the sealed TypeSafe key of library ${libraryId} does not open with this host's APP_SECRET — the autotagger cannot call TypeSafe`);
+    return null;
+  }
+}
+
 /** Throws without a contact string: the gateway refuses to call providers
  * until PLT-4 onboarding set one (spec §10.2.3). */
 export function getProviders(settings: LibraryProviderSettings): Providers {

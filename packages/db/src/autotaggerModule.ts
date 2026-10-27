@@ -106,6 +106,44 @@ export async function setAutotaggerConfig(
   return withDefaults(asObject(row?.config));
 }
 
+/**
+ * The API key is stored sealed (with the app secret, as the other provider
+ * keys are) and never plain. The caller seals it: this package depends on no
+ * other tagave package, so it checks the sealed form's prefix, and the
+ * table's check refuses a plain key whoever writes it. The hint is the last
+ * four characters of the plain key, set by the caller; it is all that is
+ * ever shown.
+ */
+const SEALED_PREFIX = 'enc:';
+const MAX_HINT = 4;
+
+/** Store the library's sealed API key and its hint. Throws, writing nothing, on a value that is not sealed. */
+export async function setTypesafeKey(sql: Sql | Tx, libraryId: string, sealedValue: string, hint: string): Promise<void> {
+  // the messages never carry the value
+  if (typeof sealedValue !== 'string' || !sealedValue.startsWith(SEALED_PREFIX) || sealedValue.length <= SEALED_PREFIX.length) {
+    throw new Error('the TypeSafe key must be sealed before it is stored');
+  }
+  if (typeof hint !== 'string' || hint.length === 0 || hint.length > MAX_HINT) {
+    throw new Error(`the TypeSafe key's hint is 1 to ${MAX_HINT} characters`);
+  }
+  await sql`
+    insert into decider_library_settings (library_id, sealed_key, key_hint) values (${libraryId}, ${sealedValue}, ${hint})
+    on conflict (library_id) do update
+      set sealed_key = excluded.sealed_key, key_hint = excluded.key_hint, updated_at = now()`;
+}
+
+/** Forget the library's API key and its hint; its settings stay. */
+export async function clearTypesafeKey(sql: Sql | Tx, libraryId: string): Promise<void> {
+  await sql`update decider_library_settings set sealed_key = null, key_hint = null, updated_at = now() where library_id = ${libraryId}`;
+}
+
+/** The hint of the library's API key, for display; null when it has none. */
+export async function typesafeKeyHint(sql: Sql | Tx, libraryId: string): Promise<string | null> {
+  const [row] = await sql<Array<{ hint: string | null }>>`
+    select key_hint as hint from decider_library_settings where library_id = ${libraryId} and sealed_key is not null`;
+  return row?.hint ?? null;
+}
+
 /** Deleting the module's data while it is on: refused, nothing deleted. */
 export class AutotaggerStillOnError extends Error {
   constructor() {

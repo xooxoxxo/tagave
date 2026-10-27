@@ -7,7 +7,8 @@
 -- at these by foreign key (decider_batches.run_id has none on purpose).
 --
 -- decider_library_settings: per library, the sealed API key, its hint and
---   the module's settings.
+--   the module's settings. The key is sealed before it is written (with the
+--   app secret, as the other provider keys); the check refuses a plain one.
 -- decider_prices: what a model costs, per million input tokens (output is
 --   free); model '*' prices every model of the decider.
 -- decider_runs: one owner-started run over a population; pinned to one
@@ -18,7 +19,7 @@
 -- decider_spot_checks: the owner's verdict on random decisions per band.
 create table if not exists decider_library_settings (
   library_id uuid primary key references libraries(id) on delete cascade,
-  sealed_key text,
+  sealed_key text check (sealed_key is null or sealed_key like 'enc:%'),
   key_hint varchar(8),
   config jsonb not null default '{}',
   updated_at timestamptz not null default now()

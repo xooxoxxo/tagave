@@ -12,12 +12,13 @@ import postgres from 'postgres';
 import {
   AUTOTAGGER_TABLES, AutotaggerStillOnError, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
   deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
-  setAutotaggerConfig, setAutotaggerEnabled, syncInstalledModules, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
+  clearTypesafeKey, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
 } from '@tagave/db';
 import {
   DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, deciderPriceSchema, type AutotaggerConfig, type AutotaggerConfigPatch,
 } from '@tagave/shared';
 import { AUTOTAGGER_MODULE, ledgerEntries } from '@tagave/core/facets';
+import { openSecret, sealSecret } from '@tagave/core';
 
 // The two copies of the config shape (db keeps its own: it depends on no
 // other tagave package) must stay the same, both ways. tsc enforces it (the
@@ -83,6 +84,45 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (shared db: i
     expect(await autotaggerConfig(client, otherLibrary)).toEqual(DEFAULT_AUTOTAGGER_CONFIG);
     expect((await client`select settings from libraries where id = ${libraryId}`)[0].settings).toEqual({});
     expect((await client`select config from decider_library_settings where library_id = ${libraryId}`)[0].config).toEqual({ model: 'jev-2026-09-15', monthlyCap: null });
+  });
+
+  it('the API key: stored only sealed, with its hint; the plain key is refused and nothing is written', async () => {
+    const SECRET = 'test-app-secret-0123456789abcdef01234567';
+    const plain = `ts-${randomUUID()}-wxyz`;
+    const sealed = sealSecret(plain, SECRET);
+    expect(await typesafeKeyHint(client, libraryId)).toBeNull();
+    await expect(setTypesafeKey(client, libraryId, plain, 'wxyz')).rejects.toThrow(/sealed/);
+    await expect(setTypesafeKey(client, libraryId, sealed, 'wxyz-too-long')).rejects.toThrow(/hint/);
+    // the error never carries the value it refused
+    await setTypesafeKey(client, libraryId, plain, 'wxyz').catch((e: Error) => expect(e.message).not.toContain(plain));
+    expect(await client`select sealed_key from decider_library_settings where library_id = ${libraryId} and sealed_key is not null`).toHaveLength(0);
+    // the table refuses a plain key too, whoever writes it
+    await expect(client`insert into decider_library_settings (library_id, sealed_key) values (${otherLibrary}, ${plain}) on conflict (library_id) do update set sealed_key = excluded.sealed_key`).rejects.toThrow(/check/);
+
+    await setTypesafeKey(client, libraryId, sealed, 'wxyz');
+    expect(await typesafeKeyHint(client, libraryId)).toBe('wxyz');
+    const [row] = await client`select sealed_key, key_hint from decider_library_settings where library_id = ${libraryId}`;
+    expect(row.sealed_key).toBe(sealed);
+    expect(openSecret(row.sealed_key, SECRET)).toBe(plain);
+    // the settings stay as they were, and never carry the key
+    const config = await autotaggerConfig(client, libraryId);
+    expect(config).toEqual({ ...DEFAULT_AUTOTAGGER_CONFIG, model: 'jev-2026-09-15' });
+    const patched = await setAutotaggerConfig(client, libraryId, { currency: 'EUR' }, parse);
+    for (const read of [config, patched]) {
+      const text = JSON.stringify(read);
+      expect(text).not.toContain(sealed);
+      expect(text).not.toContain(plain);
+      expect(Object.keys(read).some((k) => /key|hint/i.test(k))).toBe(false);
+    }
+    expect((await client`select settings from libraries where id = ${libraryId}`)[0].settings).toEqual({});
+
+    await clearTypesafeKey(client, libraryId);
+    expect(await typesafeKeyHint(client, libraryId)).toBeNull();
+    expect((await client`select sealed_key, key_hint from decider_library_settings where library_id = ${libraryId}`)[0]).toEqual({ sealed_key: null, key_hint: null });
+    // clearing a library that has no row is a no-op
+    await clearTypesafeKey(client, randomUUID());
+    expect(await autotaggerConfig(client, libraryId)).toEqual({ ...DEFAULT_AUTOTAGGER_CONFIG, model: 'jev-2026-09-15', currency: 'EUR' });
+    await setAutotaggerConfig(client, libraryId, { currency: 'USD' }, parse);
   });
 
   it('deleting a library deletes its settings row', async () => {

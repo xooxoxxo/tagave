@@ -8,8 +8,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
-import { runMigrations } from '@tagave/db';
-import { checkWorkerHeartbeat, checkWorkerVersions, workerCoverageCheck } from './checks.js';
+import { runMigrations, setTypesafeKey } from '@tagave/db';
+import { sealSecret } from '@tagave/core';
+import { checkAppSecret, checkWorkerHeartbeat, checkWorkerVersions, workerCoverageCheck } from './checks.js';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -59,6 +60,54 @@ describe.skipIf(!url)('worker heartbeat checks (integration)', () => {
     expect(versions.detail).not.toContain('old0000');
     // plain words on the status page, not process internals
     expect(versions.detail).not.toMatch(/this process|\(\d+\)/);
+  });
+});
+
+describe.skipIf(!url)('app secret check without APP_SECRET (integration)', () => {
+  let admin: ReturnType<typeof postgres>;
+  let sql: ReturnType<typeof postgres>;
+  let name: string;
+  let dbUrl: string;
+  const saved = process.env.APP_SECRET;
+  const plain = 'ts-doctor-check-key-h4n7';
+
+  beforeAll(async () => {
+    delete process.env.APP_SECRET;
+    admin = postgres(url!, { max: 1, onnotice: () => undefined });
+    name = `tagave_doc_as_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+    await admin.unsafe(`create database ${name}`);
+    const u = new URL(url!);
+    u.pathname = `/${name}`;
+    dbUrl = u.toString();
+    await runMigrations(dbUrl, { log: () => undefined });
+    sql = postgres(dbUrl, { max: 1, onnotice: () => undefined });
+  }, 120_000);
+
+  afterAll(async () => {
+    if (saved === undefined) delete process.env.APP_SECRET; else process.env.APP_SECRET = saved;
+    await sql?.end({ timeout: 2 });
+    await admin.unsafe(`drop database if exists ${name} with (force)`).catch(() => undefined);
+    await admin?.end({ timeout: 2 });
+  });
+
+  it('counts a library whose only sealed key is its TypeSafe key, once, and names it without the key', async () => {
+    expect((await checkAppSecret(dbUrl)).status).toBe('skip');
+    const [user] = await sql`insert into users (email, display_name) values ('o@example.com', 'O') returning id::text as id`;
+    const [only] = await sql`insert into libraries (owner_user_id, name) values (${user!['id']}, 'TypeSafe only') returning id::text as id`;
+    const sealed = sealSecret(plain, 'doctor-check-secret-0123456789abcdef0123');
+    await setTypesafeKey(sql, only!['id'], sealed, 'h4n7');
+    const one = await checkAppSecret(dbUrl);
+    expect(one).toMatchObject({ status: 'warn' });
+    expect(one.detail).toMatch(/^A library keeps an encrypted Discogs token, AcoustID key or TypeSafe key, but/);
+    // a library with a Discogs token and a TypeSafe key is one library
+    const [both] = await sql`insert into libraries (owner_user_id, name, settings) values (${user!['id']}, 'Both', ${sql.json({ discogsToken: 'enc:v1:x' })}) returning id::text as id`;
+    await setTypesafeKey(sql, both!['id'], sealed, 'h4n7');
+    const two = await checkAppSecret(dbUrl);
+    expect(two.detail).toMatch(/^2 libraries keep an encrypted Discogs token, AcoustID key or TypeSafe key/);
+    for (const leak of [plain, sealed, 'h4n7']) expect(two.detail).not.toContain(leak);
+    // where the module's table was never made, the libraries' own keys are still counted
+    await sql`drop table decider_library_settings`;
+    expect((await checkAppSecret(dbUrl)).detail).toMatch(/^A library keeps/);
   });
 });
 

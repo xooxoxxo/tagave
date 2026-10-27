@@ -696,19 +696,27 @@ export async function checkAppSecret(databaseUrl?: string): Promise<Check> {
       try {
         const sql = postgres(databaseUrl, { max: 1 });
         try {
-          const result = await sql`
-            select count(*) as sealed_count
-            from libraries
-            where settings->>'discogsToken' like 'enc:%'
-               or settings->>'acoustidKey' like 'enc:%'
-          `;
+          // libraries.settings, and the autotagger's TypeSafe key in its own
+          // table when the module's tables were made; a library is counted once
+          const [mod] = await sql<Array<{ ok: boolean }>>`select to_regclass('public.decider_library_settings') is not null as ok`;
+          const result = mod?.ok
+            ? await sql<Array<{ sealed_count: string }>>`
+                select count(*) as sealed_count from (
+                  select id from libraries
+                   where settings->>'discogsToken' like 'enc:%' or settings->>'acoustidKey' like 'enc:%'
+                  union
+                  select library_id from decider_library_settings where sealed_key like 'enc:%'
+                ) sealed`
+            : await sql<Array<{ sealed_count: string }>>`
+                select count(*) as sealed_count from libraries
+                 where settings->>'discogsToken' like 'enc:%' or settings->>'acoustidKey' like 'enc:%'`;
           const sealedCount = Number(result[0]?.['sealed_count'] ?? 0);
           if (sealedCount > 0) {
             return {
               id: 'appSecret',
               title: 'App Secret',
               status: 'warn',
-              detail: `${sealedCount === 1 ? 'A library keeps' : `${sealedCount} libraries keep`} an encrypted Discogs token or AcoustID key, but the secret that unlocks them is not set here`,
+              detail: `${sealedCount === 1 ? 'A library keeps' : `${sealedCount} libraries keep`} an encrypted Discogs token, AcoustID key or TypeSafe key, but the secret that unlocks them is not set here`,
               durationMs: Date.now() - start,
             };
           }

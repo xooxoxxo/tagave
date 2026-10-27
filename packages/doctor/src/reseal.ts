@@ -9,7 +9,8 @@
  * and the player server password (libraries.settings), the authenticator-app secrets and backup codes
  * (auth_two_factors, encrypted with the sign-in secret derived from APP_SECRET), and Music Connections'
  * own links (mc_links.sealed_tokens; mc_pending's client secret and PKCE code verifier), so links keep
- * working after a rotation.
+ * working after a rotation, and the autotagger's TypeSafe key (decider_library_settings.sealed_key, in
+ * the module's own table, when that table exists).
  */
 
 import postgres from 'postgres';
@@ -76,12 +77,53 @@ export async function resealMcSecrets(sql: postgres.Sql, oldSecret: string, newS
   });
 }
 
+/** Sealed keys in modules' own tables: [table, label]. Keyed by library_id, column sealed_key. */
+export const MODULE_SEALED_KEYS = [['decider_library_settings', 'TypeSafe key']] as const;
+
+export interface ModuleKeyResealResult {
+  /** re-encrypted with the new secret */
+  resealed: number;
+  /** already on the new secret */
+  alreadyCurrent: number;
+}
+
+/** The module key rows, `[]` when the module's table was never made. */
+async function moduleKeyRows(sql: postgres.Sql | postgres.TransactionSql, table: string, lock: boolean): Promise<Array<{ k: string; v: string }>> {
+  const [exists] = await sql.unsafe<Array<{ ok: boolean }>>(`select to_regclass('public.${table}') is not null as ok`);
+  if (!exists?.ok) return [];
+  return sql.unsafe<Array<{ k: string; v: string }>>(
+    `select library_id::text as k, sealed_key as v from ${table} where sealed_key like 'enc:%'${lock ? ' for update' : ''}`,
+  );
+}
+
+/**
+ * Re-encrypt the modules' sealed keys from `oldSecret` to `newSecret`, in one
+ * transaction. Idempotent: a key already on the new secret is skipped. A key
+ * neither secret opens throws and changes nothing (resealCredentials checks
+ * for one before any step runs). The message names the library, never the key.
+ */
+export async function resealModuleKeys(sql: postgres.Sql, oldSecret: string, newSecret: string): Promise<ModuleKeyResealResult> {
+  return sql.begin(async (tx) => {
+    const out: ModuleKeyResealResult = { resealed: 0, alreadyCurrent: 0 };
+    for (const [table, label] of MODULE_SEALED_KEYS) {
+      for (const row of await moduleKeyRows(tx, table, true)) {
+        const state = sealedState(row.v, oldSecret, newSecret);
+        if (state === 'new') { out.alreadyCurrent += 1; continue; }
+        if (state === 'neither') throw new Error(`the ${label} of library ${row.k} opens with neither secret`);
+        await tx.unsafe(`update ${table} set sealed_key = $1, updated_at = now() where library_id::text = $2`, [sealSecret(openSecret(row.v, oldSecret), newSecret), row.k]);
+        out.resealed += 1;
+      }
+    }
+    return out;
+  });
+}
+
 type LibraryRow = { id: string; settings: Record<string, any> };
 
 export interface OldSecretCheck {
   /** sealed values (provider secrets and Music Connections) the old secret opens: it is right */
   opensWithOld: number;
-  /** provider secrets (libraries.settings) on neither secret: the run would fail on them */
+  /** provider secrets (libraries.settings, and modules' keys) on neither secret: the run would fail on them */
   libraryUnreadable: string[];
   /** Music Connections values on neither secret (stale links; or a wrong old secret) */
   mcUnreadable: number;
@@ -104,7 +146,8 @@ function sealedState(value: string, oldSecret: string, newSecret: string): 'new'
 
 /**
  * Read-only, before any step changes anything: which sealed values the old
- * secret opens. The provider secrets in libraries.settings are the check: one
+ * secret opens. The provider secrets in libraries.settings (and the modules'
+ * keys in their own tables) are the check: one
  * not on the new secret must open with the old one, or the old secret is
  * wrong (or that value is lost) and the run stops with nothing changed.
  */
@@ -118,6 +161,13 @@ export async function checkOldSecret(sql: postgres.Sql, libraries: LibraryRow[],
       const state = sealedState(value, oldSecret, newSecret);
       if (state === 'old') out.opensWithOld += 1;
       else if (state === 'neither') out.libraryUnreadable.push(`${key} of library ${row.id}`);
+    }
+  }
+  for (const [table, label] of MODULE_SEALED_KEYS) {
+    for (const row of await moduleKeyRows(sql, table, false)) {
+      const state = sealedState(row.v, oldSecret, newSecret);
+      if (state === 'old') out.opensWithOld += 1;
+      else if (state === 'neither') out.libraryUnreadable.push(`${label} of library ${row.k}`);
     }
   }
   for (const [table, key, column] of MC_SEALED_COLUMNS) {
@@ -188,6 +238,13 @@ export async function resealCredentials(databaseUrl: string): Promise<void> {
             ? ' TAGAVE_OLD_APP_SECRET opened no sealed value at all: if these links worked before the rotation, check it and run reseal again.'
             : ''),
       );
+    }
+
+    // The modules' own keys (one transaction); the check above made sure
+    // each opens with one of the two secrets.
+    const moduleKeys = await resealModuleKeys(sql, oldSecret, newSecret);
+    if (moduleKeys.resealed + moduleKeys.alreadyCurrent > 0) {
+      console.log(`Module keys: ${moduleKeys.resealed} re-encrypted, ${moduleKeys.alreadyCurrent} already on the new secret.`);
     }
 
     if (rows.length === 0) {

@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { listenLinksEnabled, moduleEnabled, runMigrations, setListenLinksEnabled, setModuleEnabled, setModuleSettings, syncInstalledModules } from '@tagave/db';
+import { listenLinksEnabled, moduleEnabled, runMigrations, setListenLinksEnabled, setModuleEnabled, setModuleSettings, setTypesafeKey, syncInstalledModules, typesafeKeyHint } from '@tagave/db';
 import { AUTOTAGGER_MODULE, ledgerEntries } from '@tagave/core/facets';
 import { MODULE_DATA, purgeModuleData } from './modulePurge.js';
 
@@ -212,7 +212,9 @@ describe.skipIf(!url)('purge-module autotagger (scratch db)', () => {
     await sql`insert into release_groups (id, mbid, title) values (${rg}, ${randomUUID()}, 'Purge autotagger')`;
     await sql`insert into releases (id, release_group_id, mbid, title) values (${release}, ${rg}, ${randomUUID()}, 'Purge autotagger')`;
     try {
-      await sql`insert into decider_library_settings (library_id, sealed_key, key_hint, config) values (${lib}, 'enc:v1:x', 'abcd', '{"monthlyCap":10}'::jsonb)`;
+      await sql`insert into decider_library_settings (library_id, config) values (${lib}, '{"monthlyCap":10}'::jsonb)`;
+      await setTypesafeKey(sql, lib, 'enc:v1:x', 'abcd');
+      expect(await typesafeKeyHint(sql, lib)).toBe('abcd');
       await sql`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', '*', 1.5, 'USD') on conflict do nothing`;
       const [run] = await sql`insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population) values (${lib}, 'jev', 'h', 'jev-latest', 'needs_review') returning id`;
       const [dec] = await sql`insert into decider_decisions (run_id, local_album_id, outcome, band) values (${run!['id']}, ${album}, 'pick', 'high') returning id`;
@@ -226,6 +228,8 @@ describe.skipIf(!url)('purge-module autotagger (scratch db)', () => {
       expect(Object.keys(purged.deleted)).toEqual([...MODULE_DATA['autotagger']!.tables]);
       expect(purged.deleted['decider_library_settings']).toBeGreaterThanOrEqual(1);
       for (const t of MODULE_DATA['autotagger']!.tables) expect(await sql`select 1 from ${sql(t)} where true`, t).toHaveLength(0);
+      // the TypeSafe key goes with the module's data
+      expect(await typesafeKeyHint(sql, lib)).toBeNull();
       // core: the batch, its items and the match it made, so an undo still works
       expect(await sql`select run_id from decider_batches where id = ${batch!['id']}`).toEqual([{ run_id: run!['id'] }]);
       expect(await sql`select 1 from decider_batch_items where batch_id = ${batch!['id']}`).toHaveLength(1);

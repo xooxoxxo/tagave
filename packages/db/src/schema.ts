@@ -2122,7 +2122,7 @@ export const installedModules = pgTable('installed_modules', {
 /** Per library: the sealed API key, its hint and the module's settings. */
 export const deciderLibrarySettings = pgTable('decider_library_settings', {
   libraryId: uuid('library_id').primaryKey().references(() => libraries.id, { onDelete: 'cascade' }),
-  /** the API key, sealed with the app secret; never exported */
+  /** the API key, sealed with the app secret (the table refuses a plain one); never exported */
   sealedKey: text('sealed_key'),
   keyHint: varchar('key_hint', { length: 8 }),
   config: jsonb().notNull().default(sql`'{}'::jsonb`),
