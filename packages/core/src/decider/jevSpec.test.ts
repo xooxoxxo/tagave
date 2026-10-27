@@ -4,10 +4,15 @@ import { JEV_SPEC, bandOf, decideFromProbabilities, jevSpecHash } from './jevSpe
 describe('the Jev question spec', () => {
   it('has a stable hash that covers the margin, the bands and the wording', () => {
     expect(jevSpecHash()).toMatch(/^tagave-tracklist-v1@[0-9a-f]{12}$/);
+    // pinned: a change here changes what Jev is asked; bump the spec version instead of editing this
+    expect(jevSpecHash()).toBe('tagave-tracklist-v1@3f2470f1c792');
     expect(jevSpecHash()).toBe(jevSpecHash());
     expect(jevSpecHash({ ...JEV_SPEC, margin: 0.31 } as any)).not.toBe(jevSpecHash());
     expect(jevSpecHash({ ...JEV_SPEC, instructions: JEV_SPEC.instructions + ' ' } as any)).not.toBe(jevSpecHash());
     expect(JEV_SPEC.margin).toBe(0.3);
+  });
+  it('a repeated group label is not a set of groups', () => {
+    expect(decideFromProbabilities({ A: 0.93 }, JEV_SPEC, { labels: ['A', 'A'] })).toMatchObject({ kind: 'none', reason: 'invalid_answer' });
   });
   it('bands by probability; under the cut-off is no band', () => {
     expect([0.999, 0.99, 0.985, 0.97, 0.96, 0.95, 0.93, 0.9, 0.899].map((p) => bandOf(p))).toEqual(['p99', 'p99', 'p97', 'p97', 'p95', 'p95', 'p90', 'p90', null]);

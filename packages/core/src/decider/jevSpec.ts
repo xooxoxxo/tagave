@@ -65,7 +65,7 @@ export type JevDecision =
 
 const r4 = (x: number) => Math.round(x * 10000) / 10000;
 
-const INVALID: JevDecision = Object.freeze({ kind: 'none', reason: 'invalid_answer', label: null, probability: null, margin: null });
+const invalid = (): JevDecision => ({ kind: 'none', reason: 'invalid_answer', label: null, probability: null, margin: null });
 
 /**
  * The decision from Jev's answer: one probability per group, each the answer
@@ -87,12 +87,12 @@ export function decideFromProbabilities(
   spec: JevSpec = JEV_SPEC,
   opts: { labels?: readonly string[] } = {},
 ): JevDecision {
-  if (!probs || typeof probs !== 'object' || Array.isArray(probs)) return INVALID;
+  if (!probs || typeof probs !== 'object' || Array.isArray(probs)) return invalid();
   const entries = Object.entries(probs as Record<string, unknown>);
-  for (const [label, p] of entries) if (label === '' || !isProbability(p)) return INVALID;
+  for (const [label, p] of entries) if (label === '' || !isProbability(p)) return invalid();
   if (opts.labels) {
     const asked = new Set(opts.labels);
-    if (asked.size !== entries.length || entries.some(([label]) => !asked.has(label))) return INVALID;
+    if (asked.size !== opts.labels.length || asked.size !== entries.length || entries.some(([label]) => !asked.has(label))) return invalid();
   }
   const ranked = (entries as Array<[string, number]>).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
   const top = ranked[0];
