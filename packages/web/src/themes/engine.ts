@@ -25,6 +25,7 @@
 import { Contrast, Hct, SchemeContent, SchemeTonalSpot, TonalPalette, argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import type { ThemeChoice, ThemeId, ThemeSpec } from '@tagave/shared';
 import { BRAND_TOKENS } from '../adaptive/brand';
+import { barGlow } from '../adaptive/barGlow';
 
 export type { ThemeChoice, ThemeId, ThemeSpec };
 
@@ -142,7 +143,8 @@ export function generate(spec: ThemeSpec, dark: boolean): Generated {
   const barInk2 = s.tone(toneFor(s, T(30, 80), [bar], 5, dark));
   const barAccent = live.tone(toneFor(live, T(40, 80), [bar], 3.2, dark));
   const barDanger = err.tone(toneFor(err, T(40, 80), [bar], 4.6, dark));
-  const glow = live.tone(T(70, 50));
+  // the equalizer glow, inside the bar (adaptive/barGlow.ts)
+  const glow = barGlow(live.hue, bar, { texts: [barInk, barInk2], marks: [barAccent] });
   const hex = hexFromArgb;
   const tokens: Record<string, string> = {
     '--canvas': hex(canvas), '--surface': hex(surface), '--mist': hex(mist), '--mist-2': hex(mist2),

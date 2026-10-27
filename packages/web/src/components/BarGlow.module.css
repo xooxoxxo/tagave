@@ -1,0 +1,56 @@
+/*
+ * The equalizer glow inside the player bar (BarGlow.tsx): behind the bar's
+ * content (the bar isolates it; the glow sits at z-index -1, over the bar's
+ * own fill) and clipped to the bar. Seven lobes, each 2/7 of the bar wide and
+ * half its height, rising from its bottom edge; only transform and opacity
+ * move. The lobe's core is the peak strength adaptive/barGlow.ts holds the
+ * bar's contrast at (BAR_GLOW_PEAK, 60 %), and neighbouring lobes meet where
+ * each has faded, so overlaps never pass it.
+ */
+.glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.lobe {
+  position: absolute;
+  bottom: 0;
+  left: calc(var(--x) - 100% / 7);
+  width: calc(200% / 7);
+  height: 50%;
+  transform-origin: 50% 100%;
+  /* settled: the low line, where a paused track (and a calm glow at rest) lies */
+  transform: scaleY(0.14);
+  opacity: 0.55;
+  background: radial-gradient(50% 100% at 50% 100%, color-mix(in srgb, var(--seek-glow) 60%, transparent), color-mix(in srgb, var(--seek-glow) 27%, transparent) 45%, transparent 100%);
+  transition: transform 700ms var(--ease-out, ease), opacity 700ms var(--ease-out, ease);
+  will-change: transform, opacity;
+}
+
+/* following the music: every frame writes the lobe's transform and opacity */
+.glow[data-mode="live"][data-playing="true"] .lobe { transition: none; }
+
+/* no levels (iOS, or Web Audio would not start): a slow breath, the middle first */
+.glow[data-mode="calm"][data-playing="true"] .lobe {
+  animation: breathe 5.2s ease-in-out infinite;
+  animation-delay: calc(var(--i) * -0.6s);
+}
+@keyframes breathe {
+  0%, 100% { transform: scaleY(0.2); opacity: 0.6; }
+  50% { transform: scaleY(0.5); opacity: 0.85; }
+}
+
+/* reduced motion: still, a little above the low line while a track plays */
+@media (prefers-reduced-motion: reduce) {
+  .glow .lobe { animation: none; transition: none; }
+  .glow[data-playing="true"] .lobe,
+  .glow[data-mode="calm"][data-playing="true"] .lobe { animation: none; transform: scaleY(0.3); opacity: 0.7; }
+}
+
+@media (forced-colors: active) {
+  .glow { display: none; }
+}

@@ -21,10 +21,12 @@
  *   and 5:1 for its two lines of text
  * - the bar's seek fill and keys: primary, a tone further out if the bar's
  *   own tone sits close (3:1 against the bar)
- * - the glow along the seek bar: a mid primary tone (50 dark, 70 light),
- *   held where the seek fill still reads 3:1 on top of it
+ * - the equalizer glow, inside the bar under its text and keys: the most
+ *   vivid primary tone that keeps the bar's pairs at their rules at the
+ *   glow's peak strength (barGlow.ts)
  */
 import { Contrast, Hct, QuantizerCelebi, SchemeContent, SchemeTonalSpot, Score, argbFromRgb, hexFromArgb } from '@material/material-color-utilities';
+import { barGlow } from './barGlow';
 
 /** Score's fallback when no colour on the cover is fit for a theme (all grey, or no hue above 1 %). */
 const NO_COLOUR = 0;
@@ -96,7 +98,10 @@ export function adaptiveTokens(source: number, dark: boolean): Record<string, st
     '--ad-bar-line': hex(sec.tone(dark ? Math.min(100, barTone + 18) : Math.max(0, barTone - 16))),
     '--ad-bar-accent': hex(p.tone(fillTone)),
     '--ad-bar-danger': hex(quiet.errorPalette.tone(dangerTone)),
-    '--ad-glow': hex(p.tone(dark ? 50 : 70)),
+    '--ad-glow': hex(barGlow(p.hue, barArgb, {
+      texts: [sec.tone(inkTone), sec.tone(ink2Tone)],
+      marks: [p.tone(fillTone)],
+    })),
     '--accent-rgb': rgbOf(p.tone(accentTone)),
     '--info-rgb': rgbOf(p.tone(accentTone)),
   };

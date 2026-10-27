@@ -26,7 +26,7 @@
 @property --ad-bar-line { syntax: '<color>'; inherits: true; initial-value: #c3ccd5; }
 @property --ad-bar-accent { syntax: '<color>'; inherits: true; initial-value: #276a82; }
 @property --ad-bar-danger { syntax: '<color>'; inherits: true; initial-value: #a83a36; }
-@property --ad-glow { syntax: '<color>'; inherits: true; initial-value: #5ba8c4; }
+@property --ad-glow { syntax: '<color>'; inherits: true; initial-value: #00c5f7; }
 
 :root[data-adaptive][data-adaptive] {
   --dew: var(--ad-accent);

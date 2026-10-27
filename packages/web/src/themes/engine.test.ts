@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { hexFromArgb } from '@material/material-color-utilities';
+import { argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import { CUSTOM_START, STARTERS, generate, generatedSpec, hctOf, minRatios, withHue, type ThemeSpec } from './engine';
+import { glowHolds } from '../adaptive/barGlow';
+
+/** The theme's equalizer glow inside its bar keeps the bar's inks at their rules at the glow's peak. */
+function glowHoldsIn(spec: ThemeSpec, dark: boolean): boolean {
+  const t = generate(spec, dark).tokens;
+  const a = (k: string) => argbFromHex(t[k]!);
+  return glowHolds(a('--seek-glow'), a('--th-bar'), { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] });
+}
 
 /** a seeded random, so a failure names a seed that can be replayed */
 function rng(seed: number) {
@@ -12,6 +20,7 @@ describe('theme engine', () => {
   it('every starter holds every pair in light and dark', () => {
     for (const [id, spec] of Object.entries(STARTERS)) {
       for (const dark of [false, true]) {
+        expect(glowHoldsIn(spec, dark), `${id} ${dark ? 'dark' : 'light'}: the bar's inks over the glow`).toBe(true);
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${id} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }
@@ -23,6 +32,7 @@ describe('theme engine', () => {
       const hex = () => hexFromArgb((0xff000000 | Math.floor(r() * 0xffffff)) >>> 0);
       const spec: ThemeSpec = { seed: hex(), accent2: i % 2 ? hex() : null, mono: i % 7 === 0 };
       for (const dark of [false, true]) {
+        expect(glowHoldsIn(spec, dark), `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'}: the bar's inks over the glow`).toBe(true);
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }

@@ -3,6 +3,7 @@ import { Hct, argbFromHex } from '@material/material-color-utilities';
 import { adaptiveTokens, sourceColour } from './scheme';
 import { THEME_INKS, WASH_MAX, argbOfHex, extremes, saturate, washOpacity, type Extremes } from './wash';
 import { BRAND_TOKENS } from './brand';
+import { glowHolds } from './barGlow';
 
 type RGB = [number, number, number];
 const parse = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -34,13 +35,13 @@ function check(tokens: Record<string, string>, theme: 'light' | 'dark', label: s
     expect(ratio(parse(tokens[fg]!), parse(tokens[bg]!)), `${label} ${theme}: ${name}`).toBeGreaterThanOrEqual(min);
   }
   expect(ratio(parse(INK[theme].ink3), parse(tokens['--ad-canvas']!)), `${label} ${theme}: ink-3 on canvas`).toBeGreaterThanOrEqual(4.5);
-  // the seek fill still reads where the glow lies under it (its line at most 0.55 x 0.9 strong)
-  const bar = parse(tokens['--ad-bar']!), glow = parse(tokens['--ad-glow']!);
-  const lit = [0, 1, 2].map((i) => Math.round(glow[i]! * 0.5 + bar[i]! * 0.5)) as RGB;
-  expect(ratio(parse(tokens['--ad-bar-accent']!), lit), `${label} ${theme}: seek fill on the glow`).toBeGreaterThanOrEqual(3);
-  // the same on Now Playing's seek bar, which lies on the canvas
+  // the equalizer glow lies inside the bar: its title and second line still read 4.5:1 and the seek fill
+  // and keys 3:1 over it, at every strength up to its peak (barGlow.ts)
+  expect(glowHolds(argbOfHex(tokens['--ad-glow']!), argbOfHex(tokens['--ad-bar']!), {
+    texts: [argbOfHex(tokens['--ad-bar-ink']!), argbOfHex(tokens['--ad-bar-ink-2']!)],
+    marks: [argbOfHex(tokens['--ad-bar-accent']!)],
+  }), `${label} ${theme}: the bar's inks over the glow at its peak`).toBe(true);
   const canvas = parse(tokens['--ad-canvas']!);
-  expect(ratio(parse(tokens['--ad-accent']!), overRgb(glow, 0.5, canvas)), `${label} ${theme}: seek fill on the glow, on the canvas`).toBeGreaterThanOrEqual(3);
   // the bar is a clear step from the page it sits on
   expect(ratio(parse(tokens['--ad-bar']!), canvas), `${label} ${theme}: bar vs canvas`).toBeGreaterThanOrEqual(1.4);
   // Now Playing: the blurred cover over the cover's canvas, at its darkest and lightest pixel
@@ -113,6 +114,8 @@ describe('adaptiveTokens: AA whatever the cover', () => {
   }, 30_000); // hundreds of covers: CI runners are slower than a laptop
   it('the brand values pass the same pairs (the fade back to brand)', () => {
     for (const theme of ['light', 'dark'] as const) {
+      const b = BRAND_TOKENS[theme];
+      expect(glowHolds(argbOfHex(b['--ad-glow']!), argbOfHex(b['--ad-bar']!), { texts: [argbOfHex(b['--ad-bar-ink']!), argbOfHex(b['--ad-bar-ink-2']!)], marks: [argbOfHex(b['--ad-bar-accent']!)] }), `${theme}: brand glow`).toBe(true);
       for (const [name, fg, bg, min] of PAIRS) {
         if (fg.startsWith('--ad-bar') || bg === '--ad-bar') continue; // the brand bar is glass, measured in tokenContrast.test.ts
         expect(ratio(parse(BRAND_TOKENS[theme][fg]!), parse(BRAND_TOKENS[theme][bg]!)), `${theme} ${name}`).toBeGreaterThanOrEqual(min);
@@ -166,6 +169,13 @@ describe('the 600 ms cross-fade never dips below the minimum', () => {
             const r = ratio(mix(parse(a[fg]!), parse(b[fg]!), t), mix(parse(a[bg]!), parse(b[bg]!), t));
             worst = Math.min(worst, r / min);
             expect(r, `${theme} ${name} at t=${t.toFixed(1)}`).toBeGreaterThanOrEqual(min);
+          }
+        }
+        // the equalizer glow in the bar, mid-fade
+        if (a !== schemes[theme][0] && b !== schemes[theme][0]) {
+          for (let t = 0; t <= 1; t += 0.1) {
+            const at = (k: string) => { const [r, g, bl] = mix(parse(a[k]!), parse(b[k]!), t); return ((0xff << 24) | (r << 16) | (g << 8) | bl) >>> 0; };
+            expect(glowHolds(at('--ad-glow'), at('--ad-bar'), { texts: [at('--ad-bar-ink'), at('--ad-bar-ink-2')], marks: [at('--ad-bar-accent')] }), `${theme} glow at t=${t.toFixed(1)}`).toBe(true);
           }
         }
       }
