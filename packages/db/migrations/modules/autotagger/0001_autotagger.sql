@@ -8,7 +8,8 @@
 --
 -- decider_library_settings: per library, the sealed API key, its hint and
 --   the module's settings. The key is sealed before it is written (with the
---   app secret, as the other provider keys); the check refuses a plain one.
+--   app secret, as the other provider keys); the checks refuse a plain one
+--   and a hint longer than the last four characters.
 -- decider_prices: what a model costs, per million input tokens (output is
 --   free); model '*' prices every model of the decider.
 -- decider_runs: one owner-started run over a population; pinned to one
@@ -19,8 +20,8 @@
 -- decider_spot_checks: the owner's verdict on random decisions per band.
 create table if not exists decider_library_settings (
   library_id uuid primary key references libraries(id) on delete cascade,
-  sealed_key text check (sealed_key is null or sealed_key like 'enc:%'),
-  key_hint varchar(8),
+  sealed_key text check (sealed_key is null or sealed_key like 'enc:_%'),
+  key_hint varchar(8) check (key_hint is null or char_length(key_hint) <= 4),
   config jsonb not null default '{}',
   updated_at timestamptz not null default now()
 );

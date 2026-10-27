@@ -12,7 +12,7 @@ import postgres from 'postgres';
 import {
   AUTOTAGGER_TABLES, AutotaggerStillOnError, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
   deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
-  clearTypesafeKey, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
+  clearTypesafeKey, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, typesafeKeyHintOf, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
 } from '@tagave/db';
 import {
   DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, deciderPriceSchema, type AutotaggerConfig, type AutotaggerConfigPatch,
@@ -47,6 +47,12 @@ describe('autotagger config shape', () => {
     expect(deciderPriceSchema.parse({ model: '*', perMillionInput: 1.5, currency: 'USD' })).toEqual({ model: '*', perMillionInput: 1.5, currency: 'USD' });
     expect(deciderPriceSchema.safeParse({ model: 'Any', perMillionInput: 1, currency: 'USD' }).success).toBe(false);
     expect(deciderPriceSchema.safeParse({ model: '*', perMillionInput: -1, currency: 'USD' }).success).toBe(false);
+  });
+
+  it('the hint of a plain key is its last four characters', () => {
+    expect(typesafeKeyHintOf('ts-abcdefgh1234')).toBe('1234');
+    expect(typesafeKeyHintOf('xyz')).toBe('xyz');
+    expect(typesafeKeyHintOf('')).toBe('');
   });
 
   it('db lists the same tables as the manifest, in its purge order', () => {
@@ -97,7 +103,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (shared db: i
     await setTypesafeKey(client, libraryId, plain, 'wxyz').catch((e: Error) => expect(e.message).not.toContain(plain));
     expect(await client`select sealed_key from decider_library_settings where library_id = ${libraryId} and sealed_key is not null`).toHaveLength(0);
     // the table refuses a plain key too, whoever writes it
-    await expect(client`insert into decider_library_settings (library_id, sealed_key) values (${otherLibrary}, ${plain}) on conflict (library_id) do update set sealed_key = excluded.sealed_key`).rejects.toThrow(/check/);
+    for (const [key, hint] of [[plain, null], ['enc:', null], [sealed, 'wxyz5']]) {
+      await expect(client`insert into decider_library_settings (library_id, sealed_key, key_hint) values (${otherLibrary}, ${key}, ${hint}) on conflict (library_id) do update set sealed_key = excluded.sealed_key, key_hint = excluded.key_hint`, `${hint}`).rejects.toThrow(/check/);
+    }
 
     await setTypesafeKey(client, libraryId, sealed, 'wxyz');
     expect(await typesafeKeyHint(client, libraryId)).toBe('wxyz');

@@ -117,6 +117,11 @@ export async function setAutotaggerConfig(
 const SEALED_PREFIX = 'enc:';
 const MAX_HINT = 4;
 
+/** The hint of a plain API key: its last four characters (the whole key when shorter). */
+export function typesafeKeyHintOf(plain: string): string {
+  return plain.slice(-MAX_HINT);
+}
+
 /** Store the library's sealed API key and its hint. Throws, writing nothing, on a value that is not sealed. */
 export async function setTypesafeKey(sql: Sql | Tx, libraryId: string, sealedValue: string, hint: string): Promise<void> {
   // the messages never carry the value
