@@ -54,6 +54,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     expect(await scopeHoldState(ctx, [twin, other])).toBe('held');
   });
 
+  it('does not hold a row first seen at the same moment the missing row was last seen', async () => {
+    const t = new Date(Date.now() - 3_600_000).toISOString();
+    await file('Old/1.flac', { status: 'missing', last_seen_at: t });
+    const same = await file('New/1.flac', { first_seen_at: t });
+    expect(await placeHolds(ctx, [same])).toEqual([]);
+  });
+
   it('loads only the held rows of the folders asked for', async () => {
     await file('Old/1.flac', { status: 'missing', last_seen_at: new Date(Date.now() - 86_400_000).toISOString() });
     const inNew = await file('New/1.flac');

@@ -41,7 +41,12 @@ export async function sendReleasedCluster(ctx: Pick<WorkerContext, 'boss'>, d: R
     { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), ...(startAfter ? { startAfter } : {}) });
 }
 
-/** Holds the fresh rows that have a size-equal missing row last seen no later than they were first seen. */
+/**
+ * Holds the fresh rows that have a size-equal missing row last seen before
+ * they were first seen. Strictly before, as Tier 1 and Tier 2 pair: equal
+ * times mean both paths were seen in one walk batch, so the two files
+ * coexisted and the new one cannot be the old one moved.
+ */
 export async function placeHolds(ctx: Pick<WorkerContext, 'sql'>, freshIds: string[]): Promise<string[]> {
   const held: string[] = [];
   for (let i = 0; i < freshIds.length; i += UPDATE_BATCH) {
@@ -50,7 +55,7 @@ export async function placeHolds(ctx: Pick<WorkerContext, 'sql'>, freshIds: stri
        where f.id = any(${freshIds.slice(i, i + UPDATE_BATCH)}::uuid[]) and f.status in ('present', 'error')
          and exists (select 1 from audio_files o
                       where o.library_id = f.library_id and o.status = 'missing' and o.id <> f.id
-                        and o.size_bytes = f.size_bytes and o.last_seen_at <= f.first_seen_at)
+                        and o.size_bytes = f.size_bytes and o.last_seen_at < f.first_seen_at)
       returning f.id`;
     for (const r of rows) held.push(r['id'] as string);
   }
