@@ -78,7 +78,7 @@ export async function booksGroupJob(ctx: WorkerContext, data: BooksGroupJobData)
   // the folder's own files (not its subfolders'), of the handlers books claims
   const inDir = dir === ''
     ? sql`strpos(f.rel_path, '/') = 0`
-    : sql`f.rel_path like ${`${escapeLike(dir)}/%`} and strpos(substr(f.rel_path, ${dir.length + 2}), '/') = 0`;
+    : sql`f.rel_path like ${`${escapeLike(dir)}/%`} and strpos(substr(f.rel_path, length(${dir}::text) + 2), '/') = 0`;
   const rows = await sql<FileRow[]>`
     select f.id, f.rel_path, f.status, f.handler, f.tags_raw, f.tags_read_at, f.reconcile_hold_at
       from files f

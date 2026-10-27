@@ -248,6 +248,5 @@ export async function releaseParsedHolds(ctx: WorkerContext, scope?: HoldScope):
   const wanted = new Set(touched.map((t) => `${t.scanRootId}\n${t.dirPath}`));
   const out = await releaseReadyHolds(ctx, touched);
   for (const d of out) await sendReleasedGrouping(ctx, d);
-  // a folder counts once, however many apps' grouping jobs it went to
-  return new Set(out.map((d) => `${d.scanRootId}\n${d.dirPath}`).filter((k) => wanted.has(k))).size;
+  return out.filter((d) => wanted.has(`${d.scanRootId}\n${d.dirPath}`)).length;
 }
