@@ -5,13 +5,12 @@
  * queue.autoaccept job when the owner presses "Accept N now".
  *
  * Idempotent: an album is taken only while it is still needs_review (the
- * state update is the guard), so a re-run or a race with the owner deciding
- * by hand accepts nothing twice. Every decision is an album_matches row whose
+ * accept locks the album row and checks its state), so a re-run or a race
+ * with the owner deciding by hand accepts nothing twice. Every decision is an album_matches row whose
  * reason starts with AUTO_ACCEPT_REASON_PREFIX — the audit trail the rules
  * dialog lists.
  */
-import { and, eq, inArray } from 'drizzle-orm';
-import { albumMatches, localAlbums, releases, fetchAutoAcceptRulesRow, fetchRulesInputs } from '@tagave/db';
+import { acceptInTx, fetchAutoAcceptRulesRow, fetchRulesInputs } from '@tagave/db';
 import { evaluateAutoAccept, rulesFromStored } from '@tagave/core';
 import { AUTO_ACCEPT_REASON_PREFIX, type AutoAcceptRules } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
@@ -67,45 +66,14 @@ export async function acceptByRules(
 
 /**
  * Make a candidate the album's live match, as the system. Returns false when
- * the album is no longer waiting for review (decided meanwhile).
+ * the album is no longer waiting for review (decided meanwhile) or the
+ * release is no longer stored.
  */
 export async function acceptCandidate(ctx: WorkerContext, a: {
   libraryId: string; albumId: string; releaseId: string; distance: number; source: string | null; reason: string;
 }): Promise<boolean> {
-  const rg = await ctx.db.select({ rgId: releases.releaseGroupId }).from(releases).where(eq(releases.id, a.releaseId)).limit(1);
-  const took = await ctx.db.transaction(async (tx) => {
-    const now = new Date();
-    const moved = await tx.update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: a.releaseId,
-        releaseGroupId: rg[0]?.rgId ?? null,
-        identifyReason: null,
-        identifiedAt: now,
-        updatedAt: now,
-      })
-      .where(and(eq(localAlbums.id, a.albumId), eq(localAlbums.state, 'needs_review')))
-      .returning({ id: localAlbums.id });
-    if (moved.length === 0) return false;
-    // §11.5: at most one live match per album; the superseded one keeps
-    // its reason.
-    await tx.update(albumMatches)
-      .set({ status: 'rejected' })
-      .where(and(eq(albumMatches.localAlbumId, a.albumId), inArray(albumMatches.status, ['auto', 'confirmed'])));
-    await tx.insert(albumMatches).values({
-      libraryId: a.libraryId,
-      localAlbumId: a.albumId,
-      releaseId: a.releaseId,
-      distance: a.distance.toFixed(4),
-      status: 'auto',
-      decidedBy: 'system',
-      reason: a.reason,
-      source: a.source,
-      decidedKind: 'rule',
-    });
-    return true;
-  });
-  if (!took) return false;
+  const res = await ctx.sql.begin((tx) => acceptInTx(tx, { ...a, status: 'auto', decidedBy: 'system', decidedKind: 'rule' }));
+  if (!res.ok) return false;
 
   await notifyQueueChanged(ctx, a.libraryId, a.albumId, 'matched');
   // ENR-1 + 0026, as for any other accepted match.

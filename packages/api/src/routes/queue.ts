@@ -2,10 +2,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { PgBoss } from 'pg-boss';
 import {
-  albumMatches, canonicalTracks, libraries, localAlbums, localTracks,
+  acceptInTx, canonicalTracks, libraries, localAlbums, localTracks,
   matchCandidates, releaseGroups, releases,
 } from '@tagave/db';
-import { getDb } from '../db.js';
+import { getDb, getSql } from '../db.js';
 import { getBoss as getSharedBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { mediaSummary } from '../lib/releaseSummary.js';
@@ -198,37 +198,12 @@ export async function createQueueRoutes(fastify: FastifyInstance) {
     const cand = candRows[0];
     if (!cand) throw new ApiError(404, 'Not Found', 'Candidate not found for this album');
 
-    const relRows = await db
-      .select({ rgId: releases.releaseGroupId })
-      .from(releases)
-      .where(eq(releases.id, cand.releaseId))
-      .limit(1);
-
-    // §11.5: at most one live match; flip any prior live row to rejected
-    // first. It keeps its reason: it says why that decision was made.
-    await db.execute(sql`
-      update album_matches set status = 'rejected'
-      where local_album_id = ${albumId} and status in ('auto', 'confirmed')`);
-    await db.insert(albumMatches).values({
-      libraryId: album.libraryId,
-      localAlbumId: albumId,
-      releaseId: cand.releaseId,
-      distance: cand.distance,
-      status: 'confirmed',
-      decidedBy: 'user',
-      reason: 'accepted in review queue',
-      decidedKind: 'user',
-      decidedByUserId: request.user.id,
-    });
-    await db
-      .update(localAlbums)
-      .set({
-        state: 'matched',
-        releaseId: cand.releaseId,
-        releaseGroupId: relRows[0]?.rgId ?? null,
-        updatedAt: new Date(),
-      })
-      .where(eq(localAlbums.id, albumId));
+    const res = await getSql().begin((tx) => acceptInTx(tx, {
+      libraryId: album.libraryId, albumId, releaseId: cand.releaseId, distance: Number(cand.distance), source: null,
+      reason: 'accepted in review queue', status: 'confirmed', decidedBy: 'user', decidedKind: 'user',
+      decidedByUserId: request.user!.id, fromStates: null,
+    }));
+    if (!res.ok) throw new ApiError(409, 'Conflict', res.reason === 'release_gone' ? 'That edition is no longer stored. Identify the album again.' : 'The album changed meanwhile. Reload.');
     const boss = await getBoss();
     await boss.send('enrich.release', { releaseId: cand.releaseId }, { singletonKey: `enrich:${cand.releaseId}` });
     // the cover, as Fetch art does (its local art first; a cover already stored stays)
