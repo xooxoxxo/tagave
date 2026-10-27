@@ -13,7 +13,14 @@
  * known durations is within 10 s. Anchors come from candidates whose
  * durations are all known, best distance first; candidates with a missing
  * duration join after them. A member joins only when exactly one open group
- * fits; when two do it stays alone in a closed group of its own.
+ * fits; when two or more do it stays alone in a closed group of its own.
+ * That holds for a fully timed candidate as well: one that sits between two
+ * timed anchors (say 205 s between 200 s and 211 s) is closed, not an anchor.
+ *
+ * A missing duration is a wildcard on either side. When every candidate has
+ * a gap, the anchor may be one with no durations at all, and members whose
+ * known durations conflict with each other (200 s and 230 s) can still join
+ * it, since each is compared with the anchor only.
  *
  * Only remote tracklists are compared with each other. Nothing here reads
  * the local files' titles, so names taken from file names or folders never
@@ -32,7 +39,11 @@ export interface TracklistGroup {
   anchor: GroupingCandidate;
   /** anchor first, then by distance */
   members: GroupingCandidate[];
-  /** a wildcard member that fit more than one group sits alone in a closed group; nothing joins it */
+  /**
+   * A candidate that fit more than one open group sits alone in a closed
+   * group; nothing joins it. Usually a wildcard member, but a fully timed
+   * candidate that fits two timed anchors is closed the same way.
+   */
   closed: boolean;
 }
 export interface GroupingOptions {
@@ -67,19 +78,27 @@ const sameNumbers = (a: number[], b: number[]) => a.length === b.length && a.eve
 
 /** Whether `member` has the same tracklist as `anchor` under the tolerances. */
 export function fits(anchor: CandidateEvidence, member: CandidateEvidence, byMedium: boolean, opts: GroupingOptions = GROUPING_DEFAULTS): boolean {
-  if (anchor.tracks.length !== member.tracks.length) return false;
-  if (!sameNumbers(countsKey(anchor, byMedium), countsKey(member, byMedium))) return false;
-  if (anchor.tracks.length === 0) return true;
+  return fitsKeyed(anchor, countsKey(anchor, byMedium), member, countsKey(member, byMedium), opts);
+}
+
+/** `fits` with each side's track counts already worked out. */
+function fitsKeyed(anchor: CandidateEvidence, anchorKey: number[], member: CandidateEvidence, memberKey: number[], opts: GroupingOptions): boolean {
+  const n = anchor.tracks.length;
+  if (n !== member.tracks.length) return false;
+  if (!sameNumbers(anchorKey, memberKey)) return false;
+  if (n === 0) return true;
   let sum = 0;
-  for (let i = 0; i < anchor.tracks.length; i++) {
+  for (let i = 0; i < n; i++) {
     const [, ta, da] = anchor.tracks[i]!;
     const [, tm, dm] = member.tracks[i]!;
     const d = stringDistance(ta, tm);
     if (d > opts.maxTitleDistance) return false;
     sum += d;
+    // distances are never negative, so once the mean is over it stays over
+    if (sum / n > opts.meanTitleTolerance) return false;
     if (da !== null && dm !== null && Math.abs(da - dm) > opts.durationToleranceS) return false;
   }
-  return sum / anchor.tracks.length <= opts.meanTitleTolerance;
+  return true;
 }
 
 /** 0 → 'A', 25 → 'Z', 26 → 'AA': distinct for every index. */
@@ -99,16 +118,17 @@ const byDistance = (a: GroupingCandidate, b: GroupingCandidate) =>
  */
 export function groupTracklists(cands: GroupingCandidate[], local: { discsKnown: boolean }, opts: GroupingOptions = GROUPING_DEFAULTS): TracklistGroup[] {
   const ordered = [...cands].sort(byDistance);
+  const keys = new Map(ordered.map((c) => [c, countsKey(c.evidence, local.discsKnown)] as const));
   const groups: Array<{ anchor: GroupingCandidate; members: GroupingCandidate[]; closed: boolean }> = [];
   const place = (c: GroupingCandidate) => {
-    const open = groups.filter((g) => !g.closed && fits(g.anchor.evidence, c.evidence, local.discsKnown, opts));
+    const open = groups.filter((g) => !g.closed && fitsKeyed(g.anchor.evidence, keys.get(g.anchor)!, c.evidence, keys.get(c)!, opts));
     if (open.length === 1) open[0]!.members.push(c);
     else groups.push({ anchor: c, members: [c], closed: open.length > 1 });
   };
   for (const c of ordered.filter((x) => !hasWildcards(x.evidence))) place(c);
   for (const c of ordered.filter((x) => hasWildcards(x.evidence))) place(c);
-  const best = (g: { members: GroupingCandidate[] }) => [...g.members].sort(byDistance)[0]!;
-  return groups
-    .sort((a, b) => byDistance(best(a), best(b)))
-    .map((g, i) => ({ label: groupLabel(i), anchor: g.anchor, members: [g.anchor, ...g.members.filter((m) => m !== g.anchor).sort(byDistance)], closed: g.closed }));
+  const ranked = groups.map((g) => ({ g, best: g.members.reduce((a, b) => (byDistance(b, a) < 0 ? b : a)) }));
+  return ranked
+    .sort((a, b) => byDistance(a.best, b.best))
+    .map(({ g }, i) => ({ label: groupLabel(i), anchor: g.anchor, members: [g.anchor, ...g.members.filter((m) => m !== g.anchor).sort(byDistance)], closed: g.closed }));
 }

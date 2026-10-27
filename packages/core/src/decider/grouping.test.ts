@@ -68,6 +68,25 @@ describe('groupTracklists', () => {
     expect(labels(gs)).toEqual(['A:a', 'B:b', 'C:dg!']);
   });
 
+  it('a fully timed candidate that fits two timed anchors stays alone, closed', () => {
+    // a: 200, b: 211 (11 s from a, its own group), mid: 205 (fits both)
+    const at = (base: number) => list({ dur: (i) => base + i * 10 });
+    const gs = groupTracklists([c('a', 0.01, at(200)), c('b', 0.02, at(211)), c('mid', 0.03, at(205))], flat);
+    expect(labels(gs)).toEqual(['A:a', 'B:b', 'C:mid!']);
+  });
+
+  it('under an anchor with no durations, members whose durations conflict with each other share the group', () => {
+    // The wildcard anchor says nothing about durations, and each member is
+    // compared with the anchor only, so 200 s and 230 s both join it.
+    const partly = (base: number) => list({ dur: (i) => (i % 2 ? null : base + i * 10) });
+    const p200 = c('p200', 0.02, partly(200));
+    const p230 = c('p230', 0.03, partly(230));
+    expect(fits(p200.evidence, p230.evidence, false)).toBe(false);
+    const gs = groupTracklists([c('none', 0.01, list({ dur: () => null })), p200, p230], flat);
+    expect(labels(gs)).toEqual(['A:none,p200,p230']);
+    expect(gs[0]!.anchor.releaseId).toBe('none');
+  });
+
   it('a later member never joins a closed group', () => {
     const at = (base: number) => list({ dur: (i) => base + i * 10 });
     const gs = groupTracklists([c('a', 0.01, at(200)), c('b', 0.02, at(230)), c('dg1', 0.03, list({ dur: () => null })), c('dg2', 0.04, list({ dur: () => null }))], flat);
