@@ -32,6 +32,7 @@ export interface BatchRow {
   id: string; libraryId: string; deciderId: string; deciderVersion: string | null; decidedKind: 'rule' | 'model';
   runId: string | null; band: string | null; acceptFrom: string[]; state: BatchState; startedByUserId: string | null;
   createdAt: Date; acceptedAt: Date | null; undoneAt: Date | null;
+  message: string | null; undoRequestedAt: Date | null; undoByUserId: string | null;
 }
 export interface BatchItemRow {
   id: string; batchId: string; localAlbumId: string; releaseId: string; distance: number; source: string | null;
@@ -100,7 +101,7 @@ export async function createBatch(sql: Sql, input: CreateBatchInput): Promise<st
 export async function getBatch(sql: Sql, batchId: string): Promise<BatchRow | null> {
   const [r] = await sql<Array<Record<string, unknown>>>`
     select id, library_id, decider_id, decider_version, decided_kind, run_id, band, accept_from, state,
-           started_by_user_id, created_at, accepted_at, undone_at
+           started_by_user_id, created_at, accepted_at, undone_at, message, undo_requested_at, undo_by_user_id
       from decider_batches where id = ${batchId}`;
   if (!r) return null;
   return {
@@ -117,7 +118,26 @@ export async function getBatch(sql: Sql, batchId: string): Promise<BatchRow | nu
     createdAt: toDate(r['created_at'])!,
     acceptedAt: toDate(r['accepted_at']),
     undoneAt: toDate(r['undone_at']),
+    message: (r['message'] as string | null) ?? null,
+    undoRequestedAt: toDate(r['undo_requested_at']),
+    undoByUserId: (r['undo_by_user_id'] as string | null) ?? null,
   };
+}
+
+/**
+ * Asks for a batch to be undone: moves it to undoing and says who asked and
+ * when. Allowed while it is still accepting (that run stops after the chunk
+ * in hand), once accepted, and after a failure (the chunks before it stay
+ * accepted). False when the batch is in none of those states. The caller
+ * then queues the undo with sendDeciderAccept(boss, batchId, 'undo').
+ */
+export async function requestUndo(sql: Sql, batchId: string, userId: string | null): Promise<boolean> {
+  const rows = await sql`
+    update decider_batches
+       set state = 'undoing', undo_requested_at = now(), undo_by_user_id = ${userId}
+     where id = ${batchId} and state in ('accepting', 'accepted', 'failed')
+     returning id`;
+  return rows.length > 0;
 }
 
 /** Moves a batch to `state`; accepted stamps accepted_at, undone stamps undone_at. `message` replaces the batch's message when given. */

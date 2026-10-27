@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, getTableColumns } from 'drizzle-orm';
 import {
   BATCH_CANNOT_UNDO, batchCounts, createBatch, deciderBatches, deciderBatchItems, getBatch, itemsWithStatus,
-  libraries, localAlbums, makeDb, sendDeciderAccept, setBatchState, transitionBatch, users, type BatchItemInput,
+  libraries, localAlbums, makeDb, requestUndo, sendDeciderAccept, setBatchState, transitionBatch, users, type BatchItemInput,
 } from '@tagave/db';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
@@ -189,6 +189,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
       expect(inDb.length, name).toBeGreaterThan(0);
       expect(inSchema, name).toEqual(inDb);
     }
+  });
+
+  it('an undo request moves an accepting, accepted or failed batch to undoing and says who asked', async () => {
+    for (const from of ['accepting', 'accepted', 'failed'] as const) {
+      const id = await createBatch(client, { ...base, items: [item(randomUUID())] });
+      await setBatchState(client, id, from, { message: 'before' });
+      expect(await requestUndo(client, id, userId)).toBe(true);
+      const b = await getBatch(client, id);
+      expect(b).toMatchObject({ state: 'undoing', undoByUserId: userId, message: 'before' });
+      expect(b!.undoRequestedAt).toBeInstanceOf(Date);
+    }
+    for (const from of ['queued', 'undoing', 'undone'] as const) {
+      const id = await createBatch(client, { ...base, items: [item(randomUUID())] });
+      await setBatchState(client, id, from);
+      expect(await requestUndo(client, id, userId)).toBe(false);
+      expect((await getBatch(client, id))!).toMatchObject({ state: from, undoRequestedAt: null, undoByUserId: null });
+    }
+    expect(await requestUndo(client, randomUUID(), userId)).toBe(false);
   });
 
   it('names what an undo cannot take back', () => {

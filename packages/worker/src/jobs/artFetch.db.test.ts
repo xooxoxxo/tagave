@@ -177,6 +177,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     expect(rows.map((r: any) => [r.id, r.localPath])).toEqual([[old.id, '/x.jpg']]);
   });
 
+  it('reselect drops a provider cover when nothing else is found', async () => {
+    // album back in review (no release), its front image a provider one, no embedded or sidecar art
+    send.mockClear();
+    const albumId = await albumWithFlag('S/Reselect/2005 - Wrong Release');
+    const old = await providerRow(albumId, 'https://example.test/caa/other-release.jpg');
+    await client`insert into cover_thumbs (image_id, size, bytes, sha256) values (${old.id}, 300, decode('00', 'hex'), sha256(decode('00', 'hex')))`;
+    const fetchMock = vi.fn(async () => new Response('', { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await artFetchJob(ctx, { localAlbumId: albumId, refresh: true, reselect: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // the stored source (another release's cover) is not fetched again
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await client`select 1 from images where local_album_id = ${albumId} and kind = 'front'`).toHaveLength(0);
+    expect(await client`select 1 from cover_thumbs where image_id = ${old.id}`).toHaveLength(0);
+    // the album has no cover now: re-linted, so the flag can come back
+    expect(send).toHaveBeenCalledWith('gaps.recompute', { libraryId, albumIds: [albumId] }, {});
+  });
+
+  it('reselect finds the folder\'s cover in the usual order, into the same row', async () => {
+    const albumId = await albumWithFlag('S/Reselect/2006 - Folder', { sidecar: true });
+    const old = await providerRow(albumId, 'https://example.test/caa/other.jpg');
+    const fetchMock = vi.fn(async () => new Response('', { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      await artFetchJob(ctx, { localAlbumId: albumId, refresh: true, reselect: true });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+    const rows = await db.select().from(images).where(eq(images.localAlbumId, albumId));
+    expect(rows.map((r: any) => [r.id, r.origin])).toEqual([[old.id, 'sidecar']]);
+  });
+
+  it('reselect never touches the owner\'s cover', async () => {
+    const otherAlbum = await albumWithFlag('S/Reselect/2007 - Mine');
+    await providerRow(otherAlbum, 'https://example.test/caa/mine.jpg');
+    await client`update images set origin = 'owner' where local_album_id = ${otherAlbum}`;
+    await artFetchJob(ctx, { localAlbumId: otherAlbum, refresh: true, reselect: true });
+    expect(await client`select 1 from images where local_album_id = ${otherAlbum} and origin = 'owner'`).toHaveLength(1);
+  });
+
   it('no art anywhere: the flag stays open', async () => {
     send.mockClear();
     const albumId = await albumWithFlag('N/Nothing/1999 - Bare');

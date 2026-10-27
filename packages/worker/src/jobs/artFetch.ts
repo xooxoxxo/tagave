@@ -21,6 +21,13 @@ export interface ArtFetchJobData {
    * thumbnail. Never deletes.
    */
   refresh?: boolean;
+  /**
+   * With refresh: the album's match changed (an accept was undone), so the
+   * stored provider source may be another release's cover. Resolve again in
+   * the usual order; when nothing is found, remove the provider cover. The
+   * owner's own cover is never touched (refresh already returns for it).
+   */
+  reselect?: boolean;
 }
 
 /** singletonKey of a refresh, apart from art:<id> (the album page watches that one). */
@@ -121,7 +128,7 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
 
   // 0. a refresh of a provider cover: the same image again, from where it came
   const prior = refreshId ? existing[0] : undefined;
-  if (prior?.origin === 'provider' && prior.imageSourceId) {
+  if (!data.reselect && prior?.origin === 'provider' && prior.imageSourceId) {
     try {
       const [src] = await ctx.db
         .select({ url: imageSources.sourceUrl })
@@ -278,6 +285,18 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   }
 
   if (!source) {
+    if (data.reselect && refreshId && existing[0]?.origin === 'provider') {
+      // its thumbnail goes with it (cover_thumbs cascades)
+      await ctx.db.delete(images).where(and(eq(images.id, refreshId), eq(images.origin, 'provider')));
+      ctx.logger.info({ album: album.titleGuess }, 'art.fetch reselect: the provider cover belonged to another release; removed');
+      // the album has no cover now: let the recompute flag it again
+      try {
+        await ctx.boss.send('gaps.recompute', { libraryId: album.libraryId, albumIds: [album.id] }, {});
+      } catch (error) {
+        ctx.logger.warn({ libraryId: album.libraryId, albumId: album.id, error: String(error) }, 'art.fetch: could not queue re-lint');
+      }
+      return;
+    }
     ctx.logger.debug({ album: album.titleGuess }, 'no cover art found (quality flag material)');
     return;
   }

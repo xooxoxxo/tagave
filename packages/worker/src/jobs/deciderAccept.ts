@@ -30,7 +30,7 @@ export const ACCEPT_CHUNK = 50;
 export interface BatchAttempt { lastAttempt?: boolean }
 
 export async function deciderAcceptJob(ctx: WorkerContext, data: DeciderAcceptJobData, attempt: BatchAttempt = {}): Promise<BatchRunResult> {
-  return data.mode === 'undo' ? runUndoBatch(ctx, data.batchId) : runAcceptBatch(ctx, data.batchId, attempt);
+  return data.mode === 'undo' ? runUndoBatch(ctx, data.batchId, attempt) : runAcceptBatch(ctx, data.batchId, attempt);
 }
 
 type Outcome = { status: 'accepted'; matchId: string } | { status: 'skipped'; reason: string } | { status: 'done' };
