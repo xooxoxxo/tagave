@@ -17,14 +17,22 @@
  */
 import type { z } from 'zod';
 
-export const ENTITY_KINDS = ['artist', 'album', 'release', 'track'] as const;
+/**
+ * The entity kinds facets can be about, every app's: music's artist, album,
+ * release and track, and books' work, edition and author (the spike). A
+ * closed list in core, so an app's kinds are a core change until kinds come
+ * from the manifests (Core Platform Architecture §2.5, `<app>.<kind>`).
+ * AppManifest.entityKinds says which app each belongs to.
+ */
+export const ENTITY_KINDS = ['artist', 'album', 'release', 'track', 'work', 'edition', 'author'] as const;
 export type EntityKind = (typeof ENTITY_KINDS)[number];
 export type FacetScope = 'global' | 'library' | 'person';
 export type Cardinality = 'one' | 'many';
 
-const NAME_RE = /^(artist|album|release|track)\.[a-z][a-z0-9-]{0,62}$/;
+const KINDS = ENTITY_KINDS.join('|');
+const NAME_RE = new RegExp(`^(${KINDS})\\.[a-z][a-z0-9-]{0,62}$`);
 const VERSION_RE = /^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,4})$/;
-const ID_RE = /^((?:artist|album|release|track)\.[a-z][a-z0-9-]{0,62})@(0|[1-9]\d{0,3})$/;
+const ID_RE = new RegExp(`^((?:${KINDS})\\.[a-z][a-z0-9-]{0,62})@(0|[1-9]\\d{0,3})$`);
 const RANGE_RE = /^\^(0|[1-9]\d{0,3})\.(0|[1-9]\d{0,4})$/;
 
 export interface FacetDescriptor {
@@ -113,8 +121,8 @@ export interface AppCompatibility {
 
 /**
  * An app (Core Platform Architecture §2.5): which file types it claims and
- * what groups its files into items. One app per library. Music is the only
- * app so far, and always on.
+ * what groups its files into items. One app per library (libraries.app).
+ * Music is always on; books is the spike, behind TAGAVE_DEV_APPS.
  */
 export interface AppManifest {
   id: string;
@@ -122,8 +130,21 @@ export interface AppManifest {
   version: string;
   /** the core API range it was built for (`^1.0`) */
   coreApi: string;
-  /** Always on: cannot be turned off (music, while it is the only app). */
+  /** Always on: cannot be turned off (music, while it is the only released app). */
   builtIn: boolean;
+  /**
+   * In development: never on, never listed, no ledger row unless
+   * TAGAVE_DEV_APPS names it (devAppIds). A build that carries it changes
+   * nothing for an install without the flag.
+   */
+  dev: boolean;
+  /** The entity kinds that are its own (facets about them are its). */
+  entityKinds: readonly EntityKind[];
+  /**
+   * Its own tables, a table before the ones it references: what "Delete its
+   * data" (doctor purge-module) empties, with the libraries of the app.
+   */
+  tables: readonly string[];
   /**
    * The file-type handlers it claims (packages/core/src/files: 'audio'). The
    * walk indexes a file only when an app that is on claims its handler.
@@ -237,7 +258,23 @@ export function defineApp(a: Pick<AppManifest, 'id' | 'version' | 'fileTypes'> &
   const coreApi = a.coreApi ?? `^${CORE_API}`;
   checkCoreApi(a.id, coreApi);
   if (a.migrations != null && a.migrations !== `apps/${a.id}`) throw new Error(`${a.id}: its migrations live in apps/${a.id}`);
-  return { builtIn: false, grouping: null, jobs: [], migrations: null, defaultEnabled: false, ...a, coreApi };
+  if (a.builtIn && a.dev) throw new Error(`${a.id}: a built-in app cannot be in development`);
+  if (a.grouping && a.jobs && !a.jobs.includes(a.grouping.queue)) throw new Error(`${a.id}: its grouping queue ${a.grouping.queue} is not one of its jobs`);
+  return { builtIn: false, dev: false, entityKinds: [], tables: [], grouping: null, jobs: [], migrations: null, defaultEnabled: false, ...a, coreApi };
+}
+
+/**
+ * The apps in development this install may run (TAGAVE_DEV_APPS, a comma
+ * list: `books`). Read by the app at boot and per request; the worker
+ * follows the module ledger, which only the app writes.
+ */
+export function devAppIds(env: Readonly<Record<string, string | undefined>> = process.env): Set<string> {
+  return new Set((env['TAGAVE_DEV_APPS'] ?? '').split(',').map((s) => s.trim().toLowerCase()).filter((s) => MODULE_ID_RE.test(s)));
+}
+
+/** An app this install may have: released, or in development and named by TAGAVE_DEV_APPS. */
+export function appAllowed(app: Pick<AppManifest, 'id' | 'dev'>, devApps: ReadonlySet<string> = devAppIds()): boolean {
+  return !app.dev || devApps.has(app.id);
 }
 
 /**

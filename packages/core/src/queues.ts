@@ -13,6 +13,7 @@ export const WORKER_QUEUES = [
   'tags.preview', 'tags.apply', 'tags.revert', 'facets.refresh',
   'fingerprint.album', 'fingerprint.sweep', 'acoustid.lookup', 'tracks.link',
   'cache.purge', 'mc.purge', 'connections.pull', 'listenLinks.resolve',
+  'books.group',
 ] as const;
 
 /**
@@ -43,6 +44,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'files.backfillDigest': 'scan.parse',
   // folders of loose files from before untagged files formed albums: rides with the clusterer
   'cluster.backfillLoose': 'cluster.dir',
+  // the books app's grouping (the spike): reads covers from the files, so the file worker's
+  'books.group': 'cluster.dir',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */

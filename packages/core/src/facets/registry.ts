@@ -109,9 +109,14 @@ export function createRegistry(opts: { facets: readonly FacetDescriptor[]; modul
   }
   // Apps and modules share the ledger's ids (installed_modules.id).
   const apps = new Map<string, AppManifest>();
+  const kindOwner = new Map<string, string>();
   for (const a of opts.apps ?? []) {
     if (apps.has(a.id)) throw new Error(`app listed twice: ${a.id}`);
     apps.set(a.id, a);
+    for (const k of a.entityKinds) {
+      if (kindOwner.has(k)) throw new Error(`entity kind ${k} belongs to two apps: ${kindOwner.get(k)} and ${a.id}`);
+      kindOwner.set(k, a.id);
+    }
   }
   const modules = new Map<string, ModuleManifest>();
   for (const m of opts.modules) {

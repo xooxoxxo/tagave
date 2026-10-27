@@ -7,9 +7,12 @@
  * names a handler of an app that is on claims, and scan.parse reads each row
  * with its own handler.
  *
- * There is one handler today, `audio`, claimed by the music app. Sidecars
- * (images, cue sheets, logs, text) are not files yet: they stay in
- * sidecar_files until their handlers come.
+ * Handlers: `audio`, claimed by the music app, and `epub`, `pdf` and `cbz`,
+ * claimed by the books app (the spike, behind TAGAVE_DEV_APPS). An extension
+ * belongs to one handler, and a handler to one app: the walk of a library
+ * indexes only its own app's handlers, so a music library still records a
+ * `.pdf` as a sidecar. Sidecars (images, cue sheets, logs, text) are not
+ * files yet: they stay in sidecar_files until their handlers come.
  */
 import path from 'node:path';
 import { parseFile } from 'music-metadata';
@@ -18,6 +21,7 @@ import { hashAudioStream } from '../audio/streamHash.js';
 import type { TagWriter, WriteOptions } from '../providers/types.js';
 import { coreTagsDigest, noNul, tagSnapshotOf } from './audioMetadata.js';
 import { APPS } from '../facets/manifests.js';
+import { cbzHandler, epubHandler, pdfHandler } from './books/index.js';
 
 /**
  * The typed columns of a files row a handler fills when it reads the file.
@@ -67,6 +71,12 @@ export interface FileTypeHandler {
   contentHash?(absPath: string): Promise<string>;
   /** Writes metadata through the file writer (audio: the Mutagen sidecar). Absent: read-only. */
   write?(absPath: string, values: TagSet, writer: TagWriter, opts?: WriteOptions): Promise<void>;
+  /**
+   * The cover image the file carries, from its stored metadata (epub, cbz:
+   * the zip entry parse found). Absent or null: none. Audio's embedded art
+   * goes through art.fetch, not here.
+   */
+  cover?(absPath: string, metadata: unknown): Promise<{ bytes: Buffer; mediaType: string } | null>;
 }
 
 /** Lower-case extension with the dot, '' when there is none (a dot file has none). */
@@ -125,11 +135,31 @@ export const audioHandler: FileTypeHandler = {
 };
 
 /** Every handler this build carries. An id appears once; an extension belongs to one handler. */
-export const FILE_TYPE_HANDLERS: readonly FileTypeHandler[] = [audioHandler];
+export const FILE_TYPE_HANDLERS: readonly FileTypeHandler[] = [audioHandler, epubHandler, pdfHandler, cbzHandler];
 
 const byId = new Map(FILE_TYPE_HANDLERS.map((h) => [h.id, h]));
 const byExt = new Map<string, FileTypeHandler>();
-for (const h of FILE_TYPE_HANDLERS) for (const ext of h.extensions) byExt.set(ext, h);
+for (const h of FILE_TYPE_HANDLERS) {
+  for (const ext of h.extensions) {
+    if (byExt.has(ext)) throw new Error(`${ext} is claimed by two handlers: ${byExt.get(ext)!.id} and ${h.id}`);
+    byExt.set(ext, h);
+  }
+}
+
+/**
+ * The app that claims each handler. One app per handler: the grouping gate
+ * below answers from the handler alone, which holds while a library's walk
+ * indexes only its own app's handlers. Audiobooks (audio claimed by music
+ * and books) would break this: the gate would then take the library's app.
+ */
+const appOfHandler = new Map<string, (typeof APPS)[number]>();
+for (const a of APPS) {
+  for (const id of a.fileTypes) {
+    const other = appOfHandler.get(id);
+    if (other) throw new Error(`handler ${id} is claimed by two apps: ${other.id} and ${a.id}`);
+    appOfHandler.set(id, a);
+  }
+}
 
 /** The handler a files row names, or null for an id this build does not carry. */
 export function fileTypeHandler(id: string | null | undefined): FileTypeHandler | null {
@@ -150,9 +180,35 @@ export function handlerIdsOf(app: string): string[] {
   return (APPS.find((a) => a.id === app)?.fileTypes ?? []).filter((id) => byId.has(id));
 }
 
-/** Ids of the handlers claimed by the apps that are on (a built-in app always is): what the walk indexes. */
+/** Ids of the handlers claimed by the apps that are on (a built-in app always is). */
 export function claimedHandlerIds(appOn: (appId: string) => boolean): Set<string> {
   const out = new Set<string>();
   for (const a of APPS) if (a.builtIn || appOn(a.id)) for (const id of a.fileTypes) if (byId.has(id)) out.add(id);
   return out;
+}
+
+/**
+ * What the walk of one library indexes: the handlers its app claims, while
+ * that app is on (a built-in app always is); none for an app that is off or
+ * that this build does not have. One app per library (libraries.app).
+ */
+export function libraryHandlerIds(app: string, appOn: (appId: string) => boolean): Set<string> {
+  const a = APPS.find((x) => x.id === app);
+  if (!a || !(a.builtIn || appOn(a.id))) return new Set();
+  return new Set(a.fileTypes.filter((id) => byId.has(id)));
+}
+
+/**
+ * The grouping gate: the job that turns files of this handler into items,
+ * the grouping queue of the app that claims it (audio → cluster.dir, epub,
+ * pdf and cbz → books.group). Null for a handler no app claims, or whose app
+ * groups nothing. Every sender of grouping work asks this, per file row.
+ */
+export function groupingQueueOf(handler: string | null | undefined): string | null {
+  return (handler && appOfHandler.get(handler)?.grouping?.queue) || null;
+}
+
+/** The id of the app that claims a handler, or null. */
+export function appOfHandlerId(handler: string | null | undefined): string | null {
+  return (handler && appOfHandler.get(handler)?.id) || null;
 }

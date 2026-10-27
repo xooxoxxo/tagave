@@ -5,8 +5,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { TagWriter } from '../providers/types.js';
 import { coreTagsDigest } from './audioMetadata.js';
 import {
-  FILE_TYPE_HANDLERS, audioHandler, claimedHandlerIds, extOf, fileTypeHandler, handlerForName, handlerIdsOf,
+  FILE_TYPE_HANDLERS, appOfHandlerId, audioHandler, claimedHandlerIds, extOf, fileTypeHandler, groupingQueueOf, handlerForName, handlerIdsOf,
+  libraryHandlerIds,
 } from './handlers.js';
+import { cbzHandler, epubHandler, pdfHandler } from './books/index.js';
 import { APPS } from '../facets/manifests.js';
 
 /** A FLAC with STREAMINFO (2 s, 44.1 kHz stereo 16 bit) and a Vorbis comment block; no audio frames. */
@@ -45,27 +47,54 @@ describe('file-type handler registry', () => {
     expect(handlerForName('Disc 1/b.dsf')).toBe(audioHandler);
   });
 
-  it('claims nothing else: sidecars, books, video and dot files stay out of files', () => {
-    for (const name of ['cover.jpg', 'album.cue', 'rip.log', 'notes.txt', 'booklet.pdf', 'novel.epub', 'comic.cbz', 'clip.mkv', 'noext', '.flac']) {
+  it('claims nothing else: sidecars, video and dot files stay out of files; books are the book handlers\u2019', () => {
+    for (const name of ['cover.jpg', 'album.cue', 'rip.log', 'notes.txt', 'clip.mkv', 'noext', '.flac']) {
       expect(handlerForName(name), name).toBeNull();
     }
+    expect(handlerForName('booklet.pdf')).toBe(pdfHandler);
+    expect(handlerForName('novel.EPUB')).toBe(epubHandler);
+    expect(handlerForName('comic.cbz')).toBe(cbzHandler);
+  });
+
+  it('a music library walks audio only: a .pdf, .epub or .cbz there is not its file (a .pdf stays a sidecar)', () => {
+    const music = libraryHandlerIds('music', () => false);
+    expect([...music]).toEqual(['audio']);
+    for (const name of ['booklet.pdf', 'novel.epub', 'comic.cbz', 'cover.jpg']) expect(handlerForName(name, music), name).toBeNull();
+    // even with the books app on: one app per library
+    expect([...libraryHandlerIds('music', () => true)]).toEqual(['audio']);
+    // a books library walks the book handlers while books is on, nothing while it is off
+    expect([...libraryHandlerIds('books', (a) => a === 'books')]).toEqual(['epub', 'pdf', 'cbz']);
+    expect([...libraryHandlerIds('books', () => false)]).toEqual([]);
+    expect([...libraryHandlerIds('nobody', () => true)]).toEqual([]);
+  });
+
+  it('the grouping gate: the queue of the app that claims a handler', () => {
+    expect(groupingQueueOf('audio')).toBe('cluster.dir');
+    for (const id of ['epub', 'pdf', 'cbz']) expect(groupingQueueOf(id), id).toBe('books.group');
+    expect(groupingQueueOf('test-doc')).toBeNull();
+    expect(groupingQueueOf(null)).toBeNull();
+    expect(appOfHandlerId('pdf')).toBe('books');
+    expect(appOfHandlerId('audio')).toBe('music');
   });
 
   it('finds a handler by the id a files row stores, and nothing for an unknown id', () => {
     expect(fileTypeHandler('audio')).toBe(audioHandler);
-    expect(fileTypeHandler('epub')).toBeNull();
+    expect(fileTypeHandler('epub')).toBe(epubHandler);
+    expect(fileTypeHandler('mobi')).toBeNull();
     expect(fileTypeHandler(null)).toBeNull();
   });
 
   it('lists the handlers each app claims, from its manifest', () => {
     expect(handlerIdsOf('music')).toEqual(['audio']);
-    expect(handlerIdsOf('books')).toEqual([]);
+    expect(handlerIdsOf('books')).toEqual(['epub', 'pdf', 'cbz']);
+    expect(handlerIdsOf('nobody')).toEqual([]);
     // every file type an app claims is a handler this build carries
     for (const a of APPS) for (const id of a.fileTypes) expect(fileTypeHandler(id), `${a.id} claims ${id}`).not.toBeNull();
   });
 
   it('claims for the walk only what apps that are on claim (a built-in app always is)', () => {
     expect([...claimedHandlerIds(() => false)]).toEqual(['audio']);
+    expect([...claimedHandlerIds((a) => a === 'books')]).toEqual(['audio', 'epub', 'pdf', 'cbz']);
     expect(handlerForName('a.flac', claimedHandlerIds(() => false))).toBe(audioHandler);
     expect(handlerForName('a.flac', new Set())).toBeNull();
     expect(handlerForName('a.flac')).toBe(audioHandler);

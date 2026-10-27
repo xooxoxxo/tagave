@@ -13,22 +13,45 @@
  * purge-module empties, unless it fills core gaps (Music Connections), which
  * only its own removal can revert.
  */
-import { defineApp, defineModule, type AppManifest, type ModuleManifest } from './define.js';
+import { appAllowed, defineApp, defineModule, devAppIds, type AppManifest, type ModuleManifest } from './define.js';
 
 /**
- * Music: audio files grouped into albums by cluster.dir. Always on while it
- * is the only app. Its tables are in the core chain.
+ * Music: audio files grouped into albums by cluster.dir. Always on. Its
+ * tables are in the core chain.
  */
 export const MUSIC_APP = defineApp({
   id: 'music',
   version: '1.0.0',
   builtIn: true,
   defaultEnabled: true,
+  entityKinds: ['artist', 'album', 'release', 'track'],
   fileTypes: ['audio'],
   grouping: { queue: 'cluster.dir' },
 });
 
-export const APPS: readonly AppManifest[] = [MUSIC_APP];
+/**
+ * Books, the spike (Core Platform Architecture, first three steps, step 3):
+ * EPUB, PDF and CBZ files of a library whose app is books, grouped into
+ * works, editions and authors by books.group. Read-only. In development:
+ * nothing of it exists on an install unless TAGAVE_DEV_APPS names it, and
+ * then it is off until the owner turns it on. Its tables are its own chain
+ * (migrations/apps/books/), each tied to a core file or library, so a file
+ * that goes takes its edition with it.
+ */
+export const BOOKS_APP = defineApp({
+  id: 'books',
+  version: '0.1.0',
+  dev: true,
+  defaultEnabled: false,
+  entityKinds: ['work', 'edition', 'author'],
+  fileTypes: ['epub', 'pdf', 'cbz'],
+  grouping: { queue: 'books.group' },
+  jobs: ['books.group'],
+  migrations: 'apps/books',
+  tables: ['books_work_authors', 'books_editions', 'books_authors', 'books_works'],
+});
+
+export const APPS: readonly AppManifest[] = [MUSIC_APP, BOOKS_APP];
 
 /** What every music module accepts of the music app. */
 const MUSIC_1 = [{ app: 'music', range: '^1.0' }] as const;
@@ -162,9 +185,13 @@ export interface LedgerEntry {
   defaultEnabled: boolean;
 }
 
-export function ledgerEntries(apps: readonly AppManifest[] = APPS, modules: readonly ModuleManifest[] = MODULES): LedgerEntry[] {
+/**
+ * An app in development gets its row only when TAGAVE_DEV_APPS names it
+ * (`devApps`): an install without the flag has exactly the rows it had.
+ */
+export function ledgerEntries(apps: readonly AppManifest[] = APPS, modules: readonly ModuleManifest[] = MODULES, devApps: ReadonlySet<string> = devAppIds()): LedgerEntry[] {
   return [
-    ...apps.map((a) => ({ id: a.id, kind: 'app' as const, version: a.version, defaultEnabled: a.builtIn || a.defaultEnabled })),
+    ...apps.filter((a) => appAllowed(a, devApps)).map((a) => ({ id: a.id, kind: 'app' as const, version: a.version, defaultEnabled: a.builtIn || a.defaultEnabled })),
     ...modules.filter((m) => !m.builtIn && m.kind === 'in-process').map((m) => ({ id: m.id, kind: 'in-process' as const, version: m.version, defaultEnabled: m.defaultEnabled })),
   ];
 }

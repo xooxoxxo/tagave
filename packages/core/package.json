@@ -15,7 +15,8 @@
     "./facets": "./dist/facets/index.js",
     "./listen-links": "./dist/listenLinks/index.js",
     "./playlists": "./dist/playlists/index.js",
-    "./files": "./dist/files/index.js"
+    "./files": "./dist/files/index.js",
+    "./files/fixtures": "./dist/files/books/fixtures.js"
   },
   "files": [
     "dist"

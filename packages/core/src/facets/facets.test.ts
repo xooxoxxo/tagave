@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   createFacets, createRegistry, defineApp, defineCast, defineFacet, defineModule, ledgerEntries, moduleContext, registry, relayOf, scopeArgs, versionMeets,
-  APPS, MODULES, FACETS, ALBUM_CRITIC_SCORES, CORE_API, MUSIC_APP,
+  APPS, MODULES, FACETS, ALBUM_CRITIC_SCORES, CORE_API, MUSIC_APP, BOOKS_APP, ENTITY_KINDS, devAppIds, appAllowed,
   type FacetContext, type FacetReader, type ModuleContext,
 } from './index.js';
 
@@ -214,8 +214,10 @@ describe('manifest v2: apps, compatibility, the module ledger', () => {
     expect(() => createRegistry({ facets: [], modules: [defineModule({ id: 'books', version: '1.0.0', provides: [], consumes: [] })], apps: [books()] })).toThrow(/twice/);
   });
 
-  it('tagave: music is the one app, built in, claiming audio; every module works with it', () => {
-    expect(APPS.map((a) => a.id)).toEqual(['music']);
+  it('tagave: music, built in, claiming audio; books in development; every module works with music', () => {
+    expect(APPS.map((a) => a.id)).toEqual(['music', 'books']);
+    expect(BOOKS_APP).toMatchObject({ builtIn: false, dev: true, defaultEnabled: false, fileTypes: ['epub', 'pdf', 'cbz'], grouping: { queue: 'books.group' }, migrations: 'apps/books' });
+    expect(registry.appEnabled('books', moduleContext({}))).toBe(false);
     expect(MUSIC_APP).toMatchObject({ builtIn: true, fileTypes: ['audio'], grouping: { queue: 'cluster.dir' } });
     expect(registry.appEnabled('music', moduleContext({}))).toBe(true);
     for (const m of MODULES.filter((x) => !x.builtIn)) expect(m.compatibleWith, m.id).toEqual([{ app: 'music', range: '^1.0' }]);
@@ -223,11 +225,33 @@ describe('manifest v2: apps, compatibility, the module ledger', () => {
   });
 
   it('the ledger rows a boot syncs: the app and every in-process module at its default (the player is the updater’s)', () => {
+    // books is in development: no row unless TAGAVE_DEV_APPS names it
+    expect(ledgerEntries(APPS, MODULES, new Set())).toEqual(ledgerEntries());
+    expect(ledgerEntries(APPS, MODULES, new Set(['books']))).toContainEqual({ id: 'books', kind: 'app', version: '0.1.0', defaultEnabled: false });
     expect(ledgerEntries()).toEqual([
       { id: 'music', kind: 'app', version: '1.0.0', defaultEnabled: true },
       { id: 'mc', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'listen-links', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'playlists', kind: 'in-process', version: '1.0.0', defaultEnabled: true },
     ]);
+  });
+
+  it('TAGAVE_DEV_APPS names the apps in development an install may have', () => {
+    expect([...devAppIds({})]).toEqual([]);
+    expect([...devAppIds({ TAGAVE_DEV_APPS: ' Books, , not an id!,video ' })]).toEqual(['books', 'video']);
+    expect(appAllowed(MUSIC_APP, new Set())).toBe(true);
+    expect(appAllowed(BOOKS_APP, new Set())).toBe(false);
+    expect(appAllowed(BOOKS_APP, new Set(['books']))).toBe(true);
+    expect(() => defineApp({ id: 'x', version: '1.0.0', builtIn: true, dev: true, fileTypes: [] })).toThrow(/development/);
+    expect(() => defineApp({ id: 'x', version: '1.0.0', fileTypes: [], grouping: { queue: 'x.group' }, jobs: ['other'] })).toThrow(/grouping queue/);
+  });
+
+  it('entity kinds: every app’s, each belonging to one app; a facet about a book kind is a valid name', () => {
+    expect(ENTITY_KINDS).toEqual(['artist', 'album', 'release', 'track', 'work', 'edition', 'author']);
+    expect(APPS.flatMap((a) => a.entityKinds).sort()).toEqual([...ENTITY_KINDS].sort());
+    expect(defineFacet({ name: 'edition.progress', version: '1.0', scope: 'person', cardinality: 'one', schema: z.object({}) }).kind).toBe('edition');
+    expect(() => defineFacet({ name: 'shelf.x', version: '1.0', scope: 'global', cardinality: 'one', schema: z.object({}) })).toThrow(/facet name/);
+    const twice = defineApp({ id: 'other', version: '1.0.0', fileTypes: [], entityKinds: ['work'] });
+    expect(() => createRegistry({ facets: [], modules: [], apps: [BOOKS_APP, twice] })).toThrow(/two apps/);
   });
 });
