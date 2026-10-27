@@ -382,3 +382,30 @@ describe('barcode', () => {
     expect(scoreRelease({ ...local6, barcode: '1' }, cand()).breakdown.albumId).toBeUndefined();
   });
 });
+
+describe('barcode normalisation', () => {
+  const local6 = { artist: 'Ensemble Nord', title: 'Lichtung', tracks: local(6) };
+  const cand = (barcode: string) => ({
+    id: 'r-1', releaseGroupId: 'rg-1', title: 'Lichtung', artists: ['Ensemble Nord'],
+    tracks: canonical(6), source: 'musicbrainz' as const, barcode,
+  });
+  const run = (a: string, b: string) => scoreRelease({ ...local6, barcode: a }, cand(b));
+
+  it('UPC-A equals its EAN-13 form', () => {
+    const r = run('012345678905', '0012345678905');
+    expect(r.breakdown.albumId).toBe(0);
+    expect(r.distance).toBe(0);
+  });
+  it('spaces and dashes are ignored', () => {
+    expect(run('5 099902 98742 2', '5099902987422').breakdown.albumId).toBe(0);
+    expect(run('5-099902-98742-2', '5099902987422').distance).toBe(0);
+  });
+  it('a value with no digits gives no penalty', () => {
+    const r = run('abc', '5099902987422');
+    expect(r.breakdown.albumId).toBeUndefined();
+    expect(r.distance).toBe(0);
+  });
+  it('two different codes still mismatch', () => {
+    expect(run('5099902987422', '5099902987439').breakdown.albumId).toBe(0.3);
+  });
+});

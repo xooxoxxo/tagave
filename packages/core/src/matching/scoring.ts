@@ -257,6 +257,15 @@ function alignFlat(
 }
 
 /**
+ * Barcode in comparable form: digits only, a 12-digit UPC-A padded to
+ * EAN-13. Empty means no usable barcode.
+ */
+export function normalizeBarcode(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  return digits.length === 12 ? `0${digits}` : digits;
+}
+
+/**
  * Score a candidate release against a local album.
  * Lower scores are better (0 = perfect match).
  *
@@ -428,9 +437,11 @@ export function scoreRelease(
   // term counts in the distance; an embedded-id mismatch already at 1 stays
   // 1. A match marks the term green only when nothing else filled it, so a
   // stale embedded id is not painted green by a matching barcode.
-  if (local.barcode && candidate.barcode) {
+  const localBarcode = normalizeBarcode(local.barcode);
+  const candidateBarcode = normalizeBarcode(candidate.barcode);
+  if (localBarcode && candidateBarcode) {
     const before = breakdown.albumId;
-    if (local.barcode === candidate.barcode) {
+    if (localBarcode === candidateBarcode) {
       if (before === undefined) breakdown.albumId = 0;
     } else {
       const after = Math.min(1, (before ?? 0) + 0.3);
