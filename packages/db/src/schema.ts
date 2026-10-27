@@ -331,6 +331,8 @@ export const audioFiles = pgTable(
     parseError: text('parse_error'),
     /** 0052: cluster.dir waits for Tier 2 on this row's folder (max one hour) */
     reconcileHoldAt: timestamp('reconcile_hold_at', { withTimezone: true }),
+    /** 0057: a held scan found this file gone; marked missing once still gone 24 h later */
+    missingHeldAt: timestamp('missing_held_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -344,6 +346,7 @@ export const audioFiles = pgTable(
     statusIdx: index('idx_audio_files_status').on(table.status),
     librarySizeIdx: index('idx_audio_files_library_size').on(table.libraryId, table.sizeBytes),
     reconcileHoldIdx: index('idx_audio_files_reconcile_hold').on(table.scanRootId).where(sql`reconcile_hold_at is not null`),
+    missingHeldIdx: index('idx_audio_files_missing_held').on(table.scanRootId).where(sql`missing_held_at is not null`),
     digestBackfillIdx: index('idx_audio_files_digest_backfill').on(table.id).where(sql`core_tags_digest is null and tags_raw is not null`),
   })
 );

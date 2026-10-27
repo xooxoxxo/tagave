@@ -23,6 +23,8 @@ export interface FinishResult {
   failedDirs: string[]; heldMissing: { count: number; threshold: number } | null; reconcileSkipped: string | null; // Task 5
   merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Task 8
   held: number;                                                                                                       // Task 10
+  /** rows marked missing because an earlier held scan, 24 h or more before, already found them gone */
+  confirmedAfterHold: number;
 }
 const UPDATE_BATCH = 2000;
 
@@ -36,7 +38,7 @@ export async function markMissing(
   for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
     const chunk = rows.slice(i, i + UPDATE_BATCH);
     const out = (await ctx.sql`
-      update audio_files af set status = 'missing'
+      update audio_files af set status = 'missing', missing_held_at = null
         from unnest(${chunk.map((r) => r.id)}::uuid[], ${chunk.map((r) => r.relPath)}::text[]) as u(id, rel_path)
        where af.id = u.id and af.rel_path = u.rel_path and af.scan_root_id = ${root.id}
          and af.last_seen_at < ${walkStart.toISOString()}::timestamptz and af.status in ('present', 'error')
@@ -119,7 +121,52 @@ async function nearMissing(ctx: Pick<WorkerContext, 'sql'>, rootId: string): Pro
   };
 }
 
-/** Ruling 5: never hold a loss of this many files or fewer. */
+/** How long a held loss waits before a scan that still sees it marks it missing. */
+export const HOLD_CONFIRM_HOURS = 24;
+
+/** Of these gone rows, the ones a held scan stamped HOLD_CONFIRM_HOURS or more ago (database clock). */
+async function agedHeldIds(ctx: Pick<WorkerContext, 'sql'>, rows: Array<{ id: string }>): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
+    const got = (await ctx.sql`
+      select id from audio_files
+       where id = any(${rows.slice(i, i + UPDATE_BATCH).map((r) => r.id)}::uuid[])
+         and missing_held_at <= now() - make_interval(hours => ${HOLD_CONFIRM_HOURS})`) as unknown as Array<{ id: string }>;
+    for (const r of got) out.add(r.id);
+  }
+  return out;
+}
+
+/** Stamps held rows that carry no stamp yet; an earlier stamp keeps its time. */
+async function stampHeld(ctx: Pick<WorkerContext, 'sql'>, rows: Array<{ id: string }>): Promise<void> {
+  for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
+    await ctx.sql`
+      update audio_files set missing_held_at = now()
+       where id = any(${rows.slice(i, i + UPDATE_BATCH).map((r) => r.id)}::uuid[]) and missing_held_at is null`;
+  }
+}
+
+/**
+ * Clears the stamp of every stamped row in this walk's scope that the walk did
+ * not count as gone: it was seen again (or merged as a move). Rows under a
+ * failed path keep theirs, since the walk could not tell.
+ */
+async function clearHeldStamps(
+  ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, subtree: string, stillGone: ReadonlySet<string>, failed: ReadonlySet<string>,
+): Promise<void> {
+  const stamped = (await ctx.sql`
+    select id, rel_path as "relPath" from audio_files
+     where scan_root_id = ${root.id} and missing_held_at is not null`) as unknown as Array<{ id: string; relPath: string }>;
+  const prefix = subtree ? subtree + '/' : '';
+  const ids = stamped
+    .filter((r) => !stillGone.has(r.id) && (prefix === '' || r.relPath.startsWith(prefix)) && !isUnderFailedPath(r.relPath, failed))
+    .map((r) => r.id);
+  for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
+    await ctx.sql`update audio_files set missing_held_at = null where id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[])`;
+  }
+}
+
+/** Never hold a loss of this many files or fewer. */
 export const HOLD_FLOOR = 10;
 
 /**
@@ -148,13 +195,16 @@ export function isUnderFailedPath(relPath: string, failedPaths: Iterable<string>
 }
 
 /** The Activity suffix for what a scan did not do and why ('' when it did everything). */
-export function finishNotes(f: Pick<FinishResult, 'failedDirs' | 'heldMissing' | 'reconcileSkipped'>): string {
+export function finishNotes(
+  f: Pick<FinishResult, 'failedDirs' | 'heldMissing' | 'reconcileSkipped'> & Partial<Pick<FinishResult, 'confirmedAfterHold'>>,
+): string {
   const notes: string[] = [];
   if (f.failedDirs.length > 0) {
     const shown = f.failedDirs.slice(0, 3).join(', ') + (f.failedDirs.length > 3 ? `, and ${f.failedDirs.length - 3} more` : '');
     notes.push(`could not read ${shown}; nothing under them was marked missing`);
   }
-  if (f.heldMissing) notes.push(`looks partly unmounted: ${f.heldMissing.count} files would go missing (more than ${f.heldMissing.threshold}), so none were marked`);
+  if (f.confirmedAfterHold) notes.push(`Marked missing: ${f.confirmedAfterHold} files were still gone ${HOLD_CONFIRM_HOURS} hours after they were held.`);
+  if (f.heldMissing) notes.push(`Held: ${f.heldMissing.count} files look gone. If they are still gone after ${HOLD_CONFIRM_HOURS} hours, they will be marked missing.`);
   if (f.reconcileSkipped) notes.push(f.reconcileSkipped);
   return notes.length ? '; ' + notes.join('; ') : '';
 }
@@ -171,7 +221,7 @@ export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not 
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
     missing: 0, dirsWithMissing: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
-    merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0,
+    merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0, confirmedAfterHold: 0,
   };
   const failedDirs = walk.failedPaths;
   // F3: an unmounted-looking root marks nothing, but still names what it could not read.
@@ -194,15 +244,31 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     walk.insertedIds = walk.insertedIds.filter((id) => !mergedFresh.has(id));
     const reconciled = { merged: rec.merged, moves: rec.moves, possibleMoves: rec.possibleMoves, reclusterDirs: rec.reclusterDirs };
     const hold = missingHold(gone.length, walk.presentInRoot);
+    let toMark = gone;
+    let heldMissing: FinishResult['heldMissing'] = null;
+    let confirmedAfterHold = 0;
     if (hold.held && !opts.confirmMissing) {
-      // F5: a held scan drops no sidecars either (the 0052 cascade would take their covers).
-      // A quick scan must not forget the hold: the walk just stamped fresh mtimes on the
-      // folders that lost files, so the next quick scan would skip them and count the held
-      // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
-      await forgetDirMtimes(ctx, root, [...new Set(gone.map((r) => relDirname(r.relPath)))]);
-      return { ...empty, ...reconciled, failedDirs, heldMissing: { count: gone.length, threshold: hold.threshold } };
+      // A loss an earlier held scan already saw, HOLD_CONFIRM_HOURS or more ago,
+      // is real: mark those rows. What is left is held again if it is still
+      // over the threshold on its own.
+      const aged = await agedHeldIds(ctx, gone);
+      const fresh = aged.size ? gone.filter((r) => !aged.has(r.id)) : gone;
+      const freshHold = aged.size ? missingHold(fresh.length, walk.presentInRoot) : hold;
+      confirmedAfterHold = aged.size;
+      if (freshHold.held) {
+        toMark = gone.filter((r) => aged.has(r.id));
+        heldMissing = { count: fresh.length, threshold: freshHold.threshold };
+        await stampHeld(ctx, fresh);
+        // A quick scan must not forget the hold: the walk just stamped fresh mtimes on the
+        // folders that lost files, so the next quick scan would skip them and count the held
+        // rows as seen. Drop those scan_dirs rows; the next scan walks those folders in full.
+        await forgetDirMtimes(ctx, root, [...new Set(fresh.map((r) => relDirname(r.relPath)))]);
+      }
     }
-    const marked = await markMissing(ctx, root, gone, walk.walkStart);
+    await clearHeldStamps(ctx, root, walk.subtree, new Set(heldMissing ? gone.map((r) => r.id) : []), failedSet);
+    // A held scan drops no sidecars (the 0052 cascade would take their covers).
+    if (heldMissing && toMark.length === 0) return { ...empty, ...reconciled, failedDirs, heldMissing };
+    const marked = await markMissing(ctx, root, toMark, walk.walkStart);
     // Only a scan that reconciled may hold: Tier 2 is reconciliation too. The
     // unmounted-looking root (the one reconcile skip) returned above, so every
     // scan that gets here reconciled. Holds go on before the caller sends
@@ -211,9 +277,9 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     // A failed cover re-point leaves the images on the old sidecars: dropping those
     // now would take the covers with them (the 0052 cascade).
     if (rec.sidecarRepointFailed) ctx.logger.warn({ rootId: root.id }, 'scan.finish: stale sidecars kept, the cover re-point failed');
-    else await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
+    else if (!heldMissing) await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
     return {
-      ...empty, ...reconciled, failedDirs,
+      ...empty, ...reconciled, failedDirs, heldMissing, confirmedAfterHold,
       held: heldIds.length,
       missing: marked.length,
       dirsWithMissing: [...new Set(marked.map((m) => relDirname(m.relPath)))],

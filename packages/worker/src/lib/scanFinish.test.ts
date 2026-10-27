@@ -35,8 +35,12 @@ describe('isUnderFailedPath', () => {
 describe('finishNotes', () => {
   it('finishNotes says what was not done and why', () => {
     expect(finishNotes({ failedDirs: ['A', 'B'], heldMissing: { count: 12, threshold: 10 }, reconcileSkipped: null }))
-      .toBe('; could not read A, B; nothing under them was marked missing; looks partly unmounted: 12 files would go missing (more than 10), so none were marked');
+      .toBe('; could not read A, B; nothing under them was marked missing; Held: 12 files look gone. If they are still gone after 24 hours, they will be marked missing.');
     expect(finishNotes({ failedDirs: [], heldMissing: null, reconcileSkipped: null })).toBe('');
+  });
+  it('says how many held files were marked missing after the wait', () => {
+    expect(finishNotes({ failedDirs: [], heldMissing: null, reconcileSkipped: null, confirmedAfterHold: 612 }))
+      .toBe('; Marked missing: 612 files were still gone 24 hours after they were held.');
   });
   it('names three folders and counts the rest', () => {
     expect(finishNotes({ failedDirs: ['A', 'B', 'C', 'D', 'E'], heldMissing: null, reconcileSkipped: 'x' }))

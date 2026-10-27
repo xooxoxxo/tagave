@@ -59,7 +59,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('sca
     expect(scan.status).toBe('completed');
     expect(scan.stats).toMatchObject({ mode: 'quick', missing: 0, failedDirs: [], heldMissing: { count: 12, threshold: 10 }, reconcileSkipped: null });
     expect((await lastRun(rootId)).progress.message)
-      .toMatch(/; looks partly unmounted: 12 files would go missing \(more than 10\), so none were marked$/);
+      .toMatch(/; Held: 12 files look gone\. If they are still gone after 24 hours, they will be marked missing\.$/);
     expect(await statusOf('Many/00.mp3')).toBe('present');
     // the held folder's mtime is forgotten, so the next quick scan walks it in full
     expect(await sql`select 1 from scan_dirs where scan_root_id = ${rootId} and rel_path = 'Many'`).toHaveLength(0);
@@ -79,7 +79,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('sca
     await scanRootJob(ctx, { scanRootId: rootId, mode: 'quick', confirmMissing: true });
     const scan = await lastScan(rootId);
     expect(scan.stats).toMatchObject({ mode: 'full', missing: 12, heldMissing: null });
-    expect((await lastRun(rootId)).progress.message).not.toMatch(/partly unmounted/);
+    expect((await lastRun(rootId)).progress.message).not.toMatch(/Held:/);
     expect(await statusOf('Many/00.mp3')).toBe('missing');
     expect(await statusOf('Many/29.mp3')).toBe('present');
   });

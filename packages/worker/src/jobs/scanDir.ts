@@ -27,7 +27,7 @@ const PARSE_BATCH = 50;
 
 type ScanDirWalk = Pick<WalkResult & FinishResult,
   'subtreeGone' | 'filesSeen' | 'added' | 'changed' | 'missing' | 'merged' | 'moves' | 'possibleMoves'
-  | 'failedDirs' | 'heldMissing' | 'reconcileSkipped'>;
+  | 'failedDirs' | 'heldMissing' | 'reconcileSkipped'> & Partial<Pick<FinishResult, 'confirmedAfterHold'>>;
 
 /** The Activity line for a folder rescan. A gone folder whose files were merged elsewhere says where they went. */
 export function scanDirMessage(walk: ScanDirWalk, elapsedS: number): string {

@@ -235,7 +235,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     expect(s.stats.heldMissing).toEqual({ count: 12, threshold: 10 });
     expect(s.stats.missing).toBe(0);
     expect((await lastScanJob(lab)).progress.message)
-      .toMatch(/; looks partly unmounted: 12 files would go missing \(more than 10\), so none were marked$/);
+      .toMatch(/; Held: 12 files look gone\. If they are still gone after 24 hours, they will be marked missing\.$/);
     expect(await lab.snapshot()).toEqual(before);                 // held: nothing changed, the sidecar row (folder.jpg) kept too
     expect(await lab.sql`select 1 from sidecar_files where scan_root_id = ${lab.roots[0]!.id} and rel_path = 'Big/A/folder.jpg'`).toHaveLength(1);
     // a quick scan does not forget the hold

@@ -142,7 +142,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     filesSeen: walk.filesSeen, added: walk.added, changed: walk.changed, missing: walk.missing,
     errored: walk.errored, sidecars: walk.sidecars, dirsSeen: walk.dirsSeen, dirsSkipped: walk.dirsSkipped,
     formats: walk.formats, elapsedS,
-    failedDirs: walk.failedDirs.slice(0, 20), heldMissing: walk.heldMissing, reconcileSkipped: walk.reconcileSkipped,
+    failedDirs: walk.failedDirs.slice(0, 20), heldMissing: walk.heldMissing, confirmedAfterHold: walk.confirmedAfterHold, reconcileSkipped: walk.reconcileSkipped,
     merged: walk.merged, possibleMoves: walk.possibleMoves, moves: walk.moves.slice(0, 50),
   };
   await ctx.db

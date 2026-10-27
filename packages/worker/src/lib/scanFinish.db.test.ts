@@ -231,3 +231,76 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
     expect(await sidecarKept('Many/cover.jpg')).toBe(false);
   });
 });
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)('held losses are marked missing after 24 hours (db)', () => {
+  let ctx: WorkerContext; let sql: any; let rootPath: string;
+  const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID();
+  let root: { id: string; libraryId: string; path: string };
+  const names = Array.from({ length: 30 }, (_, i) => `${String(i).padStart(2, '0')}.mp3`);
+  const lost = names.slice(0, 12);
+  const scan = async () => finishWalk(ctx, root, await walkTree(ctx, root, { mode: 'full' }));
+  const stamps = async () => (await sql`select rel_path, missing_held_at from audio_files
+                                         where scan_root_id = ${rootId} and missing_held_at is not null order by rel_path`)
+    .map((r: any) => [r.rel_path, String(r.missing_held_at)]);
+  const missingCount = async () => (await sql`select count(*)::int as n from audio_files where scan_root_id = ${rootId} and status = 'missing'`)[0].n;
+  const removeLost = async () => { for (const n of lost) await rm(path.join(rootPath, 'Many', n)); };
+
+  beforeAll(async () => {
+    const made = await makeDb(process.env.TEST_DATABASE_URL!);
+    sql = made.client;
+    ctx = { db: made.db, sql: made.client, boss: null as any, logger: pino({ level: 'silent' }) };
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`hc-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'HC', ${userId}, '{}')`;
+    rootPath = await mkdtemp(path.join(tmpdir(), 'tagave-heldconfirm-'));
+    await mkdir(path.join(rootPath, 'Many'));
+    await mkdir(path.join(rootPath, 'Ok'));
+    await writeFile(path.join(rootPath, 'Ok', '1.mp3'), 'x');
+    for (const [i, n] of names.entries()) await writeFile(path.join(rootPath, 'Many', n), `h${i}`);
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootId}, ${libraryId}, ${rootPath}, 'hc', 'ok')`;
+    root = { id: rootId, libraryId, path: rootPath };
+    await scan();
+  });
+
+  afterAll(async () => {
+    await sql`delete from scan_roots where id = ${rootId}`;
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from users where id = ${userId}`;
+    await sql.end({ timeout: 5 });
+    await rm(rootPath, { recursive: true, force: true });
+  });
+
+  it('a first held scan marks nothing and stamps the gone rows', async () => {
+    await removeLost();
+    const f = await scan();
+    expect(f).toMatchObject({ missing: 0, confirmedAfterHold: 0, heldMissing: { count: 12, threshold: 10 } });
+    expect(await missingCount()).toBe(0);
+    expect((await stamps()).map((s: string[]) => s[0])).toEqual(lost.map((n) => `Many/${n}`));
+  });
+
+  it('a second held scan within 24 hours marks nothing and keeps the first stamps', async () => {
+    const before = await stamps();
+    const f = await scan();
+    expect(f).toMatchObject({ missing: 0, confirmedAfterHold: 0, heldMissing: { count: 12, threshold: 10 } });
+    expect(await missingCount()).toBe(0);
+    expect(await stamps()).toEqual(before);
+  });
+
+  it('files that come back clear the hold', async () => {
+    for (const n of lost) await writeFile(path.join(rootPath, 'Many', n), `back-${n}`);
+    const f = await scan();
+    expect(f).toMatchObject({ missing: 0, heldMissing: null });
+    expect(await stamps()).toEqual([]);
+  });
+
+  it('a held scan 24 hours or more after the first marks the rows missing', async () => {
+    await removeLost();
+    expect((await scan()).heldMissing).toEqual({ count: 12, threshold: 10 });
+    await sql`update audio_files set missing_held_at = now() - interval '25 hours'
+               where scan_root_id = ${rootId} and missing_held_at is not null`;
+    const f = await scan();
+    expect(f).toMatchObject({ missing: 12, confirmedAfterHold: 12, heldMissing: null });
+    expect(await missingCount()).toBe(12);
+    expect(await stamps()).toEqual([]);
+    expect(finishNotes(f)).toBe('; Marked missing: 12 files were still gone 24 hours after they were held.');
+  });
+});
