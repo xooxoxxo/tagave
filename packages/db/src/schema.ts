@@ -833,6 +833,10 @@ export const images = pgTable(
   (table) => ({
     libraryIdx: index('idx_images_library').on(table.libraryId),
     entityIdx: index('idx_images_entity').on(table.entityType, table.entityId),
+    // 0052: ON DELETE CASCADE and the move dependency probes look up by these
+    audioFileIdx: index('idx_images_audio_file').on(table.audioFileId).where(sql`audio_file_id is not null`),
+    sidecarFileIdx: index('idx_images_sidecar_file').on(table.sidecarFileId).where(sql`sidecar_file_id is not null`),
+    localAlbumIdx: index('idx_images_local_album').on(table.localAlbumId).where(sql`local_album_id is not null`),
   })
 );
 

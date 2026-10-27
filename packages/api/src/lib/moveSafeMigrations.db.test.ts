@@ -58,6 +58,16 @@ describe.skipIf(!url)('0052 move-safe files migration (integration)', () => {
     expect(rows.map((r) => r['indexname'])).toEqual(['idx_audio_files_digest_backfill', 'idx_audio_files_library_size', 'idx_audio_files_reconcile_hold']);
   });
 
+  it('creates partial images indexes on file, sidecar and album for the cascades and probes', async () => {
+    const rows = await sql`select indexname, indexdef from pg_indexes
+                           where tablename = 'images' and indexname in ('idx_images_audio_file', 'idx_images_sidecar_file', 'idx_images_local_album') order by 1`;
+    expect(rows.map((r) => r['indexname'])).toEqual(['idx_images_audio_file', 'idx_images_local_album', 'idx_images_sidecar_file']);
+    const defs = Object.fromEntries(rows.map((r) => [r['indexname'], r['indexdef']]));
+    expect(defs['idx_images_audio_file']).toMatch(/\(audio_file_id\) WHERE \(audio_file_id IS NOT NULL\)/);
+    expect(defs['idx_images_sidecar_file']).toMatch(/\(sidecar_file_id\) WHERE \(sidecar_file_id IS NOT NULL\)/);
+    expect(defs['idx_images_local_album']).toMatch(/\(local_album_id\) WHERE \(local_album_id IS NOT NULL\)/);
+  });
+
   it('the digest-backfill index is partial on the job\'s predicate', async () => {
     const [row] = await sql`select indexdef from pg_indexes where indexname = 'idx_audio_files_digest_backfill'`;
     expect(row!['indexdef']).toMatch(/\(id\) WHERE \(\(core_tags_digest IS NULL\) AND \(tags_raw IS NOT NULL\)\)/);

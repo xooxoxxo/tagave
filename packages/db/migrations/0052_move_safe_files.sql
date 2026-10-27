@@ -33,3 +33,9 @@ alter table images add constraint images_audio_file_id_fkey
 alter table images drop constraint if exists images_sidecar_file_id_fkey;
 alter table images add constraint images_sidecar_file_id_fkey
   foreign key (sidecar_file_id) references sidecar_files(id) on delete cascade;
+
+-- The cascades above and the dependency probes look up images by file,
+-- sidecar and album; without these each deleted row seq-scans images.
+create index if not exists idx_images_audio_file on images (audio_file_id) where audio_file_id is not null;
+create index if not exists idx_images_sidecar_file on images (sidecar_file_id) where sidecar_file_id is not null;
+create index if not exists idx_images_local_album on images (local_album_id) where local_album_id is not null;
