@@ -55,7 +55,7 @@ export function signatureMatches(tier: Tier, o: MatchFile, f: MatchFile): boolea
   if (tier === 1) {
     if (o.sizeBytes === null || o.sizeBytes !== f.sizeBytes) return false;
     // A rename or same-device move keeps mtime; inode reuse after a delete is
-    // common, so dev:ino alone is not enough. dev:ino carries the device (R12).
+    // common, so dev:ino alone is not enough. dev:ino carries the device (inode numbers repeat across devices).
     if (o.mtime === null || o.mtime !== f.mtime) return false;
     if (usableInode(o.inode) && o.inode === f.inode) return true;
     return nameKey(o) === nameKey(f);
@@ -113,7 +113,7 @@ export function planPairs(tier: Tier, olds: MatchFile[], freshs: MatchFile[]): P
   const uniqueFresh = new Set(unique.values());
 
   // Directory pairs: per old folder, the new folder most of its unique pairs
-  // land in (ties broken by key). Denominator: the folder's vanished rows (R2).
+  // land in (ties broken by key). Denominator: the folder's vanished rows (files left behind are not moving).
   const oldsByDir = new Map<string, MatchFile[]>();
   for (const o of olds) push(oldsByDir, dirKey(o), o);
   const freshsByDir = new Map<string, MatchFile[]>();
@@ -173,7 +173,7 @@ export function planPairs(tier: Tier, olds: MatchFile[], freshs: MatchFile[]): P
       let earliestGone = Infinity;
       for (const oid of oids) earliestGone = Math.min(earliestGone, oldById.get(oid)!.lastSeenAt.getTime());
       if (!(freshsByDir.get(freshDir) ?? []).some((f) => !pairedFresh.has(f.id) && !isOlderResident(f, earliestGone))) continue;
-      // Drop every pair into this folder; one possible move per old folder (R3).
+      // Drop every pair into this folder; one possible move per old folder (a deluxe edition is a new album, not a move).
       const byOldDir = new Map<string, string[]>();
       for (const oid of oids) push(byOldDir, dirKey(oldById.get(oid)!), oid);
       for (const group of byOldDir.values()) {

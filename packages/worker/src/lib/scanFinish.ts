@@ -4,7 +4,7 @@
  * cluster holds, stale sidecars.
  * Missing-marking only touches a row that is still where the walk's snapshot
  * saw it and was last seen before the walk began, by the database's clock: a
- * row a concurrent scan.dir re-pointed is never marked missing (R7).
+ * row a concurrent scan.dir re-pointed is never marked missing (its last_seen_at is new).
  */
 import { escapeLike, relDirname, sqlDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';

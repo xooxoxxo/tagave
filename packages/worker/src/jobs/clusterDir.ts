@@ -599,7 +599,7 @@ export async function carryOverRekeyedAlbum(
     select la.id::text as id, la.state, la.cluster_key as "clusterKey",
            count(distinct lt.audio_file_id) filter (where lt.audio_file_id = any(${fileIds}::uuid[]))::int as inside,
            -- only live files: an album that already had a missing track, or
-           -- whose files left behind went missing, still carries over (R2)
+           -- whose files left behind went missing, still carries over (a partial move)
            count(distinct lt.audio_file_id) filter (where af.status in ('present', 'error'))::int as total
       from local_albums la
       join local_tracks lt on lt.local_album_id = la.id
