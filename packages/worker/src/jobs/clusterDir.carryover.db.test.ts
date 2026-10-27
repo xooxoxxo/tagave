@@ -32,8 +32,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('carry-over with a missing track
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'CO', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/nonexistent-co', 'co')`;
     for (const [i, id] of ids.entries()) {
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, status, duration_ms, tags_raw)
-                values (${id}, ${libraryId}, ${rootId}, ${`Artist/Old/${i + 1}.flac`}, 'present', 1000, ${JSON.stringify(tags(i + 1))}::text::jsonb)`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, status, duration_ms, tags_raw, handler)
+                values (${id}, ${libraryId}, ${rootId}, ${`Artist/Old/${i + 1}.flac`}, 'present', 1000, ${JSON.stringify(tags(i + 1))}::text::jsonb, 'audio')`;
     }
     await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Artist/Old' });
     await sql`update local_albums set state = 'matched' where library_id = ${libraryId}`;
@@ -49,10 +49,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('carry-over with a missing track
 
   it('the album keeps its id, state and the missing track row', async () => {
     const albumId = await albumOf(ids[0]!);
-    await sql`update audio_files set status = 'missing' where id = ${ids[3]}`;
+    await sql`update files set status = 'missing' where id = ${ids[3]}`;
     // what a Tier 1 merge leaves behind: the three live rows now live in Artist/New
     for (const [i, id] of ids.slice(0, 3).entries()) {
-      await sql`update audio_files set rel_path = ${`Artist/New/${i + 1}.flac`} where id = ${id}`;
+      await sql`update files set rel_path = ${`Artist/New/${i + 1}.flac`} where id = ${id}`;
     }
     await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Artist/New' });
     await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Artist/Old' });
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     expect(a).toEqual({ state: 'matched', dir_paths: dirPaths });
     const locks = await sql`select field from field_locks where scope = 'album' and scope_id = ${b.id}`;
     expect(locks.map((l: any) => l.field)).toEqual(['title']);
-    const files = await sql`select id::text as id, status from audio_files where id = any(${b.fileIds}::uuid[])`;
+    const files = await sql`select id::text as id, status from files where id = any(${b.fileIds}::uuid[])`;
     expect(files.length).toBe(b.fileIds.length);
     for (const f of files) expect(f.status).toBe(missing.includes(f.id) ? 'missing' : 'present');
   };
@@ -193,7 +193,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     await rm(path.join(pathA, 'Gap/Holey/3.flac'));
     await scanRootJob(ctx, { scanRootId: rootA, mode: 'full' });
     await drain();
-    const [gone] = await sql`select id::text as id from audio_files where scan_root_id = ${rootA} and rel_path = 'Gap/Holey/3.flac' and status = 'missing'`;
+    const [gone] = await sql`select id::text as id from files where scan_root_id = ${rootA} and rel_path = 'Gap/Holey/3.flac' and status = 'missing'`;
     expect(gone).toBeTruthy();
     await expectKept('Holey', ['Gap/Holey'], [gone.id]);
     await rename(path.join(pathA, 'Gap/Holey'), path.join(pathA, 'Gap/Holey (Remaster)'));
@@ -233,7 +233,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     expect(sends.map((j) => `${j.data.scanRootId === rootA ? 'A' : 'B'}:${j.data.dirPath}`).sort()).toEqual(['A:Travel/Away', 'B:Travel/Away']);
     await drain();
     await expectKept('Away', ['Travel/Away']);
-    const roots = await sql`select distinct scan_root_id::text as r from audio_files where id = any(${before.get('Away')!.fileIds}::uuid[])`;
+    const roots = await sql`select distinct scan_root_id::text as r from files where id = any(${before.get('Away')!.fileIds}::uuid[])`;
     expect(roots.map((r: any) => r.r)).toEqual([rootB]);
     expect(await albumCountNow()).toBe(albumCount);
   });
@@ -252,7 +252,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('zero-track sweep vs a concurren
     insert into local_albums (library_id, cluster_key, state, dir_paths) values (${libraryId}, ${key}, ${state}, ${[dir]}::text[])
     returning id::text as id`)[0].id as string;
   const file = async (relPath: string) => (await sql`
-    insert into audio_files (library_id, scan_root_id, rel_path, status) values (${libraryId}, ${rootId}, ${relPath}, 'present')
+    insert into files (library_id, scan_root_id, rel_path, status, handler) values (${libraryId}, ${rootId}, ${relPath}, 'present', 'audio')
     returning id::text as id`)[0].id as string;
   const exists = async (id: string) => (await sql`select 1 from local_albums where id = ${id}`).length === 1;
 
@@ -328,8 +328,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster.dir transaction (db)', 
     for (const [dir, album] of [['Swap/One', 'One'], ['Swap/Two', 'Two'], ['Lock/Alb', 'Alb']] as const) {
       const ids: string[] = [];
       for (let n = 1; n <= 3; n++) {
-        const [r] = await sql`insert into audio_files (library_id, scan_root_id, rel_path, status, duration_ms, tags_raw)
-          values (${libraryId}, ${rootId}, ${`${dir}/${n}.flac`}, 'present', 1000, ${JSON.stringify(tags(album, n))}::text::jsonb)
+        const [r] = await sql`insert into files (library_id, scan_root_id, rel_path, status, duration_ms, tags_raw, handler)
+          values (${libraryId}, ${rootId}, ${`${dir}/${n}.flac`}, 'present', 1000, ${JSON.stringify(tags(album, n))}::text::jsonb, 'audio')
           returning id::text as id`;
         ids.push(r.id);
       }

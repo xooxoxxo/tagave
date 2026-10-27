@@ -25,7 +25,7 @@
  * the folders so the usual rules confirm the result.
  */
 import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, fieldLocks, localAlbums, localTracks } from '@tagave/db';
+import { files, clusterOverrides, fieldLocks, localAlbums, localTracks } from '@tagave/db';
 import { VARIOUS_ARTISTS, displayArtistName, isVariousArtists, stripTrackNumberPrefix } from '@tagave/shared';
 import type { getDb } from '../db.js';
 import { SPLIT_KEY_PREFIX } from './splitByFormat.js';
@@ -174,7 +174,7 @@ export async function refreshAlbumCounters(db: Db, albumId: string): Promise<voi
              coalesce(array_agg(distinct lower(regexp_replace(af.rel_path, '^.*\\.', ''))) filter (where af.rel_path like '%.%'), '{}') as formats,
              count(distinct coalesce(lt.disc_no, 1))::int as discs,
              array_agg(distinct case when strpos(af.rel_path, '/') = 0 then '' else regexp_replace(af.rel_path, '/[^/]*$', '') end) as dirs
-        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        from local_tracks lt join files af on af.id = lt.audio_file_id
        where lt.local_album_id = ${albumId}
     ) s
     where la.id = ${albumId} and s.n > 0`);
@@ -240,10 +240,10 @@ export async function mergeAlbums(
         localAlbumId: localTracks.localAlbumId,
         artist: localTracks.artistGuess,
         trackNo: localTracks.trackNo,
-        tagsRaw: audioFiles.tagsRaw,
+        tagsRaw: files.tagsRaw,
       })
       .from(localTracks)
-      .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+      .innerJoin(files, eq(files.id, localTracks.audioFileId))
       .where(inArray(localTracks.localAlbumId, ids));
     const fileIds = [...new Set(rows.map((r) => r.audioFileId))];
     if (fileIds.length === 0) throw new MergeError(409, 'These albums have no files left to merge');
@@ -380,17 +380,17 @@ export async function unmergeAlbum(db: Db, input: { libraryId: string; albumId: 
     if (!originalKey) throw new MergeError(409, 'This album was not merged from others');
     const record = readRecord(album.mergedFrom);
 
-    const files = await tx
-      .select({ audioFileId: localTracks.audioFileId, relPath: audioFiles.relPath, scanRootId: audioFiles.scanRootId })
+    const tracked = await tx
+      .select({ audioFileId: localTracks.audioFileId, relPath: files.relPath, scanRootId: files.scanRootId })
       .from(localTracks)
-      .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+      .innerJoin(files, eq(files.id, localTracks.audioFileId))
       .where(eq(localTracks.localAlbumId, album.id));
     const pins = await tx
-      .select({ audioFileId: clusterOverrides.audioFileId, relPath: audioFiles.relPath, scanRootId: audioFiles.scanRootId })
+      .select({ audioFileId: clusterOverrides.audioFileId, relPath: files.relPath, scanRootId: files.scanRootId })
       .from(clusterOverrides)
-      .innerJoin(audioFiles, eq(audioFiles.id, clusterOverrides.audioFileId))
+      .innerJoin(files, eq(files.id, clusterOverrides.audioFileId))
       .where(eq(clusterOverrides.localAlbumId, album.id));
-    const all = [...files, ...pins];
+    const all = [...tracked, ...pins];
     const fileIds = [...new Set(all.map((f) => f.audioFileId))];
     const dirs = [...new Map(all.map((f) => [`${f.scanRootId}\n${relDirname(f.relPath)}`, { scanRootId: f.scanRootId, dirPath: relDirname(f.relPath) }])).values()];
 

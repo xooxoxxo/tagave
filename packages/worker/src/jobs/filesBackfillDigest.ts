@@ -11,7 +11,7 @@
  * parse or tag write in between keeps its own value.
  */
 import type { WorkerContext } from '../lib/context.js';
-import { coreTagsDigest } from '../lib/helpers.js';
+import { coreTagsDigest } from '@tagave/core/files';
 
 export interface FilesBackfillDigestJobData { batch?: number }
 
@@ -20,9 +20,9 @@ export async function filesBackfillDigestJob(ctx: Pick<WorkerContext, 'sql' | 'l
   let after = '00000000-0000-0000-0000-000000000000';
   let updated = 0;
   for (;;) {
-    // the where clause is idx_audio_files_digest_backfill's predicate (0052): keep them identical
+    // the where clause is idx_files_digest_backfill's predicate (0052): keep them identical
     const rows = (await ctx.sql`
-      select id, tags_raw, tags_digest from audio_files
+      select id, tags_raw, tags_digest from files
        where core_tags_digest is null and tags_raw is not null and id > ${after}::uuid
        order by id limit ${batch}`) as unknown as Array<{ id: string; tags_raw: unknown; tags_digest: string | null }>;
     if (rows.length === 0) break;
@@ -37,7 +37,7 @@ export async function filesBackfillDigestJob(ctx: Pick<WorkerContext, 'sql' | 'l
     }
     if (ids.length > 0) {
       const res = await ctx.sql`
-        update audio_files af set core_tags_digest = u.d
+        update files af set core_tags_digest = u.d
           from unnest(${ids}::uuid[], ${digests}::text[], ${seenAs}::text[]) as u(id, d, td)
          where af.id = u.id and af.core_tags_digest is null
            and af.tags_digest is not distinct from u.td`;

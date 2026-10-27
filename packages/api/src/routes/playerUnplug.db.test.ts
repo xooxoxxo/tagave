@@ -79,8 +79,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     await sql`insert into releases (id, release_group_id, mbid, title) values (${releaseId}, ${rgId}, ${releaseMbid}, 'Unplug Album')`;
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state, release_id, release_group_id)
               values (${albumId}, ${libraryId}, ${`ck-${albumId}`}, 'Unplug Album', 'The Plugs', 'matched', ${releaseId}, ${rgId})`;
-    const file = (id: string, rel: string) => sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-      values (${id}, ${libraryId}, ${rootId}, ${rel}, 'flac', 'FLAC', true, 200000, 'present')`;
+    const file = (id: string, rel: string) => sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+      values (${id}, ${libraryId}, ${rootId}, ${rel}, 'flac', 'FLAC', true, 200000, 'present', 'audio')`;
     await file(f.one, 'The Plugs/Unplug Album/01 In.flac');
     await file(f.two, 'The Plugs/Unplug Album/02 Out.flac');
     await file(f.three, 'The Plugs/Unplug Album/03 Again.flac');
@@ -205,7 +205,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
       releases: await sql`select * from releases where id = ${releaseId}`,
       albums: await sql`select * from local_albums where id = ${albumId}`,
       tracks: await sql`select * from local_tracks where local_album_id = ${albumId} order by id`,
-      files: await sql`select * from audio_files where library_id = ${libraryId} order by id`,
+      files: await sql`select * from files where library_id = ${libraryId} order by id`,
       reviews: await sql`select * from user_reviews where user_id = any(${ids}::uuid[]) order by user_id`,
       listens: await sql`select * from listens where user_id = any(${ids}::uuid[]) order by id`,
     };

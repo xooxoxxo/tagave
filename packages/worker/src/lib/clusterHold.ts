@@ -51,9 +51,9 @@ export async function placeHolds(ctx: Pick<WorkerContext, 'sql'>, freshIds: stri
   const held: string[] = [];
   for (let i = 0; i < freshIds.length; i += UPDATE_BATCH) {
     const rows = await ctx.sql`
-      update audio_files f set reconcile_hold_at = now()
+      update files f set reconcile_hold_at = now()
        where f.id = any(${freshIds.slice(i, i + UPDATE_BATCH)}::uuid[]) and f.status in ('present', 'error')
-         and exists (select 1 from audio_files o
+         and exists (select 1 from files o
                       where o.library_id = f.library_id and o.status = 'missing' and o.id <> f.id
                         and o.size_bytes = f.size_bytes and o.last_seen_at < f.first_seen_at)
       returning f.id`;
@@ -68,7 +68,7 @@ export async function scopeHoldState(ctx: Pick<WorkerContext, 'sql'>, fileIds: s
   const [r] = await ctx.sql`
     select count(*) filter (where reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second')::int as live,
            count(*) filter (where reconcile_hold_at is not null)::int as any
-      from audio_files where id = any(${fileIds}::uuid[])`;
+      from files where id = any(${fileIds}::uuid[])`;
   if ((r!['live'] as number) > 0) return 'held';
   return (r!['any'] as number) > 0 ? 'expired' : 'none';
 }
@@ -83,7 +83,7 @@ export async function heldRows(
 ): Promise<Array<{ id: string; dir: string; parsed: boolean; heldAt: Date }>> {
   const rows = await ctx.sql`
     select af.id, af.rel_path, (af.tags_read_at is not null or af.status = 'error') as parsed, af.reconcile_hold_at
-      from audio_files af where af.scan_root_id = ${scanRootId} and af.reconcile_hold_at is not null
+      from files af where af.scan_root_id = ${scanRootId} and af.reconcile_hold_at is not null
        ${dirs ? ctx.sql`and ${ctx.sql.unsafe(sqlDirname('af'))} = any(${dirs}::text[])` : ctx.sql``}`;
   // The shared client reads timestamptz as text.
   return rows.map((r) => ({
@@ -134,7 +134,7 @@ export async function releaseDirHolds(
   let released = 0;
   for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
     const out = await ctx.sql`
-      update audio_files set reconcile_hold_at = null
+      update files set reconcile_hold_at = null
        where id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[]) and reconcile_hold_at is not null
       returning id`;
     released += out.length;
@@ -194,7 +194,7 @@ export interface HoldScope { libraryId: string }
 export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select distinct af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
-      from audio_files af
+      from files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at <= now() - ${CAP_SECONDS}::int * interval '1 second'
        ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}`;
@@ -225,7 +225,7 @@ export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope)
 export async function releaseParsedHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
-      from audio_files af
+      from files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second'
        ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}

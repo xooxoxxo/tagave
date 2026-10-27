@@ -1,6 +1,6 @@
 import { and, eq, inArray, notLike } from 'drizzle-orm';
 import {
-  albumMatches, audioFiles, localAlbums, localTracks, matchCandidates, releases,
+  albumMatches, files, localAlbums, localTracks, matchCandidates, releases,
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
@@ -161,9 +161,9 @@ type TrackRow = typeof localTracks.$inferSelect;
 export async function localViewOf(ctx: WorkerContext, album: AlbumRow, tracks: TrackRow[]) {
   // Embedded IDs from the first tracks' file tags (IDN-1a).
   const fileRows = tracks.length === 0 ? [] : await ctx.db
-    .select({ tagsRaw: audioFiles.tagsRaw })
-    .from(audioFiles)
-    .where(inArray(audioFiles.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
+    .select({ tagsRaw: files.tagsRaw })
+    .from(files)
+    .where(inArray(files.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
   let embedded: EmbeddedIds = {};
   for (const f of fileRows) {
     embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };

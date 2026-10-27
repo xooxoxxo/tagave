@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -27,7 +27,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
   let createdBossJob = false;
 
   const addFile = async (relPath: string, common: Record<string, unknown>) => {
-    await db.insert(audioFiles).values({
+    await db.insert(files).values({ handler: 'audio',
       id: randomUUID(), libraryId, scanRootId: rootId, relPath,
       status: 'present', durationMs: 200_000, tagsRaw: { common },
     });
@@ -61,7 +61,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
 
   beforeEach(async () => {
     sent.length = 0;
-    await db.delete(audioFiles).where(eq(audioFiles.scanRootId, rootId));
+    await db.delete(files).where(eq(files.scanRootId, rootId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await client`delete from pgboss.job where id = any(${jobIds}::uuid[])`;
     jobIds.length = 0;

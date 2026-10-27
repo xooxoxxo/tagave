@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -30,7 +30,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
 
   const addFile = async (relPath: string, tags: Tags = {}): Promise<string> => {
     const id = randomUUID();
-    await db.insert(audioFiles).values({
+    await db.insert(files).values({ handler: 'audio',
       id,
       libraryId,
       scanRootId: rootId,
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
   const trackRows = async (albumId: string) => {
     const rows = (await client`
       select af.rel_path, lt.disc_no, lt.track_no, lt.title_guess
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = ${albumId}
       order by coalesce(lt.disc_no, 1), lt.track_no`) as unknown as Array<{
       rel_path: string; disc_no: number | null; track_no: number | null; title_guess: string | null;
@@ -87,7 +87,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
   });
 
   beforeEach(async () => {
-    await db.delete(audioFiles).where(eq(audioFiles.scanRootId, rootId)); // cascades local_tracks
+    await db.delete(files).where(eq(files.scanRootId, rootId)); // cascades local_tracks
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
   });
 
@@ -156,14 +156,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
     await seedSiblingFolders();
     // The state the bug left behind: one 'matched' cluster per folder, both
     // pointing at the same one-disc release.
-    const files = await db.select().from(audioFiles).where(eq(audioFiles.scanRootId, rootId));
+    const fileRows = await db.select().from(files).where(eq(files.scanRootId, rootId));
     for (const [dir, state] of [[cd1, 'matched'], [cd2, 'matched']] as const) {
       const [old] = await db.insert(localAlbums).values({
         libraryId, clusterKey: `stale-${dir}`, dirPaths: [dir], state,
         titleGuess: 'Liebe ist fur alle da', discCount: 1,
       }).returning({ id: localAlbums.id });
       await db.insert(localTracks).values(
-        files.filter((f: any) => f.relPath.startsWith(dir + '/'))
+        fileRows.filter((f: any) => f.relPath.startsWith(dir + '/'))
           .map((f: any) => ({ localAlbumId: old.id, audioFileId: f.id, state: 'matched' })),
       );
     }

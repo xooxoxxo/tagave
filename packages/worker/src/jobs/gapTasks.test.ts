@@ -10,7 +10,7 @@ import { and, eq } from 'drizzle-orm';
 import pino from 'pino';
 import {
   users, libraries, releaseGroups, releases, canonicalTracks, localAlbums, localTracks,
-  audioFiles, scanRoots, images, gaps, makeDb,
+  files, scanRoots, images, gaps, makeDb,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { gapsRecomputeJob } from './gapsRecompute.js';
@@ -37,7 +37,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('gaps.recompute keeps tasks unti
   async function addTracks(positions: number[]) {
     for (const position of positions) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `Transformation/${position}.flac`, lossless: true });
+      await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `Transformation/${position}.flac`, lossless: true });
       await db.insert(localTracks).values({ localAlbumId: albumId, audioFileId: fileId, discNo: 1, trackNo: position });
     }
     const [row] = await ctx.sql`select count(*)::int as n from local_tracks where local_album_id = ${albumId}` as unknown as { n: number }[];

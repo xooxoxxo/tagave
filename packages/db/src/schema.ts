@@ -295,8 +295,14 @@ export const scanDirs = pgTable(
   })
 );
 
-export const audioFiles = pgTable(
-  'audio_files',
+/**
+ * Every indexed file, one row each (0058: was audio_files, which stays as a
+ * read-only view for one release). `handler` names the file-type handler that
+ * reads it (@tagave/core/files); the typed columns are audio-shaped because
+ * audio is the only handler so far.
+ */
+export const files = pgTable(
+  'files',
   {
     id: uuid().primaryKey().defaultRandom(),
     libraryId: uuid('library_id')
@@ -321,7 +327,7 @@ export const audioFiles = pgTable(
     tagsRaw: jsonb('tags_raw'),
     tagsDigest: varchar('tags_digest', { length: 64 }),
     tagsReadAt: timestamp('tags_read_at', { withTimezone: true }),
-    /** 0052: normalized tag signature for Tier 2 move detection (helpers.coreTagsDigest) */
+    /** 0052: normalized tag signature for Tier 2 move detection (the handler's identityDigest; audio: coreTagsDigest) */
     coreTagsDigest: varchar('core_tags_digest', { length: 64 }),
     audioHash: varchar('audio_hash', { length: 64 }),
     audioHashAt: timestamp('audio_hash_at', { withTimezone: true }),
@@ -335,19 +341,23 @@ export const audioFiles = pgTable(
     missingHeldAt: timestamp('missing_held_at', { withTimezone: true }),
     firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+    /** 0058: the file-type handler id ('audio'); no default, every writer names it */
+    handler: text().notNull(),
+    /** 0058: the handler's MIME type for the file; set by the walk */
+    mediaType: text('media_type'),
   },
   (table) => ({
-    scanRootPathKey: uniqueIndex('audio_files_scan_root_id_rel_path_key').on(
+    scanRootPathKey: uniqueIndex('files_scan_root_id_rel_path_key').on(
       table.scanRootId,
       table.relPath
     ),
-    libraryIdx: index('idx_audio_files_library').on(table.libraryId),
-    scanRootIdx: index('idx_audio_files_scan_root').on(table.scanRootId),
-    statusIdx: index('idx_audio_files_status').on(table.status),
-    librarySizeIdx: index('idx_audio_files_library_size').on(table.libraryId, table.sizeBytes),
-    reconcileHoldIdx: index('idx_audio_files_reconcile_hold').on(table.scanRootId).where(sql`reconcile_hold_at is not null`),
-    missingHeldIdx: index('idx_audio_files_missing_held').on(table.scanRootId).where(sql`missing_held_at is not null`),
-    digestBackfillIdx: index('idx_audio_files_digest_backfill').on(table.id).where(sql`core_tags_digest is null and tags_raw is not null`),
+    libraryIdx: index('idx_files_library').on(table.libraryId),
+    scanRootIdx: index('idx_files_scan_root').on(table.scanRootId),
+    statusIdx: index('idx_files_status').on(table.status),
+    librarySizeIdx: index('idx_files_library_size').on(table.libraryId, table.sizeBytes),
+    reconcileHoldIdx: index('idx_files_reconcile_hold').on(table.scanRootId).where(sql`reconcile_hold_at is not null`),
+    missingHeldIdx: index('idx_files_missing_held').on(table.scanRootId).where(sql`missing_held_at is not null`),
+    digestBackfillIdx: index('idx_files_digest_backfill').on(table.id).where(sql`core_tags_digest is null and tags_raw is not null`),
   })
 );
 
@@ -434,7 +444,7 @@ export const localTracks = pgTable(
     localAlbumId: uuid('local_album_id').references(() => localAlbums.id, { onDelete: 'cascade' }),
     audioFileId: uuid('audio_file_id')
       .notNull()
-      .references(() => audioFiles.id, { onDelete: 'cascade' }),
+      .references(() => files.id, { onDelete: 'cascade' }),
     discNo: integer('disc_no'),
     trackNo: integer('track_no'),
     titleGuess: varchar('title_guess', { length: 255 }),
@@ -448,7 +458,7 @@ export const localTracks = pgTable(
     origin: varchar({ length: 10 }).notNull().default('file'),
     cueStartMs: integer('cue_start_ms'),
     cueRelPath: varchar('cue_rel_path', { length: 2048 }),
-    // 0024: per-virtual-track Chromaprint for cue images (file-backed tracks use audio_files.fingerprint)
+    // 0024: per-virtual-track Chromaprint for cue images (file-backed tracks use files.fingerprint)
     fingerprint: text('fingerprint'),
     fingerprintDuration: integer('fingerprint_duration'),
     fingerprintedAt: timestamp('fingerprinted_at', { withTimezone: true }),
@@ -475,7 +485,7 @@ export const clusterOverrides = pgTable(
       .references(() => libraries.id, { onDelete: 'cascade' }),
     audioFileId: uuid('audio_file_id')
       .notNull()
-      .references(() => audioFiles.id, { onDelete: 'cascade' }),
+      .references(() => files.id, { onDelete: 'cascade' }),
     localAlbumId: uuid('local_album_id').references(() => localAlbums.id, {
       onDelete: 'cascade',
     }),
@@ -818,7 +828,7 @@ export const images = pgTable(
       onDelete: 'set null',
     }),
     // 0052: the origin CHECK forbids SET NULL
-    audioFileId: uuid('audio_file_id').references(() => audioFiles.id, { onDelete: 'cascade' }),
+    audioFileId: uuid('audio_file_id').references(() => files.id, { onDelete: 'cascade' }),
     sidecarFileId: uuid('sidecar_file_id').references(() => sidecarFiles.id, {
       onDelete: 'cascade',
     }),
@@ -1006,7 +1016,7 @@ export const tagPlanItems = pgTable(
       .references(() => tagPlans.id, { onDelete: 'cascade' }),
     audioFileId: uuid('audio_file_id')
       .notNull()
-      .references(() => audioFiles.id, { onDelete: 'cascade' }),
+      .references(() => files.id, { onDelete: 'cascade' }),
     before: jsonb().notNull(),
     after: jsonb().notNull(),
     diff: jsonb().notNull(),

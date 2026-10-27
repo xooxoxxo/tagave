@@ -165,7 +165,7 @@ export async function prepareLibrary({ stack, sql, musicDir, library, log, until
   await api.post(`/libraries/${libraryId}/tag-plans/${plan.id}/preview`);
   await waitForIdle(sql, until, log);
   // the first file is the one shown expanded
-  const [planFile] = await sql`select rel_path from audio_files where library_id = ${libraryId} and rel_path like ${`${messy.folders[0]}/01 %`}`;
+  const [planFile] = await sql`select rel_path from files where library_id = ${libraryId} and rel_path like ${`${messy.folders[0]}/01 %`}`;
   if (!planFile) throw new Error('the tag plan file is missing');
 
   log('album page: critic scores, a rating, a listen');

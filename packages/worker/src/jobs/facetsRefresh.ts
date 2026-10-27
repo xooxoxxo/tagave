@@ -90,7 +90,7 @@ export async function refreshLibraryFacets(
       left join lateral (
         -- a track whose losslessness is unknown counts as lossy, as the format filter does
         select bool_or(af.lossless is true) as has_lossless, bool_or(not coalesce(af.lossless, false)) as has_lossy
-        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        from local_tracks lt join files af on af.id = lt.audio_file_id
         where lt.local_album_id = la.id) f on true
       left join lateral (
         select array_agg(l->>'name') as labels

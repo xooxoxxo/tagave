@@ -38,7 +38,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   const files = (await ctx.sql`
     select distinct af.id, af.rel_path, sr.path as root_path, af.fingerprint, af.fingerprinted_at
     from local_tracks lt
-    join audio_files af on af.id = lt.audio_file_id
+    join files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
     where lt.local_album_id = ${data.localAlbumId}
       and af.status in ('present', 'error')`) as unknown as FileRow[];
@@ -57,14 +57,14 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
       try {
         const fp = await fpcalcFingerprint(full);
         await ctx.sql`
-          update audio_files
+          update files
           set fingerprint = ${fp.fingerprint}, fingerprint_duration = ${Math.round(fp.durationS)},
               fingerprinted_at = now(), fingerprint_error = null
           where id = ${f.id}`;
         ok++;
       } catch (err) {
         const message = (err as Error).message.slice(0, 500);
-        await ctx.sql`update audio_files set fingerprinted_at = now(), fingerprint_error = ${message} where id = ${f.id}`;
+        await ctx.sql`update files set fingerprinted_at = now(), fingerprint_error = ${message} where id = ${f.id}`;
         failed++;
         ctx.logger.warn({ file: full, err: message }, 'fingerprint failed');
       }
@@ -77,7 +77,7 @@ export async function fingerprintAlbumJob(ctx: WorkerContext, data: FingerprintA
   const cueTracks = (await ctx.sql`
     select lt.id, lt.cue_start_ms, lt.duration_ms, lt.fingerprint, lt.fingerprinted_at, af.rel_path, sr.path as root_path
     from local_tracks lt
-    join audio_files af on af.id = lt.audio_file_id
+    join files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
     where lt.local_album_id = ${data.localAlbumId} and lt.origin = 'cue'
       and lt.cue_start_ms is not null and af.status in ('present', 'error')

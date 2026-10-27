@@ -47,8 +47,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the play queue per person', () 
     await album(albums.b, 'Second Album');
     const track = async (id: string, albumId: string, no: number, title: string, folder: string) => {
       const fileId = randomUUID();
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-        values (${fileId}, ${libraryId}, ${rootId}, ${`The Queues/${folder}/0${no} ${title}.flac`}, 'flac', 'FLAC', true, 180000, 'present')`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+        values (${fileId}, ${libraryId}, ${rootId}, ${`The Queues/${folder}/0${no} ${title}.flac`}, 'flac', 'FLAC', true, 180000, 'present', 'audio')`;
       await sql`insert into local_tracks (id, local_album_id, audio_file_id, disc_no, track_no, title_guess, artist_guess, duration_ms, origin)
         values (${id}, ${albumId}, ${fileId}, 1, ${no}, ${title}, 'The Queues', 180000, 'file')`;
     };

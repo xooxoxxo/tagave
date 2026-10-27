@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { artists, audioFiles, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@tagave/db';
+import { artists, files, libraries, localAlbums, localTracks, releaseGroupArtists, releaseGroups, scanRoots, users } from '@tagave/db';
 import { foldWords } from './search.js';
 
 describe('foldWords', () => {
@@ -74,7 +74,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('search route', () => {
     await db.insert(localAlbums).values(comp);
     for (const [title, artist] of [['Nights Interlude', 'Nightmares on Wax'], ['Teardrop', 'Massive Attack'], ['Opener', null]] as const) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${title}.flac`, status: 'present' });
+      await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${title}.flac`, status: 'present' });
       await db.insert(localTracks).values({ localAlbumId: comp.id, audioFileId: fileId, trackNo: 1, titleGuess: title, artistGuess: artist });
     }
 

@@ -145,9 +145,9 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
                       ${sql.json({ title: 'Tape Only', artists: ['Basement Band', 'Guest'] })}, '2019-03-03T00:00:00Z')`;
 
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/music', 'Music')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, codec)
-              values (${fileIds[0]!}, ${libraryId}, ${rootId}, 'Miles/01.flac', 'FLAC'),
-                     (${fileIds[1]!}, ${libraryId}, ${rootId}, 'Miles/02.flac', 'FLAC')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, codec, handler)
+              values (${fileIds[0]!}, ${libraryId}, ${rootId}, 'Miles/01.flac', 'FLAC', 'audio'),
+                     (${fileIds[1]!}, ${libraryId}, ${rootId}, 'Miles/02.flac', 'FLAC', 'audio')`;
     await sql`insert into local_albums (id, library_id, cluster_key, state, release_id, release_group_id, title_guess, artist_guess, embedded_mbid)
               values (${albumA}, ${libraryId}, 'miles', 'matched', ${releaseA}, ${rgA}, 'Kind of Blue', 'Miles Davis', null)`;
     await sql`insert into local_tracks (local_album_id, audio_file_id) values (${albumA}, ${fileIds[0]!}), (${albumA}, ${fileIds[1]!})`;
@@ -306,19 +306,19 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     const maxId = (await sql<Array<{ m: string }>>`select max(id)::text as m from facet_changes`)[0]!.m;
     await sql`update collection_items set formats = formats, basic_info = basic_info, last_seen_at = now() where library_id = ${libraryId}`;
     await sql`update local_albums set identify_attempts = identify_attempts + 1, updated_at = now() where library_id = ${libraryId}`;
-    await sql`update audio_files set last_seen_at = now(), status = status where library_id = ${libraryId}`;
+    await sql`update files set last_seen_at = now(), status = status where library_id = ${libraryId}`;
     expect((await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes where id > ${maxId}::bigint`)[0]!.n).toBe(0);
     expect((await sql<Array<{ n: number }>>`select count(*)::int as n from facet_changes`)[0]!.n).toBe(n);
   });
 
   it('files going missing change the album’s formats, logged once for the album', async () => {
     const since = await tail('collection');
-    await sql`update audio_files set status = 'missing' where id = any(${fileIds}::uuid[])`;
+    await sql`update files set status = 'missing' where id = any(${fileIds}::uuid[])`;
     const p = await all('collection', since);
     expect(p.items).toHaveLength(1);
     expect(p.items[0]).toMatchObject({ key: rgA, op: 'upsert' });
     expect(p.items[0]!.data.formats).toEqual([{ kind: 'vinyl', detail: 'LP, Album, Reissue' }]);
-    await sql`update audio_files set status = 'present' where id = any(${fileIds}::uuid[])`;
+    await sql`update files set status = 'present' where id = any(${fileIds}::uuid[])`;
   });
 
   it('deleting a person takes their rows with them (no tombstone, no error)', async () => {
@@ -374,7 +374,7 @@ describe.skipIf(!adminUrl)('music connections feeds (integration)', () => {
     const b = await sql.reserve();
     try {
       await b`begin`;
-      await b`insert into audio_files (id, library_id, scan_root_id, rel_path, codec) values (${file}, ${libraryId}, ${rootId}, ${`race/${file}.flac`}, 'FLAC')`;
+      await b`insert into files (id, library_id, scan_root_id, rel_path, codec, handler) values (${file}, ${libraryId}, ${rootId}, ${`race/${file}.flac`}, 'FLAC', 'audio')`;
       await b`insert into local_albums (id, library_id, cluster_key, state, release_group_id) values (${album}, ${libraryId}, ${`race-${album}`}, 'matched', ${k})`;
       await b`insert into local_tracks (local_album_id, audio_file_id) values (${album}, ${file})`;
       await a`begin`;

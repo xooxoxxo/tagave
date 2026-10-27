@@ -38,7 +38,7 @@ export interface LintToggles {
 }
 
 /**
- * A track's raw tag data as read from a file (from audio_files.tags_raw JSONB).
+ * A track's raw tag data as read from a file (from files.tags_raw JSONB).
  */
 export interface RawTrackTags extends Record<CanonicalField | string, string | string[] | undefined> {
   // Expect at least these canonical fields, but allow others

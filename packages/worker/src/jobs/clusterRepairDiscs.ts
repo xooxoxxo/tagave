@@ -120,7 +120,7 @@ export async function clusterRepairDiscsJob(
     select distinct af.scan_root_id,
            case when strpos(af.rel_path, '/') = 0 then ''
                 else regexp_replace(af.rel_path, '/[^/]*$', '') end as dir
-    from audio_files af
+    from files af
     where af.library_id = ${data.libraryId}
       and af.status in ('present', 'error')
       and (${rootId}::uuid is null or af.scan_root_id = ${rootId}::uuid)`) as unknown as DirRow[];
@@ -143,7 +143,7 @@ export async function clusterRepairDiscsJob(
                 else regexp_replace(af.rel_path, '/[^/]*$', '') end as dir
     from local_albums la
     join local_tracks lt on lt.local_album_id = la.id
-    join audio_files af on af.id = lt.audio_file_id
+    join files af on af.id = lt.audio_file_id
     where la.library_id = ${data.libraryId}
       and la.disc_count = 1
       and array_length(la.dir_paths, 1) = 1
@@ -160,7 +160,7 @@ export async function clusterRepairDiscsJob(
   // clusterer will then refuse to read as multi-disc.
   const prefixed = (await ctx.sql`
     select af.scan_root_id, af.rel_path
-    from audio_files af
+    from files af
     where af.library_id = ${data.libraryId}
       and af.status in ('present', 'error')
       and (${rootId}::uuid is null or af.scan_root_id = ${rootId}::uuid)

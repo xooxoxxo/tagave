@@ -34,7 +34,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse strips NUL from what
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`spn-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'SPN', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, ${rootPath}, 'spn')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${fileId}, ${libraryId}, ${rootId}, '1.flac')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${fileId}, ${libraryId}, ${rootId}, '1.flac', 'audio')`;
   });
 
   afterAll(async () => {
@@ -47,7 +47,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse strips NUL from what
 
   it('codec, container and tag keys lose their NULs; the file is present', async () => {
     await scanParseJob(ctx, { audioFileIds: [fileId] });
-    const [r] = await sql`select status, parse_error, codec, container, tags_raw from audio_files where id = ${fileId}`;
+    const [r] = await sql`select status, parse_error, codec, container, tags_raw from files where id = ${fileId}`;
     expect(r.parse_error).toBeNull();
     expect(r.status).toBe('present');
     expect([r.codec, r.container]).toEqual(['FLAC', 'FLAC']);

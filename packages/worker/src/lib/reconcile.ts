@@ -100,10 +100,10 @@ type Fragment = postgres.PendingQuery<postgres.Row[]>;
 
 /** The client reads timestamptz as text, so times come back as epoch milliseconds. */
 export async function loadMatchFiles(ctx: Pick<WorkerContext, 'sql'>, where: Fragment): Promise<MatchFile[]> {
-  return matchRows(ctx, ctx.sql`audio_files af where ${where}`);
+  return matchRows(ctx, ctx.sql`files af where ${where}`);
 }
 
-/** `source` is everything after FROM; it must expose the audio_files row as `af`. */
+/** `source` is everything after FROM; it must expose the files row as `af`. */
 async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Promise<MatchFile[]> {
   const rows = (await ctx.sql`
     select af.id, af.scan_root_id, af.rel_path, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
@@ -130,11 +130,11 @@ const dirsOf = (fs: MatchFile[]) => {
 /**
  * Every row of these folders matching `cond` (the 80% denominator, the edition
  * guard's extras). Same grouping as sqlDirname, but written so each folder is
- * one range scan of idx_audio_files_relpath_prefix (scan_root_id, rel_path
+ * one range scan of idx_files_relpath_prefix (scan_root_id, rel_path
  * text_pattern_ops): `dir/` <= rel_path < `dir0` ('0' follows '/'), then no
  * further '/'. `offset 0` fences the lateral so the outer filters are not
  * pushed in: with them the planner (estimating a run-time prefix generically)
- * walked the whole root on idx_audio_files_scan_root, 23 ms against 0.06 ms
+ * walked the whole root on idx_files_scan_root, 23 ms against 0.06 ms
  * per folder at 200k rows. Top-level folders ('') have no prefix: one pass over each such
  * root's rows by scan_root_id, keeping paths without a '/'.
  */
@@ -148,7 +148,7 @@ export async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: str
     appendAll(out, await matchRows(ctx, sql`
       unnest(${chunk.map((d) => d.scanRootId)}::uuid[], ${chunk.map((d) => d.dirPath)}::text[]) as d(root_id, dir)
       cross join lateral (
-        select * from audio_files x
+        select * from files x
          where x.scan_root_id = d.root_id
            and x.rel_path ~>=~ (d.dir || '/') and x.rel_path ~<~ (d.dir || '0')
            and strpos(substr(x.rel_path, length(d.dir) + 2), '/') = 0
@@ -335,7 +335,7 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
     and (af.id, af.rel_path) in (select * from unnest(${unseen.map((u) => u.id)}::uuid[], ${unseen.map((u) => u.relPath)}::text[]))`) : [];
   const missingOlds = walk.insertedIds.length ? await loadMatchFiles(ctx, sql`
     af.library_id = ${root.libraryId} and af.status = 'missing'
-    and af.size_bytes in (select i.size_bytes from audio_files i where i.id = any(${walk.insertedIds}::uuid[]))`) : [];
+    and af.size_bytes in (select i.size_bytes from files i where i.id = any(${walk.insertedIds}::uuid[]))`) : [];
   let olds = uniqById([...unseenOlds, ...missingOlds]);
   if (olds.length === 0) return emptyReconcile();
   const unseenIds = unseenOlds.map((o) => o.id);
@@ -386,7 +386,7 @@ export async function reconcileTier2(ctx: WorkerContext, libraryId: string, fres
     let latestMs = -Infinity;
     for (const f of parsed) { const t = f.firstSeenAt.getTime(); if (t > latestMs) latestMs = t; }
     const latest = new Date(latestMs).toISOString();
-    // Two queries, not one OR: the size lookup alone can use idx_audio_files_library_size.
+    // Two queries, not one OR: the size lookup alone can use idx_files_library_size.
     const missingBefore = sql`af.library_id = ${libraryId} and af.status = 'missing' and af.last_seen_at <= ${latest}::timestamptz`;
     let olds = sizes.length ? await loadMatchFiles(ctx, sql`${missingBefore} and af.size_bytes = any(${sizes}::bigint[])`) : [];
     if (hashes.length) olds = uniqById([...olds, ...await loadMatchFiles(ctx, sql`${missingBefore} and af.audio_hash = any(${hashes}::text[])`)]);

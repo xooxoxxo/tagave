@@ -460,7 +460,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
              coalesce(sum(size_bytes), 0)::bigint as bytes,
              coalesce(sum(duration_ms), 0)::bigint as duration_ms,
              count(*) filter (where lossless)::int as lossless
-      from audio_files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
+      from files where library_id = ${libraryId} and status = 'present'`) as unknown as [Record<string, string | number>];
     // "Reviews written" is one of the four promise counters (spec §14.2);
     // reviews and listens are per person, so these are the caller's own
     const userId = request.user.id;

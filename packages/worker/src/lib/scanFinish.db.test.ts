@@ -23,7 +23,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
   const libraryId = randomUUID();
   const rootId = randomUUID();
   let root: { id: string; libraryId: string; path: string };
-  const byPath = async () => new Map<string, any>((await sql`select id, rel_path, status, inode, last_seen_at from audio_files where scan_root_id = ${rootId}`).map((r: any) => [r.rel_path, r]));
+  const byPath = async () => new Map<string, any>((await sql`select id, rel_path, status, inode, last_seen_at from files where scan_root_id = ${rootId}`).map((r: any) => [r.rel_path, r]));
 
   beforeAll(async () => {
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
@@ -59,8 +59,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
 
   it('a worker clock an hour ahead marks nothing that the walk just saw', async () => {
     // an indexed file the walk will not see, last seen a day ago
-    await sql`insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, last_seen_at)
-              values (${libraryId}, ${rootId}, 'A/ghost.mp3', 9, 1, 'present', now() - interval '1 day')`;
+    await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, last_seen_at, handler)
+              values (${libraryId}, ${rootId}, 'A/ghost.mp3', 9, 1, 'present', now() - interval '1 day', 'audio')`;
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.now() + 3_600_000);
     const w = await walkTree(ctx, root, { mode: 'full' });
@@ -93,7 +93,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
     const w = await walkTree(ctx, root, { mode: 'full' });
     // a concurrent scan.dir re-points the row to another path meanwhile; last_seen_at
     // stays older than walkStart, so only the rel_path snapshot guard protects it
-    await sql`update audio_files set rel_path = 'B/03.mp3' where scan_root_id = ${rootId} and rel_path = 'A/03.mp3'`;
+    await sql`update files set rel_path = 'B/03.mp3' where scan_root_id = ${rootId} and rel_path = 'A/03.mp3'`;
     const f = await finishWalk(ctx, root, w);
     expect(f.missing).toBe(0);
     expect((await byPath()).get('B/03.mp3')!.status).toBe('present');
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
     const w = await walkTree(ctx, root, { mode: 'full' });
     const f = await finishWalk(ctx, root, w);
     expect(f).toMatchObject({ merged: 0, held: 1 });
-    const holds = await sql`select rel_path, reconcile_hold_at is not null as held from audio_files where scan_root_id = ${rootId} and rel_path like 'C/%' order by rel_path`;
+    const holds = await sql`select rel_path, reconcile_hold_at is not null as held from files where scan_root_id = ${rootId} and rel_path like 'C/%' order by rel_path`;
     expect(holds.map((r: any) => [r.rel_path, r.held])).toEqual([['C/new.mp3', true], ['C/other.mp3', false]]);
   });
 
@@ -130,7 +130,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
   const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID(); const loneId = randomUUID();
   let root: { id: string; libraryId: string; path: string };
   let lone: { id: string; libraryId: string; path: string };
-  const statusOf = async (p: string) => (await sql`select status from audio_files where scan_root_id = ${rootId} and rel_path = ${p}`)[0]?.status;
+  const statusOf = async (p: string) => (await sql`select status from files where scan_root_id = ${rootId} and rel_path = ${p}`)[0]?.status;
   const sidecarKept = async (p: string) => (await sql`select 1 from sidecar_files where scan_root_id = ${rootId} and rel_path = ${p}`).length === 1;
 
   beforeAll(async () => {
@@ -239,10 +239,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('held losses are marked missing 
   const names = Array.from({ length: 30 }, (_, i) => `${String(i).padStart(2, '0')}.mp3`);
   const lost = names.slice(0, 12);
   const scan = async () => finishWalk(ctx, root, await walkTree(ctx, root, { mode: 'full' }));
-  const stamps = async () => (await sql`select rel_path, missing_held_at from audio_files
+  const stamps = async () => (await sql`select rel_path, missing_held_at from files
                                          where scan_root_id = ${rootId} and missing_held_at is not null order by rel_path`)
     .map((r: any) => [r.rel_path, String(r.missing_held_at)]);
-  const missingCount = async () => (await sql`select count(*)::int as n from audio_files where scan_root_id = ${rootId} and status = 'missing'`)[0].n;
+  const missingCount = async () => (await sql`select count(*)::int as n from files where scan_root_id = ${rootId} and status = 'missing'`)[0].n;
   const removeLost = async () => { for (const n of lost) await rm(path.join(rootPath, 'Many', n)); };
 
   beforeAll(async () => {
@@ -295,7 +295,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('held losses are marked missing 
   it('a held scan 24 hours or more after the first marks the rows missing', async () => {
     await removeLost();
     expect((await scan()).heldMissing).toEqual({ count: 12, threshold: 10 });
-    await sql`update audio_files set missing_held_at = now() - interval '25 hours'
+    await sql`update files set missing_held_at = now() - interval '25 hours'
                where scan_root_id = ${rootId} and missing_held_at is not null`;
     const f = await scan();
     expect(f).toMatchObject({ missing: 12, confirmedAfterHold: 12, heldMissing: null });

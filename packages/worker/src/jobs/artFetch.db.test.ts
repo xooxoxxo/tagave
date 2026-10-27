@@ -11,7 +11,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
-import { audioFiles, images, libraries, localAlbums, localTracks, makeDb, scanRoots, sidecarFiles, users } from '@tagave/db';
+import { files, images, libraries, localAlbums, localTracks, makeDb, scanRoots, sidecarFiles, users } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 const tmp = vi.hoisted(() => ({ dir: '' }));
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artFetchJob settles the noCover
     const albumId = randomUUID();
     await db.insert(localAlbums).values({ id: albumId, libraryId, clusterKey: `art:${albumId}`, dirPaths: [dir], titleGuess: 'Thr!!!er' });
     const fileId = randomUUID();
-    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/01.flac`, hasEmbeddedArt: false });
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/01.flac`, hasEmbeddedArt: false });
     await db.insert(localTracks).values({ localAlbumId: albumId, audioFileId: fileId, trackNo: 1 });
     if (opts.sidecar) {
       await mkdir(path.join(tmp.dir, 'music', dir), { recursive: true });

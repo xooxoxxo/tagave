@@ -7,7 +7,7 @@
  * journalled and revertible like any other.
  */
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
-import { audioFiles, localAlbums, localTracks } from '@tagave/db';
+import { files, localAlbums, localTracks } from '@tagave/db';
 import {
   VARIOUS_ARTISTS, isVariousArtists, leadingNumberOf, stripTrackNumberPrefix,
   type ManualTagValues, type TagPlanScope,
@@ -195,12 +195,12 @@ export async function albumIdsInFolder(db: Db, libraryId: string, dirPath: strin
   const rows = await db
     .selectDistinct({ id: localTracks.localAlbumId })
     .from(localTracks)
-    .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+    .innerJoin(files, eq(files.id, localTracks.audioFileId))
     .where(and(
-      eq(audioFiles.libraryId, libraryId),
-      eq(audioFiles.status, 'present'),
-      scanRootId ? eq(audioFiles.scanRootId, scanRootId) : undefined,
-      like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+      eq(files.libraryId, libraryId),
+      eq(files.status, 'present'),
+      scanRootId ? eq(files.scanRootId, scanRootId) : undefined,
+      like(files.relPath, `${likeEscape(dir)}/%`),
       sql`${localTracks.localAlbumId} is not null`,
     ));
   return rows.map((r) => r.id).filter((id): id is string => !!id);
@@ -215,25 +215,25 @@ export async function filesInFolder(
 ): Promise<{ files: BulkFileTags[]; albumIds: string[] }> {
   const dir = dirPath.replace(/\/+$/, '');
   const rows = await db
-    .select({ audioFileId: audioFiles.id, tagsRaw: audioFiles.tagsRaw, trackNo: localTracks.trackNo, albumId: localTracks.localAlbumId })
-    .from(audioFiles)
-    .leftJoin(localTracks, eq(localTracks.audioFileId, audioFiles.id))
+    .select({ audioFileId: files.id, tagsRaw: files.tagsRaw, trackNo: localTracks.trackNo, albumId: localTracks.localAlbumId })
+    .from(files)
+    .leftJoin(localTracks, eq(localTracks.audioFileId, files.id))
     .where(and(
-      eq(audioFiles.libraryId, libraryId),
-      eq(audioFiles.status, 'present'),
-      scanRootId ? eq(audioFiles.scanRootId, scanRootId) : undefined,
-      like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+      eq(files.libraryId, libraryId),
+      eq(files.status, 'present'),
+      scanRootId ? eq(files.scanRootId, scanRootId) : undefined,
+      like(files.relPath, `${likeEscape(dir)}/%`),
     ));
   const seen = new Set<string>();
   const albumIds = new Set<string>();
-  const files: BulkFileTags[] = [];
+  const tags: BulkFileTags[] = [];
   for (const r of rows) {
     if (r.albumId) albumIds.add(r.albumId);
     if (seen.has(r.audioFileId)) continue;
     seen.add(r.audioFileId);
-    files.push(bulkTagsFrom(r.tagsRaw, r.trackNo ?? null));
+    tags.push(bulkTagsFrom(r.tagsRaw, r.trackNo ?? null));
   }
-  return { files, albumIds: [...albumIds] };
+  return { files: tags, albumIds: [...albumIds] };
 }
 
 /** The album ids a scope names, checked against the library; library/artist scopes are not bulk-editable. */
@@ -252,10 +252,10 @@ export async function resolveEditableScope(db: Db, libraryId: string, scope: Tag
 export async function filesOfAlbums(db: Db, albumIds: string[]): Promise<BulkFileTags[]> {
   if (albumIds.length === 0) return [];
   const rows = await db
-    .select({ audioFileId: localTracks.audioFileId, trackNo: localTracks.trackNo, tagsRaw: audioFiles.tagsRaw })
+    .select({ audioFileId: localTracks.audioFileId, trackNo: localTracks.trackNo, tagsRaw: files.tagsRaw })
     .from(localTracks)
-    .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
-    .where(and(inArray(localTracks.localAlbumId, albumIds), eq(audioFiles.status, 'present')));
+    .innerJoin(files, eq(files.id, localTracks.audioFileId))
+    .where(and(inArray(localTracks.localAlbumId, albumIds), eq(files.status, 'present')));
   const seen = new Set<string>();
   const out: BulkFileTags[] = [];
   for (const r of rows) {

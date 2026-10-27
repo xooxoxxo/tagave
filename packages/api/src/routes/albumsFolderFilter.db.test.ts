@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import { albumQueryParts } from './albums.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: folder filter (db)', () => {
@@ -25,7 +25,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: folder filter (db)
     ids[name] = id;
     await db.insert(localAlbums).values({ id, libraryId, clusterKey: `${rootId}/${dir}`, dirPaths: [dir], titleGuess: name, artistGuess: 'Test' });
     const fileId = randomUUID();
-    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/01.flac` });
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/01.flac` });
     await db.insert(localTracks).values({ localAlbumId: id, audioFileId: fileId, trackNo: 1 });
   };
 
@@ -54,7 +54,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: folder filter (db)
 
   afterAll(async () => {
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(scanRoots).where(eq(scanRoots.libraryId, libraryId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));

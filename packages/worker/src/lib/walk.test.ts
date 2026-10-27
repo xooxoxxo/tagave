@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { eq, and } from 'drizzle-orm';
-import { audioFiles, libraries, scanDirs, scanRoots, sidecarFiles, users, makeDb } from '@tagave/db';
+import { files, libraries, scanDirs, scanRoots, sidecarFiles, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from './context.js';
 import { walkRoot } from './walk.js';
@@ -30,7 +30,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
   let rootPath: string;
   let root: { id: string; libraryId: string; path: string };
 
-  const rows = async () => db.select().from(audioFiles).where(eq(audioFiles.scanRootId, rootId)) as Promise<Array<{ relPath: string; status: string; sizeBytes: number; mtime: number }>>;
+  const rows = async () => db.select().from(files).where(eq(files.scanRootId, rootId)) as Promise<Array<{ relPath: string; status: string; sizeBytes: number; mtime: number }>>;
   const byPath = async () => new Map((await rows()).map((r) => [r.relPath, r]));
 
   beforeAll(async () => {
@@ -124,7 +124,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
   });
 
   it('reparseErrors re-parses files whose last parse failed even when unchanged', async () => {
-    await db.update(audioFiles).set({ status: 'error' }).where(and(eq(audioFiles.scanRootId, rootId), eq(audioFiles.relPath, 'A/01 - One.mp3')));
+    await db.update(files).set({ status: 'error' }).where(and(eq(files.scanRootId, rootId), eq(files.relPath, 'A/01 - One.mp3')));
     const plain = await walkRoot(ctx, root, { mode: 'full' });
     expect(plain.changed).toBe(0);
     expect((await byPath()).get('A/01 - One.mp3')?.status).toBe('error');

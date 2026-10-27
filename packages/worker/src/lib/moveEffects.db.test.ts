@@ -112,7 +112,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
   });
 
   afterAll(async () => {
-    await sql`delete from audio_files where library_id = ${libraryId}`;
+    await sql`delete from files where library_id = ${libraryId}`;
     await sql`delete from local_albums where library_id = ${libraryId}`;
     await sql`delete from scan_roots where id = ${rootId}`;
     await sql`delete from libraries where id = ${libraryId}`;
@@ -125,9 +125,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     const fresh: string[] = [];
     for (const [k, [from, to]] of pairs.entries()) {
       const common = { library_id: libraryId, scan_root_id: rootId, size_bytes: size + k, duration_ms: 31_000, core_tags_digest: `rp-${size}-${k}` };
-      await sql`insert into audio_files ${sql({ ...common, id: randomUUID(), rel_path: from, status: 'missing', last_seen_at: dayAgo() })}`;
+      await sql`insert into files ${sql({ handler: 'audio', ...common, id: randomUUID(), rel_path: from, status: 'missing', last_seen_at: dayAgo() })}`;
       const id = randomUUID();
-      await sql`insert into audio_files ${sql({ ...common, id, rel_path: to, status: 'present', tags_read_at: new Date().toISOString() })}`;
+      await sql`insert into files ${sql({ handler: 'audio', ...common, id, rel_path: to, status: 'present', tags_read_at: new Date().toISOString() })}`;
       fresh.push(id);
     }
     expect(await placeHolds(ctx, fresh)).toHaveLength(fresh.length);
@@ -194,7 +194,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     const oldSc = await sidecar('Part/folder.jpg');
     await sidecar('Part2/folder.jpg');
     const img = await imageOn(oldSc);
-    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Part/2.flac', size_bytes: 1, status: 'present' })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Part/2.flac', size_bytes: 1, status: 'present' })}`;
     expect(await repointSidecarImages(ctx, [move('Part', 'Part2')])).toBe(0);
     expect(await pointsAt(img)).toBe(oldSc);
   });
@@ -202,10 +202,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
   it('thousands of gone rows: a folder holding only them is unoccupied, and the cover follows', async () => {
     // the gone ids go over once and are anti-joined by index (not `<> all(array)` per row)
     const gone = (await sql`
-      insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, status)
-      select ${libraryId}, ${rootId}, 'Bulk/Album/CD1/' || g || '.flac', g, 'present' from generate_series(1, 3000) g
+      insert into files (library_id, scan_root_id, rel_path, size_bytes, status, handler)
+      select ${libraryId}, ${rootId}, 'Bulk/Album/CD1/' || g || '.flac', g, 'present', 'audio' from generate_series(1, 3000) g
       returning id`).map((r: any) => r.id as string);
-    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Bulk/Other/1.flac', size_bytes: 1, status: 'present' })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Bulk/Other/1.flac', size_bytes: 1, status: 'present' })}`;
     const img = await imageOn(await sidecar('Bulk/Album/folder.jpg'));
     const newSc = await sidecar('Bulk/Album (2001)/folder.jpg');
     expect(await repointSidecarImages(ctx, [move('Bulk/Album/CD1', 'Bulk/Album (2001)/CD1')], gone)).toBe(1);
@@ -224,7 +224,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     await sidecar('Mir2/Other/folder.jpg');
     const follows = await imageOn(await sidecar('Mir/Album/folder.jpg'));
     const newSc = await sidecar('Mir2/Album/folder.jpg');
-    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Mir/Other/1.flac', size_bytes: 1, status: 'present' })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Mir/Other/1.flac', size_bytes: 1, status: 'present' })}`;
     expect(await repointSidecarImages(ctx, [move('Mir/Album/CD1', 'Mir2/Album/CD1')])).toBe(1);
     expect(await pointsAt(follows)).toBe(newSc);
     expect(await pointsAt(stays)).not.toBe(newSc);
@@ -324,7 +324,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player after a move (db)', () =
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`pl-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'PL', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/mnt/music', 'pl')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${fileId}, ${libraryId}, ${rootId}, 'New/1.flac')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${fileId}, ${libraryId}, ${rootId}, 'New/1.flac', 'audio')`;
     [{ id: trackId }] = await sql`insert into local_tracks (audio_file_id) values (${fileId}) returning id`;
   });
 
@@ -357,7 +357,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player after a move (db)', () =
     const discs = ['CD1', 'CD2'].map((d) => ({ d, id: randomUUID() }));
     const merges: MergeDone[] = [];
     for (const { d, id } of discs) {
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album (2001)/${d}/1.flac`})`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album (2001)/${d}/1.flac`}, 'audio')`;
       const [{ id: tid }] = await sql`insert into local_tracks (audio_file_id) values (${id}) returning id`;
       await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${tid}, 'bundled', ${`song-${d}`}, 'path')`;
       merges.push({ kind: 'merged', oldId: id, libraryId, from: { scanRootId: rootId, relPath: `Artist/Album/${d}/1.flac` }, to: { scanRootId: rootId, relPath: `Artist/Album (2001)/${d}/1.flac` }, reparse: false, removedAlbumIds: [] });
@@ -372,7 +372,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player after a move (db)', () =
   /** A file of this library with a track, mapped to the player when songId is given. */
   const fileWithTrack = async (relPath: string, songId?: string) => {
     const id = randomUUID();
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${id}, ${libraryId}, ${rootId}, ${relPath})`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${id}, ${libraryId}, ${rootId}, ${relPath}, 'audio')`;
     const [{ id: tid }] = await sql`insert into local_tracks (audio_file_id) values (${id}) returning id`;
     if (songId) await sql`insert into player_track_map (local_track_id, server_key, song_id, matched_by) values (${tid}, 'bundled', ${songId}, 'path')`;
     return { id, trackId: tid as string };

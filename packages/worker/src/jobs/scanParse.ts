@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { access } from 'node:fs/promises';
-import { parseFile } from 'music-metadata';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, scanRoots } from '@tagave/db';
+import { files, scanRoots } from '@tagave/db';
+import { fileTypeHandler, noNul } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
-import { relDirname, tagsDigest, coreTagsDigest, clusterSingletonKey } from '../lib/helpers.js';
-import { noNul, tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
 import { releaseReadyHolds, sendReleasedCluster } from '../lib/clusterHold.js';
 
 export interface ScanParseJobData {
+  /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
   audioFileIds: string[];
 }
 
@@ -31,20 +31,21 @@ async function openablePath(rootPath: string, relPath: string): Promise<string |
   return null;
 }
 
-/** spec LIB-2: extract audio properties + full tag snapshot; errors are
- * per-file, never batch-fatal. */
+/** spec LIB-2: each file read by its own file-type handler (audio: properties
+ * + full tag snapshot); errors are per-file, never batch-fatal. */
 export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): Promise<void> {
   if (!data.audioFileIds || data.audioFileIds.length === 0) return;
 
   const rows = await ctx.db
     .select({
-      id: audioFiles.id,
-      relPath: audioFiles.relPath,
-      scanRootId: audioFiles.scanRootId,
-      libraryId: audioFiles.libraryId,
+      id: files.id,
+      relPath: files.relPath,
+      scanRootId: files.scanRootId,
+      libraryId: files.libraryId,
+      handler: files.handler,
     })
-    .from(audioFiles)
-    .where(inArray(audioFiles.id, data.audioFileIds));
+    .from(files)
+    .where(inArray(files.id, data.audioFileIds));
   if (rows.length === 0) return;
 
   const rootIds = [...new Set(rows.map((r) => r.scanRootId))];
@@ -55,6 +56,11 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   const rootPathById = new Map(roots.map((r) => [r.id, r.path]));
 
   const dirsTouched = new Map<string, { libraryId: string; scanRootId: string }>();
+  const touch = (row: (typeof rows)[number]) => {
+    dirsTouched.set(`${row.scanRootId}\n${relDirname(row.relPath)}`, { libraryId: row.libraryId, scanRootId: row.scanRootId });
+  };
+  const failed = (id: string, parseError: string) =>
+    ctx.db.update(files).set({ status: 'error', parseError }).where(eq(files.id, id));
 
   for (const row of rows) {
     const rootPath = rootPathById.get(row.scanRootId);
@@ -62,56 +68,38 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
 
     const abs = await openablePath(rootPath, row.relPath);
     if (!abs) {
-      await ctx.db
-        .update(audioFiles)
-        .set({ status: 'error', parseError: 'file not reachable under any normalization form' })
-        .where(eq(audioFiles.id, row.id));
+      await failed(row.id, 'file not reachable under any normalization form');
       // An unreachable file errored too (it counts as parsed), so its folder's hold may be ready.
-      dirsTouched.set(`${row.scanRootId}\n${relDirname(row.relPath)}`, { libraryId: row.libraryId, scanRootId: row.scanRootId });
+      touch(row);
       continue;
     }
 
+    const handler = fileTypeHandler(row.handler);
+    if (!handler) {
+      // A row of a handler this build does not carry (written by a newer one): it cannot be read here.
+      await failed(row.id, `no file-type handler "${row.handler}" in this version`);
+      touch(row);
+      continue;
+    }
     try {
-      const meta = await parseFile(abs, { duration: true });
-      const fmt = meta.format;
-      const tagsRaw = tagSnapshotOf(meta);
-
+      const { columns, metadata } = await handler.parse(abs);
       await ctx.db
-        .update(audioFiles)
+        .update(files)
         .set({
-          container: noNul(fmt.container),
-          codec: noNul(fmt.codec),
-          lossless: fmt.lossless ?? null,
-          durationMs: fmt.duration ? Math.round(fmt.duration * 1000) : null,
-          sampleRate: fmt.sampleRate ?? null,
-          bitDepth: fmt.bitsPerSample ?? null,
-          channels: fmt.numberOfChannels ?? null,
-          bitrateKbps: fmt.bitrate ? Math.round(fmt.bitrate / 1000) : null,
-          hasEmbeddedArt: (meta.common.picture?.length ?? 0) > 0,
-          tagsRaw,
-          tagsDigest: tagsDigest(tagsRaw),
-          coreTagsDigest: coreTagsDigest(tagsRaw),
+          ...columns,
+          tagsRaw: metadata,
+          tagsDigest: tagsDigest(metadata),
+          coreTagsDigest: handler.identityDigest(metadata),
           tagsReadAt: new Date(),
           status: 'present',
           parseError: null,
         })
-        .where(eq(audioFiles.id, row.id));
+        .where(eq(files.id, row.id));
     } catch (err) {
-      await ctx.db
-        .update(audioFiles)
-        .set({
-          status: 'error',
-          // a parser message can quote the file's bytes; Postgres text cannot hold NUL
-          parseError: noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000),
-        })
-        .where(eq(audioFiles.id, row.id));
+      // a parser message can quote the file's bytes; Postgres text cannot hold NUL
+      await failed(row.id, noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000));
     }
-
-    const dir = relDirname(row.relPath);
-    dirsTouched.set(`${row.scanRootId}\n${dir}`, {
-      libraryId: row.libraryId,
-      scanRootId: row.scanRootId,
-    });
+    touch(row);
   }
 
   // Folders whose held rows are now all parsed: release them (Tier 2 runs

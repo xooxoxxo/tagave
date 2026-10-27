@@ -43,7 +43,7 @@ export async function markMissing(
   for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
     const chunk = rows.slice(i, i + UPDATE_BATCH);
     const out = (await ctx.sql`
-      update audio_files af set status = 'missing', missing_held_at = null
+      update files af set status = 'missing', missing_held_at = null
         from unnest(${chunk.map((r) => r.id)}::uuid[], ${chunk.map((r) => r.relPath)}::text[]) as u(id, rel_path)
        where af.id = u.id and af.rel_path = u.rel_path and af.scan_root_id = ${root.id}
          and af.last_seen_at < ${walkStart.toISOString()}::timestamptz and af.status in ('present', 'error')
@@ -108,7 +108,7 @@ export async function dropStaleSidecars(
  */
 async function nearMissing(ctx: Pick<WorkerContext, 'sql'>, rootId: string): Promise<(dir: string) => boolean> {
   const rows = (await ctx.sql`
-    select distinct ${ctx.sql.unsafe(sqlDirname('a'))} as dir from audio_files a
+    select distinct ${ctx.sql.unsafe(sqlDirname('a'))} as dir from files a
      where a.scan_root_id = ${rootId} and a.status = 'missing'`) as unknown as Array<{ dir: string }>;
   const missing = new Set<string>();
   const missingOrAbove = new Set<string>(); // each missing folder and every folder above it
@@ -134,7 +134,7 @@ async function agedHeldIds(ctx: Pick<WorkerContext, 'sql'>, rows: Array<{ id: st
   const out = new Set<string>();
   for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
     const got = (await ctx.sql`
-      select id from audio_files
+      select id from files
        where id = any(${rows.slice(i, i + UPDATE_BATCH).map((r) => r.id)}::uuid[])
          and missing_held_at <= now() - make_interval(hours => ${HOLD_CONFIRM_HOURS})`) as unknown as Array<{ id: string }>;
     for (const r of got) out.add(r.id);
@@ -146,7 +146,7 @@ async function agedHeldIds(ctx: Pick<WorkerContext, 'sql'>, rows: Array<{ id: st
 async function stampHeld(ctx: Pick<WorkerContext, 'sql'>, rows: Array<{ id: string }>): Promise<void> {
   for (let i = 0; i < rows.length; i += UPDATE_BATCH) {
     await ctx.sql`
-      update audio_files set missing_held_at = now()
+      update files set missing_held_at = now()
        where id = any(${rows.slice(i, i + UPDATE_BATCH).map((r) => r.id)}::uuid[]) and missing_held_at is null`;
   }
 }
@@ -160,14 +160,14 @@ async function clearHeldStamps(
   ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, subtree: string, stillGone: ReadonlySet<string>, failed: ReadonlySet<string>,
 ): Promise<void> {
   const stamped = (await ctx.sql`
-    select id, rel_path as "relPath" from audio_files
+    select id, rel_path as "relPath" from files
      where scan_root_id = ${root.id} and missing_held_at is not null`) as unknown as Array<{ id: string; relPath: string }>;
   const prefix = subtree ? subtree + '/' : '';
   const ids = stamped
     .filter((r) => !stillGone.has(r.id) && (prefix === '' || r.relPath.startsWith(prefix)) && !isUnderFailedPath(r.relPath, failed))
     .map((r) => r.id);
   for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
-    await ctx.sql`update audio_files set missing_held_at = null where id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[])`;
+    await ctx.sql`update files set missing_held_at = null where id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[])`;
   }
 }
 

@@ -239,7 +239,7 @@ async function collectionData(sql: Sql, scope: FeedScope, keys: string[]): Promi
       select a.release_group_id::text as key, array_agg(distinct af.codec) as codecs
         from local_albums a
         join local_tracks lt on lt.local_album_id = a.id
-        join audio_files af on af.id = lt.audio_file_id
+        join files af on af.id = lt.audio_file_id
        where a.library_id = ${scope.libraryId} and a.state = 'matched' and a.release_group_id = any(${ids}::uuid[])
          and af.status not in ('missing', 'archived')
        group by a.release_group_id`,

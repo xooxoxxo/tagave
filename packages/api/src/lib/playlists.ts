@@ -57,7 +57,7 @@ async function snapshots(sql: Sql | Tx, ids: readonly string[]): Promise<Map<str
 /** An album's tracks, in disc and track order. */
 export async function albumTrackIds(sql: Sql | Tx, albumId: string): Promise<string[]> {
   const rows = await sql<Array<{ id: string }>>`
-    select lt.id::text as id from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+    select lt.id::text as id from local_tracks lt join files af on af.id = lt.audio_file_id
      where lt.local_album_id = ${albumId}
      order by coalesce(lt.disc_no, 1), lt.track_no nulls last, af.rel_path`;
   return rows.map((r) => r.id);
@@ -271,7 +271,7 @@ export class TrackMatcher {
   private async byPath(path: string): Promise<string | null> {
     if (!this.paths) {
       const rows = await this.sql<Array<{ id: string; rel_path: string }>>`
-        select lt.id::text as id, af.rel_path from local_tracks lt join audio_files af on af.id = lt.audio_file_id where lt.origin = 'file'`;
+        select lt.id::text as id, af.rel_path from local_tracks lt join files af on af.id = lt.audio_file_id where lt.origin = 'file'`;
       this.paths = new Map();
       for (const r of rows) {
         const segs = r.rel_path.replace(/\\/g, '/').toLowerCase().split('/');

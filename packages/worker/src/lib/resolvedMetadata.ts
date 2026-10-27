@@ -10,7 +10,7 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles,
+  files,
   canonicalTracks,
   fieldLocks,
   libraries,
@@ -255,7 +255,7 @@ export async function resolveMetadata(
   audioFileId: string,
   releaseId: string,
 ): Promise<ResolvedMetadata> {
-  const [file] = await ctx.db.select({ id: audioFiles.id }).from(audioFiles).where(eq(audioFiles.id, audioFileId));
+  const [file] = await ctx.db.select({ id: files.id }).from(files).where(eq(files.id, audioFileId));
   if (!file) throw new Error(`Audio file not found: ${audioFileId}`);
   const r = await resolveMetadataForFile(ctx, libraryId, audioFileId);
   if (r.ok && r.value.releaseId === releaseId) return r.value.resolved;

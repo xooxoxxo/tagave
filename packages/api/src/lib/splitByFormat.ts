@@ -10,7 +10,7 @@
  * re-clusters into one album again.
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { albumKeyLock, audioFiles, clusterOverrides, localAlbums, localTracks } from '@tagave/db';
+import { albumKeyLock, files, clusterOverrides, localAlbums, localTracks } from '@tagave/db';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;
@@ -57,18 +57,18 @@ export async function splitAlbumByFormat(
   if (!album) throw new SplitError(404, 'Album not found');
   if (splitOriginOf(album.clusterKey)) throw new SplitError(409, 'This album is already a split-off copy; merge it back first');
 
-  const files = await db
+  const albumFiles = await db
     .select({
-      id: audioFiles.id,
-      relPath: audioFiles.relPath,
-      scanRootId: audioFiles.scanRootId,
-      lossless: audioFiles.lossless,
-      durationMs: audioFiles.durationMs,
+      id: files.id,
+      relPath: files.relPath,
+      scanRootId: files.scanRootId,
+      lossless: files.lossless,
+      durationMs: files.durationMs,
     })
     .from(localTracks)
-    .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+    .innerJoin(files, eq(files.id, localTracks.audioFileId))
     .where(eq(localTracks.localAlbumId, input.albumId));
-  const unique = [...new Map(files.map((f) => [f.id, f])).values()];
+  const unique = [...new Map(albumFiles.map((f) => [f.id, f])).values()];
   const lossless = unique.filter((f) => f.lossless === true);
   const lossy = unique.filter((f) => f.lossless !== true);
   if (lossless.length === 0 || lossy.length === 0) {
@@ -154,9 +154,9 @@ export async function mergeSplitAlbum(
   if (!original) throw new SplitError(409, 'The original album no longer exists');
 
   const pins = await db
-    .select({ audioFileId: clusterOverrides.audioFileId, relPath: audioFiles.relPath, scanRootId: audioFiles.scanRootId })
+    .select({ audioFileId: clusterOverrides.audioFileId, relPath: files.relPath, scanRootId: files.scanRootId })
     .from(clusterOverrides)
-    .innerJoin(audioFiles, eq(audioFiles.id, clusterOverrides.audioFileId))
+    .innerJoin(files, eq(files.id, clusterOverrides.audioFileId))
     .where(eq(clusterOverrides.localAlbumId, album.id));
   const fileIds = pins.map((p) => p.audioFileId);
   const dirs = [...new Map(pins.map((p) => [`${p.scanRootId}\n${relDirname(p.relPath)}`, { scanRootId: p.scanRootId, dirPath: relDirname(p.relPath) }])).values()];
@@ -164,9 +164,9 @@ export async function mergeSplitAlbum(
     // No pins left (merged by hand?): re-cluster the folders the original's
     // own files live in — never a guessed root.
     const originalFiles = await db
-      .select({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .select({ scanRootId: files.scanRootId, relPath: files.relPath })
       .from(localTracks)
-      .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+      .innerJoin(files, eq(files.id, localTracks.audioFileId))
       .where(eq(localTracks.localAlbumId, originalId));
     for (const f of originalFiles) {
       const dirPath = relDirname(f.relPath);
@@ -187,7 +187,7 @@ export async function mergeSplitAlbum(
     from (
       select count(*)::int as n, coalesce(sum(af.duration_ms), 0)::int as dur,
              coalesce(array_agg(distinct lower(regexp_replace(af.rel_path, '^.*\\.', ''))) filter (where af.rel_path like '%.%'), '{}') as formats
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = ${originalId}
     ) s
     where la.id = ${originalId}`);

@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, tagPlans, users,
+  files, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, tagPlans, users,
 } from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilation routes', () => {
     ]);
     for (const [i, albumId] of pieces.entries()) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: fileId, libraryId, scanRootId: rootId, relPath: `${dirOf(i)}/0${i + 1} - T.mp3`, sizeBytes: 1, mtime: 1, status: 'present', durationMs: 1000,
         tagsRaw: { common: { artist: artists[i], albumartist: `0${i + 1}. Stephane Pompougnac`, album: 'Hotel Costes Vol. 11', year: 2008, track: { no: i + 1, of: null } } },
       });

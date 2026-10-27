@@ -44,8 +44,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player on the owner’s own
     await sql`insert into libraries (id, owner_user_id, name, settings) values (${libraryId}, ${cara}, 'Own', '{}'::jsonb)`;
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootId}, ${libraryId}, '/mnt/music', 'Music', 'ok')`;
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state) values (${albumId}, ${libraryId}, ${`ck-${albumId}`}, 'Own Album', 'Own Artist', 'unidentified')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-              values (${fileId}, ${libraryId}, ${rootId}, 'Own Artist/Own Album/01 Only.flac', 'flac', 'FLAC', true, 200000, 'present')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+              values (${fileId}, ${libraryId}, ${rootId}, 'Own Artist/Own Album/01 Only.flac', 'flac', 'FLAC', true, 200000, 'present', 'audio')`;
     await sql`insert into local_tracks (id, local_album_id, audio_file_id, disc_no, track_no, title_guess, artist_guess, duration_ms, origin)
               values (${trackId}, ${albumId}, ${fileId}, 1, 1, 'Only', 'Own Artist', 200000, 'file')`;
     nav.state.albums.push({ id: 'al-own', name: 'Own Album', artist: 'Own Artist', musicBrainzId: '', songs: [{ id: 's-own', title: 'Only', track: 1, discNumber: 1, path: '/srv/music/Own Artist/Own Album/01 Only.flac', duration: 200 }] });

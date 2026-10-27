@@ -1,16 +1,14 @@
 import { createHash } from 'node:crypto';
+import { extOf, stableStringify } from '@tagave/core/files';
 
 /**
  * Pure helpers for the scan/cluster pipeline. Everything here is
  * deterministic and side-effect free so it can be unit-tested without a
- * database or a filesystem.
+ * database or a filesystem. Which files the scanner indexes is the file-type
+ * handlers' call (@tagave/core/files: handlerForName), not a list here.
  */
 
-/** Audio extensions the scanner indexes (spec LIB-2). */
-export const AUDIO_EXTS = new Set([
-  '.flac', '.mp3', '.m4a', '.mp4', '.ogg', '.opus', '.wav', '.aiff', '.aif',
-  '.ape', '.wv', '.dsf', '.dff',
-]);
+export { extOf };
 
 /** Sidecar kinds by extension (spec LIB-2). */
 const SIDECAR_KINDS: Record<string, string> = {
@@ -25,15 +23,6 @@ const SIDECAR_KINDS: Record<string, string> = {
 export function sidecarKind(name: string): string | null {
   const ext = extOf(name);
   return SIDECAR_KINDS[ext] ?? null;
-}
-
-export function extOf(name: string): string {
-  const i = name.lastIndexOf('.');
-  return i <= 0 ? '' : name.slice(i).toLowerCase();
-}
-
-export function isAudioFile(name: string): boolean {
-  return AUDIO_EXTS.has(extOf(name));
 }
 
 /**
@@ -273,67 +262,6 @@ export function clusterKey(
 /** Stable sha1 digest of a tag snapshot, key-order independent. */
 export function tagsDigest(tags: unknown): string {
   return createHash('sha1').update(stableStringify(tags)).digest('hex');
-}
-
-const CORE_TEXT_FIELDS = ['artist', 'albumartist', 'album', 'title'] as const;
-const CORE_MBID_FIELDS = [
-  'musicbrainz_recordingid', 'musicbrainz_trackid', 'musicbrainz_albumid',
-  'musicbrainz_releasegroupid', 'musicbrainz_albumartistid', 'musicbrainz_artistid',
-] as const;
-
-function coreScalar(v: unknown): string {
-  if (typeof v === 'string') return v.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
-  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
-  if (typeof v === 'boolean') return String(v);
-  return '';
-}
-
-/** Multi-value tags are sorted after normalizing, so tag order from another
- * library version or a rewrite does not change the digest. */
-function coreText(v: unknown): string {
-  return Array.isArray(v) ? v.map(coreScalar).sort().join('\u0001') : coreScalar(v);
-}
-
-const YEAR4 = /(?<!\d)([12]\d{3})(?!\d)/;
-
-/** One year rule for `year` and `date`, so both spellings give one digest: a 4-digit year 1000-2999. */
-function yearOf(v: unknown): number | null {
-  if (typeof v === 'number') return Number.isInteger(v) && v >= 1000 && v <= 2999 ? v : null;
-  if (typeof v !== 'string') return null;
-  const m = YEAR4.exec(v);
-  return m ? Number(m[1]) : null;
-}
-
-/**
- * Tier 2's tag signature (move-safe scanning §1, R13): a hash of the fields a
- * move never changes, normalized so a tag-library upgrade (spacing, case,
- * Unicode form, a full date instead of a year) does not hide a pair. Null for
- * a file with none of them: untagged files would all look alike.
- */
-export function coreTagsDigest(tagsRaw: unknown): string | null {
-  const common = (tagsRaw as { common?: Record<string, unknown> } | null)?.common;
-  if (!common || typeof common !== 'object') return null;
-  const no = (k: string): number | null => {
-    const v = (common[k] as { no?: unknown } | undefined)?.no;
-    const n = typeof v === 'number' ? v : typeof v === 'string' ? parseInt(v, 10) : NaN;
-    return Number.isFinite(n) && n > 0 ? n : null;
-  };
-  const year = yearOf(common['year']) ?? yearOf(common['date']);
-  const text = Object.fromEntries(CORE_TEXT_FIELDS.map((k) => [k, coreText(common[k])]));
-  const mbids = Object.fromEntries(CORE_MBID_FIELDS.map((k) => [k, coreText(common[k])]));
-  const track = no('track');
-  const disc = no('disk');
-  const any = Object.values(text).some(Boolean) || Object.values(mbids).some(Boolean) || track !== null;
-  if (!any) return null;
-  return createHash('sha1').update(stableStringify({ v: 1, ...text, ...mbids, track, disc, year })).digest('hex');
-}
-
-function stableStringify(v: unknown): string {
-  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
-  if (Array.isArray(v)) return '[' + v.map(stableStringify).join(',') + ']';
-  const o = v as Record<string, unknown>;
-  const keys = Object.keys(o).sort();
-  return '{' + keys.map((k) => JSON.stringify(k) + ':' + stableStringify(o[k])).join(',') + '}';
 }
 
 /** Escapes LIKE wildcards (and the escape character) so a rel path matches literally. */

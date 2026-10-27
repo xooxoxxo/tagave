@@ -16,10 +16,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
   const ctx = () => ({ sql });
   const file = async (root: string, relPath: string, over: Record<string, unknown> = {}) => {
     const id = randomUUID();
-    await sql`insert into audio_files ${sql({ id, library_id: libraryId, scan_root_id: root, rel_path: relPath, size_bytes: 10, mtime: 100, status: 'present', ...over })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id, library_id: libraryId, scan_root_id: root, rel_path: relPath, size_bytes: 10, mtime: 100, status: 'present', ...over })}`;
     return id;
   };
-  const row = async (id: string) => (await sql`select scan_root_id, rel_path, status, size_bytes::float8 as size, mtime::float8 as mtime from audio_files where id = ${id}`)[0];
+  const row = async (id: string) => (await sql`select scan_root_id, rel_path, status, size_bytes::float8 as size, mtime::float8 as mtime from files where id = ${id}`)[0];
 
   beforeAll(async () => {
     sql = (await makeDb(process.env.TEST_DATABASE_URL!)).client;
@@ -60,14 +60,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
 
   it('copies the parse of a parsed fresh row (Tier 2) instead of re-parsing', async () => {
     // This client binds jsonb raw: JSON text cast in SQL (repo pattern), not sql.json().
-    const setTags = (id: string, title: string) => sql`update audio_files set tags_raw = ${JSON.stringify({ common: { title } })}::text::jsonb where id = ${id}`;
+    const setTags = (id: string, title: string) => sql`update files set tags_raw = ${JSON.stringify({ common: { title } })}::text::jsonb where id = ${id}`;
     const oldId = await file(rootA, 'X/3.flac', { status: 'missing' });
     await setTags(oldId, 'old');
     const freshId = await file(rootA, 'Q/3.flac', { mtime: 5, tags_read_at: new Date().toISOString(), core_tags_digest: 'cd', duration_ms: 1234 });
     await setTags(freshId, 'new');
     const out = await mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath: 'X/3.flac' }, walkStart: null, allowAbsorb: false });
     expect(out).toMatchObject({ kind: 'merged', reparse: false });
-    const [r] = await sql`select tags_raw, core_tags_digest, duration_ms from audio_files where id = ${oldId}`;
+    const [r] = await sql`select tags_raw, core_tags_digest, duration_ms from files where id = ${oldId}`;
     expect(r).toMatchObject({ tags_raw: { common: { title: 'new' } }, core_tags_digest: 'cd', duration_ms: 1234 });
   });
 
@@ -84,7 +84,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
   it('skips when the old row is no longer where the snapshot saw it', async () => {
     const oldId = await file(rootA, 'X/5.flac', { status: 'missing' });
     const freshId = await file(rootA, 'V/5.flac');
-    await sql`update audio_files set rel_path = 'Moved/5.flac' where id = ${oldId}`;
+    await sql`update files set rel_path = 'Moved/5.flac' where id = ${oldId}`;
     const out = await mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath: 'X/5.flac' }, walkStart: null, allowAbsorb: false });
     expect(out).toEqual({ kind: 'skipped', reason: 'old_moved' });
   });
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
   });
   it('Tier 1: an old row last seen before the walk began merges', async () => {
     const oldId = await file(rootA, 'X/7.flac');
-    await sql`update audio_files set last_seen_at = now() - interval '1 hour' where id = ${oldId}`;
+    await sql`update files set last_seen_at = now() - interval '1 hour' where id = ${oldId}`;
     const freshId = await file(rootA, 'T/7.flac');
     const out = await mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath: 'X/7.flac' }, walkStart: new Date(Date.now() - 60_000), allowAbsorb: false });
     expect(out).toMatchObject({ kind: 'merged', oldId, reparse: false });
@@ -144,7 +144,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
 
   it('keeps an unparseable (error) row as error when nothing changed and nothing was parsed', async () => {
     const oldId = await file(rootA, 'X/10.flac');
-    await sql`update audio_files set status = 'error', last_seen_at = now() - interval '1 hour' where id = ${oldId}`;
+    await sql`update files set status = 'error', last_seen_at = now() - interval '1 hour' where id = ${oldId}`;
     const freshId = await file(rootA, 'P/10.flac');
     const out = await mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath: 'X/10.flac' }, walkStart: new Date(Date.now() - 60_000), allowAbsorb: false });
     expect(out).toMatchObject({ kind: 'merged', reparse: false });
@@ -166,7 +166,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
       const freshId = await file(rootA, 'O/12.flac', { status: 'error', parse_error: 'bad header' });
       const out = await merge(oldId, freshId, 'X/12.flac');
       expect(out).toMatchObject({ kind: 'merged', reparse: false });
-      const [r] = await sql`select status, parse_error from audio_files where id = ${oldId}`;
+      const [r] = await sql`select status, parse_error from files where id = ${oldId}`;
       expect(r).toEqual({ status: 'error', parse_error: 'bad header' });
     });
 
@@ -198,7 +198,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
 
     it('clears audio hash and fingerprint when the bytes changed, keeps them when not', async () => {
       const ident = { audio_hash: 'h1', audio_hash_at: new Date().toISOString(), fingerprint: 'fp', fingerprint_duration: 120, fingerprinted_at: new Date().toISOString() };
-      const read = async (id: string) => (await sql`select audio_hash, fingerprint, fingerprint_duration, audio_hash_at is null as no_hash_at, fingerprinted_at is null as no_fp_at from audio_files where id = ${id}`)[0];
+      const read = async (id: string) => (await sql`select audio_hash, fingerprint, fingerprint_duration, audio_hash_at is null as no_hash_at, fingerprinted_at is null as no_fp_at from files where id = ${id}`)[0];
 
       const changedOld = await file(rootA, 'X/15.flac', { status: 'missing', ...ident });
       const changedFresh = await file(rootA, 'L/15.flac', { size_bytes: 11 });
@@ -223,9 +223,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
   const setup = async () => {
     const oldAlbum = randomUUID(); const freshAlbum = randomUUID();
     const oldId = randomUUID(); const freshId = randomUUID();
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status) values
-              (${oldId}, ${libraryId}, ${rootA}, ${`X/${oldId}.flac`}, 10, 'missing'),
-              (${freshId}, ${libraryId}, ${rootB}, ${`X/${freshId}.flac`}, 10, 'present')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, size_bytes, status, handler) values
+              (${oldId}, ${libraryId}, ${rootA}, ${`X/${oldId}.flac`}, 10, 'missing', 'audio'),
+              (${freshId}, ${libraryId}, ${rootB}, ${`X/${freshId}.flac`}, 10, 'present', 'audio')`;
     await sql`insert into local_albums (id, library_id, cluster_key, state) values
               (${oldAlbum}, ${libraryId}, ${`o:${oldAlbum}`}, 'matched'), (${freshAlbum}, ${libraryId}, ${`f:${freshAlbum}`}, 'pending')`;
     const [ot] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${oldAlbum}, ${oldId}) returning id`;
@@ -264,7 +264,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
     const out = await mergeFilePair(ctx(), req(s));
     expect(out).toMatchObject({ kind: 'absorbed', oldId: s.oldId, removedAlbumIds: [s.freshAlbum] });
     expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(0);
-    expect((await sql`select rel_path, scan_root_id, status from audio_files where id = ${s.oldId}`)[0]).toMatchObject({ scan_root_id: rootB, status: 'present' });
+    expect((await sql`select rel_path, scan_root_id, status from files where id = ${s.oldId}`)[0]).toMatchObject({ scan_root_id: rootB, status: 'present' });
     expect((await sql`select local_track_id, local_album_id from player_plays where dedupe_key = ${`p-${s.freshId}`}`)[0])
       .toEqual({ local_track_id: s.oldTrack, local_album_id: s.oldAlbum });
   });
@@ -315,7 +315,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
     await touch(s);
     const out = await mergeFilePair(ctx(), req(s));
     expect(out).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
-    expect(await sql`select 1 from audio_files where id = ${s.freshId}`).toHaveLength(1);
+    expect(await sql`select 1 from files where id = ${s.freshId}`).toHaveLength(1);
     expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1);
   });
 
@@ -393,8 +393,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
     /** A second old/fresh file pair on the same two albums. */
     const addPair = async (s: Awaited<ReturnType<typeof setup>>, oldOver: { album?: string | null } = {}) => {
       const o = randomUUID(); const f = randomUUID();
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status) values
-                (${o}, ${libraryId}, ${rootA}, ${`X/${o}.flac`}, 10, 'missing'), (${f}, ${libraryId}, ${rootB}, ${`X/${f}.flac`}, 10, 'present')`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, size_bytes, status, handler) values
+                (${o}, ${libraryId}, ${rootA}, ${`X/${o}.flac`}, 10, 'missing', 'audio'), (${f}, ${libraryId}, ${rootB}, ${`X/${f}.flac`}, 10, 'present', 'audio')`;
       const oldAlbum = 'album' in oldOver ? oldOver.album : s.oldAlbum;
       if (oldAlbum !== null) await sql`insert into local_tracks (local_album_id, audio_file_id) values (${oldAlbum ?? null}, ${o})`;
       await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.freshAlbum}, ${f})`;
@@ -417,11 +417,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
     it('pair 3 of 3 failing its check leaves the whole fresh album (and all three pairs) alone', async () => {
       const s = await setup();
       const p2 = await addPair(s); const p3 = await addPair(s);
-      await sql`update audio_files set rel_path = ${`Y/${p3.oldId}.flac`} where id = ${p3.oldId}`; // moved since the snapshot
+      await sql`update files set rel_path = ${`Y/${p3.oldId}.flac`} where id = ${p3.oldId}`; // moved since the snapshot
       const outs = await mergeFilePairs(ctx(), [req(s), p2.req, p3.req]);
       expect(outs).toEqual([{ kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'old_moved' }]);
       expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.freshAlbum}`).toEqual([{ n: 3 }]);
-      expect(await sql`select count(*)::int as n from audio_files where id = any(${[s.oldId, p2.oldId]}::uuid[]) and status = 'missing'`).toEqual([{ n: 2 }]);
+      expect(await sql`select count(*)::int as n from files where id = any(${[s.oldId, p2.oldId]}::uuid[]) and status = 'missing'`).toEqual([{ n: 2 }]);
     });
 
     it('a track lock on one file of the fresh album makes all its pairs fall back', async () => {
@@ -497,7 +497,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
                 values (${userId}, ${libraryId}, ${s.freshAlbum}, now() - interval '1 hour', now(), 1, 1)`;
       expect(await mergeFilePair(ctx(), req(s))).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
       expect(await sql`select count(*)::int as n from player_listens where local_album_id = ${s.freshAlbum}`).toEqual([{ n: 1 }]);
-      expect((await sql`select status from audio_files where id = ${s.oldId}`)[0].status).toBe('missing');
+      expect((await sql`select status from files where id = ${s.oldId}`)[0].status).toBe('missing');
     });
 
     it('a fresh listen that the old album already has is dropped as a duplicate, not a reason to fall back', async () => {
@@ -516,8 +516,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
     it('the kept listen\'s tracks heard and end are counted again from the plays it took over', async () => {
       const s = await setup();
       const extraId = randomUUID();
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status)
-                values (${extraId}, ${libraryId}, ${rootA}, ${`X/${extraId}.flac`}, 11, 'present')`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, size_bytes, status, handler)
+                values (${extraId}, ${libraryId}, ${rootA}, ${`X/${extraId}.flac`}, 11, 'present', 'audio')`;
       const [extra] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.oldAlbum}, ${extraId}) returning id`;
       const at = Date.now() - 3_600_000;
       const iso = (offsetS: number) => new Date(at + offsetS * 1000).toISOString();
