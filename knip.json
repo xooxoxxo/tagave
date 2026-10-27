@@ -4,10 +4,12 @@
     "packages/web": {
       "entry": [
         "storybook-tests/*.pw.ts",
-        "storybook-tests/serve.mjs"
+        "storybook-tests/serve.mjs",
+        "pwa-tests/*.pw.ts"
       ],
       "ignore": [
-        "storybook-static/**"
+        "storybook-static/**",
+        "sw/sw.js"
       ]
     }
   }

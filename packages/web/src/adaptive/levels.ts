@@ -1,34 +1,80 @@
 /**
  * Levels for the equalizer glow, from the music itself: the player's two
- * <audio> elements routed through one Web Audio AnalyserNode.
+ * <audio> elements read by one Web Audio AnalyserNode.
  *
  * - The stream is same-origin (/api/v1/player/stream/:id, proxied by the api),
  *   so the analyser reads real samples.
- * - Routing is one-way: createMediaElementSource keeps an element on the
- *   AudioContext for the life of the page. Turning the glow off stops reading
- *   levels; the sound keeps flowing through the context untouched.
- * - Never on iOS or iPadOS: there the context is suspended in the background
- *   and the music would stop (player/engine.ts keeps plain elements for this).
- *   The glow there, and wherever a context cannot start, is the calm one.
- * - An element is routed only once the context is running, so a context the
- *   browser holds suspended can never silence playback.
+ * - Where the browser can copy an element's sound (captureStream: Chrome,
+ *   Edge, Chrome on Android), the analyser reads the copy and the music never
+ *   passes through Web Audio. A context the browser suspends (the phone
+ *   locked, a call, a Bluetooth switch in a car) then only stills the glow;
+ *   it can never silence the music. This is the only way it runs on a phone.
+ * - Elsewhere on a desktop (Firefox, Safari), the elements are routed through
+ *   the context (createMediaElementSource, one-way for the life of the page),
+ *   and the context is resumed whenever it stops while music plays.
+ * - Never on iOS or iPadOS, nor on another phone without captureStream: the
+ *   glow there, and wherever a context cannot start, is the calm one.
+ * - Elements join only once the context is running.
  */
 import { mediaElements } from '../player/engine';
+import { isAppleMobile } from '../player/platform';
 
 export const BANDS = 3;
 
 let ctx: AudioContext | null = null;
 let analyser: AnalyserNode | null = null;
-const routed = new WeakSet<HTMLMediaElement>();
+const joined = new WeakSet<HTMLMediaElement>();
+/** some element's sound runs through the context (the analyser then feeds the speakers) */
+let routing = false;
 
-/** iPhone, iPod, iPad, and an iPad that reports itself as a Mac. */
-export function isAppleMobile(nav: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> | undefined = globalThis.navigator): boolean {
+type Capturable = HTMLMediaElement & { captureStream?: () => MediaStream };
+
+/** The element's sound can be copied without taking it off the speakers. */
+export function canCapture(el: HTMLMediaElement | undefined = globalThis.HTMLMediaElement?.prototype as HTMLMediaElement | undefined): boolean {
+  return typeof (el as Capturable | undefined)?.captureStream === 'function';
+}
+
+/** A phone or tablet: Android's "Mobi"/"Android", or iOS. */
+export function isMobile(nav: Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> | undefined = globalThis.navigator): boolean {
   if (!nav) return false;
-  return /iP(hone|ad|od)/.test(nav.userAgent) || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
+  return isAppleMobile(nav) || /Android|Mobi/i.test(nav.userAgent);
 }
 
 export function analyserAllowed(): boolean {
-  return typeof AudioContext !== 'undefined' && !isAppleMobile();
+  if (typeof AudioContext === 'undefined' || isAppleMobile()) return false;
+  return canCapture() || !isMobile();
+}
+
+/** The analyser reads a copy of the element's sound; the element plays on as before. */
+function captureInto(el: HTMLMediaElement, context: AudioContext, node: AnalyserNode) {
+  const stream = (el as Capturable).captureStream!();
+  const sources = new Map<string, MediaStreamAudioSourceNode>();
+  // a new src gives the stream a new track; the old one is removed
+  const add = (track: MediaStreamTrack) => {
+    if (track.kind !== 'audio' || sources.has(track.id)) return;
+    const source = context.createMediaStreamSource(new MediaStream([track]));
+    source.connect(node);
+    sources.set(track.id, source);
+  };
+  const drop = (track: MediaStreamTrack) => {
+    sources.get(track.id)?.disconnect();
+    sources.delete(track.id);
+  };
+  stream.getAudioTracks().forEach(add);
+  stream.addEventListener('addtrack', (e) => add(e.track));
+  stream.addEventListener('removetrack', (e) => drop(e.track));
+}
+
+/** The elements' sound runs through the context: it must never stay stopped while they play. */
+function routeInto(el: HTMLMediaElement, context: AudioContext, node: AnalyserNode) {
+  const wake = () => { if (context.state !== 'running') void context.resume().catch(() => undefined); };
+  if (!routing) {
+    routing = true;
+    node.connect(context.destination);
+    context.addEventListener('statechange', () => { if (mediaElements().some((m) => !m.paused)) wake(); });
+  }
+  context.createMediaElementSource(el).connect(node);
+  el.addEventListener('play', wake);
 }
 
 /**
@@ -47,12 +93,12 @@ export async function playerAnalyser(): Promise<AnalyserNode | null> {
       analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.7;
-      analyser.connect(ctx.destination);
     }
     for (const el of els) {
-      if (routed.has(el)) continue;
-      ctx.createMediaElementSource(el).connect(analyser);
-      routed.add(el);
+      if (joined.has(el)) continue;
+      if (canCapture(el)) captureInto(el, ctx, analyser);
+      else routeInto(el, ctx, analyser);
+      joined.add(el);
     }
     return analyser;
   } catch {

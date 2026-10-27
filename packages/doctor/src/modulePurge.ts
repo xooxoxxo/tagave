@@ -32,7 +32,6 @@
  */
 import type postgres from 'postgres';
 import { MODULES, type ModuleManifest } from '@tagave/core/facets';
-import { moduleEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
 
@@ -45,8 +44,12 @@ export interface ModuleData {
   history: { table: string; where: string } | null;
   /** Set in the app's environment while the module is on: the purge refuses then. */
   onWhenEnv: readonly string[];
-  /** A module switched in the database (the module ledger): on, the purge refuses. */
-  onWhenSettings?: (sql: Sql) => Promise<boolean>;
+  /**
+   * A module switched in the database (the module ledger): on, the purge
+   * refuses. Asked inside the purge's transaction, holding the switch's row
+   * until it commits, so the module cannot be turned on halfway through.
+   */
+  onWhenSettings?: (tx: postgres.TransactionSql) => Promise<boolean>;
   /**
    * Another part still uses some of these tables (the player: a server of
    * the owner's own, Settings › Playback). `libraries` finds the libraries
@@ -86,7 +89,7 @@ export function moduleDataOf(m: ModuleManifest): ModuleData {
     librarySettingsKeys: [],
     history: null,
     onWhenEnv: [],
-    onWhenSettings: (sql) => moduleEnabled(sql, m.id),
+    onWhenSettings: (tx) => moduleOnLocked(tx, m.id),
   };
 }
 
@@ -156,6 +159,12 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
   },
 };
 
+/** The module's ledger switch, its row locked for the rest of the transaction (no row: off). */
+async function moduleOnLocked(tx: postgres.TransactionSql, id: string): Promise<boolean> {
+  const [row] = await tx<{ enabled: boolean }[]>`select enabled from installed_modules where id = ${id} for update`;
+  return row?.enabled === true;
+}
+
 export class PurgeRefused extends Error {}
 
 export interface PurgeResult {
@@ -182,10 +191,10 @@ export async function purgeModuleData(
   const env = opts.env ?? process.env;
   const on = data.onWhenEnv.filter((k) => (env[k] ?? '').trim() !== '');
   if (on.length) throw new PurgeRefused(`${moduleId} is still on here (${on.join(', ')} is set); turn it off first`);
-  if (data.onWhenSettings && (await data.onWhenSettings(sql))) throw new PurgeRefused(`${moduleId} is still on here (Settings › Modules); turn it off first`);
   const deleteHistory = opts.deleteHistory === true;
 
   return sql.begin(async (tx) => {
+    if (data.onWhenSettings && (await data.onWhenSettings(tx))) throw new PurgeRefused(`${moduleId} is still on here (Settings › Modules); turn it off first`);
     const exists = await tx<{ name: string }[]>`
       select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
       where n.nspname = current_schema() and c.relkind = 'r' and c.relname = any(${[...data.tables]}::text[])`;

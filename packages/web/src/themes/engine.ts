@@ -25,6 +25,7 @@
 import { Contrast, Hct, SchemeContent, SchemeTonalSpot, TonalPalette, argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import type { ThemeChoice, ThemeId, ThemeSpec } from '@tagave/shared';
 import { BRAND_TOKENS } from '../adaptive/brand';
+import { auroraHues, auroraTokens } from '../adaptive/aurora';
 
 export type { ThemeChoice, ThemeId, ThemeSpec };
 
@@ -142,7 +143,8 @@ export function generate(spec: ThemeSpec, dark: boolean): Generated {
   const barInk2 = s.tone(toneFor(s, T(30, 80), [bar], 5, dark));
   const barAccent = live.tone(toneFor(live, T(40, 80), [bar], 3.2, dark));
   const barDanger = err.tone(toneFor(err, T(40, 80), [bar], 4.6, dark));
-  const glow = live.tone(T(70, 50));
+  // the equalizer glow: an aurora in the second accent's and the seed's hues (adaptive/aurora.ts)
+  const aurora = auroraTokens(auroraHues(live.hue, p.hue), bar, { texts: [barInk, barInk2], marks: [barAccent] });
   const hex = hexFromArgb;
   const tokens: Record<string, string> = {
     '--canvas': hex(canvas), '--surface': hex(surface), '--mist': hex(mist), '--mist-2': hex(mist2),
@@ -151,7 +153,7 @@ export function generate(spec: ThemeSpec, dark: boolean): Generated {
     '--dew': hex(dew), '--dew-hi': hex(p.tone(T(55, 90))), '--dew-lo': hex(p.tone(T(30, 65))), '--dew-press': hex(p.tone(T(25, 85))),
     '--dew-ink': hex(dewInk), '--dew-tint': hex(tint), '--chip-on-ink': hex(chipInk), '--ring': hex(ring),
     '--danger': hex(danger),
-    '--seek-glow': hex(glow),
+    ...aurora,
     '--glass': `rgba(${rgbOf(n.tone(T(99, 16)))}, ${T(0.62, 0.55)})`,
     '--shadow-tint': rgbOf(n.tone(T(20, 0))),
     '--wash': `radial-gradient(1200px 600px at 80% -10%, rgba(${rgbOf(p.tone(T(90, 25)))}, ${T(0.5, 0.4)}), transparent 70%)`,

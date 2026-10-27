@@ -18,7 +18,7 @@
  * Owner, 2026-10-20: "instead open up a section in that place above the
  * user (on desktop) as if it was a hidden compartment that was revealed".
  */
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { SegmentedControl, type SegmentedOption } from './ui/SegmentedControl';
 import { useThemePreference, type ThemePreference } from '../theme';
 import styles from './AccountCompartment.module.css';
@@ -34,6 +34,8 @@ export interface AccountCompartmentProps {
   closeKey?: string;
   /** Open on first render (stories). */
   defaultOpen?: boolean;
+  /** the equalizer glow's piece under the row, beside the player bar (BarGlow) */
+  glow?: ReactNode;
   className?: string;
 }
 
@@ -49,7 +51,7 @@ const themeOptions: SegmentedOption<ThemePreference>[] = [
   { value: 'system', label: 'Auto' },
 ];
 
-export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, signingOut = false, closeKey, defaultOpen = false, className }: AccountCompartmentProps) {
+export function AccountCompartment({ name, email, onAccount, onListening, onSignOut, signingOut = false, closeKey, defaultOpen = false, className, glow }: AccountCompartmentProps) {
   const [open, setOpen] = useState(defaultOpen);
   const [theme, setTheme] = useThemePreference();
   const id = useId();
@@ -148,6 +150,7 @@ export function AccountCompartment({ name, email, onAccount, onListening, onSign
         aria-label={`Account: ${shown}`}
         onClick={toggle}
       >
+        {glow}
         <span className={styles.tile} aria-hidden="true">{initial}</span>
         <span className={styles.text} aria-hidden="true">
           <span className={styles.name}>{shown}</span>

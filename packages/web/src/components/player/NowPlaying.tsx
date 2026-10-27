@@ -100,7 +100,7 @@ function Credits({ track, onNavigate }: { track: QueueEntry; onNavigate?: (() =>
   );
 }
 
-function Seek({ t, glow }: { t: NowPlayingTransport; glow?: ReactNode }) {
+function Seek({ t }: { t: NowPlayingTransport }) {
   const [scrub, setScrub] = useState<number | null>(null);
   const total = t.duration && Number.isFinite(t.duration) && t.duration > 0 ? t.duration : null;
   const shown = Math.min(scrub ?? t.position, total ?? Number.POSITIVE_INFINITY);
@@ -108,9 +108,7 @@ function Seek({ t, glow }: { t: NowPlayingTransport; glow?: ReactNode }) {
   const commit = () => { if (scrub != null) t.onSeek(scrub); setScrub(null); };
   return (
     <div className={styles.seek}>
-      {/* the range and, under it, the equalizer glow (SeekGlow), as in the player bar */}
       <span className={bar.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
-        {glow}
         <input
           type="range"
           className={bar.range}
@@ -205,8 +203,6 @@ export function NowPlayingView(p: NowPlayingViewProps) {
 
 export interface NowPlayingScreenProps extends NowPlayingViewProps, NowPlayingTransport {
   initialSegment?: 'playing' | 'queue';
-  /** the equalizer glow under the seek bar (SeekGlow) */
-  glow?: ReactNode;
 }
 
 /** Phone: the full screen, Playing | Queue. */
@@ -230,7 +226,7 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
         <div className={styles.screenBody}>
           <CoverArt src={p.track.coverUrl} title={p.track.album} className={styles.screenCover} />
           <Names track={p.track} onNavigate={p.onNavigate} />
-          <Seek t={p} glow={p.glow} />
+          <Seek t={p} />
           <Keys t={p} />
           {next ? (
             <button type="button" className={styles.peek} onClick={() => { setTab('next'); setSegment('queue'); }}>
@@ -265,16 +261,19 @@ export interface MiniPlayerProps {
   onToggle: () => void;
   onNext: () => void;
   onRetry: () => void;
+  /** the equalizer glow, behind the mini bar's content (BarGlow) */
+  glow?: ReactNode;
 }
 
 /** Phone: the mini bar at the foot of the screen. */
-export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry }: MiniPlayerProps) {
+export function MiniPlayer({ track, status, position, duration, canNext, message, onOpen, onToggle, onNext, onRetry, glow }: MiniPlayerProps) {
   const total = duration && duration > 0 ? duration : null;
   const fill = total ? Math.min(100, Math.max(0, (position / total) * 100)) : 0;
   const busy = status === 'loading' || status === 'buffering';
   const failed = status === 'error';
   return (
     <section className={styles.mini} aria-label="Player" data-status={status}>
+      {status === 'error' ? null : glow}
       <span className={styles.miniProgress} style={{ '--fill': `${fill}%` } as CSSProperties} aria-hidden="true" />
       <button type="button" className={styles.miniOpen} data-mini-open="" onClick={onOpen} aria-label={`Now playing: ${track.title}, ${track.artist}. Open the player`}>
         <CoverArt src={track.coverUrl} title={track.album} compact className={styles.miniCover} />

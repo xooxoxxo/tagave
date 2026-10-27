@@ -13,7 +13,14 @@ import bar from '../components/PlayerBar.module.css';
 
 const noop = () => undefined;
 
-export function DesktopFrame({ children, dock, empty = false, compartmentOpen = false }: { children: ReactNode; dock: ReactNode; empty?: boolean; compartmentOpen?: boolean }) {
+export function DesktopFrame({ children, dock, accountGlow, empty = false, compartmentOpen = false }: {
+  children: ReactNode;
+  dock: ReactNode;
+  /** the equalizer glow's piece under the account row */
+  accountGlow?: ReactNode;
+  empty?: boolean;
+  compartmentOpen?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -59,7 +66,7 @@ export function DesktopFrame({ children, dock, empty = false, compartmentOpen = 
             {link('Settings')}
           </nav>
           <div className={layout.account} data-account-row="">
-            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} />
+            <AccountCompartment name="Oytun" email="owner@example.com" defaultOpen={compartmentOpen} onAccount={noop} onListening={noop} onSignOut={noop} glow={accountGlow} />
           </div>
         </div>
       </aside>

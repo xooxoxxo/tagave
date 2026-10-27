@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { hexFromArgb } from '@material/material-color-utilities';
+import { argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import { CUSTOM_START, STARTERS, generate, generatedSpec, hctOf, minRatios, withHue, type ThemeSpec } from './engine';
+import { auroraHolds, coreShows } from '../adaptive/aurora';
+
+/** The theme's equalizer glow inside its bar keeps the bar's inks at their rules at the glow's peak. */
+function glowHoldsIn(spec: ThemeSpec, dark: boolean): boolean {
+  const t = generate(spec, dark).tokens;
+  const a = (k: string) => argbFromHex(t[k]!);
+  const veils = [1, 2, 3].map((i) => a(`--aur-veil-${i}`)), cores = [1, 2, 3].map((i) => a(`--aur-core-${i}`));
+  return auroraHolds(a('--th-bar'), veils, cores, { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] })
+    // and its brightest core stands apart from the bar: apparent at a glance
+    && Math.max(...cores.map((c) => coreShows(c, a('--th-bar')))) >= 1.35;
+}
 
 /** a seeded random, so a failure names a seed that can be replayed */
 function rng(seed: number) {
@@ -12,6 +23,7 @@ describe('theme engine', () => {
   it('every starter holds every pair in light and dark', () => {
     for (const [id, spec] of Object.entries(STARTERS)) {
       for (const dark of [false, true]) {
+        expect(glowHoldsIn(spec, dark), `${id} ${dark ? 'dark' : 'light'}: the bar's inks over the glow`).toBe(true);
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${id} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }
@@ -23,10 +35,11 @@ describe('theme engine', () => {
       const hex = () => hexFromArgb((0xff000000 | Math.floor(r() * 0xffffff)) >>> 0);
       const spec: ThemeSpec = { seed: hex(), accent2: i % 2 ? hex() : null, mono: i % 7 === 0 };
       for (const dark of [false, true]) {
+        expect(glowHoldsIn(spec, dark), `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'}: the bar's inks over the glow`).toBe(true);
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }
-  });
+  }, 30_000); // hundreds of seeds: CI runners are slower than a laptop
 
   it('reports the lowest ratios', () => {
     const m = minRatios(STARTERS.moody, true);

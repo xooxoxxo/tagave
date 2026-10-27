@@ -29,12 +29,15 @@ import { ToastHost } from './components/ui/Toast';
 import { startDiagnostics } from './services/diagnostics';
 import { installChunkErrorReload } from './services/buildCheck';
 import { NewBuildNotice } from './components/NewBuildNotice';
+import { registerServiceWorker } from './services/serviceWorker';
 
 applyTheme(readThemePreference());
 // off unless switched on in the console (services/diagnostics.ts)
 startDiagnostics();
 // a lazy page whose file is gone (the app was updated): one reload into the new build
 installChunkErrorReload();
+// installable on a phone, the app shell kept for a fast start (built bundles only)
+registerServiceWorker();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Failed to find the root element');

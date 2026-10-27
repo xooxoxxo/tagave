@@ -26,7 +26,12 @@
 @property --ad-bar-line { syntax: '<color>'; inherits: true; initial-value: #c3ccd5; }
 @property --ad-bar-accent { syntax: '<color>'; inherits: true; initial-value: #276a82; }
 @property --ad-bar-danger { syntax: '<color>'; inherits: true; initial-value: #a83a36; }
-@property --ad-glow { syntax: '<color>'; inherits: true; initial-value: #5ba8c4; }
+@property --ad-aur-core-1 { syntax: '<color>'; inherits: true; initial-value: #00aedb; }
+@property --ad-aur-core-2 { syntax: '<color>'; inherits: true; initial-value: #4756ff; }
+@property --ad-aur-core-3 { syntax: '<color>'; inherits: true; initial-value: #00b59e; }
+@property --ad-aur-veil-1 { syntax: '<color>'; inherits: true; initial-value: #93dfff; }
+@property --ad-aur-veil-2 { syntax: '<color>'; inherits: true; initial-value: #cfd1ff; }
+@property --ad-aur-veil-3 { syntax: '<color>'; inherits: true; initial-value: #00fedf; }
 
 :root[data-adaptive][data-adaptive] {
   --dew: var(--ad-accent);
@@ -37,7 +42,12 @@
   --dew-tint: var(--ad-tint);
   --chip-on-ink: var(--ad-chip);
   --ring: var(--ad-ring);
-  --seek-glow: var(--ad-glow);
+  --aur-core-1: var(--ad-aur-core-1);
+  --aur-core-2: var(--ad-aur-core-2);
+  --aur-core-3: var(--ad-aur-core-3);
+  --aur-veil-1: var(--ad-aur-veil-1);
+  --aur-veil-2: var(--ad-aur-veil-2);
+  --aur-veil-3: var(--ad-aur-veil-3);
   --canvas: var(--ad-canvas);
   --wash: radial-gradient(1200px 600px at 80% -10%, var(--ad-wash), transparent 70%);
   /* the legacy names, restated: on :root they resolved against the theme's own --dew */
@@ -55,7 +65,7 @@
   --focus-ring: 2px solid var(--ring);
   --bg-primary: var(--canvas);
   --bg-nav: var(--canvas);
-  transition-property: --ad-accent, --ad-accent-hi, --ad-accent-lo, --ad-accent-press, --ad-accent-hover, --ad-accent-ink, --ad-tint, --ad-chip, --ad-ring, --ad-canvas, --ad-wash, --ad-bar, --ad-bar-ink, --ad-bar-ink-2, --ad-bar-line, --ad-bar-accent, --ad-bar-danger, --ad-glow;
+  transition-property: --ad-accent, --ad-accent-hi, --ad-accent-lo, --ad-accent-press, --ad-accent-hover, --ad-accent-ink, --ad-tint, --ad-chip, --ad-ring, --ad-canvas, --ad-wash, --ad-bar, --ad-bar-ink, --ad-bar-ink-2, --ad-bar-line, --ad-bar-accent, --ad-bar-danger, --ad-aur-core-1, --ad-aur-core-2, --ad-aur-core-3, --ad-aur-veil-1, --ad-aur-veil-2, --ad-aur-veil-3;
   transition-duration: 600ms;
   transition-timing-function: ease;
 }

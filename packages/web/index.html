@@ -6,6 +6,14 @@
     <link rel="icon" type="image/svg+xml" href="/tagave-mark.svg" />
     <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Installable on a phone's home screen (public/manifest.webmanifest, src/services/serviceWorker.ts). Colours: tokens.css --canvas. -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0d1115" media="(prefers-color-scheme: dark)" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="tagave" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="color-scheme" content="light dark" />
     <!-- Apply the saved theme before first paint so a dark choice never flashes light. Mirrors src/theme.ts. -->
     <script>try{var t=localStorage.getItem('tagave-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>

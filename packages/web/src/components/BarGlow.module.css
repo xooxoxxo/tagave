@@ -1,0 +1,109 @@
+/*
+ * The aurora (BarGlow.tsx): three curtains behind each strip's content (the
+ * strip isolates it; the glow sits at z-index -1, over the strip's own
+ * fill), clipped to the strip. A curtain is two layers laid out across the
+ * whole window (--x0, --vw), twice its width so its drift loops without a
+ * seam: a veil, the hues at about the bar's own lightness, rising up the
+ * strip and fading out at its top; and a core, the vivid hues, only along
+ * the bottom edge (gone by 13 % of the strip's height, under the text; see
+ * adaptive/aurora.ts). Vertical streaks run through both, and the whole
+ * piece is softened. Only transform and opacity move.
+ */
+.glow {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  filter: blur(3px);
+}
+
+/* a curtain's height and brightness: settled, a dim low ember (paused) */
+.curtain {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  transform: scaleY(0.32);
+  opacity: 0.4;
+  transition: transform 2.4s var(--ease-out, ease), opacity 2.4s var(--ease-out, ease);
+  will-change: transform, opacity;
+}
+.glow[data-playing="true"] .curtain { transform: scaleY(0.72); opacity: 0.85; }
+/* following the music: every frame writes height and brightness */
+.glow[data-mode="live"][data-playing="true"] .curtain,
+.glow[data-mode="still"] .curtain { transition: none; }
+
+/* its place across the window, and its lean */
+.drift {
+  position: absolute;
+  bottom: 0;
+  left: var(--x0, 0px);
+  width: calc(var(--vw, 100vw) * 2);
+  height: 100%;
+  transform-origin: 50% 100%;
+  will-change: transform;
+}
+
+.veil,
+.core {
+  position: absolute;
+  inset: 0;
+  /* streaks: the curtain's folds, fainter between */
+  --streaks: repeating-linear-gradient(90deg, black 0 11px, color-mix(in srgb, black 55%, transparent) 15px, black 22px, color-mix(in srgb, black 70%, transparent) 29px, black 37px);
+}
+
+/* the veil: the hues at the bar's lightness, 75 % strong, fading up the strip */
+.veil {
+  -webkit-mask-image: linear-gradient(to top, black, color-mix(in srgb, black 85%, transparent) 25%, color-mix(in srgb, black 35%, transparent) 65%, transparent), var(--streaks);
+  mask-image: linear-gradient(to top, black, color-mix(in srgb, black 85%, transparent) 25%, color-mix(in srgb, black 35%, transparent) 65%, transparent), var(--streaks);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+/* the core: the vivid hues along the bottom edge only */
+.core {
+  -webkit-mask-image: linear-gradient(to top, black, black 5%, transparent 13%), var(--streaks);
+  mask-image: linear-gradient(to top, black, black 5%, transparent 13%), var(--streaks);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+/* each curtain runs the three hues in its own order, so where they cross the colours blend */
+.curtain[data-curtain="1"] .veil { background: linear-gradient(90deg, var(--v1), var(--v2) 16.67%, var(--v3) 33.33%, var(--v1) 50%, var(--v2) 66.67%, var(--v3) 83.33%, var(--v1)); }
+.curtain[data-curtain="2"] .veil { background: linear-gradient(90deg, var(--v2), var(--v3) 16.67%, var(--v1) 33.33%, var(--v2) 50%, var(--v3) 66.67%, var(--v1) 83.33%, var(--v2)); }
+.curtain[data-curtain="3"] .veil { background: linear-gradient(90deg, var(--v3), var(--v1) 16.67%, var(--v2) 33.33%, var(--v3) 50%, var(--v1) 66.67%, var(--v2) 83.33%, var(--v3)); }
+.curtain[data-curtain="1"] .core { background: linear-gradient(90deg, var(--c1), var(--c2) 16.67%, var(--c3) 33.33%, var(--c1) 50%, var(--c2) 66.67%, var(--c3) 83.33%, var(--c1)); }
+.curtain[data-curtain="2"] .core { background: linear-gradient(90deg, var(--c2), var(--c3) 16.67%, var(--c1) 33.33%, var(--c2) 50%, var(--c3) 66.67%, var(--c1) 83.33%, var(--c2)); }
+.curtain[data-curtain="3"] .core { background: linear-gradient(90deg, var(--c3), var(--c1) 16.67%, var(--c2) 33.33%, var(--c3) 50%, var(--c1) 66.67%, var(--c2) 83.33%, var(--c3)); }
+
+.glow {
+  --v1: color-mix(in srgb, var(--aur-veil-1) 75%, transparent);
+  --v2: color-mix(in srgb, var(--aur-veil-2) 75%, transparent);
+  --v3: color-mix(in srgb, var(--aur-veil-3) 75%, transparent);
+  --c1: color-mix(in srgb, var(--aur-core-1) 85%, transparent);
+  --c2: color-mix(in srgb, var(--aur-core-2) 85%, transparent);
+  --c3: color-mix(in srgb, var(--aur-core-3) 85%, transparent);
+}
+
+/* no levels (iOS, or Web Audio would not start): a slow drift and a slow breath, in CSS */
+.glow[data-mode="calm"][data-playing="true"] .drift { animation: drift 70s linear infinite; }
+.glow[data-mode="calm"][data-playing="true"] [data-curtain="2"] .drift { animation-duration: 93s; animation-direction: reverse; }
+.glow[data-mode="calm"][data-playing="true"] [data-curtain="3"] .drift { animation-duration: 116s; }
+.glow[data-mode="calm"][data-playing="true"] .curtain { animation: breathe 9s ease-in-out infinite; }
+.glow[data-mode="calm"][data-playing="true"] [data-curtain="2"] { animation-delay: -3s; }
+.glow[data-mode="calm"][data-playing="true"] [data-curtain="3"] { animation-delay: -6s; }
+@keyframes drift { to { transform: translateX(-50%); } }
+@keyframes breathe {
+  0%, 100% { transform: scaleY(0.62); opacity: 0.78; }
+  50% { transform: scaleY(0.86); opacity: 0.95; }
+}
+
+/* reduced motion: a still aurora */
+@media (prefers-reduced-motion: reduce) {
+  .glow .curtain,
+  .glow .drift { animation: none !important; transition: none; }
+}
+
+@media (forced-colors: active) {
+  .glow { display: none; }
+}
