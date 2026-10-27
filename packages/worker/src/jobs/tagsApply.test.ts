@@ -248,3 +248,15 @@ describe('tagsApply job', () => {
     expect(true).toBe(true);
   });
 });
+
+import { fileStateAfterWrite } from './tagsApply.js';
+import { coreTagsDigest, tagsDigest } from '../lib/helpers.js';
+
+describe('fileStateAfterWrite', () => {
+  it('stores mtime in seconds and both digests, like scan.parse', () => {
+    const raw = { common: { title: 'T', artist: 'A' }, native: {} };
+    const s = fileStateAfterWrite({ size: 1234, mtimeMs: 1_760_000_000_987, dev: 3, ino: 44 }, raw, 'h');
+    expect(s).toMatchObject({ sizeBytes: 1234, mtime: 1_760_000_000, inode: '3:44', tagsDigest: tagsDigest(raw), coreTagsDigest: coreTagsDigest(raw), audioHash: 'h' });
+    expect(s.tagsReadAt).toBeInstanceOf(Date);
+  });
+});

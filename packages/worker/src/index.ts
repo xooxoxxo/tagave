@@ -11,6 +11,7 @@ import { scanDirJob, type ScanDirJobData } from './jobs/scanDir.js';
 import { scanSweepJob, type ScanSweepJobData } from './jobs/scanSweep.js';
 import { rootsValidateJob, type RootsValidateJobData } from './jobs/rootsValidate.js';
 import { scanParseJob, type ScanParseJobData } from './jobs/scanParse.js';
+import { filesBackfillDigestJob, type FilesBackfillDigestJobData } from './jobs/filesBackfillDigest.js';
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { clusterRepairDiscsJob, type ClusterRepairDiscsJobData } from './jobs/clusterRepairDiscs.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
@@ -76,6 +77,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'scan.sweep': 'stately',
   // Sibling disc folders resolve to one scope; two jobs on it must not interleave.
   'cluster.dir': 'stately',
+  // enqueued at every boot; one run at a time, one queued behind it
+  'files.backfillDigest': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
   'artists.refresh': 'stately',
@@ -217,13 +220,16 @@ async function main() {
     await boss.schedule('scan.sweep', '*/10 * * * *', {}, { singletonKey: 'scan.sweep' });
   }
 
-  if (wants('scan.parse')) await boss.work<ScanParseJobData>(
-    'scan.parse',
-    { batchSize: 4, pollingIntervalSeconds: 1 },
-    async (jobs) => {
+  if (wants('scan.parse')) {
+    await boss.work<ScanParseJobData>('scan.parse', { batchSize: 4, pollingIntervalSeconds: 1 }, async (jobs) => {
       await Promise.all(jobs.map((job) => scanParseJob(ctx, job.data)));
-    },
-  );
+    });
+    // core_tags_digest for rows parsed before 0052 (move-safe scanning §3)
+    await boss.work<FilesBackfillDigestJobData>('files.backfillDigest', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await filesBackfillDigestJob(ctx, job.data ?? {});
+    });
+    await boss.send('files.backfillDigest', {}, { singletonKey: 'files.backfillDigest' });
+  }
 
   if (wants('cluster.dir')) await boss.work<ClusterDirJobData>('cluster.dir', { batchSize: 6 }, async (jobs) => {
     await Promise.all(jobs.map((job) => clusterDirJob(ctx, job.data)));

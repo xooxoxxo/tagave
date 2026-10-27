@@ -25,7 +25,7 @@ import path from 'node:path';
 import type { TagDiffEntry } from '@tagave/shared';
 import { tagSnapshotOf } from '../lib/tagSnapshot.js';
 import { localTracks } from '@tagave/db';
-import { clusterSingletonKey, relDirname } from '../lib/helpers.js';
+import { clusterSingletonKey, coreTagsDigest, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
 
 export interface TagsApplyJobData {
@@ -360,7 +360,8 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
           // Success: update item with journal and audio file metadata
           // Re-read the file to get final metadata
           const metadata = await parseFile(fullPath);
-          const stats = await fs.stat(fullPath);
+          // bigint: 64-bit inode numbers lose precision as a JS number (as the walk stats)
+          const stats = await fs.stat(fullPath, { bigint: true });
 
           // Same snapshot shape scan.parse stores; a bare common block here
           // made preview, identify and the lint read the file as untagged.
@@ -380,15 +381,10 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
             })
             .where(eq(tagPlanItems.id, item.id));
 
-          // Update audio_files with new metadata
+          // Update audio_files in the walk's units, with fresh digests
           await db
             .update(audioFiles)
-            .set({
-              sizeBytes: Number(stats.size),
-              mtime: stats.mtime?.getTime(),
-              tagsRaw: rawTags,
-              audioHash: hashBefore,
-            })
+            .set(fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, rawTags, hashBefore))
             .where(eq(audioFiles.id, item.audioFileId));
 
           logger.info({ itemId: item.id, audioFileId: item.audioFileId }, 'Tag apply: success');
@@ -496,6 +492,29 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   }
 
   await relintTouchedAlbums(ctx, libraryId, fileIds);
+}
+
+/**
+ * The audio_files columns after tagave wrote a file, in the walk's units:
+ * mtime in whole seconds (it was milliseconds, so the next walk saw every
+ * written file as changed and re-parsed it), dev:ino, and both digests (the
+ * old tags_digest stayed stale; core_tags_digest feeds move detection).
+ */
+export function fileStateAfterWrite(
+  stats: { size: number | bigint; mtimeMs: number; dev: number | bigint; ino: number | bigint },
+  rawTags: unknown,
+  audioHash: string,
+) {
+  return {
+    sizeBytes: Number(stats.size),
+    mtime: Math.floor(stats.mtimeMs / 1000),
+    inode: `${stats.dev}:${stats.ino}`,
+    tagsRaw: rawTags,
+    tagsDigest: tagsDigest(rawTags),
+    coreTagsDigest: coreTagsDigest(rawTags),
+    tagsReadAt: new Date(),
+    audioHash,
+  };
 }
 
 /**
