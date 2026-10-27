@@ -26,6 +26,7 @@ import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
 import { SettingsUsersPage } from './SettingsUsersPage';
 import { SettingsAccountPage } from './SettingsAccountPage';
+import { CUSTOM_THEME_SECTION, CustomThemeScreen, ThemeSetting } from '../themes/ThemeSetting';
 import { NotAvailable } from '../components/access/NotAvailable';
 import { useRole } from '../hooks/usePermissions';
 import { useModuleOn } from '../hooks/useFacets';
@@ -60,6 +61,8 @@ const sections: Section[] = [
   { value: 'setup-checklist', label: 'Setup checklist', group: 'System', permission: 'system.manage', unlisted: true },
   { value: 'account', label: 'Account', group: 'Account' },
   { value: 'appearance', label: 'Appearance', group: 'Account' },
+  // Appearance › Theme › Custom, a screen of its own on a phone
+  { value: CUSTOM_THEME_SECTION, label: 'Custom theme', group: 'Account', unlisted: true },
   { value: 'security', label: 'Security', group: 'Account' },
   { value: 'listening', label: 'Listening', group: 'Account' },
   // Listen elsewhere: the streaming platforms each person's Listen control offers
@@ -93,22 +96,25 @@ export function SettingsPage() {
   // On a phone /settings is the list of sections and each section its own
   // page: the top bar shows a back key to the list and the section's name.
   const view = useLocation().pathname.split('/')[2] ? 'section' : 'list';
-  usePhoneSubpage(view === 'section' ? known?.label ?? null : null, '/settings');
-  const navRef = useActiveInView<HTMLElement>(section);
+  // Custom theme is a part of Appearance: its way back, and the section the nav marks
+  const parent = section === CUSTOM_THEME_SECTION ? 'appearance' : section;
+  usePhoneSubpage(view === 'section' ? known?.label ?? null : null, parent === section ? '/settings' : `/settings/${parent}`);
+  const navRef = useActiveInView<HTMLElement>(parent);
   const { libraryId } = useCurrentLibrary();
   // the release feed is the owner's: nobody else is asked about it
   const updateAvailable = useUpdateAvailable(can(role, 'system.manage') ? libraryId : undefined);
   const canMaintain = can(role, 'library.edit');
   return <PageShell title="Settings" sticky>
     <div className={styles.layout} data-view={view}>
-      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === section ? styles.activeSection : styles.sectionLink} aria-current={item.value === section ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
+      <nav ref={navRef} className={styles.sectionNav} aria-label="Settings sections">{visible.map((item, i) => <div key={item.value}>{item.group !== visible[i - 1]?.group && <p className={styles.groupLabel}>{item.group}</p>}<Link to="/settings/$section" params={{ section: item.value }} className={item.value === parent ? styles.activeSection : styles.sectionLink} aria-current={item.value === parent ? 'page' : undefined}>{item.label}{item.value === 'updates' && updateAvailable && <UpdateDot />}</Link></div>)}</nav>
       <div className={styles.content}>
         {!allowed ? <NotAvailable inline /> : <>
         {section === 'library' && <SettingsScanRootsContent />}
         {section === 'metadata' && <SettingsTagWritesContent />}
         {section === 'genre-mapping' && <SettingsGenresContent />}
         {section === 'following' && <SettingsFollowRulesContent />}
-        {section === 'appearance' && <><h2>Appearance</h2><ThemeSwitch />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
+        {section === 'appearance' && <><h2>Appearance</h2><ThemeSwitch /><ThemeSetting headingClassName={styles.modeSetting} />{canMaintain && <MaintenanceSetting />}<DisplaySettings /></>}
+        {section === CUSTOM_THEME_SECTION && <><h2>Custom theme</h2><CustomThemeScreen /></>}
         {section === 'users' && <><h2>Users</h2><SettingsUsersPage /></>}
         {section === 'account' && <><h2>Account</h2><SettingsAccountPage /></>}
         {section === 'providers' && <><h2>Integrations</h2><SettingsProvidersPage /></>}
@@ -185,9 +191,6 @@ function DisplaySettings() {
     <h2 className={styles.modeSetting}>Artist page</h2>
     
     <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
-    <h2 className={styles.modeSetting}>Adaptive colours</h2>
-    
-    <SegmentedControl label="Adaptive colours" value={prefs.adaptiveColour ? 'on' : 'off'} onChange={(v) => setPrefs({ adaptiveColour: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
     <h2 className={styles.modeSetting}>Equalizer glow</h2>
     
     <SegmentedControl label="Equalizer glow" value={prefs.eqGlow ? 'on' : 'off'} onChange={(v) => setPrefs({ eqGlow: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
