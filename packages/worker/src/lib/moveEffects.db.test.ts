@@ -198,6 +198,25 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     expect(await pointsAt(img)).toBe(oldSc);
   });
 
+  it('thousands of gone rows: a folder holding only them is unoccupied, and the cover follows', async () => {
+    // the gone ids go over once and are anti-joined by index (not `<> all(array)` per row)
+    const gone = (await sql`
+      insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, status)
+      select ${libraryId}, ${rootId}, 'Bulk/Album/CD1/' || g || '.flac', g, 'present' from generate_series(1, 3000) g
+      returning id`).map((r: any) => r.id as string);
+    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Bulk/Other/1.flac', size_bytes: 1, status: 'present' })}`;
+    const img = await imageOn(await sidecar('Bulk/Album/folder.jpg'));
+    const newSc = await sidecar('Bulk/Album (2001)/folder.jpg');
+    expect(await repointSidecarImages(ctx, [move('Bulk/Album/CD1', 'Bulk/Album (2001)/CD1')], gone)).toBe(1);
+    expect(await pointsAt(img)).toBe(newSc);
+    // without the gone ids the same rows occupy the folder and nothing moves
+    const oldBack = await sidecar('Bulk/Album/back.jpg');
+    const img2 = await imageOn(oldBack);
+    await sidecar('Bulk/Album (2001)/back.jpg');
+    expect(await repointSidecarImages(ctx, [move('Bulk/Album/CD1', 'Bulk/Album (2001)/CD1')])).toBe(0);
+    expect(await pointsAt(img2)).toBe(oldBack);
+  });
+
   it('the climb stops below a parent that still holds audio (mirrored trees)', async () => {
     // Mir/Album/CD1 -> Mir2/Album/CD1 would strip to Mir -> Mir2, but Mir still has another album
     const stays = await imageOn(await sidecar('Mir/Other/folder.jpg'));

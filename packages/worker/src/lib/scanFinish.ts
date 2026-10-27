@@ -95,7 +95,9 @@ export async function dropStaleSidecars(
 /**
  * Whether a folder has a missing audio row in it, under it or above it (up to
  * the root's top). One query for the root's distinct missing folders (by
- * scan_root_id and status), then set lookups per path level.
+ * scan_root_id and status), then set lookups per path level. Per the ruling,
+ * "above" includes the root's top: one missing row there ('' folder) keeps
+ * every stale image-bearing sidecar in that root (rows linger, no cover lost).
  */
 async function nearMissing(ctx: Pick<WorkerContext, 'sql'>, rootId: string): Promise<(dir: string) => boolean> {
   const rows = (await ctx.sql`

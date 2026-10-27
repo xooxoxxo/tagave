@@ -51,35 +51,44 @@ const BATCH = 500;
 /**
  * Old-side folders that still hold audio: a present or errored row under them
  * that is not one of this run's old rows (those are known gone from there:
- * Tier 1's unseen rows, or missing rows). One range scan of
- * idx_audio_files_relpath_prefix per folder, stopping at the first row.
+ * Tier 1's unseen rows, or missing rows). The gone ids go over once per run,
+ * into a temp table with a primary key (dropped at commit) that each probe
+ * anti-joins by index: `<> all(array)` is not hashed and compared every row
+ * with every id (11 s against 28 ms for 20k gone rows under 50 folders), and a
+ * CTE got a nested-loop anti join on the root-top probe. Each nested folder is
+ * one range scan of idx_audio_files_relpath_prefix stopping at the first row;
+ * the root's top ('') is probed per root. All in one transaction (one session).
  */
 async function occupiedDirs(ctx: Pick<WorkerContext, 'sql'>, dirs: Array<{ rootId: string; dir: string }>, goneIds: string[]): Promise<Set<string>> {
-  const sql = ctx.sql;
   const out = new Set<string>();
-  const nested = dirs.filter((d) => d.dir !== '');
-  for (let i = 0; i < nested.length; i += BATCH) {
-    const chunk = nested.slice(i, i + BATCH);
-    const rows = (await sql`
-      select d.root_id, d.dir from unnest(${chunk.map((d) => d.rootId)}::uuid[], ${chunk.map((d) => d.dir)}::text[]) as d(root_id, dir)
+  if (dirs.length === 0) return out;
+  const rows = await ctx.sql.begin(async (tx) => {
+    await tx`create temp table move_gone (id uuid primary key) on commit drop`;
+    if (goneIds.length > 0) {
+      await tx`insert into move_gone select distinct g.id from unnest(${goneIds}::uuid[]) as g(id)`;
+      await tx`analyze move_gone`;
+    }
+    return (await tx`
+      with d as (select * from unnest(${dirs.map((d) => d.rootId)}::uuid[], ${dirs.map((d) => d.dir)}::text[]) as d(root_id, dir))
+      select d.root_id, d.dir from d
       cross join lateral (
         select 1 from audio_files a
          where a.scan_root_id = d.root_id
            and a.rel_path ~>=~ (d.dir || '/') and a.rel_path ~<~ (d.dir || '0')
-           and a.status in ('present', 'error') and a.id <> all(${goneIds}::uuid[])
-         limit 1) x`) as unknown as Array<{ root_id: string; dir: string }>;
-    for (const r of rows) out.add(dirKey(r.root_id, r.dir));
-  }
-  const tops = [...new Set(dirs.filter((d) => d.dir === '').map((d) => d.rootId))];
-  if (tops.length) {
-    const rows = (await sql`
-      select r.root_id from unnest(${tops}::uuid[]) as r(root_id)
+           and a.status in ('present', 'error')
+           and not exists (select 1 from move_gone g where g.id = a.id)
+         limit 1) x
+       where d.dir <> ''
+      union all
+      select d.root_id, d.dir from d
       cross join lateral (
         select 1 from audio_files a
-         where a.scan_root_id = r.root_id and a.status in ('present', 'error') and a.id <> all(${goneIds}::uuid[])
-         limit 1) x`) as unknown as Array<{ root_id: string }>;
-    for (const r of rows) out.add(dirKey(r.root_id, ''));
-  }
+         where a.scan_root_id = d.root_id and a.status in ('present', 'error')
+           and not exists (select 1 from move_gone g where g.id = a.id)
+         limit 1) x
+       where d.dir = ''`) as unknown as Array<{ root_id: string; dir: string }>;
+  }) as unknown as Array<{ root_id: string; dir: string }>;
+  for (const r of rows) out.add(dirKey(r.root_id, r.dir));
   return out;
 }
 
