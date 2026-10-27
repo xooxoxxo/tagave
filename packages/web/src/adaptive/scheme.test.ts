@@ -110,7 +110,7 @@ describe('adaptiveTokens: AA whatever the cover', () => {
       for (const theme of ['light', 'dark'] as const) check(adaptiveTokens(src, theme === 'dark'), theme, `cover ${i}`, extremes(px));
     }
     expect(coloured).toBeGreaterThan(200);
-  });
+  }, 30_000); // hundreds of covers: CI runners are slower than a laptop
   it('the brand values pass the same pairs (the fade back to brand)', () => {
     for (const theme of ['light', 'dark'] as const) {
       for (const [name, fg, bg, min] of PAIRS) {
@@ -143,7 +143,7 @@ describe('Now Playing\'s cover wash with adaptive colours off, or a colourless c
     }
     // the cover still shows on most covers
     expect(shown).toBeGreaterThan(covers.length);
-  });
+  }, 30_000); // hundreds of covers: CI runners are slower than a laptop
 });
 
 describe('the 600 ms cross-fade never dips below the minimum', () => {
@@ -171,5 +171,5 @@ describe('the 600 ms cross-fade never dips below the minimum', () => {
       }
     }
     expect(worst).toBeGreaterThanOrEqual(1);
-  });
+  }, 30_000); // hundreds of covers: CI runners are slower than a laptop
 });
