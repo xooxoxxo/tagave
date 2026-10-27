@@ -73,15 +73,18 @@ export interface AutotaggerModuleView {
 
 /**
  * One library's autotagger settings. `keyHint` (the last four characters of
- * the API key) is for the owner only; everyone else gets null.
+ * the API key) and `config.payloadSeenBy` are for the owner only; everyone
+ * else gets null.
  */
 export interface AutotaggerLibraryView {
   enabled: boolean;
   keySet: boolean;
   keyHint: string | null;
   config: AutotaggerConfig;
-  /** what this calendar month's calls cost (UTC) */
+  /** what this calendar month's calls cost (UTC), in `currency` */
   spentThisMonth: number;
+  /** this month's calls in any other currency (after the currency was changed); usually empty */
+  spentOther: Array<{ currency: string; amount: number }>;
   currency: string;
 }
 

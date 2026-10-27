@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCookie from '@fastify/cookie';
 import postgres from 'postgres';
-import { syncInstalledModules } from '@tagave/db';
+import { markPayloadSeen, syncInstalledModules } from '@tagave/db';
 import { ledgerEntries } from '@tagave/core/facets';
 import { openSecret } from '@tagave/core';
 import type { AuthHandle } from '@tagave/auth';
@@ -102,7 +102,7 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
     }
     const view = await get(`/libraries/${lib}/autotagger`);
     expect(view.statusCode).toBe(200);
-    expect(view.json()).toMatchObject({ enabled: false, keySet: false, keyHint: null, spentThisMonth: 0, currency: 'USD', config: { model: 'jev-latest' } });
+    expect(view.json()).toMatchObject({ enabled: false, keySet: false, keyHint: null, spentThisMonth: 0, spentOther: [], currency: 'USD', config: { model: 'jev-latest' } });
     expect((await get(`/libraries/${randomUUID()}/autotagger`)).statusCode).toBe(404);
     expect((await get('/libraries/not-a-uuid/autotagger')).statusCode).toBe(404);
   });
@@ -165,21 +165,29 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
     const albumId = randomUUID();
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state) values (${albumId}, ${lib}, ${`ck-${albumId}`}, 'A', 'B', 'needs_review')`;
     const [run] = await sql<Array<{ id: string }>>`insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population) values (${lib}, 'jev', 's1', 'jev-latest', 'needs_review') returning id::text as id`;
-    const call1 = (hash: string, cost: number, at: string) => sql`
+    const call1 = (hash: string, cost: number, at: string, currency = 'EUR') => sql`
       insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version, request_bytes, input_tokens, cost, currency, answers, created_at)
-      values (${lib}, ${albumId}, ${run!.id}, ${hash.padEnd(64, '0')}, 's1', 'jev', 'jev-2026-09-15', 100, 1000, ${cost}, 'EUR', '{}'::jsonb, ${at}::timestamptz)`;
+      values (${lib}, ${albumId}, ${run!.id}, ${hash.padEnd(64, '0')}, 's1', 'jev', 'jev-2026-09-15', 100, 1000, ${cost}, ${currency}, '{}'::jsonb, ${at}::timestamptz)`;
     await call1('a', 0.25, new Date().toISOString());
     await call1('b', 0.5, new Date().toISOString());
     await call1('c', 9, '2020-01-15T00:00:00Z');
+    // a call from before the currency was changed: apart, never added in
+    await call1('d', 0.1, new Date().toISOString(), 'USD');
     await sql`insert into decider_decisions (run_id, local_album_id, outcome) values (${run!.id}, ${albumId}, 'none')`;
     expect((await get('/settings/autotagger')).json()).toMatchObject({ enabled: true, runs: 1, decisions: 1 });
-    expect((await get(`/libraries/${lib}/autotagger`)).json().spentThisMonth).toBeCloseTo(0.75, 6);
+    const v = (await get(`/libraries/${lib}/autotagger`)).json();
+    expect(v.currency).toBe('EUR');
+    expect(v.spentThisMonth).toBeCloseTo(0.75, 6);
+    expect(v.spentOther).toEqual([{ currency: 'USD', amount: 0.1 }]);
   });
 
-  it('an editor sees the library view without the key hint and cannot change anything', async () => {
+  it('an editor sees the library view without the key hint or who saw the payload, and cannot change anything', async () => {
+    await markPayloadSeen(sql, lib, owner.userId);
+    expect((await get(`/libraries/${lib}/autotagger`)).json().config.payloadSeenBy).toBe(owner.userId);
     const v = await call(editor, 'GET', `/libraries/${lib}/autotagger`);
     expect(v.statusCode).toBe(200);
-    expect(v.json()).toMatchObject({ keySet: true, keyHint: null, enabled: true });
+    expect(v.json()).toMatchObject({ keySet: true, keyHint: null, enabled: true, config: { payloadSeenBy: null } });
+    expect(v.json().config.payloadSeenAt).toEqual(expect.any(String));
     expect((await call(editor, 'PATCH', `/libraries/${lib}/autotagger/config`, { monthlyCap: 1 })).statusCode).toBe(403);
     expect((await call(editor, 'PUT', `/libraries/${lib}/autotagger/key`, { key: PLAIN_KEY })).statusCode).toBe(403);
     expect((await call(editor, 'GET', '/settings/autotagger')).statusCode).toBe(403);
@@ -200,6 +208,19 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
     await put(`/libraries/${lib}/autotagger/key`, { key: PLAIN_KEY });
   });
 
+  it('audits setting and clearing the key with the library and who, never the key or its hint', async () => {
+    const rows = await sql<Array<{ action: string; library_id: string; actor_user_id: string; subject_id: string; payload: unknown }>>`
+      select action, library_id::text, actor_user_id::text, subject_id::text, payload from audit_log where action like 'autotagger.key_%' order by at`;
+    expect(rows.map((r) => r.action)).toEqual(['autotagger.key_set', 'autotagger.key_cleared', 'autotagger.key_set']);
+    for (const r of rows) {
+      expect(r).toMatchObject({ library_id: lib, actor_user_id: owner.userId, subject_id: lib, payload: null });
+      const text = JSON.stringify(r);
+      expect(text).not.toContain(PLAIN_KEY.slice(0, 16));
+      expect(text).not.toContain('cdef');
+      expect(text).not.toContain('enc:');
+    }
+  });
+
   it('deleting its data needs a fresh step-up, turns it off, empties its tables and leaves accept batches', async () => {
     const [batch] = await sql<Array<{ id: string }>>`insert into decider_batches (library_id, decider_id, decided_kind) values (${lib}, 'jev', 'model') returning id::text as id`;
     expect((await stale(() => post('/settings/autotagger/remove-data', {}))).statusCode).toBe(403);
@@ -208,37 +229,51 @@ describe.skipIf(!adminUrl)('autotagger settings routes (integration, scratch db)
     const r = await post('/settings/autotagger/remove-data', {});
     expect(r.statusCode).toBe(200);
     expect(r.json()).toMatchObject({ enabled: false, runs: 0, decisions: 0, prices: [] });
-    expect(r.json().removed).toMatchObject({ decider_runs: 1, decider_calls: 3, decider_decisions: 1, decider_prices: 1, decider_library_settings: 1 });
+    expect(r.json().removed).toMatchObject({ decider_runs: 1, decider_calls: 4, decider_decisions: 1, decider_prices: 1, decider_library_settings: 1 });
     const [left] = await sql<Array<{ settings: number; batches: number }>>`
       select (select count(*)::int from decider_library_settings) as settings, (select count(*)::int from decider_batches where id = ${batch!.id}) as batches`;
     expect(left).toEqual({ settings: 0, batches: 1 });
     const [audit] = await sql<Array<{ payload: { module: string } }>>`select payload from audit_log where action = 'module.remove_data' order by at desc limit 1`;
     expect(audit!.payload.module).toBe('autotagger');
+    // the switch is audited before the delete
+    const trail = await sql<Array<{ action: string }>>`select action from audit_log where action in ('module.disable', 'module.remove_data') order by at`;
+    expect(trail.map((t) => t.action)).toEqual(['module.disable', 'module.remove_data']);
     expect(JSON.stringify(audit!.payload)).not.toContain('enc:');
     expect((await get(`/libraries/${lib}/autotagger`)).json()).toMatchObject({ enabled: false, keySet: false, keyHint: null });
     // off again: the library writes refuse
     expect((await patch(`/libraries/${lib}/autotagger/config`, { monthlyCap: 1 })).statusCode).toBe(409);
   });
 
-  it('never returned the key, plain or sealed, in any response', async () => {
-    const [anySealed] = await sql<Array<{ count: number }>>`select count(*)::int as count from decider_library_settings`;
-    expect(anySealed!.count).toBe(0);
-    expect(bodies.length).toBeGreaterThan(20);
-    for (const b of bodies) {
-      expect(b).not.toContain(PLAIN_KEY);
-      expect(b).not.toContain(PLAIN_KEY.slice(0, 16));
-      expect(b).not.toContain('enc:');
-    }
+  it('a partly missing module schema is an error, not "nothing to delete": off, data kept, retry safe', async () => {
+    await put('/settings/autotagger', { enabled: true });
+    await put('/settings/autotagger/prices', { model: '*', perMillionInput: 1, currency: 'EUR' });
+    // this scratch database only
+    await sql`drop table decider_spot_checks`;
+    const r = await post('/settings/autotagger/remove-data', {});
+    expect(r.statusCode).toBe(500);
+    expect(r.json()).toMatchObject({ title: 'Data not removed', enabled: false, removed: null });
+    expect((await get('/settings/autotagger')).json()).toMatchObject({ enabled: false, prices: [{ model: '*' }] });
   });
 
-  it('reads zero when the module’s tables are not there (never migrated)', async () => {
-    // this scratch database only
-    await sql`drop table decider_spot_checks, decider_decisions, decider_calls, decider_runs, decider_prices, decider_library_settings`;
+  it('reads zero, and deletes nothing, when the module’s tables are not there (never migrated)', async () => {
+    await sql`drop table decider_decisions, decider_calls, decider_runs, decider_prices, decider_library_settings`;
+    const removed = await post('/settings/autotagger/remove-data', {});
+    expect(removed.statusCode).toBe(200);
+    expect(removed.json()).toMatchObject({ enabled: false, removed: {} });
     const r = await get('/settings/autotagger');
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({ enabled: false, runs: 0, decisions: 0, prices: [] });
     const v = await get(`/libraries/${lib}/autotagger`);
     expect(v.statusCode).toBe(200);
     expect(v.json()).toMatchObject({ keySet: false, spentThisMonth: 0, config: { model: 'jev-latest' } });
+  });
+
+  it('never returned the key, plain or sealed, in any response', async () => {
+    expect(bodies.length).toBeGreaterThan(20);
+    for (const b of bodies) {
+      expect(b).not.toContain(PLAIN_KEY);
+      expect(b).not.toContain(PLAIN_KEY.slice(0, 16));
+      expect(b).not.toContain('enc:');
+    }
   });
 });

@@ -17,8 +17,9 @@
  * put in an error or the audit log.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type postgres from 'postgres';
 import {
-  AutotaggerStillOnError, UnknownModuleError, autotaggerConfig, autotaggerEnabled, clearTypesafeKey, removeAutotaggerData, setAutotaggerConfig,
+  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, autotaggerConfig, autotaggerEnabled, clearTypesafeKey, removeAutotaggerData, setAutotaggerConfig,
   setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint, typesafeKeyHintOf,
 } from '@tagave/db';
 import { sealSecret } from '@tagave/core';
@@ -64,6 +65,29 @@ async function on(): Promise<void> {
   if (!(await autotaggerEnabled(sql()))) throw new ApiError(409, 'Conflict', 'Autotagger is off');
 }
 
+/**
+ * Run `write` in one transaction with the module's switch row share-locked
+ * and on: deleting its data locks the row for update, so it cannot run
+ * between the check and the write. Off (or no row): 409.
+ */
+async function whileOn<T>(write: (tx: postgres.TransactionSql) => Promise<T>): Promise<T> {
+  return sql().begin(async (tx) => {
+    const [row] = await orMissing(
+      () => tx<Array<{ enabled: boolean }>>`select enabled from installed_modules where id = ${AUTOTAGGER_MODULE_ID} for share`,
+      [] as Array<{ enabled: boolean }>,
+    );
+    if (row?.enabled !== true) throw new ApiError(409, 'Conflict', 'Autotagger is off');
+    return write(tx);
+  }) as Promise<T>;
+}
+
+/** How many of the module's tables this database has. */
+async function tablesPresent(): Promise<number> {
+  const [r] = await sql()<Array<{ n: number }>>`
+    select count(*)::int as n from unnest(${[...AUTOTAGGER_TABLES]}::text[]) as t(name) where to_regclass(t.name) is not null`;
+  return r!.n;
+}
+
 async function prices(): Promise<DeciderPrice[]> {
   return orMissing(async () => {
     const rows = await sql()<Array<{ model: string; per_million_input: string; currency: string }>>`
@@ -86,19 +110,22 @@ async function moduleView(): Promise<AutotaggerModuleView> {
 async function libraryView(request: FastifyRequest, libraryId: string): Promise<AutotaggerLibraryView> {
   const config = await orMissing(() => autotaggerConfig(sql(), libraryId), { ...DEFAULT_AUTOTAGGER_CONFIG });
   const hint = await orMissing(() => typesafeKeyHint(sql(), libraryId), null);
-  // this calendar month, UTC
+  // this calendar month (UTC), per currency: the settings' currency, and any other apart
   const spent = await orMissing(async () => {
-    const [r] = await sql()<Array<{ spent: string }>>`
-      select coalesce(sum(cost), 0)::text as spent from decider_calls
-       where library_id = ${libraryId} and created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'`;
-    return Number(r!.spent);
-  }, 0);
+    const rows = await sql()<Array<{ currency: string; amount: string }>>`
+      select currency, sum(cost)::text as amount from decider_calls
+       where library_id = ${libraryId} and created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'
+       group by currency order by currency`;
+    return rows.map((r) => ({ currency: r.currency, amount: Number(r.amount) }));
+  }, [] as Array<{ currency: string; amount: number }>);
+  const owner = callerCan(request, 'system.manage');
   return {
     enabled: await autotaggerEnabled(sql()),
     keySet: hint !== null,
-    keyHint: callerCan(request, 'system.manage') ? hint : null,
-    config,
-    spentThisMonth: spent,
+    keyHint: owner ? hint : null,
+    config: owner ? config : { ...config, payloadSeenBy: null },
+    spentThisMonth: spent.find((s) => s.currency === config.currency)?.amount ?? 0,
+    spentOther: spent.filter((s) => s.currency !== config.currency),
     currency: config.currency,
   };
 }
@@ -123,9 +150,10 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     return moduleView();
   });
 
-  fastify.post('/settings/autotagger/remove-data', async (request): Promise<AutotaggerModuleView & { removed: Record<string, number> }> => {
+  fastify.post('/settings/autotagger/remove-data', async (request, reply) => {
     sameSite(request);
     await requireFreshStepUp(request);
+    const actor = request.user?.id ?? null;
     // off first, so no run starts while the rows go; the delete checks again,
     // with the switch's row locked, and refuses if it was turned back on
     try {
@@ -134,17 +162,25 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
       // no ledger row: it was never on
       if (!(err instanceof UnknownModuleError)) throw err;
     }
+    // the switch is recorded before the delete, so a failed delete still leaves the trail
+    await sql()`insert into audit_log (library_id, actor_user_id, action, subject_type, payload)
+              values (null, ${actor}, 'module.disable', 'module', ${JSON.stringify({ module: 'autotagger', for: 'remove_data' })}::text::jsonb)`;
+    request.log.info({ event: 'module.disable', module: 'autotagger', userId: actor, for: 'remove_data' }, 'autotagger switched off to delete its data');
     let removed: Record<string, number>;
     try {
-      removed = await orMissing<Record<string, number>>(() => removeAutotaggerData(sql()), {});
+      // no table at all: never migrated, nothing to delete; some missing: an error
+      removed = (await tablesPresent()) === 0 ? {} : await removeAutotaggerData(sql());
     } catch (err) {
       if (err instanceof AutotaggerStillOnError) throw new ApiError(409, 'Conflict', 'Autotagger was turned on again');
-      throw err;
+      request.log.error({ err, event: 'module.remove_data_failed', module: 'autotagger', userId: actor }, 'autotagger data not removed');
+      // off, nothing deleted (one transaction), and a retry is safe
+      return reply.status(500).send({ title: 'Data not removed', status: 500, detail: 'Autotagger: off · data: kept · retry: safe', enabled: false, removed: null });
     }
     await sql()`insert into audit_log (library_id, actor_user_id, action, subject_type, payload)
               values (null, ${request.user?.id ?? null}, 'module.remove_data', 'module', ${JSON.stringify({ module: 'autotagger', ...removed })}::text::jsonb)`;
-    request.log.info({ event: 'module.remove_data', module: 'autotagger', userId: request.user?.id, ...removed }, 'autotagger data removed');
-    return { ...(await moduleView()), removed };
+    request.log.info({ event: 'module.remove_data', module: 'autotagger', userId: actor, ...removed }, 'autotagger data removed');
+    const view: AutotaggerModuleView & { removed: Record<string, number> } = { ...(await moduleView()), removed };
+    return view;
   });
 
   fastify.put('/settings/autotagger/prices', async (request): Promise<AutotaggerModuleView> => {
@@ -185,7 +221,7 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     await on();
     const parsed = autotaggerConfigPatchSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw badRequest(parsed.error.issues, 'Invalid settings');
-    await setAutotaggerConfig(sql(), libraryId, parsed.data, (raw) => autotaggerConfigPatchSchema.parse(raw));
+    await whileOn((tx) => setAutotaggerConfig(tx, libraryId, parsed.data, (raw) => autotaggerConfigPatchSchema.parse(raw)));
     return libraryView(request, libraryId);
   });
 
@@ -199,15 +235,18 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     if (!parsed.success) throw new ApiError(400, 'Bad Request', 'key: 16 to 512 characters, no spaces, or null');
     await requireFreshStepUp(request);
     const plain = parsed.data.key;
-    if (plain === null) {
-      await clearTypesafeKey(sql(), libraryId);
-      request.log.info({ event: 'autotagger.key_cleared', libraryId, userId: request.user?.id }, 'autotagger key cleared');
-    } else {
-      const appSecret = process.env.APP_SECRET;
-      if (!appSecret) throw new ApiError(503, 'Service Unavailable', 'APP_SECRET is not set');
-      await setTypesafeKey(sql(), libraryId, sealSecret(plain, appSecret), typesafeKeyHintOf(plain));
-      request.log.info({ event: 'autotagger.key_set', libraryId, userId: request.user?.id }, 'autotagger key set');
-    }
+    const actor = request.user?.id ?? null;
+    const appSecret = process.env.APP_SECRET;
+    if (plain !== null && !appSecret) throw new ApiError(503, 'Service Unavailable', 'APP_SECRET is not set');
+    // the audit row names the library and who; never the key or its hint
+    const action = plain === null ? 'autotagger.key_cleared' : 'autotagger.key_set';
+    await whileOn(async (tx) => {
+      if (plain === null) await clearTypesafeKey(tx, libraryId);
+      else await setTypesafeKey(tx, libraryId, sealSecret(plain, appSecret!), typesafeKeyHintOf(plain));
+      await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id)
+               values (${libraryId}, ${actor}, ${action}, 'library', ${libraryId})`;
+    });
+    request.log.info({ event: action, libraryId, userId: actor }, plain === null ? 'autotagger key cleared' : 'autotagger key set');
     return libraryView(request, libraryId);
   });
 }
