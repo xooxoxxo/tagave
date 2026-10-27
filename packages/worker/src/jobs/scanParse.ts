@@ -101,7 +101,8 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         .update(audioFiles)
         .set({
           status: 'error',
-          parseError: `${(err as Error).name ?? 'Error'}: ${(err as Error).message}`.slice(0, 2000),
+          // a parser message can quote the file's bytes; Postgres text cannot hold NUL
+          parseError: `${(err as Error).name ?? 'Error'}: ${(err as Error).message}`.replace(/\u0000/g, '').slice(0, 2000),
         })
         .where(eq(audioFiles.id, row.id));
     }

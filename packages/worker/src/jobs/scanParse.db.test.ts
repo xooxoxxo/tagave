@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -40,5 +40,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse stores the core tag 
     expect(r.core_tags_digest).toMatch(/^[0-9a-f]{40}$/);
     expect(r.core_tags_digest).toBe(coreTagsDigest(r.tags_raw));
     expect(r.duration_ms).toBe(10_000);
+  });
+
+  it('a file whose parse error quotes NUL bytes is stored as error (NULs stripped), not a failed job', async () => {
+    const zeros = randomUUID();
+    await writeFile(path.join(rootPath, 'zeros.flac'), Buffer.alloc(64));
+    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${zeros}, ${libraryId}, ${rootId}, 'zeros.flac')`;
+    await scanParseJob(ctx, { audioFileIds: [zeros] });
+    const [r] = await sql`select status, parse_error from audio_files where id = ${zeros}`;
+    expect(r.status).toBe('error');
+    expect(r.parse_error).toMatch(/\S/);
+    expect(r.parse_error).not.toContain('\u0000');
   });
 });
