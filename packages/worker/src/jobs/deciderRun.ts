@@ -9,10 +9,18 @@
  * The first answer pins the run to the dated model it names; an answer
  * under another model pauses the run (model_changed). The run pauses, with a
  * reason the page shows, when the question spec changed since it started,
- * the module is off, there is no key, cap or price, the price is in another
+ * the module is off, there is no key, cap or price, a price is in another
  * currency than the cap, the cap is reached or the key is refused. A pause
  * or a crash resumes where it stopped: albums already decided in the run are
- * skipped, and a stored answer is never paid for twice.
+ * skipped, and a stored answer is never paid for twice. A call that got no
+ * answer after a server error or a timeout may still have been billed: it is
+ * kept as possibly billed, at its estimate, so the cap counts it.
+ *
+ * One loop per run at a time: the job holds a session advisory lock on the
+ * run for the whole loop, on a connection of its own, and a second job for
+ * the same run (a pg-boss retry after an expiry that did not stop the
+ * first) finds it taken and does nothing. Each job also stops well before
+ * its expiry, queues the rest of the run and leaves it running.
  *
  * Albums the decider is never asked about, each recorded with its reason:
  *   no_candidates  no evidence, no sendable candidate, a sendable candidate
@@ -31,7 +39,8 @@ import {
   type Decider, type DeciderAnswer, type EvidenceCandidate, type GroupingCandidate, type JevRequest, type TracklistGroup,
 } from '@tagave/core';
 import {
-  autotaggerConfig, autotaggerEnabled, checkBudget, costOf, fetchAutoAcceptRulesRow, priceFor, tokensPerByte, type Price,
+  autotaggerConfig, autotaggerEnabled, checkBudget, costOf, deciderRunSingletonKey, fetchAutoAcceptRulesRow, pauseStaleRuns, priceFor,
+  tokensPerByte, type Price,
 } from '@tagave/db';
 import type { Population } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -65,6 +74,14 @@ export const MAX_EDITIONS_PER_GROUP = 5;
 export const RUN_MAX_RETRIES = 1;
 /** How often (in albums) a run looks for a cancel or the module turned off, and reports progress. */
 export const CHECK_EVERY = 25;
+/**
+ * How long one job works a run before it queues the rest and stops: an
+ * hour under the job's 6-hour expiry, so pg-boss never fails a job that is
+ * still working (its retry would start a second loop beside the first).
+ */
+export const DECIDER_RUN_TIME_BUDGET_MS = 5 * 3600 * 1000;
+/** The advisory lock namespace of a run's loop (the key is the run id's hash). */
+export const DECIDER_RUN_LOCK_NAMESPACE = 0x64_72_75_6e; // 'drun'
 
 export interface DeciderRunJobData { runId: string }
 export interface RunDeps {
@@ -77,11 +94,19 @@ export interface RunDeps {
   population?: { sample: number; largest: number };
   /** no retry follows if this run fails (default true: a direct call has none) */
   lastAttempt?: boolean;
+  /** pg-boss's signal for the job: aborted, the job stops before its next album */
+  signal?: AbortSignal;
+  /** how long this job works before it queues the rest (default DECIDER_RUN_TIME_BUDGET_MS) */
+  timeBudgetMs?: number;
+  /** milliseconds now (tests) */
+  clock?: () => number;
 }
-export interface RunSummary { state: 'done' | 'paused' | 'cancelled'; pauseReason: string | null; decided: Record<string, number>; reused: number; billed: number }
+/** 'running': this job stopped and left the run running (another job carries on, or one already holds it). */
+export interface RunSummary { state: 'done' | 'paused' | 'cancelled' | 'running'; pauseReason: string | null; decided: Record<string, number>; reused: number; billed: number }
 
 type PauseReason =
-  | 'spec_changed' | 'module_off' | 'no_key' | 'no_cap' | 'no_price' | 'currency_mismatch' | 'cap_reached' | 'key_refused' | 'model_changed';
+  | 'spec_changed' | 'module_off' | 'no_key' | 'no_cap' | 'no_price' | 'currency_mismatch' | 'cap_reached' | 'key_refused' | 'model_changed'
+  | 'stopped';
 
 interface RunRow {
   id: string; library_id: string; decider_id: string; population: Population; state: string; model_requested: string;
@@ -97,8 +122,10 @@ interface DecisionFields {
 
 type Sql = WorkerContext['sql'];
 type TxSql = Parameters<Parameters<Sql['begin']>[1]>[0];
+type ProgressState = 'running' | 'completed' | 'cancelled' | 'failed';
 
 const f4 = (x: number | null | undefined): string | null => (x === null || x === undefined ? null : x.toFixed(4));
+const emptySummary = (): RunSummary => ({ state: 'done', pauseReason: null, decided: {}, reused: 0, billed: 0 });
 
 /** One album's sendable candidates, once per release (the best distance), in distance order. */
 function uniqueByRelease(cands: LoadedEvidence['candidates']): LoadedEvidence['candidates'] {
@@ -111,27 +138,72 @@ function sentGroups(groups: TracklistGroup[]): TracklistGroup[] {
   return groups.slice(0, MAX_GROUPS).map((g) => ({ ...g, members: g.members.slice(0, MAX_EDITIONS_PER_GROUP) }));
 }
 
+/**
+ * A JevUnavailable after which the call may have been billed: the server
+ * failed (5xx), the request timed out or the connection dropped, or the
+ * answer came back (2xx) and could not be read.
+ */
+function maybeBilled(err: JevUnavailable): boolean {
+  return err.status === null || err.status >= 500 || (err.status >= 200 && err.status < 300);
+}
+
 export async function deciderRunJob(ctx: WorkerContext, data: DeciderRunJobData, deps: RunDeps = {}): Promise<RunSummary> {
-  const summary: RunSummary = { state: 'done', pauseReason: null, decided: {}, reused: 0, billed: 0 };
+  const conn = await ctx.sql.reserve();
+  try {
+    const [got] = (await conn`select pg_try_advisory_lock(${DECIDER_RUN_LOCK_NAMESPACE}::int, hashtext(${data.runId})) as locked`) as unknown as Array<{ locked: boolean }>;
+    if (got?.locked !== true) {
+      ctx.logger.info({ run: data.runId }, 'decider run already being worked; this job does nothing');
+      return { ...emptySummary(), state: 'running' };
+    }
+    try {
+      return await runLocked(ctx, data, deps);
+    } finally {
+      try {
+        await conn`select pg_advisory_unlock(${DECIDER_RUN_LOCK_NAMESPACE}::int, hashtext(${data.runId}))`;
+      } catch (err) {
+        // the lock goes with the session if the connection is gone
+        ctx.logger.warn({ run: data.runId, err: err instanceof Error ? err.name : typeof err }, 'decider run lock release failed');
+      }
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+async function runLocked(ctx: WorkerContext, data: DeciderRunJobData, deps: RunDeps): Promise<RunSummary> {
+  const summary = emptySummary();
+  const clock = deps.clock ?? Date.now;
+  const startedAt = clock();
+  const [first] = await ctx.sql<Array<{ library_id: string }>>`select library_id from decider_runs where id = ${data.runId}`;
+  if (!first) return { ...summary, state: 'cancelled' };
+  // runs of this library left running by a job that died: paused, resumable
+  try {
+    const stopped = await pauseStaleRuns(ctx.sql, { libraryId: first.library_id });
+    if (stopped.length > 0) ctx.logger.warn({ runs: stopped }, 'decider runs with no job left paused as stopped');
+  } catch (err) {
+    ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale decider run check failed');
+  }
   const [run] = await ctx.sql<RunRow[]>`
     select id, library_id, decider_id, population, state, model_requested, decider_version, spec_hash, seed
       from decider_runs where id = ${data.runId}`;
   if (!run) return { ...summary, state: 'cancelled' };
   if (!['queued', 'running', 'paused'].includes(run.state)) return { ...summary, state: run.state === 'done' ? 'done' : 'cancelled' };
 
-  let progressId: string | null = null;
-  const progress = (state: 'running' | 'completed' | 'cancelled', done: number, total: number, message?: string) =>
-    reportProgress(ctx, progressId, {
-      libraryId: run.library_id, type: 'decider.run', subjectType: 'decider_run', subjectId: run.id, state, done, total,
-      ...(message !== undefined ? { message } : {}),
-    }).then((id) => { progressId = id; });
+  // the job_runs mirror: created at the first report, then kept up to date
+  const prog: { id: string | null; done: number; total: number } = { id: null, done: 0, total: 0 };
+  const progress = async (state: ProgressState, message?: string) => {
+    prog.id = await reportProgress(ctx, prog.id, {
+      libraryId: run.library_id, type: 'decider.run', subjectType: 'decider_run', subjectId: run.id, state, done: prog.done, total: prog.total,
+      ...(message !== undefined ? { message } : {}), ...(state === 'failed' && message !== undefined ? { error: message } : {}),
+    });
+  };
 
   const pause = async (reason: PauseReason, message: string): Promise<RunSummary> => {
     const moved = await ctx.sql`
       update decider_runs set state = 'paused', pause_reason = ${reason}, message = ${message}
        where id = ${run.id} and state in ('queued', 'running', 'paused')`;
     if (moved.count === 0) return { ...summary, state: 'cancelled' };
-    if (progressId) await progress('completed', 0, 0, `paused: ${reason}`);
+    if (prog.id) await progress('completed', `paused: ${reason}`);
     ctx.logger.info({ run: run.id, reason }, 'decider run paused');
     return { ...summary, state: 'paused', pauseReason: reason };
   };
@@ -150,8 +222,9 @@ export async function deciderRunJob(ctx: WorkerContext, data: DeciderRunJobData,
      where id = ${run.id} and state in ('queued', 'running', 'paused')`;
   if (started.count === 0) return { ...summary, state: 'cancelled' };
 
+  const outOfTime = () => clock() - startedAt >= (deps.timeBudgetMs ?? DECIDER_RUN_TIME_BUDGET_MS);
   try {
-    return await decideAll(ctx, run, deps, { decider, config, rules, summary, pause, progress });
+    return await decideAll(ctx, run, deps, { decider, config, rules, summary, pause, progress, prog, outOfTime });
   } catch (err) {
     const label = err instanceof JevUnavailable ? 'service unavailable' : failureReason(err);
     ctx.logger.error({ run: run.id, error: err instanceof Error ? err.name : typeof err, label }, 'decider run stopped');
@@ -159,6 +232,11 @@ export async function deciderRunJob(ctx: WorkerContext, data: DeciderRunJobData,
     if (deps.lastAttempt ?? true) {
       await ctx.sql`update decider_runs set state = 'failed', message = ${label}, finished_at = now()
                      where id = ${run.id} and state = 'running'`;
+      try {
+        await progress('failed', label);
+      } catch (progressErr) {
+        ctx.logger.warn({ run: run.id, err: progressErr instanceof Error ? progressErr.name : typeof progressErr }, 'decider run progress not marked failed');
+      }
     }
     throw err;
   }
@@ -170,11 +248,13 @@ interface Loop {
   rules: ReturnType<typeof rulesFromStored>;
   summary: RunSummary;
   pause: (reason: PauseReason, message: string) => Promise<RunSummary>;
-  progress: (state: 'running' | 'completed' | 'cancelled', done: number, total: number, message?: string) => Promise<void>;
+  progress: (state: ProgressState, message?: string) => Promise<void>;
+  prog: { done: number; total: number };
+  outOfTime: () => boolean;
 }
 
 async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop): Promise<RunSummary> {
-  const { decider, config, rules, summary, pause, progress } = l;
+  const { decider, config, rules, summary, pause, progress, prog, outOfTime } = l;
   let version = run.decider_version;
   // A new run has no pinned model yet. The model the library's last finished
   // run with the same request pinned lets its stored answers be reused, so a
@@ -190,20 +270,37 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
   const decided = new Set((await ctx.sql<Array<{ id: string }>>`
     select local_album_id as id from decider_decisions where run_id = ${run.id}`).map((r) => r.id));
   const todo = ids.filter((id) => !decided.has(id));
+  // decided albums that left the population since are not counted: done never passes total
+  const doneBefore = ids.length - todo.length;
+  prog.done = doneBefore;
+  prog.total = ids.length;
   const tpb = deps.tokensPerByte ?? (await tokensPerByte(ctx.sql, run.library_id));
   const checkEvery = Math.max(1, deps.checkEvery ?? CHECK_EVERY);
   const count = (o: string) => { summary.decided[o] = (summary.decided[o] ?? 0) + 1; };
 
   for (let i = 0; i < todo.length; i++) {
     const albumId = todo[i]!;
+    prog.done = doneBefore + i;
+    if (deps.signal?.aborted) {
+      // pg-boss gave the job up (expired or stopping): a retry or the stale-run sweep picks the run up
+      ctx.logger.warn({ run: run.id }, 'decider run job aborted; run left running');
+      return { ...summary, state: 'running' };
+    }
+    if (i > 0 && outOfTime()) {
+      const next = await ctx.boss.send('decider.run', { runId: run.id }, { singletonKey: deciderRunSingletonKey(run.library_id) });
+      if (!next) return pause('stopped', 'stopped: not queued again');
+      ctx.logger.info({ run: run.id, next }, 'decider run time budget used; the rest is queued');
+      await progress('running');
+      return { ...summary, state: 'running' };
+    }
     if (i > 0 && i % checkEvery === 0) {
       const [st] = await ctx.sql<Array<{ state: string }>>`select state from decider_runs where id = ${run.id}`;
       if (st?.state !== 'running') {
-        await progress('cancelled', decided.size + i, ids.length);
+        await progress('cancelled');
         return { ...summary, state: 'cancelled' };
       }
       if (!(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
-      await progress('running', decided.size + i, ids.length);
+      await progress('running');
     }
 
     // the album's evidence, its identify time and whether any sendable
@@ -249,15 +346,14 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
         await record(ctx.sql, err.reason === 'capped' ? { outcome: 'too_large', reason: 'capped' } : { outcome: 'no_candidates', reason: 'album_title' });
         continue;
       }
-      // stored evidence that does not hold together (an index outside its
-      // tracklist, a number that is not finite): this album is listed, the
-      // run goes on; the message is ours and names no tag
-      if (err instanceof RangeError) {
-        ctx.logger.warn({ run: run.id, album: albumId, err: err.message }, 'decider run: album evidence unusable');
-        await record(ctx.sql, { outcome: 'error', reason: 'invalid_evidence' });
-        continue;
-      }
-      throw err;
+      // Stored evidence that does not hold together (an index outside its
+      // tracklist, a number that is not finite, a field missing): this block
+      // only computes, so whatever it throws is about this album's data. The
+      // album is listed and the run goes on; only the error's class is logged.
+      ctx.logger.warn({ run: run.id, album: albumId, error: err instanceof Error ? err.name : typeof err }, 'decider run: album evidence unusable');
+      hash = null;
+      await record(ctx.sql, { outcome: 'error', reason: 'invalid_evidence' });
+      continue;
     }
     const labels = sent.map((g) => g.label);
     bytes = requestBytes(req);
@@ -272,7 +368,8 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     const callHash = evidenceHash(ev.album, cands.filter((c) => sentIds.has(c.releaseId)) as EvidenceCandidate[]);
     const stored = async (v: string) => (await ctx.sql<Array<{ id: string; answers: Record<string, number> | string }>>`
       select id, answers from decider_calls
-       where local_album_id = ${albumId} and evidence_hash = ${callHash} and spec_hash = ${run.spec_hash} and decider_version = ${v}`)[0];
+       where local_album_id = ${albumId} and evidence_hash = ${callHash} and spec_hash = ${run.spec_hash} and decider_version = ${v}
+         and not possibly_billed`)[0];
     let call: { id: string; answers: Record<string, number> } | null = null;
     const found = version ? await stored(version) : prevVersion ? await stored(prevVersion) : undefined;
     if (found && !version && prevVersion) {
@@ -287,9 +384,10 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       call = { id: found.id, answers: answersOf(found.answers) };
     } else {
       const price = await priceFor(ctx.sql, decider.id, model);
+      const estTokens = Math.ceil(bytes * tpb);
+      const estimate = price ? costOf(estTokens, price) : 0;
       const verdict = await checkBudget(ctx.sql, {
-        libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price,
-        estimate: price ? costOf(Math.ceil(bytes * tpb), price) : 0,
+        libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price, estimate,
       });
       if (!verdict.ok && run.population !== 'measure') {
         if (verdict.reason === 'no_price') return pause('no_price', `no price: ${model}`);
@@ -306,6 +404,15 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
           ctx.logger.warn({ run: run.id, album: albumId, status: err.status, error: err.name }, 'decider request rejected');
           await record(ctx.sql, { outcome: 'rejected', reason: `HTTP ${err.status}` });
           continue;
+        }
+        if (err instanceof JevUnavailable && maybeBilled(err)) {
+          // no answer, but it may be on the bill: kept at the estimate so the
+          // cap counts it, never reused as an answer
+          await ctx.sql`
+            insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version,
+                                       request_bytes, input_tokens, cost, currency, answers, possibly_billed)
+            values (${run.library_id}, ${albumId}, ${run.id}, ${callHash}, ${run.spec_hash}, ${decider.id}, ${model},
+                    ${bytes}, ${estTokens}, ${estimate}, ${price?.currency ?? config.currency}, null, true)`;
         }
         throw err; // pg-boss retries; the run resumes after the albums already decided
       }
@@ -329,7 +436,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
                                    request_bytes, input_tokens, cost, currency, answers)
         values (${run.library_id}, ${albumId}, ${run.id}, ${callHash}, ${run.spec_hash}, ${decider.id}, ${a.model},
                 ${a.requestBytes}, ${a.inputTokens}, ${costOf(a.inputTokens, p)}, ${p.currency}, ${JSON.stringify(a.probabilities)}::text::jsonb)
-        on conflict (local_album_id, evidence_hash, spec_hash, decider_version) do update
+        on conflict (local_album_id, evidence_hash, spec_hash, decider_version) where not possibly_billed do update
            set cost = decider_calls.cost + excluded.cost, input_tokens = decider_calls.input_tokens + excluded.input_tokens,
                request_bytes = decider_calls.request_bytes + excluded.request_bytes
         returning id, answers`;
@@ -340,11 +447,14 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     summary.billed += 1;
     if (changed) return pause('model_changed', `model changed: ${a.model}`);
     if (!version) version = a.model;
+    // the answering model's price is in a currency the cap does not count: stop before spending more of it
+    if (p.currency !== config.currency) return pause('currency_mismatch', `price ${p.currency}, cap ${config.currency}`);
   }
 
   const finished = await ctx.sql`update decider_runs set state = 'done', finished_at = now() where id = ${run.id} and state = 'running'`;
   if (finished.count === 0) return { ...summary, state: 'cancelled' };
-  await progress('completed', ids.length, ids.length, Object.entries(summary.decided).map(([k, v]) => `${k} ${v}`).join(', '));
+  prog.done = ids.length;
+  await progress('completed', Object.entries(summary.decided).map(([k, v]) => `${k} ${v}`).join(', '));
   return summary;
 }
 

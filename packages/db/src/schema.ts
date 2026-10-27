@@ -2190,13 +2190,15 @@ export const deciderCalls = pgTable(
     inputTokens: integer('input_tokens').notNull(),
     cost: numeric({ precision: 12, scale: 6 }).notNull(),
     currency: char({ length: 3 }).notNull(),
-    answers: jsonb().notNull(),
+    /** null on a call that may have been billed but got no answer */
+    answers: jsonb(),
+    possiblyBilled: boolean('possibly_billed').notNull().default(false),
     createdAt: tstz('created_at').notNull().defaultNow(),
   },
   (table) => ({
-    once: unique('decider_calls_local_album_id_evidence_hash_spec_hash_decider_version_key').on(
+    once: uniqueIndex('decider_calls_answer_key').on(
       table.localAlbumId, table.evidenceHash, table.specHash, table.deciderVersion,
-    ),
+    ).where(sql`not possibly_billed`),
     monthIdx: index('idx_decider_calls_library_month').on(table.libraryId, table.createdAt),
   })
 );

@@ -52,7 +52,8 @@ export function costOf(inputTokens: number, price: Price): number {
 
 /**
  * The library's spend in this UTC calendar month, per currency, ordered by
- * currency. `now` fixes the month (and counts only calls before it); without
+ * currency. Possibly billed calls (no answer after a server error or a
+ * timeout) count at their estimate, so the cap errs on the safe side. `now` fixes the month (and counts only calls before it); without
  * it the month is the database's current one and every call in it counts.
  */
 export async function monthSpendByCurrency(sql: Sql, libraryId: string, now?: Date): Promise<Array<{ currency: string; amount: number }>> {
@@ -81,14 +82,15 @@ const TOKENS_PER_BYTE_WINDOW = 200;
  * Input tokens per request byte over the library's last 200 calls (total
  * tokens over total bytes), for estimating a call's cost before it is sent.
  * Calls with no bytes are left out, so a malformed row cannot divide by
- * zero; with none left, or a ratio that is not above 0, the default.
+ * zero, and so are possibly billed calls (their tokens are an estimate, not
+ * a count); with none left, or a ratio that is not above 0, the default.
  */
 export async function tokensPerByte(sql: Sql, libraryId: string): Promise<number> {
   const ratio = await orMissing(async () => {
     const [row] = await sql<Array<{ tokens: string | null; bytes: string | null }>>`
       select sum(input_tokens)::text as tokens, sum(request_bytes)::text as bytes from (
         select input_tokens, request_bytes from decider_calls
-         where library_id = ${libraryId} and request_bytes > 0 and input_tokens is not null
+         where library_id = ${libraryId} and request_bytes > 0 and input_tokens is not null and not possibly_billed
          order by created_at desc, id desc
          limit ${TOKENS_PER_BYTE_WINDOW}
       ) recent`;

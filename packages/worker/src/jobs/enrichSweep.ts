@@ -3,7 +3,7 @@
  * library that still lacks its Discogs↔MB bridge (ENR-1). Restartable;
  * bridge_attempted_at keeps failed lookups from being retried daily.
  */
-import { enrichPace, failStaleBatches } from '@tagave/db';
+import { enrichPace, failStaleBatches, pauseStaleRuns } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { reportProgress } from './progress.js';
 
@@ -24,6 +24,12 @@ export async function enrichSweepJob(ctx: WorkerContext, data: EnrichSweepJobDat
     if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
   } catch (err) {
     ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+  }
+  try {
+    const stopped = await pauseStaleRuns(ctx.sql, data.libraryId ? { libraryId: data.libraryId } : {});
+    if (stopped.length > 0) ctx.logger.warn({ runs: stopped }, 'decider runs with no job left paused as stopped');
+  } catch (err) {
+    ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale decider run check failed');
   }
   const libraries = data.libraryId
     ? [data.libraryId]

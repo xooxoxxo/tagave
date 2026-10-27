@@ -115,6 +115,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider budget (shared db: its 
     expect(await tokensPerByte(client, lib)).toBeCloseTo(1200 / 4000, 9);
   });
 
+  it('a possibly billed call counts toward the spend at its estimate, but never toward tokens per byte', async () => {
+    const [{ at }] = await client`select now()::text as at`;
+    await call({ cost: 0.25, createdAt: at, bytes: 1000, tokens: 400 });
+    await client`
+      insert into decider_calls (library_id, local_album_id, evidence_hash, spec_hash, decider_id, decider_version, request_bytes, input_tokens, cost, currency, answers, possibly_billed, created_at)
+      values (${lib}, ${albumId}, ${String(++n).padEnd(64, '0')}, 's1', ${decider}, 'jev-latest', 1000, 9000, 0.5, 'USD', null, true, ${at}::timestamptz)`;
+    expect(await monthSpend(client, lib, 'USD')).toBeCloseTo(0.75, 6);
+    expect(await tokensPerByte(client, lib)).toBeCloseTo(0.4, 9);
+    // an answer is required unless the call is possibly billed, and refused when it is
+    await expect(client`
+      insert into decider_calls (library_id, local_album_id, evidence_hash, spec_hash, decider_id, decider_version, request_bytes, input_tokens, cost, currency, answers, possibly_billed)
+      values (${lib}, ${albumId}, ${String(++n).padEnd(64, '0')}, 's1', ${decider}, 'jev-latest', 1, 1, 0, 'USD', '{}'::jsonb, true)`).rejects.toThrow(/check/);
+  });
+
   it('tokens per byte: only zero-byte calls fall back to 0.3, never NaN or Infinity', async () => {
     await call({ createdAt: '2026-10-05T00:00:00Z', bytes: 0, tokens: 500 });
     await call({ createdAt: '2026-10-05T00:00:01Z', bytes: 0, tokens: 0 });

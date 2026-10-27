@@ -15,7 +15,10 @@
 -- decider_runs: one owner-started run over a population; pinned to one
 --   dated model once the first answer names it.
 -- decider_calls: every billed call, unique per album, evidence, question
---   spec and dated model, so a retry or a re-run never pays twice.
+--   spec and dated model, so a retry or a re-run never pays twice. A call
+--   that got no answer after a server error or a timeout may still have
+--   been billed: it is kept as possibly_billed at its estimate, with no
+--   answers, counts toward the month's spend and is never reused.
 -- decider_decisions: what a run decided per album.
 -- decider_spot_checks: the owner's verdict on random decisions per band.
 create table if not exists decider_library_settings (
@@ -67,10 +70,13 @@ create table if not exists decider_calls (
   input_tokens integer not null,
   cost numeric(12,6) not null,
   currency char(3) not null,
-  answers jsonb not null,
+  answers jsonb,
+  possibly_billed boolean not null default false,
   created_at timestamptz not null default now(),
-  unique (local_album_id, evidence_hash, spec_hash, decider_version)
+  check (possibly_billed = (answers is null))
 );
+create unique index if not exists decider_calls_answer_key on decider_calls (local_album_id, evidence_hash, spec_hash, decider_version)
+  where not possibly_billed;
 create index if not exists idx_decider_calls_library_month on decider_calls (library_id, created_at);
 
 create table if not exists decider_decisions (

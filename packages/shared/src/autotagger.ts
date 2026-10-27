@@ -12,7 +12,11 @@ export interface AutotaggerConfig {
   /** spend cap per calendar month, in `currency`; null: no cap */
   monthlyCap: number | null;
   currency: string;
-  /** a run pauses when more of its calls than this fail (0.01 = 1%) */
+  /**
+   * the spot-check gate: a band can be accepted as a batch only when the 95%
+   * upper bound on its error rate is at or under this (0.01 = 1%); it never
+   * pauses a run
+   */
   maxErrorRate: number;
   /** a request larger than this is not sent; null: the decider's own limit */
   maxRequestBytes: number | null;

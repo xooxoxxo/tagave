@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import pino from 'pino';
 import {
-  makeDb, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
+  makeDb, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
 } from '@tagave/db';
 import { buildAlbumEvidence, buildCandidateEvidence, jevSpecHash, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
@@ -24,7 +24,7 @@ import type { WorkerContext } from '../lib/context.js';
 import { currentEvidenceHash, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { JevKeyRefused, JevRejected, JevUnavailable } from '../lib/jevClient.js';
 import { populationAlbumIds } from '../lib/deciderPopulation.js';
-import { deciderRunJob } from './deciderRun.js';
+import { DECIDER_RUN_LOCK_NAMESPACE, deciderRunJob } from './deciderRun.js';
 
 const SECRET = 'test-app-secret-0123456789abcdef01234567';
 const parse = (raw: unknown) => autotaggerConfigPatchSchema.parse(raw);
@@ -58,7 +58,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
   const rg = randomUUID();
   let albumA = '', officialReleaseOfA = '', excludedRelease = '', mcRelease = '';
   let bootlegOnlyAlbum = '', hugeAlbum = '', folderTitled = '', partialAlbum = '', mismatchedTitle = '', weakAlbum = '';
-  let brokenAlbum = '', twiceAlbum = '', twiceRelease = '';
+  let brokenAlbum = '', twiceAlbum = '', twiceRelease = '', cappedAlbum = '', shapelessAlbum = '';
+  const send = vi.fn(async (..._args: unknown[]): Promise<string | null> => 'job');
 
   const setAutotaggerConfig = (_c: unknown, libraryId: string, patch: unknown) => setConfig(client, libraryId, patch, parse);
 
@@ -119,8 +120,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     await runMigrations(u.toString(), { log: () => undefined });
     const made = await makeDb(u.toString());
     client = made.client;
-    ctx = { db: made.db, sql: made.client, boss: { send: vi.fn(async () => 'job') } as any, logger: pino({ level: 'silent' }) };
+    ctx = { db: made.db, sql: made.client, boss: { send } as any, logger: pino({ level: 'silent' }) };
     await syncInstalledModules(client, ledgerEntries());
+    // the columns of pg-boss's job table the stale-run sweep reads (this database has no pg-boss)
+    await client`create schema if not exists pgboss`;
+    await client`create table if not exists pgboss.job (name text not null, singleton_key text, state text not null)`;
     await client`insert into users (id, email, password_hash) values (${owner}, ${`dr-${owner}@test.com`}, 'x')`;
     for (const id of [lib, lib2]) await client`insert into libraries (id, owner_user_id, name, settings) values (${id}, ${owner}, 'DeciderRun', '{}'::jsonb)`;
     await client`insert into release_groups (id, mbid, title, artist_credit) values (${rg}, ${randomUUID()}, 'Kuunvalo', ${JSON.stringify(['Kuunvalo'])}::text::jsonb)`;
@@ -156,6 +160,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     twiceAlbum = twice.id; twiceRelease = twice.releases[0]!;
     brokenAlbum = (await makeAlbum(lib, { title: 'Rikki', tracks: three, candidates: [{ distance: 0.05 }] })).id;
     await client`update match_candidates set evidence = jsonb_set(evidence, '{align}', '[[9, 0, 0.01]]'::jsonb) where local_album_id = ${brokenAlbum}`;
+    // evidence of the wrong shape (no remote, no tracks), and a tracklist over the alignment cap
+    shapelessAlbum = (await makeAlbum(lib, { title: 'Muoto', tracks: three, candidates: [{ distance: 0.05 }] })).id;
+    await client`update match_candidates set evidence = '{"v": 1}'::jsonb where local_album_id = ${shapelessAlbum}`;
+    cappedAlbum = (await makeAlbum(lib, { title: 'Ylisuuri', tracks: three, candidates: [{ distance: 0.05 }] })).id;
+    await client`update match_candidates set evidence = jsonb_set(evidence, '{capped}', 'true'::jsonb) where local_album_id = ${cappedAlbum}`;
     await makeAlbum(lib2, { title: 'Toinen', tracks: three, candidates: [{ distance: 0.05 }] });
   }, 120_000);
 
@@ -167,6 +176,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
   });
 
   beforeEach(async () => {
+    send.mockReset();
+    send.mockImplementation(async () => 'job');
+    await client`delete from pgboss.job`;
+    await client`delete from job_runs where library_id in (${lib}, ${lib2})`;
     await client`delete from decider_runs where library_id in (${lib}, ${lib2})`; // decisions go with them
     await client`delete from decider_calls where library_id in (${lib}, ${lib2})`;
     await client`delete from decider_library_settings where library_id in (${lib}, ${lib2})`;
@@ -238,6 +251,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(dec).toMatchObject({ outcome: 'pick', release_id: twiceRelease, source: 'discogs_search', distance: '0.0500' });
     expect(d.calls.map((c) => c.album.title)).not.toContain('Rikki');
     expect(await decisionOf(brokenAlbum)).toMatchObject({ outcome: 'error', reason: 'invalid_evidence' });
+    // a type error from evidence of the wrong shape is the album's, not the run's
+    expect(d.calls.map((c) => c.album.title)).not.toContain('Muoto');
+    expect(await decisionOf(shapelessAlbum)).toMatchObject({ outcome: 'error', reason: 'invalid_evidence', evidence_hash: null });
+    // over the alignment cap: no pairing to send
+    expect(d.calls.map((c) => c.album.title)).not.toContain('Ylisuuri');
+    expect(await decisionOf(cappedAlbum)).toMatchObject({ outcome: 'too_large', reason: 'capped' });
   });
 
   it('a retry or a second run over the same evidence never bills twice', async () => {
@@ -269,7 +288,106 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(titles.filter((t) => t === firstAlbum)).toHaveLength(1);
     // the album that failed is asked again on the retry, and only then
     expect(titles.filter((t) => t === titles[1])).toHaveLength(2);
-    expect((await client`select count(*)::int as n from decider_calls where run_id = ${run}`)[0].n).toBe(titles.length - 1);
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${run} and not possibly_billed`)[0].n).toBe(titles.length - 1);
+    // the failed call may have been billed: kept at its estimate, with no answer, and counted in the spend
+    const maybe = await client`select cost::text, answers, decider_version from decider_calls where run_id = ${run} and possibly_billed`;
+    expect(maybe).toHaveLength(1);
+    expect(maybe[0]).toMatchObject({ answers: null, decider_version: 'jev-2026-09-15' });
+    expect(Number(maybe[0].cost)).toBeGreaterThan(0);
+    const answered = (await client`select sum(cost)::float8 as c from decider_calls where run_id = ${run} and not possibly_billed`)[0].c;
+    expect(await monthSpend(client, lib, 'USD')).toBeCloseTo(answered + Number(maybe[0].cost), 6);
+  });
+
+  it('a call rejected for a reason that cannot be billed (another 4xx) leaves no possibly billed row', async () => {
+    const d = fakeDecider(() => new JevUnavailable(404, 'HTTP 404'));
+    const run = await newRun();
+    await expect(deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' })).rejects.toBeInstanceOf(JevUnavailable);
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${run}`)[0].n).toBe(0);
+  });
+
+  it('a second job on the same run while the first holds it does nothing and bills nothing', async () => {
+    const run = await newRun();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let second: Awaited<ReturnType<typeof deciderRunJob>> | null = null;
+    const other = fakeDecider(() => ({ A: 0.99 }));
+    const d = fakeDecider(async () => {
+      if (!second) {
+        // the first job is mid-call: a retry of the same run arrives
+        second = await deciderRunJob(ctx, { runId: run }, { decider: other, apiKey: 'k' });
+        release();
+      }
+      await gate;
+      return { A: 0.99 };
+    });
+    const first = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
+    expect(second).toMatchObject({ state: 'running', billed: 0, reused: 0, decided: {} });
+    expect(other.calls).toHaveLength(0);
+    expect(first.state).toBe('done');
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${run}`)[0].n).toBe(d.calls.length);
+    // the lock is let go with the job: the same session can take it again
+    const conn = await client.reserve();
+    try {
+      expect((await conn`select pg_try_advisory_lock(${DECIDER_RUN_LOCK_NAMESPACE}::int, hashtext(${run})) as got`)[0].got).toBe(true);
+      await conn`select pg_advisory_unlock(${DECIDER_RUN_LOCK_NAMESPACE}::int, hashtext(${run}))`;
+    } finally {
+      conn.release();
+    }
+  });
+
+  it('a job whose time is up queues the rest of the run and leaves it running', async () => {
+    let t = 0;
+    const clock = () => (t++) * 1000;
+    const run = await newRun();
+    const d = fakeDecider(() => ({ A: 0.99 }));
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', clock, timeBudgetMs: 500 });
+    expect(s.state).toBe('running');
+    expect(send).toHaveBeenCalledWith('decider.run', { runId: run }, { singletonKey: `decider.run:${lib}` });
+    expect((await client`select state from decider_runs where id = ${run}`)[0].state).toBe('running');
+    expect((await client`select count(*)::int as n from decider_decisions where run_id = ${run}`)[0].n).toBe(1);
+    // the queued job carries on where this one stopped
+    const rest = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
+    expect(rest.state).toBe('done');
+    expect(new Set(d.calls.map((c) => c.album.title)).size).toBe(d.calls.length);
+    // when the rest cannot be queued, the run is paused as stopped, so the owner can resume it
+    send.mockImplementation(async () => null);
+    const r2 = await newRun();
+    t = 0;
+    expect(await deciderRunJob(ctx, { runId: r2 }, { decider: d, apiKey: 'k', clock, timeBudgetMs: 500 })).toMatchObject({ state: 'paused', pauseReason: 'stopped' });
+  });
+
+  it('a job pg-boss has aborted stops before its next album and leaves the run running', async () => {
+    const run = await newRun();
+    const ac = new AbortController();
+    ac.abort();
+    const d = fakeDecider(() => ({ A: 0.99 }));
+    expect((await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', signal: ac.signal })).state).toBe('running');
+    expect(d.calls).toHaveLength(0);
+    expect((await client`select state from decider_runs where id = ${run}`)[0].state).toBe('running');
+  });
+
+  it('a run left running with no job and no progress is paused as stopped, and resumes', async () => {
+    const stale = await newRun();
+    const busy = await newRunIn(lib2);
+    const recent = await newRun();
+    await client`update decider_runs set state = 'running', created_at = now() - interval '7 hours', started_at = now() - interval '7 hours'
+                  where id in (${stale}, ${busy})`;
+    await client`update decider_runs set state = 'running', started_at = now() where id = ${recent}`;
+    // library 2 still has its job: its run is being worked
+    await client`insert into pgboss.job (name, singleton_key, state) values ('decider.run', ${`decider.run:${lib2}`}, 'active'),
+                 ('decider.run', ${`decider.run:${lib}`}, 'completed')`;
+    expect(await pauseStaleRuns(client)).toEqual([stale]);
+    expect((await client`select state, pause_reason, message from decider_runs where id = ${stale}`)[0])
+      .toEqual({ state: 'paused', pause_reason: 'stopped', message: 'stopped: no progress' });
+    expect((await client`select state from decider_runs where id in (${busy}, ${recent})`).map((r: any) => r.state)).toEqual(['running', 'running']);
+    // a decider.run job sweeps its library first
+    await client`update decider_runs set state = 'running', pause_reason = null where id = ${stale}`;
+    await client`update decider_runs set state = 'cancelled' where id = ${recent}`;
+    const d = fakeDecider(() => ({ A: 0.99 }));
+    await deciderRunJob(ctx, { runId: recent }, { decider: d, apiKey: 'k' });
+    expect((await client`select pause_reason from decider_runs where id = ${stale}`)[0].pause_reason).toBe('stopped');
+    // the owner resumes it
+    expect((await deciderRunJob(ctx, { runId: stale }, { decider: d, apiKey: 'k' })).state).toBe('done');
   });
 
   it('the last attempt that fails marks the run failed with a short label', async () => {
@@ -277,6 +395,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     const d = fakeDecider(() => new JevUnavailable(null, 'timed out'));
     await expect(deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', lastAttempt: true })).rejects.toBeInstanceOf(JevUnavailable);
     expect((await client`select state, message from decider_runs where id = ${run}`)[0]).toMatchObject({ state: 'failed', message: 'service unavailable' });
+    expect((await client`select state, error from job_runs where subject_id = ${run} and type = 'decider.run'`)[0]).toMatchObject({ state: 'failed', error: 'service unavailable' });
   });
 
   it('a close second is none and keeps the album out of every band', async () => {
@@ -314,13 +433,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     await setAutotaggerConfig(client, lib, { monthlyCap: 0.001 });
     const run = await newRun();
     const d = fakeDecider(() => ({ A: 0.99 }));
-    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', tokensPerByte: 1e-9 });
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', tokensPerByte: 1e-9, checkEvery: 1 });
     expect(s).toMatchObject({ state: 'paused', pauseReason: 'cap_reached', billed: 1 });
     expect((await client`select state, pause_reason, message from decider_runs where id = ${run}`)[0])
       .toMatchObject({ state: 'paused', pause_reason: 'cap_reached', message: 'spent 0.0010 of 0.001 USD' });
+    const population = (await populationAlbumIds(client, lib, 'needs_review')).length;
+    const decidedSoFar = (await client`select count(*)::int as n from decider_decisions where run_id = ${run}`)[0].n;
+    // the progress row keeps how far the run got
+    const [paused] = await client`select state, progress from job_runs where subject_id = ${run}`;
+    expect(paused).toMatchObject({ state: 'completed', progress: { done: decidedSoFar, total: population, message: 'paused: cap_reached' } });
+    // an album decided before the pause leaves the queue: it no longer counts as done
+    const [left] = await client`select local_album_id as id from decider_decisions where run_id = ${run} limit 1`;
+    await client`update local_albums set state = 'matched' where id = ${left.id}`;
     await setAutotaggerConfig(client, lib, { monthlyCap: 10 });
     const again = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', tokensPerByte: 1e-9 });
+    await client`update local_albums set state = 'needs_review' where id = ${left.id}`;
     expect(again.state).toBe('done');
+    const [last] = await client`select state, progress from job_runs where subject_id = ${run} order by started_at desc limit 1`;
+    expect(last).toMatchObject({ state: 'completed', progress: { done: population - 1, total: population - 1 } });
     expect(new Set(d.calls.map((c) => c.album.title)).size).toBe(d.calls.length);
     expect((await client`select pause_reason, message from decider_runs where id = ${run}`)[0]).toEqual({ pause_reason: null, message: null });
   });
@@ -345,6 +475,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     await client`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', '*', 1, 'EUR')`;
     expect((await deciderRunJob(ctx, { runId: await newRun() }, { decider: noPrice, apiKey: 'k' })).pauseReason).toBe('currency_mismatch');
     expect(noPrice.calls).toHaveLength(0);
+  });
+
+  it('an answer priced in another currency than the cap is recorded, then the run pauses', async () => {
+    await client`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', 'jev-2026-09-15', 2, 'EUR')`;
+    const run = await newRun();
+    const d = fakeDecider(() => ({ A: 0.99 }));
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'currency_mismatch', billed: 1 });
+    expect((await client`select currency, cost::text from decider_calls where run_id = ${run}`)).toEqual([{ currency: 'EUR', cost: '0.002000' }]);
+    expect((await client`select message from decider_runs where id = ${run}`)[0].message).toBe('price EUR, cap USD');
+    expect(d.calls).toHaveLength(1);
   });
 
   it('pauses when an answer names another model than the one the run is pinned to', async () => {

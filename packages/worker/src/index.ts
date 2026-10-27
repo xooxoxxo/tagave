@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { DECIDER_ACCEPT_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, makeDb } from '@tagave/db';
+import { DECIDER_ACCEPT_EXPIRE_SECONDS, DECIDER_RUN_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, makeDb, pauseStaleRuns } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -135,7 +135,7 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   // a batch of thousands of albums, one transaction each; a retry resumes at the first pending item
   'decider.accept': { expireInSeconds: DECIDER_ACCEPT_EXPIRE_SECONDS, retryLimit: 2 },
   // a run over a whole library, paid call by call; a retry skips the calls it already paid for
-  'decider.run': { expireInSeconds: 6 * 3600, retryLimit: 3 },
+  'decider.run': { expireInSeconds: DECIDER_RUN_EXPIRE_SECONDS, retryLimit: 3 },
 };
 
 /**
@@ -351,7 +351,7 @@ async function main() {
     await boss.work<DeciderRunJobData>('decider.run', { batchSize: 1 }, async (jobs) => {
       // the run fails only when no retry follows; until then a retry resumes it
       const retryLimit = LONG_JOB_QUEUES['decider.run']!.retryLimit;
-      for (const job of jobs) await deciderRunJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit });
+      for (const job of jobs) await deciderRunJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit, signal: job.signal });
     });
     // A batch whose run died with the last worker (job expired after its last
     // retry) reads failed from boot on; enrich.sweep repeats this nightly.
@@ -360,6 +360,13 @@ async function main() {
       if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
     } catch (err) {
       ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+    }
+    // likewise a decider run left running with no job: paused, so the owner can resume it
+    try {
+      const stopped = await pauseStaleRuns(ctx.sql);
+      if (stopped.length > 0) ctx.logger.warn({ runs: stopped }, 'decider runs with no job left paused as stopped');
+    } catch (err) {
+      ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale decider run check failed');
     }
   }
   // Music Connections pulls from linked apps (Settings › Connections), on the
