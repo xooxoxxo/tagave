@@ -78,8 +78,9 @@ function parseAnswer(text: string): JevResponse | null {
   const usage = x['usage'];
   const input = usage['input_tokens'];
   const output = usage['output_tokens'];
-  if (typeof input !== 'number' || typeof output !== 'number' || !Number.isFinite(input) || !Number.isFinite(output)) return null;
-  const answers: JevResponse['answers'] = {};
+  if (typeof input !== 'number' || typeof output !== 'number' || !Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return null;
+  // no prototype: a '__proto__' answer key from the server stays a plain key
+  const answers = Object.create(null) as JevResponse['answers'];
   for (const [name, a] of Object.entries(x['answers'])) {
     if (!isObject(a) || typeof a['type'] !== 'string') return null;
     if (a['noul'] !== undefined && typeof a['noul'] !== 'number') return null;
@@ -126,7 +127,7 @@ async function attemptOnce(f: typeof fetch, url: string, init: RequestInit, time
 }
 
 export async function systemOne(opts: JevClientOptions, body: JevRequest): Promise<JevResponse> {
-  if (!opts.apiKey) throw new Error('no TypeSafe key');
+  if (!opts.apiKey) throw new JevKeyRefused(0);
   const f = opts.fetchImpl ?? fetch;
   const sleep = opts.sleep ?? wait;
   const max = opts.maxRetries ?? DEFAULT_RETRIES;

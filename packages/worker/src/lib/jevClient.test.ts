@@ -228,6 +228,8 @@ describe('systemOne', () => {
     ['usage missing output tokens', JSON.stringify({ ...ok, usage: { input_tokens: 1 } })],
     ['model not a string', JSON.stringify({ ...ok, model: 3 })],
     ['null', 'null'],
+    ['negative input tokens', JSON.stringify({ ...ok, usage: { input_tokens: -1, output_tokens: 3 } })],
+    ['negative output tokens', JSON.stringify({ ...ok, usage: { input_tokens: 1, output_tokens: -3 } })],
   ])('a malformed answer (%s) is unavailable', async (_name, text) => {
     const fetchImpl = vi.fn(async () => new Response(text, { status: 200 }));
     const err = await systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep }, body).catch((e) => e);
