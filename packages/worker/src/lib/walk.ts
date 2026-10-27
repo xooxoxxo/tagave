@@ -28,6 +28,7 @@ import { fileTypeHandler, handlerForName } from '@tagave/core/files';
 import type { WorkerContext } from './context.js';
 import { sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
+import { walkedHandlers } from './musicFiles.js';
 
 export type WalkMode = 'full' | 'quick';
 
@@ -47,6 +48,8 @@ export interface WalkOptions {
   reparseErrors?: boolean;
   /** called every ~5000 files with the running count and the current directory */
   onProgress?: (filesSeen: number, dir: string) => void | Promise<void>;
+  /** handler ids to index (tests); default: those of the apps that are on (walkedHandlers) */
+  handlers?: ReadonlySet<string>;
 }
 
 export interface WalkResult {
@@ -142,6 +145,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // The shared client returns timestamptz as text; ms truncation only rounds down.
   const [clock] = (await ctx.sql`select now() as now`) as unknown as Array<{ now: string | Date }>;
   const walkStart = new Date(clock!.now);
+  // What the apps that are on claim (installed_modules; music always). Rows of
+  // any other handler are not this walk's to judge: never seen, never missing.
+  const walked = opts.handlers ?? (await walkedHandlers(ctx));
   const [present] = (await ctx.sql`select count(*)::int as n from files
                                    where scan_root_id = ${root.id} and status in ('present', 'error')`) as unknown as Array<{ n: number }>;
 
@@ -314,7 +320,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
       // Unchanged directory: its index rows stand in for a stat of each file.
       result.dirsSkipped += 1;
       for (const r of byDir.get(relDir) ?? []) {
-        if (r.status === 'missing' || r.status === 'archived') continue;
+        if (r.status === 'missing' || r.status === 'archived' || !walked.has(r.handler)) continue;
         seen.add(r.relPath);
         countFile(r.relPath);
         pendingUnchanged.push({ id: r.id, inode: null, mediaType: missingMediaType(r) });
@@ -327,8 +333,8 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
       for (const name of files) {
         const absPath = path.join(dirAbs, name);
         const relPath = storagePath(path.relative(root.path, absPath));
-        // Only names a file-type handler claims are indexed (today: audio).
-        const handler = handlerForName(name);
+        // Only names a handler of an app that is on claims are indexed (today: audio).
+        const handler = handlerForName(name, walked);
         if (handler) {
           let st;
           try {
@@ -412,7 +418,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // Only files the index expects to find count as evidence of a mount;
   // rows already missing or archived would trip the guard on a root that
   // was legitimately emptied.
-  const expected = existing.some((r) => r.status === 'present' || r.status === 'error');
+  const expected = existing.some((r) => (r.status === 'present' || r.status === 'error') && walked.has(r.handler));
   const tail = { walkStart, insertedIds, failedPaths, presentInRoot: present!.n, subtree };
   if (!prefix && result.filesSeen === 0 && expected) {
     result.looksUnmounted = true;
@@ -456,7 +462,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   ));
 
   const unseen: UnseenRow[] = existing
-    .filter((r) => !seen.has(r.relPath) && (r.status === 'present' || r.status === 'error'))
+    .filter((r) => !seen.has(r.relPath) && (r.status === 'present' || r.status === 'error') && walked.has(r.handler))
     .map((r) => ({ id: r.id, relPath: r.relPath, sizeBytes: r.sizeBytes }));
   return { ...result, ...tail, unseen };
 }

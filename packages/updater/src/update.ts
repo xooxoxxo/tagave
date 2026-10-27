@@ -80,7 +80,7 @@ import {
 import { mkdirKeepingOwner, writeFileKeepingOwner } from './safe-write.js';
 import { redact } from './redact.js';
 import { formatBytes, playerGroups, removeOldImages, tagaveGroups } from './image-hygiene.js';
-import { IMAGE_MIGRATIONS_DIR, pendingHeavy } from './heavy-migrations.js';
+import { IMAGE_MIGRATIONS_DIR, LEDGER_ENTRIES_SQL, pendingHeavy } from './heavy-migrations.js';
 import { backupsOnHostFolder, checkSpace, registryClient, type Layer, type StatfsLike } from './preflight-space.js';
 import {
   BACKUPS_TABLE_SQL,
@@ -787,8 +787,9 @@ export class Update {
     const ref = await this.compose(['config', '--images', 'app'], { env, quiet: true, timeoutMs: 60_000 });
     const image = ref.code === 0 ? ref.stdout.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
     if (!image) return undefined;
-    const files = await this.docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'ls', image, IMAGE_MIGRATIONS_DIR], { quiet: true, timeoutMs: 60_000 });
-    const applied = await this.psql('select name from _migrations');
+    // every chain: the core folder and each app's and module's own (apps/<id>/, modules/<id>/)
+    const files = await this.docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'find', image, IMAGE_MIGRATIONS_DIR, '-name', '*.sql'], { quiet: true, timeoutMs: 60_000 });
+    const applied = await this.psql(LEDGER_ENTRIES_SQL);
     if (files.code !== 0 || applied === null) {
       this.log('info', 'space: could not compare the migrations of the new version with the database; the new app checks the room its migrations need before it applies them');
       return undefined;

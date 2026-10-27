@@ -152,6 +152,12 @@ describe('env keys and migrations', () => {
     assert.equal(migrationRange(['m/0042_a.sql', 'm/0043_b.sql', 'm/0045_c.sql', 'm/0044_d.sql']), 'migrations 0042–0045');
     assert.equal(migrationRange(['m/0041_player.sql']), 'migration 0041');
     assert.equal(migrationRange(['m/0010_a.sql', 'm/0012_b.sql']), 'migrations 0010, 0012');
+    // an app's or module's own chain is numbered on its own and named
+    assert.equal(
+      migrationRange(['m/0065_a.sql', 'm/modules/decider/0002_b.sql', 'm/0066_b.sql', 'm/modules/decider/0001_a.sql', 'm/apps/books/0001_x.sql']),
+      'migrations 0065–0066 and books migration 0001 and decider migrations 0001–0002',
+    );
+    assert.equal(migrationRange(['m/modules/decider/0001_a.sql']), 'decider migration 0001');
   });
 });
 
@@ -218,6 +224,7 @@ function run(dir, args) {
 describe('draft from a repository', () => {
   const { dir, git, write, commitAll } = makeRepo();
   write('packages/db/migrations/0002_users.sql', 'select 2;\n');
+  write('packages/db/migrations/modules/decider/0001_runs.sql', 'select 3;\n');
   commitAll('feat(api): people and roles');
   write('.env.example', 'APP_SECRET=\n# TAGAVE_PORT=3100\n# TAGAVE_NEW=1\n');
   commitAll('refactor!: rename liner to tagave\n\nBREAKING CHANGE: LINER_* settings are now TAGAVE_*.');
@@ -235,11 +242,11 @@ describe('draft from a repository', () => {
     assert.ok(text.startsWith(`${DRAFT_MARKER}\n**Minor release (0.4 → 0.5).** TODO: summary`));
     assert.match(text, /^\*\*Requires attention:\*\* Stop worker-files on the music computer first\. LINER_\* settings are now TAGAVE_\*\./m);
     assert.match(text, /\*\*Breaking: Rename liner to tagave\.\*\* LINER_\* settings are now TAGAVE_\*\./);
-    assert.match(text, /Going back to 0\.4 means a restore.*migration 0002/);
+    assert.match(text, /Going back to 0\.4 means a restore.*migration 0002 and decider migration 0001/);
     assert.match(text, /\.env\.example`:\*\* added `TAGAVE_NEW`; renamed `LINER_PORT` → `TAGAVE_PORT`/);
     assert.match(text, /## New\n\n- \*\*api:\*\* People and roles \(\[[0-9a-f]{7}\]\(https:\/\/github\.com\/xooxoxxo\/tagave\/commit\/[0-9a-f]{7}\)\)\n- \*\*web:\*\* Side work/);
     assert.match(text, /## Fixed\n\n- \*\*updater:\*\* Keep file owners/);
-    assert.match(text, /## For self-hosters\n\n- \*\*Migrations:\*\* 0002 users\.\n- \*\*operations:\*\* Going back/);
+    assert.match(text, /## For self-hosters\n\n- \*\*Migrations:\*\* 0002 users, decider 0001 runs\.\n- \*\*operations:\*\* Going back/);
     assert.match(text, /## Unsorted[\s\S]*- random words/);
     assert.ok(!text.includes('bump things'));
     assert.ok(!text.includes('Merge branch'));

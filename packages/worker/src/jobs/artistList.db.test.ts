@@ -1,14 +1,14 @@
 /**
  * facets.refresh rebuilds artist_list (migration 0035): one row per artist
  * row of the artists page, with its position under each sort matching the
- * live ordering, and facet_state.artists_at stamped.
+ * live ordering, and filter_rail_state.artists_at stamped.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { makeDb, fetchArtistRows } from '@tagave/db';
 import { orderArtists } from '@tagave/core';
 import pino from 'pino';
-import { refreshArtistList, refreshLibraryFacets } from './facetsRefresh.js';
+import { refreshArtistList, refreshFilterCounts } from './filterCountsRefresh.js';
 import type { WorkerContext } from '../lib/context.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('artist_list rebuild (db)', () => {
@@ -38,8 +38,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artist_list rebuild (db)', () =
 
   afterAll(async () => {
     await client`delete from artist_list where library_id = ${libraryId}`;
-    await client`delete from album_facets where library_id = ${libraryId}`;
-    await client`delete from facet_state where library_id = ${libraryId}`;
+    await client`delete from album_filter_counts where library_id = ${libraryId}`;
+    await client`delete from filter_rail_state where library_id = ${libraryId}`;
     await client`delete from local_albums where library_id = ${libraryId}`;
     await client`delete from libraries where id = ${libraryId}`;
     await client`delete from users where id = ${userId}`;
@@ -63,13 +63,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('artist_list rebuild (db)', () =
 
   it('is rebuilt by facets.refresh and stamps artists_at', async () => {
     await client`delete from artist_list where library_id = ${libraryId}`;
-    await client`delete from facet_state where library_id = ${libraryId}`;
-    const result = await refreshLibraryFacets(ctx, libraryId, false);
+    await client`delete from filter_rail_state where library_id = ${libraryId}`;
+    const result = await refreshFilterCounts(ctx, libraryId, false);
     expect(result.skipped).toBe(false);
     expect(result.artists).toBe(4);
-    const [st] = await client`select artists_at from facet_state where library_id = ${libraryId}`;
+    const [st] = await client`select artists_at from filter_rail_state where library_id = ${libraryId}`;
     expect(st.artists_at).not.toBeNull();
     // fresh: the next run skips
-    expect((await refreshLibraryFacets(ctx, libraryId, false)).skipped).toBe(true);
+    expect((await refreshFilterCounts(ctx, libraryId, false)).skipped).toBe(true);
   });
 });

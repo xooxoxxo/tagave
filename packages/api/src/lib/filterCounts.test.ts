@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summaryConds, summaryEligible } from './facetSummary.js';
+import { summaryConds, summaryEligible } from './filterCounts.js';
 
 describe('summaryEligible', () => {
   it('accepts the rail dimensions and paging keys', () => {

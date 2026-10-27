@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { AlbumSummary, BulkAlbumAction, BulkAlbumsResult, MultiFilterKey, SavedView } from '@tagave/shared';
-import { useCan, useCurrentLibrary, useAlbumFacets, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
+import { useCan, useCurrentLibrary, useAlbumFilterCounts, useSavedViews, useCreateSavedView, useDeleteSavedView } from '../hooks';
 import { useAlbumsInfinite, useBulkAlbums } from '../hooks/useAlbumsGrid';
 import { FilterRail } from '../components/FilterRail';
 import { BulkTagEditor } from '../components/BulkTagEditor';
@@ -125,7 +125,7 @@ export function AlbumsPage() {
   }, [q]);
 
   const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useAlbumsInfinite(libraryId, query, sort);
-  const { data: facets } = useAlbumFacets(libraryId, query);
+  const { data: facets } = useAlbumFilterCounts(libraryId, query);
   const { data: savedViews } = useSavedViews(libraryId);
   const createView = useCreateSavedView(libraryId);
   const deleteView = useDeleteSavedView(libraryId);

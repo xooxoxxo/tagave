@@ -19,6 +19,7 @@
 import type postgres from 'postgres';
 import { confirmFills, revertFills } from './identityFills.js';
 import { identifyWithdraw } from './identifyQueue.js';
+import { moduleEnabled, setModuleEnabled } from './modules.js';
 
 type Sql = postgres.Sql<any>;
 type Tx = postgres.TransactionSql<any>;
@@ -86,20 +87,16 @@ export async function removeMcData(sql: Sql, opts: { keepFills: boolean; actorUs
 }
 
 // ── The module switch (Settings › Modules) ─────────────────────────────────
-// Kept in the settings of the install's first library (the one the feeds
-// and links read): settings.modules.mc.enabled. Absent means off, as for the
-// player: a new or updated install links nothing until the owner turns it on.
+// In the module ledger (installed_modules, 0065), row 'mc'. Off unless the
+// owner turned it on: a new or updated install links nothing until then.
 // Read per call (each request, each job run), so the switch needs no restart.
 
+export const MC_MODULE_ID = 'mc';
+
 export async function mcEnabled(sql: Sql | Tx): Promise<boolean> {
-  const [row] = await sql<Array<{ v: string | null }>>`
-    select settings->'modules'->'mc'->>'enabled' as v from libraries order by created_at, id limit 1`;
-  return row?.v === 'true';
+  return moduleEnabled(sql, MC_MODULE_ID);
 }
 
 export async function setMcEnabled(sql: Sql | Tx, enabled: boolean): Promise<void> {
-  await sql`
-    update libraries set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{modules}',
-           coalesce(settings->'modules', '{}'::jsonb) || jsonb_build_object('mc', coalesce(settings->'modules'->'mc', '{}'::jsonb) || jsonb_build_object('enabled', ${enabled}::boolean)))
-     where id = (select id from libraries order by created_at, id limit 1)`;
+  await setModuleEnabled(sql, MC_MODULE_ID, enabled);
 }

@@ -7,12 +7,12 @@
  *   delete its data   its two tables are emptied, nothing else (tracks,
  *                     albums and people stay as they are)
  *
- * The switch lives in the settings of the install's first library, as
- * Listen elsewhere's does: settings.modules.playlists.enabled. Absent means
- * on: playlists reach nothing outside tagave, so an install has them from
- * the start; the owner can turn them off. Read per call.
+ * The switch is the module ledger's row 'playlists' (installed_modules,
+ * 0065), on from the start: playlists reach nothing outside tagave, so an
+ * install has them until the owner turns them off. Read per call.
  */
 import type postgres from 'postgres';
+import { moduleEnabled, setModuleEnabled } from './modules.js';
 
 type Sql = postgres.Sql<any>;
 type Tx = postgres.TransactionSql<any>;
@@ -23,16 +23,11 @@ export const PLAYLISTS_MODULE_ID = 'playlists';
 export const PLAYLISTS_TABLES = ['playlist_items', 'playlists'] as const;
 
 export async function playlistsEnabled(sql: Sql | Tx): Promise<boolean> {
-  const [row] = await sql<Array<{ v: string | null }>>`
-    select settings->'modules'->'playlists'->>'enabled' as v from libraries order by created_at, id limit 1`;
-  return row?.v !== 'false';
+  return moduleEnabled(sql, PLAYLISTS_MODULE_ID);
 }
 
 export async function setPlaylistsEnabled(sql: Sql | Tx, enabled: boolean): Promise<void> {
-  await sql`
-    update libraries set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{modules}',
-           coalesce(settings->'modules', '{}'::jsonb) || jsonb_build_object('playlists', coalesce(settings->'modules'->'playlists', '{}'::jsonb) || jsonb_build_object('enabled', ${enabled}::boolean)))
-     where id = (select id from libraries order by created_at, id limit 1)`;
+  await setModuleEnabled(sql, PLAYLISTS_MODULE_ID, enabled);
 }
 
 /** Delete the module's data: exactly its rows, in one transaction. Idempotent. */

@@ -4,7 +4,11 @@
  * file rows is checked here with rows of a handler music does not claim
  * ('test-doc', which this build does not carry either): scan.parse,
  * missing-marking, Tier 1/Tier 2 merges, hold releases and the sweep. Holds,
- * missing-marking and merges themselves still happen for those rows.
+ * missing-marking and merges themselves still happen for those rows when the
+ * walk indexes their handler. The walk indexes only the handlers of apps that
+ * are on (installed_modules; music always): a row of any other handler is
+ * left alone. cluster.dir's candidates, a tag plan's library and folder
+ * scopes and the folder tag editor read music's files only.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -17,7 +21,9 @@ import type { WorkerContext } from './context.js';
 import { placeHolds, releaseExpiredHolds, releaseReadyHolds } from './clusterHold.js';
 import { loadMatchFiles, runMerges } from './reconcile.js';
 import { walkRoot } from './walk.js';
-import { clusteredByMusic, MUSIC_HANDLERS } from './musicFiles.js';
+import { clusteredByMusic, MUSIC_HANDLERS, walkedHandlers } from './musicFiles.js';
+import { clusterDirJob } from '../jobs/clusterDir.js';
+import { enumerateFilesForScope } from '../jobs/tagsPreview.js';
 import { scanParseJob } from '../jobs/scanParse.js';
 import { filesBackfillDigestJob } from '../jobs/filesBackfillDigest.js';
 import { writeFlac } from '../testkit/flac.js';
@@ -25,11 +31,18 @@ import { writeFlac } from '../testkit/flac.js';
 const DOC = 'test-doc';
 
 describe('music files gate', () => {
-  it('claims the audio handler only', () => {
+  it('claims the audio handler only, from the music app\u2019s manifest', () => {
     expect(MUSIC_HANDLERS).toEqual(['audio']);
     expect(clusteredByMusic('audio')).toBe(true);
     expect(clusteredByMusic(DOC)).toBe(false);
     expect(clusteredByMusic(null)).toBe(false);
+  });
+
+  it('walks the built-in apps’ handlers on a database from before the module ledger (schema skew allowed)', async () => {
+    const beforeLedger = (() => Promise.reject(Object.assign(new Error('relation "installed_modules" does not exist'), { code: '42P01' }))) as any;
+    expect([...(await walkedHandlers({ sql: beforeLedger }))]).toEqual(['audio']);
+    const broken = (() => Promise.reject(Object.assign(new Error('connection lost'), { code: '08006' }))) as any;
+    await expect(walkedHandlers({ sql: broken })).rejects.toThrow(/connection lost/);
   });
 });
 
@@ -139,15 +152,51 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster.dir only for files the 
     expect((await runMerges(ctx, 1, olds, freshs, new Date(), true)).merged).toBe(0);
   });
 
-  it('a scan marks rows of any handler missing but re-clusters only the music folders that lost files', async () => {
+  it('a scan marks rows of a handler it walks missing but re-clusters only the music folders that lost files', async () => {
     await file('GoneDoc/1.doc', DOC, { last_seen_at: dayAgo() });
     await file('GoneMusic/1.flac', 'audio', { last_seen_at: dayAgo() });
     await writeFlac(path.join(rootPath, 'Here.flac'), { title: 'here' });
-    const r = await walkRoot(ctx, { id: rootId, libraryId, path: rootPath }, { mode: 'full' });
+    const r = await walkRoot(ctx, { id: rootId, libraryId, path: rootPath }, { mode: 'full', handlers: new Set(['audio', DOC]) });
     expect(r.missing).toBe(2);
     expect(r.dirsWithMissing).toEqual(['GoneMusic']);
     const added = await sql`select handler, media_type from files where library_id = ${libraryId} and rel_path = 'Here.flac'`;
     expect(added).toEqual([{ handler: 'audio', media_type: 'audio/flac' }]);
+  });
+
+  it('the walk indexes the handlers of the apps that are on (music always), and leaves other rows alone', async () => {
+    expect([...(await walkedHandlers(ctx))]).toEqual(['audio']);
+    // music is built in: its handlers are walked even with its ledger row off
+    await sql`update installed_modules set enabled = false, enabled_at = null where id = 'music'`;
+    try {
+      expect([...(await walkedHandlers(ctx))]).toEqual(['audio']);
+    } finally {
+      await sql`update installed_modules set enabled = true, enabled_at = now() where id = 'music'`;
+    }
+    const doc = await file('GoneDoc/1.doc', DOC, { last_seen_at: dayAgo() });
+    await file('GoneMusic/1.flac', 'audio', { last_seen_at: dayAgo() });
+    await writeFile(path.join(rootPath, 'Here.doc'), 'doc');
+    const r = await walkRoot(ctx, { id: rootId, libraryId, path: rootPath }, { mode: 'full' });
+    expect(r.missing).toBe(1);
+    expect(r.dirsWithMissing).toEqual(['GoneMusic']);
+    // the doc row is neither seen nor missing, and a doc on disk is not indexed
+    expect(await sql`select status from files where id = ${doc}`).toEqual([{ status: 'present' }]);
+    expect(await sql`select 1 from files where library_id = ${libraryId} and rel_path = 'Here.doc'`).toHaveLength(0);
+    await rm(path.join(rootPath, 'Here.doc'));
+  });
+
+  it('cluster.dir, a tag plan\u2019s library and folder scopes and the folder editor read music\u2019s files only', async () => {
+    const tags = (title: string, no: number) => JSON.stringify({ common: { album: 'Mixed', artist: 'A', albumartist: 'A', title, track: { no, of: 2 } } });
+    const audio = await file('Mixed/01.flac', 'audio');
+    const doc = await file('Mixed/02.doc', DOC);
+    await sql`update files set tags_raw = ${tags('one', 1)}::text::jsonb, tags_read_at = now() where id = ${audio}`;
+    await sql`update files set tags_raw = ${tags('two', 2)}::text::jsonb, tags_read_at = now() where id = ${doc}`;
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Mixed' });
+    const tracks = await sql`select lt.audio_file_id from local_tracks lt join local_albums la on la.id = lt.local_album_id where la.library_id = ${libraryId}`;
+    expect(tracks.map((t: any) => t.audio_file_id)).toEqual([audio]);
+    expect(await enumerateFilesForScope(ctx, libraryId, { type: 'library' })).toEqual([audio]);
+    expect(await enumerateFilesForScope(ctx, libraryId, { type: 'folder', dirPath: 'Mixed', scanRootId: rootId })).toEqual([audio]);
+    expect(doc).not.toBe(audio);
+    await sql`delete from local_albums where library_id = ${libraryId}`;
   });
 
   it('files.backfillDigest takes the digest from the row\'s handler: none for a handler this build lacks', async () => {

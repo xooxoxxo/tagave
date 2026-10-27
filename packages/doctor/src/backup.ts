@@ -231,7 +231,8 @@ export async function lastAppliedMigration(databaseUrl: string): Promise<string 
     sql = postgres(databaseUrl, { max: 1, connect_timeout: 5, idle_timeout: 1, onnotice: () => undefined });
     const t = await sql`select to_regclass('public._migrations') as t`;
     if (!t[0]?.['t']) return null;
-    const rows = await sql`select name from _migrations order by name desc limit 1`;
+    // the core chain's (a module's own chain, 0066, numbers apart); either ledger shape
+    const rows = await sql`select name from _migrations m where coalesce(to_jsonb(m)->>'module', 'core') = 'core' order by name desc limit 1`;
     return (rows[0]?.['name'] as string | undefined) ?? null;
   } catch {
     return null;

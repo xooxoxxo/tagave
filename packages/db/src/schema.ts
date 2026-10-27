@@ -1978,3 +1978,16 @@ export const playlistItems = pgTable(
   },
   (table) => ({ orderIdx: index('idx_playlist_items_order').on(table.playlistId, table.position) })
 );
+
+// The module ledger (0065): which apps and modules this install has, and
+// whether each is on. Read and written through @tagave/db modules.ts.
+export const installedModules = pgTable('installed_modules', {
+  id: text().primaryKey(),
+  kind: text().notNull().default('in-process'),
+  version: text(),
+  enabled: boolean().notNull().default(false),
+  enabledAt: tstz('enabled_at'),
+  schemaVersion: text('schema_version'),
+  settings: jsonb().notNull().default(sql`'{}'::jsonb`),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
