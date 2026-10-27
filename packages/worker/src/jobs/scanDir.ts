@@ -13,7 +13,7 @@ import { finishNotes, type FinishResult } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
-import { enqueueReclusters } from './scanRoot.js';
+import { enqueueDirs, enqueueReclusters } from './scanRoot.js';
 
 export interface ScanDirJobData {
   scanRootId: string;
@@ -91,7 +91,10 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
   }
   // The owner asked for this folder: re-cluster it right away even when
   // nothing changed on disk, plus any directory that lost files.
-  await enqueueReclusters(ctx, root, [dirPath, ...walk.dirsWithMissing], { startAfter: walk.changedIds.length ? 20 : 0 });
+  const startAfter = walk.changedIds.length ? 20 : 0;
+  await enqueueReclusters(ctx, root, [dirPath, ...walk.dirsWithMissing], { startAfter });
+  // Old and new folders of every Tier 1 merge (see scanRootJob).
+  await enqueueDirs(ctx, root.libraryId, walk.reclusterDirs, { startAfter, throttle: false });
 
   const elapsedS = Math.round((Date.now() - started) / 1000);
   const message = scanDirMessage(walk, elapsedS);

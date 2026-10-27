@@ -1,8 +1,9 @@
+import type postgres from 'postgres';
 import { readFile, access } from 'node:fs/promises';
-import { and, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, like, or } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
-import { audioFiles, clusterOverrides, localAlbums, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
+import { audioFiles, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -383,11 +384,11 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       trackCount,
       totalDurationMs: totalDuration,
       formats: [...formats].sort(),
-      // Postgres' clock, not this worker's. cluster.repairDiscs takes its
-      // `since` marker from select now() and then asks which albums were
-      // written after it; a worker whose clock trails the database would stamp
-      // its own re-clusters as older than the sweep that caused them.
-      updatedAt: sql`now()`,
+      // updated_at is now(): Postgres' clock, not this worker's.
+      // cluster.repairDiscs takes its `since` marker from select now() and
+      // then asks which albums were written after it; a worker whose clock
+      // trails the database would stamp its own re-clusters as older than the
+      // sweep that caused them.
     };
 
     // Idempotent upsert by (library_id, cluster_key): unchanged clusters keep
@@ -398,19 +399,26 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     // insert only; an existing album keeps whatever it reached.
     await carryOverRekeyedAlbum(ctx, data.libraryId, ckey, g.files.map((f) => f.id));
 
-    const ins = await ctx.db
-      .insert(localAlbums)
-      .values({ libraryId: data.libraryId, clusterKey: ckey, state: 'pending', ...albumValues })
-      .onConflictDoUpdate({
-        target: [localAlbums.libraryId, localAlbums.clusterKey],
-        set: albumValues,
-      })
-      .returning({ id: localAlbums.id });
-    const row = ins[0];
-    if (!row) throw new Error('local_albums upsert returned no row');
-    const albumId = row.id;
-
-    await replaceTracks(ctx, albumId, g.files, discs);
+    // The upsert and the album's tracks commit together under the album key
+    // lock: a new album is never visible without its tracks, and a concurrent
+    // zero-track sweep (retireEmptyAlbums) waits for the lock instead of
+    // deleting an album that is being filled.
+    await ctx.sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(data.libraryId, ckey)}, 0))`;
+      const v = albumValues;
+      const [row] = await tx`
+        insert into local_albums (library_id, cluster_key, state, title_guess, artist_guess, year_guess, dir_paths,
+                                  disc_count, track_count, total_duration_ms, formats, updated_at)
+        values (${data.libraryId}, ${ckey}, 'pending', ${v.titleGuess}, ${v.artistGuess}, ${v.yearGuess}, ${v.dirPaths}::text[],
+                ${v.discCount}, ${v.trackCount}, ${v.totalDurationMs}, ${v.formats}::text[], now())
+        on conflict (library_id, cluster_key) do update set
+          title_guess = excluded.title_guess, artist_guess = excluded.artist_guess, year_guess = excluded.year_guess,
+          dir_paths = excluded.dir_paths, disc_count = excluded.disc_count, track_count = excluded.track_count,
+          total_duration_ms = excluded.total_duration_ms, formats = excluded.formats, updated_at = excluded.updated_at
+        returning id::text as id`;
+      if (!row) throw new Error('local_albums upsert returned no row');
+      await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
+    });
   }
 
   // Loose tracks: local_tracks rows with no album (spec LIB-6).
@@ -430,31 +438,9 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     await refreshPinnedAlbumNames(ctx, pinnedAlbums);
   }
 
-  // Clusters in scope that lost every track to regrouping are dead weight;
-  // only untouched states are safe to reap.
-  const reaped = (await ctx.sql`
-    delete from local_albums la
-    where la.library_id = ${data.libraryId}
-      and la.state in ('pending', 'unidentified')
-      and ${scope === '' ? ctx.sql`true` : ctx.sql`la.dir_paths && ARRAY[${scope}]::text[]`}
-      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
-    returning la.id`) as unknown as Array<{ id: string }>;
-
-  // Merging sibling folders supersedes the per-folder clusters they used to
-  // form, and those are exactly the ones the query above cannot reach: a new
-  // cluster_key means a new row, the old row keeps whatever state it reached
-  // (the two-CD bug left both halves 'matched' against a one-disc release),
-  // and its dir_paths name the sibling folder, never the parent scope. So the
-  // directories this run actually touched are swept for zero-track clusters in
-  // any state — nothing owns those files any more.
   const touchedDirs = new Set<string>([scope, ...(siblingDirs ?? [])]);
   for (const f of inScope) touchedDirs.add(relDirname(f.relPath));
-  const superseded = (await ctx.sql`
-    delete from local_albums la
-    where la.library_id = ${data.libraryId}
-      and la.dir_paths && ${[...touchedDirs]}::text[]
-      and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
-    returning la.id, la.state, la.title_guess`) as unknown as Array<{ id: string; state: string; title_guess: string | null }>;
+  const { reaped, superseded } = await retireEmptyAlbums(ctx, data.libraryId, scope, [...touchedDirs]);
   if (superseded.length > 0) {
     ctx.logger.info({ scope, retired: superseded }, 'retired superseded local albums');
   }
@@ -473,6 +459,72 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     { scope, siblingDirs, groups: groups.size, loose: loose.length, pinned: pinned.size },
     'clustered directory',
   );
+}
+
+/**
+ * Advisory lock key for one album's cluster key. cluster.dir holds it (xact
+ * lock) from the album upsert until its tracks commit; retireEmptyAlbums
+ * takes it before it deletes a zero-track album of that key, so an album
+ * being filled is never seen empty and removed.
+ */
+export function albumKeyLock(libraryId: string, clusterKey: string): string {
+  return `album-key:${libraryId}\n${clusterKey}`;
+}
+
+/**
+ * The zero-track albums one cluster.dir run removes.
+ *
+ * reaped: clusters in scope that lost every track to regrouping are dead
+ * weight; only untouched states are safe to reap.
+ *
+ * superseded: merging sibling folders supersedes the per-folder clusters they
+ * used to form, and those are exactly the ones the query above cannot reach:
+ * a new cluster_key means a new row, the old row keeps whatever state it
+ * reached (the two-CD bug left both halves 'matched' against a one-disc
+ * release), and its dir_paths name the sibling folder, never the parent
+ * scope. So the directories this run actually touched are swept for
+ * zero-track clusters in any state — nothing owns those files any more.
+ */
+export async function retireEmptyAlbums(
+  ctx: Pick<WorkerContext, 'sql'>,
+  libraryId: string,
+  scope: string,
+  touchedDirs: string[],
+): Promise<{ reaped: Array<{ id: string }>; superseded: Array<{ id: string; state: string; title_guess: string | null }> }> {
+  // Candidates first, then one delete per album under its key lock, with
+  // the emptiness checked again after the lock: a job filling the album holds
+  // that lock until its tracks commit. A plain delete ... where not exists
+  // would wait on the filler's row lock and then delete anyway (the re-check
+  // after a row lock wait does not re-run the subquery on a fresh snapshot),
+  // taking the just-committed tracks with it by cascade.
+  const candidates = (await ctx.sql`
+    select la.id::text as id, la.cluster_key as "clusterKey",
+           (la.state in ('pending', 'unidentified') and (${scope}::text = '' or la.dir_paths && ARRAY[${scope}]::text[])) as reap
+      from local_albums la
+     where la.library_id = ${libraryId}
+       and ((la.state in ('pending', 'unidentified') and (${scope}::text = '' or la.dir_paths && ARRAY[${scope}]::text[]))
+            or la.dir_paths && ${touchedDirs}::text[])
+       and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
+     order by la.cluster_key`) as unknown as Array<{ id: string; clusterKey: string; reap: boolean }>;
+  const reaped: Array<{ id: string }> = [];
+  const superseded: Array<{ id: string; state: string; title_guess: string | null }> = [];
+  for (const c of candidates) {
+    const gone = (await ctx.sql.begin(async (tx) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(libraryId, c.clusterKey)}, 0))`;
+      return tx`
+        delete from local_albums la
+         where la.id = ${c.id}
+           and ((la.state in ('pending', 'unidentified') and (${scope}::text = '' or la.dir_paths && ARRAY[${scope}]::text[]))
+                or la.dir_paths && ${touchedDirs}::text[])
+           and not exists (select 1 from local_tracks lt where lt.local_album_id = la.id)
+        returning la.id::text as id, la.state, la.title_guess`;
+    })) as unknown as Array<{ id: string; state: string; title_guess: string | null }>;
+    const row = gone[0];
+    if (!row) continue;
+    if (c.reap) reaped.push({ id: row.id });
+    else superseded.push(row);
+  }
+  return { reaped, superseded };
 }
 
 /**
@@ -507,9 +559,12 @@ export async function carryOverRekeyedAlbum(
   const owners = (await ctx.sql`
     select la.id::text as id, la.state, la.cluster_key as "clusterKey",
            count(distinct lt.audio_file_id) filter (where lt.audio_file_id = any(${fileIds}::uuid[]))::int as inside,
-           count(distinct lt.audio_file_id)::int as total
+           -- only live files: an album that already had a missing track, or
+           -- whose files left behind went missing, still carries over (R2)
+           count(distinct lt.audio_file_id) filter (where af.status in ('present', 'error'))::int as total
       from local_albums la
       join local_tracks lt on lt.local_album_id = la.id
+      join audio_files af on af.id = lt.audio_file_id
      where la.library_id = ${libraryId}
        and la.cluster_key not like 'split:%'
        and la.cluster_key not like 'merge:%'
@@ -681,6 +736,7 @@ async function replaceTracks(
   albumId: string | null,
   files: FileRow[],
   discs: Map<string, number | null>,
+  inTx?: postgres.TransactionSql<any>,
 ): Promise<void> {
   // null disc_no keeps meaning "no disc information" for an ordinary
   // single-disc album. Inside a cluster that spans discs the distinction is
@@ -732,5 +788,5 @@ async function replaceTracks(
   // Upsert in place under a per-album lock (see lib/trackUpsert.ts): track
   // ids, canonical links and player map rows survive every re-cluster.
   const lockKey = albumId ?? `loose:${files.map((f) => f.id).sort()[0] ?? ''}`;
-  await upsertTracks(ctx, lockKey, files.map((f) => f.id), rows);
+  await upsertTracks(ctx, lockKey, files.map((f) => f.id), rows, inTx);
 }

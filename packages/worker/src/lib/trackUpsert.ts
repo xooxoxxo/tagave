@@ -12,6 +12,7 @@
  * duration, rows added or removed) gets tracks_linked_at cleared. A row that
  * moves to another album loses its old release link (Ruling 11).
  */
+import type postgres from 'postgres';
 import type { WorkerContext } from './context.js';
 
 export interface TrackRowInput {
@@ -53,6 +54,8 @@ export async function upsertTracks(
   lockKey: string,
   fileIds: string[],
   rows: TrackRowInput[],
+  /** run inside this transaction (cluster.dir: the album upsert and its tracks commit together) */
+  inTx?: postgres.TransactionSql<any>,
 ): Promise<UpsertTracksResult> {
   // One row per key: a cue sheet naming one start twice keeps its first track.
   const wanted = new Map<string, TrackRowInput>();
@@ -62,7 +65,7 @@ export async function upsertTracks(
   }
   if (fileIds.length === 0) return { inserted: 0, updated: 0, deleted: 0, relinkAlbumIds: [] };
 
-  return ctx.sql.begin(async (tx) => {
+  const body = async (tx: postgres.TransactionSql<any>): Promise<UpsertTracksResult> => {
     // Sibling disc folders of one album are clustered by concurrent jobs that
     // each carry every file of the set: one unit per album.
     await tx`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
@@ -150,5 +153,6 @@ export async function upsertTracks(
                where id = any(${relinkAlbumIds}::uuid[]) and tracks_linked_at is not null`;
     }
     return { inserted, updated, deleted: gone.length, relinkAlbumIds };
-  });
+  };
+  return inTx ? body(inTx) : ctx.sql.begin(body) as Promise<UpsertTracksResult>;
 }
