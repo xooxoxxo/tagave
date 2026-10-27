@@ -19,7 +19,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import {
-  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, autotaggerConfig, autotaggerEnabled, clearTypesafeKey, removeAutotaggerData, setAutotaggerConfig,
+  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, autotaggerConfig, autotaggerEnabled, clearTypesafeKey, monthSpendByCurrency, removeAutotaggerData, setAutotaggerConfig,
   setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint, typesafeKeyHintOf,
 } from '@tagave/db';
 import { sealSecret } from '@tagave/core';
@@ -111,13 +111,7 @@ async function libraryView(request: FastifyRequest, libraryId: string): Promise<
   const config = await orMissing(() => autotaggerConfig(sql(), libraryId), { ...DEFAULT_AUTOTAGGER_CONFIG });
   const hint = await orMissing(() => typesafeKeyHint(sql(), libraryId), null);
   // this calendar month (UTC), per currency: the settings' currency, and any other apart
-  const spent = await orMissing(async () => {
-    const rows = await sql()<Array<{ currency: string; amount: string }>>`
-      select currency, sum(cost)::text as amount from decider_calls
-       where library_id = ${libraryId} and created_at >= date_trunc('month', now() at time zone 'utc') at time zone 'utc'
-       group by currency order by currency`;
-    return rows.map((r) => ({ currency: r.currency, amount: Number(r.amount) }));
-  }, [] as Array<{ currency: string; amount: number }>);
+  const spent = await monthSpendByCurrency(sql(), libraryId);
   const owner = callerCan(request, 'system.manage');
   return {
     enabled: await autotaggerEnabled(sql()),
