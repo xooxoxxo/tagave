@@ -15,6 +15,9 @@
  * would send their folders again: rows not parsed yet (no tags_raw), files
  * without a duration (cluster.dir keeps them loose), files of a handler music
  * does not group, and files with a cluster override (the owner placed them).
+ *
+ * Plan on 240k files (EXPLAIN ANALYZE): hash anti joins against local_tracks
+ * and cluster_overrides over one scan of files, about 0.1 s.
  */
 import type { WorkerContext } from '../lib/context.js';
 import { MUSIC_HANDLERS } from '../lib/musicFiles.js';
@@ -44,6 +47,8 @@ export async function clusterBackfillLooseJob(
      where af.status = 'present'
        and af.tags_raw is not null
        and af.handler = any(${[...MUSIC_HANDLERS]}::text[])
+       -- clusterDir keeps a file without a duration loose ((durationMs ?? 0) > 0):
+       -- the same rule here, or every boot would send its folder again
        and coalesce(af.duration_ms, 0) > 0
        and not exists (select 1 from local_tracks lt where lt.audio_file_id = af.id and lt.local_album_id is not null)
        and not exists (select 1 from cluster_overrides co where co.audio_file_id = af.id)

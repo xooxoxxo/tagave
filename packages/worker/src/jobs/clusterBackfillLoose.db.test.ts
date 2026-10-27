@@ -62,4 +62,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster.backfillLoose (db)', ()
     expect(r.folders).toBe(1);
     expect(l.sent.filter((j) => j.name === 'cluster.dir')).toHaveLength(1);
   });
+
+  it('a folder with only a 0 ms file is never sent: clusterDir keeps it loose', async () => {
+    lab = await makeLab(1);
+    const l = lab;
+    await mkdir(path.join(l.roots[0]!.path, 'Zero'));
+    await writeFlac(path.join(l.roots[0]!.path, 'Zero', 'z.flac'), { title: 'Z', seconds: 0 });
+    await l.scan(0);
+    const [f] = await l.sql`select duration_ms from files where library_id = ${l.libraryId}`;
+    expect(f.duration_ms ?? 0).toBe(0);
+    for (let run = 0; run < 2; run++) {
+      l.sent.length = 0;
+      await clusterBackfillLooseJob(l.ctx, { limit: 100_000 });
+      expect(l.sent.filter((j) => j.name === 'cluster.dir' && j.data.libraryId === l.libraryId)).toHaveLength(0);
+    }
+  });
 });
