@@ -250,3 +250,50 @@ export async function batchCounts(
   }
   return out;
 }
+
+/** How long one decider.accept run may work before pg-boss expires it (the worker's queue option). */
+export const DECIDER_ACCEPT_EXPIRE_SECONDS = 6 * 3600;
+
+/** decider.accept jobs of a batch that are queued, waiting to retry or running, with their mode. */
+export async function liveDeciderJobs(sql: Sql, batchId: string): Promise<Array<{ id: string; state: string; mode: 'accept' | 'undo' }>> {
+  const rows = await sql<Array<{ id: string; state: string; mode: string | null }>>`
+    select id::text as id, state::text as state, data->>'mode' as mode
+      from pgboss.job
+     where name = 'decider.accept' and singleton_key = ${`decider:${batchId}`}
+       and state::text in ('created', 'retry', 'active')`;
+  return rows.map((r) => ({ id: r.id, state: r.state, mode: r.mode === 'undo' ? 'undo' : 'accept' }));
+}
+
+/**
+ * Fails batches left queued, accepting or undoing by a run that will not
+ * come back: pg-boss expired its job (or the worker died) after its last
+ * retry, so the run's own catch never marked the batch. A batch is stale
+ * when nothing moved in it for longer than one run may take and no
+ * decider.accept job for it is queued, waiting or running. The message
+ * starts like a run's own failure ("Accept stopped:" / "Undo stopped:").
+ * Returns the batches it failed.
+ */
+export async function failStaleBatches(
+  sql: Sql, opts: { libraryId?: string; olderThanSeconds?: number } = {},
+): Promise<string[]> {
+  const seconds = opts.olderThanSeconds ?? DECIDER_ACCEPT_EXPIRE_SECONDS;
+  const lib = opts.libraryId ?? null;
+  const stale = await sql<Array<{ id: string; state: BatchState }>>`
+    select b.id, b.state
+      from decider_batches b
+     where b.state in ('queued', 'accepting', 'undoing')
+       and (${lib}::uuid is null or b.library_id = ${lib}::uuid)
+       and greatest(b.created_at, b.undo_requested_at,
+                    (select max(greatest(i.accepted_at, i.undone_at)) from decider_batch_items i where i.batch_id = b.id))
+           < now() - make_interval(secs => ${seconds}::int)
+       and not exists (
+             select 1 from pgboss.job j
+              where j.name = 'decider.accept' and j.singleton_key = 'decider:' || b.id::text
+                and j.state::text in ('created', 'retry', 'active'))`;
+  const failed: string[] = [];
+  for (const b of stale) {
+    const message = b.state === 'undoing' ? 'Undo stopped: no progress' : 'Accept stopped: no progress';
+    if (await transitionBatch(sql, b.id, [b.state], 'failed', { message })) failed.push(b.id);
+  }
+  return failed;
+}

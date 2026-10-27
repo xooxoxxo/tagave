@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { listMigrationChain, makeDb } from '@tagave/db';
+import { DECIDER_ACCEPT_EXPIRE_SECONDS, failStaleBatches, listMigrationChain, makeDb } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -130,7 +130,7 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   // 200 albums per pass, each pass sending the next; the next boot starts over
   'evidence.backfill': { expireInSeconds: 3600, retryLimit: 0 },
   // a batch of thousands of albums, one transaction each; a retry resumes at the first pending item
-  'decider.accept': { expireInSeconds: 6 * 3600, retryLimit: 2 },
+  'decider.accept': { expireInSeconds: DECIDER_ACCEPT_EXPIRE_SECONDS, retryLimit: 2 },
 };
 
 /**
@@ -341,6 +341,14 @@ async function main() {
       const retryLimit = LONG_JOB_QUEUES['decider.accept']!.retryLimit;
       for (const job of jobs) await deciderAcceptJob(ctx, job.data, { lastAttempt: job.retryCount >= retryLimit });
     });
+    // A batch whose run died with the last worker (job expired after its last
+    // retry) reads failed from boot on; enrich.sweep repeats this nightly.
+    try {
+      const stale = await failStaleBatches(ctx.sql);
+      if (stale.length > 0) ctx.logger.warn({ batches: stale }, 'accept batches with no run left marked failed');
+    } catch (err) {
+      ctx.logger.error({ err: err instanceof Error ? err.message : String(err) }, 'stale accept batch check failed');
+    }
   }
   // Music Connections pulls from linked apps (Settings › Connections), on the
   // identify worker (spec §4). The tick every 15 minutes queues each due link;

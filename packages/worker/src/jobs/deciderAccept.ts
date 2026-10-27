@@ -122,7 +122,8 @@ export async function runAcceptBatch(ctx: WorkerContext, batchId: string, attemp
           assertAcceptInput(acceptInput(batch, item));
         } catch (err) {
           if (!(err instanceof RangeError)) throw err;
-          const message = `Item ${item.id} cannot be accepted: ${err.message}`;
+          // every accept failure starts so; an undo's says "Undo stopped:"
+          const message = `Accept stopped: item ${item.id} cannot be accepted: ${err.message}`;
           failureRecorded = true;
           await transitionBatch(ctx.sql, batchId, ['accepting'], 'failed', { message });
           await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });

@@ -166,6 +166,10 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/run': 'library.edit',
+  // Accept batches (routes/batches.ts): undoing a model's batch also needs system.manage, checked in the handler.
+  'GET /api/v1/libraries/:libraryId/batches': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/batches/:batchId': 'library.edit',
+  'POST /api/v1/libraries/:libraryId/batches/:batchId/undo': 'library.edit',
   'POST /api/v1/libraries/:libraryId/enrich-sweep': 'library.edit',
   'GET /api/v1/libraries/:libraryId/gaps': 'library.edit',
   'GET /api/v1/libraries/:libraryId/gaps/counts': 'library.edit',
@@ -219,6 +223,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/player/scan': 'system.manage',
   'DELETE /api/v1/libraries/:libraryId/player/server': 'system.manage',
   'PUT /api/v1/libraries/:libraryId/player/server': 'system.manage',
+  // "Drain faster": the nightly bridge's pace for the library (routes/batches.ts)
+  'PUT /api/v1/libraries/:libraryId/enrich-pace': 'system.manage',
   'POST /api/v1/libraries/:libraryId/scan-roots': 'system.manage',
   'DELETE /api/v1/libraries/:libraryId/scan-roots/:scanRootId': 'system.manage',
   'PATCH /api/v1/libraries/:libraryId/scan-roots/:scanRootId': 'system.manage',

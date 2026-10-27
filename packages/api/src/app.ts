@@ -23,6 +23,7 @@ import { createFieldLocksRoutes } from './routes/fieldLocks.js';
 import { createJobRoutes } from './routes/jobs.js';
 import { createQueueRoutes } from './routes/queue.js';
 import { createReviewMatchesRoutes } from './routes/reviewMatches.js';
+import { createBatchRoutes } from './routes/batches.js';
 import { createGapRoutes } from './routes/gaps.js';
 import { createImageRoutes } from './routes/images.js';
 import { createSearchRoutes } from './routes/search.js';
@@ -135,6 +136,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createQueueRoutes, { prefix: '/api/v1' });
     // Review matches: auto-accept rules, pasted editions
     instance.register(createReviewMatchesRoutes, { prefix: '/api/v1' });
+    instance.register(createBatchRoutes, { prefix: '/api/v1' });
 
     // Gaps, their three-way decisions and the Tasks list (0032)
     instance.register(createGapRoutes, { prefix: '/api/v1' });
