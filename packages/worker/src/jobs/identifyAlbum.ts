@@ -164,7 +164,20 @@ export async function localViewOf(ctx: WorkerContext, album: AlbumRow, tracks: T
   const fileRows = tracks.length === 0 ? [] : await ctx.db
     .select({ tagsRaw: files.tagsRaw })
     .from(files)
-    .where(inArray(files.id, tracks.slice(0, 3).map((t) => t.audioFileId)));
+    .where(inArray(files.id, embeddedSourceFileIds(tracks)));
+  return localViewFrom(album, tracks, fileRows);
+}
+
+/** The files whose tags give the album's embedded ids: those of its first three tracks. */
+export function embeddedSourceFileIds(tracks: Pick<TrackRow, 'audioFileId'>[]): string[] {
+  return tracks.slice(0, 3).map((t) => t.audioFileId);
+}
+
+/**
+ * localViewOf without the database: `fileRows` are the tags of the files
+ * embeddedSourceFileIds names. Lets a caller load many albums' files at once.
+ */
+export function localViewFrom(album: AlbumRow, tracks: TrackRow[], fileRows: Array<{ tagsRaw: unknown }>) {
   let embedded: EmbeddedIds = {};
   for (const f of fileRows) {
     embedded = { ...embeddedIdsOf(f.tagsRaw), ...embedded };

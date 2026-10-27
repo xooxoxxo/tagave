@@ -22,10 +22,10 @@ import { pathToFileURL } from 'node:url';
 import pino from 'pino';
 import type { PgBoss } from 'pg-boss';
 import { and, asc, eq, gt, ne, sql } from 'drizzle-orm';
-import { localAlbums, localTracks, makeDb, fetchAutoAcceptRulesRow } from '@tagave/db';
+import { localAlbums, localTracks, makeDb, fetchAutoAcceptRulesRow, artistText } from '@tagave/db';
 import { scoreRelease, evaluateAutoAccept, rulesFromStored, mediumCountOf, normalizeBarcode } from '@tagave/core';
 import type { WorkerContext } from './lib/context.js';
-import { localViewOf, toScorable } from './jobs/identifyAlbum.js';
+import { embeddedSourceFileIds, localViewFrom, toScorable } from './jobs/identifyAlbum.js';
 import { storedReleases, type StoredRelease } from './lib/storedRelease.js';
 import { identifyDecision } from './lib/identifyDecision.js';
 
@@ -43,11 +43,11 @@ export interface RegressionRow {
   artist: string | null;
   outcome: { before: Outcome; after: Outcome };
   /**
-   * What drives the change: a real mismatch, a barcode written differently
-   * (or not readable as one), or a matching barcode that no longer paints
-   * over a mismatching embedded release id.
+   * What drives the change: a real mismatch, a barcode written differently,
+   * a barcode one side cannot read as one, or a matching barcode that no
+   * longer paints over a mismatching embedded release id.
    */
-  cause: 'mismatch' | 'format_only' | 'embedded_id';
+  cause: 'mismatch' | 'format_only' | 'unreadable' | 'embedded_id';
   /** matched automatically today */
   live: boolean;
   /** the rebuilt artist term differs from the one stored at identify time */
@@ -83,7 +83,7 @@ const ARTIST_EPSILON = 1e-4;
 
 type AlbumRow = typeof localAlbums.$inferSelect;
 type TrackRow = typeof localTracks.$inferSelect;
-type CandRow = { local_album_id: string; release_id: string; distance: string; breakdown: unknown };
+type CandRow = { local_album_id: string; release_id: string; distance: string; breakdown: unknown; track_count: number | null; date: string | null; artist_credit: unknown };
 type Scored = { dbId: string; distance: number; breakdown: Record<string, unknown> };
 
 export function barcodeKind(localRaw: string, candidateRaw: string | undefined): BarcodeKind {
@@ -95,7 +95,7 @@ export function barcodeKind(localRaw: string, candidateRaw: string | undefined):
 }
 
 /** The breakdown rule before the fix: barcodes as written, chips only. */
-function legacyBreakdown(breakdown: Record<string, unknown>, localRaw: string, candidateRaw: string | undefined): Record<string, unknown> {
+export function legacyBreakdown(breakdown: Record<string, unknown>, localRaw: string, candidateRaw: string | undefined): Record<string, unknown> {
   if (!localRaw || !candidateRaw) return breakdown;
   const prev = typeof breakdown['albumId'] === 'number' ? (breakdown['albumId'] as number) : 0;
   return { ...breakdown, albumId: localRaw === candidateRaw ? 0 : prev + 0.3 };
@@ -139,10 +139,19 @@ async function replayBatch(
   const idArray = sql`string_to_array(${ids.join(',')}, ',')::uuid[]`;
   const trackRows: TrackRow[] = await ctx.db.select().from(localTracks).where(sql`${localTracks.localAlbumId} = any(${idArray})`);
   const tracksBy = groupBy(trackRows, (t) => t.localAlbumId ?? '');
+  // the tags that give each album its embedded ids, for the whole page at once
+  const fileIds = [...new Set(albums.flatMap((a) => embeddedSourceFileIds(tracksBy.get(a.id) ?? [])))];
+  const fileRows = fileIds.length === 0 ? [] : await ctx.sql<Array<{ id: string; tags_raw: unknown }>>`
+    select id, tags_raw from files where id = any(${fileIds}::uuid[])`;
+  const tagsBy = new Map(fileRows.map((f) => [f.id, f.tags_raw]));
   const candRows = await ctx.sql<CandRow[]>`
-    select local_album_id, release_id, distance::text as distance, breakdown from match_candidates
-     where local_album_id = any(${ids}::uuid[]) and source not like 'mc:%' and excluded is not true
-     order by local_album_id, distance, release_id`;
+    select mc.local_album_id, mc.release_id, mc.distance::text as distance, mc.breakdown,
+           r.track_count, r.date::text as date, rg.artist_credit
+      from match_candidates mc
+      join releases r on r.id = mc.release_id
+      join release_groups rg on rg.id = r.release_group_id
+     where mc.local_album_id = any(${ids}::uuid[]) and mc.source not like 'mc:%' and mc.excluded is not true
+     order by mc.local_album_id, mc.distance, mc.release_id`;
   const candsBy = groupBy(candRows, (c) => c.local_album_id);
   const liveRows = await ctx.sql<Array<{ local_album_id: string }>>`
     select distinct local_album_id from album_matches
@@ -153,10 +162,12 @@ async function replayBatch(
   for (const album of albums) {
     const tracks = tracksBy.get(album.id) ?? [];
     if (tracks.length === 0) { report.skipped.noTracks += 1; continue; }
-    const { local } = await localViewOf(ctx, album, tracks);
+    const own = embeddedSourceFileIds(tracks).filter((id) => tagsBy.has(id)).map((id) => ({ tagsRaw: tagsBy.get(id) }));
+    const { local } = localViewFrom(album, tracks, own);
     const localRaw = local.barcode;
     if (!localRaw) { report.skipped.noFileBarcode += 1; continue; }
     const cands = candsBy.get(album.id) ?? [];
+    // storedReleases marks a release without stored tracks incomplete
     const missing = cands.filter((c) => !stored.get(c.release_id)?.complete).map((c) => c.release_id);
     if (missing.length > 0) {
       report.notReplayable.push({ albumId: album.id, title: album.titleGuess, artist: album.artistGuess, releaseIds: missing });
@@ -184,6 +195,7 @@ async function replayBatch(
     before.sort(byDistance); afterList.sort(byDistance);
 
     const relOf = new Map<string, StoredRelease>(releases.map((s) => [s.dbId, s]));
+    const candOf = new Map(cands.map((c) => [c.release_id, c]));
     const discNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
     const dl = { trackCount: local.tracks.length, discsKnown: discNos.length > 0, localDiscs: new Set(discNos).size };
     const decide = (list: Scored[]) => identifyDecision(list.map((s) => {
@@ -197,11 +209,12 @@ async function replayBatch(
     const rules = rulesByLibrary.get(album.libraryId)!;
     const comparable = { title: album.titleGuess, artist: album.artistGuess, year: album.yearGuess, trackCount: tracks.length };
     const byRules = (list: Scored[]) => evaluateAutoAccept(rules, comparable, list.map((s) => {
-      const st = relOf.get(s.dbId)!; const r = st.release;
+      // the same fields the rules read in the worker (stored release row, group credit)
+      const st = relOf.get(s.dbId)!; const r = st.release; const c = candOf.get(s.dbId)!;
       return {
         id: s.dbId, distance: s.distance, breakdown: s.breakdown, provider: r.source, status: st.status,
-        title: r.title, artist: r.artists.join(', ') || null, date: r.year ? String(r.year) : null,
-        country: r.country ?? null, trackCount: r.tracks.length,
+        title: r.title, artist: artistText(c.artist_credit), date: c.date,
+        country: r.country ?? null, trackCount: c.track_count == null ? null : Number(c.track_count),
       };
     })).accept ? 'accept' : 'no';
     const outcomeOf = (kind: string, rule: string): Outcome =>
@@ -216,7 +229,7 @@ async function replayBatch(
       albumId: album.id, state: album.state, title: album.titleGuess, artist: album.artistGuess,
       identify: { before: idB, after: idA }, rules: { before: ruB, after: ruA },
       outcome: { before: outcomeOf(idB, ruB), after: outcomeOf(idA, ruA) },
-      cause: kinds.includes('mismatch') ? 'mismatch' : kinds.includes('format_only') || kinds.includes('unusable') ? 'format_only' : 'embedded_id',
+      cause: kinds.includes('mismatch') ? 'mismatch' : kinds.includes('format_only') ? 'format_only' : kinds.includes('unusable') ? 'unreadable' : 'embedded_id',
       live: live.has(album.id), artistDrift,
     };
     if (idB !== idA) bump(report.identifyChanges, `${idB}→${idA}`);
@@ -246,6 +259,7 @@ const countTable = (m: Record<string, number>) => {
 const CAUSE_TITLE: Record<RegressionRow['cause'], string> = {
   mismatch: 'Real barcode mismatch',
   format_only: 'Same barcode written differently (formatting only)',
+  unreadable: 'Barcode not readable as one on one side',
   embedded_id: 'Matching barcode over a mismatching embedded release id',
 };
 
@@ -289,7 +303,7 @@ export function renderRegressionReport(r: RegressionReport, generatedAt = new Da
   out.push('### Identify decision changes', '', countTable(r.identifyChanges));
   out.push('### Auto-accept rules changes', '', countTable(r.rulesChanges));
 
-  for (const cause of ['mismatch', 'format_only', 'embedded_id'] as const) {
+  for (const cause of ['mismatch', 'format_only', 'unreadable', 'embedded_id'] as const) {
     const rows = r.rows.filter((x) => x.cause === cause);
     out.push(`## ${CAUSE_TITLE[cause]} (${rows.length})`, '');
     if (rows.length === 0) { out.push('_none_', ''); continue; }
@@ -309,24 +323,50 @@ export function renderRegressionReport(r: RegressionReport, generatedAt = new Da
   return out.join('\n');
 }
 
+export const USAGE = 'usage: barcodeRegression [--library <id>] [--limit <positive integer>] [--out <report.md>] [--json <report.json>]';
+
+export interface CliOptions { library?: string; limit?: number; out?: string; json?: string }
+
+/** The command line, or null when it is not valid usage. */
+export function parseCliArgs(argv: string[]): CliOptions | null {
+  const opts: CliOptions = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    const flag = argv[i]!; const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) return null;
+    if (flag === '--library') opts.library = value;
+    else if (flag === '--out') opts.out = value;
+    else if (flag === '--json') opts.json = value;
+    else if (flag === '--limit') {
+      if (!/^[1-9]\d*$/.test(value)) return null;
+      opts.limit = Number(value);
+    } else return null;
+  }
+  return opts;
+}
+
+/** The context the command runs with: every pooled connection is read-only. */
+export async function regressionContext(url: string): Promise<{ ctx: WorkerContext; close: () => Promise<void> }> {
+  const { db, client } = await makeDb(url, { readOnly: true });
+  const ctx: WorkerContext = { db, sql: client, boss: {} as PgBoss, logger: pino({ level: 'warn' }) };
+  return { ctx, close: () => client.end({ timeout: 5 }) };
+}
+
 async function main(): Promise<void> {
+  const cli = parseCliArgs(process.argv.slice(2));
+  if (!cli) { console.error(USAGE); process.exit(2); }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required');
-  const arg = (name: string) => { const i = process.argv.indexOf(name); return i > 0 ? process.argv[i + 1] : undefined; };
-  const library = arg('--library'); const limit = arg('--limit');
-  const { db, client } = await makeDb(url);
-  const ctx: WorkerContext = { db, sql: client, boss: {} as PgBoss, logger: pino({ level: 'warn' }) };
+  const { ctx, close } = await regressionContext(url);
   try {
-    const r = await barcodeRegression(ctx, { ...(library ? { libraryId: library } : {}), ...(limit ? { limit: Number(limit) } : {}) });
+    const r = await barcodeRegression(ctx, { ...(cli.library ? { libraryId: cli.library } : {}), ...(cli.limit ? { limit: cli.limit } : {}) });
     console.log(`albums with stored candidates: ${r.albumsConsidered}, compared: ${r.albumsCompared}`);
     console.log(`decisions that change: ${r.rows.length} (matched automatically today: ${r.liveMatchAffected.length})`);
     console.log(`outcome changes: ${JSON.stringify(r.outcomeChanges)}`);
     console.log(`not replayable: ${r.notReplayable.length}`);
-    const md = arg('--out'); const json = arg('--json');
-    if (md) await writeFile(md, renderRegressionReport(r));
-    if (json) await writeFile(json, JSON.stringify(r, null, 2));
+    if (cli.out) await writeFile(cli.out, renderRegressionReport(r));
+    if (cli.json) await writeFile(cli.json, JSON.stringify(r, null, 2));
   } finally {
-    await client.end({ timeout: 5 });
+    await close();
   }
 }
 

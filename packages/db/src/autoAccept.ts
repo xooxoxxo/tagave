@@ -41,7 +41,8 @@ function dateText(v: unknown): string | null {
   return String(v);
 }
 
-function artistText(v: unknown): string | null {
+/** A release group's artist credit as one line, as the rules compare it. */
+export function artistText(v: unknown): string | null {
   if (Array.isArray(v)) return v.filter((x) => typeof x === 'string').join(', ') || null;
   return typeof v === 'string' && v ? v : null;
 }
