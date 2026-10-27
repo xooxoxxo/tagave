@@ -5,7 +5,7 @@ import { eq, inArray } from 'drizzle-orm';
 import { audioFiles, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { relDirname, tagsDigest, coreTagsDigest, clusterSingletonKey } from '../lib/helpers.js';
-import { tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { noNul, tagSnapshotOf } from '../lib/tagSnapshot.js';
 import { releaseReadyHolds, sendReleasedCluster } from '../lib/clusterHold.js';
 
 export interface ScanParseJobData {
@@ -79,8 +79,8 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
       await ctx.db
         .update(audioFiles)
         .set({
-          container: fmt.container ?? null,
-          codec: fmt.codec ?? null,
+          container: noNul(fmt.container),
+          codec: noNul(fmt.codec),
           lossless: fmt.lossless ?? null,
           durationMs: fmt.duration ? Math.round(fmt.duration * 1000) : null,
           sampleRate: fmt.sampleRate ?? null,
@@ -102,7 +102,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         .set({
           status: 'error',
           // a parser message can quote the file's bytes; Postgres text cannot hold NUL
-          parseError: `${(err as Error).name ?? 'Error'}: ${(err as Error).message}`.replace(/\u0000/g, '').slice(0, 2000),
+          parseError: noNul(`${(err as Error).name ?? 'Error'}: ${(err as Error).message}`)!.slice(0, 2000),
         })
         .where(eq(audioFiles.id, row.id));
     }
