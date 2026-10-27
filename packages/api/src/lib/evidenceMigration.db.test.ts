@@ -16,11 +16,11 @@ describe.skipIf(!url)('0060 matching evidence (upgrade with data)', () => {
   const ids = {
     user: randomUUID(), lib: randomUUID(), root: randomUUID(), tagged: randomUUID(), named: randomUUID(),
     titleTag: randomUUID(), titleFolder: randomUUID(), empty: randomUUID(),
-    yearZero: randomUUID(), dateWord: randomUUID(), dateFull: randomUUID(),
+    yearZero: randomUUID(), dateWord: randomUUID(), dateFull: randomUUID(), yearWord: randomUUID(),
   };
   const fTag = randomUUID(); const fName = randomUUID(); const fNoYear = randomUUID();
   const fAlbumTag = randomUUID(); const fAlbumBlank = randomUUID(); const fNoAlbum = randomUUID();
-  const fYearZero = randomUUID(); const fDateWord = randomUUID(); const fDateFull = randomUUID();
+  const fYearZero = randomUUID(); const fDateWord = randomUUID(); const fDateFull = randomUUID(); const fYearWord = randomUUID();
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
@@ -39,17 +39,19 @@ describe.skipIf(!url)('0060 matching evidence (upgrade with data)', () => {
       (${fNoAlbum}, 'audio', ${ids.lib}, ${ids.root}, 'D/2.flac', 1, 1, 'present', ${JSON.stringify({ common: { title: 'Sechs' } })}::text::jsonb),
       (${fYearZero}, 'audio', ${ids.lib}, ${ids.root}, 'E (1987)/1.flac', 1, 1, 'present', ${JSON.stringify({ common: { year: 0 } })}::text::jsonb),
       (${fDateWord}, 'audio', ${ids.lib}, ${ids.root}, 'F (1990)/1.flac', 1, 1, 'present', ${JSON.stringify({ common: { date: 'unknown' } })}::text::jsonb),
-      (${fDateFull}, 'audio', ${ids.lib}, ${ids.root}, 'G/1.flac', 1, 1, 'present', ${JSON.stringify({ common: { date: '2011-03-04' } })}::text::jsonb)`;
+      (${fDateFull}, 'audio', ${ids.lib}, ${ids.root}, 'G/1.flac', 1, 1, 'present', ${JSON.stringify({ common: { date: '2011-03-04' } })}::text::jsonb),
+      (${fYearWord}, 'audio', ${ids.lib}, ${ids.root}, 'H (1993)/1.flac', 1, 1, 'present', ${JSON.stringify({ common: { year: 'abc' } })}::text::jsonb)`;
     await sql`insert into local_albums (id, library_id, cluster_key, state, year_guess) values
       (${ids.tagged}, ${ids.lib}, 'k-a', 'needs_review', 2011), (${ids.named}, ${ids.lib}, 'k-b', 'needs_review', 1999),
       (${ids.titleTag}, ${ids.lib}, 'k-c', 'needs_review', null), (${ids.titleFolder}, ${ids.lib}, 'k-d', 'needs_review', null),
       (${ids.empty}, ${ids.lib}, 'k-e', 'needs_review', null),
       (${ids.yearZero}, ${ids.lib}, 'k-f', 'needs_review', 1987), (${ids.dateWord}, ${ids.lib}, 'k-g', 'needs_review', 1990),
-      (${ids.dateFull}, ${ids.lib}, 'k-h', 'needs_review', 2011)`;
+      (${ids.dateFull}, ${ids.lib}, 'k-h', 'needs_review', 2011), (${ids.yearWord}, ${ids.lib}, 'k-i', 'needs_review', 1993)`;
     await sql`insert into local_tracks (local_album_id, audio_file_id, track_no, title_guess) values
       (${ids.tagged}, ${fTag}, 1, 'Eins'), (${ids.named}, ${fName}, 1, '01 zwei'), (${ids.named}, ${fNoYear}, 2, '02 drei'),
       (${ids.titleTag}, ${fAlbumTag}, 1, 'Vier'), (${ids.titleFolder}, ${fAlbumBlank}, 1, 'Fuenf'), (${ids.titleFolder}, ${fNoAlbum}, 2, 'Sechs'),
-      (${ids.yearZero}, ${fYearZero}, 1, '1'), (${ids.dateWord}, ${fDateWord}, 1, '1'), (${ids.dateFull}, ${fDateFull}, 1, '1')`;
+      (${ids.yearZero}, ${fYearZero}, 1, '1'), (${ids.dateWord}, ${fDateWord}, 1, '1'), (${ids.dateFull}, ${fDateFull}, 1, '1'),
+      (${ids.yearWord}, ${fYearWord}, 1, '1')`;
     await migrateAll(db.url);
   }, 120_000);
 
@@ -98,11 +100,13 @@ describe.skipIf(!url)('0060 matching evidence (upgrade with data)', () => {
   });
 
   it('a tag year counts only when the clusterer would take it (a year above 1000, or a date holding one)', async () => {
-    const rows = await sql`select id, year_source from local_albums where id in (${ids.yearZero}, ${ids.dateWord}, ${ids.dateFull})`;
+    const rows = await sql`select id, year_source from local_albums where id in (${ids.yearZero}, ${ids.dateWord}, ${ids.dateFull}, ${ids.yearWord})`;
     const by = new Map(rows.map((r) => [r['id'], r['year_source']]));
     expect(by.get(ids.yearZero)).toBe('folder');
     expect(by.get(ids.dateWord)).toBe('folder');
     expect(by.get(ids.dateFull)).toBe('tag');
+    // a text year is not a year, and must not stop the upgrade
+    expect(by.get(ids.yearWord)).toBe('folder');
   });
 
   it('an album title is from the tags when a file carries an album tag, from the folder when none does', async () => {

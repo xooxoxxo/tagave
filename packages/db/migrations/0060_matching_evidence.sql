@@ -69,8 +69,10 @@ update local_albums la
            count(*) filter (where lt.origin = 'cue'
                                or nullif(btrim(f.tags_raw->'common'->>'album'), '') is not null) as album_tagged,
            bool_or(lt.origin = 'file'
-                   and ((jsonb_typeof(f.tags_raw->'common'->'year') = 'number'
-                         and (f.tags_raw->'common'->>'year')::numeric > 1000)
+                   -- the cast sits inside a case: and/or give no evaluation order,
+                   -- so a non-numeric year must never reach it
+                   and (coalesce(case when jsonb_typeof(f.tags_raw->'common'->'year') = 'number'
+                                      then (f.tags_raw->'common'->>'year')::numeric > 1000 end, false)
                         or coalesce(case jsonb_typeof(f.tags_raw->'common'->'date')
                                       when 'string' then f.tags_raw->'common'->>'date'
                                       when 'array' then case when jsonb_typeof(f.tags_raw->'common'->'date'->0) = 'string'
