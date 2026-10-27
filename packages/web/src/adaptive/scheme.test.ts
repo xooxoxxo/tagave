@@ -3,7 +3,17 @@ import { Hct, argbFromHex } from '@material/material-color-utilities';
 import { adaptiveTokens, sourceColour } from './scheme';
 import { THEME_INKS, WASH_MAX, argbOfHex, extremes, saturate, washOpacity, type Extremes } from './wash';
 import { BRAND_TOKENS } from './brand';
-import { glowHolds, glowShows } from './barGlow';
+import { auroraHolds, coreShows } from './aurora';
+
+/** The aurora's veils and cores, and whether the bar's text, keys and seek fill read over it (aurora.ts). */
+function auroraOf(get: (k: string) => number, prefix = 'ad-') {
+  const veils = [1, 2, 3].map((i) => get(`--${prefix}aur-veil-${i}`)), cores = [1, 2, 3].map((i) => get(`--${prefix}aur-core-${i}`));
+  const bar = get('--ad-bar');
+  return {
+    holds: auroraHolds(bar, veils, cores, { texts: [get('--ad-bar-ink'), get('--ad-bar-ink-2')], marks: [get('--ad-bar-accent')] }),
+    shows: Math.max(...cores.map((c) => coreShows(c, bar))),
+  };
+}
 
 type RGB = [number, number, number];
 const parse = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -35,14 +45,11 @@ function check(tokens: Record<string, string>, theme: 'light' | 'dark', label: s
     expect(ratio(parse(tokens[fg]!), parse(tokens[bg]!)), `${label} ${theme}: ${name}`).toBeGreaterThanOrEqual(min);
   }
   expect(ratio(parse(INK[theme].ink3), parse(tokens['--ad-canvas']!)), `${label} ${theme}: ink-3 on canvas`).toBeGreaterThanOrEqual(4.5);
-  // the equalizer glow lies inside the bar: its title and second line still read 4.5:1 and the seek fill
-  // and keys 3:1 over it, at every strength up to its peak (barGlow.ts)
-  expect(glowHolds(argbOfHex(tokens['--ad-glow']!), argbOfHex(tokens['--ad-bar']!), {
-    texts: [argbOfHex(tokens['--ad-bar-ink']!), argbOfHex(tokens['--ad-bar-ink-2']!)],
-    marks: [argbOfHex(tokens['--ad-bar-accent']!)],
-  }), `${label} ${theme}: the bar's inks over the glow at its peak`).toBe(true);
-  // and the glow stands apart from the bar: apparent at a glance
-  expect(glowShows(argbOfHex(tokens['--ad-glow']!), argbOfHex(tokens['--ad-bar']!)), `${label} ${theme}: the glow shows`).toBeGreaterThanOrEqual(1.5);
+  // the equalizer glow, an aurora under the bar's text: the title and second line still read 4.5:1 and the
+  // keys and seek fill 3:1 over any amount of it; its brightest core stands apart from the bar
+  const aurora = auroraOf((k) => argbOfHex(tokens[k]!));
+  expect(aurora.holds, `${label} ${theme}: the bar's inks over the aurora`).toBe(true);
+  expect(aurora.shows, `${label} ${theme}: the aurora shows`).toBeGreaterThanOrEqual(1.35);
   const canvas = parse(tokens['--ad-canvas']!);
   // the bar is a clear step from the page it sits on
   expect(ratio(parse(tokens['--ad-bar']!), canvas), `${label} ${theme}: bar vs canvas`).toBeGreaterThanOrEqual(1.4);
@@ -117,7 +124,7 @@ describe('adaptiveTokens: AA whatever the cover', () => {
   it('the brand values pass the same pairs (the fade back to brand)', () => {
     for (const theme of ['light', 'dark'] as const) {
       const b = BRAND_TOKENS[theme];
-      expect(glowHolds(argbOfHex(b['--ad-glow']!), argbOfHex(b['--ad-bar']!), { texts: [argbOfHex(b['--ad-bar-ink']!), argbOfHex(b['--ad-bar-ink-2']!)], marks: [argbOfHex(b['--ad-bar-accent']!)] }), `${theme}: brand glow`).toBe(true);
+      expect(auroraOf((k) => argbOfHex(b[k]!)).holds, `${theme}: brand aurora`).toBe(true);
       for (const [name, fg, bg, min] of PAIRS) {
         if (fg.startsWith('--ad-bar') || bg === '--ad-bar') continue; // the brand bar is glass, measured in tokenContrast.test.ts
         expect(ratio(parse(BRAND_TOKENS[theme][fg]!), parse(BRAND_TOKENS[theme][bg]!)), `${theme} ${name}`).toBeGreaterThanOrEqual(min);
@@ -177,7 +184,7 @@ describe('the 600 ms cross-fade never dips below the minimum', () => {
         if (a !== schemes[theme][0] && b !== schemes[theme][0]) {
           for (let t = 0; t <= 1; t += 0.1) {
             const at = (k: string) => { const [r, g, bl] = mix(parse(a[k]!), parse(b[k]!), t); return ((0xff << 24) | (r << 16) | (g << 8) | bl) >>> 0; };
-            expect(glowHolds(at('--ad-glow'), at('--ad-bar'), { texts: [at('--ad-bar-ink'), at('--ad-bar-ink-2')], marks: [at('--ad-bar-accent')] }), `${theme} glow at t=${t.toFixed(1)}`).toBe(true);
+            expect(auroraOf(at).holds, `${theme} aurora at t=${t.toFixed(1)}`).toBe(true);
           }
         }
       }

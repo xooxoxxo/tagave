@@ -59,7 +59,9 @@
   --shadow-tint: 22, 52, 70;               /* rgb triplet for rgba() */
   --scrim: rgba(22, 32, 42, 0.32);         /* behind modals */
   --ring: #276a82;
-  --seek-glow: #009dc5;       /* the equalizer glow in the bar: its inks and seek fill hold over it (adaptive/barGlow.ts) */
+  /* the equalizer glow, an aurora: a vivid core along the bar's foot and a veil at the bar's lightness (adaptive/aurora.ts) */
+  --aur-core-1: #00aedb; --aur-core-2: #4756ff; --aur-core-3: #00b59e;
+  --aur-veil-1: #93dfff; --aur-veil-2: #cfd1ff; --aur-veil-3: #00fedf;
   /* drop and clear-bubble finish (theme-dependent parts of the button recipe) */
   --drop-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.9);
@@ -256,7 +258,8 @@
     --shadow-tint: 0, 0, 0;
     --scrim: rgba(0, 0, 0, 0.55);
     --ring: #8acbe0;
-    --seek-glow: #00cbff;
+    --aur-core-1: #0087aa; --aur-core-2: #2335ff; --aur-core-3: #008c7a;
+    --aur-veil-1: #004154; --aur-veil-2: #0013c4; --aur-veil-3: #00443a;
     --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
     --clear-hi: rgba(255, 255, 255, 0.14);
     --clear-sheen: 0.16;
@@ -322,7 +325,8 @@
   --shadow-tint: 0, 0, 0;
   --scrim: rgba(0, 0, 0, 0.55);
   --ring: #8acbe0;
-  --seek-glow: #00cbff;
+  --aur-core-1: #0087aa; --aur-core-2: #2335ff; --aur-core-3: #008c7a;
+  --aur-veil-1: #004154; --aur-veil-2: #0013c4; --aur-veil-3: #00443a;
   --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.14);
   --clear-sheen: 0.16;

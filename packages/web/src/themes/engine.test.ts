@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import { CUSTOM_START, STARTERS, generate, generatedSpec, hctOf, minRatios, withHue, type ThemeSpec } from './engine';
-import { glowHolds, glowShows } from '../adaptive/barGlow';
+import { auroraHolds, coreShows } from '../adaptive/aurora';
 
 /** The theme's equalizer glow inside its bar keeps the bar's inks at their rules at the glow's peak. */
 function glowHoldsIn(spec: ThemeSpec, dark: boolean): boolean {
   const t = generate(spec, dark).tokens;
   const a = (k: string) => argbFromHex(t[k]!);
-  return glowHolds(a('--seek-glow'), a('--th-bar'), { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] })
-    // and it stands apart from the bar: apparent at a glance
-    && glowShows(a('--seek-glow'), a('--th-bar')) >= 1.5;
+  const veils = [1, 2, 3].map((i) => a(`--aur-veil-${i}`)), cores = [1, 2, 3].map((i) => a(`--aur-core-${i}`));
+  return auroraHolds(a('--th-bar'), veils, cores, { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] })
+    // and its brightest core stands apart from the bar: apparent at a glance
+    && Math.max(...cores.map((c) => coreShows(c, a('--th-bar')))) >= 1.35;
 }
 
 /** a seeded random, so a failure names a seed that can be replayed */
