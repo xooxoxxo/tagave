@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { albumKeyLock, makeDb } from '@tagave/db';
 import { mergeFilePair, mergeFilePairs, ownerIdentifyRequested } from './fileMerge.js';
+import { ensureFakeBossJob, releaseFakeBossJob } from '../testkit/fakeBossJob.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
   let sql: any;
@@ -512,6 +513,32 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       expect(await sql`select id from player_listens where id = any(${ids}::uuid[])`).toEqual([{ id: ids[0] }]);
     });
 
+    it('the kept listen\'s tracks heard and end are counted again from the plays it took over', async () => {
+      const s = await setup();
+      const extraId = randomUUID();
+      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status)
+                values (${extraId}, ${libraryId}, ${rootA}, ${`X/${extraId}.flac`}, 11, 'present')`;
+      const [extra] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.oldAlbum}, ${extraId}) returning id`;
+      const at = Date.now() - 3_600_000;
+      const iso = (offsetS: number) => new Date(at + offsetS * 1000).toISOString();
+      const ids: string[] = [];
+      for (const album of [s.oldAlbum, s.freshAlbum]) {
+        const [l] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                              values (${userId}, ${libraryId}, ${album}, ${iso(0)}::timestamptz, ${iso(60)}::timestamptz, 1, 2) returning id`;
+        ids.push(l.id);
+      }
+      const play = (key: string, track: string, album: string, listen: string, offsetS: number) => sql`
+        insert into player_plays (user_id, library_id, dedupe_key, source, local_track_id, local_album_id, title, started_at, heard, scrobbles, player_listen_id)
+        values (${userId}, ${libraryId}, ${`${key}-${s.freshId}`}, 'web', ${track}, ${album}, 'T', ${iso(offsetS)}::timestamptz, true, false, ${listen})`;
+      await play('rk', s.oldTrack, s.oldAlbum, ids[0]!, 10);
+      await play('rf', s.freshTrack, s.freshAlbum, ids[1]!, 120);   // its twin is the old track
+      await play('rx', extra.id, s.freshAlbum, ids[1]!, 300);
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await sql`select id, tracks_heard, ended_at = ${iso(300)}::timestamptz as ended_at_last_play
+                         from player_listens where id = any(${ids}::uuid[])`)
+        .toEqual([{ id: ids[0], tracks_heard: 2, ended_at_last_play: true }]);
+    });
+
     it('a loose fresh track (no album) is absorbed: its plays move to the old track, no album goes', async () => {
       const s = await setup();
       await sql`update local_tracks set local_album_id = null where id = ${s.freshTrack}`;
@@ -553,6 +580,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
  * drop pgboss.job in the shared test database, so this runs in a scratch
  * database with a stand-in table holding the columns the check reads.
  */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('ownerIdentifyRequested on the shared test database (db)', () => {
+  it('sees an owner-requested identify job this test queued, and nothing once it is gone', async (t) => {
+    const sql = (await makeDb(process.env.TEST_DATABASE_URL!)).client;
+    const created = await ensureFakeBossJob(sql);
+    const jobId = randomUUID();
+    const albumId = randomUUID();
+    try {
+      try {
+        await sql`insert into pgboss.job (id, name, state, data)
+                  values (${jobId}, 'identify.album', 'created', ${JSON.stringify({ localAlbumId: albumId, requestedBy: 'owner' })}::text::jsonb)`;
+      } catch (err) {
+        // a real pg-boss table needs its queue first; the scratch test below covers the check then
+        t.skip(`pgboss.job takes no plain insert here: ${(err as Error).message}`);
+      }
+      const check = () => sql.begin((tx: any) => ownerIdentifyRequested(tx, [albumId]));
+      expect(await check()).toBe(true);
+      await sql`delete from pgboss.job where id = ${jobId}`;
+      expect(await check()).toBe(false);
+    } finally {
+      await releaseFakeBossJob(sql, created, [jobId]);
+      await sql.end({ timeout: 5 });
+    }
+  });
+});
+
 describe.skipIf(!process.env.TEST_DATABASE_URL)('ownerIdentifyRequested (db)', () => {
   it('sees owner-requested or pinned identify jobs still waiting or running, nothing else; no pg-boss table means none', async () => {
     const admin = (await makeDb(process.env.TEST_DATABASE_URL!)).client;

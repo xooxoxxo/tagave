@@ -371,6 +371,20 @@ async function absorbPairs(tx: postgres.TransactionSql, pairs: LivePair[], heldA
         update player_plays p set player_listen_id = d.keep
           from unnest(${dupes.map((d) => d.id)}::uuid[], ${dupes.map((d) => d.keep)}::uuid[]) as d(id, keep)
          where p.player_listen_id = d.id`;
+      // The kept listen now holds the dropped ones' plays: count its tracks and
+      // find its end again from them (the app's rule when a play joins a
+      // listen), never below what the kept or a dropped listen recorded.
+      await tx`
+        update player_listens pl set
+               tracks_heard = greatest(pl.tracks_heard, d.heard,
+                 (select count(distinct p.local_track_id)::int from player_plays p where p.player_listen_id = pl.id)),
+               ended_at = greatest(pl.ended_at, d.ended_at,
+                 (select max(p.started_at) from player_plays p where p.player_listen_id = pl.id))
+          from (select u.keep, max(x.tracks_heard) as heard, max(x.ended_at) as ended_at
+                  from unnest(${dupes.map((d) => d.id)}::uuid[], ${dupes.map((d) => d.keep)}::uuid[]) as u(id, keep)
+                  join player_listens x on x.id = u.id
+                 group by u.keep) d
+         where pl.id = d.keep`;
       await tx`delete from player_listens where id = any(${dupes.map((d) => d.id)}::uuid[])`;
     }
     await tx`update player_listens set local_album_id = ${oldAlbumId} where local_album_id = any(${freshAlbums}::uuid[])`;

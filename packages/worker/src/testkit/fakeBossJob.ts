@@ -14,7 +14,8 @@ export async function ensureFakeBossJob(sql: postgres.Sql): Promise<boolean> {
   const [before] = await sql`select to_regclass('pgboss.job') is not null as present`;
   if (before!['present']) return false;
   try {
-    await sql`create schema if not exists pgboss`;
+    const [ns] = await sql`select to_regnamespace('pgboss') is not null as present`;
+    if (!ns!['present']) await sql`create schema if not exists pgboss`;
     await sql`create table if not exists pgboss.job (
       id uuid default gen_random_uuid(), name text, state text, priority int default 0, singleton_key text, data jsonb)`;
   } catch (err) {
