@@ -30,13 +30,16 @@ export function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
-// Every migration this build carries: the core chain, then each app's and module's own
-export async function getMigrationFiles(): Promise<string[]> {
-  try {
-    return await listMigrationChain(MIGRATIONS_DIR);
-  } catch {
-    return [];
-  }
+/**
+ * Every migration this build carries: the core chain, then each app's and
+ * module's own. Throws when the folder cannot be listed (a folder that is not
+ * a module id, two folders for one id) or holds no file, so the check fails
+ * with the reason instead of passing on "0 migrations".
+ */
+export async function getMigrationFiles(dir: string = MIGRATIONS_DIR): Promise<string[]> {
+  const files = await listMigrationChain(dir);
+  if (files.length === 0) throw new Error(`this build carries no migration files (${dir})`);
+  return files;
 }
 
 // Helper to get applied migrations from database
