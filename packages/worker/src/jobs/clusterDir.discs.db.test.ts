@@ -443,4 +443,40 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob discs (db)', () =
     expect(rows[0]!.state).toBe('matched');
     expect(new Date(rows[0]!.updatedAt).getTime()).toBeGreaterThanOrEqual(new Date(first.updatedAt).getTime());
   });
+
+  it('records whether each title and the year came from the tags, a file name or the folder', async () => {
+    const dir = 'L/Ensemble Nord/Lichtung (1999)';
+    await addFile(`${dir}/01 eins.flac`, { title: 'Eins', album: 'Lichtung', artist: 'Ensemble Nord' });
+    await addFile(`${dir}/02 zwei.flac`, { album: 'Lichtung', artist: 'Ensemble Nord' });
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    const albumId = rows[0]!.id as string;
+
+    const tracks = await client`select track_no, title_guess, title_source from local_tracks where local_album_id = ${albumId} order by track_no`;
+    expect(tracks.map((t: any) => [t['title_guess'], t['title_source']])).toEqual([['Eins', 'tag'], [expect.any(String), 'filename']]);
+    const [album] = await client`select year_guess, year_source, title_source from local_albums where id = ${albumId}`;
+    expect(album).toMatchObject({ year_guess: 1999, year_source: 'folder', title_source: 'tag' });
+
+    // A re-cluster writes the sources onto rows that already exist.
+    await client`update local_tracks set title_source = null where local_album_id = ${albumId}`;
+    await client`update local_albums set year_source = null, title_source = null where id = ${albumId}`;
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+    const again = await client`select title_source from local_tracks where local_album_id = ${albumId} order by track_no`;
+    expect(again.map((t: any) => t['title_source'])).toEqual(['tag', 'filename']);
+    const [albumAgain] = await client`select year_source, title_source from local_albums where id = ${albumId}`;
+    expect(albumAgain).toMatchObject({ year_source: 'folder', title_source: 'tag' });
+  });
+
+  it('an album titled after its folder says so, and a tag year is a tag year', async () => {
+    const dir = 'W/Waldklang';
+    await addFile(`${dir}/01 morgen.flac`, { artist: 'Waldklang', title: 'Morgen' });
+    await addFile(`${dir}/02 abend.flac`, { artist: 'Waldklang' });
+    await client`update files set tags_raw = jsonb_set(tags_raw, '{common,year}', '2004') where scan_root_id = ${rootId}`;
+    await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+    const rows = await albums();
+    expect(rows).toHaveLength(1);
+    const [album] = await client`select title_guess, title_source, year_guess, year_source from local_albums where id = ${rows[0]!.id}`;
+    expect(album).toMatchObject({ title_guess: 'Waldklang', title_source: 'folder', year_guess: 2004, year_source: 'tag' });
+  });
 });

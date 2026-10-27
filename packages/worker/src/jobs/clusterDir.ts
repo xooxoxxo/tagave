@@ -36,7 +36,11 @@ interface FileTags {
 interface AlbumValues {
   titleGuess: string | null;
   artistGuess: string | null;
+  /** tag: an album tag or a cue sheet title; folder: titled after its folder */
+  titleSource: 'tag' | 'folder' | null;
   yearGuess: number | null;
+  /** tag: a file's tags or its cue sheet; folder: the folder name; null: no year */
+  yearSource: 'tag' | 'folder' | null;
   dirPaths: string[];
   discCount: number;
   trackCount: number;
@@ -48,7 +52,9 @@ interface AlbumValues {
 export const ALBUM_COLUMNS = {
   titleGuess: 'title_guess',
   artistGuess: 'artist_guess',
+  titleSource: 'title_source',
   yearGuess: 'year_guess',
+  yearSource: 'year_source',
   dirPaths: 'dir_paths',
   discCount: 'disc_count',
   trackCount: 'track_count',
@@ -446,20 +452,25 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       trackCount += f.virtual ? f.virtual.tracks.length : 1;
     }
 
+    const tagYear = g.files.map((f) => f.tags.year).find((y) => y !== null)
+      ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null) ?? null;
+    const folderYear = tagYear === null ? extractYear(relBasename(dirPaths[0] ?? '')) ?? null : null;
+
     const albumValues: AlbumValues = {
       titleGuess: g.untagged
         ? folderTitle(siblingDirs !== null && scopeToken ? scopeToken.title : relBasename(scope))
         : sample.tags.album
           ? stripDiscToken(sample.tags.album)
           : sample.virtual?.sheet.title ?? null,
+      // Every tagged group was keyed on an album tag or a cue sheet title.
+      titleSource: g.untagged ? 'folder' : 'tag',
       artistGuess: g.various
         ? VARIOUS_ARTISTS
         : g.untagged
           ? soleArtist(g.files)
           : sample.tags.albumartist ?? sample.tags.artist ?? sample.virtual?.sheet.performer ?? null,
-      yearGuess: g.files.map((f) => f.tags.year).find((y) => y !== null)
-        ?? g.files.map((f) => f.virtual?.sheet.date ?? null).find((y) => y !== null)
-        ?? extractYear(relBasename(dirPaths[0] ?? '')) ?? null,
+      yearGuess: tagYear ?? folderYear,
+      yearSource: tagYear !== null ? 'tag' : folderYear !== null ? 'folder' : null,
       dirPaths,
       discCount: discNos.size,
       trackCount,
@@ -864,6 +875,9 @@ function toFileRow(r: { id: string; relPath: string; durationMs: number | null; 
   };
 }
 
+/** The title a cue track gets when its sheet names none (core's virtualTracksForFile). */
+const CUE_FALLBACK_TITLE = /^Track [0-9]+$/;
+
 async function replaceTracks(
   ctx: WorkerContext,
   albumId: string | null,
@@ -894,6 +908,8 @@ async function replaceTracks(
           discNo,
           trackNo: track.number,
           titleGuess: track.title ?? `Track ${track.number}`,
+          // A cue track without a TITLE gets a generated "Track NN".
+          titleSource: !track.title || CUE_FALLBACK_TITLE.test(track.title) ? 'none' : 'tag',
           artistGuess: track.performer ?? f.tags.artist ?? f.tags.albumartist ?? null,
           durationMs: track.durationMs,
           origin: 'cue',
@@ -909,6 +925,7 @@ async function replaceTracks(
         discNo,
         trackNo: f.tags.track ?? filenameDiscPrefix(name)?.track ?? trackNoFromName(name),
         titleGuess: f.tags.title ?? titleFromName(name),
+        titleSource: f.tags.title ? 'tag' : 'filename',
         artistGuess: f.tags.artist ?? f.tags.albumartist ?? null,
         durationMs: f.durationMs,
         origin: 'file',

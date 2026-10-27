@@ -127,7 +127,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     // files[1]'s row exists but is outside fileIds, so its insert conflicts.
     const [t] = await sql`select local_album_id from local_tracks where audio_file_id = ${files[1]}`;
     const res = await upsertTracks(ctx, `tu-${randomUUID()}`, [files[2]!], [
-      { localAlbumId: t.local_album_id, audioFileId: files[1]!, discNo: null, trackNo: 2, titleGuess: 'Song 2', artistGuess: 'Artist',
+      { localAlbumId: t.local_album_id, audioFileId: files[1]!, discNo: null, trackNo: 2, titleGuess: 'Song 2', titleSource: 'tag', artistGuess: 'Artist',
         durationMs: 1000, origin: 'file', cueStartMs: null, cueRelPath: null },
     ]);
     expect(res.inserted).toBe(0);

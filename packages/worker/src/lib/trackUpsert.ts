@@ -21,6 +21,8 @@ export interface TrackRowInput {
   discNo: number | null;
   trackNo: number | null;
   titleGuess: string | null;
+  /** tag (file tags or a cue sheet), filename, none (a generated "Track N") */
+  titleSource: 'tag' | 'filename' | 'none' | null;
   artistGuess: string | null;
   durationMs: number | null;
   origin: 'file' | 'cue';
@@ -107,7 +109,7 @@ export async function upsertTracks(
       // re-cluster leaves every row (and its xmin) alone.
       updated = (await tx`
         update local_tracks lt set
-          local_album_id = u.album, disc_no = u.disc, track_no = u.track, title_guess = u.title,
+          local_album_id = u.album, disc_no = u.disc, track_no = u.track, title_guess = u.title, title_source = u.title_source,
           artist_guess = u.artist, duration_ms = u.dur, origin = u.origin, cue_rel_path = u.cue_rel,
           canonical_track_id = case when lt.local_album_id is distinct from u.album then null else lt.canonical_track_id end,
           recording_id       = case when lt.local_album_id is distinct from u.album then null else lt.recording_id end,
@@ -118,14 +120,14 @@ export async function upsertTracks(
           ${updates.map((u) => u.r.discNo)}::int[], ${updates.map((u) => u.r.trackNo)}::int[],
           ${updates.map((u) => u.r.titleGuess)}::text[], ${updates.map((u) => u.r.artistGuess)}::text[],
           ${updates.map((u) => u.r.durationMs)}::int[], ${updates.map((u) => u.r.origin)}::text[],
-          ${updates.map((u) => u.r.cueRelPath)}::text[]
-        ) as u(id, album, disc, track, title, artist, dur, origin, cue_rel)
+          ${updates.map((u) => u.r.cueRelPath)}::text[], ${updates.map((u) => u.r.titleSource)}::text[]
+        ) as u(id, album, disc, track, title, artist, dur, origin, cue_rel, title_source)
         where lt.id = u.id
           and (lt.local_album_id, lt.disc_no, lt.track_no, lt.title_guess, lt.artist_guess,
-               lt.duration_ms, lt.origin, lt.cue_rel_path)
+               lt.duration_ms, lt.origin, lt.cue_rel_path, lt.title_source)
               is distinct from
               (u.album, u.disc, u.track, u.title::varchar, u.artist::varchar,
-               u.dur, u.origin::varchar, u.cue_rel::varchar)
+               u.dur, u.origin::varchar, u.cue_rel::varchar, u.title_source::varchar)
         returning 1`).length;
     }
 
@@ -134,15 +136,17 @@ export async function upsertTracks(
       // A row another job wrote first (different lock key) is skipped, not counted.
       inserted = (await tx`
         insert into local_tracks (local_album_id, audio_file_id, disc_no, track_no, title_guess, artist_guess,
-                                  duration_ms, state, origin, cue_start_ms, cue_rel_path)
-        select u.album, u.file, u.disc, u.track, u.title, u.artist, u.dur, 'unmatched', u.origin, u.cue_start, u.cue_rel
+                                  duration_ms, state, origin, cue_start_ms, cue_rel_path, title_source)
+        select u.album, u.file, u.disc, u.track, u.title, u.artist, u.dur, 'unmatched', u.origin, u.cue_start, u.cue_rel,
+               u.title_source
           from unnest(
             ${inserts.map((r) => r.localAlbumId)}::uuid[], ${inserts.map((r) => r.audioFileId)}::uuid[],
             ${inserts.map((r) => r.discNo)}::int[], ${inserts.map((r) => r.trackNo)}::int[],
             ${inserts.map((r) => r.titleGuess)}::text[], ${inserts.map((r) => r.artistGuess)}::text[],
             ${inserts.map((r) => r.durationMs)}::int[], ${inserts.map((r) => r.origin)}::text[],
-            ${inserts.map((r) => r.cueStartMs)}::int[], ${inserts.map((r) => r.cueRelPath)}::text[]
-          ) as u(album, file, disc, track, title, artist, dur, origin, cue_start, cue_rel)
+            ${inserts.map((r) => r.cueStartMs)}::int[], ${inserts.map((r) => r.cueRelPath)}::text[],
+            ${inserts.map((r) => r.titleSource)}::text[]
+          ) as u(album, file, disc, track, title, artist, dur, origin, cue_start, cue_rel, title_source)
         on conflict (audio_file_id, cue_start_ms) do nothing
         returning 1`).length;
     }

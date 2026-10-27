@@ -1959,13 +1959,13 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album One",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 186000,
     "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": 2001,
-    "year_source": null
+    "year_source": "tag"
    },
    {
     "acoustid_result": null,
@@ -1995,7 +1995,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album Two",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 246000,
     "track_count": 4,
     "tracks_linked_at": null,
@@ -2030,7 +2030,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Second",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -2065,7 +2065,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Embedded",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 90000,
     "track_count": 1,
     "tracks_linked_at": null,
@@ -2102,7 +2102,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 35313,
     "track_count": 3,
     "tracks_linked_at": null,
@@ -2137,7 +2137,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Cue Album",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 300000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -2172,7 +2172,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Loose",
-    "title_source": null,
+    "title_source": "folder",
     "total_duration_ms": 42000,
     "track_count": 1,
     "tracks_linked_at": null,
@@ -2207,7 +2207,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -2242,7 +2242,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Re",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -2277,7 +2277,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Comp",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 186000,
     "track_count": 3,
     "tracks_linked_at": null,
@@ -2306,7 +2306,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2328,7 +2328,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2350,7 +2350,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -2372,7 +2372,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2394,7 +2394,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2416,7 +2416,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2438,7 +2438,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2460,7 +2460,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2482,7 +2482,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2504,7 +2504,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "bad",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -2526,7 +2526,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "empty",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -2548,7 +2548,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Pic",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2570,7 +2570,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Wave",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": 1
    },
    {
@@ -2592,7 +2592,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Layer3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2614,7 +2614,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Loud",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -2636,7 +2636,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "One",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2658,7 +2658,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Two",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2680,7 +2680,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "untagged",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -2702,7 +2702,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2724,7 +2724,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2746,7 +2746,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2768,7 +2768,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -2790,7 +2790,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -2812,7 +2812,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -2834,7 +2834,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    }
   ],
@@ -5098,13 +5098,13 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album One",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 186000,
     "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": 2001,
-    "year_source": null
+    "year_source": "tag"
    },
    {
     "acoustid_result": null,
@@ -5134,7 +5134,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album Two",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 246000,
     "track_count": 4,
     "tracks_linked_at": null,
@@ -5169,7 +5169,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Second",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -5204,7 +5204,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Embedded",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 90000,
     "track_count": 1,
     "tracks_linked_at": null,
@@ -5241,7 +5241,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 35313,
     "track_count": 3,
     "tracks_linked_at": null,
@@ -5276,7 +5276,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Cue Album",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 300000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -5311,7 +5311,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Loose",
-    "title_source": null,
+    "title_source": "folder",
     "total_duration_ms": 42000,
     "track_count": 1,
     "tracks_linked_at": null,
@@ -5346,7 +5346,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -5381,7 +5381,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Album",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -5416,7 +5416,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Re",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 123000,
     "track_count": 2,
     "tracks_linked_at": null,
@@ -5451,7 +5451,7 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Comp",
-    "title_source": null,
+    "title_source": "tag",
     "total_duration_ms": 186000,
     "track_count": 3,
     "tracks_linked_at": null,
@@ -5480,7 +5480,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5502,7 +5502,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5524,7 +5524,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -5546,7 +5546,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5568,7 +5568,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5590,7 +5590,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5612,7 +5612,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5634,7 +5634,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5656,7 +5656,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5678,7 +5678,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "bad",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -5700,7 +5700,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "empty",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -5722,7 +5722,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Pic (retagged)",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5744,7 +5744,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Wave",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": 1
    },
    {
@@ -5766,7 +5766,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Layer3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5788,7 +5788,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Loud",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -5810,7 +5810,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "One",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5832,7 +5832,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Two",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5854,7 +5854,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "untagged",
-    "title_source": null,
+    "title_source": "filename",
     "track_no": null
    },
    {
@@ -5876,7 +5876,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5898,7 +5898,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5920,7 +5920,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5942,7 +5942,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -5964,7 +5964,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -5986,7 +5986,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    },
    {
@@ -6008,7 +6008,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 3",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 3
    },
    {
@@ -6030,7 +6030,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 1",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 1
    },
    {
@@ -6052,7 +6052,7 @@
     "recording_id": null,
     "state": "unmatched",
     "title_guess": "Song 2",
-    "title_source": null,
+    "title_source": "tag",
     "track_no": 2
    }
   ],
