@@ -10,9 +10,10 @@
  */
 import { and, eq, notLike } from 'drizzle-orm';
 import { localAlbums, localTracks, matchCandidates } from '@tagave/db';
-import { scoreCandidates, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
+import { scoreCandidates, buildCandidateEvidence, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
+import { remoteInputOf, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { discogsMaster, discogsRelease, localViewOf, mbRelease, persistFetched, toScorable } from './identifyAlbum.js';
 
 export type EditionTarget =
@@ -66,9 +67,16 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
     return { ok: false, message: 'That release has too many tracks to compare with your files.' };
   }
 
-  const { local } = await localViewOf(ctx, album, tracks);
+  const { local, albumEvidence } = await localViewOf(ctx, album, tracks);
   const scored = scoreCandidates(local, [toScorable(release)])[0]!;
   const { releaseId } = await persistFetched(ctx, release);
+  // The evidence goes with the distance on both paths below: a refreshed
+  // score next to stale evidence would pin a decision to facts it never saw.
+  // A pasted release has no fingerprint lookup behind it: a new candidate has
+  // no AcoustID coverage, and a listed one keeps the coverage its
+  // identification measured (the fingerprints did not change).
+  const evidence = buildCandidateEvidence(remoteInputOf(release, null), scored, local.tracks.length);
+  await upsertAlbumEvidence(ctx.sql, album.id, albumEvidence);
 
   // One candidate per release: pasting a listed (or excluded) edition again
   // refreshes its score and brings it back instead of adding a twin. A
@@ -81,7 +89,7 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   const distance = scored.distance.toFixed(4);
   if (existing[0]) {
     await ctx.db.update(matchCandidates)
-      .set({ distance, breakdown: scored.breakdown, excluded: false })
+      .set({ distance, breakdown: scored.breakdown, excluded: false, evidence })
       .where(eq(matchCandidates.id, existing[0].id));
     return { ok: true, candidateId: existing[0].id, releaseId, distance: scored.distance, added: false };
   }
@@ -91,6 +99,8 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
     distance,
     breakdown: scored.breakdown,
     source: t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs',
+    evidence,
+    acoustidCoverage: null,
   }).returning({ id: matchCandidates.id });
   ctx.logger.info({ localAlbumId: album.id, releaseId, distance: scored.distance }, 'edition added by the owner');
   return { ok: true, candidateId: inserted[0]!.id, releaseId, distance: scored.distance, added: true };

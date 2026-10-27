@@ -4,8 +4,8 @@ import {
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
-  mediumCountOf,
-  type CanonicalRelease, type ReleaseQuery, type EditionsPage, MB_BROWSE_LIMIT,
+  mediumCountOf, buildAlbumEvidence, buildCandidateEvidence,
+  type CanonicalRelease, type TitleSource, type YearSource, type ReleaseQuery, type EditionsPage, MB_BROWSE_LIMIT,
   pickByChipRule, chipCounts,
 } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
@@ -20,6 +20,7 @@ import { resolvePinnedMb } from '../lib/pinnedMb.js';
 import { acceptByRules } from '../lib/autoAccept.js';
 import { identifyDecision } from '../lib/identifyDecision.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
+import { remoteInputOf, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 
 export interface IdentifyAlbumJobData {
   localAlbumId: string;
@@ -173,6 +174,14 @@ export function embeddedSourceFileIds(tracks: Pick<TrackRow, 'audioFileId'>[]): 
   return tracks.slice(0, 3).map((t) => t.audioFileId);
 }
 
+const TITLE_SOURCES: readonly TitleSource[] = ['tag', 'filename', 'folder', 'none'];
+const YEAR_SOURCES: readonly YearSource[] = ['tag', 'folder'];
+/** A stored source label, or null when the column holds none (or one this code does not know). */
+const titleSourceOf = (v: string | null | undefined): TitleSource | null =>
+  (TITLE_SOURCES as readonly string[]).includes(v ?? '') ? v as TitleSource : null;
+const yearSourceOf = (v: string | null | undefined): YearSource | null =>
+  (YEAR_SOURCES as readonly string[]).includes(v ?? '') ? v as YearSource : null;
+
 /**
  * localViewOf without the database: `fileRows` are the tags of the files
  * embeddedSourceFileIds names. Lets a caller load many albums' files at once.
@@ -203,7 +212,25 @@ export function localViewFrom(album: AlbumRow, tracks: TrackRow[], fileRows: Arr
     ...(embedded.rgMbid ? { embeddedMbRgId: embedded.rgMbid } : {}),
     ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
   };
-  return { local, embedded, discsKnown, distinctDiscs };
+  // The local side of the evidence, from the same track list the scorer
+  // sees: position i here is local track index i in every alignment.
+  const albumTitleSource = titleSourceOf(album.titleSource);
+  const albumEvidence = buildAlbumEvidence({
+    artist: local.artist,
+    title: local.title,
+    ...(albumTitleSource ? { titleSource: albumTitleSource } : {}),
+    year: album.yearGuess ?? null,
+    yearSource: yearSourceOf(album.yearSource),
+    discsKnown,
+    discCount: discsKnown && distinctDiscs > 0 ? distinctDiscs : null,
+    tracks: trackView.tracks.map((t, i) => ({
+      ...(t.disc !== undefined ? { disc: t.disc } : {}),
+      title: t.title,
+      titleSource: titleSourceOf(trackView.order[i]!.titleSource),
+      duration: t.duration,
+    })),
+  });
+  return { local, embedded, discsKnown, distinctDiscs, albumEvidence };
 }
 
 /** core/matching input: seconds + 0-based indices; provider tracks are ms. */
@@ -333,7 +360,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     .where(eq(localTracks.localAlbumId, album.id));
   if (tracks.length === 0) return { outcome: 'skipped', message: 'The album has no tracks to compare.' };
 
-  const { local, embedded, discsKnown, distinctDiscs } = await localViewOf(ctx, album, tracks);
+  const { local, embedded, discsKnown, distinctDiscs, albumEvidence } = await localViewOf(ctx, album, tracks);
   // Fast-path eligibility is a library metric (XO-309): remember the tag id.
   if ((embedded.albumMbid ?? null) !== (album.embeddedMbid ?? null)) {
     await ctx.db.update(localAlbums)
@@ -531,18 +558,23 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
   // its own: a re-identification leaves them; revoking the link removes them.
   await ctx.db.delete(matchCandidates).where(and(eq(matchCandidates.localAlbumId, album.id), notLike(matchCandidates.source, 'mc:%')));
+  const fetchedRelease = new Map(fetched.map((r) => [r.id, r]));
   for (const s of scored) {
     const relDb = releaseDbIds.get(s.id);
     if (!relDb) continue;
     const source: CandidateSource = sourceOf.get(s.id) ?? (s.source === 'discogs' ? 'discogs_search' : 'mb_search');
+    const coverage = data.acoustidCoverage?.[s.id];
     await ctx.db.insert(matchCandidates).values({
       localAlbumId: album.id,
       releaseId: relDb,
       distance: s.distance.toFixed(4),
       breakdown: s.breakdown,
       source,
+      evidence: buildCandidateEvidence(remoteInputOf(fetchedRelease.get(s.id)!, null), s, local.tracks.length),
+      acoustidCoverage: coverage !== undefined ? coverage.toFixed(4) : null,
     });
   }
+  await upsertAlbumEvidence(ctx.sql, album.id, albumEvidence);
 
   const goLive = async (
     releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',

@@ -22,6 +22,8 @@ export interface LocalTrackRowForView {
   discNo: number | null;
   trackNo: number | null;
   titleGuess: string | null;
+  /** where the title came from (tag | filename | none); carried through to the evidence */
+  titleSource?: string | null;
   artistGuess: string | null;
   durationMs: number | null;
 }
