@@ -197,6 +197,9 @@ export const libraries = pgTable('libraries', {
     .references(() => users.id, { onDelete: 'restrict' }),
   name: varchar({ length: 255 }).notNull(),
   settings: jsonb().default('{}'),
+  // The app the library is for (0068, one app per library): which handlers its
+  // walk indexes and which job groups its files. Every library before it is music.
+  app: text().notNull().default('music'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

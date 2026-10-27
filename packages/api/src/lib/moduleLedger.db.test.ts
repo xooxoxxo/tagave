@@ -32,6 +32,8 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
+/** What later steps add on top (step 3, the Books spike: libraries.app and the books app's own chain). */
+const AFTER_STEP2 = ['0068_libraries_app.sql', 'books/0001_books.sql'];
 
 /** A database as 0.15 left it: the ledger in its old shape, migrated to 0059. */
 async function oldInstall(admin: postgres.Sql): Promise<{ url: string; name: string }> {
@@ -121,9 +123,9 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     await admin?.end({ timeout: 2 });
   });
 
-  it('applies the three step-2 migrations on top of 0059', () => {
+  it('applies the three step-2 migrations on top of 0059 (and the later steps after them)', () => {
     expect(before.switches).toEqual({ mc: true, 'listen-links': true, playlists: false });
-    expect(applied).toEqual(STEP2);
+    expect(applied).toEqual([...STEP2, ...AFTER_STEP2]);
   });
 
   it('every switch reads the same through installed_modules, and through the registry', async () => {
@@ -150,10 +152,11 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
   });
 
   it('every ledger row is the core’s, keyed (module, name)', async () => {
-    const rows = await sql`select module, name from _migrations order by name`;
-    expect(rows.every((r) => r['module'] === 'core')).toBe(true);
-    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...STEP2]);
-    expect(await readLedger(sql)).toEqual([...before.ledger, ...STEP2]);
+    const rows = await sql`select module, name from _migrations where module = 'core' order by name`;
+    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...STEP2, '0068_libraries_app.sql']);
+    // a later step's app chain records its own rows, (books, <file>)
+    expect([...(await sql`select module, name from _migrations where module <> 'core'`)]).toEqual([{ module: 'books', name: '0001_books.sql' }]);
+    expect(await readLedger(sql)).toEqual([...before.ledger, ...STEP2, ...AFTER_STEP2]);
     const [pk] = await sql`select pg_get_constraintdef(oid) as def from pg_constraint where conrelid = '_migrations'::regclass and contype = 'p'`;
     expect(pk!['def']).toBe('PRIMARY KEY (module, name)');
   });
@@ -286,7 +289,7 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
     const dump = await runBackup({ databaseUrl: db.url, outDir: dir, kind: 'manual' });
     expect(dump.tocEntries).toBeGreaterThan(0);
     // the update: step 2 applies
-    expect(await migrateAll(db.url)).toEqual(STEP2);
+    expect(await migrateAll(db.url)).toEqual([...STEP2, ...AFTER_STEP2]);
     const upgraded = await state(db.url);
     expect(upgraded.switches).toEqual({ mc: true, 'listen-links': true, playlists: true });
 
@@ -304,7 +307,7 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
     }
 
     // and the new app upgrades the restored database again, to the same state
-    expect(await migrateAll(db.url)).toEqual(STEP2);
+    expect(await migrateAll(db.url)).toEqual([...STEP2, ...AFTER_STEP2]);
     expect(await state(db.url)).toEqual(upgraded);
   }, 180_000);
 });
