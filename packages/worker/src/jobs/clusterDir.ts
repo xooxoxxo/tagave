@@ -344,8 +344,10 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       // in no album, and so in no list, search or Library care issue (QA
       // 2026-10-26 Q-05). The folder's untagged files form one album of
       // their own, named after the folder. A row not parsed yet stays loose:
-      // its tags are unknown, and the re-cluster after parsing places it.
-      (f.parsed ? untagged : loose).push(f);
+      // its tags are unknown, and the re-cluster after parsing places it. So
+      // does a file without a duration (null or 0 ms): a damaged or empty
+      // file would make an album of nothing ("Broken", 0 ms).
+      (f.parsed && (f.durationMs ?? 0) > 0 ? untagged : loose).push(f);
       continue;
     }
     const albumKey = normKey(stripDiscToken(albumTag));
@@ -393,6 +395,23 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       assign('various artists', files, true);
     } else {
       for (const f of files) assign(normKey(f.tags.artist ?? ''), [f]);
+    }
+  }
+
+  // One tagged album in the folder and untagged files beside it is most
+  // often an album with a track that lost its album tag: the files join it,
+  // unless one names a different artist. With two or more tagged albums
+  // there is no telling which one they belong to, so they stay a folder
+  // album of their own.
+  const tagged = [...groups.values()];
+  const only = tagged.length === 1 ? tagged[0]! : null;
+  if (only && untagged.length > 0 && untagged.every((f) => {
+    const a = f.tags.albumartist ?? f.tags.artist;
+    return only.various || !a || normKey(a) === only.artistKey;
+  })) {
+    for (const f of untagged.splice(0)) {
+      only.files.push(f);
+      only.dirs.add(relDirname(f.relPath));
     }
   }
 
@@ -694,7 +713,8 @@ export async function carryOverRekeyedAlbum(
         cluster_key = ${newKey},
         ${grows && keep.state === 'matched'
           ? ctx.sql`state = 'pending', release_id = null, release_group_id = null, identify_reason = null, tracks_linked_at = null,`
-          : retag ? ctx.sql`state = 'pending', identify_reason = null,` : ctx.sql``}
+          // last_identify_at too: the sweep's 6 h retry rule would hold it
+          : retag ? ctx.sql`state = 'pending', identify_reason = null, last_identify_at = null,` : ctx.sql``}
         updated_at = now()
       where id = ${keep.id}
         and not exists (select 1 from local_albums o where o.library_id = ${libraryId} and o.cluster_key = ${newKey})`;

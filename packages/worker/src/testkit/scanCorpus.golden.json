@@ -2034,39 +2034,6 @@
    },
    {
     "acoustid_result": null,
-    "artist_guess": null,
-    "cluster_key": "fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
-    "created_at": "<time>",
-    "dir_paths": [
-     "Broken"
-    ],
-    "disc_count": 1,
-    "embedded_mbid": null,
-    "fingerprinted_at": null,
-    "formats": [
-     "mp3"
-    ],
-    "id": "album:Broken:fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
-    "identified_at": null,
-    "identify_attempts": 0,
-    "identify_reason": null,
-    "last_identify_at": null,
-    "library_id": "<library>",
-    "merged_from": null,
-    "preferred": false,
-    "quality_flags": [],
-    "release_group_id": null,
-    "release_id": null,
-    "state": "pending",
-    "title_guess": "Broken",
-    "total_duration_ms": 0,
-    "track_count": 1,
-    "tracks_linked_at": null,
-    "updated_at": "<time>",
-    "year_guess": null
-   },
-   {
-    "acoustid_result": null,
     "artist_guess": "Emb",
     "cluster_key": "789b7ddbaca84d981d66bdc4e01f666914b912ee",
     "created_at": "<time>",
@@ -2100,39 +2067,6 @@
    },
    {
     "acoustid_result": null,
-    "artist_guess": null,
-    "cluster_key": "2abb922b3984246908a97fa8ef189b02bf273866",
-    "created_at": "<time>",
-    "dir_paths": [
-     "Formats"
-    ],
-    "disc_count": 1,
-    "embedded_mbid": null,
-    "fingerprinted_at": null,
-    "formats": [
-     "wav"
-    ],
-    "id": "album:Formats:2abb922b3984246908a97fa8ef189b02bf273866",
-    "identified_at": null,
-    "identify_attempts": 0,
-    "identify_reason": null,
-    "last_identify_at": null,
-    "library_id": "<library>",
-    "merged_from": null,
-    "preferred": false,
-    "quality_flags": [],
-    "release_group_id": null,
-    "release_id": null,
-    "state": "pending",
-    "title_guess": "Formats",
-    "total_duration_ms": 2000,
-    "track_count": 1,
-    "tracks_linked_at": null,
-    "updated_at": "<time>",
-    "year_guess": null
-   },
-   {
-    "acoustid_result": null,
     "artist_guess": "Fmt",
     "cluster_key": "54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "created_at": "<time>",
@@ -2144,7 +2078,8 @@
     "fingerprinted_at": null,
     "formats": [
      "flac",
-     "mp3"
+     "mp3",
+     "wav"
     ],
     "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "identified_at": null,
@@ -2159,8 +2094,8 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "total_duration_ms": 33313,
-    "track_count": 2,
+    "total_duration_ms": 35313,
+    "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -2555,7 +2490,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Broken/empty.mp3@-",
-    "local_album_id": "album:Broken:fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
+    "local_album_id": null,
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -2597,7 +2532,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
-    "local_album_id": "album:Formats:2abb922b3984246908a97fa8ef189b02bf273866",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -2980,7 +2915,6 @@
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
-   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
    "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
    "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
    "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
@@ -5194,39 +5128,6 @@
    },
    {
     "acoustid_result": null,
-    "artist_guess": null,
-    "cluster_key": "fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
-    "created_at": "<time>",
-    "dir_paths": [
-     "Broken"
-    ],
-    "disc_count": 1,
-    "embedded_mbid": null,
-    "fingerprinted_at": null,
-    "formats": [
-     "mp3"
-    ],
-    "id": "album:Broken:fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
-    "identified_at": null,
-    "identify_attempts": 0,
-    "identify_reason": null,
-    "last_identify_at": null,
-    "library_id": "<library>",
-    "merged_from": null,
-    "preferred": false,
-    "quality_flags": [],
-    "release_group_id": null,
-    "release_id": null,
-    "state": "pending",
-    "title_guess": "Broken",
-    "total_duration_ms": 0,
-    "track_count": 1,
-    "tracks_linked_at": null,
-    "updated_at": "<time>",
-    "year_guess": null
-   },
-   {
-    "acoustid_result": null,
     "artist_guess": "Emb",
     "cluster_key": "789b7ddbaca84d981d66bdc4e01f666914b912ee",
     "created_at": "<time>",
@@ -5260,39 +5161,6 @@
    },
    {
     "acoustid_result": null,
-    "artist_guess": null,
-    "cluster_key": "2abb922b3984246908a97fa8ef189b02bf273866",
-    "created_at": "<time>",
-    "dir_paths": [
-     "Formats"
-    ],
-    "disc_count": 1,
-    "embedded_mbid": null,
-    "fingerprinted_at": null,
-    "formats": [
-     "wav"
-    ],
-    "id": "album:Formats:2abb922b3984246908a97fa8ef189b02bf273866",
-    "identified_at": null,
-    "identify_attempts": 0,
-    "identify_reason": null,
-    "last_identify_at": null,
-    "library_id": "<library>",
-    "merged_from": null,
-    "preferred": false,
-    "quality_flags": [],
-    "release_group_id": null,
-    "release_id": null,
-    "state": "pending",
-    "title_guess": "Formats",
-    "total_duration_ms": 2000,
-    "track_count": 1,
-    "tracks_linked_at": null,
-    "updated_at": "<time>",
-    "year_guess": null
-   },
-   {
-    "acoustid_result": null,
     "artist_guess": "Fmt",
     "cluster_key": "54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "created_at": "<time>",
@@ -5304,7 +5172,8 @@
     "fingerprinted_at": null,
     "formats": [
      "flac",
-     "mp3"
+     "mp3",
+     "wav"
     ],
     "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "identified_at": null,
@@ -5319,8 +5188,8 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "total_duration_ms": 33313,
-    "track_count": 2,
+    "total_duration_ms": 35313,
+    "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -5748,7 +5617,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Broken/empty.mp3@-",
-    "local_album_id": "album:Broken:fbfccab6842ad7a6b3277fb2bf959fb09ce80b0f",
+    "local_album_id": null,
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -5790,7 +5659,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
-    "local_album_id": "album:Formats:2abb922b3984246908a97fa8ef189b02bf273866",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,

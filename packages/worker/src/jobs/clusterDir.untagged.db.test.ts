@@ -70,22 +70,50 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums without album tags (db)'
     expect(sweeps(lab)).toHaveLength(0);
   });
 
-  it('a folder mixing tagged and untagged files: the untagged ones form their own album', async () => {
+  it('a folder with one tagged album: an untagged file joins it', async () => {
     lab = await makeLab(1);
     await lab.album(0, 'Artist/Mixed', 2, { album: 'Real Album', artist: 'Artist' });
-    await writeFlac(path.join(lab.roots[0]!.path, 'Artist', 'Mixed', 'bonus.flac'), { title: 'Bonus', seconds: 90 });
+    await writeFlac(path.join(lab.roots[0]!.path, 'Artist', 'Mixed', 'bonus.flac'), { title: 'Bonus', artist: 'Artist', seconds: 90 });
+    await lab.scan(0);
+
+    const albums = await albumsOf(lab);
+    expect(albums.map((a: any) => [a.title_guess, a.artist_guess, a.tracks])).toEqual([['Real Album', 'Artist', 3]]);
+    await gapsRecomputeJob(lab.ctx, { libraryId: lab.libraryId });
+    expect(await noTagsFlags(lab)).toHaveLength(0);
+    expect(sweeps(lab)).toHaveLength(1);
+  });
+
+  it('an untagged file naming another artist, or two tagged albums: a folder album of its own', async () => {
+    lab = await makeLab(1);
+    await lab.album(0, 'Other', 1, { album: 'Real Album', artist: 'Artist' });
+    await writeFlac(path.join(lab.roots[0]!.path, 'Other', 'x.flac'), { title: 'X', artist: 'Someone Else', seconds: 90 });
+    await lab.album(0, 'Two', 1, { album: 'First', artist: 'Artist' });
+    await writeFlac(path.join(lab.roots[0]!.path, 'Two', '09 - b.flac'), { title: 'B', album: 'Second', artist: 'Artist', track: 9, seconds: 70 });
+    await writeFlac(path.join(lab.roots[0]!.path, 'Two', 'bonus.flac'), { title: 'Bonus', seconds: 90 });
     await lab.scan(0);
 
     const albums = await albumsOf(lab);
     expect(albums.map((a: any) => [a.title_guess, a.artist_guess, a.tracks])).toEqual([
-      ['Mixed', null, 1],
-      ['Real Album', 'Artist', 2],
+      ['First', 'Artist', 1],
+      ['Other', 'Someone Else', 1],
+      ['Real Album', 'Artist', 1],
+      ['Second', 'Artist', 1],
+      ['Two', null, 1],
     ]);
     await gapsRecomputeJob(lab.ctx, { libraryId: lab.libraryId });
-    const untaggedId = albums.find((a: any) => a.title_guess === 'Mixed').id;
-    expect((await noTagsFlags(lab)).map((r: any) => r.subject_id)).toEqual([untaggedId]);
-    // one sweep for the scan, however many albums it made
-    expect(sweeps(lab)).toHaveLength(1);
+    const ids = albums.filter((a: any) => a.title_guess === 'Other' || a.title_guess === 'Two').map((a: any) => a.id).sort();
+    expect((await noTagsFlags(lab)).map((r: any) => r.subject_id).sort()).toEqual(ids);
+    // one send per folder that made an album, all on the one throttled key
+    expect(new Set(sweeps(lab).map((j) => j.opts.singletonKey))).toEqual(new Set([`identify.sweep:${lab.libraryId}`]));
+  });
+
+  it('a file without a duration stays loose', async () => {
+    lab = await makeLab(1);
+    const dir = path.join(lab.roots[0]!.path, 'Broken');
+    await mkdir(dir);
+    await writeFlac(path.join(dir, 'empty.flac'), { title: 'Empty', seconds: 0 });
+    await lab.scan(0);
+    expect(await albumsOf(lab)).toHaveLength(0);
   });
 
   it('a new folder on a later scan queues identification; tagging the files keeps the album', async () => {
@@ -103,13 +131,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums without album tags (db)'
     expect(before).toMatchObject({ artist_guess: 'Somebody', tracks: 1 });
 
     // identify gave up for want of tags; the owner then tags the file
-    await lab.sql`update local_albums set state = 'unidentified', identify_reason = 'no_tags' where id = ${before.id}`;
+    await lab.sql`update local_albums set state = 'unidentified', identify_reason = 'no_tags', last_identify_at = now() where id = ${before.id}`;
     lab.sent.length = 0;
     await writeFlac(path.join(dir, '01.flac'), { title: 'One', artist: 'Somebody', album: 'Proper Title', seconds: 120, padding: 41 });
     await bumpDir(dir);
     await lab.scan(0, 'quick');
     const after = (await albumsOf(lab)).filter((a: any) => a.title_guess !== 'One');
     expect(after.map((a: any) => [a.id, a.title_guess, a.state])).toEqual([[before.id, 'Proper Title', 'pending']]);
+    // not held by the sweep's 6 h retry rule
+    const [la] = await lab.sql`select last_identify_at from local_albums where id = ${before.id}`;
+    expect(la.last_identify_at).toBeNull();
     // the album was re-keyed, not created: the scheduled sweep picks it up
     expect(sweeps(lab)).toHaveLength(0);
   });
