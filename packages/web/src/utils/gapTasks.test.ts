@@ -63,7 +63,7 @@ describe('taskText', () => {
     // QA 2026-10-26 Q-05: a folder of files without album tags
     expect(gapLine({ kind: 'quality', flag: 'noAlbumTags', details: { flags: { noAlbumTags: true } } })).toBe('No album tags');
     expect(taskText({ kind: 'quality', flag: 'noAlbumTags', details: { flags: { noAlbumTags: true } } }, { title: 'misc', folder: 'misc' }))
-      .toBe('Tag the files of misc in misc');
+      .toBe('Tag files in misc');
     expect(taskText({ kind: 'quality', flag: 'parseErrors', details: { flags: { parseErrors: 2 } } }, { title: 'Blue', folder: 'J/Blue' }))
       .toBe('Replace the 2 unreadable files of Blue in J/Blue');
     expect(taskText({ kind: 'quality', flag: 'trackNumberIssues', details: { flags: { trackNumberIssues: { issues: ['missing tracknumber at track index 3'] } } } }, { title: 'Blue' }))
