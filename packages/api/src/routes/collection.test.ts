@@ -98,7 +98,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('physical collection (db)', () =
     const unmapped = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/collection?view=unmapped` });
     expect((unmapped.json() as { items: unknown[] }).items).toHaveLength(0);
     // facets are marked stale so the grid's "owned" facet recounts
-    const [fs] = await db.execute(sql`select dirty_at from facet_state where library_id = ${libraryId}`) as unknown as Array<{ dirty_at: unknown }>;
+    const [fs] = await db.execute(sql`select dirty_at from filter_rail_state where library_id = ${libraryId}`) as unknown as Array<{ dirty_at: unknown }>;
     expect(fs?.dirty_at).toBeTruthy();
   });
 

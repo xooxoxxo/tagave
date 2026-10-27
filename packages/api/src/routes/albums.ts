@@ -11,7 +11,7 @@ import { getBoss } from '../boss.js';
 import { IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, pendingIdentifyJob, cancelQueuedIdentifyFor, cancelIdentifyJob, identifyRequestView, identifyRequestStates, recordCancelled } from '../lib/identifyRequests.js';
 import { parseMatchInput, pinnedJobData } from '../lib/matchInput.js';
 import { mediaSummary, labelSummary } from '../lib/releaseSummary.js';
-import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '../lib/facetSummary.js';
+import { summaryEligible, summaryFresh, summaryFilterCounts, markFilterCountsDirty } from '../lib/filterCounts.js';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
 import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
@@ -159,30 +159,30 @@ export function albumQueryParts(
  * the rail refetches on every toggle and the ten count statements cost ~1 s
  * cold even with the indexes. Short enough that identify decisions landing in
  * the worker show up on the next click; handlers that change many albums at
- * once (bulk actions) call bustFacetCache() so the grid's immediate refetch
+ * once (bulk actions) call bustFilterCountsCache() so the grid's immediate refetch
  * is fresh.
  */
-const FACET_CACHE_TTL_MS = 15_000;
-const FACET_CACHE_MAX = 200;
-const facetCache = new Map<string, { at: number; libraryId: string; body: unknown }>();
+const FILTER_COUNTS_CACHE_TTL_MS = 15_000;
+const FILTER_COUNTS_CACHE_MAX = 200;
+const filterCountsCache = new Map<string, { at: number; libraryId: string; body: unknown }>();
 
-export function bustFacetCache(libraryId?: string): void {
-  for (const [key, entry] of facetCache) {
-    if (!libraryId || entry.libraryId === libraryId) facetCache.delete(key);
+export function bustFilterCountsCache(libraryId?: string): void {
+  for (const [key, entry] of filterCountsCache) {
+    if (!libraryId || entry.libraryId === libraryId) filterCountsCache.delete(key);
   }
 }
 
-function facetCacheKey(libraryId: string, userId: string, rawQuery: Record<string, unknown>): string {
+function filterCountsCacheKey(libraryId: string, userId: string, rawQuery: Record<string, unknown>): string {
   const pairs = Object.keys(rawQuery).sort().map((k) => [k, rawQuery[k]]);
   return `${libraryId}|${userId}|${JSON.stringify(pairs)}`;
 }
 
-function storeFacetCache(cacheKey: string, libraryId: string, body: unknown): void {
-  if (facetCache.size >= FACET_CACHE_MAX) {
-    const oldest = facetCache.keys().next().value;
-    if (oldest !== undefined) facetCache.delete(oldest);
+function storeFilterCountsCache(cacheKey: string, libraryId: string, body: unknown): void {
+  if (filterCountsCache.size >= FILTER_COUNTS_CACHE_MAX) {
+    const oldest = filterCountsCache.keys().next().value;
+    if (oldest !== undefined) filterCountsCache.delete(oldest);
   }
-  facetCache.set(cacheKey, { at: Date.now(), libraryId, body });
+  filterCountsCache.set(cacheKey, { at: Date.now(), libraryId, body });
 }
 
 export async function createAlbumRoutes(fastify: FastifyInstance) {
@@ -200,17 +200,17 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
 
     const rawQuery = request.query as Record<string, unknown>;
     const userId = request.user.id;
-    const cacheKey = facetCacheKey(libraryId, userId, rawQuery);
-    const hit = facetCache.get(cacheKey);
-    if (hit && Date.now() - hit.at < FACET_CACHE_TTL_MS) {
+    const cacheKey = filterCountsCacheKey(libraryId, userId, rawQuery);
+    const hit = filterCountsCache.get(cacheKey);
+    if (hit && Date.now() - hit.at < FILTER_COUNTS_CACHE_TTL_MS) {
       reply.header('x-tagave-cache', 'hit');
       return reply.send(hit.body);
     }
-    // XO-363: the worker-maintained album_facets table answers every request
+    // XO-363: the worker-maintained album_filter_counts table answers every request
     // whose filters it covers, unless a bulk action marked it stale.
     if (summaryEligible(rawQuery) && (await summaryFresh(db, libraryId))) {
-      const body = await summaryFacets(db, libraryId, userId, rawQuery);
-      storeFacetCache(cacheKey, libraryId, body);
+      const body = await summaryFilterCounts(db, libraryId, userId, rawQuery);
+      storeFilterCountsCache(cacheKey, libraryId, body);
       reply.header('x-tagave-cache', 'miss');
       reply.header('x-tagave-facets', 'summary');
       return reply.send(body);
@@ -294,7 +294,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       owned: [{ value: 'both', count: n('owned_both') }, { value: 'digital', count: total - n('owned_both') }],
       decided: Object.keys(DECIDED_CLAUSES).map((k) => ({ value: k, count: n(`decided_${k}`) })),
     };
-    storeFacetCache(cacheKey, libraryId, body);
+    storeFilterCountsCache(cacheKey, libraryId, body);
     reply.header('x-tagave-cache', 'miss');
     reply.send(body);
   });
@@ -1631,8 +1631,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const boss = await getBoss();
     await boss.send('identify.album', { localAlbumId: result.newAlbumId },
       { singletonKey: IDENTIFY_SINGLETON(result.newAlbumId), priority: IDENTIFY_PRIORITY.manual });
-    bustFacetCache(libraryId);
-    await markFacetsDirty(db, libraryId);
+    bustFilterCountsCache(libraryId);
+    await markFilterCountsDirty(db, libraryId);
     reply.send({ newAlbumId: result.newAlbumId, moved: result.movedFileIds.length, kept: result.keptFileIds.length });
   });
 
@@ -1648,8 +1648,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     await cancelQueuedIdentifyFor(await getBoss(), [albumId]).catch((err: Error) =>
       request.log.warn({ err: err.message }, 'could not cancel identify jobs of the merged-back album'));
     await recluster(libraryId, result.dirs);
-    bustFacetCache(libraryId);
-    await markFacetsDirty(db, libraryId);
+    bustFilterCountsCache(libraryId);
+    await markFilterCountsDirty(db, libraryId);
     reply.send({ originalAlbumId: result.originalAlbumId, moved: result.fileIds.length });
   });
 
@@ -1682,8 +1682,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       await boss.send('identify.album', { localAlbumId: result.albumId },
         { singletonKey: IDENTIFY_SINGLETON(result.albumId), priority: IDENTIFY_PRIORITY.manual });
     }
-    bustFacetCache(libraryId);
-    await markFacetsDirty(db, libraryId);
+    bustFilterCountsCache(libraryId);
+    await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, mergedAlbumIds: result.mergedAlbumIds, files: result.fileIds.length, identifyQueued: result.needsIdentify });
   });
 
@@ -1695,8 +1695,8 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
     const db = getDb();
     const result = await unmergeAlbum(db, { libraryId, albumId }).catch(mergeFailure);
     await recluster(libraryId, result.dirs);
-    bustFacetCache(libraryId);
-    await markFacetsDirty(db, libraryId);
+    bustFilterCountsCache(libraryId);
+    await markFilterCountsDirty(db, libraryId);
     reply.send({ albumId: result.albumId, files: result.fileIds.length, folders: result.dirs.length, restoredAlbumIds: result.restoredAlbumIds });
   });
 }

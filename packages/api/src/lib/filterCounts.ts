@@ -1,7 +1,7 @@
 /**
- * XO-363: facet counts from the worker-maintained album_facets table.
+ * XO-363: the filter rail's counts from the worker-maintained album_filter_counts table.
  *
- * album_facets holds one narrow row per album (state, format, containers,
+ * album_filter_counts holds one narrow row per album (state, format, containers,
  * decade, labels, genres, open gap kinds, owned, decided); the file worker's
  * facets.refresh job rebuilds it whenever albums, gaps or the collection
  * change. Requests whose filters are all covered by those columns aggregate
@@ -23,18 +23,18 @@ const IGNORED_KEYS = new Set(['sort', 'order', 'page', 'limit', 'offset', 'curso
 const FORMAT_CLASSES = new Set(['lossless', 'lossy', 'mixed']);
 const DECIDED_KEYS = ['auto_strong', 'chip_rule', 'first_candidate', 'by_me', 'manual_mbid'] as const;
 
-export type FacetDim = 'state' | 'genre' | 'decade' | 'format' | 'label' | 'gap';
+export type FilterDim = 'state' | 'genre' | 'decade' | 'format' | 'label' | 'gap';
 
 const empty = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
-/** Every filter in the request is one album_facets can answer. */
+/** Every filter in the request is one album_filter_counts can answer. */
 export function summaryEligible(rawQuery: Record<string, unknown>): boolean {
   return Object.entries(rawQuery).every(([k, v]) => IGNORED_KEYS.has(k) || empty(v) || SUMMARY_KEYS.has(k));
 }
 
 /** A build exists and no bulk action has stamped the library dirty since. */
 export async function summaryFresh(db: Db, libraryId: string): Promise<boolean> {
-  const rows = (await db.execute(sql`select computed_at, dirty_at from facet_state where library_id = ${libraryId}`)) as unknown as Array<{
+  const rows = (await db.execute(sql`select computed_at, dirty_at from filter_rail_state where library_id = ${libraryId}`)) as unknown as Array<{
     computed_at: Date | string | null; dirty_at: Date | string | null;
   }>;
   const st = rows[0];
@@ -47,9 +47,9 @@ export async function summaryFresh(db: Db, libraryId: string): Promise<boolean> 
  * Stamp the library's summary stale and ask the worker for a rebuild. Until
  * the rebuild lands the facets endpoint answers from the live queries.
  */
-export async function markFacetsDirty(db: Db, libraryId: string): Promise<void> {
+export async function markFilterCountsDirty(db: Db, libraryId: string): Promise<void> {
   await db.execute(sql`
-    insert into facet_state (library_id, dirty_at) values (${libraryId}, now())
+    insert into filter_rail_state (library_id, dirty_at) values (${libraryId}, now())
     on conflict (library_id) do update set dirty_at = now()`);
   try {
     const boss = await getBoss();
@@ -60,8 +60,8 @@ export async function markFacetsDirty(db: Db, libraryId: string): Promise<void> 
   }
 }
 
-/** Filter predicates over album_facets `af`, mirroring albumQueryParts() for the covered keys. */
-export function summaryConds(libraryId: string, rawQuery: Record<string, unknown>, omit?: FacetDim): SQL[] {
+/** Filter predicates over album_filter_counts `af`, mirroring albumQueryParts() for the covered keys. */
+export function summaryConds(libraryId: string, rawQuery: Record<string, unknown>, omit?: FilterDim): SQL[] {
   const q = (omit ? { ...rawQuery, [omit]: undefined, ...(omit === 'state' ? { filter: undefined } : {}) } : rawQuery) as Record<string, unknown>;
   const arr = (v: unknown): string[] => (empty(v) ? [] : (Array.isArray(v) ? v : [v]).map(String).filter((s) => s !== ''));
   const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : undefined);
@@ -91,8 +91,8 @@ export function summaryConds(libraryId: string, rawQuery: Record<string, unknown
 }
 
 /** Same response shape as the live facets handler. */
-export async function summaryFacets(db: Db, libraryId: string, userId: string, rawQuery: Record<string, unknown>) {
-  const where = (omit?: FacetDim) => and(...summaryConds(libraryId, rawQuery, omit))!;
+export async function summaryFilterCounts(db: Db, libraryId: string, userId: string, rawQuery: Record<string, unknown>) {
+  const where = (omit?: FilterDim) => and(...summaryConds(libraryId, rawQuery, omit))!;
   const rows = async (query: SQL) => (await db.execute(query)) as unknown as Row[];
   const facet = (list: Row[], key: string, label?: (v: string) => string) =>
     list.filter((r) => r[key] != null).map((r) => ({
@@ -113,15 +113,15 @@ export async function summaryFacets(db: Db, libraryId: string, userId: string, r
              count(*) filter (where af.release_group_id in ${listenedRgs})::int as listened,
              count(*) filter (where cardinality(af.gap_kinds) = 0)::int as no_gap,
              ${sql.join(DECIDED_KEYS.map((k) => sql`count(*) filter (where ${k} = any(af.decided))::int as ${sql.raw(`decided_${k}`)}`), sql`, `)}
-      from album_facets af where ${where()}`),
-    rows(sql`select af.state, count(*)::int as n from album_facets af where ${where('state')} group by 1 order by n desc`),
-    rows(sql`select af.format as k, count(*)::int as n from album_facets af where ${where('format')} group by 1 order by n desc`),
-    rows(sql`select f, count(*)::int as n from album_facets af, unnest(af.containers) f where ${where('format')} group by f order by n desc limit 12`),
-    rows(sql`select af.decade, count(*)::int as n from album_facets af where ${where('decade')} and af.decade between 1900 and 2100 group by 1 order by 1`),
-    rows(sql`select t as tag, count(*)::int as n from album_facets af, unnest(af.genres) t where ${where('genre')} group by t order by n desc, t limit 60`),
-    rows(sql`select l as name, count(*)::int as n from album_facets af, unnest(af.labels) l where ${where('label')} group by l order by n desc, l limit 60`),
-    rows(sql`select k as kind, count(*)::int as n from album_facets af, unnest(af.gap_kinds) k where ${where('gap')} group by k order by n desc`),
-    rows(sql`select count(*)::int as n from album_facets af where ${where('gap')} and cardinality(af.gap_kinds) = 0`),
+      from album_filter_counts af where ${where()}`),
+    rows(sql`select af.state, count(*)::int as n from album_filter_counts af where ${where('state')} group by 1 order by n desc`),
+    rows(sql`select af.format as k, count(*)::int as n from album_filter_counts af where ${where('format')} group by 1 order by n desc`),
+    rows(sql`select f, count(*)::int as n from album_filter_counts af, unnest(af.containers) f where ${where('format')} group by f order by n desc limit 12`),
+    rows(sql`select af.decade, count(*)::int as n from album_filter_counts af where ${where('decade')} and af.decade between 1900 and 2100 group by 1 order by 1`),
+    rows(sql`select t as tag, count(*)::int as n from album_filter_counts af, unnest(af.genres) t where ${where('genre')} group by t order by n desc, t limit 60`),
+    rows(sql`select l as name, count(*)::int as n from album_filter_counts af, unnest(af.labels) l where ${where('label')} group by l order by n desc, l limit 60`),
+    rows(sql`select k as kind, count(*)::int as n from album_filter_counts af, unnest(af.gap_kinds) k where ${where('gap')} group by k order by n desc`),
+    rows(sql`select count(*)::int as n from album_filter_counts af where ${where('gap')} and cardinality(af.gap_kinds) = 0`),
   ]);
   const total = Number(totals?.['total'] ?? 0);
   const n = (k: string) => Number(totals?.[k] ?? 0);

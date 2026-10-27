@@ -23,7 +23,7 @@ import { editionsFetchJob, type EditionsFetchJobData } from './jobs/editionsFetc
 import { artFetchJob, artSweepJob, type ArtFetchJobData, type ArtSweepJobData } from './jobs/artFetch.js';
 import { artThumbJob, artThumbSweepJob, type ArtThumbJobData, type ArtThumbSweepJobData } from './jobs/artThumb.js';
 import { gapsRecomputeJob, type GapsRecomputeJobData } from './jobs/gapsRecompute.js';
-import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefresh.js';
+import { filterCountsRefreshJob, type FilterCountsRefreshJobData } from './jobs/filterCountsRefresh.js';
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
@@ -496,8 +496,8 @@ async function main() {
   }
 
   if (wants('facets.refresh')) {
-    await boss.work<FacetsRefreshJobData>('facets.refresh', { batchSize: 1 }, async (jobs) => {
-      for (const job of jobs) await facetsRefreshJob(ctx, job.data);
+    await boss.work<FilterCountsRefreshJobData>('facets.refresh', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await filterCountsRefreshJob(ctx, job.data);
     });
     // Every minute; a no-op unless albums, gaps or the collection changed since
     // the last build (XO-363). The boot send fills an empty table right away.
