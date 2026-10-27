@@ -2,11 +2,13 @@
  * 0069: provenance columns, backfilled from the reason each writer used.
  * The Music Connections trigger of 0048 does not compare the new columns,
  * so the backfill logs no album.identity change.
+ * 0070: the trigger then compares the decision's kind and probability too;
+ * applying it logs nothing, and a later change of either logs the album.
  */
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createScratchDb, migrateUpTo } from '../testkit/authApp.js';
+import { createScratchDb, migrateAll, migrateUpTo } from '../testkit/authApp.js';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -83,5 +85,27 @@ describe.skipIf(!url)('0069 match provenance (upgrade with data)', () => {
   it('refuses an unknown kind and a probability outside 0..1', async () => {
     await expect(sql`update album_matches set decided_kind = 'oracle' where local_album_id = ${albumOf['queue']!}`).rejects.toThrow(/check/);
     await expect(sql`update album_matches set probability = 1.5 where local_album_id = ${albumOf['queue']!}`).rejects.toThrow();
+  });
+
+  const identityRows = async (key?: string) =>
+    (await sql`select count(*)::int as n from facet_changes where facet = 'album.identity@1' and (${key ?? null}::text is null or key = ${key ?? null})`)[0]!['n'] as number;
+
+  it('applying 0070 logs nothing by itself', async () => {
+    const before = await identityRows();
+    await migrateAll(db.url);
+    const after = await identityRows();
+    expect(after).toBe(before);
+  });
+  it('a change of decided_kind or probability logs the album\'s identity once', async () => {
+    const before = await identityRows(rg);
+    await sql`update album_matches set decided_kind = 'model', probability = 0.9940 where local_album_id = ${albumOf['strong']!}`;
+    const after = await identityRows(rg);
+    expect(after).toBe(before + 1);
+  });
+  it('a change of the reason alone still logs nothing', async () => {
+    const before = await identityRows();
+    await sql`update album_matches set reason = reason || ' ' where local_album_id = ${albumOf['chip']!}`;
+    const after = await identityRows();
+    expect(after).toBe(before);
   });
 });

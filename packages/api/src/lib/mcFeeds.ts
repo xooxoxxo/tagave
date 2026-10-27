@@ -89,14 +89,17 @@ export type Provenance = 'manual' | 'embedded' | 'auto';
 
 /**
  * How sure tagave is of an album's release: confirmed by a person (manual),
- * read from the files' own MusicBrainz tags (embedded), or matched by the
- * identifier (auto, confidence 1 − distance). local_albums.embedded_mbid is
+ * read from the files' own MusicBrainz tags (embedded), or auto: matched by
+ * the identifier (confidence 1 − distance) or by a decision model (its
+ * probability). local_albums.embedded_mbid is
  * the tags' MUSICBRAINZ_ALBUMID, a release MBID (identifyAlbum.ts), so it is
  * compared with the matched release, not the release group.
  */
 export function identityProvenance(m: {
   status: string | null;
   decidedBy?: string | null;
+  decidedKind?: string | null;
+  probability?: number | string | null;
   source: string | null;
   distance: number | string | null;
   embeddedMbid: string | null;
@@ -109,6 +112,10 @@ export function identityProvenance(m: {
   }
   const embedded = m.embeddedMbid && m.releaseMbid && m.embeddedMbid.toLowerCase() === m.releaseMbid.toLowerCase();
   if (m.source === 'mbid' || embedded) return { provenance: 'embedded', confidence: 1 };
+  // a decision model's own probability for the tracklist it chose
+  if (m.decidedKind === 'model' && m.probability !== null && m.probability !== undefined && Number.isFinite(Number(m.probability))) {
+    return { provenance: 'auto', confidence: Math.round(Math.min(1, Math.max(0, Number(m.probability))) * 10000) / 10000 };
+  }
   const d = m.distance === null ? NaN : Number(m.distance);
   const confidence = Number.isFinite(d) ? Math.min(1, Math.max(0, 1 - d)) : 0;
   return { provenance: 'auto', confidence: Math.round(confidence * 10000) / 10000 };
@@ -319,9 +326,9 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
   const ids = uuidKeys(keys);
   if (ids.length === 0) return out;
   const [rows, refs] = await Promise.all([
-    sql<Array<{ key: string; embedded_mbid: string | null; release_mbid: string | null; status: string | null; decided_by: string | null; source: string | null; distance: string | null }>>`
+    sql<Array<{ key: string; embedded_mbid: string | null; release_mbid: string | null; status: string | null; decided_by: string | null; decided_kind: string | null; probability: string | null; source: string | null; distance: string | null }>>`
       select distinct on (a.release_group_id) a.release_group_id::text as key, a.embedded_mbid, r.mbid as release_mbid,
-             m.status, m.decided_by, m.source, m.distance::text as distance
+             m.status, m.decided_by, m.decided_kind, m.probability::text as probability, m.source, m.distance::text as distance
         from local_albums a
         left join album_matches m on m.local_album_id = a.id and m.status in ('auto', 'confirmed')
         left join releases r on r.id = coalesce(m.release_id, a.release_id)
@@ -342,7 +349,7 @@ async function identityData(sql: Sql, scope: FeedScope, keys: string[]): Promise
     out.set(r.key, {
       album,
       local_key: r.key,
-      ...identityProvenance({ status: r.status, decidedBy: r.decided_by, source: r.source, distance: r.distance, embeddedMbid: r.embedded_mbid, releaseMbid: r.release_mbid }),
+      ...identityProvenance({ status: r.status, decidedBy: r.decided_by, decidedKind: r.decided_kind, probability: r.probability, source: r.source, distance: r.distance, embeddedMbid: r.embedded_mbid, releaseMbid: r.release_mbid }),
       ...(filled.has(r.key) ? { provenance: 'auto' as const } : {}),
     });
   }
