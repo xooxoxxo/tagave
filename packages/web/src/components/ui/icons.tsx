@@ -171,6 +171,69 @@ export function ChevronDownIcon() {
   );
 }
 
+/* The queue and playlists (2026-10-27). */
+
+const LINE = { viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true, focusable: false };
+
+/** Lines with an arrow into the top: play next. */
+export function PlayNextIcon() {
+  return <svg {...LINE}><path d="M4 6h9M4 11h9M4 16h6" /><path d="M17 10v9M14 16l3 3 3-3" /></svg>;
+}
+
+/** Lines with a plus at the end: add to queue. */
+export function AddQueueIcon() {
+  return <svg {...LINE}><path d="M4 6h14M4 11h14M4 16h8" /><path d="M17.5 13.5v6M14.5 16.5h6" /></svg>;
+}
+
+/** Lines and a note: a playlist. */
+export function PlaylistIcon() {
+  return <svg {...LINE}><path d="M4 6h11M4 11h11M4 16h6" /><circle cx="16.5" cy="17" r="2.2" /><path d="M18.7 17V8.5l2.3-1" /></svg>;
+}
+
+/** A plus: new. */
+export function PlusIcon() {
+  return <svg {...LINE}><path d="M12 5v14M5 12h14" /></svg>;
+}
+
+/** Six dots: drag to reorder. */
+export function GripIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">
+      <circle cx="9" cy="7" r="1.4" /><circle cx="15" cy="7" r="1.4" /><circle cx="9" cy="12" r="1.4" /><circle cx="15" cy="12" r="1.4" /><circle cx="9" cy="17" r="1.4" /><circle cx="15" cy="17" r="1.4" />
+    </svg>
+  );
+}
+
+/** An arrow out of a tray: export. */
+export function ExportIcon() {
+  return <svg {...LINE}><path d="M12 15V4M8 8l4-4 4 4" /><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg>;
+}
+
+/** An arrow into a tray: import. */
+export function ImportIcon() {
+  return <svg {...LINE}><path d="M12 4v11M8 11l4 4 4-4" /><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5" /></svg>;
+}
+
+/** A pencil: rename. */
+export function RenameIcon() {
+  return <svg {...LINE}><path d="M4 20h4L19 9l-4-4L4 16z" /></svg>;
+}
+
+/** A bin: delete. */
+export function TrashIcon() {
+  return <svg {...LINE}><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12" /></svg>;
+}
+
+/** A chevron pointing right: a submenu. */
+export function ChevronRightIcon() {
+  return <svg {...LINE}><path d="M9.5 6 15.5 12l-6 6" /></svg>;
+}
+
+/** Lines with a tick: save as a playlist. */
+export function SaveListIcon() {
+  return <svg {...LINE}><path d="M4 6h11M4 11h11M4 16h7" /><path d="M14 16.5l2.5 2.5L21 14.5" /></svg>;
+}
+
 /** Headphones: listen elsewhere (a streaming platform). */
 export function ListenIcon() {
   return (

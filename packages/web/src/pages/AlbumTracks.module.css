@@ -50,6 +50,18 @@
   grid-template-columns: 2.75rem minmax(0, 1fr) auto 2.5rem;
 }
 
+/* the track's ⋮ (Play next, Add to queue, Add to playlist): its own column,
+   shown on hover or focus where there is a mouse, always on touch */
+.row:has(.rowMenu) {
+  grid-template-columns: 2.75rem minmax(0, 1fr) auto 2.75rem;
+}
+.rowMenu { display: inline-flex; justify-content: center; }
+.rowMenu > button { width: 40px; height: 40px; }
+.rowMenu > button svg { width: 20px; height: 20px; }
+@media (hover: hover) and (pointer: fine) {
+  .row:not(:hover):not(:focus-within) .rowMenu:not(:has([aria-expanded="true"])) { opacity: 0; }
+}
+
 .row:hover,
 .rowOpen {
   background: color-mix(in srgb, var(--mist) 70%, transparent);

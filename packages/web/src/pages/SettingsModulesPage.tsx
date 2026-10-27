@@ -6,13 +6,14 @@
  */
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { moduleCommand, type ListenLinksModuleView, type McModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
+import { moduleCommand, type ListenLinksModuleView, type McModuleView, type PlaylistsModuleView, type ModuleRun, type ModuleStatus, type ModulesView, type StepUpMethod } from '@tagave/shared';
 import { Badge, Banner, Button, confirmDialog, type BadgeTone } from '../components/ui';
 import { StepList, RunLog, clock, sentence, useNow } from '../components/InAppUpdate';
 import { StepUpDialog } from '../components/StepUpDialog';
 import { useModuleAction, useModules, modulesKey } from '../hooks/useModules';
 import { useMcModule, useRemoveMcData, useSetMcModule } from '../hooks/useMcModule';
 import { useListenLinksModule, useRemoveListenLinksData, useSetListenLinksModule } from '../hooks/useListenLinks';
+import { allPlaylistsExportUrl, download, usePlaylistsModule, useRemovePlaylistsData, useSetPlaylistsModule } from '../hooks/usePlaylists';
 import { getStepUp } from '../services/stepUp';
 import runStyles from '../components/InAppUpdate.module.css';
 import styles from './SettingsModulesPage.module.css';
@@ -525,12 +526,108 @@ function ListenLinksModuleSection() {
   );
 }
 
+/* ---------- Playlists: a module switched by a setting ---------- */
+
+export interface PlaylistsModuleRowProps {
+  view: PlaylistsModuleView;
+  pending?: boolean;
+  error?: string | null;
+  onTurnOn: () => void;
+  onTurnOff: () => void;
+}
+
+/** The Playlists row: the same shape as Listen elsewhere's. */
+export function PlaylistsModuleRow({ view, pending = false, error = null, onTurnOn, onTurnOff }: PlaylistsModuleRowProps) {
+  return (
+    <ul className={styles.list} aria-label="Playlists">
+      <li className={styles.item}>
+        <div className={styles.head}>
+          <h3 className={styles.name}>Playlists</h3>
+          <Badge tone={view.enabled ? 'success' : 'neutral'}>{view.enabled ? 'On' : 'Off'}</Badge>
+        </div>
+        <p className={styles.purpose}>Each person’s own lists of tracks, with a file to take them to another tagave.</p>
+        <p className={styles.meta}>
+          {view.playlists === 1 ? '1 playlist' : `${view.playlists} playlists`} · {view.people === 1 ? '1 person' : `${view.people} people`}
+        </p>
+        <div className={styles.actions}>
+          {view.enabled
+            ? <Button size="sm" variant="secondary" loading={pending} onClick={onTurnOff}>Turn off</Button>
+            : <Button size="sm" loading={pending} onClick={onTurnOn}>Turn on</Button>}
+        </div>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+      </li>
+    </ul>
+  );
+}
+
+type PlaylistsAction = { kind: 'on' } | { kind: 'off' } | { kind: 'remove' };
+
+function PlaylistsModuleSection() {
+  const mod = usePlaylistsModule();
+  const setOn = useSetPlaylistsModule();
+  const remove = useRemovePlaylistsData();
+  const [error, setError] = useState<string | null>(null);
+  const [stepUp, setStepUp] = useState<{ act: PlaylistsAction; methods: StepUpMethod[] } | null>(null);
+
+  const run = async (act: PlaylistsAction) => {
+    setError(null);
+    try {
+      if (act.kind === 'remove') await remove.mutateAsync();
+      else await setOn.mutateAsync(act.kind === 'on');
+    } catch (err) {
+      const e = err as { status?: number; title?: string; detail?: string };
+      if (e.status === 403 && e.title === 'Step-up required') {
+        const s = await getStepUp();
+        setStepUp({ act, methods: s.methods });
+      } else {
+        setError(sentence(e.detail ?? e.title) || 'Playlists could not be changed.');
+      }
+    }
+  };
+
+  const turnOff = async () => {
+    let deleteData = false;
+    const ok = await confirmDialog({
+      title: 'Turn off Playlists?',
+      message: (
+        <>
+          <p>Everyone’s playlists are kept unless you tick the box.</p>
+          <p><Button size="sm" variant="secondary" onClick={() => download(allPlaylistsExportUrl)}>Export first</Button></p>
+          <label className={styles.check}>
+            <input type="checkbox" onChange={(e) => { deleteData = e.target.checked; }} />
+            <span>Also delete its data. This cannot be undone.</span>
+          </label>
+        </>
+      ),
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (ok) await run(deleteData ? { kind: 'remove' } : { kind: 'off' });
+  };
+
+  if (!mod.data) return null;
+  return (
+    <>
+      <PlaylistsModuleRow view={mod.data} pending={setOn.isPending || remove.isPending} error={error} onTurnOn={() => void run({ kind: 'on' })} onTurnOff={() => void turnOff()} />
+      {stepUp && (
+        <StepUpDialog
+          action={stepUp.act.kind === 'on' ? 'Turning on Playlists' : 'Turning off Playlists'}
+          methods={stepUp.methods}
+          onCancel={() => setStepUp(null)}
+          onDone={() => { const s = stepUp; setStepUp(null); void run(s.act); }}
+        />
+      )}
+    </>
+  );
+}
+
 export function SettingsModulesContent() {
   return (
     <div className={styles.page}>
       <CatalogueModules />
       <McModuleSection />
       <ListenLinksModuleSection />
+      <PlaylistsModuleSection />
     </div>
   );
 }

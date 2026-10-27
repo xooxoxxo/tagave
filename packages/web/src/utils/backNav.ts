@@ -12,7 +12,7 @@ import { pageTitle } from './pageTitles';
  */
 export function parentPath(pathname: string): string | null {
   const path = pathname.replace(/\/+$/, '') || '/';
-  const m = path.match(/^\/(albums|artists|plans)\/[^/]+(?:\/.*)?$/);
+  const m = path.match(/^\/(albums|artists|plans|playlists)\/[^/]+(?:\/.*)?$/);
   if (!m) return null;
   return `/${m[1]}`;
 }

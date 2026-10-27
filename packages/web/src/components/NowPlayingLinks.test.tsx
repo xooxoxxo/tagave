@@ -1,11 +1,10 @@
 /**
  * What is playing links to its artist and album pages: in the player bar
- * and in the queue (each credited artist its own link; a name tagave cannot
+ * and in Now Playing (each credited artist its own link; a name tagave cannot
  * tie to an artist stays plain text).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { PlayerQueueTrack } from '@tagave/shared';
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, params, children, className }: { to: string; params?: Record<string, string>; children: unknown; className?: string }) => {
@@ -17,7 +16,8 @@ vi.mock('@tanstack/react-router', () => ({
 
 import { linkedArtists } from './NowPlayingLinks';
 import { PlayerBarView, type PlayerBarViewProps } from './PlayerBar';
-import { PlayerQueueView } from './PlayerQueue';
+import { NowPlayingView } from './player/NowPlaying';
+import type { QueueEntry } from '../player/engine';
 
 const noop = () => undefined;
 const duo = [{ id: 'a1', name: 'Chet Baker' }, { id: 'a2', name: 'Bill Evans' }];
@@ -57,22 +57,26 @@ describe('the player bar', () => {
   });
 });
 
-describe('the queue', () => {
-  const t = (n: number, artist: string): PlayerQueueTrack => ({
-    localTrackId: `t${n}`, discNo: 1, trackNo: n, title: `Song ${n}`, artist, album: 'Chet', albumArtist: 'Chet Baker',
-    durationMs: 200_000, container: 'flac', codec: 'flac', lossless: true, mime: 'audio/flac', available: true, reason: null,
+describe('Now Playing and its queue', () => {
+  const t = (n: number, artist: string, origin: 'queued' | 'context' = 'context'): QueueEntry => ({
+    localTrackId: `t${n}`, discNo: 1, trackNo: n, title: `Song ${n}`, artist, album: 'Chet', albumArtist: 'Chet Baker', albumId: 'al1', coverUrl: null,
+    artists: [duo[0]!], year: 1959, durationMs: 200_000, container: 'flac', codec: 'flac', lossless: true, mime: 'audio/flac', available: true, reason: null,
+    origin, uid: `u${n}`,
   });
+  const tracks = [t(1, 'Chet Baker'), t(2, 'A Guest', 'queued'), t(3, 'Chet Baker')];
   const html = renderToStaticMarkup(
-    <PlayerQueueView album="Chet" albumId="al1" albumArtist="Chet Baker" artists={[duo[0]!]} tracks={[t(1, 'Chet Baker'), t(2, 'Chet Baker'), t(3, 'A Guest')]} index={0} onPlay={noop} onMove={noop} onRemove={noop} onClose={noop} />,
+    <NowPlayingView track={tracks[0]!} tracks={tracks} index={0} context={{ kind: 'album', id: 'al1', name: 'Chet' }} history={[]}
+      onPlay={noop} onMove={noop} onRemove={noop} onClear={noop} onClose={noop} />,
   );
-  it('links the album and the artists of the tracks to come, outside the row buttons', () => {
+  it('links the playing track’s artist and album, never inside a button', () => {
     expect(html).toContain('href="/albums/al1"');
-    expect(html.match(/href="\/artists\/a1"/g)).toHaveLength(1);
-    expect(html).toContain('A Guest');
-    // a link is never inside a button
+    expect(html).toContain('href="/artists/a1"');
     for (const button of html.match(/<button[\s\S]*?<\/button>/g) ?? []) expect(button).not.toContain('<a ');
   });
-  it('still says which track plays now', () => {
+  it('groups what comes next: added by hand first, then the rest of the album', () => {
     expect(html).toContain('Now playing');
+    expect(html).toContain('Next in queue');
+    expect(html).toContain('Next from Chet');
+    expect(html.indexOf('Song 2')).toBeLessThan(html.indexOf('Song 3'));
   });
 });

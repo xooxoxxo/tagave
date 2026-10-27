@@ -23,6 +23,8 @@ const SettingsPage = lazyRouteComponent(() => import('./pages/SettingsPage'), 'S
 const InvitePage = lazyRouteComponent(() => import('./pages/InvitePage'), 'InvitePage');
 const CollectionPage = lazyRouteComponent(() => import('./pages/CollectionPage'), 'CollectionPage');
 const ConnectConsentPage = lazyRouteComponent(() => import('./pages/ConnectConsentPage'), 'ConnectConsentPage');
+const PlaylistsPage = lazyRouteComponent(() => import('./pages/PlaylistsPage'), 'PlaylistsPage');
+const PlaylistPage = lazyRouteComponent(() => import('./pages/PlaylistPage'), 'PlaylistPage');
 import { signOut } from './hooks/useAuth';
 import { guarded } from './components/access/RequirePermission';
 import { parseAlbumsSearch } from './pages/albumsSearch';
@@ -133,6 +135,18 @@ const artistDetailRoute = new Route({
   component: ArtistPage,
 });
 
+// Playlists (the playlists module): each person's own lists
+const playlistsRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/playlists',
+  component: PlaylistsPage,
+});
+
+const playlistRoute = new Route({
+  getParentRoute: () => layoutRoute,
+  path: '/playlists/$playlistId',
+  component: PlaylistPage,
+});
 
 const plansRoute = new Route({
   getParentRoute: () => layoutRoute,
@@ -298,6 +312,8 @@ const routeTree = rootRoute.addChildren([
     albumsRoute,
     artistsRoute,
     artistDetailRoute,
+    playlistsRoute,
+    playlistRoute,
     plansRoute,
     planRoute,
     albumDetailRoute,

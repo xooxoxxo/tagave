@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlayerQueueTrack } from '@tagave/shared';
 import {
+  insertQueued, clearQueued, startContext,
   scanWaitLine,
   chooseFormat, classifyFailure, clock, firstPlayableFrom, heardDelta, nextPlayable, nothingPlayableMessage, orderQueue, parseQuality,
   handoffDelayMs, moveUpcoming, previousAction, previousPlayable, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, spaceTogglesPlayback, startIndex, streamUrl,
@@ -296,5 +297,37 @@ describe('shuffle', () => {
     const n = nextPlayable(shuffled, first);
     expect(n).toBeGreaterThan(first);
     expect(shuffled.slice(first + 1, n).every((t) => !t.available)).toBe(true);
+  });
+});
+
+describe('the queue: Play next, Add to queue, Clear, a new album', () => {
+  type E = { id: string; origin: 'queued' | 'context' };
+  const c = (id: string): E => ({ id, origin: 'context' });
+  const q = (id: string): E => ({ id, origin: 'queued' });
+  const ids = (xs: readonly E[]) => xs.map((x) => x.id).join(' ');
+  const album = [c('a1'), c('a2'), c('a3')];
+
+  it('Play next goes right after the playing track, before what was added earlier', () => {
+    const one = insertQueued(album, 0, [q('x')], 'next');
+    expect(ids(one)).toBe('a1 x a2 a3');
+    expect(ids(insertQueued(one, 0, [q('y')], 'next'))).toBe('a1 y x a2 a3');
+  });
+  it('Add to queue goes after what was added by hand, before the rest of the album', () => {
+    const one = insertQueued(album, 0, [q('x')], 'end');
+    expect(ids(one)).toBe('a1 x a2 a3');
+    expect(ids(insertQueued(one, 0, [q('y'), q('z')], 'end'))).toBe('a1 x y z a2 a3');
+  });
+  it('with nothing playing, at the start', () => {
+    expect(ids(insertQueued(album, -1, [q('x')], 'end'))).toBe('x a1 a2 a3');
+  });
+  it('Clear takes out only the upcoming tracks added by hand', () => {
+    const list = [q('p'), c('a1'), q('x'), c('a2'), q('y')];
+    expect(ids(clearQueued(list, 1))).toBe('p a1 a2');
+  });
+  it('a new album keeps the tracks added by hand that have not played, right after its first track', () => {
+    const old = [c('o1'), q('x'), c('o2'), q('y')];
+    expect(startContext(old, 0, album, 0)).toEqual({ tracks: [c('a1'), q('x'), q('y'), c('a2'), c('a3')], index: 0 });
+    expect(startContext(old, 3, album, 1).tracks.map((x) => x.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(startContext([], -1, album, -1)).toEqual({ tracks: album, index: -1 });
   });
 });

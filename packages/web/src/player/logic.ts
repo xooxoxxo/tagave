@@ -47,7 +47,7 @@ export function startIndex(tracks: readonly PlayerQueueTrack[], startTrackId?: s
  * Shuffle: the order is drawn once when the album starts, so the queue view
  * shows it and Next follows it. `random` returns values in [0, 1).
  */
-export function shuffleTracks(tracks: readonly PlayerQueueTrack[], random: () => number = Math.random): PlayerQueueTrack[] {
+export function shuffleTracks<T>(tracks: readonly T[], random: () => number = Math.random): T[] {
   const out = [...tracks];
   for (let i = out.length - 1; i > 0; i--) {
     const j = Math.min(i, Math.floor(random() * (i + 1)));
@@ -57,13 +57,13 @@ export function shuffleTracks(tracks: readonly PlayerQueueTrack[], random: () =>
 }
 
 /** The queue as the album starts: disc then track order, or shuffled once. */
-export function queueOrder(tracks: readonly PlayerQueueTrack[], opts: { shuffle?: boolean; random?: () => number } = {}): PlayerQueueTrack[] {
+export function queueOrder<T extends PlayerQueueTrack>(tracks: readonly T[], opts: { shuffle?: boolean; random?: () => number } = {}): T[] {
   const ordered = orderQueue(tracks);
   return opts.shuffle ? shuffleTracks(ordered, opts.random) : ordered;
 }
 
 /** The queue's tracks in disc, then track order (the API already sends them so; this keeps it true). */
-export function orderQueue(tracks: readonly PlayerQueueTrack[]): PlayerQueueTrack[] {
+export function orderQueue<T extends PlayerQueueTrack>(tracks: readonly T[]): T[] {
   return tracks
     .map((t, i) => ({ t, i }))
     .sort((a, b) => (a.t.discNo - b.t.discNo) || ((a.t.trackNo ?? Number.MAX_SAFE_INTEGER) - (b.t.trackNo ?? Number.MAX_SAFE_INTEGER)) || (a.i - b.i))
@@ -123,6 +123,37 @@ export function moveUpcoming<T>(tracks: readonly T[], current: number, from: num
 export function removeUpcoming<T>(tracks: readonly T[], current: number, at: number): readonly T[] {
   if (at <= current || at >= tracks.length) return tracks;
   return tracks.filter((_, i) => i !== at);
+}
+
+type Origin = { origin: 'queued' | 'context' };
+
+/**
+ * Play next / Add to queue (Spotify, Apple Music): what the person adds by
+ * hand plays before the rest of the album or playlist. Play next puts it
+ * right after the playing track; Add to queue after the last track added by
+ * hand that follows it. Nothing playing (current -1): at the start.
+ */
+export function insertQueued<T extends Origin>(tracks: readonly T[], current: number, items: readonly T[], where: 'next' | 'end'): T[] {
+  let at = Math.max(0, current + 1);
+  if (where === 'end') while (at < tracks.length && tracks[at]!.origin === 'queued') at++;
+  return [...tracks.slice(0, at), ...items, ...tracks.slice(at)];
+}
+
+/** Clear: the upcoming tracks added by hand go; the playing track, the played ones and the album's or playlist's rest stay. */
+export function clearQueued<T extends Origin>(tracks: readonly T[], current: number): T[] {
+  return tracks.filter((t, i) => i <= current || t.origin !== 'queued');
+}
+
+/**
+ * A new album or playlist starts: its tracks replace the old ones, and the
+ * tracks added by hand that had not played yet come right after its first
+ * track (they stay "next", as in Spotify). Returns the tracks and where
+ * playing starts.
+ */
+export function startContext<T extends Origin>(old: readonly T[], oldIndex: number, fresh: readonly T[], start: number): { tracks: T[]; index: number } {
+  const kept = old.filter((t, i) => i > oldIndex && t.origin === 'queued');
+  if (start < 0 || kept.length === 0) return { tracks: [...fresh], index: start };
+  return { tracks: [...fresh.slice(0, start + 1), ...kept, ...fresh.slice(start + 1)], index: start };
 }
 
 // ---- track changes ----

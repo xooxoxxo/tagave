@@ -66,6 +66,10 @@ import { useAlbumListenLinks } from '../hooks/useListenLinks';
 import { useReviews } from '../hooks/useReviews';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
+import { TrackActions, enqueueWithToast } from '../components/player/TrackActions';
+import { usePlaylistsOn } from '../hooks/usePlaylists';
+
+const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
 import { scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
@@ -119,9 +123,10 @@ export function AlbumDetailPage() {
   const canPlay = playbackAvailable(player);
   const playerInstalled = !!player?.installed;
   const playability = useAlbumPlayability(albumId, canPlay);
-  const playingHere = usePlayerStore((s) => s.queue?.albumId === albumId && s.index >= 0);
+  const playingHere = usePlayerStore((s) => currentTrack(s)?.albumId === albumId);
+  const playlistsOn = usePlaylistsOn();
   const playStatus = usePlayerStore((s) => s.status);
-  const playingTrackId = usePlayerStore((s) => (s.queue?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
+  const playingTrackId = usePlayerStore((s) => (currentTrack(s)?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
   // the sections switcher is a Maintenance tool: without it, the page is the tracks
   const sections = maintenance;
@@ -270,7 +275,7 @@ export function AlbumDetailPage() {
   // ⋮: a bottom drawer on a phone or tablet, a dropdown on a desktop; the album info
   // is a drawer too (a side sheet on a desktop). Focus goes back to what opened it.
   const drawer = useAlbumDrawer();
-  const [sheet, setSheet] = useState<'actions' | 'info' | null>(null);
+  const [sheet, setSheet] = useState<'actions' | 'info' | 'playlist' | null>(null);
   const [infoTab, setInfoTab] = useState<string>('about');
   // the drawers' code loads on the first open and stays (so they can animate closed)
   const [sheetsWanted, setSheetsWanted] = useState(false);
@@ -298,7 +303,7 @@ export function AlbumDetailPage() {
     if (search.tab && search.tab !== 'tracks') requestAnimationFrame(() => flow.toElement(footRef.current));
   }, [album]); // eslint-disable-line react-hooks/exhaustive-deps
   // a Play that found nothing to play may have asked the server to scan: look again
-  const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.albumId === albumId);
+  const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.context?.kind === 'album' && s.queue.context.id === albumId);
   useEffect(() => {
     if (playFailedHere) void queryClient.invalidateQueries({ queryKey: albumAvailabilityKey(albumId) });
   }, [playFailedHere, albumId, queryClient]);
@@ -870,6 +875,11 @@ export function AlbumDetailPage() {
     tools,
     onToggleMaintenance: () => setMaintenance(!maintenance),
     listen: listenLinks.data?.available ? listenLinks.data.links : [],
+    queue: playState && !playState.disabled ? {
+      next: () => void enqueueWithToast({ albumId }, 'next'),
+      end: () => void enqueueWithToast({ albumId }, 'end'),
+    } : null,
+    addToPlaylist: playlistsOn ? () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; setSheet('playlist'); } : null,
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
   // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header
@@ -1052,6 +1062,14 @@ export function AlbumDetailPage() {
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
             player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
+            trackMenu={(canPlay && !playDisabled) || playlistsOn ? (t) => (
+              <TrackActions
+                label={`More for ${t.title ?? 'this track'}`}
+                summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}
+                source={{ trackIds: [t.id] }}
+                artist={album.artists?.[0] ? { id: album.artists[0].id, name: album.artists[0].name } : null}
+              />
+            ) : null}
           />
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}
@@ -1238,6 +1256,16 @@ export function AlbumDetailPage() {
                 returnFocus={opener}
                 summary={sheetSummary}
                 model={menuModel}
+              />
+            )}
+            {/* Add to playlist… from the album's ⋮ */}
+            {playlistsOn && (
+              <AddToPlaylistSheet
+                open={sheet === 'playlist'}
+                onOpenChange={(open) => setSheet(open ? 'playlist' : null)}
+                returnFocus={opener}
+                source={{ albumId }}
+                side={drawer ? 'bottom' : 'right'}
               />
             )}
             {/* Album info (About, Reviews): from "Album info" in ⋮ and from More */}

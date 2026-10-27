@@ -17,6 +17,8 @@ import { useUpdateAvailable } from '../hooks/useUpdates';
 import { AlbumSelectionGuard } from './AlbumSelectionGuard';
 import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
+import { MenuPlaylists } from './playlists/MenuPlaylists';
+import { usePlaylistsOn } from '../hooks/usePlaylists';
 import { AppDownHost } from './update/UpdateDownScreen';
 import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { stop as stopPlayback } from '../player/engine';
@@ -49,6 +51,7 @@ export function Layout() {
   // library care, tag changes or install settings, so none of it is asked for.
   const canCare = useCan('library.edit');
   const canSystem = useCan('system.manage');
+  const playlistsOn = usePlaylistsOn();
   useJobEvents(user && libraryId && canCare ? libraryId : undefined);
   // open tasks (gaps the owner took on) show as a count on Library care
   const taskCount = useGapCounts(user && canCare ? libraryId : undefined).data?.tasks?.todo ?? 0;
@@ -171,10 +174,13 @@ export function Layout() {
           <Link to="/albums" search={albumsReturnSearch as never} className={linkClass(pathname.startsWith('/albums'))}>{pageTitles['/albums']}</Link>
           <Link to="/artists" className={linkClass(pathname.startsWith('/artists'))}>{pageTitles['/artists']}</Link>
           <Link to="/collection" className={linkClass(pathname.startsWith('/collection'))}>{pageTitles['/collection']}</Link>
+          {playlistsOn && <Link to="/playlists" className={`${linkClass(pathname.startsWith('/playlists'))} ${styles.wideOnly}`}>{pageTitles['/playlists']}</Link>}
           {canCare && <Link to="/work" search={{ tab: 'review' }} className={linkClass(['/work', '/queue', '/identify', '/attention'].some(p => pathname.startsWith(p)))} data-group="manage">{pageTitles['/work']}{taskCount > 0 && <span className={styles.navCount} title={`${taskCount} open ${taskCount === 1 ? 'task' : 'tasks'}`}><span className={styles.srOnly}>, </span>{taskCount}<span className={styles.srOnly}> open {taskCount === 1 ? 'task' : 'tasks'}</span></span>}</Link>}
           {canCare && <Link to="/plans" className={linkClass(pathname.startsWith('/plans'))}>{pageTitles['/plans']}</Link>}
           <Link to="/settings" className={linkClass(pathname.startsWith('/settings') || pathname.startsWith('/jobs'))}>{pageTitles['/settings']}{updateAvailable && <UpdateDot />}</Link>
         </nav>
+        {/* phone: the person's playlists under the links (wider screens: the Playlists link) */}
+        <MenuPlaylists activeId={pathname.startsWith('/playlists/') ? pathname.split('/')[2] : null} />
         {/* the signed-in person: a band on the bottom edge that opens a compartment above it */}
         <div className={styles.account} data-account-row="">
           {logout.isError && <p role="alert" className={styles.accountError}>Could not sign out. Please try again.</p>}

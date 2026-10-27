@@ -8,23 +8,44 @@
  * current one is within 30 s of its end. In the last half second a timer
  * starts the next one just before the current one ends (near-gapless where
  * the browser allows; a background tab's slowed timers fall back to the
- * `ended` swap). The queue view can reorder and remove upcoming tracks.
- * Playback is on this device only: nothing hands it to another one.
+ * `ended` swap).
+ *
+ * The queue holds tracks from any albums: the album or playlist that was
+ * started ("context") and what the person added by hand with Play next or
+ * Add to queue ("queued"), which plays first. It is kept on the server per
+ * person (PUT /me/player/queue), so it follows them to another device; the
+ * device that wrote it last plays, and another one that sees a newer write
+ * pauses and takes the queue over where it stopped.
  */
 import { create } from 'zustand';
-import type { PlayEventKind, PlayerQueueTrack, PlayerQueueView, StreamFormat } from '@tagave/shared';
+import type { PlayEventKind, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
-  FAILURE_TEXT, chooseFormat, classifyFailure, handoffDelayMs, heardDelta, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
-  previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, startIndex, streamUrl, transcodeFormat, type CanPlay,
+  FAILURE_TEXT, chooseFormat, classifyFailure, clearQueued, handoffDelayMs, heardDelta, insertQueued, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
+  previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, shuffleTracks, startContext, startIndex, streamUrl, transcodeFormat, type CanPlay,
 } from './logic';
 import { getPlayerQuality } from './quality';
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
 
+/** One entry of the queue: a track with its album, where it came from, and an id of its own (a track may be queued twice). */
+export interface QueueEntry extends QueueTrack {
+  uid: string;
+  origin: QueueOrigin;
+}
+
+export interface PlayerQueue {
+  /** the album or playlist that was started, if any */
+  context: QueueContext | null;
+  /** in play order (availability updated as streams answer) */
+  tracks: QueueEntry[];
+  /** the album's tracks were not all on the player server, so tagave asked it to scan */
+  scanRequested: boolean;
+  scan?: PlayerScanStatus | null;
+}
+
 export interface PlayerState {
-  /** the album being played, its tracks in disc then track order (availability updated as streams answer) */
-  queue: PlayerQueueView | null;
+  queue: PlayerQueue | null;
   queueId: string | null;
   index: number;
   status: PlayerStatus;
@@ -47,8 +68,16 @@ const get = () => usePlayerStore.getState();
 const set = (patch: Partial<PlayerState>) => usePlayerStore.setState(patch);
 
 /** The track the bar shows, or null. */
-export function currentTrack(s: PlayerState = get()): PlayerQueueTrack | null {
+export function currentTrack(s: PlayerState = get()): QueueEntry | null {
   return s.queue?.tracks[s.index] ?? null;
+}
+
+let uidSeq = 0;
+const entry = (t: QueueTrack, origin: QueueOrigin): QueueEntry => ({ ...t, origin, uid: `q${++uidSeq}` });
+
+/** An album's queue view as entries of the queue. */
+function albumEntries(view: PlayerQueueView, origin: QueueOrigin, fallbackCover: string | null = null): QueueEntry[] {
+  return view.tracks.map((t) => entry({ ...t, albumId: view.albumId, coverUrl: view.coverUrl ?? fallbackCover, artists: view.artists ?? [], year: view.year ?? null }, origin));
 }
 
 /** What the album page passes to Play, so the bar has a title before the queue arrives. */
@@ -63,7 +92,10 @@ let cur: { trackId: string; index: number; format: StreamFormat; base: number; t
 /** the next track waiting in the other element */
 let preloaded: { index: number; trackId: string; format: StreamFormat } | null = null;
 /** the last Play request, for Retry when the queue itself could not be played */
-let lastRequest: { album: AlbumRef; startTrackId: string | null; shuffle: boolean } | null = null;
+let lastRequest:
+  | { kind: 'album'; album: AlbumRef; startTrackId: string | null; shuffle: boolean }
+  | { kind: 'tracks'; ids: string[]; context: QueueContext; startTrackId: string | null; shuffle: boolean }
+  | null = null;
 /** bumped by every load, so a late answer for an old track is ignored */
 let generation = 0;
 let lastPositionState = 0;
@@ -154,7 +186,8 @@ function loadTrack(index: number, opts: { offset?: number; format?: StreamFormat
     const seekTo = offset;
     a.addEventListener('loadedmetadata', () => { try { a.currentTime = seekTo; } catch { /* not seekable yet */ } }, { once: true });
   }
-  updateMetadata(track, s.queue!);
+  updateMetadata(track);
+  persistSoon();
   if (opts.autoplay === false) set({ status: 'paused' });
   else startPlayback(a);
 }
@@ -169,6 +202,8 @@ function onPlaying(a: HTMLAudioElement) {
     cur.started = true;
     sendEvent('now_playing');
   }
+  // this device plays now: say so at once, so another one pauses
+  if (!claimed) { claimed = true; persistNow(); }
   setPlaybackState('playing');
 }
 
@@ -180,6 +215,7 @@ function onPause(a: HTMLAudioElement) {
   if (status === 'playing' || status === 'buffering') set({ status: 'paused' });
   if (cur) cur.lastTime = null;
   setPlaybackState('paused');
+  if (claimed) persistSoon();
 }
 
 function onTime(a: HTMLAudioElement) {
@@ -206,6 +242,7 @@ function onTime(a: HTMLAudioElement) {
   }
   const t = Date.now();
   if (t - lastPositionState > 1000) { lastPositionState = t; updatePositionState(); }
+  if (t - lastPositionSave > POSITION_SAVE_MS) { lastPositionSave = t; persistSoon(); }
 }
 
 function onDuration(a: HTMLAudioElement) {
@@ -257,7 +294,8 @@ function advance(early: boolean) {
     cur = { trackId: p.trackId, index: next, format: p.format, base: 0, triedFallback: false, started: false, completed: false, heardSec: 0, lastTime: null };
     const track = tracks[next]!;
     set({ index: next, status: 'loading', message: null, retry: null, position: 0, duration: shownDuration(p.format, track.durationMs, b.duration) });
-    updateMetadata(track, s.queue!);
+    updateMetadata(track);
+    persistSoon();
     startPlayback(b);
     if (early) {
       // the old track's last few milliseconds play out under the new one's start
@@ -405,17 +443,17 @@ function artworkType(url: string): string | undefined {
   return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : undefined;
 }
 
-function updateMetadata(track: PlayerQueueTrack, q: PlayerQueueView) {
+function updateMetadata(track: QueueEntry) {
   const ms = session();
   if (!ms || typeof MediaMetadata === 'undefined') return;
   try {
     const artwork: MediaImage[] = [];
-    if (q.coverUrl) {
-      const src = new URL(q.coverUrl, globalThis.location?.href).href;
+    if (track.coverUrl) {
+      const src = new URL(track.coverUrl, globalThis.location?.href).href;
       const type = artworkType(src);
       artwork.push({ src, sizes: '512x512', ...(type ? { type } : {}) });
     }
-    ms.metadata = new MediaMetadata({ title: track.title, artist: track.artist || q.albumArtist, album: q.album, artwork });
+    ms.metadata = new MediaMetadata({ title: track.title, artist: track.artist || track.albumArtist, album: track.album, artwork });
   } catch { /* metadata is a nicety */ }
 }
 
@@ -437,6 +475,30 @@ function updatePositionState() {
 
 // ---- actions ----
 
+/** Stops what is loaded, before a new album or playlist starts. */
+function resetForNew(): number {
+  ensureElements();
+  clearHandoff();
+  leaveCurrent();
+  generation++;
+  release(el());
+  release(standby());
+  preloaded = null;
+  return generation;
+}
+
+/** Starts `fresh` at its playable track `start` (or shows why nothing plays), keeping the upcoming tracks added by hand. */
+function begin(fresh: QueueEntry[], start: number, context: QueueContext | null, extra: Pick<PlayerQueue, 'scanRequested' | 'scan'>, failure: () => string) {
+  const old = get();
+  const { tracks, index } = startContext(old.queue?.tracks ?? [], old.index, fresh, start);
+  set({ queue: { context, tracks, ...extra }, loadingAlbumId: null, index: index < 0 ? -1 : index });
+  if (index < 0) {
+    showError(failure(), 'queue');
+    return;
+  }
+  loadTrack(index);
+}
+
 /**
  * "Play" (the whole album), "Play from here" (startTrackId) or Shuffle (the
  * album in a random order, drawn once: the queue view shows that order).
@@ -444,38 +506,88 @@ function updatePositionState() {
  * tracks heard within six hours (playerPlays.ts deriveListens).
  */
 export async function playAlbum(album: AlbumRef, startTrackId: string | null = null, opts: { shuffle?: boolean } = {}): Promise<void> {
-  ensureElements();
   const shuffle = !!opts.shuffle && !startTrackId;
-  lastRequest = { album, startTrackId, shuffle };
-  clearHandoff();
-  leaveCurrent();
-  generation++;
-  release(el());
-  release(standby());
-  preloaded = null;
-  const stub: PlayerQueueView = { albumId: album.albumId, album: album.title, albumArtist: album.artist, coverUrl: album.coverUrl, tracks: [], scanRequested: false };
-  const queueId = randomId();
-  set({ loadingAlbumId: album.albumId, queueId, status: 'loading', message: null, retry: null, position: 0, duration: null, queue: stub, index: -1 });
-  const gen = generation;
+  lastRequest = { kind: 'album', album, startTrackId, shuffle };
+  const gen = resetForNew();
+  const keep = get().queue;
+  set({ loadingAlbumId: album.albumId, queueId: randomId(), status: 'loading', message: null, retry: null, position: 0, duration: null });
   let view: PlayerQueueView;
   try {
     view = await api.get<PlayerQueueView>(`/player/albums/${encodeURIComponent(album.albumId)}/queue`);
   } catch (err) {
     if (gen !== generation) return;
     const status = (err as ApiError)?.status;
-    set({ queue: stub, index: -1 });
+    set({ loadingAlbumId: null, queue: keep ?? { context: { kind: 'album', id: album.albumId, name: album.title }, tracks: [], scanRequested: false } });
     showError(status === 404 ? 'The player is not set up.' : status ? 'tagave could not load this album’s tracks. Try again.' : FAILURE_TEXT.network, 'queue');
     return;
   }
   if (gen !== generation) return;
-  const ordered: PlayerQueueView = { ...view, coverUrl: view.coverUrl ?? album.coverUrl, tracks: queueOrder(view.tracks, { shuffle }) };
-  const index = startIndex(ordered.tracks, startTrackId);
-  set({ queue: ordered, loadingAlbumId: null, index: index < 0 ? -1 : index });
-  if (index < 0) {
-    showError(nothingPlayableMessage(ordered, startTrackId ? ordered.tracks.findIndex((t) => t.localTrackId === startTrackId) : 0), 'queue');
+  const fresh = queueOrder(albumEntries(view, 'context', album.coverUrl), { shuffle });
+  const start = startIndex(fresh, startTrackId);
+  begin(fresh, start, { kind: 'album', id: album.albumId, name: view.album }, { scanRequested: view.scanRequested, scan: view.scan ?? null },
+    () => nothingPlayableMessage({ ...view, tracks: fresh }, startTrackId ? fresh.findIndex((t) => t.localTrackId === startTrackId) : 0));
+}
+
+/** Tracks by id, as the queue plays them (any albums, in the order asked). */
+export async function fetchQueueTracks(ids: readonly string[]): Promise<QueueTrack[]> {
+  if (ids.length === 0) return [];
+  return (await api.post<{ tracks: QueueTrack[] }>('/player/tracks', { ids })).tracks;
+}
+
+/** An album's tracks, as the queue plays them. */
+async function albumTracks(albumId: string): Promise<QueueEntry[]> {
+  const view = await api.get<PlayerQueueView>(`/player/albums/${encodeURIComponent(albumId)}/queue`);
+  return albumEntries(view, 'queued');
+}
+
+/** A playlist (or any list of tracks): Play from a track, or Shuffle (its own order is not disc and track order, so only the shuffle applies). */
+export async function playTracks(ids: readonly string[], context: QueueContext, opts: { startTrackId?: string | null; shuffle?: boolean } = {}): Promise<void> {
+  const shuffle = !!opts.shuffle && !opts.startTrackId;
+  lastRequest = { kind: 'tracks', ids: [...ids], context, startTrackId: opts.startTrackId ?? null, shuffle };
+  const gen = resetForNew();
+  set({ loadingAlbumId: null, queueId: randomId(), status: 'loading', message: null, retry: null, position: 0, duration: null });
+  let tracks: QueueTrack[];
+  try {
+    tracks = await fetchQueueTracks(ids);
+  } catch (err) {
+    if (gen !== generation) return;
+    const status = (err as ApiError)?.status;
+    showError(status === 404 ? 'The player is not set up.' : status ? 'tagave could not load these tracks. Try again.' : FAILURE_TEXT.network, 'queue');
     return;
   }
-  loadTrack(index);
+  if (gen !== generation) return;
+  const listed = tracks.map((t) => entry(t, 'context'));
+  const fresh = shuffle ? shuffleTracks(listed) : listed;
+  const start = startIndex(fresh, opts.startTrackId ?? null);
+  begin(fresh, start, context, { scanRequested: false, scan: null }, () => nothingPlayableMessage({ tracks: fresh, scanRequested: false }));
+}
+
+/** What Play next and Add to queue take: tracks by id, or an album. */
+export type QueueSource = { trackIds: string[] } | { albumId: string };
+
+/**
+ * Play next (right after the playing track) or Add to queue (after the
+ * other tracks added by hand). With nothing playing, they start playing.
+ * Resolves to how many tracks went in.
+ */
+export async function enqueue(source: QueueSource, where: 'next' | 'end'): Promise<number> {
+  const added = 'albumId' in source ? await albumTracks(source.albumId) : (await fetchQueueTracks(source.trackIds)).map((t) => entry(t, 'queued'));
+  if (added.length === 0) return 0;
+  const s = get();
+  if (!s.queue || s.queue.tracks.length === 0 || s.index < 0) {
+    resetForNew();
+    set({ queueId: randomId(), status: 'loading' });
+    begin(added, startIndex(added, null), null, { scanRequested: false, scan: null }, () => nothingPlayableMessage({ tracks: added, scanRequested: false }));
+    return added.length;
+  }
+  setTracks(insertQueued(s.queue.tracks, s.index, added, where));
+  return added.length;
+}
+
+/** Plays the queue's entry `uid` now (a row in the queue view). */
+export function playEntry(uid: string) {
+  const i = get().queue?.tracks.findIndex((t) => t.uid === uid) ?? -1;
+  if (i >= 0) playAt(i);
 }
 
 /** Shuffle: the whole album in a random order. */
@@ -485,10 +597,12 @@ export function shuffleAlbum(album: AlbumRef): Promise<void> {
 
 export function play() {
   const s = get();
+  ensureElements();
   const a = el();
   if (!s.queue || !a) return;
   if (s.status === 'error') { retry(); return; }
-  if (!cur || !a.getAttribute('src')) { if (s.index >= 0) loadTrack(s.index); return; }
+  // nothing loaded yet (a queue taken over from the server): from where it stopped
+  if (!cur || !a.getAttribute('src')) { if (s.index >= 0) loadTrack(s.index, { offset: s.position }); return; }
   if (a.ended) {
     // the album finished: start it over
     const first = startIndex(s.queue.tracks, null);
@@ -563,7 +677,12 @@ export function setVolume(v: number) {
 /** Retry after an error: the same track from where it stopped, or the album's queue again. */
 export function retry() {
   const s = get();
-  if (s.retry === 'queue' && lastRequest) { void playAlbum(lastRequest.album, lastRequest.startTrackId, { shuffle: lastRequest.shuffle }); return; }
+  if (s.retry === 'queue' && lastRequest) {
+    const r = lastRequest;
+    if (r.kind === 'album') void playAlbum(r.album, r.startTrackId, { shuffle: r.shuffle });
+    else void playTracks(r.ids, r.context, { startTrackId: r.startTrackId, shuffle: r.shuffle });
+    return;
+  }
   if (s.queue && s.index >= 0) loadTrack(s.index, { offset: s.position, keepSession: true, ...(cur?.format && cur.triedFallback ? { format: cur.format } : {}) });
 }
 
@@ -578,10 +697,11 @@ export function playAt(index: number) {
   loadTrack(index);
 }
 
-function setTracks(tracks: readonly PlayerQueueTrack[]) {
+function setTracks(tracks: readonly QueueEntry[]) {
   const s = get();
   if (!s.queue || tracks === s.queue.tracks) return;
   set({ queue: { ...s.queue, tracks: [...tracks] } });
+  persistSoon();
   // what waits in the other element may no longer be next
   const next = nextPlayable(tracks, s.index);
   if (preloaded && preloaded.trackId !== tracks[next]?.localTrackId) {
@@ -603,8 +723,18 @@ export function removeFromQueue(at: number) {
   if (s.queue) setTracks(removeUpcoming(s.queue.tracks, s.index, at));
 }
 
-/** Stops and clears the queue (the bar's close, Stop from a media key, signing out). */
-export function stop() {
+/** Clear: the upcoming tracks added by hand go. */
+export function clearQueue() {
+  const s = get();
+  if (s.queue) setTracks(clearQueued(s.queue.tracks, s.index));
+}
+
+/**
+ * Stops and clears the queue. `forget` (the bar's close) also forgets it on
+ * the server; Stop from a media key, signing out or the player going away
+ * leave the person's queue there for their next visit.
+ */
+export function stop(opts: { forget?: boolean } = {}) {
   clearHandoff();
   leaveCurrent();
   generation++;
@@ -612,9 +742,141 @@ export function stop() {
   release(standby());
   preloaded = null;
   lastRequest = null;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+  claimed = false;
+  if (opts.forget) {
+    seenStamp = null;
+    void api.delete('/me/player/queue').catch(() => undefined);
+  }
   set({ ...initial, volume: get().volume });
   const ms = session();
   if (ms) {
     try { ms.metadata = null; ms.playbackState = 'none'; } catch { /* ignore */ }
   }
+}
+
+// ---- the queue on the server: it follows the person; the device that wrote last plays ----
+
+const DEVICE_KEY = 'tagave-player-device';
+const POSITION_SAVE_MS = 10_000;
+let lastPositionSave = 0;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+/** this device has played since it last took the queue over (only then does it write) */
+let claimed = false;
+/** the newest server write this device knows of (its own, or the one it took over) */
+let seenStamp: string | null = null;
+let deviceIdCache: string | null = null;
+
+/** A random id for this browser, kept across visits. */
+export function deviceId(): string {
+  if (deviceIdCache) return deviceIdCache;
+  let id: string | null = null;
+  try { id = globalThis.localStorage?.getItem(DEVICE_KEY) ?? null; } catch { /* storage blocked */ }
+  if (!id || id.length < 8) {
+    id = randomId();
+    try { globalThis.localStorage?.setItem(DEVICE_KEY, id); } catch { /* this visit only */ }
+  }
+  deviceIdCache = id;
+  return id;
+}
+
+function snapshot() {
+  const s = get();
+  if (!s.queue) return null;
+  return {
+    items: s.queue.tracks.map((t) => ({ id: t.localTrackId, origin: t.origin })),
+    context: s.queue.context,
+    index: s.index,
+    positionMs: Math.max(0, Math.round((s.position || 0) * 1000)),
+    deviceId: deviceId(),
+  };
+}
+
+/** Writes the queue now (fire and forget). */
+function persistNow(opts: { keepalive?: boolean } = {}) {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+  const body = snapshot();
+  if (!body || body.items.length === 0 || typeof fetch === 'undefined') return;
+  if (opts.keepalive) {
+    try {
+      void fetch('/api/v1/me/player/queue', { method: 'PUT', body: JSON.stringify(body), keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' } }).catch(() => undefined);
+    } catch { /* dropped */ }
+    return;
+  }
+  void api.put<{ updatedAt: string }>('/me/player/queue', body).then((r) => { if (r?.updatedAt) seenStamp = r.updatedAt; }, () => undefined);
+}
+
+/** Writes the queue a moment after the last change (edits come in bursts). A device that only took the queue over writes nothing until it plays. */
+function persistSoon() {
+  if (!get().queue || !claimed) return;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = setTimeout(() => persistNow(), 800);
+}
+
+/** Leaving the page: the place it stopped is written while the page can still send. */
+export function persistOnLeave() {
+  if (get().queue && claimed) persistNow({ keepalive: true });
+}
+
+function adopt(view: QueueStateView) {
+  seenStamp = view.updatedAt;
+  const tracks = view.items.map((t) => entry(t, t.origin));
+  if (tracks.length === 0) return;
+  const index = Math.min(Math.max(view.index, 0), tracks.length - 1);
+  const t = tracks[index]!;
+  set({
+    queue: { context: view.context, tracks, scanRequested: false, scan: null },
+    queueId: randomId(),
+    index,
+    status: 'paused',
+    message: null,
+    retry: null,
+    loadingAlbumId: null,
+    position: view.positionMs / 1000,
+    duration: t.durationMs ? t.durationMs / 1000 : null,
+  });
+  updateMetadata(t);
+  setPlaybackState('paused');
+}
+
+/** On opening tagave: the person's queue as they left it, paused where it stopped. Nothing when this device already has one. */
+export async function restoreQueue(): Promise<void> {
+  if (get().queue) return;
+  try {
+    const view = await api.get<QueueStateView>('/me/player/queue');
+    if (get().queue) return;
+    adopt(view);
+  } catch { /* nothing to restore */ }
+}
+
+/**
+ * Another device played since this one last wrote: pause here and take the
+ * queue over where it is now. Called on focus and every so often.
+ */
+export async function checkHandover(): Promise<boolean> {
+  let stamp: { deviceId: string | null; updatedAt: string | null };
+  try { stamp = await api.get('/me/player/queue/stamp'); } catch { return false; }
+  if (!stamp?.updatedAt || !stamp.deviceId || stamp.deviceId === deviceId()) return false;
+  if (seenStamp && Date.parse(stamp.updatedAt) <= Date.parse(seenStamp)) return false;
+  let view: QueueStateView;
+  try { view = await api.get<QueueStateView>('/me/player/queue'); } catch { return false; }
+  // the other device's queue replaces what is loaded here, paused
+  clearHandoff();
+  leaveCurrent();
+  generation++;
+  release(el());
+  release(standby());
+  preloaded = null;
+  claimed = false;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+  if (view.items.length === 0) {
+    seenStamp = view.updatedAt;
+    set({ ...initial, volume: get().volume });
+    return true;
+  }
+  adopt(view);
+  return true;
 }

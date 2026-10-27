@@ -93,7 +93,7 @@ export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? '
 
 /* ---------------- the ⋮ menu ---------------- */
 
-export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance';
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist';
 
 export interface AlbumMenuAction {
   key: string;
@@ -135,6 +135,10 @@ export interface AlbumMenuInput {
   onToggleMaintenance: () => void;
   /** Listen elsewhere (the listen-links module): links, in the person's order */
   listen?: readonly ListenLinkView[] | undefined;
+  /** Play next / Add to queue (a player that can play the album now) */
+  queue?: { next: () => void; end: () => void } | null | undefined;
+  /** Add to playlist… (the playlists module) */
+  addToPlaylist?: (() => void) | null | undefined;
 }
 
 /**
@@ -154,6 +158,11 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
       : []),
   ];
   const rows: AlbumMenuAction[] = [
+    ...(i.queue ? [
+      { key: 'next', label: 'Play next', icon: 'next' as const, onSelect: i.queue.next },
+      { key: 'queue', label: 'Add to queue', icon: 'queue' as const, onSelect: i.queue.end },
+    ] : []),
+    ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
   ];
