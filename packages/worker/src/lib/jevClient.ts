@@ -3,6 +3,7 @@
  * worth retrying (408, 429, 5xx, a dropped connection, a timeout) with the
  * server's own retry-after when it gives one; a 400/413/422 means "this
  * request will never be accepted" (usually too large) and is returned at once.
+ * A 200 with a malformed answer is not retried either: it may already be billed.
  *
  * The key goes in the Authorization header and nowhere else: errors thrown
  * from here carry a status and a short reason of our own, never the fetch
@@ -160,7 +161,8 @@ export async function systemOne(opts: JevClientOptions, body: JevRequest): Promi
       } else {
         const answer = parseAnswer(r.text);
         if (answer) return answer;
-        last = { status: r.status, why: 'malformed answer' };
+        // the call may already be billed: asking again could double or triple the cost
+        throw new JevUnavailable(r.status, 'malformed answer');
       }
     }
     if (attempt < max) await sleep(retryDelay(headers, attempt));

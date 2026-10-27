@@ -210,6 +210,16 @@ describe('systemOne', () => {
     await expect(systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep, maxRetries: 0 }, body)).rejects.toBeInstanceOf(JevUnavailable);
   });
 
+  it('a malformed answer is not retried: it may already be billed', async () => {
+    const fetchImpl = vi.fn(async () => res(200, { model: 'x', echoed: 'some tag text' }));
+    const err = await systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep }, body).catch((e) => e);
+    expect(err).toBeInstanceOf(JevUnavailable);
+    expect(err.status).toBe(200);
+    expect(err.message).toBe('TypeSafe is unavailable: malformed answer');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['not json', 'nope'],
     ['answers is an array', JSON.stringify({ ...ok, answers: [] })],
@@ -220,9 +230,11 @@ describe('systemOne', () => {
     ['null', 'null'],
   ])('a malformed answer (%s) is unavailable', async (_name, text) => {
     const fetchImpl = vi.fn(async () => new Response(text, { status: 200 }));
-    const err = await systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep, maxRetries: 0 }, body).catch((e) => e);
+    const err = await systemOne({ apiKey: 'k', baseUrl: 'http://fake', fetchImpl: fetchImpl as any, sleep }, body).catch((e) => e);
     expect(err).toBeInstanceOf(JevUnavailable);
+    expect(err.status).toBe(200);
     expect(err.message).toMatch(/malformed/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it('leaves out-of-range probabilities for the decider to judge', async () => {
