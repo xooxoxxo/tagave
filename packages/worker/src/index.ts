@@ -33,6 +33,7 @@ import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/finger
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { addEditionJob, type AddEditionJobData } from './jobs/addEdition.js';
+import { evidenceBackfillJob, type EvidenceBackfillJobData } from './jobs/evidenceBackfill.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
@@ -101,6 +102,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'connections.pull': 'stately',
   // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
   'listenLinks.resolve': 'stately',
+  // enqueued at every boot and by itself pass after pass: one queued behind a running one
+  'evidence.backfill': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -121,6 +124,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'files.backfillDigest': { expireInSeconds: 3600, retryLimit: 0 },
   // bounded per run; the next boot sends what is left
   'cluster.backfillLoose': { expireInSeconds: 3600, retryLimit: 0 },
+  // 200 albums per pass, each pass sending the next; the next boot starts over
+  'evidence.backfill': { expireInSeconds: 3600, retryLimit: 0 },
 };
 
 /**
@@ -311,6 +316,17 @@ async function main() {
       const job = jobs[0]!;
       return withTimeout(IDENTIFY_JOB_TIMEOUT_MS, `edition.add ${job.data.localAlbumId}`, () => addEditionJob(ctx, job.data));
     });
+  }
+  // Matching evidence for albums identified before it was kept: re-scored
+  // from stored candidates (no network); albums in review whose release data
+  // was never stored are re-identified. Rides with identify.album.
+  if (wants('identify.album')) {
+    await boss.work<EvidenceBackfillJobData>('evidence.backfill', { batchSize: 1 }, async (jobs) => {
+      const results = [];
+      for (const job of jobs) results.push(await evidenceBackfillJob(ctx, job.data ?? {}));
+      return results.length === 1 ? results[0] : results;
+    });
+    await boss.send('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
   }
   // Music Connections pulls from linked apps (Settings › Connections), on the
   // identify worker (spec §4). The tick every 15 minutes queues each due link;
