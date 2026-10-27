@@ -2078,7 +2078,8 @@
     "fingerprinted_at": null,
     "formats": [
      "flac",
-     "mp3"
+     "mp3",
+     "wav"
     ],
     "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "identified_at": null,
@@ -2093,8 +2094,8 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "total_duration_ms": 33313,
-    "track_count": 2,
+    "total_duration_ms": 35313,
+    "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -2128,6 +2129,39 @@
     "title_guess": "Cue Album",
     "total_duration_ms": 300000,
     "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": null,
+    "cluster_key": "2a23c77dbfd9f71a704729c1e25e6cb37626df54",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Loose"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Loose:2a23c77dbfd9f71a704729c1e25e6cb37626df54",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Loose",
+    "total_duration_ms": 42000,
+    "track_count": 1,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -2498,7 +2532,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
-    "local_album_id": null,
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -2603,7 +2637,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Loose/untagged.flac@-",
-    "local_album_id": null,
+    "local_album_id": "album:Loose:2a23c77dbfd9f71a704729c1e25e6cb37626df54",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -2880,7 +2914,17 @@
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
-   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}"
   ]
  },
  "B after moves": {
@@ -5128,7 +5172,8 @@
     "fingerprinted_at": null,
     "formats": [
      "flac",
-     "mp3"
+     "mp3",
+     "wav"
     ],
     "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "identified_at": null,
@@ -5143,8 +5188,8 @@
     "release_id": null,
     "state": "pending",
     "title_guess": "Formats",
-    "total_duration_ms": 33313,
-    "track_count": 2,
+    "total_duration_ms": 35313,
+    "track_count": 3,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -5178,6 +5223,39 @@
     "title_guess": "Cue Album",
     "total_duration_ms": 300000,
     "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": null,
+    "cluster_key": "2a23c77dbfd9f71a704729c1e25e6cb37626df54",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Loose"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Loose:2a23c77dbfd9f71a704729c1e25e6cb37626df54",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Loose",
+    "total_duration_ms": 42000,
+    "track_count": 1,
     "tracks_linked_at": null,
     "updated_at": "<time>",
     "year_guess": null
@@ -5581,7 +5659,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
-    "local_album_id": null,
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -5686,7 +5764,7 @@
     "fingerprint_error": null,
     "fingerprinted_at": null,
     "id": "track:file:<root0>/Loose/untagged.flac@-",
-    "local_album_id": null,
+    "local_album_id": "album:Loose:2a23c77dbfd9f71a704729c1e25e6cb37626df54",
     "match_distance": null,
     "origin": "file",
     "recording_id": null,
@@ -6099,7 +6177,8 @@
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
-   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}"
   ]
  }
 }

@@ -65,7 +65,7 @@ function Preview({ cover, glow, playing, view = 'bar' }: Args) {
         title={c.title} artist={c.artist} album={c.album} artists={null} albumId={null} coverUrl={c.src}
         status={playing ? 'playing' : 'paused'} message={null} position={83} duration={321} volume={0.8} canPrevious canNext
         onToggle={() => undefined} onPrevious={() => undefined} onNext={() => undefined} onSeek={() => undefined}
-        onVolume={() => undefined} onRetry={() => undefined} onClose={() => undefined}
+        onVolume={() => undefined} onRetry={() => undefined}
         glow={glow === 'calm' ? <SeekGlow playing={playing} source="calm" /> : null}
       />
     </WithCover>

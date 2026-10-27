@@ -9,7 +9,7 @@ function Player() {
     <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
       <PlayerBarView title="So What" artist="Miles Davis" album="Kind of Blue" coverUrl={COVER_SRC} status="playing" message={null} position={83} duration={562}
         volume={0.8} canPrevious canNext onToggle={() => undefined} onPrevious={() => undefined} onNext={() => undefined} onSeek={() => undefined}
-        onVolume={() => undefined} onRetry={() => undefined} onClose={() => undefined} />
+        onVolume={() => undefined} onRetry={() => undefined} />
     </div>
   );
 }

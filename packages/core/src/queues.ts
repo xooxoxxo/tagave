@@ -5,7 +5,7 @@
  * on a single-worker install and on a split one alike.
  */
 export const WORKER_QUEUES = [
-  'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'files.backfillDigest',
+  'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'cluster.backfillLoose', 'files.backfillDigest',
   'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add',
   'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'art.thumb', 'art.thumbSweep', 'gaps.recompute', 'queue.autoaccept',
   'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch',
@@ -41,6 +41,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   'art.thumbSweep': 'art.fetch',
   // core_tags_digest backfill: tag logic, rides with the parser
   'files.backfillDigest': 'scan.parse',
+  // folders of loose files from before untagged files formed albums: rides with the clusterer
+  'cluster.backfillLoose': 'cluster.dir',
 };
 
 /** The names TAGAVE_QUEUES chooses from: each needs some live worker. */

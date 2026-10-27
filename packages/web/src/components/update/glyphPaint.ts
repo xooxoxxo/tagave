@@ -46,13 +46,18 @@ export function runProgress(run: UpdateRun, now: number): number {
 /** A blob: where it rests, how far and how slowly it drifts (s per loop), how big it is and how it swells. */
 export interface LavaBlob { bx: number; by: number; ax: number; ay: number; px: number; py: number; fx: number; fy: number; r: number; pr: number; fr: number }
 
-/** The blobs for a version in a w x h piece: 4 to 6, sized to the piece. */
+/**
+ * The blobs for a version in a w x h piece: 4 to 6, sized to the piece. Each
+ * rests in its own slice of the width, so every version's piece spans the
+ * pane edge to edge instead of bunching on one side.
+ */
 export function lavaBlobs(seed: string, w: number, h: number): LavaBlob[] {
   const rnd = seededRandom(`lava:${seed}`);
   const scale = Math.max(0.6, Math.min(2.4, Math.min(w, h) / 300));
   const tau = Math.PI * 2;
-  return Array.from({ length: 4 + Math.floor(rnd() * 3) }, () => ({
-    bx: w * (0.18 + rnd() * 0.64),
+  const n = 4 + Math.floor(rnd() * 3);
+  return Array.from({ length: n }, (_, i) => ({
+    bx: w * (0.1 + (0.8 * (i + 0.15 + rnd() * 0.7)) / n),
     by: h * (0.22 + rnd() * 0.56),
     ax: w * (0.05 + rnd() * 0.1),
     ay: h * (0.1 + rnd() * 0.18),

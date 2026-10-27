@@ -60,6 +60,10 @@ describe('taskText', () => {
     expect(taskText({ kind: 'missing_album', details: { title: 'Heart' } }, { artist: 'Karunesh' })).toBe('Get Heart by Karunesh and add it to your library');
     expect(taskText({ kind: 'duplicate', details: { count: 3 } }, { title: 'Blue' })).toBe('Choose which of the 3 copies of Blue to keep and remove the others from your music folders');
     expect(taskText({ kind: 'quality', flag: 'noCover', details: { flags: { noCover: true } } }, { title: 'Blue' })).toBe('Add cover art to Blue');
+    // QA 2026-10-26 Q-05: a folder of files without album tags
+    expect(gapLine({ kind: 'quality', flag: 'noAlbumTags', details: { flags: { noAlbumTags: true } } })).toBe('No album tags');
+    expect(taskText({ kind: 'quality', flag: 'noAlbumTags', details: { flags: { noAlbumTags: true } } }, { title: 'misc', folder: 'misc' }))
+      .toBe('Tag files in misc');
     expect(taskText({ kind: 'quality', flag: 'parseErrors', details: { flags: { parseErrors: 2 } } }, { title: 'Blue', folder: 'J/Blue' }))
       .toBe('Replace the 2 unreadable files of Blue in J/Blue');
     expect(taskText({ kind: 'quality', flag: 'trackNumberIssues', details: { flags: { trackNumberIssues: { issues: ['missing tracknumber at track index 3'] } } } }, { title: 'Blue' }))

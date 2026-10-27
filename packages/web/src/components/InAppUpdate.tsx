@@ -269,8 +269,10 @@ export function glyphTone(run: UpdateRun): GlyphTone {
  * The run, as the whole of Settings › Updates while it runs (and until Done
  * once it ended): the lava-lamp glyph across the pane, seeded by the version
  * and growing with the run, then the title and the time, the steps rolling
- * in, the log folded away. The section list beside it stays: the rest of
- * the app is usable until the restart.
+ * in, the log folded away. In Settings it takes the whole pane: the section
+ * list steps aside (SettingsPage.module.css) and the glyph runs from one
+ * edge of the pane to the other. The rest of the app stays usable until the
+ * restart.
  */
 export function RunView({ run, reloading, restart, onDismiss, now: fixedNow, glyphTime }: {
   run: UpdateRun;
@@ -291,7 +293,7 @@ export function RunView({ run, reloading, restart, onDismiss, now: fixedNow, gly
   const { head, notes } = runSummary(run, now);
 
   return (
-    <section className={styles.takeover} aria-live="polite" aria-labelledby="update-run-title">
+    <section className={styles.takeover} aria-live="polite" aria-labelledby="update-run-title" data-update-takeover="">
       <UpdateGlyph
         className={styles.glyph}
         seed={run.target}

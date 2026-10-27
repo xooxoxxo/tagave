@@ -12,16 +12,29 @@ const noop = () => undefined;
 const props: PlayerBarViewProps = {
   title: 'So What', artist: 'Miles Davis', album: 'Kind of Blue', coverUrl: null, status: 'playing', message: null,
   position: 83, duration: 296, volume: 0.8, canPrevious: true, canNext: true,
-  onToggle: noop, onPrevious: noop, onNext: noop, onSeek: noop, onVolume: noop, onRetry: noop, onClose: noop,
+  onToggle: noop, onPrevious: noop, onNext: noop, onSeek: noop, onVolume: noop, onRetry: noop,
 };
 
 describe('PlayerBarView', () => {
   it('names the transport keys and reads the position as "1:23 of 4:56"', () => {
     const html = renderToStaticMarkup(<PlayerBarView {...props} />);
     expect(html).toContain('aria-label="Player"');
-    for (const label of ['Previous track', 'Pause', 'Next track', 'Close the player', 'Seek', 'Volume']) expect(html).toContain(`aria-label="${label}"`);
+    for (const label of ['Previous track', 'Pause', 'Next track', 'Seek', 'Volume']) expect(html).toContain(`aria-label="${label}"`);
     expect(html).toContain('aria-valuetext="1:23 of 4:56"');
     expect(html).toContain('title="So What"');
+  });
+
+  it('has no close key: the bar stays', () => {
+    expect(renderToStaticMarkup(<PlayerBarView {...props} onQueue={noop} />)).not.toContain('Close the player');
+  });
+
+  it('empty: the keys, the seek bar and the queue key there but disabled, no track, no times', () => {
+    const html = renderToStaticMarkup(<PlayerBarView {...props} title="" artist="" album="" status="idle" position={0} duration={null} canPrevious={false} canNext={false} empty onQueue={noop} />);
+    for (const label of ['Previous track', 'Play', 'Next track', 'Seek', 'Queue']) expect(html).toMatch(new RegExp(`<[^>]*aria-label="${label}"[^>]*disabled=""|<[^>]*disabled=""[^>]*aria-label="${label}"`));
+    expect(html).toMatch(/<input[^>]*aria-label="Volume"(?![^>]*disabled)[^>]*>/);
+    expect(html).not.toContain('<img');
+    expect(html).toContain('-:--');
+    expect(html).toContain('data-empty=""');
   });
 
   it('offers Play while paused', () => {

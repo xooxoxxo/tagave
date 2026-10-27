@@ -41,7 +41,7 @@ describe('the player bar', () => {
   const props: PlayerBarViewProps = {
     title: 'Alone Together', artist: 'Chet Baker & Bill Evans', album: 'Chet', coverUrl: null, status: 'playing', message: null,
     position: 10, duration: 200, volume: 1, canPrevious: true, canNext: true,
-    onToggle: noop, onPrevious: noop, onNext: noop, onSeek: noop, onVolume: noop, onRetry: noop, onClose: noop,
+    onToggle: noop, onPrevious: noop, onNext: noop, onSeek: noop, onVolume: noop, onRetry: noop,
   };
   it('links each artist and the album', () => {
     const html = renderToStaticMarkup(<PlayerBarView {...props} artists={duo} albumId="al1" />);

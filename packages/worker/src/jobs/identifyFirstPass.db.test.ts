@@ -44,11 +44,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first identify pass (db)', () =
   const sent: Array<{ name: string; data: any }> = [];
   const logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} };
 
-  const album = async (title: string) => {
+  const album = async (title: string, o: { titleGuess?: string | null; artistGuess?: string | null } = {}) => {
     const id = randomUUID();
     await db.insert(localAlbums).values({
       id, libraryId, clusterKey: `fp-${id}`, dirPaths: [title], state: 'pending',
-      titleGuess: `${title} ${id.slice(0, 8)}`, artistGuess: 'Nobody Known', trackCount: 1,
+      titleGuess: o.titleGuess !== undefined ? o.titleGuess : `${title} ${id.slice(0, 8)}`,
+      artistGuess: o.artistGuess !== undefined ? o.artistGuess : 'Nobody Known', trackCount: 1,
     });
     const fileId = randomUUID();
     await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/01.mp3`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
@@ -128,5 +129,28 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first identify pass (db)', () =
     const r = await row(id);
     expect(r.state).toBe('unidentified');
     expect(r.identifyReason).toBe('no_candidates');
+  });
+
+  // QA 2026-10-26 Q-05: an album of untagged files is titled after its folder
+  // and has no artist. It is searched on the title alone, and a search that
+  // finds nothing is still "no tags" (the reason the fingerprint sweep takes first).
+  it('an album with a title but no artist is searched on the title alone', async () => {
+    calls.discogsAuthenticated = true;
+    const id = await album('Folder only', { artistGuess: null });
+    await identifyAlbumJob(ctx, { localAlbumId: id });
+    expect(calls.mbSearch).toBe(1);
+    expect(calls.discogsSearch).toBe(0);
+    const r = await row(id);
+    expect(r.state).toBe('unidentified');
+    expect(r.identifyReason).toBe('no_tags');
+  });
+
+  it('an album with no title asks no provider', async () => {
+    const id = await album('Nothing', { titleGuess: null, artistGuess: null });
+    await identifyAlbumJob(ctx, { localAlbumId: id });
+    expect(calls.mbSearch).toBe(0);
+    const r = await row(id);
+    expect(r.state).toBe('unidentified');
+    expect(r.identifyReason).toBe('no_tags');
   });
 });

@@ -25,6 +25,20 @@ describe('the lamp', () => {
     expect(seedTime('0.13.0')).toBe(seedTime('0.13.0'));
   });
 
+  it('spans the piece edge to edge: each blob rests in its own slice of the width', () => {
+    for (const seed of ['0.12.0', '0.14.1', 'tagave']) {
+      const w = 1600;
+      const xs = lavaBlobs(seed, w, 560).map((b) => b.bx);
+      const slice = (0.8 * w) / xs.length;
+      xs.forEach((x, i) => {
+        expect(x).toBeGreaterThan(0.1 * w + i * slice);
+        expect(x).toBeLessThan(0.1 * w + (i + 1) * slice);
+      });
+      expect(xs[0]!).toBeLessThan(0.3 * w);
+      expect(xs.at(-1)!).toBeGreaterThan(0.7 * w);
+    }
+  });
+
   it('moves slowly: every blob loops in tens of seconds, never faster than 15 s', () => {
     for (const seed of ['0.12.0', '0.13.0', 'tagave']) {
       const blobs = lavaBlobs(seed, 1280, 860);
