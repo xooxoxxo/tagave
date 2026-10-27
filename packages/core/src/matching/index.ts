@@ -6,6 +6,7 @@ export {
   scoreRelease,
   scoreCandidates,
   mediumCountOf,
+  normalizeBarcode,
   MAX_ALIGN_TRACKS,
 } from './scoring.js';
 

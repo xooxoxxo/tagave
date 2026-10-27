@@ -25,6 +25,7 @@ export {
   scoreRelease,
   scoreCandidates,
   mediumCountOf,
+  normalizeBarcode,
   DEFAULT_WEIGHTS,
   MATCHING_THRESHOLDS,
   MAX_ALIGN_TRACKS,
