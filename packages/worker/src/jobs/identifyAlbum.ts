@@ -610,10 +610,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   ): Promise<IdentifyOutcome> => {
     // One live match per album: a re-identification (manual entry, or a
     // fingerprint-backed run on an album the sweep matched meanwhile)
-    // supersedes the previous decision instead of tripping the unique index,
-    // under the album row lock every accept takes. The earlier decision
-    // keeps its reason: it says why that one was made. Identification
-    // decides whatever state the album is in.
+    // supersedes the previous decision instead of tripping the unique index.
+    // The accept runs in its own transaction under the album row lock every
+    // accept takes, so it cannot race another accept. The evidence lock taken
+    // for the candidate replace above is already released by now, so an
+    // evidence rebuild may run in between; that is fine, the accept reads
+    // nothing it wrote. The earlier decision keeps its reason: it says why
+    // that one was made. Identification decides whatever state the album is in.
     const res = await ctx.sql.begin((tx) => acceptInTx(tx, {
       libraryId: album.libraryId, albumId: album.id, releaseId: releaseDb, distance, source, reason,
       status, decidedBy, decidedKind: decidedBy === 'user' ? 'user' : 'system',
