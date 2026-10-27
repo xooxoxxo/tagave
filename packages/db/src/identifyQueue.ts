@@ -4,7 +4,7 @@
  * A module suggests a release for an album here; it never writes
  * match_candidates or album_matches itself. A suggestion is a candidate like
  * any other, tagged with its source (mc:<link>), and only a person accepts it:
- * the auto-accept rules and the chip-rule sweep leave every module's
+ * the auto-accept rules and the queue sweep leave every module's
  * suggestion alone (autoAccept.ts, worker › queueAutoAccept.ts).
  */
 import type postgres from 'postgres';

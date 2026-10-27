@@ -205,7 +205,7 @@ export function retryRequest(
     case 'gaps.recompute':
       return { queue: 'gaps.recompute', data: { libraryId }, singletonKey: `gaps:${libraryId}` };
     case 'queue.autoaccept':
-      return { queue: 'queue.autoaccept', data: { libraryId }, singletonKey: `autoaccept:${libraryId}` };
+      return { queue: 'queue.autoaccept', data: { libraryId, mode: 'rules' }, singletonKey: `autoaccept:${libraryId}` };
     case 'artists.resolve':
       return { queue: 'artists.resolve', data: { libraryId }, singletonKey: `artists-resolve:${libraryId}` };
     default:

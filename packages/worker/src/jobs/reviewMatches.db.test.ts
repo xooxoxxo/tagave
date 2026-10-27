@@ -177,8 +177,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     expect(await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id))).toEqual([]);
     // the mc candidate survived the re-identify, still waiting for a person
     expect((await client`select 1 from match_candidates where local_album_id = ${id} and source like 'mc:%'`).length).toBe(1);
-    // the chip-rule sweep: whatever it takes, never the mc candidate
-    await queueAutoAcceptJob(ctx, { libraryId });
+    // the queue sweep: whatever it takes, never the mc candidate
     await queueAutoAcceptJob(ctx, { libraryId, mode: 'rules' });
     const taken = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
     expect(taken.filter((m: { releaseId: string }) => m.releaseId === rel.id)).toEqual([]);

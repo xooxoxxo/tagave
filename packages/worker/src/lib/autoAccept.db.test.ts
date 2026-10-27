@@ -144,6 +144,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     expect(runs[0].progress).toMatchObject({ done: 1, total: 2, message: '1/2 needs_review albums accepted by the auto-accept rules' });
   });
 
+  it('a job queued before the upgrade without a mode runs the rules, never the chip rule', async () => {
+    await setRules({ enabled: false, minMatch: 99 });
+    // passes the old chip rule (no red, 3 or more green) but not minMatch 99
+    const id = await album([{ releaseId: await release(), distance: '0.0500', breakdown: { album: 0, artist: 0, tracks: 0, trackTitle: 0.1 } }]);
+    await queueAutoAcceptJob(ctx, { libraryId });
+    expect((await stateOf(id)).state).toBe('needs_review');
+  });
+
   it('rule accepts are kind rule, and the decision they replace keeps its reason', async () => {
     await setRules({});
     const id = await album([{ releaseId: await release(), distance: '0.0200' }]);
