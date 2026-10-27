@@ -8,9 +8,11 @@
 --
 -- Columns stay as they are, and so does the queue (facets.refresh, which split
 -- installs list in TAGAVE_QUEUES). Catalogue changes only: no row is copied.
--- An older worker still on the old names fails its next rebuild until it is
--- updated; the counts then come from the live queries, as they do while a
--- rebuild is due. Re-runnable.
+-- An older worker still on the old names fails every rebuild until it is
+-- updated, so the stored counts stop following changes: the api serves them
+-- until a bulk action marks the library dirty, or until the last build is
+-- older than 30 minutes (filterCounts.ts SUMMARY_MAX_AGE_MS); then the live
+-- queries answer. Re-runnable.
 set local lock_timeout = '20s';
 
 alter table if exists album_facets rename to album_filter_counts;

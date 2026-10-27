@@ -32,15 +32,26 @@ export function summaryEligible(rawQuery: Record<string, unknown>): boolean {
   return Object.entries(rawQuery).every(([k, v]) => IGNORED_KEYS.has(k) || empty(v) || SUMMARY_KEYS.has(k));
 }
 
-/** A build exists and no bulk action has stamped the library dirty since. */
-export async function summaryFresh(db: Db, libraryId: string): Promise<boolean> {
+/**
+ * How old a build may be before the live queries answer instead. A working
+ * file worker rebuilds at least every ~10 minutes (facets.refresh's
+ * MAX_AGE_MS) even when nothing changed, so an older build means rebuilds are
+ * failing or not running (a worker that is down, or one still on table names
+ * an update changed): its counts may be out of date.
+ */
+export const SUMMARY_MAX_AGE_MS = 30 * 60_000;
+
+/** A build exists, is recent, and no bulk action has stamped the library dirty since. */
+export async function summaryFresh(db: Db, libraryId: string, now: number = Date.now()): Promise<boolean> {
   const rows = (await db.execute(sql`select computed_at, dirty_at from filter_rail_state where library_id = ${libraryId}`)) as unknown as Array<{
     computed_at: Date | string | null; dirty_at: Date | string | null;
   }>;
   const st = rows[0];
   if (!st?.computed_at) return false;
+  const computed = new Date(st.computed_at).getTime();
+  if (now - computed > SUMMARY_MAX_AGE_MS) return false;
   if (!st.dirty_at) return true;
-  return new Date(st.dirty_at).getTime() <= new Date(st.computed_at).getTime();
+  return new Date(st.dirty_at).getTime() <= computed;
 }
 
 /**
