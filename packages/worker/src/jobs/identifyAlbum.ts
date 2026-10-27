@@ -602,13 +602,13 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
 
   // Decide: strong, chip rule, first candidate, held for review, or weak.
   const localDiscNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
-  const decision = identifyDecision(
-    scored.map((s) => {
-      const rel = fetched.find((r) => r.id === s.id);
-      return { id: s.id, distance: s.distance, breakdown: s.breakdown as Record<string, unknown>, trackCount: s.tracks?.length ?? 0, mediumCount: rel ? mediumCountOf(rel) ?? 0 : 0 };
-    }),
-    { trackCount: local.tracks.length, discsKnown: localDiscNos.length > 0, localDiscs: new Set(localDiscNos).size },
-  );
+  const localDiscs = new Set(localDiscNos).size;
+  const fetchedById = new Map(fetched.map((r) => [r.id, r]));
+  const cands = scored.map((s) => {
+    const rel = fetchedById.get(s.id);
+    return { id: s.id, distance: s.distance, breakdown: s.breakdown as Record<string, unknown>, trackCount: s.tracks?.length ?? 0, mediumCount: rel ? mediumCountOf(rel) ?? 0 : 0 };
+  });
+  const decision = identifyDecision(cands, { trackCount: local.tracks.length, discsKnown: localDiscNos.length > 0, localDiscs });
   const chosen = 'id' in decision ? scored.find((s) => s.id === decision.id) : undefined;
   const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
   if (chosen && chosenDb) {
@@ -622,7 +622,10 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   }
   if (decision.kind === 'weak' || decision.kind === 'none') return giveUp('weak_candidates');
   // held, or a pick whose release was not persisted: the owner reviews it
-  ctx.logger.info({ album: album.titleGuess, distance: scored[0]?.distance }, 'identify: top candidate held for review');
+  ctx.logger.info({
+    album: album.titleGuess, distance: scored[0]?.distance,
+    reds: scored[0] ? chipCounts(scored[0].breakdown).reds : undefined, mediaCount: cands[0]?.mediumCount, localDiscs,
+  }, 'identify: top candidate held for review');
   const held = await giveUp('ambiguous');
   // Review matches › Auto-accept: the owner's rules get the album the
   // moment it lands in review (no-op while they are off).
