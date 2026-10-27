@@ -26,6 +26,12 @@
 .activeSection:hover { color: var(--chip-on-ink); background: var(--dew-tint); }
 .content { min-width: 0; display: flex; flex-direction: column; gap: 1.25rem; max-width: 850px; width: 100%; }
 .sectionDescription { color: var(--ink-2); font-size: .9375rem; }
+/* An update on screen (RunView) takes the whole pane: the section list steps
+   aside until Done and the run's column centres in the pane; its glyph spans
+   the page shell edge to edge (InAppUpdate.module.css). */
+.layout:has([data-update-takeover]) { grid-template-columns: minmax(0, 1fr); }
+.layout:has([data-update-takeover]) > .sectionNav { display: none; }
+.layout:has([data-update-takeover]) > .content { max-width: none; }
 /* Phone: /settings is the list of sections, a section is a page of its own
    (the top bar carries its name and the way back), as on every other phone
    screen. The section's own heading would repeat the bar, so only a screen
