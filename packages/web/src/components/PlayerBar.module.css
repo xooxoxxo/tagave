@@ -39,8 +39,9 @@
 
 /* Adaptive colour (styles/adaptive.css): one quiet surface from the playing
    cover's scheme, a step away from the canvas, its own inks and accent
-   (all guarded in adaptive/scheme.test.ts). No glass: it is opaque. */
-:global(html[data-adaptive]) .bar {
+   (all guarded in adaptive/scheme.test.ts). No glass: it is opaque. A
+   generated theme's bar the same way (styles/themes.css, themes/engine.ts). */
+:global(html:is([data-adaptive], [data-themed])) .bar {
   --ink: var(--ad-bar-ink);
   --ink-2: var(--ad-bar-ink-2);
   --ink-3: var(--ad-bar-ink-2);
@@ -436,7 +437,7 @@
   }
   /* forced colours drop the glass: a system rule keeps the bar's edge */
   .bar,
-  :global(html[data-adaptive]) .bar {
+  :global(html:is([data-adaptive], [data-themed])) .bar {
     border-top: 1px solid CanvasText;
     background: Canvas;
   }

@@ -55,6 +55,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // Settings › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
   'GET /api/v1/me/listen-links': 'self',
   'PUT /api/v1/me/listen-links': 'self',
+  // Each person's own preferences that follow them between devices (the colour theme)
+  'GET /api/v1/me/prefs': 'self',
+  'PUT /api/v1/me/prefs': 'self',
   // Playlists (routes/playlists.ts): each person's own lists; every handler filters by request.user.id.
   'GET /api/v1/me/playlists': 'catalog.read',
   'POST /api/v1/me/playlists': 'catalog.read',

@@ -1,13 +1,13 @@
 /**
  * Adaptive colour, the controller (mounted once in Layout): while a queue
- * with a cover plays and Settings › Appearance › Adaptive colours is on, the
+ * with a cover plays and the theme is Adaptive (Settings › Appearance), the
  * cover's scheme (scheme.ts, loaded on first use) is written to the --ad-*
  * properties on <html> and data-adaptive turns the theme over to them
- * (styles/adaptive.css). A cover with no usable colour, the setting off or
+ * (styles/adaptive.css). A cover with no usable colour, another theme or
  * the queue closed fades back to the brand values, then lets go.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { useDisplayPrefs } from '../displayPrefs';
+import { useThemeChoiceValue } from '../themes/themeChoice';
 import { useThemePreference } from '../theme';
 import { currentTrack, usePlayerStore } from '../player/engine';
 import { BRAND_TOKENS } from './brand';
@@ -100,12 +100,12 @@ export function applyAdaptive(tokens: Record<string, string> | null, dark: boole
 }
 
 export function AdaptiveColour() {
-  const [prefs] = useDisplayPrefs();
+  const adaptive = useThemeChoiceValue().theme === 'adaptive';
   // the playing track's cover: a playlist's tracks each bring their own album's
   const cover = usePlayerStore((s) => (currentTrack(s) ?? s.queue?.tracks[0])?.coverUrl ?? null);
   const dark = useResolvedDark();
   const [source, setSource] = useState<{ url: string; argb: number | null } | null>(null);
-  const on = prefs.adaptiveColour && !!cover;
+  const on = adaptive && !!cover;
 
   useEffect(() => {
     if (!on || !cover) return;

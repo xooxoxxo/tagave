@@ -94,8 +94,8 @@ describe.skipIf(!url)('0058 files core migration (upgrade from 0057 with data)',
     await admin?.end({ timeout: 2 });
   });
 
-  it('applies 0058 alone on top of 0057', () => {
-    expect(applied).toEqual(['0058_files_core.sql']);
+  it('applies 0058 first on top of 0057', () => {
+    expect(applied[0]).toBe('0058_files_core.sql');
   });
 
   it('renames the table in place: same storage, every row, no rewrite for handler', async () => {

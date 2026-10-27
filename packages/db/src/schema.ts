@@ -1922,6 +1922,14 @@ export const listenPrefs = pgTable('listen_prefs', {
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
 
+// Each person's own preferences that follow them between devices (0059):
+// the colour theme of Settings › Appearance. Written by api › routes/userPrefs.ts.
+export const userPrefs = pgTable('user_prefs', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  theme: jsonb(),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
 // The play queue per person, the player module (0055): what plays, what
 // comes next and where it stopped, so it follows the person across devices.
 // Written by api › routes/playerQueue.ts.
