@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { RunView } from '../components/InAppUpdate';
+import { PageShell } from '../components/ui';
 import { RECOVERING, SIMULATED_END, didNotStartRun, nowAt, rolledBackRun, simulatedRun, stalledRun, updateRun } from './updateFixtures';
 
 /** The lamp's clock for the still frames (s): shots repeat. */
@@ -14,7 +15,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Settings › Updates while an update runs: the whole page turns into the run. The glyph (dotted contours around slow lava-lamp blobs, seeded by the target version, growing with the run) spans the pane; under it the title and the time, only the steps that have started, the running one with what it does now (or why it is stuck), and each new step rolling in as a line when it starts. A success settles the glyph and clears itself; a failure tints it and stays until Done. `glyphTime` holds the glyph still (stories); without it the lamp moves while the run runs, unless reduced motion is asked for.',
+          'Settings › Updates while an update runs: the whole page turns into the run (in the app the section list steps aside until Done). The glyph (dotted contours around slow lava-lamp blobs, seeded by the target version, growing with the run) spans the pane edge to edge (it is laid out against the page shell, see InSettings) and grows with the window\'s height; under it the title and the time, only the steps that have started, the running one with what it does now (or why it is stuck), and each new step rolling in as a line when it starts. A success settles the glyph and clears itself; a failure tints it and stays until Done. `glyphTime` holds the glyph still (stories); without it the lamp moves while the run runs, unless reduced motion is asked for.',
       },
     },
   },
@@ -31,6 +32,11 @@ export const Recovering: Story = { args: { run: updateRun('waiting for the app: 
 export const Succeeded: Story = { args: { run: simulatedRun(SIMULATED_END), now: nowAt(SIMULATED_END + 5) } };
 export const RolledBack: Story = { args: { run: rolledBackRun(), now: nowAt(400) } };
 export const DidNotStart: Story = { args: { run: didNotStartRun(), now: nowAt(6) } };
+/** As the app shows it: under the Settings header, the glyph across the whole pane, the run's column in its middle. */
+export const InSettings: Story = {
+  parameters: { layout: 'fullscreen' },
+  render: (args) => <PageShell title="Settings" sticky><RunView {...args} /></PageShell>,
+};
 export const Phone: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, args: { run: stalledRun(), now: nowAt(240) } };
 /** On a phone the end states take a short title: the long one wrapped to three lines. */
 export const PhoneRolledBack: Story = { tags: ['phone', 'shot-full'], globals: { viewport: { value: 'phone' } }, args: { run: rolledBackRun(), now: nowAt(400) } };

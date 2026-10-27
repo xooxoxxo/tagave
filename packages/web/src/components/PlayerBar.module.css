@@ -11,8 +11,10 @@
   min-width: 0;
 }
 
-/* While the app is down for an update its screen covers the page; the player stays above it. */
-:global(html[data-app-down]) .dock { z-index: calc(var(--z-backdrop) + 1); }
+/* While the app is down for an update its screen covers the page; the player
+   stays above it with what it has loaded. An empty bar has nothing to offer
+   there: it stays under the screen with the rest of the app. */
+:global(html[data-app-down]) .dock:not([data-empty]) { z-index: calc(var(--z-backdrop) + 1); }
 
 .bar {
   display: grid;

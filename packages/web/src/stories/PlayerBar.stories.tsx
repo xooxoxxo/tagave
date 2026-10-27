@@ -29,7 +29,6 @@ const meta = {
     onSeek: () => undefined,
     onVolume: () => undefined,
     onRetry: () => undefined,
-    onClose: () => undefined,
   },
   argTypes: {
     status: { control: 'inline-radio', options: ['loading', 'playing', 'paused', 'buffering', 'error'] },
@@ -41,7 +40,7 @@ const meta = {
     docs: {
       story: { inline: false, iframeHeight: 160 },
       description: {
-        component: 'The player of the opt-in player module (Settings › Playback): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and close (stops and clears the queue). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine and appears only while a queue exists and a player is installed. The artist names and the album name link to their pages (plain text until hover or keyboard focus; following one keeps the music playing); an album tagave has not identified has no artist links. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
+        component: 'The player of the opt-in player module (Settings › Playback): what is playing, previous / play-pause / next, a seek bar with the elapsed and total time, the volume on a desktop with a mouse, and the queue key (Now Playing). It takes its own row at the foot of the content column, so the page scrolls above it and nothing is covered; on a phone it spans the screen and clears the home indicator. Loading and buffering put a quiet spinner in the play key; an error says what happened with Retry. `PlayerBarView` is the bar alone, driven by props; `PlayerBar` (mounted once in Layout) connects it to the audio engine: with a player installed it is always there on a desktop, `empty` (keys, seek bar and queue key disabled, no track) until something is queued; on a phone the mini bar shows only while a queue exists. The artist names and the album name link to their pages (plain text until hover or keyboard focus; following one keeps the music playing); an album tagave has not identified has no artist links. Space toggles play and pause outside fields and buttons; media keys go through the Media Session.',
       },
     },
   },
@@ -52,6 +51,8 @@ type Story = StoryObj<typeof meta>;
 
 export const Playing: Story = {};
 export const Paused: Story = { args: { status: 'paused' } };
+/** Nothing played yet, or the queue was cleared: the bar stays, its keys, seek bar and queue key disabled. */
+export const Empty: Story = { args: { empty: true, title: '', artist: '', album: '', artists: null, albumId: null, coverUrl: null, status: 'idle', position: 0, duration: null, canPrevious: false, canNext: false, onQueue: () => undefined } };
 export const Loading: Story = { args: { status: 'loading', position: 0 } };
 export const Buffering: Story = { args: { status: 'buffering', position: 141 } };
 export const ErrorState: Story = { name: 'Error', args: { status: 'error', message: 'Too many tracks are playing on your account right now. Stop one, then try again.' } };

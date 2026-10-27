@@ -128,7 +128,7 @@ function UpdatesContent({ data, libraryId }: { data: UpdatesStatus; libraryId: s
   const upToDate = feed.enabled && !!feed.lastCheckedAt && !feed.error && feed.newer.length === 0;
   const shown = useShownRun(uv);
 
-  // While a run is on screen it is the whole page (the section list stays beside it).
+  // While a run is on screen it is the whole pane (the section list steps aside).
   if (inApp && shown.run) {
     return <RunView run={shown.run} disconnected={disconnected} reloading={shown.reloading} restart={shown.restart} onDismiss={shown.dismiss} />;
   }

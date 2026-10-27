@@ -16,10 +16,13 @@ const visualOn = () => {
 
 test.use({ deviceScaleFactor: 2, viewport: { width: 960, height: 640 } });
 
+/** A story of a whole desktop window (the app's frame): tagged with its size, shot as the viewport. */
+const DESKTOP: Array<[tag: string, width: number, height: number]> = [['viewport-1440', 1440, 900], ['viewport-1000', 1000, 620]];
+
 /** The screenshot comes first: axe scrolls nodes into view, which closes an open menu. */
 async function screenshot(page: Page, story: StoryEntry, theme: Theme) {
   const name = `${story.id}--${theme}.png`;
-  if (story.tags.includes('shot-viewport') || story.tags.includes('phone')) {
+  if (story.tags.includes('shot-viewport') || story.tags.includes('phone') || DESKTOP.some(([tag]) => story.tags.includes(tag))) {
     // shot-full: the whole page, for a story taller than the phone's screen (a whole tab)
     await expect(page).toHaveScreenshot(name, story.tags.includes('shot-full') ? { fullPage: true } : {});
     return;
@@ -38,6 +41,8 @@ for (const story of stories()) {
     test(`${story.id} · ${theme}`, async ({ page }) => {
       if (story.tags.includes('phone')) await page.setViewportSize({ width: 390, height: 700 });
       else if (story.tags.includes('shot-viewport')) await page.setViewportSize({ width: 720, height: 600 });
+      const desktop = DESKTOP.find(([tag]) => story.tags.includes(tag));
+      if (desktop) await page.setViewportSize({ width: desktop[1], height: desktop[2] });
       await openStory(page, story.id, theme);
 
       if (visualOn() && !story.tags.includes('no-shot')) await screenshot(page, story, theme);

@@ -49,9 +49,17 @@
  * The run as the whole page (RunView): the glyph across the pane, edge to
  * edge, fading out under the title; the column of title, steps and log over
  * its lower part. The glyph carries the colour; the text stays ink.
+ *
+ * Edge to edge: the glyph is laid out against the page shell (the positioned
+ * box while a run is on screen), not against the column it sits in, so it
+ * spans the whole pane whatever the shell's gutters; it keeps its place in
+ * the flow vertically (top: auto). It grows with the window's height, and the
+ * title stays over its lower part.
  */
+:global([data-page-shell]):has([data-update-takeover]) { position: relative; }
+
 .takeover {
-  position: relative;
+  --glyph-h: clamp(24rem, 55vh, 38rem);
   isolation: isolate;
   display: flex;
   justify-content: center;
@@ -60,10 +68,10 @@
 
 .glyph {
   position: absolute;
-  inset: 0 0 auto;
+  inset-inline: 0;
   z-index: -1;
   width: 100%;
-  height: 24rem;
+  height: var(--glyph-h);
   mask-image: linear-gradient(black 45%, transparent 80%);
 }
 
@@ -71,7 +79,7 @@
   width: 100%;
   max-width: 36rem;
   gap: var(--space-md);
-  padding-top: 13rem;
+  padding-top: calc(var(--glyph-h) * 0.54);
 }
 
 .runHead {
@@ -109,8 +117,9 @@
 }
 
 @media (max-width: 600px) {
-  .takeover { padding: 0 0 var(--space-xl); }
-  .glyph { height: 16rem; }
+  /* a phone: the glyph across the section's column, as before */
+  .takeover { position: relative; padding: 0 0 var(--space-xl); }
+  .glyph { inset: 0 0 auto; height: 16rem; }
   .takeover .run { padding-top: 9rem; }
   /* the long end-state titles wrap to three lines here */
   .long { display: none; }
