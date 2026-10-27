@@ -119,7 +119,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 1', () => {
     const images = (mid.owner['images'] as Image[]).map((i) =>
       i.local_album_id === oldAlbum && i.origin === 'sidecar' ? { ...i, sidecar_beside: 'missing' } : i);
     expect(after.owner).toEqual({ ...mid.owner, images });
-    const [old] = await l.sql`select count(*)::int as n from audio_files where scan_root_id = ${l.roots[0]!.id} and status = 'missing'`;
+    const [old] = await l.sql`select count(*)::int as n from files where scan_root_id = ${l.roots[0]!.id} and status = 'missing'`;
     expect(old.n).toBe(3);
     const [job] = await l.sql`select progress from job_runs where library_id = ${l.libraryId} and type = 'scan.root' order by created_at desc limit 1`;
     expect(job.progress.message).toMatch(/possible move/);
@@ -138,8 +138,8 @@ describe.skipIf(!DB)('move-safe acceptance, part 1', () => {
     }
     await rm(src, { recursive: true });
     await scanRootOnly(l);                                       // walk + finish, jobs not drained yet
-    expect((await l.sql`select count(*)::int as n from audio_files where library_id = ${l.libraryId} and reconcile_hold_at is not null`)[0].n).toBe(3);
-    await l.sql`update audio_files set reconcile_hold_at = now() - interval '2 hours' where library_id = ${l.libraryId} and reconcile_hold_at is not null`;
+    expect((await l.sql`select count(*)::int as n from files where library_id = ${l.libraryId} and reconcile_hold_at is not null`)[0].n).toBe(3);
+    await l.sql`update files set reconcile_hold_at = now() - interval '2 hours' where library_id = ${l.libraryId} and reconcile_hold_at is not null`;
     // the hold is past its cap, so cluster.dir runs on the still unparsed rows first (loose track rows)
     const { clusterDirJob } = await import('./clusterDir.js');
     await clusterDirJob(l.ctx, { libraryId: l.libraryId, scanRootId: l.roots[0]!.id, dirPath: 'Artist/Album One copy' });

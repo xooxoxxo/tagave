@@ -5,7 +5,7 @@ const T0 = new Date('2026-10-01T00:00:00Z');
 const T1 = new Date('2026-10-02T00:00:00Z');
 let n = 0;
 const old = (relPath: string, over: Partial<MatchFile> = {}): MatchFile => ({
-  id: `o${++n}`, scanRootId: 'r1', relPath, sizeBytes: 100 + n, mtime: 1000 + n, inode: null,
+  id: `o${++n}`, scanRootId: 'r1', relPath, handler: 'audio', sizeBytes: 100 + n, mtime: 1000 + n, inode: null,
   durationMs: null, coreTagsDigest: null, audioHash: null, trackNo: null, discNo: null,
   firstSeenAt: T0, lastSeenAt: T0, ...over,
 });
@@ -37,6 +37,11 @@ describe('signatureMatches', () => {
     expect(signatureMatches(2, o, moved(o, 'B/x.flac', { coreTagsDigest: null }))).toBe(false);
     expect(signatureMatches(2, { ...o, coreTagsDigest: null }, moved(o, 'B/x.flac', { coreTagsDigest: null }))).toBe(false);
     expect(signatureMatches(2, { ...o, audioHash: 'h' }, moved(o, 'B/x.flac', { sizeBytes: 1, audioHash: 'h' }))).toBe(true);
+  });
+  it('never pairs files of two handlers, whatever else matches', () => {
+    const o = old('A/1.flac', { inode: '1:2', durationMs: 5000, coreTagsDigest: 'd1', audioHash: 'h' });
+    expect(signatureMatches(1, o, moved(o, 'B/1.flac', { handler: 'epub' }))).toBe(false);
+    expect(signatureMatches(2, o, moved(o, 'B/1.flac', { handler: 'epub' }))).toBe(false);
   });
 });
 

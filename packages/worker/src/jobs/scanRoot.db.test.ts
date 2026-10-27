@@ -19,7 +19,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('sca
   const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID(); const loneId = randomUUID();
   const lastScan = async (id: string) => (await sql`select status, stats from scans where scan_root_id = ${id} order by started_at desc limit 1`)[0];
   const lastRun = async (id: string) => (await sql`select state, progress, error from job_runs where subject_id = ${id} order by created_at desc limit 1`)[0];
-  const statusOf = async (p: string) => (await sql`select status from audio_files where scan_root_id = ${rootId} and rel_path = ${p}`)[0]?.status;
+  const statusOf = async (p: string) => (await sql`select status from files where scan_root_id = ${rootId} and rel_path = ${p}`)[0]?.status;
   const later = async (dir: string, s: number) => { const t = new Date(Date.now() + s * 1000); await utimes(dir, t, t); };
 
   beforeAll(async () => {

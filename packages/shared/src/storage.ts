@@ -18,7 +18,7 @@ export const STORAGE_CATEGORIES = [
 export type StorageCategoryKey = typeof STORAGE_CATEGORIES[number]['key'];
 
 const TABLE_CATEGORY: Record<string, StorageCategoryKey> = {
-  audio_files: 'library', local_tracks: 'library', local_albums: 'library', sidecar_files: 'library',
+  files: 'library', local_tracks: 'library', local_albums: 'library', sidecar_files: 'library',
   scan_roots: 'library', scan_dirs: 'library', scans: 'library', album_facets: 'library',
   facet_state: 'library', search_documents: 'library', cluster_overrides: 'library', artist_list: 'library',
   release_groups: 'catalogue', releases: 'catalogue', recordings: 'catalogue', canonical_tracks: 'catalogue',

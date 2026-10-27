@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, scanRoots, users, makeDb } from '@tagave/db';
 import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
@@ -20,7 +20,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
   const rootId = randomUUID();
 
   const addFile = async (relPath: string, common: Record<string, unknown>) => {
-    await db.insert(audioFiles).values({ id: randomUUID(), libraryId, scanRootId: rootId, relPath, status: 'present', durationMs: 1000, tagsRaw: { common } });
+    await db.insert(files).values({ handler: 'audio', id: randomUUID(), libraryId, scanRootId: rootId, relPath, status: 'present', durationMs: 1000, tagsRaw: { common } });
   };
   const albums = async () => db.select().from(localAlbums).where(eq(localAlbums.libraryId, libraryId));
 
@@ -35,7 +35,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
   });
 
   beforeEach(async () => {
-    await db.delete(audioFiles).where(eq(audioFiles.scanRootId, rootId));
+    await db.delete(files).where(eq(files.scanRootId, rootId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
   });
 
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
       const nn = String(n).padStart(2, '0');
       const dir = `#/${nn}. Stephane Pompougnac/2008 - Hotel Costes Vol. 11`;
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/${nn} - Title.mp3`, status: 'present', durationMs: 1000,
         tagsRaw: { common: { album: 'Hotel Costes Vol. 11', albumartist: `${nn}. Stephane Pompougnac`, artist: `Artist ${n}`, track: { no: n, of: null } } },
       });
@@ -150,7 +150,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterDirJob compilations (db)
     const made: Array<{ albumId: string; fileId: string }> = [];
     for (const [i, artist] of ['One Band', 'Other Band'].entries()) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: fileId, libraryId, scanRootId: rootId, relPath: `${dir}/0${i + 1}.flac`, status: 'present', durationMs: 1000,
         tagsRaw: { common: { album: 'Compilation', albumartist: artist, artist, track: { no: i + 1, of: null } } },
       });

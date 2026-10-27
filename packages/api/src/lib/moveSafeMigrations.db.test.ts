@@ -2,12 +2,17 @@
  * Move-safe scanning migrations: 0052 adds the reconcile columns, turns
  * millisecond mtimes into seconds, and lets a file's or sidecar's cover row
  * go with it; 0053 dedupes local_tracks and adds a NULLS NOT DISTINCT
- * unique key on (audio_file_id, cue_start_ms).
+ * unique key on (audio_file_id, cue_start_ms). The 0052 suite stops before
+ * 0058 (audio_files became files): it checks the schema 0052 wrote, by its
+ * names then. filesCoreMigration.db.test.ts covers the rename.
  */
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createScratchDb, migrateAll, migrateUpTo } from '../testkit/authApp.js';
+
+/** The schema just before 0058 renamed audio_files to files. */
+const BEFORE_FILES_CORE = '0058';
 
 const url = process.env.TEST_DATABASE_URL;
 
@@ -32,7 +37,9 @@ describe.skipIf(!url)('0052 move-safe files migration (integration)', () => {
     await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, mtime)
               values (${msFile}, ${libraryId}, ${rootId}, 'A/1.flac', 10, 1760000000123),
                      (${sFile}, ${libraryId}, ${rootId}, 'A/2.flac', 10, 1760000000)`;
-    expect(await migrateAll(db.url)).toContain('0052_move_safe_files.sql');
+    await migrateUpTo(db.url, BEFORE_FILES_CORE);
+    expect(await sql`select name from _migrations where name = '0052_move_safe_files.sql'`).toHaveLength(1);
+    expect(await sql`select name from _migrations where name >= ${BEFORE_FILES_CORE}`).toEqual([]);
   }, 120_000);
 
   afterAll(async () => {

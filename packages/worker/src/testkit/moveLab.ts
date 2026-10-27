@@ -143,7 +143,7 @@ export async function makeLab(rootCount = 1) {
       await drain();
     },
     async albumIdOf(root: number, relPath: string) {
-      const r = await sql`select lt.local_album_id from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      const r = await sql`select lt.local_album_id from local_tracks lt join files af on af.id = lt.audio_file_id
                           where af.scan_root_id = ${roots[root]!.id} and af.rel_path = ${relPath}`;
       return (r[0]?.local_album_id as string | undefined) ?? null;
     },
@@ -189,10 +189,10 @@ export async function makeLab(rootCount = 1) {
                 values (${plan.id}, ${tracks[0]!.audio_file_id}, ${JSON.stringify({ title: 'x' })}::jsonb, ${JSON.stringify({ title: 'Song 1' })}::jsonb, ${JSON.stringify([])}::jsonb, 'pending')`;
     },
     async snapshot(): Promise<Snapshot> {
-      const files = (await sql`select id, scan_root_id, rel_path, status from audio_files where library_id = ${libraryId} order by id`)
+      const files = (await sql`select id, scan_root_id, rel_path, status from files where library_id = ${libraryId} order by id`)
         .map((r: any) => ({ id: r.id as string, root: rootIndex.get(r.scan_root_id) ?? -1, relPath: r.rel_path as string, status: r.status as string }));
       const tracks = (await sql`select lt.id, lt.audio_file_id, lt.local_album_id, lt.canonical_track_id from local_tracks lt
-                                join audio_files af on af.id = lt.audio_file_id where af.library_id = ${libraryId} order by lt.id`)
+                                join files af on af.id = lt.audio_file_id where af.library_id = ${libraryId} order by lt.id`)
         .map((r: any) => ({ id: r.id as string, fileId: r.audio_file_id as string, albumId: r.local_album_id as string | null, canonical: r.canonical_track_id as string | null }));
       const albums = (await sql`select id, state, release_id from local_albums where library_id = ${libraryId} order by id`)
         .map((r: any) => ({ id: r.id as string, state: r.state as string, releaseId: r.release_id as string | null }));
@@ -206,7 +206,7 @@ export async function makeLab(rootCount = 1) {
         images: await sql`select i.id, i.local_album_id, i.kind, i.origin, i.audio_file_id,
                                  (select case when bool_or(af.status = 'present') then 'present' else 'missing' end
                                     from sidecar_files s
-                                    join audio_files af on af.scan_root_id = s.scan_root_id
+                                    join files af on af.scan_root_id = s.scan_root_id
                                                        and ${sql.unsafe(sqlDirname('s'))} in (${sql.unsafe(sqlDirname('af'))}, ${sql.unsafe(parentOf(sqlDirname('af')))})
                                     join local_tracks lt on lt.audio_file_id = af.id and lt.local_album_id = i.local_album_id
                                    where s.id = i.sidecar_file_id) as sidecar_beside
@@ -215,7 +215,7 @@ export async function makeLab(rootCount = 1) {
         listens: await sql`select id, local_album_id from player_listens where library_id = ${libraryId} order by id`,
         planItems: await sql`select tpi.id, tpi.audio_file_id from tag_plan_items tpi join tag_plans tp on tp.id = tpi.tag_plan_id where tp.library_id = ${libraryId} order by 1`,
         playerMap: await sql`select p.local_track_id from player_track_map p join local_tracks lt on lt.id = p.local_track_id
-                             join audio_files af on af.id = lt.audio_file_id where af.library_id = ${libraryId} order by 1`,
+                             join files af on af.id = lt.audio_file_id where af.library_id = ${libraryId} order by 1`,
       };
       return { counts: { files: files.length, albums: albums.length, tracks: tracks.length }, files, tracks, albums, owner };
     },

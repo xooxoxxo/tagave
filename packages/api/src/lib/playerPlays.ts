@@ -118,7 +118,7 @@ export async function localTrackForSong(sql: Sql, serverKey: string, song: Serve
   if (parts.length < 2) return null;
   const tail = parts.slice(-3).join('/');
   const rows = await sql<{ id: string }[]>`
-    select lt.id from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+    select lt.id from local_tracks lt join files af on af.id = lt.audio_file_id
     where lt.origin <> 'cue' and (af.rel_path = ${tail} or af.rel_path like ${`%/${likeEscape(tail)}`})
     limit 2`;
   if (rows.length !== 1) return null;

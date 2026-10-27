@@ -57,8 +57,8 @@ async function seed(i: Install, owner: TestUser, opts: { mbids: boolean; titles?
       recId = randomUUID();
       await sql`insert into recordings (id, mbid, title, length_ms) values (${recId}, ${recMbid}, ${title}, ${ms})`;
     }
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-      values (${fileId}, ${libraryId}, ${rootId}, ${`${artist}/${albumId === albumA ? 'Kind of Blue' : 'Time Out'}/0${no} ${title}.flac`}, 'flac', 'FLAC', true, ${ms}, 'present')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+      values (${fileId}, ${libraryId}, ${rootId}, ${`${artist}/${albumId === albumA ? 'Kind of Blue' : 'Time Out'}/0${no} ${title}.flac`}, 'flac', 'FLAC', true, ${ms}, 'present', 'audio')`;
     await sql`insert into local_tracks (id, local_album_id, audio_file_id, disc_no, track_no, title_guess, artist_guess, duration_ms, origin, recording_id)
       values (${id}, ${albumId}, ${fileId}, 1, ${no}, ${opts.titles?.[key] ?? title}, ${artist}, ${ms}, 'file', ${recId})`;
     ids[key] = id;
@@ -119,7 +119,7 @@ describe.skipIf(!adminUrl)('playlists: lists, export and import, the module swit
     libraries: await sql`select id, name, (settings #- '{modules,playlists}') as settings from libraries order by id`,
     albums: await sql`select * from local_albums order by id`,
     tracks: await sql`select * from local_tracks order by id`,
-    files: await sql`select * from audio_files order by id`,
+    files: await sql`select * from files order by id`,
     recordings: await sql`select * from recordings order by id`,
   });
 
@@ -190,7 +190,7 @@ describe.skipIf(!adminUrl)('playlists: lists, export and import, the module swit
   it('a track that leaves the library stays in the list, Missing, with its name', async () => {
     const extra = randomUUID();
     const fileId = randomUUID();
-    await one.sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, status) values (${fileId}, ${one.libraryId}, ${one.rootId}, 'gone.flac', 'flac', 'present')`;
+    await one.sql`insert into files (id, library_id, scan_root_id, rel_path, container, status, handler) values (${fileId}, ${one.libraryId}, ${one.rootId}, 'gone.flac', 'flac', 'present', 'audio')`;
     await one.sql`insert into local_tracks (id, local_album_id, audio_file_id, track_no, title_guess, artist_guess, duration_ms, origin) values (${extra}, ${lib.albumB}, ${fileId}, 9, 'Gone Soon', 'Someone', 100000, 'file')`;
     const [p] = (await call(anna, 'GET', '/me/playlists')).json().playlists.filter((x: any) => x.name === 'x');
     await call(anna, 'POST', `/me/playlists/${p.id}/items`, { trackIds: [extra, lib.ids['so']!] });

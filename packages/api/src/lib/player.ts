@@ -140,7 +140,7 @@ async function libraryFileCount(sql: Sql, libraryId: string): Promise<number> {
   const cached = totalCache.get(libraryId);
   if (cached && Date.now() - cached.at < TOTAL_TTL_MS) return cached.value;
   const rows = await sql<{ n: number }[]>`
-    select count(*)::int as n from audio_files af
+    select count(*)::int as n from files af
     join scan_roots sr on sr.id = af.scan_root_id
     where sr.library_id = ${libraryId} and af.status = 'present'`;
   const value = rows[0]?.n ?? 0;
@@ -306,7 +306,7 @@ async function albumTracks(sql: Sql, albumId: string, serverKey: string): Promis
            coalesce(ct.recording_mbid, rec.mbid) as recording_mbid,
            ptm.song_id
     from local_tracks lt
-    join audio_files af on af.id = lt.audio_file_id
+    join files af on af.id = lt.audio_file_id
     join scan_roots sr on sr.id = af.scan_root_id
     left join canonical_tracks ct on ct.id = lt.canonical_track_id
     left join recordings rec on rec.id = lt.recording_id

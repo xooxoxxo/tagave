@@ -1,5 +1,5 @@
 /**
- * The scanner stores audio_files.tags_raw as music-metadata's snapshot
+ * The scanner stores files.tags_raw as music-metadata's snapshot
  * ({ common, native }); the tag engine and the lint rules speak canonical
  * field names (tracknumber, musicbrainz_recordingid, ...). This is the one
  * place that maps between the two.

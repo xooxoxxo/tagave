@@ -141,21 +141,21 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
            -- an album with art in its files but no cover fetched yet is not
            -- "No embedded art" (QA 2026-10-26 Q-19)
            exists (
-             select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+             select 1 from local_tracks lt join files af on af.id = lt.audio_file_id
               where lt.local_album_id = la.id and af.has_embedded_art) as has_embedded_art
     from local_albums la
     left join images i on i.local_album_id = la.id and i.kind = 'front'
     join lateral (
       select count(*) filter (where af.status = 'error') as n
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = la.id) err on true
     join lateral (
       select count(distinct af.lossless) as kinds
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = la.id and af.lossless is not null) losslessness on true
     join lateral (
       select count(*) filter (where af.lossless = false and af.bitrate_kbps < 192) as n
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = la.id) lowbr on true
     where la.library_id = ${lib} and la.state not in ('ignored')
       and (${!scoped} or la.id = any(${albumScope}::uuid[]))
@@ -170,7 +170,7 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
     const trackRows = await ctx.sql`
       select af.tags_raw
       from local_tracks lt
-      join audio_files af on af.id = lt.audio_file_id
+      join files af on af.id = lt.audio_file_id
       where lt.local_album_id = ${albumId}
       order by coalesce(lt.disc_no, 1), coalesce(lt.track_no, 0)
     ` as unknown as Array<{ tags_raw: Record<string, unknown> | null }>;

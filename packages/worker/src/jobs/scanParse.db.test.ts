@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 import pino from 'pino';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
-import { coreTagsDigest } from '../lib/helpers.js';
+import { coreTagsDigest } from '@tagave/core/files';
 import { writeFlac } from '../testkit/flac.js';
 import { scanParseJob } from './scanParse.js';
 
@@ -23,7 +23,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse stores the core tag 
     await sql`insert into users (id, email, password_hash) values (${userId}, ${`sp-${userId}@test.com`}, 'x')`;
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'SP', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, ${rootPath}, 'sp')`;
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${fileId}, ${libraryId}, ${rootId}, '1.flac')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${fileId}, ${libraryId}, ${rootId}, '1.flac', 'audio')`;
   });
 
   afterAll(async () => {
@@ -36,7 +36,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse stores the core tag 
 
   it('writes core_tags_digest next to tags_digest', async () => {
     await scanParseJob(ctx, { audioFileIds: [fileId] });
-    const [r] = await sql`select tags_raw, core_tags_digest, duration_ms from audio_files where id = ${fileId}`;
+    const [r] = await sql`select tags_raw, core_tags_digest, duration_ms from files where id = ${fileId}`;
     expect(r.core_tags_digest).toMatch(/^[0-9a-f]{40}$/);
     expect(r.core_tags_digest).toBe(coreTagsDigest(r.tags_raw));
     expect(r.duration_ms).toBe(10_000);
@@ -45,9 +45,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scan.parse stores the core tag 
   it('a file whose parse error quotes NUL bytes is stored as error (NULs stripped), not a failed job', async () => {
     const zeros = randomUUID();
     await writeFile(path.join(rootPath, 'zeros.flac'), Buffer.alloc(64));
-    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path) values (${zeros}, ${libraryId}, ${rootId}, 'zeros.flac')`;
+    await sql`insert into files (id, library_id, scan_root_id, rel_path, handler) values (${zeros}, ${libraryId}, ${rootId}, 'zeros.flac', 'audio')`;
     await scanParseJob(ctx, { audioFileIds: [zeros] });
-    const [r] = await sql`select status, parse_error from audio_files where id = ${zeros}`;
+    const [r] = await sql`select status, parse_error from files where id = ${zeros}`;
     expect(r.status).toBe('error');
     expect(r.parse_error).toMatch(/\S/);
     expect(r.parse_error).not.toContain('\u0000');

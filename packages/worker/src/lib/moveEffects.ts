@@ -58,7 +58,7 @@ const BATCH = 500;
  * anti-joins by index: `<> all(array)` is not hashed and compared every row
  * with every id (11 s against 28 ms for 20k gone rows under 50 folders), and a
  * CTE got a nested-loop anti join on the root-top probe. Each nested folder is
- * one range scan of idx_audio_files_relpath_prefix stopping at the first row;
+ * one range scan of idx_files_relpath_prefix stopping at the first row;
  * the root's top ('') is probed per root. All in one transaction (one session).
  */
 async function occupiedDirs(ctx: Pick<WorkerContext, 'sql'>, dirs: Array<{ rootId: string; dir: string }>, goneIds: string[]): Promise<Set<string>> {
@@ -74,7 +74,7 @@ async function occupiedDirs(ctx: Pick<WorkerContext, 'sql'>, dirs: Array<{ rootI
       with d as (select * from unnest(${dirs.map((d) => d.rootId)}::uuid[], ${dirs.map((d) => d.dir)}::text[]) as d(root_id, dir))
       select d.root_id, d.dir from d
       cross join lateral (
-        select 1 from audio_files a
+        select 1 from files a
          where a.scan_root_id = d.root_id
            and a.rel_path ~>=~ (d.dir || '/') and a.rel_path ~<~ (d.dir || '0')
            and a.status in ('present', 'error')
@@ -84,7 +84,7 @@ async function occupiedDirs(ctx: Pick<WorkerContext, 'sql'>, dirs: Array<{ rootI
       union all
       select d.root_id, d.dir from d
       cross join lateral (
-        select 1 from audio_files a
+        select 1 from files a
          where a.scan_root_id = d.root_id and a.status in ('present', 'error')
            and not exists (select 1 from move_gone g where g.id = a.id)
          limit 1) x

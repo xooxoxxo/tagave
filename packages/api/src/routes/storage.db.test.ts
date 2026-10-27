@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, libraries, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
+import { files, libraries, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
 import type { StorageOverview, TagChangeCleanupPreview, TagChangeCleanupResult } from '@tagave/shared';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
@@ -71,7 +71,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storage routes', () => {
       { id: otherLibraryId, name: 'Other', ownerUserId: strangerId, settings: {} },
     ]);
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/storage-root', displayName: 's', writable: true, validationStatus: 'ok' });
-    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: 'A/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: 'A/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
 
     await setUp();
   });

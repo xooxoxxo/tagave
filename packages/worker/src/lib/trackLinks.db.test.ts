@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles, canonicalTracks, libraries, localAlbums, localTracks,
+  files, canonicalTracks, libraries, localAlbums, localTracks,
   releases, releaseGroups, scanRoots, users, providerCache, makeDb,
 } from '@tagave/db';
 import pino from 'pino';
@@ -27,7 +27,7 @@ async function deleteReleaseGroupTree(db: any, releaseGroupId: string) {
 async function deleteLibraryTree(db: any, libraryId: string) {
   const albumIds = db.select({ id: localAlbums.id }).from(localAlbums).where(eq(localAlbums.libraryId, libraryId));
   await db.delete(localTracks).where(inArray(localTracks.localAlbumId, albumIds));
-  await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+  await db.delete(files).where(eq(files.libraryId, libraryId));
   await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
 }
 
@@ -98,10 +98,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     const file1 = randomUUID();
     const file2 = randomUUID();
     const file3 = randomUUID();
-    await db.insert(audioFiles).values([
-      { id: file1, libraryId, scanRootId: rootId, relPath: 'flat/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file2, libraryId, scanRootId: rootId, relPath: 'flat/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file3, libraryId, scanRootId: rootId, relPath: 'flat/03.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+    await db.insert(files).values([
+      { handler: 'audio', id: file1, libraryId, scanRootId: rootId, relPath: 'flat/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file2, libraryId, scanRootId: rootId, relPath: 'flat/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file3, libraryId, scanRootId: rootId, relPath: 'flat/03.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
     ]);
 
     const lt1 = randomUUID();
@@ -137,7 +137,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
 
     // Cleanup
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, albumId));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.id, albumId));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, testReleaseId));
     await db.delete(releases).where(eq(releases.id, testReleaseId));
@@ -157,9 +157,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
 
     const file1 = randomUUID();
     const file2 = randomUUID();
-    await db.insert(audioFiles).values([
-      { id: file1, libraryId, scanRootId: rootId, relPath: 'multi/1-01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file2, libraryId, scanRootId: rootId, relPath: 'multi/2-01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+    await db.insert(files).values([
+      { handler: 'audio', id: file1, libraryId, scanRootId: rootId, relPath: 'multi/1-01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file2, libraryId, scanRootId: rootId, relPath: 'multi/2-01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
     ]);
 
     const lt1 = randomUUID();
@@ -182,7 +182,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     expect(result?.unaligned).toBe(0);
 
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, album2Id));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.id, album2Id));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, testReleaseId));
     await db.delete(releases).where(eq(releases.id, testReleaseId));
@@ -203,10 +203,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     const file1 = randomUUID();
     const file2 = randomUUID();
     const file3 = randomUUID();
-    await db.insert(audioFiles).values([
-      { id: file1, libraryId, scanRootId: rootId, relPath: 'partial/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file2, libraryId, scanRootId: rootId, relPath: 'partial/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file3, libraryId, scanRootId: rootId, relPath: 'partial/extra.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+    await db.insert(files).values([
+      { handler: 'audio', id: file1, libraryId, scanRootId: rootId, relPath: 'partial/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file2, libraryId, scanRootId: rootId, relPath: 'partial/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file3, libraryId, scanRootId: rootId, relPath: 'partial/extra.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
     ]);
 
     const lt1 = randomUUID();
@@ -238,7 +238,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     expect(unlinkedTrack?.state).toBe('unmatched');
 
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, album3Id));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.id, album3Id));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, testReleaseId));
     await db.delete(releases).where(eq(releases.id, testReleaseId));
@@ -258,9 +258,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
 
     const file1 = randomUUID();
     const file2 = randomUUID();
-    await db.insert(audioFiles).values([
-      { id: file1, libraryId, scanRootId: rootId, relPath: 'idem/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file2, libraryId, scanRootId: rootId, relPath: 'idem/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+    await db.insert(files).values([
+      { handler: 'audio', id: file1, libraryId, scanRootId: rootId, relPath: 'idem/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file2, libraryId, scanRootId: rootId, relPath: 'idem/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
     ]);
 
     const lt1 = randomUUID();
@@ -297,7 +297,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('linkAlbumTracks (db)', () => {
     expect(linkedId1a).toBe(ct1);
 
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, album4Id));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.id, album4Id));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, testReleaseId));
     await db.delete(releases).where(eq(releases.id, testReleaseId));
@@ -533,10 +533,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
     const file1a = randomUUID();
     const file1b = randomUUID();
     const file2a = randomUUID();
-    await db.insert(audioFiles).values([
-      { id: file1a, libraryId, scanRootId: rootId, relPath: 'sweep/1/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file1b, libraryId, scanRootId: rootId, relPath: 'sweep/1/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
-      { id: file2a, libraryId, scanRootId: rootId, relPath: 'sweep/2/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+    await db.insert(files).values([
+      { handler: 'audio', id: file1a, libraryId, scanRootId: rootId, relPath: 'sweep/1/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file1b, libraryId, scanRootId: rootId, relPath: 'sweep/1/02.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
+      { handler: 'audio', id: file2a, libraryId, scanRootId: rootId, relPath: 'sweep/2/01.mp3', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} },
     ]);
 
     const lt1a = randomUUID();
@@ -566,7 +566,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracksLinkJob sweep (db)', () =
     // Cleanup
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, album1Id));
     await db.delete(localTracks).where(eq(localTracks.localAlbumId, album2Id));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, rel1Id));
     await db.delete(canonicalTracks).where(eq(canonicalTracks.releaseId, rel2Id));

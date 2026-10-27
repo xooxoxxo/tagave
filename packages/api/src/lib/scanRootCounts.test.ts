@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import { scanRootCounts } from './scanRootCounts.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('scanRootCounts', () => {
@@ -34,7 +34,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('scanRootCounts', () => {
     const b1 = await album();
     const file = async (scanRootId: string, albumId: string | null, status = 'present') => {
       const id = randomUUID();
-      await db.insert(audioFiles).values({ id, libraryId, scanRootId, relPath: `${id}.flac`, sizeBytes: 1, mtime: 1, status });
+      await db.insert(files).values({ handler: 'audio', id, libraryId, scanRootId, relPath: `${id}.flac`, sizeBytes: 1, mtime: 1, status });
       if (albumId) await db.insert(localTracks).values({ localAlbumId: albumId, audioFileId: id, trackNo: 1 });
     };
     await file(rootA, a1);

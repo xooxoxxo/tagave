@@ -11,7 +11,7 @@ import {
   libraries,
   users,
   scanRoots,
-  audioFiles,
+  files,
   tagPlanItems,
   localAlbums,
   localTracks,
@@ -94,7 +94,7 @@ describe('tagsApply job', () => {
 
   async function seedPlan(status: string) {
     const audioFileId = randomUUID();
-    await dbClient.insert(audioFiles).values({
+    await dbClient.insert(files).values({ handler: 'audio',
       id: audioFileId,
       libraryId,
       scanRootId,
@@ -205,7 +205,7 @@ describe('tagsApply job', () => {
     // 2. Create a tag plan with items pointing to that file
     // 3. Call tagsApplyJob
     // 4. Verify items are marked 'applied'
-    // 5. Verify audio_files table is updated with size/mtime/tags_raw/audio_hash
+    // 5. Verify files table is updated with size/mtime/tags_raw/audio_hash
     // 6. Verify plan status is 'applied'
 
     // Skip for now - requires audio file fixtures
@@ -250,7 +250,8 @@ describe('tagsApply job', () => {
 });
 
 import { fileStateAfterWrite } from './tagsApply.js';
-import { coreTagsDigest, tagsDigest } from '../lib/helpers.js';
+import { coreTagsDigest } from '@tagave/core/files';
+import { tagsDigest } from '../lib/helpers.js';
 
 describe('fileStateAfterWrite', () => {
   it('stores mtime in seconds and both digests, like scan.parse', () => {

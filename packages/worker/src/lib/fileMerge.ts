@@ -9,7 +9,7 @@
  *      tag_plan_items; if it has (the destination was clustered first), absorb
  *      the pairs when allowed and untouched (see absorbPairs), else skip;
  *   4. copy the fresh row's parse when it has one, delete the fresh row,
- *      re-point the old row (root, path, present, last_seen_at = now());
+ *      re-point the old row (root, path, media type, present, last_seen_at = now());
  *      track-scope field locks move with it, and changed bytes clear the
  *      old row's audio hash and fingerprint.
  *
@@ -46,7 +46,7 @@ export type MergeOutcome = MergeDone | { kind: 'skipped'; reason: 'old_moved' | 
 
 interface FileRow {
   id: string; library_id: string; scan_root_id: string; rel_path: string; status: string;
-  size_bytes: string | null; mtime: string | null; inode: string | null;
+  size_bytes: string | null; mtime: string | null; inode: string | null; media_type: string | null;
   tags_read_at: string | null; parse_error: string | null;
   /** last_seen_at < walkStart, null without a walkStart. The client reads timestamptz as text, so the DB compares. */
   seen_before_walk: boolean | null;
@@ -78,7 +78,7 @@ export async function freshTouchedReason(
                  where audio_file_id = any(${ids}::uuid[]) and local_album_id is not null
                    and local_album_id is distinct from ${exceptAlbumId}::uuid),
          ft as (select id from local_tracks where audio_file_id = any(${ids}::uuid[])),
-         lib as (select distinct library_id as id from audio_files where id = any(${ids}::uuid[]))
+         lib as (select distinct library_id as id from files where id = any(${ids}::uuid[]))
     select
       case
         when exists (select 1 from local_albums la join fa on fa.id = la.id
@@ -189,9 +189,9 @@ export async function mergeFilePairs(ctx: Pick<WorkerContext, 'sql'>, reqs: read
       if (albums.some((a) => a.fresh)) await lockAlbums(tx, albums, heldAlbums);
     }
     const rows = (await tx`
-      select id, library_id, scan_root_id, rel_path, status, size_bytes, mtime, inode, tags_read_at, parse_error,
+      select id, library_id, scan_root_id, rel_path, status, size_bytes, mtime, inode, media_type, tags_read_at, parse_error,
              last_seen_at < ${walkStart}::timestamptz as seen_before_walk
-        from audio_files where id = any(${[...new Set([...oldIds, ...freshIds])].sort()}::uuid[]) order by id for update`) as unknown as FileRow[];
+        from files where id = any(${[...new Set([...oldIds, ...freshIds])].sort()}::uuid[]) order by id for update`) as unknown as FileRow[];
     const byId = new Map(rows.map((r) => [r.id, r]));
     const outcomes: Array<MergeOutcome | null> = reqs.map(() => null);
     const live: Array<LivePair & { i: number }> = [];
@@ -254,7 +254,7 @@ async function repoint(tx: postgres.TransactionSql, old: FileRow, fresh: FileRow
   const reparse = !parsed && (Number(old.size_bytes) !== Number(fresh.size_bytes) || Number(old.mtime) !== Number(fresh.mtime));
   if (parsed) {
     const cols = PARSE_COLUMNS.join(', ');
-    await tx.unsafe(`update audio_files o set (${cols}) = (select ${cols} from audio_files f where f.id = $1) where o.id = $2`, [fresh.id, old.id]);
+    await tx.unsafe(`update files o set (${cols}) = (select ${cols} from files f where f.id = $1) where o.id = $2`, [fresh.id, old.id]);
   }
   // Parsed: status came with the parse. Unparsed: present, except an
   // unparseable (error) old row with no re-parse due keeps 'error' (it is still unreadable).
@@ -266,18 +266,20 @@ async function repoint(tx: postgres.TransactionSql, old: FileRow, fresh: FileRow
      where f.scope = 'track' and f.scope_id = ${fresh.id}
        and exists (select 1 from field_locks o where o.scope = 'track' and o.scope_id = ${old.id} and o.field = f.field)`;
   await tx`update field_locks set scope_id = ${old.id} where scope = 'track' and scope_id = ${fresh.id}`;
-  await tx`delete from audio_files where id = ${fresh.id}`;
+  await tx`delete from files where id = ${fresh.id}`;
+  // The handler is one for both rows (pairs never cross handlers); the media type follows the new name.
   await tx`
-    update audio_files set
+    update files set
       scan_root_id = ${fresh.scan_root_id}, rel_path = ${fresh.rel_path},
       status = coalesce(${status}::text, status),
       size_bytes = ${fresh.size_bytes}, mtime = ${fresh.mtime}, inode = coalesce(${fresh.inode}, inode),
+      media_type = coalesce(${fresh.media_type}::text, media_type),
       last_seen_at = now(), reconcile_hold_at = null
     where id = ${old.id}`;
   if (reparse) {
     // The bytes changed: the old audio identity no longer describes this file.
     await tx`
-      update audio_files set audio_hash = null, audio_hash_at = null,
+      update files set audio_hash = null, audio_hash_at = null,
         fingerprint = null, fingerprint_duration = null, fingerprinted_at = null, fingerprint_error = null
       where id = ${old.id}`;
   }

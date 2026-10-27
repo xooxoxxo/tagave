@@ -10,7 +10,7 @@ import {
   tagPlanItems,
   libraries,
   users,
-  audioFiles,
+  files,
   scanRoots,
 } from '@tagave/db';
 import type { TagDiffEntry } from '@tagave/shared';
@@ -82,7 +82,7 @@ describe('tagsRevert job', () => {
 
     // Create an audio file (required for foreign key constraint)
     const audioFileId = randomUUID();
-    await dbClient.insert(audioFiles).values({
+    await dbClient.insert(files).values({ handler: 'audio',
       id: audioFileId,
       libraryId,
       scanRootId,
@@ -258,7 +258,7 @@ describe('tagsRevert job', () => {
 
     // Create an audio file
     const audioFileId = randomUUID();
-    await dbClient.insert(audioFiles).values({
+    await dbClient.insert(files).values({ handler: 'audio',
       id: audioFileId,
       libraryId,
       scanRootId,

@@ -19,10 +19,10 @@ import path from 'node:path';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import { parseFile } from 'music-metadata';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { MutagenTagWriter, resolvePythonInterpreter } from '../lib/tagWriter.js';
-import { tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { tagSnapshotOf } from '@tagave/core/files';
 import { tagsPreviewJob } from './tagsPreview.js';
 import { tagsApplyJob } from './tagsApply.js';
 import { tagsRevertJob } from './tagsRevert.js';
@@ -83,7 +83,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !toolsAvailable())('manual pla
     await db.insert(libraries).values({ id: libraryId, name: 'Manual revert', ownerUserId: userId, settings: { tagWritesEnabled: true } });
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: tempDir, displayName: 'tmp', writable: true, probeWritable: true, enabled: true, validationStatus: 'ok', pollIntervalS: 3600 });
     const stat = await fs.stat(full);
-    await db.insert(audioFiles).values({
+    await db.insert(files).values({ handler: 'audio',
       id: fileId, libraryId, scanRootId: rootId, relPath, sizeBytes: stat.size, container: 'MPEG', codec: 'MPEG 1 Layer 3',
       lossless: false, durationMs: 1000, status: 'present', tagsRaw: await snapshot(),
     });
@@ -98,7 +98,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !toolsAvailable())('manual pla
     await writer?.close();
     await db.delete(tagPlans).where(eq(tagPlans.libraryId, libraryId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
@@ -150,7 +150,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || !toolsAvailable())('manual pla
     const restored = await writer.read(path.join(tempDir, relPath));
     expect(restored).toEqual(originalTags);
     // and the catalogue reads the file as it was
-    const [row] = await db.select().from(audioFiles).where(eq(audioFiles.id, fileId));
+    const [row] = await db.select().from(files).where(eq(files.id, fileId));
     expect(row.tagsRaw.common.albumartist).toBe('02. Stephane Pompougnac');
     expect(row.tagsRaw.common.compilation ?? false).toBe(false);
   }, 60_000);

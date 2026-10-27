@@ -23,8 +23,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('splitAlbumByFormat under the al
     await sql`insert into local_albums (id, library_id, cluster_key, state, dir_paths, title_guess)
               values (${albumId}, ${libraryId}, ${`test-${albumId}`}, 'matched', ${['A/B']}::text[], 'B')`;
     for (const [rel, lossless] of [['A/B/1.flac', true], ['A/B/2.flac', true], ['A/B/1.mp3', false], ['A/B/2.mp3', false]] as const) {
-      const [f] = await sql`insert into audio_files (library_id, scan_root_id, rel_path, status, lossless, duration_ms)
-                            values (${libraryId}, ${rootId}, ${rel}, 'present', ${lossless}, 1000) returning id`;
+      const [f] = await sql`insert into files (library_id, scan_root_id, rel_path, status, lossless, duration_ms, handler)
+                            values (${libraryId}, ${rootId}, ${rel}, 'present', ${lossless}, 1000, 'audio') returning id`;
       await sql`insert into local_tracks (local_album_id, audio_file_id, state, origin) values (${albumId}, ${f.id}, 'unmatched', 'file')`;
     }
   });

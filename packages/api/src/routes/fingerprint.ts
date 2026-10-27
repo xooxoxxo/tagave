@@ -46,7 +46,7 @@ export async function createFingerprintRoutes(fastify: FastifyInstance) {
     const [files] = (await db.execute(sql`
       select count(*) filter (where fingerprint is not null)::int as fingerprinted,
              count(*) filter (where fingerprint is null and fingerprint_error is not null)::int as failed
-      from audio_files where library_id = ${libraryId}`)) as unknown as [Record<string, number>];
+      from files where library_id = ${libraryId}`)) as unknown as [Record<string, number>];
     const [queue] = (await db.execute(sql`
       select count(*) filter (where name = 'fingerprint.album' and state in ('created', 'active'))::int as fingerprint_waiting,
              count(*) filter (where name = 'acoustid.lookup' and state in ('created', 'active'))::int as lookup_waiting

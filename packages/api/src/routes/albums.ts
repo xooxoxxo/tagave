@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { eq, and, or, isNotNull, sql, inArray, desc, type SQLWrapper } from 'drizzle-orm';
 import {
-  albumMatches, audioFiles, canonicalTracks, gaps, images, libraries, localAlbums,
+  albumMatches, files, canonicalTracks, gaps, images, libraries, localAlbums,
   localTracks, matchCandidates, releaseGroups, releases, externalIds, entityTags, userReviews,
   releaseGroupArtists, fieldLocks, auditLog,
 } from '@tagave/db';
@@ -15,7 +15,7 @@ import { summaryEligible, summaryFresh, summaryFacets, markFacetsDirty } from '.
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from '../lib/splitByFormat.js';
 import { mergeAlbums, unmergeAlbum, findMergeCandidates, isMergedKey, MergeError, MERGE_MAX_ALBUMS } from '../lib/mergeAlbums.js';
 import { displayArtistName, IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
-import { scanRoots as scanRootRows, audioFiles as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
+import { scanRoots as scanRootRows, files as audioFileRows, localTracks as localTrackRows } from '@tagave/db';
 import { albumFolders } from '../lib/folderLinks.js';
 import { artFetchState } from '../lib/artFetchState.js';
 import { containsPattern, textMatches } from '../lib/textMatch.js';
@@ -23,9 +23,9 @@ import { ApiError } from '../middleware/errorHandler.js';
 
 /** Containers whose files are lossless regardless of codec; m4a is decided per file (ALAC vs AAC). */
 const LOSSLESS_TRACKS = (albumId: SQLWrapper) =>
-  sql`select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and af.lossless`;
+  sql`select 1 from local_tracks lt join files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and af.lossless`;
 const LOSSY_TRACKS = (albumId: SQLWrapper) =>
-  sql`select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and not coalesce(af.lossless, false)`;
+  sql`select 1 from local_tracks lt join files af on af.id = lt.audio_file_id where lt.local_album_id = ${albumId} and not coalesce(af.lossless, false)`;
 
 /** Match provenance: how the live match was decided (owner audits auto-accepts here). */
 const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
@@ -76,7 +76,7 @@ export function albumQueryParts(
   const root = str(q['root']);
   if (root) {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(root)) conds.push(sql`false`);
-    else conds.push(sql`exists (select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+    else conds.push(sql`exists (select 1 from local_tracks lt join files af on af.id = lt.audio_file_id
       where lt.local_album_id = ${localAlbums.id} and af.scan_root_id = ${root}::uuid)`);
   }
   if (search) {
@@ -255,7 +255,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
                       else 'lossy' end as k
           from local_albums
           left join local_tracks lt on lt.local_album_id = local_albums.id
-          left join audio_files af on af.id = lt.audio_file_id
+          left join files af on af.id = lt.audio_file_id
           where ${wFormat} group by local_albums.id) x group by k order by n desc`),
       rows(sql`select f, count(*)::int as n from local_albums, unnest(formats) f where ${wFormat} group by f order by n desc limit 12`),
       // tag garbage produces years like 1000 or 1720; the rail only offers plausible decades
@@ -404,7 +404,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
         const losslessRows = albums.length
           ? ((await db.execute(sql`
               select lt.local_album_id, bool_and(coalesce(af.lossless, false)) as all_lossless, bool_or(coalesce(af.lossless, false)) as any_lossless
-              from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+              from local_tracks lt join files af on af.id = lt.audio_file_id
               where lt.local_album_id in ${sql`(${sql.join(albums.map((a) => sql`${a.id}`), sql`, `)})`}
               group by lt.local_album_id`)) as unknown as { local_album_id: string; all_lossless: boolean; any_lossless: boolean }[])
           : [];
@@ -495,20 +495,20 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
           origin: localTracks.origin,
           cueStartMs: localTracks.cueStartMs,
           cueRelPath: localTracks.cueRelPath,
-          fileId: audioFiles.id,
-          relPath: audioFiles.relPath,
-          container: audioFiles.container,
-          codec: audioFiles.codec,
-          lossless: audioFiles.lossless,
-          bitrateKbps: audioFiles.bitrateKbps,
-          sampleRate: audioFiles.sampleRate,
-          bitDepth: audioFiles.bitDepth,
-          sizeBytes: audioFiles.sizeBytes,
-          fileStatus: audioFiles.status,
-          hasEmbeddedArt: audioFiles.hasEmbeddedArt,
+          fileId: files.id,
+          relPath: files.relPath,
+          container: files.container,
+          codec: files.codec,
+          lossless: files.lossless,
+          bitrateKbps: files.bitrateKbps,
+          sampleRate: files.sampleRate,
+          bitDepth: files.bitDepth,
+          sizeBytes: files.sizeBytes,
+          fileStatus: files.status,
+          hasEmbeddedArt: files.hasEmbeddedArt,
         })
         .from(localTracks)
-        .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
+        .innerJoin(files, eq(files.id, localTracks.audioFileId))
         .where(eq(localTracks.localAlbumId, albumId));
 
       const releaseP = (async () => {
@@ -891,7 +891,7 @@ export async function createAlbumRoutes(fastify: FastifyInstance) {
       // split-off album can be merged back.
       const mixP = db.execute(sql`
         select bool_or(af.lossless is true) as any_lossless, bool_or(af.lossless is false) as any_lossy
-          from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+          from local_tracks lt join files af on af.id = lt.audio_file_id
          where lt.local_album_id = ${album.id}`) as unknown as Promise<Array<{ any_lossless: boolean | null; any_lossy: boolean | null }>>;
 
       const [

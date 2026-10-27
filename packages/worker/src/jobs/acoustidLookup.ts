@@ -52,7 +52,7 @@ export async function acoustidLookupJob(ctx: WorkerContext, data: AcoustidLookup
   // slice for virtual tracks of a cue image (the image fingerprint is never used)
   const tracks = (await ctx.sql`
     select distinct af.id as audio_file_id, af.fingerprint, af.fingerprint_duration
-    from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+    from local_tracks lt join files af on af.id = lt.audio_file_id
     where lt.local_album_id = ${album.id} and lt.origin <> 'cue' and af.fingerprint is not null
     union all
     select lt.id as audio_file_id, lt.fingerprint, lt.fingerprint_duration

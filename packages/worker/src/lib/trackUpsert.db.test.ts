@@ -41,8 +41,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'TU', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootId}, ${libraryId}, '/nonexistent-tu', 'tu', 'ok')`;
     for (const [i, id] of files.entries()) {
-      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, status, duration_ms, tags_raw)
-                values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album One/0${i + 1}.flac`}, 'present', 1000, ${JSON.stringify(tags(`Song ${i + 1}`, i + 1))}::text::jsonb)`;
+      await sql`insert into files (id, library_id, scan_root_id, rel_path, status, duration_ms, tags_raw, handler)
+                values (${id}, ${libraryId}, ${rootId}, ${`Artist/Album One/0${i + 1}.flac`}, 'present', 1000, ${JSON.stringify(tags(`Song ${i + 1}`, i + 1))}::text::jsonb, 'audio')`;
     }
     const releaseId = randomUUID();
     await sql`insert into release_groups (id, mbid, title) values (${groupId}, ${groupId}, 'TU Release')`;
@@ -86,7 +86,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
   it('a retitled track keeps its id and clears the album tracks_linked_at', async () => {
     const [first] = await tracksOf();
     await link(first.id);
-    await sql`update audio_files set tags_raw = ${JSON.stringify(tags('Renamed', 1))}::text::jsonb where id = ${files[0]}`;
+    await sql`update files set tags_raw = ${JSON.stringify(tags('Renamed', 1))}::text::jsonb where id = ${files[0]}`;
     await cluster();
     const [again] = await tracksOf();
     expect(again.id).toBe(first.id);
@@ -100,7 +100,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
   it('a file that leaves for another album keeps its track id but not its release link', async () => {
     const [first] = await tracksOf();
     await link(first.id);
-    await sql`update audio_files set tags_raw = ${JSON.stringify(tags('Renamed', 1, 'Other Album'))}::text::jsonb where id = ${files[0]}`;
+    await sql`update files set tags_raw = ${JSON.stringify(tags('Renamed', 1, 'Other Album'))}::text::jsonb where id = ${files[0]}`;
     await cluster();
     const [row] = await sql`select id, local_album_id, recording_id, state from local_tracks where audio_file_id = ${files[0]}`;
     expect(row.id).toBe(first.id);
@@ -117,10 +117,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
   });
 
   it('a file no longer in the scope keeps its row (missing files stay attached)', async () => {
-    await sql`update audio_files set status = 'missing' where id = ${files[2]}`;
+    await sql`update files set status = 'missing' where id = ${files[2]}`;
     await cluster();
     expect(await sql`select 1 from local_tracks where audio_file_id = ${files[2]}`).toHaveLength(1);
-    await sql`update audio_files set status = 'present' where id = ${files[2]}`;
+    await sql`update files set status = 'present' where id = ${files[2]}`;
   });
 
   it('inserted counts only rows actually written', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, users, makeDb,
+  files, clusterOverrides, libraries, localAlbums, localTracks, scanRoots, users, makeDb,
 } from '@tagave/db';
 import { splitAlbumByFormat, mergeSplitAlbum, splitOriginOf, SplitError } from './splitByFormat.js';
 
@@ -52,7 +52,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('splitAlbumByFormat / mergeSplit
     for (const [relPath, lossless] of specs) {
       const id = randomUUID();
       fileIds.push(id);
-      await db.insert(audioFiles).values({ id, libraryId, scanRootId: rootId, relPath, sizeBytes: 10, mtime: 1, lossless, durationMs: 1000, status: 'present' });
+      await db.insert(files).values({ handler: 'audio', id, libraryId, scanRootId: rootId, relPath, sizeBytes: 10, mtime: 1, lossless, durationMs: 1000, status: 'present' });
       await db.insert(localTracks).values({ localAlbumId: albumId, audioFileId: id, trackNo: 1, titleGuess: relPath, durationMs: 1000 });
     }
   });

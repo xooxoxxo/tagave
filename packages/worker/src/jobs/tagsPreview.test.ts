@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import {
-  audioFiles, canonicalTracks, fieldLocks, jobRuns, libraries, localAlbums, localTracks,
+  files, canonicalTracks, fieldLocks, jobRuns, libraries, localAlbums, localTracks,
   releaseGroups, releases, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@tagave/db';
 import pino from 'pino';
@@ -113,12 +113,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     });
     fileA = randomUUID();
     fileB = randomUUID();
-    await db.insert(audioFiles).values([
-      {
+    await db.insert(files).values([
+      { handler: 'audio',
         id: fileA, libraryId, scanRootId: rootId, relPath: 'Canon/Album/01.mp3', sizeBytes: 1, mtime: 1, status: 'present',
         tagsRaw: { common: { title: 'Old One', artist: 'Canon Artist', album: 'Old Album', track: { no: 1, of: null }, disk: { no: null, of: null }, barcode: 'KEEP-ME', genre: ['Rock'] } },
       },
-      {
+      { handler: 'audio',
         id: fileB, libraryId, scanRootId: rootId, relPath: 'Canon/Album/02.mp3', sizeBytes: 1, mtime: 1, status: 'present',
         tagsRaw: { common: { title: '', album: 'Canonical Album', track: { no: 2, of: 2 }, disk: { no: 1, of: 1 }, musicbrainz_albumid: 'rel-mbid-1', musicbrainz_releasegroupid: 'rg-mbid-1', musicbrainz_albumartistid: ['artist-mbid-1'], musicbrainz_artistid: ['artist-mbid-1'], date: '2001-05-05', originaldate: '1999-01-01', label: ['Harvest'], catalognumber: ['SHVL 804'], media: 'CD', releasecountry: 'GB', releasestatus: 'Official', releasetype: ['Album'], albumartist: 'Canon Artist', albumartistsort: 'Canon Artist', artistsort: 'Canon Artist', artist: 'Canon Artist' } },
       },
@@ -132,7 +132,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     strayAlbum = randomUUID();
     await db.insert(localAlbums).values({ id: strayAlbum, libraryId, clusterKey: `stray-${strayAlbum}`, dirPaths: ['Stray'], state: 'pending', trackCount: 1 });
     strayFile = randomUUID();
-    await db.insert(audioFiles).values({ id: strayFile, libraryId, scanRootId: rootId, relPath: 'Stray/01.flac', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: { common: { title: 'Lost' } } });
+    await db.insert(files).values({ handler: 'audio', id: strayFile, libraryId, scanRootId: rootId, relPath: 'Stray/01.flac', sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: { common: { title: 'Lost' } } });
     await db.insert(localTracks).values({ localAlbumId: strayAlbum, audioFileId: strayFile, trackNo: 1 });
 
     planId = randomUUID();
@@ -170,12 +170,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
     await db.insert(localAlbums).values({
       id: bigAlbum, libraryId, clusterKey: `big-${bigAlbum}`, dirPaths: ['Canon/Bigger'], state: 'matched', releaseId, releaseGroupId, trackCount: 3, discCount: 1,
     });
-    const files = [randomUUID(), randomUUID(), randomUUID()];
-    await db.insert(audioFiles).values(files.map((id, i) => ({
+    const bigFiles = [randomUUID(), randomUUID(), randomUUID()];
+    await db.insert(files).values(bigFiles.map((id, i) => ({ handler: 'audio',
       id, libraryId, scanRootId: rootId, relPath: `Canon/Bigger/0${i + 1}.mp3`, sizeBytes: 1, mtime: 1, status: 'present',
       tagsRaw: { common: { title: `Big ${i + 1}`, track: { no: i + 1, of: null }, disk: { no: 1, of: null } } },
     })));
-    await db.insert(localTracks).values(files.map((audioFileId, i) => ({ localAlbumId: bigAlbum, audioFileId, discNo: 1, trackNo: i + 1 })));
+    await db.insert(localTracks).values(bigFiles.map((audioFileId, i) => ({ localAlbumId: bigAlbum, audioFileId, discNo: 1, trackNo: i + 1 })));
     const bigPlan = randomUUID();
     planIds.push(bigPlan);
     await db.insert(tagPlans).values({
@@ -361,7 +361,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tagsPreviewJob (db)', () => {
       id, libraryId, clusterKey: `hc-${id}`, dirPaths: [`#/0${i + 1}. Stephane Pompougnac/2008 - Hotel Costes Vol. 11`],
       titleGuess: 'Hotel Costes Vol. 11', artistGuess: `0${i + 1}. Stephane Pompougnac`, state: 'unidentified', trackCount: 1,
     })));
-    await db.insert(audioFiles).values(hcFiles.map((id, i) => ({
+    await db.insert(files).values(hcFiles.map((id, i) => ({ handler: 'audio',
       id, libraryId, scanRootId: rootId, relPath: `#/0${i + 1}. Stephane Pompougnac/2008 - Hotel Costes Vol. 11/0${i + 1} - T.mp3`,
       sizeBytes: 1, mtime: 1, status: 'present',
       tagsRaw: { common: { title: `T${i + 1}`, artist: artists[i], albumartist: `0${i + 1}. Stephane Pompougnac`, album: 'Hotel Costes Vol. 11', year: 2008, track: { no: i + 1, of: null } } },

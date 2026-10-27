@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import pino from 'pino';
-import { users, libraries, localAlbums, localTracks, audioFiles, scanRoots, gaps, makeDb } from '@tagave/db';
+import { users, libraries, localAlbums, localTracks, files, scanRoots, gaps, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { gapsRecomputeJob } from './gapsRecompute.js';
 
@@ -28,7 +28,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('gaps.recompute noEmbeddedArt (d
     });
     for (const n of [1, 2]) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: fileId, libraryId, scanRootId: rootId, relPath: `${title}/${n}.mp3`, lossless: false, bitrateKbps: 320, hasEmbeddedArt,
         tagsRaw: { common: { title: `Track ${n}`, artist: 'Portishead', album: title, albumartist: 'Portishead', track: { no: n, of: 2 }, year: 1994 } },
       });

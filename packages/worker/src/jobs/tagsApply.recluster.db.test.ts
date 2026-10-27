@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import pino from 'pino';
 import {
-  audioFiles, clusterOverrides, libraries, localAlbums, localTracks, playerScanRequests, playerTrackMap, scanRoots, tagPlanItems, tagPlans, users, makeDb,
+  files, clusterOverrides, libraries, localAlbums, localTracks, playerScanRequests, playerTrackMap, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob, agreedAlbumNames } from './clusterDir.js';
@@ -59,7 +59,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('re-cluster after apply (db)', (
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/tagave-recluster-root', displayName: 'rc', validationStatus: 'ok', pollIntervalS: 3600 });
     // The files as the plan left them: new tags already in tags_raw.
     for (const [i, dir] of dirs.entries()) {
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: fileIds[i], libraryId, scanRootId: rootId, relPath: `${dir}/0${i + 1} - Track.mp3`, status: 'present', durationMs: 1000,
         tagsRaw: { common: { album: 'The Last Tycoon', albumartist: 'Peter Moren', artist: 'Peter Moren', year: 2008, track: { no: i + 1, of: null } } },
       });

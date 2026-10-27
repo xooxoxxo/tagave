@@ -2,7 +2,7 @@
  * The filesystem walk behind scan.root and scan.dir (spec LIB-3/LIB-5/LIB-7).
  *
  * One code path, three shapes:
- * - full:  every directory, one stat per audio file and sidecar (the
+ * - full:  every directory, one stat per file a handler claims and per sidecar (the
  *          original behaviour, now with a bounded number of directories in
  *          flight — NFS is latency-bound, so parallel readdir/stat is where
  *          the time goes).
@@ -23,9 +23,10 @@
 import { access, opendir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { and, eq, like, lt, or, sql as dsql } from 'drizzle-orm';
-import { audioFiles, scanDirs, sidecarFiles } from '@tagave/db';
+import { files, scanDirs, sidecarFiles } from '@tagave/db';
+import { fileTypeHandler, handlerForName } from '@tagave/core/files';
 import type { WorkerContext } from './context.js';
-import { isAudioFile, sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
+import { sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
 
 export type WalkMode = 'full' | 'quick';
@@ -59,7 +60,7 @@ export interface WalkResult {
   /** quick mode: directories whose mtime matched and whose files were not stat'ed */
   dirsSkipped: number;
   formats: Record<string, number>;
-  /** audio_files ids to hand to scan.parse */
+  /** files ids to hand to scan.parse */
   changedIds: string[];
   /** rel dirs that lost files (nothing re-parses there, so the caller re-clusters them) */
   dirsWithMissing: string[];
@@ -141,20 +142,22 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // The shared client returns timestamptz as text; ms truncation only rounds down.
   const [clock] = (await ctx.sql`select now() as now`) as unknown as Array<{ now: string | Date }>;
   const walkStart = new Date(clock!.now);
-  const [present] = (await ctx.sql`select count(*)::int as n from audio_files
+  const [present] = (await ctx.sql`select count(*)::int as n from files
                                    where scan_root_id = ${root.id} and status in ('present', 'error')`) as unknown as Array<{ n: number }>;
 
-  const scopeLike = prefix ? like(audioFiles.relPath, escapeLike(prefix) + '%') : undefined;
+  const scopeLike = prefix ? like(files.relPath, escapeLike(prefix) + '%') : undefined;
   const existing = await ctx.db
     .select({
-      id: audioFiles.id,
-      relPath: audioFiles.relPath,
-      sizeBytes: audioFiles.sizeBytes,
-      mtime: audioFiles.mtime,
-      status: audioFiles.status,
+      id: files.id,
+      relPath: files.relPath,
+      sizeBytes: files.sizeBytes,
+      mtime: files.mtime,
+      status: files.status,
+      handler: files.handler,
+      mediaType: files.mediaType,
     })
-    .from(audioFiles)
-    .where(and(eq(audioFiles.scanRootId, root.id), scopeLike));
+    .from(files)
+    .where(and(eq(files.scanRootId, root.id), scopeLike));
   const byRelPath = new Map(existing.map((r) => [r.relPath, r]));
   const byDir = new Map<string, typeof existing>();
   for (const r of existing) {
@@ -206,9 +209,13 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
 
   // Batched writes. Arrays are shared by the concurrent directory workers;
   // each flush takes a snapshot and the flushes themselves run in order.
-  const pendingInserts: Array<{ relPath: string; sizeBytes: number; mtime: number; inode: string }> = [];
-  const pendingChanged: Array<{ id: string; sizeBytes: number; mtime: number; inode: string }> = [];
-  const pendingUnchanged: Array<{ id: string; inode: string | null }> = [];
+  // mediaType: the row's handler's MIME type, sent only where the row has none
+  // yet (rows from before 0058 fill in on the first walk that sees them).
+  const pendingInserts: Array<{ relPath: string; sizeBytes: number; mtime: number; inode: string; handler: string; mediaType: string | null }> = [];
+  const pendingChanged: Array<{ id: string; sizeBytes: number; mtime: number; inode: string; mediaType: string | null }> = [];
+  const pendingUnchanged: Array<{ id: string; inode: string | null; mediaType: string | null }> = [];
+  const missingMediaType = (r: { relPath: string; handler: string; mediaType: string | null }) =>
+    r.mediaType === null ? fileTypeHandler(r.handler)?.mediaType(extOf(r.relPath)) ?? null : null;
   let chain: Promise<void> = Promise.resolve();
   const enqueue = (work: () => Promise<void>) => {
     chain = chain.then(work, work);
@@ -219,13 +226,15 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const batch = pendingInserts.splice(0);
     return enqueue(async () => {
       const rows = (await ctx.sql`
-        insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, inode, status)
-        select ${root.libraryId}, ${root.id}, u.rel_path, u.size_bytes, u.mtime, u.inode, 'present'
+        insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, inode, handler, media_type, status)
+        select ${root.libraryId}, ${root.id}, u.rel_path, u.size_bytes, u.mtime, u.inode, u.handler, u.media_type, 'present'
           from unnest(${batch.map((f) => f.relPath)}::text[], ${batch.map((f) => f.sizeBytes)}::bigint[],
-                      ${batch.map((f) => f.mtime)}::bigint[], ${batch.map((f) => f.inode)}::text[])
-               as u(rel_path, size_bytes, mtime, inode)
+                      ${batch.map((f) => f.mtime)}::bigint[], ${batch.map((f) => f.inode)}::text[],
+                      ${batch.map((f) => f.handler)}::text[], ${batch.map((f) => f.mediaType)}::text[])
+               as u(rel_path, size_bytes, mtime, inode, handler, media_type)
         on conflict (scan_root_id, rel_path) do update
-          set status = 'present', last_seen_at = now(), inode = coalesce(excluded.inode, audio_files.inode)
+          set status = 'present', last_seen_at = now(), inode = coalesce(excluded.inode, files.inode),
+              media_type = coalesce(files.media_type, excluded.media_type)
         returning id, (xmax = 0) as inserted`) as unknown as Array<{ id: string; inserted: boolean }>;
       result.changedIds.push(...rows.map((r) => r.id));
       insertedIds.push(...rows.filter((r) => r.inserted).map((r) => r.id));
@@ -236,11 +245,12 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const batch = pendingChanged.splice(0);
     return enqueue(async () => {
       await ctx.sql`
-        update audio_files af
-           set size_bytes = c.size_bytes, mtime = c.mtime, inode = c.inode, status = 'present', last_seen_at = now()
+        update files af
+           set size_bytes = c.size_bytes, mtime = c.mtime, inode = c.inode, status = 'present', last_seen_at = now(),
+               media_type = coalesce(af.media_type, c.media_type)
           from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.sizeBytes)}::bigint[], ${batch.map((b) => b.mtime)}::bigint[],
-                      ${batch.map((b) => b.inode)}::text[])
-               as c(id, size_bytes, mtime, inode)
+                      ${batch.map((b) => b.inode)}::text[], ${batch.map((b) => b.mediaType)}::text[])
+               as c(id, size_bytes, mtime, inode, media_type)
          where af.id = c.id`;
       result.changedIds.push(...batch.map((b) => b.id));
     });
@@ -250,8 +260,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
     const batch = pendingUnchanged.splice(0);
     return enqueue(async () => {
       await ctx.sql`
-        update audio_files af set last_seen_at = now(), inode = coalesce(c.inode, af.inode)
-          from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.inode)}::text[]) as c(id, inode)
+        update files af set last_seen_at = now(), inode = coalesce(c.inode, af.inode), media_type = coalesce(af.media_type, c.media_type)
+          from unnest(${batch.map((b) => b.id)}::uuid[], ${batch.map((b) => b.inode)}::text[], ${batch.map((b) => b.mediaType)}::text[])
+               as c(id, inode, media_type)
          where af.id = c.id`;
     });
   };
@@ -306,7 +317,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
         if (r.status === 'missing' || r.status === 'archived') continue;
         seen.add(r.relPath);
         countFile(r.relPath);
-        pendingUnchanged.push({ id: r.id, inode: null });
+        pendingUnchanged.push({ id: r.id, inode: null, mediaType: missingMediaType(r) });
       }
       for (const s of sidecarsByDir.get(relDir) ?? []) {
         seenSidecars.push(s);
@@ -316,7 +327,9 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
       for (const name of files) {
         const absPath = path.join(dirAbs, name);
         const relPath = storagePath(path.relative(root.path, absPath));
-        if (isAudioFile(name)) {
+        // Only names a file-type handler claims are indexed (today: audio).
+        const handler = handlerForName(name);
+        if (handler) {
           let st;
           try {
             // bigint: 64-bit inode numbers (SMB/CIFS, btrfs, XFS) lose precision as a JS number
@@ -335,16 +348,16 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
           const inode = `${st.dev}:${st.ino}`;
           if (!prior) {
             result.added += 1;
-            pendingInserts.push({ relPath, sizeBytes, mtime: mtimeS, inode });
+            pendingInserts.push({ relPath, sizeBytes, mtime: mtimeS, inode, handler: handler.id, mediaType: handler.mediaType(extOf(name)) });
           } else if (
             prior.sizeBytes !== sizeBytes || prior.mtime !== mtimeS
             || prior.status === 'missing' || prior.status === 'archived'
             || (opts.reparseErrors === true && prior.status === 'error')
           ) {
             result.changed += 1;
-            pendingChanged.push({ id: prior.id, sizeBytes, mtime: mtimeS, inode });
+            pendingChanged.push({ id: prior.id, sizeBytes, mtime: mtimeS, inode, mediaType: missingMediaType(prior) });
           } else {
-            pendingUnchanged.push({ id: prior.id, inode });
+            pendingUnchanged.push({ id: prior.id, inode, mediaType: missingMediaType(prior) });
           }
         } else {
           const kind = sidecarKind(name);

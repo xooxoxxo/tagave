@@ -5,7 +5,7 @@ import { and, eq, inArray, count, desc, isNotNull, isNull, sql } from 'drizzle-o
 import {
   tagPlans,
   tagPlanItems,
-  audioFiles,
+  files,
   localAlbums,
   localTracks,
   libraries,
@@ -241,9 +241,9 @@ export async function planResults(
   let updating = status === 'applying';
   if (!updating) {
     const dirs = await db
-      .selectDistinct({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .selectDistinct({ scanRootId: files.scanRootId, relPath: files.relPath })
       .from(tagPlanItems)
-      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+      .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
       .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
     const rootIds = [...new Set(dirs.map((d) => d.scanRootId))];
     const dirPaths = [...new Set(dirs.map((d) => relDir(d.relPath)))];
@@ -275,9 +275,9 @@ async function queueReclusterOfWrittenDirs(
 ): Promise<void> {
   try {
     const rows = await db
-      .selectDistinct({ scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath })
+      .selectDistinct({ scanRootId: files.scanRootId, relPath: files.relPath })
       .from(tagPlanItems)
-      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+      .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
       .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
     const dirs = new Map<string, { scanRootId: string; dirPath: string }>();
     for (const r of rows) {
@@ -601,9 +601,9 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       // picks the tag family): the page names the ID3 version only when an
       // ID3 format (MP3, WAV, AIFF, DSF) is among them.
       const formatRows = await db
-        .selectDistinct({ ext: sql<string | null>`lower(substring(${audioFiles.relPath} from '\\.([^./]+)$'))` })
+        .selectDistinct({ ext: sql<string | null>`lower(substring(${files.relPath} from '\\.([^./]+)$'))` })
         .from(tagPlanItems)
-        .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+        .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
         .where(eq(tagPlanItems.tagPlanId, planId));
       const formats = formatRows.map((r) => r.ext).filter((e): e is string => !!e).sort();
 
@@ -692,15 +692,15 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
             id: tagPlanItems.id,
             planId: tagPlanItems.tagPlanId,
             audioFileId: tagPlanItems.audioFileId,
-            relPath: audioFiles.relPath,
+            relPath: files.relPath,
             status: tagPlanItems.status,
             error: tagPlanItems.error,
             diffs: tagPlanItems.diff,
           })
           .from(tagPlanItems)
-          .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
+          .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
           .where(where)
-          .orderBy(audioFiles.relPath)
+          .orderBy(files.relPath)
           .limit(limit)
           .offset(offset),
       ]);
@@ -943,13 +943,13 @@ export async function createTagPlansRoutes(fastify: FastifyInstance) {
       if (items.length > 0) {
         // Get all audio files to find their scan roots
         const audioFileIds = items.map((i) => i.audioFileId);
-        const files = await db
-          .select({ scanRootId: audioFiles.scanRootId })
-          .from(audioFiles)
-          .where(inArray(audioFiles.id, audioFileIds));
+        const planFiles = await db
+          .select({ scanRootId: files.scanRootId })
+          .from(files)
+          .where(inArray(files.id, audioFileIds));
 
         // Get unique scan root IDs
-        const scanRootIds = Array.from(new Set(files.map((f) => f.scanRootId)));
+        const scanRootIds = Array.from(new Set(planFiles.map((f) => f.scanRootId)));
 
         // Check that all scan roots are writable
         const roots = await db

@@ -1,0 +1,6105 @@
+{
+ "A first scan": {
+  "files": [
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "c89267c419cef74b4306b1593531e3525ccd0544",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album One (2001)/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "f88428a70f982aa9ae99b4dbc60e92a8265cd0f3",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "8f9f87ed562b300256a7803106e8f59037e06108",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album One (2001)/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "6e1764f90e95d0bd01231d9573f1bf463dd41da5",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "ac451e7886c09dc5b0affd0437b6e5b027ead755",
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album One (2001)/03 - Song 3.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "239",
+    "status": "present",
+    "tags_digest": "be2ecbdf8f0d08a7d0c77c950219b04b1f1de863",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 3",
+      "track": {
+       "no": 3,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 3"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "df7d1eaf003298d6165f24c0014ffad49923f5c0",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD1/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "ea7d1833f2d0a0c7a45cc629c20b60735381d58a",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 1,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "52ec7fcd709aae7ffcb30c63b0b7d695444191a3",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD1/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "a822fb981794cb175c9bc67fff503dd7176c0dba",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 1,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "13364ca11c32f6a4c3222fd980ea72a6e3aa8bff",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD2/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "f86e173c54241dfdd092abfea54cdeee74771213",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 2,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "40b8c4b3d4ae0cf7cb724df172ade3b208141a29",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD2/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "7ea2dbf93bcffc9d2ef2d6f95e78f935afa94e7d",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 2,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "11dea5f7eb51a22d72c070cf06eb89ed0c0c3ebd",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist B/Second/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist B/Second/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "211",
+    "status": "present",
+    "tags_digest": "eb405a72f4d438683d07376e82962f92f8d6b647",
+    "tags_raw": {
+     "common": {
+      "album": "Second",
+      "albumartist": "Artist B",
+      "albumartists": [
+       "Artist B"
+      ],
+      "artist": "Artist B",
+      "artists": [
+       "Artist B"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Second"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "b1f25ffd6f24f1c8abf9f3602d6422686f398511",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist B/Second/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist B/Second/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "212",
+    "status": "present",
+    "tags_digest": "8f4336812cf1b034862d79e5e6ee0acc34af6253",
+    "tags_raw": {
+     "common": {
+      "album": "Second",
+      "albumartist": "Artist B",
+      "albumartists": [
+       "Artist B"
+      ],
+      "artist": "Artist B",
+      "artists": [
+       "Artist B"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Second"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": null,
+    "channels": null,
+    "codec": null,
+    "container": null,
+    "core_tags_digest": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Broken/bad.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": null,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": "UnexpectedFileContentError: Invalid FLAC preamble",
+    "reconcile_hold_at": null,
+    "rel_path": "Broken/bad.flac",
+    "sample_rate": null,
+    "scan_root_id": "<root0>",
+    "size_bytes": "24",
+    "status": "error",
+    "tags_digest": null,
+    "tags_raw": null,
+    "tags_read_at": null
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": null,
+    "channels": null,
+    "codec": null,
+    "container": null,
+    "core_tags_digest": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Broken/empty.mp3",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": null,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Broken/empty.mp3",
+    "sample_rate": null,
+    "scan_root_id": "<root0>",
+    "size_bytes": "0",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "d4e3357f0b525e912772cb0ec8c9c58a32a2f26c",
+    "duration_ms": 90000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": true,
+    "id": "file:<root0>/Embedded/01 - Pic.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Embedded/01 - Pic.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "475",
+    "status": "present",
+    "tags_digest": "32a1aa58fd21f06bd7d4c00b90bde4703a29d965",
+    "tags_raw": {
+     "common": {
+      "album": "Embedded",
+      "albumartist": "Emb",
+      "albumartists": [
+       "Emb"
+      ],
+      "artist": "Emb",
+      "artists": [
+       "Emb"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Pic",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Pic"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Emb"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Embedded"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Emb"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": 128,
+    "channels": 1,
+    "codec": "PCM",
+    "container": "WAVE",
+    "core_tags_digest": null,
+    "duration_ms": 2000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/01 - Wave.wav",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/01 - Wave.wav",
+    "sample_rate": 8000,
+    "scan_root_id": "<root0>",
+    "size_bytes": "32044",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": 128,
+    "channels": 2,
+    "codec": "MPEG 1 Layer 3",
+    "container": "MPEG",
+    "core_tags_digest": "20d28d69fa6854ea75b5c1898b4fb1fb13d63241",
+    "duration_ms": 313,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/02 - Layer3.mp3",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": false,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/02 - Layer3.mp3",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "5075",
+    "status": "present",
+    "tags_digest": "f1268b803e858c729cb6b133e53ca4e58c81a1a6",
+    "tags_raw": {
+     "common": {
+      "album": "Formats",
+      "artist": "Fmt",
+      "artists": [
+       "Fmt"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Layer3",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "ID3v2.3": [
+       {
+        "id": "TIT2",
+        "value": "Layer3"
+       },
+       {
+        "id": "TPE1",
+        "value": "Fmt"
+       },
+       {
+        "id": "TALB",
+        "value": "Formats"
+       },
+       {
+        "id": "TRCK",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "7299039260f9554b88e777ae3c27548d69b14b08",
+    "duration_ms": 33000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/03 - Loud.FLAC",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/03 - Loud.FLAC",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "160",
+    "status": "present",
+    "tags_digest": "a9b91dc27e510ddee61092b14bdfffb82a0e26db",
+    "tags_raw": {
+     "common": {
+      "album": "Formats",
+      "albumartist": "Fmt",
+      "albumartists": [
+       "Fmt"
+      ],
+      "artist": "Fmt",
+      "artists": [
+       "Fmt"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Loud",
+      "track": {
+       "no": 3,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Loud"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Fmt"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Formats"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Fmt"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": null,
+    "duration_ms": 300000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Image/CDImage.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Image/CDImage.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "170",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": null,
+    "duration_ms": 42000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Loose/untagged.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Loose/untagged.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "148",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "a62ad1da9f1deb5e5a9245830a4a0ca98e79baf5",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Unicode/Café Tacvba/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "222",
+    "status": "present",
+    "tags_digest": "0ebd7894d1dcb3541a64d74e32096aa471703e5d",
+    "tags_raw": {
+     "common": {
+      "album": "Re",
+      "albumartist": "Café Tacvba",
+      "albumartists": [
+       "Café Tacvba"
+      ],
+      "artist": "Café Tacvba",
+      "artists": [
+       "Café Tacvba"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Re"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "fd85088531f035797aaa4bdaf682c64a4ca2e80a",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Unicode/Café Tacvba/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "223",
+    "status": "present",
+    "tags_digest": "3e86adc2d3c6ff7348c790ce6f5911833a557a22",
+    "tags_raw": {
+     "common": {
+      "album": "Re",
+      "albumartist": "Café Tacvba",
+      "albumartists": [
+       "Café Tacvba"
+      ],
+      "artist": "Café Tacvba",
+      "artists": [
+       "Café Tacvba"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Re"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "6ccc12b7a5ce724af5ca56c30319b7370d66a5cf",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Various/Comp/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "208",
+    "status": "present",
+    "tags_digest": "215bd0690a661967ce041296b8c28f1133413167",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "One",
+      "artists": [
+       "One"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "One"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "6c670490679321032a1721a25b3f81962d500e04",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Various/Comp/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "209",
+    "status": "present",
+    "tags_digest": "a6a8954475794678c21fda9d80910cfce6c966e5",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "Two",
+      "artists": [
+       "Two"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Two"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "cd53c79548874cea3b95c45cdde2acce3ac54f9b",
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/03 - Song 3.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Various/Comp/03 - Song 3.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "212",
+    "status": "present",
+    "tags_digest": "fc9d3c60951deb3091bd52ea223c8ad8fd925b33",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "Three",
+      "artists": [
+       "Three"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 3",
+      "track": {
+       "no": 3,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 3"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Three"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "bfdde4cdcbc9010f6c8c630344aa91efded05c36",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root1>/Other/Album/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Other/Album/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "200",
+    "status": "present",
+    "tags_digest": "2b45f4363aa630410e47b569610df5b0e3633be2",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "Other",
+      "albumartists": [
+       "Other"
+      ],
+      "artist": "Other",
+      "artists": [
+       "Other"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "f04005d2b489018d425cc786d309bfeb47edc48f",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root1>/Other/Album/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Other/Album/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "201",
+    "status": "present",
+    "tags_digest": "e5e1af9b92195dd02ec410df212bd3336a33e742",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "Other",
+      "albumartists": [
+       "Other"
+      ],
+      "artist": "Other",
+      "artists": [
+       "Other"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   }
+  ],
+  "sidecars": [
+   {
+    "id": "sidecar:<root0>/Artist A/Album One (2001)/folder.jpg",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist A/Album One (2001)/folder.jpg",
+    "scan_root_id": "<root0>",
+    "size_bytes": "269"
+   },
+   {
+    "id": "sidecar:<root0>/Artist A/Album One (2001)/rip.log",
+    "kind": "log",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist A/Album One (2001)/rip.log",
+    "scan_root_id": "<root0>",
+    "size_bytes": "8"
+   },
+   {
+    "id": "sidecar:<root0>/Artist A/Album Two/cover.png",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist A/Album Two/cover.png",
+    "scan_root_id": "<root0>",
+    "size_bytes": "110"
+   },
+   {
+    "id": "sidecar:<root0>/Artist B/Second/front.jpg",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist B/Second/front.jpg",
+    "scan_root_id": "<root0>",
+    "size_bytes": "269"
+   },
+   {
+    "id": "sidecar:<root0>/Artist B/Second/list.m3u",
+    "kind": "other",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist B/Second/list.m3u",
+    "scan_root_id": "<root0>",
+    "size_bytes": "17"
+   },
+   {
+    "id": "sidecar:<root0>/Books/booklet.pdf",
+    "kind": "other",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Books/booklet.pdf",
+    "scan_root_id": "<root0>",
+    "size_bytes": "8"
+   },
+   {
+    "id": "sidecar:<root0>/Image/CDImage.cue",
+    "kind": "cue",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Image/CDImage.cue",
+    "scan_root_id": "<root0>",
+    "size_bytes": "230"
+   },
+   {
+    "id": "sidecar:<root0>/Loose/info.nfo",
+    "kind": "text",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Loose/info.nfo",
+    "scan_root_id": "<root0>",
+    "size_bytes": "4"
+   },
+   {
+    "id": "sidecar:<root0>/Loose/notes.txt",
+    "kind": "text",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Loose/notes.txt",
+    "scan_root_id": "<root0>",
+    "size_bytes": "6"
+   }
+  ],
+  "albums": [
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist A",
+    "cluster_key": "08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Artist A/Album One (2001)"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album One",
+    "total_duration_ms": 186000,
+    "track_count": 3,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": 2001
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist A",
+    "cluster_key": "b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Artist A/Album Two/CD1",
+     "Artist A/Album Two/CD2"
+    ],
+    "disc_count": 2,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album Two",
+    "total_duration_ms": 246000,
+    "track_count": 4,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist B",
+    "cluster_key": "9910007b1ac597157eea3b6288eb5875cb29c336",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Artist B/Second"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Second",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Emb",
+    "cluster_key": "789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Embedded"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Embedded",
+    "total_duration_ms": 90000,
+    "track_count": 1,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Fmt",
+    "cluster_key": "54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Formats"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac",
+     "mp3"
+    ],
+    "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Formats",
+    "total_duration_ms": 33313,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Cue Artist",
+    "cluster_key": "24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Image"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Cue Album",
+    "total_duration_ms": 300000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Other",
+    "cluster_key": "e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Other/Album"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Café Tacvba",
+    "cluster_key": "0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Unicode/Café Tacvba"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Re",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Various Artists",
+    "cluster_key": "e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Various/Comp"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Comp",
+    "total_duration_ms": 186000,
+    "track_count": 3,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   }
+  ],
+  "tracks": [
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 3",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 1,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 1,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 2,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 2,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist B",
+    "audio_file_id": "file:<root0>/Artist B/Second/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist B/Second/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist B",
+    "audio_file_id": "file:<root0>/Artist B/Second/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist B/Second/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Broken/bad.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Broken/bad.flac@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "bad",
+    "track_no": null
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Broken/empty.mp3",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Broken/empty.mp3@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "empty",
+    "track_no": null
+   },
+   {
+    "artist_guess": "Emb",
+    "audio_file_id": "file:<root0>/Embedded/01 - Pic.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 90000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Embedded/01 - Pic.flac@-",
+    "local_album_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Pic",
+    "track_no": 1
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Formats/01 - Wave.wav",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 2000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Wave",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Fmt",
+    "audio_file_id": "file:<root0>/Formats/02 - Layer3.mp3",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 313,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/02 - Layer3.mp3@-",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Layer3",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Fmt",
+    "audio_file_id": "file:<root0>/Formats/03 - Loud.FLAC",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 33000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/03 - Loud.FLAC@-",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Loud",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Cue Artist",
+    "audio_file_id": "file:<root0>/Image/CDImage.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": "Image/CDImage.cue",
+    "cue_start_ms": 0,
+    "disc_no": null,
+    "duration_ms": 120000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Image/CDImage.flac@0",
+    "local_album_id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "match_distance": null,
+    "origin": "cue",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "One",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Cue Artist",
+    "audio_file_id": "file:<root0>/Image/CDImage.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": "Image/CDImage.cue",
+    "cue_start_ms": 120000,
+    "disc_no": null,
+    "duration_ms": 180000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Image/CDImage.flac@120000",
+    "local_album_id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "match_distance": null,
+    "origin": "cue",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Two",
+    "track_no": 2
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Loose/untagged.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 42000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Loose/untagged.flac@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "untagged",
+    "track_no": null
+   },
+   {
+    "artist_guess": "Café Tacvba",
+    "audio_file_id": "file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac@-",
+    "local_album_id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Café Tacvba",
+    "audio_file_id": "file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac@-",
+    "local_album_id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "One",
+    "audio_file_id": "file:<root0>/Various/Comp/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/01 - Song 1.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Two",
+    "audio_file_id": "file:<root0>/Various/Comp/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/02 - Song 2.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Three",
+    "audio_file_id": "file:<root0>/Various/Comp/03 - Song 3.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/03 - Song 3.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 3",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Other",
+    "audio_file_id": "file:<root1>/Other/Album/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root1>/Other/Album/01 - Song 1.flac@-",
+    "local_album_id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Other",
+    "audio_file_id": "file:<root1>/Other/Album/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root1>/Other/Album/02 - Song 2.flac@-",
+    "local_album_id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   }
+  ],
+  "images": [
+   {
+    "audio_file_id": null,
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "sidecar file in owned folder",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "local_path": "<cache>/covers/<library>/album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2.jpg",
+    "origin": "sidecar",
+    "sidecar_file_id": "sidecar:<root0>/Artist A/Album One (2001)/folder.jpg",
+    "thumb_bytes": null,
+    "width": 16
+   },
+   {
+    "audio_file_id": null,
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "sidecar file in owned folder",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "local_path": "<cache>/covers/<library>/album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336.jpg",
+    "origin": "sidecar",
+    "sidecar_file_id": "sidecar:<root0>/Artist B/Second/front.jpg",
+    "thumb_bytes": null,
+    "width": 16
+   },
+   {
+    "audio_file_id": "file:<root0>/Embedded/01 - Pic.flac",
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "embedded in owned file",
+    "local_album_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "local_path": "<cache>/covers/<library>/album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee.jpg",
+    "origin": "embedded",
+    "sidecar_file_id": null,
+    "thumb_bytes": null,
+    "width": 16
+   }
+  ],
+  "scans": [
+   {
+    "scan_root_id": "<root0>",
+    "stats": {
+     "added": 22,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 19,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 22,
+     "formats": {
+      "flac": 19,
+      "mp3": 2,
+      "wav": 1
+     },
+     "heldMissing": null,
+     "merged": 0,
+     "missing": 0,
+     "mode": "full",
+     "moves": [],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 9
+    },
+    "status": "completed"
+   },
+   {
+    "scan_root_id": "<root1>",
+    "stats": {
+     "added": 2,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 3,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 2,
+     "formats": {
+      "flac": 2
+     },
+     "heldMissing": null,
+     "merged": 0,
+     "missing": 0,
+     "mode": "full",
+     "moves": [],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 0
+    },
+    "status": "completed"
+   }
+  ],
+  "unpumpedJobs": [
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+  ]
+ },
+ "B after moves": {
+  "files": [
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "c89267c419cef74b4306b1593531e3525ccd0544",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Moved/Album One (2001)/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "f88428a70f982aa9ae99b4dbc60e92a8265cd0f3",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "8f9f87ed562b300256a7803106e8f59037e06108",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Moved/Album One (2001)/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "6e1764f90e95d0bd01231d9573f1bf463dd41da5",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "ac451e7886c09dc5b0affd0437b6e5b027ead755",
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Moved/Album One (2001)/03 - Song 3.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "239",
+    "status": "present",
+    "tags_digest": "be2ecbdf8f0d08a7d0c77c950219b04b1f1de863",
+    "tags_raw": {
+     "common": {
+      "album": "Album One",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "date": "2001",
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 3",
+      "track": {
+       "no": 3,
+       "of": null
+      },
+      "year": 2001
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 3"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album One"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       },
+       {
+        "id": "DATE",
+        "value": "2001"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "df7d1eaf003298d6165f24c0014ffad49923f5c0",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD1/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "ea7d1833f2d0a0c7a45cc629c20b60735381d58a",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 1,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "52ec7fcd709aae7ffcb30c63b0b7d695444191a3",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD1/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "a822fb981794cb175c9bc67fff503dd7176c0dba",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 1,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "13364ca11c32f6a4c3222fd980ea72a6e3aa8bff",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD2/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "237",
+    "status": "present",
+    "tags_digest": "f86e173c54241dfdd092abfea54cdeee74771213",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 2,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "40b8c4b3d4ae0cf7cb724df172ade3b208141a29",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist A/Album Two/CD2/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "238",
+    "status": "present",
+    "tags_digest": "7ea2dbf93bcffc9d2ef2d6f95e78f935afa94e7d",
+    "tags_raw": {
+     "common": {
+      "album": "Album Two",
+      "albumartist": "Artist A",
+      "albumartists": [
+       "Artist A"
+      ],
+      "artist": "Artist A",
+      "artists": [
+       "Artist A"
+      ],
+      "disk": {
+       "no": 2,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album Two"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist A"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       },
+       {
+        "id": "DISCNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "11dea5f7eb51a22d72c070cf06eb89ed0c0c3ebd",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist B/Second/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist B/Second/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "211",
+    "status": "present",
+    "tags_digest": "eb405a72f4d438683d07376e82962f92f8d6b647",
+    "tags_raw": {
+     "common": {
+      "album": "Second",
+      "albumartist": "Artist B",
+      "albumartists": [
+       "Artist B"
+      ],
+      "artist": "Artist B",
+      "artists": [
+       "Artist B"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Second"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "b1f25ffd6f24f1c8abf9f3602d6422686f398511",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Artist B/Second/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Artist B/Second/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "212",
+    "status": "present",
+    "tags_digest": "8f4336812cf1b034862d79e5e6ee0acc34af6253",
+    "tags_raw": {
+     "common": {
+      "album": "Second",
+      "albumartist": "Artist B",
+      "albumartists": [
+       "Artist B"
+      ],
+      "artist": "Artist B",
+      "artists": [
+       "Artist B"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Second"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Artist B"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": null,
+    "channels": null,
+    "codec": null,
+    "container": null,
+    "core_tags_digest": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Broken/bad.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": null,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": "UnexpectedFileContentError: Invalid FLAC preamble",
+    "reconcile_hold_at": null,
+    "rel_path": "Broken/bad.flac",
+    "sample_rate": null,
+    "scan_root_id": "<root0>",
+    "size_bytes": "24",
+    "status": "error",
+    "tags_digest": null,
+    "tags_raw": null,
+    "tags_read_at": null
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": null,
+    "channels": null,
+    "codec": null,
+    "container": null,
+    "core_tags_digest": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Broken/empty.mp3",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": null,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Broken/empty.mp3",
+    "sample_rate": null,
+    "scan_root_id": "<root0>",
+    "size_bytes": "0",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "c1137bab8ec21ef1534a1ba10c164279ff0bded6",
+    "duration_ms": 90000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": true,
+    "id": "file:<root0>/Embedded/01 - Pic.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760100000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Embedded/01 - Pic.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "486",
+    "status": "present",
+    "tags_digest": "001c043aaa55b024c1fe83d6cc80badaed4da901",
+    "tags_raw": {
+     "common": {
+      "album": "Embedded",
+      "albumartist": "Emb",
+      "albumartists": [
+       "Emb"
+      ],
+      "artist": "Emb",
+      "artists": [
+       "Emb"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Pic (retagged)",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Pic (retagged)"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Emb"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Embedded"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Emb"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": 128,
+    "channels": 1,
+    "codec": "PCM",
+    "container": "WAVE",
+    "core_tags_digest": null,
+    "duration_ms": 2000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/01 - Wave.wav",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/01 - Wave.wav",
+    "sample_rate": 8000,
+    "scan_root_id": "<root0>",
+    "size_bytes": "32044",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": null,
+    "bitrate_kbps": 128,
+    "channels": 2,
+    "codec": "MPEG 1 Layer 3",
+    "container": "MPEG",
+    "core_tags_digest": "20d28d69fa6854ea75b5c1898b4fb1fb13d63241",
+    "duration_ms": 313,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/02 - Layer3.mp3",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": false,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/02 - Layer3.mp3",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "5075",
+    "status": "present",
+    "tags_digest": "f1268b803e858c729cb6b133e53ca4e58c81a1a6",
+    "tags_raw": {
+     "common": {
+      "album": "Formats",
+      "artist": "Fmt",
+      "artists": [
+       "Fmt"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Layer3",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "ID3v2.3": [
+       {
+        "id": "TIT2",
+        "value": "Layer3"
+       },
+       {
+        "id": "TPE1",
+        "value": "Fmt"
+       },
+       {
+        "id": "TALB",
+        "value": "Formats"
+       },
+       {
+        "id": "TRCK",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "7299039260f9554b88e777ae3c27548d69b14b08",
+    "duration_ms": 33000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Formats/03 - Loud.FLAC",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Formats/03 - Loud.FLAC",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "160",
+    "status": "present",
+    "tags_digest": "a9b91dc27e510ddee61092b14bdfffb82a0e26db",
+    "tags_raw": {
+     "common": {
+      "album": "Formats",
+      "albumartist": "Fmt",
+      "albumartists": [
+       "Fmt"
+      ],
+      "artist": "Fmt",
+      "artists": [
+       "Fmt"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Loud",
+      "track": {
+       "no": 3,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Loud"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Fmt"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Formats"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Fmt"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": null,
+    "duration_ms": 300000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Image/CDImage.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Image/CDImage.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "170",
+    "status": "present",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": null,
+    "duration_ms": 42000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Loose/untagged.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Loose/untagged.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "148",
+    "status": "missing",
+    "tags_digest": "df29ad8a4381abbe8c0cde2db37cf93dbc2182b9",
+    "tags_raw": {
+     "common": {
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "track": {
+       "no": null,
+       "of": null
+      }
+     },
+     "native": {}
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "fb7e0c2b78000e80397f25dfb3dd354e4e4cfa0f",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/New/Album/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "New/Album/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "194",
+    "status": "present",
+    "tags_digest": "08ea2f4ebb4dcaa27749ad22c81d4ba3a844ed3d",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "New",
+      "albumartists": [
+       "New"
+      ],
+      "artist": "New",
+      "artists": [
+       "New"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "New"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "New"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "2aaa95feabe7c08cd00f17eddae90af1944495be",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/New/Album/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "New/Album/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "195",
+    "status": "present",
+    "tags_digest": "390dcdcd8eceadb60d005f1c665a72b1e38af0d8",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "New",
+      "albumartists": [
+       "New"
+      ],
+      "artist": "New",
+      "artists": [
+       "New"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "New"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "New"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "a62ad1da9f1deb5e5a9245830a4a0ca98e79baf5",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Unicode/Café Tacvba/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "222",
+    "status": "present",
+    "tags_digest": "0ebd7894d1dcb3541a64d74e32096aa471703e5d",
+    "tags_raw": {
+     "common": {
+      "album": "Re",
+      "albumartist": "Café Tacvba",
+      "albumartists": [
+       "Café Tacvba"
+      ],
+      "artist": "Café Tacvba",
+      "artists": [
+       "Café Tacvba"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Re"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "fd85088531f035797aaa4bdaf682c64a4ca2e80a",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Unicode/Café Tacvba/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "223",
+    "status": "present",
+    "tags_digest": "3e86adc2d3c6ff7348c790ce6f5911833a557a22",
+    "tags_raw": {
+     "common": {
+      "album": "Re",
+      "albumartist": "Café Tacvba",
+      "albumartists": [
+       "Café Tacvba"
+      ],
+      "artist": "Café Tacvba",
+      "artists": [
+       "Café Tacvba"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Re"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Café Tacvba"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "6ccc12b7a5ce724af5ca56c30319b7370d66a5cf",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760100000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Copies/Comp/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "208",
+    "status": "present",
+    "tags_digest": "215bd0690a661967ce041296b8c28f1133413167",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "One",
+      "artists": [
+       "One"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "One"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "6c670490679321032a1721a25b3f81962d500e04",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760100000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Copies/Comp/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "209",
+    "status": "present",
+    "tags_digest": "a6a8954475794678c21fda9d80910cfce6c966e5",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "Two",
+      "artists": [
+       "Two"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Two"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "cd53c79548874cea3b95c45cdde2acce3ac54f9b",
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root0>/Various/Comp/03 - Song 3.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760100000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Copies/Comp/03 - Song 3.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root0>",
+    "size_bytes": "212",
+    "status": "present",
+    "tags_digest": "fc9d3c60951deb3091bd52ea223c8ad8fd925b33",
+    "tags_raw": {
+     "common": {
+      "album": "Comp",
+      "albumartist": "Various Artists",
+      "albumartists": [
+       "Various Artists"
+      ],
+      "artist": "Three",
+      "artists": [
+       "Three"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 3",
+      "track": {
+       "no": 3,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 3"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Three"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Comp"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Various Artists"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "3"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "bfdde4cdcbc9010f6c8c630344aa91efded05c36",
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root1>/Other/Album/01 - Song 1.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Other/Album/01 - Song 1.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "200",
+    "status": "present",
+    "tags_digest": "2b45f4363aa630410e47b569610df5b0e3633be2",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "Other",
+      "albumartists": [
+       "Other"
+      ],
+      "artist": "Other",
+      "artists": [
+       "Other"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 1",
+      "track": {
+       "no": 1,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 1"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "1"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   },
+   {
+    "audio_hash": null,
+    "audio_hash_at": null,
+    "bit_depth": 16,
+    "bitrate_kbps": null,
+    "channels": 2,
+    "codec": "FLAC",
+    "container": "FLAC",
+    "core_tags_digest": "f04005d2b489018d425cc786d309bfeb47edc48f",
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "first_seen_at": "<time>",
+    "has_embedded_art": false,
+    "id": "file:<root1>/Other/Album/02 - Song 2.flac",
+    "inode": "<dev:ino>",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "lossless": true,
+    "missing_held_at": null,
+    "mtime": "1760000000",
+    "parse_error": null,
+    "reconcile_hold_at": null,
+    "rel_path": "Other/Album/02 - Song 2.flac",
+    "sample_rate": 44100,
+    "scan_root_id": "<root1>",
+    "size_bytes": "201",
+    "status": "present",
+    "tags_digest": "e5e1af9b92195dd02ec410df212bd3336a33e742",
+    "tags_raw": {
+     "common": {
+      "album": "Album",
+      "albumartist": "Other",
+      "albumartists": [
+       "Other"
+      ],
+      "artist": "Other",
+      "artists": [
+       "Other"
+      ],
+      "disk": {
+       "no": null,
+       "of": null
+      },
+      "movementIndex": {
+       "no": null,
+       "of": null
+      },
+      "title": "Song 2",
+      "track": {
+       "no": 2,
+       "of": null
+      }
+     },
+     "native": {
+      "vorbis": [
+       {
+        "id": "TITLE",
+        "value": "Song 2"
+       },
+       {
+        "id": "ARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "ALBUM",
+        "value": "Album"
+       },
+       {
+        "id": "ALBUMARTIST",
+        "value": "Other"
+       },
+       {
+        "id": "TRACKNUMBER",
+        "value": "2"
+       }
+      ]
+     }
+    },
+    "tags_read_at": "<time>"
+   }
+  ],
+  "sidecars": [
+   {
+    "id": "sidecar:<root0>/Artist A/Album Two/cover.png",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist A/Album Two/cover.png",
+    "scan_root_id": "<root0>",
+    "size_bytes": "110"
+   },
+   {
+    "id": "sidecar:<root0>/Books/booklet.pdf",
+    "kind": "other",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Books/booklet.pdf",
+    "scan_root_id": "<root0>",
+    "size_bytes": "8"
+   },
+   {
+    "id": "sidecar:<root0>/Image/CDImage.cue",
+    "kind": "cue",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Image/CDImage.cue",
+    "scan_root_id": "<root0>",
+    "size_bytes": "230"
+   },
+   {
+    "id": "sidecar:<root0>/Loose/info.nfo",
+    "kind": "text",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Loose/info.nfo",
+    "scan_root_id": "<root0>",
+    "size_bytes": "4"
+   },
+   {
+    "id": "sidecar:<root0>/Loose/notes.txt",
+    "kind": "text",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Loose/notes.txt",
+    "scan_root_id": "<root0>",
+    "size_bytes": "6"
+   },
+   {
+    "id": "sidecar:<root0>/Moved/Album One (2001)/folder.jpg",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Moved/Album One (2001)/folder.jpg",
+    "scan_root_id": "<root0>",
+    "size_bytes": "269"
+   },
+   {
+    "id": "sidecar:<root0>/Moved/Album One (2001)/rip.log",
+    "kind": "log",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Moved/Album One (2001)/rip.log",
+    "scan_root_id": "<root0>",
+    "size_bytes": "8"
+   },
+   {
+    "id": "sidecar:<root1>/Artist B/Second/front.jpg",
+    "kind": "image",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist B/Second/front.jpg",
+    "scan_root_id": "<root1>",
+    "size_bytes": "269"
+   },
+   {
+    "id": "sidecar:<root1>/Artist B/Second/list.m3u",
+    "kind": "other",
+    "last_seen_at": "<time>",
+    "library_id": "<library>",
+    "mtime": "1760000000",
+    "rel_path": "Artist B/Second/list.m3u",
+    "scan_root_id": "<root1>",
+    "size_bytes": "17"
+   }
+  ],
+  "albums": [
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist A",
+    "cluster_key": "d30e287272613458eccde445ea59768c1d94c8f4",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Moved/Album One (2001)"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album One",
+    "total_duration_ms": 186000,
+    "track_count": 3,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": 2001
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist A",
+    "cluster_key": "b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Artist A/Album Two/CD1",
+     "Artist A/Album Two/CD2"
+    ],
+    "disc_count": 2,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album Two",
+    "total_duration_ms": 246000,
+    "track_count": 4,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Artist B",
+    "cluster_key": "9910007b1ac597157eea3b6288eb5875cb29c336",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Artist B/Second"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Second",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Emb",
+    "cluster_key": "789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Embedded"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Embedded",
+    "total_duration_ms": 90000,
+    "track_count": 1,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Fmt",
+    "cluster_key": "54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Formats"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac",
+     "mp3"
+    ],
+    "id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Formats",
+    "total_duration_ms": 33313,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Cue Artist",
+    "cluster_key": "24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Image"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Cue Album",
+    "total_duration_ms": 300000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "New",
+    "cluster_key": "ae97ce1a41b2bb1c1a986c40a92cf86e8bc78ed4",
+    "created_at": "<time>",
+    "dir_paths": [
+     "New/Album"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:New/Album:ae97ce1a41b2bb1c1a986c40a92cf86e8bc78ed4",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Other",
+    "cluster_key": "e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Other/Album"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Album",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Café Tacvba",
+    "cluster_key": "0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Unicode/Café Tacvba"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Re",
+    "total_duration_ms": 123000,
+    "track_count": 2,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   },
+   {
+    "acoustid_result": null,
+    "artist_guess": "Various Artists",
+    "cluster_key": "3f211b482157e44122a7e3bc42aea07429328e11",
+    "created_at": "<time>",
+    "dir_paths": [
+     "Copies/Comp"
+    ],
+    "disc_count": 1,
+    "embedded_mbid": null,
+    "fingerprinted_at": null,
+    "formats": [
+     "flac"
+    ],
+    "id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "identified_at": null,
+    "identify_attempts": 0,
+    "identify_reason": null,
+    "last_identify_at": null,
+    "library_id": "<library>",
+    "merged_from": null,
+    "preferred": false,
+    "quality_flags": [],
+    "release_group_id": null,
+    "release_id": null,
+    "state": "pending",
+    "title_guess": "Comp",
+    "total_duration_ms": 186000,
+    "track_count": 3,
+    "tracks_linked_at": null,
+    "updated_at": "<time>",
+    "year_guess": null
+   }
+  ],
+  "tracks": [
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album One (2001)/03 - Song 3.flac@-",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 3",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 1,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD1/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 1,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD1/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 2,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD2/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist A",
+    "audio_file_id": "file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": 2,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist A/Album Two/CD2/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist A/Album Two/CD1|Artist A/Album Two/CD2:b9ef43d5bf39d6e42e469d19defee5fc0a06b73d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Artist B",
+    "audio_file_id": "file:<root0>/Artist B/Second/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist B/Second/01 - Song 1.flac@-",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Artist B",
+    "audio_file_id": "file:<root0>/Artist B/Second/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Artist B/Second/02 - Song 2.flac@-",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Broken/bad.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Broken/bad.flac@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "bad",
+    "track_no": null
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Broken/empty.mp3",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": null,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Broken/empty.mp3@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "empty",
+    "track_no": null
+   },
+   {
+    "artist_guess": "Emb",
+    "audio_file_id": "file:<root0>/Embedded/01 - Pic.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 90000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Embedded/01 - Pic.flac@-",
+    "local_album_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Pic (retagged)",
+    "track_no": 1
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Formats/01 - Wave.wav",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 2000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/01 - Wave.wav@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Wave",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Fmt",
+    "audio_file_id": "file:<root0>/Formats/02 - Layer3.mp3",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 313,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/02 - Layer3.mp3@-",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Layer3",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Fmt",
+    "audio_file_id": "file:<root0>/Formats/03 - Loud.FLAC",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 33000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Formats/03 - Loud.FLAC@-",
+    "local_album_id": "album:Formats:54619f9b0f3f40f57c5c3154a5787aa74c27f882",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Loud",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Cue Artist",
+    "audio_file_id": "file:<root0>/Image/CDImage.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": "Image/CDImage.cue",
+    "cue_start_ms": 0,
+    "disc_no": null,
+    "duration_ms": 120000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Image/CDImage.flac@0",
+    "local_album_id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "match_distance": null,
+    "origin": "cue",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "One",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Cue Artist",
+    "audio_file_id": "file:<root0>/Image/CDImage.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": "Image/CDImage.cue",
+    "cue_start_ms": 120000,
+    "disc_no": null,
+    "duration_ms": 180000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Image/CDImage.flac@120000",
+    "local_album_id": "album:Image:24622097b1fd618b9ff870845eaaa442ddb5fd9b",
+    "match_distance": null,
+    "origin": "cue",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Two",
+    "track_no": 2
+   },
+   {
+    "artist_guess": null,
+    "audio_file_id": "file:<root0>/Loose/untagged.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 42000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Loose/untagged.flac@-",
+    "local_album_id": null,
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "untagged",
+    "track_no": null
+   },
+   {
+    "artist_guess": "New",
+    "audio_file_id": "file:<root0>/New/Album/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/New/Album/01 - Song 1.flac@-",
+    "local_album_id": "album:New/Album:ae97ce1a41b2bb1c1a986c40a92cf86e8bc78ed4",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "New",
+    "audio_file_id": "file:<root0>/New/Album/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/New/Album/02 - Song 2.flac@-",
+    "local_album_id": "album:New/Album:ae97ce1a41b2bb1c1a986c40a92cf86e8bc78ed4",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Café Tacvba",
+    "audio_file_id": "file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Unicode/Café Tacvba/01 - Song 1.flac@-",
+    "local_album_id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Café Tacvba",
+    "audio_file_id": "file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Unicode/Café Tacvba/02 - Song 2.flac@-",
+    "local_album_id": "album:Unicode/Café Tacvba:0715c9f2776b3833e8e6029001ad1f8477c47469",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "One",
+    "audio_file_id": "file:<root0>/Various/Comp/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/01 - Song 1.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Two",
+    "audio_file_id": "file:<root0>/Various/Comp/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/02 - Song 2.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   },
+   {
+    "artist_guess": "Three",
+    "audio_file_id": "file:<root0>/Various/Comp/03 - Song 3.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 63000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root0>/Various/Comp/03 - Song 3.flac@-",
+    "local_album_id": "album:Various/Comp:e3198153c139205ced4b69f4dd39b1ceb77b439d",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 3",
+    "track_no": 3
+   },
+   {
+    "artist_guess": "Other",
+    "audio_file_id": "file:<root1>/Other/Album/01 - Song 1.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 61000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root1>/Other/Album/01 - Song 1.flac@-",
+    "local_album_id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 1",
+    "track_no": 1
+   },
+   {
+    "artist_guess": "Other",
+    "audio_file_id": "file:<root1>/Other/Album/02 - Song 2.flac",
+    "canonical_track_id": null,
+    "cue_rel_path": null,
+    "cue_start_ms": null,
+    "disc_no": null,
+    "duration_ms": 62000,
+    "fingerprint": null,
+    "fingerprint_duration": null,
+    "fingerprint_error": null,
+    "fingerprinted_at": null,
+    "id": "track:file:<root1>/Other/Album/02 - Song 2.flac@-",
+    "local_album_id": "album:Other/Album:e58c98d4524b8ec77a408b6867c15d2eb30ded58",
+    "match_distance": null,
+    "origin": "file",
+    "recording_id": null,
+    "state": "unmatched",
+    "title_guess": "Song 2",
+    "track_no": 2
+   }
+  ],
+  "images": [
+   {
+    "audio_file_id": null,
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "sidecar file in owned folder",
+    "local_album_id": "album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2",
+    "local_path": "<cache>/covers/<library>/album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2.jpg",
+    "origin": "sidecar",
+    "sidecar_file_id": "sidecar:<root0>/Moved/Album One (2001)/folder.jpg",
+    "thumb_bytes": null,
+    "width": 16
+   },
+   {
+    "audio_file_id": null,
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "sidecar file in owned folder",
+    "local_album_id": "album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336",
+    "local_path": "<cache>/covers/<library>/album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336.jpg",
+    "origin": "sidecar",
+    "sidecar_file_id": "sidecar:<root1>/Artist B/Second/front.jpg",
+    "thumb_bytes": null,
+    "width": 16
+   },
+   {
+    "audio_file_id": "file:<root0>/Embedded/01 - Pic.flac",
+    "bytes": null,
+    "created_at": "<time>",
+    "entity_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "entity_type": "local_album",
+    "fetched_at": "<time>",
+    "height": 16,
+    "id": "image:album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee:front",
+    "image_source_id": null,
+    "kind": "front",
+    "library_id": "<library>",
+    "license_note": "embedded in owned file",
+    "local_album_id": "album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee",
+    "local_path": "<cache>/covers/<library>/album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee.jpg",
+    "origin": "embedded",
+    "sidecar_file_id": null,
+    "thumb_bytes": null,
+    "width": 16
+   }
+  ],
+  "scans": [
+   {
+    "scan_root_id": "<root0>",
+    "stats": {
+     "added": 22,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 19,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 22,
+     "formats": {
+      "flac": 19,
+      "mp3": 2,
+      "wav": 1
+     },
+     "heldMissing": null,
+     "merged": 0,
+     "missing": 0,
+     "mode": "full",
+     "moves": [],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 9
+    },
+    "status": "completed"
+   },
+   {
+    "scan_root_id": "<root1>",
+    "stats": {
+     "added": 2,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 3,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 2,
+     "formats": {
+      "flac": 2
+     },
+     "heldMissing": null,
+     "merged": 0,
+     "missing": 0,
+     "mode": "full",
+     "moves": [],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 0
+    },
+    "status": "completed"
+   },
+   {
+    "scan_root_id": "<root0>",
+    "stats": {
+     "added": 5,
+     "changed": 1,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 21,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 21,
+     "formats": {
+      "flac": 18,
+      "mp3": 2,
+      "wav": 1
+     },
+     "heldMissing": null,
+     "merged": 3,
+     "missing": 6,
+     "mode": "full",
+     "moves": [
+      {
+       "files": 3,
+       "fromDir": "Artist A/Album One (2001)",
+       "fromRootId": "<root0>",
+       "toDir": "Moved/Album One (2001)",
+       "toRootId": "<root0>"
+      }
+     ],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 7
+    },
+    "status": "completed"
+   },
+   {
+    "scan_root_id": "<root1>",
+    "stats": {
+     "added": 0,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 5,
+     "dirsSkipped": 0,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 4,
+     "formats": {
+      "flac": 4
+     },
+     "heldMissing": null,
+     "merged": 2,
+     "missing": 0,
+     "mode": "full",
+     "moves": [
+      {
+       "files": 2,
+       "fromDir": "Artist B/Second",
+       "fromRootId": "<root0>",
+       "toDir": "Artist B/Second",
+       "toRootId": "<root1>"
+      }
+     ],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 2
+    },
+    "status": "completed"
+   },
+   {
+    "scan_root_id": "<root0>",
+    "stats": {
+     "added": 0,
+     "changed": 0,
+     "confirmedAfterHold": 0,
+     "dirsSeen": 21,
+     "dirsSkipped": 21,
+     "errored": 0,
+     "failedDirs": [],
+     "filesSeen": 21,
+     "formats": {
+      "flac": 18,
+      "mp3": 2,
+      "wav": 1
+     },
+     "heldMissing": null,
+     "merged": 0,
+     "missing": 0,
+     "mode": "quick",
+     "moves": [],
+     "possibleMoves": 0,
+     "reconcileSkipped": null,
+     "sidecars": 7
+    },
+    "status": "completed"
+   }
+  ],
+  "unpumpedJobs": [
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+  ]
+ }
+}

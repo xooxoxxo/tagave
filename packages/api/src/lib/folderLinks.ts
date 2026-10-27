@@ -59,7 +59,7 @@ export async function albumFolders(db: any, albumId: string, dirPaths: readonly 
   const rows = (await db.execute(sql`
     select distinct af.scan_root_id::text as scan_root_id,
            case when position('/' in af.rel_path) > 0 then regexp_replace(af.rel_path, '/[^/]*$', '') else '' end as dir
-      from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+      from local_tracks lt join files af on af.id = lt.audio_file_id
      where lt.local_album_id = ${albumId}`)) as unknown as Array<{ scan_root_id: string; dir: string }>;
   return albumFoldersView(dirPaths, rows.map((r) => ({ dir: r.dir, scanRootId: r.scan_root_id })), folderLinksOf(rawSettings));
 }

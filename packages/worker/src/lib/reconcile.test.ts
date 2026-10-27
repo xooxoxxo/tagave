@@ -30,7 +30,7 @@ const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } =
 const t0 = new Date('2026-01-01T00:00:00Z');
 const t1 = new Date('2026-01-02T00:00:00Z');
 const file = (id: string, relPath: string, sizeBytes: number, seen: Date): MatchFile => ({
-  id, scanRootId: 'r', relPath, sizeBytes, mtime: 100, inode: null, durationMs: null, coreTagsDigest: null,
+  id, scanRootId: 'r', relPath, handler: 'audio', sizeBytes, mtime: 100, inode: null, durationMs: null, coreTagsDigest: null,
   audioHash: null, trackNo: null, discNo: null, firstSeenAt: seen, lastSeenAt: seen,
 });
 const pgError = (code: string) => Object.assign(new Error(`pg ${code}`), { code });

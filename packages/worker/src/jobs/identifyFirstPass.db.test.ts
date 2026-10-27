@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, users, makeDb } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 const calls = vi.hoisted(() => ({ mbSearch: 0, discogsSearch: 0, discogsAuthenticated: false }));
@@ -51,7 +51,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first identify pass (db)', () =
       titleGuess: `${title} ${id.slice(0, 8)}`, artistGuess: 'Nobody Known', trackCount: 1,
     });
     const fileId = randomUUID();
-    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/01.mp3`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/01.mp3`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
     await db.insert(localTracks).values({ localAlbumId: id, audioFileId: fileId, trackNo: 1, titleGuess: 'One', durationMs: 180_000 });
     return id;
   };
@@ -76,7 +76,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('first identify pass (db)', () =
   afterAll(async () => {
     await client`delete from job_runs where library_id = ${libraryId}`;
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-    await db.delete(audioFiles).where(eq(audioFiles.libraryId, libraryId));
+    await db.delete(files).where(eq(files.libraryId, libraryId));
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));

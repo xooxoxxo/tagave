@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { eq, inArray } from 'drizzle-orm';
 import {
-  audioFiles, clusterOverrides, fieldLocks, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
+  files, clusterOverrides, fieldLocks, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users, makeDb,
 } from '@tagave/db';
 import { findMergeCandidates, mergeAlbums, unmergeAlbum, isMergedKey, MergeError } from './mergeAlbums.js';
 import { filesOfAlbums, suggestBulkValues } from './bulkTagEdit.js';
@@ -67,7 +67,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     await db.insert(libraries).values({ id: libraryId, name: 'Compilations', ownerUserId: userId, settings: { tagWritesEnabled: true } });
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/hc-root', displayName: 'hc', writable: true, validationStatus: 'ok' });
     for (const [i, [artist, title]] of tracks.entries()) {
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: randomUUID(), libraryId, scanRootId: rootId, relPath: `${dirOf(i)}/0${i + 1} - ${title}.mp3`,
         sizeBytes: 1, mtime: 1, status: 'present', durationMs: 200_000,
         tagsRaw: { common: { title, artist, albumartist: `0${i + 1}. Stephane Pompougnac`, album: 'Hotel Costes Vol. 11', year: 2008, track: { no: i + 1, of: null } } },
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     }
     // The full copy filed elsewhere under another title: a different album, never a piece.
     for (const [i, [artist, title]] of tracks.entries()) {
-      await db.insert(audioFiles).values({
+      await db.insert(files).values({ handler: 'audio',
         id: randomUUID(), libraryId, scanRootId: rootId, relPath: `${vaDir}/0${i + 1} - ${title}.mp3`,
         sizeBytes: 1, mtime: 1, status: 'present', durationMs: 200_000,
         tagsRaw: { common: { title, artist, albumartist: 'Various', album: 'Hotel Costes 11 By Stephane Pompougnac', track: { no: i + 1, of: null } } },
@@ -150,8 +150,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
       expect(hc[0].totalDurationMs).toBe(800_000);
       expect([...hc[0].dirPaths].sort()).toEqual([...dirs].sort());
       expect(hc[0].state).toBe('pending');
-      const files = await db.select({ relPath: audioFiles.relPath }).from(audioFiles).where(eq(audioFiles.scanRootId, rootId));
-      expect(files.filter((f: any) => f.relPath.startsWith('#/'))).toHaveLength(4); // nothing moved on disk
+      const rows = await db.select({ relPath: files.relPath }).from(files).where(eq(files.scanRootId, rootId));
+      expect(rows.filter((f: any) => f.relPath.startsWith('#/'))).toHaveLength(4); // nothing moved on disk
     };
     await check();
     await clusterAll(); // every folder rescanned
@@ -209,8 +209,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('compilations: Hotel Costes end 
     await tagsPreviewJob(ctx, planId);
     const [plan] = await db.select().from(tagPlans).where(eq(tagPlans.id, planId));
     expect(plan.stats).toMatchObject({ filesInScope: 1, filesTouched: 1, fieldsModified: 1 });
-    const items = await db.select({ relPath: audioFiles.relPath }).from(tagPlanItems)
-      .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId)).where(eq(tagPlanItems.tagPlanId, planId));
+    const items = await db.select({ relPath: files.relPath }).from(tagPlanItems)
+      .innerJoin(files, eq(files.id, tagPlanItems.audioFileId)).where(eq(tagPlanItems.tagPlanId, planId));
     expect(items.map((i: any) => i.relPath)).toEqual([`${dirOf(2)}/03 - Boa Sorte.mp3`]);
   });
 

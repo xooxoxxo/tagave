@@ -1,6 +1,6 @@
 /**
  * tags.preview (spec §9.5 TAG-3): for every file in the plan's scope, compare
- * the tags the scanner read (audio_files.tags_raw.common, mapped to the
+ * the tags the scanner read (files.tags_raw.common, mapped to the
  * canonical field set) with the canonical values resolved from the album's
  * matched release, apply the policy, and store one tag_plan_items row per
  * file with its diff. No disk writes. Ends by setting the plan to
@@ -21,7 +21,7 @@
  */
 import { and, eq, inArray, like, sql } from 'drizzle-orm';
 import {
-  audioFiles,
+  files,
   fieldLocks,
   localAlbums,
   localTracks,
@@ -133,22 +133,22 @@ const likeEscape = (s: string) => s.replaceAll('\\', '\\\\').replaceAll('%', '\\
 async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, scope: TagPlanScope): Promise<string[]> {
   const db = ctx.db;
   if (scope.type === 'library') {
-    const files = await db.select({ id: audioFiles.id }).from(audioFiles)
-      .where(and(eq(audioFiles.libraryId, libraryId), eq(audioFiles.status, 'present')));
-    return files.map((f) => f.id);
+    const rows = await db.select({ id: files.id }).from(files)
+      .where(and(eq(files.libraryId, libraryId), eq(files.status, 'present')));
+    return rows.map((f) => f.id);
   }
   if (scope.type === 'folder') {
     // Exactly the files under the folder, loose files included and files of
     // the same albums that live elsewhere left out.
     const dir = scope.dirPath.replace(/\/+$/, '');
-    const files = await db.select({ id: audioFiles.id }).from(audioFiles)
+    const rows = await db.select({ id: files.id }).from(files)
       .where(and(
-        eq(audioFiles.libraryId, libraryId),
-        eq(audioFiles.status, 'present'),
-        scope.scanRootId ? eq(audioFiles.scanRootId, scope.scanRootId) : undefined,
-        like(audioFiles.relPath, `${likeEscape(dir)}/%`),
+        eq(files.libraryId, libraryId),
+        eq(files.status, 'present'),
+        scope.scanRootId ? eq(files.scanRootId, scope.scanRootId) : undefined,
+        like(files.relPath, `${likeEscape(dir)}/%`),
       ));
-    return files.map((f) => f.id);
+    return rows.map((f) => f.id);
   }
   let albumIds: string[] = [];
   if (scope.type === 'albumIds') {
@@ -170,8 +170,8 @@ async function enumerateFilesForScope(ctx: WorkerContext, libraryId: string, sco
   const rows = await db
     .select({ audioFileId: localTracks.audioFileId })
     .from(localTracks)
-    .innerJoin(audioFiles, eq(audioFiles.id, localTracks.audioFileId))
-    .where(and(inArray(localTracks.localAlbumId, albumIds), eq(audioFiles.status, 'present')));
+    .innerJoin(files, eq(files.id, localTracks.audioFileId))
+    .where(and(inArray(localTracks.localAlbumId, albumIds), eq(files.status, 'present')));
   return [...new Set(rows.map((r) => r.audioFileId))];
 }
 
@@ -323,7 +323,7 @@ async function runPreview(ctx: WorkerContext, plan: typeof tagPlans.$inferSelect
   for (const [i, audioFileId] of fileIds.entries()) {
     await progress.files(i, fileIds.length);
     try {
-      const [file] = await db.select().from(audioFiles).where(eq(audioFiles.id, audioFileId));
+      const [file] = await db.select().from(files).where(eq(files.id, audioFileId));
       if (!file) {
         filesSkipped.push({ audioFileId, reason: 'audio_file_error', message: 'File not found' });
         continue;

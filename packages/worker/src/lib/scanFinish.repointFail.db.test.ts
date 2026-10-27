@@ -54,14 +54,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cover re-point fails during a m
     const [sc] = await sql`select id from sidecar_files where scan_root_id = ${rootId} and rel_path = 'Album/folder.jpg'`;
     const [img] = await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
                             values (${libraryId}, 'local_album', ${albumId}, ${albumId}, 'front', 'sidecar', ${sc.id}, 't') returning id`;
-    const [file] = await sql`select id from audio_files where scan_root_id = ${rootId} and rel_path = 'Album/1.flac'`;
+    const [file] = await sql`select id from files where scan_root_id = ${rootId} and rel_path = 'Album/1.flac'`;
     await sql`insert into local_tracks (local_album_id, audio_file_id) values (${albumId}, ${file.id})`;
     await rename(path.join(base, 'Album'), path.join(base, 'Album (2001)'));
     warn.mockClear();
     sent.length = 0;
     await walkRoot(ctx, root(), { mode: 'full' });
     // the move merged (the file row kept its id) but the cover stayed put
-    expect(await sql`select rel_path from audio_files where scan_root_id = ${rootId} and rel_path like 'Album%'`).toEqual([{ rel_path: 'Album (2001)/1.flac' }]);
+    expect(await sql`select rel_path from files where scan_root_id = ${rootId} and rel_path like 'Album%'`).toEqual([{ rel_path: 'Album (2001)/1.flac' }]);
     expect(await sql`select 1 from sidecar_files where id = ${sc.id}`).toHaveLength(1);
     expect(await sql`select sidecar_file_id from images where id = ${img.id}`).toEqual([{ sidecar_file_id: sc.id }]);
     expect(warn.mock.calls.map((c) => c[1])).toContain('scan.finish: stale sidecars kept, the cover re-point failed');

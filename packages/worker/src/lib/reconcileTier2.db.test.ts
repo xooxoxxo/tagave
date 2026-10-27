@@ -22,7 +22,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 (db)', () => {
   const sent: Array<{ name: string; data: any }> = [];
   const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID();
   const root = () => ({ id: rootId, libraryId, path: rootPath });
-  const files = async () => sql`select id, rel_path, status, reconcile_hold_at from audio_files where library_id = ${libraryId} order by rel_path`;
+  const files = async () => sql`select id, rel_path, status, reconcile_hold_at from files where library_id = ${libraryId} order by rel_path`;
 
   beforeAll(async () => {
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
@@ -81,7 +81,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
   const dayAgo = () => new Date(Date.now() - 86_400_000).toISOString();
   const file = async (relPath: string, over: Record<string, unknown> = {}) => {
     const id = randomUUID();
-    await sql`insert into audio_files ${sql({ id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 500, status: 'present', ...over })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 500, status: 'present', ...over })}`;
     return id;
   };
   const parsedTwin = { duration_ms: 31_000, core_tags_digest: 'd1', tags_read_at: new Date().toISOString() };
@@ -92,8 +92,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     expect(await placeHolds(ctx, [fresh])).toEqual([fresh]);
     return { old, fresh };
   };
-  const exists = async (id: string) => (await sql`select 1 from audio_files where id = ${id}`).length === 1;
-  const holdOf = async (id: string) => (await sql`select reconcile_hold_at from audio_files where id = ${id}`)[0]?.reconcile_hold_at;
+  const exists = async (id: string) => (await sql`select 1 from files where id = ${id}`).length === 1;
+  const holdOf = async (id: string) => (await sql`select reconcile_hold_at from files where id = ${id}`)[0]?.reconcile_hold_at;
   const clustered = () => sent.filter((s) => s.name === 'cluster.dir').map((s) => s.data.dirPath).sort();
   /** Holds the library lock from another session, as a full scan's finish step would. */
   const holdLock = async () => {
@@ -113,10 +113,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'T2R', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/nonexistent-t2r', 't2r')`;
   });
-  beforeEach(async () => { sent.length = 0; await sql`delete from audio_files where library_id = ${libraryId}`; });
+  beforeEach(async () => { sent.length = 0; await sql`delete from files where library_id = ${libraryId}`; });
 
   afterAll(async () => {
-    await sql`delete from audio_files where library_id = ${libraryId}`;
+    await sql`delete from files where library_id = ${libraryId}`;
     await sql`delete from local_albums where library_id = ${libraryId}`;
     await sql`delete from scan_roots where id = ${rootId}`;
     await sql`delete from libraries where id = ${libraryId}`;
@@ -145,7 +145,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     expect(out.map((d) => d.dirPath).sort()).toEqual(['New', 'Old']);
     expect(out.every((d) => d.libraryId === libraryId)).toBe(true);
     expect(await exists(fresh)).toBe(false);
-    expect((await sql`select rel_path, status from audio_files where id = ${old}`)[0]).toEqual({ rel_path: 'New/1.flac', status: 'present' });
+    expect((await sql`select rel_path, status from files where id = ${old}`)[0]).toEqual({ rel_path: 'New/1.flac', status: 'present' });
   });
 
   it('never pairs on a null core tag digest', async () => {
@@ -178,7 +178,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
 
   it('busy library lock at the cap: the hold is released and the rows stay unpaired', async () => {
     const { old, fresh } = await copied();
-    await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
+    await sql`update files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
     const unlock = await holdLock();
     try {
       expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
@@ -187,19 +187,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     }
     expect(await holdOf(fresh)).toBeNull();
     expect(await exists(fresh)).toBe(true);
-    expect((await sql`select status from audio_files where id = ${old}`)[0].status).toBe('missing');
+    expect((await sql`select status from files where id = ${old}`)[0].status).toBe('missing');
     expect(clustered()).toEqual(['New']);
   });
 
   it('Tier 2 failing at the cap still releases the hold and clusters the folder', async () => {
     const { old, fresh } = await copied();
-    await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
+    await sql`update files set reconcile_hold_at = now() - interval '61 minutes' where id = ${fresh}`;
     // Tier 2 cannot get its connection; every other query goes through.
     const failing = new Proxy(sql, { get: (t, k) => k === 'reserve' ? async () => { throw new Error('no connection'); } : Reflect.get(t, k) });
     expect(await releaseExpiredHolds({ ...ctx, sql: failing }, { libraryId })).toBe(1);
     expect(await holdOf(fresh)).toBeNull();
     expect(await exists(fresh)).toBe(true);
-    expect((await sql`select status from audio_files where id = ${old}`)[0].status).toBe('missing');
+    expect((await sql`select status from files where id = ${old}`)[0].status).toBe('missing');
     expect(clustered()).toEqual(['New']);
   });
 
@@ -209,7 +209,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     const old2 = await file('Old/2.flac', { status: 'missing', last_seen_at: dayAgo(), size_bytes: 600, audio_hash: 'h2' });
     await file('New/2.flac', { size_bytes: 650, audio_hash: 'h2' });
     await releaseReadyHolds(ctx, [{ libraryId, scanRootId: rootId, dirPath: 'New' }]);
-    expect((await sql`select rel_path from audio_files where id = ${old2}`)[0].rel_path).toBe('New/2.flac');
+    expect((await sql`select rel_path from files where id = ${old2}`)[0].rel_path).toBe('New/2.flac');
     expect(sent.filter((s) => s.name === 'scan.parse')).toEqual([{ name: 'scan.parse', data: { audioFileIds: [old2] } }]);
   });
 });

@@ -1,6 +1,6 @@
 /**
  * Tier 1 at the end of a walk: a renamed file or folder keeps its rows (no
- * new audio_files row survives, nothing goes missing), across roots too;
+ * new files row survives, nothing goes missing), across roots too;
  * a second scan changes nothing; an errored scan matches nothing; two
  * reconciles of one library never interleave. Review focus 1, 3, 4: case- and
  * NFC-only folder renames, top-level ('' dir) files moved into a folder and
@@ -52,7 +52,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination c
   const scan = async (root: string) => { const r = await scanRootJob(ctx, { scanRootId: root, mode: 'full' }); await drain(); return r; };
   const albumCount = async () => (await sql`select count(*)::int as n from local_albums where library_id = ${libraryId}`)[0].n as number;
   const filesIn = async (root: string, dir: string) =>
-    (await sql`select id::text as id from audio_files where scan_root_id = ${root} and rel_path like ${`${dir}/%`} order by rel_path`).map((r: any) => r.id as string);
+    (await sql`select id::text as id from files where scan_root_id = ${root} and rel_path like ${`${dir}/%`} order by rel_path`).map((r: any) => r.id as string);
   const albumsOf = async (fileIds: string[]) =>
     (await sql`select distinct local_album_id::text as id from local_tracks where audio_file_id = any(${fileIds}::uuid[])`).map((r: any) => r.id as string);
   const lastRun = async () => (await sql`select progress from job_runs where library_id = ${libraryId} and type = 'scan.root' order by created_at desc limit 1`)[0]?.progress;
@@ -160,7 +160,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination c
     await scan(rootA);
 
     expect((await lastRun()).message).toMatch(/ 3 missing, 3 possible move\(s\) left alone/);
-    expect(await sql`select count(*)::int as n from audio_files where id = any(${s.oldIds}::uuid[]) and status = 'missing'`).toEqual([{ n: 3 }]);
+    expect(await sql`select count(*)::int as n from files where id = any(${s.oldIds}::uuid[]) and status = 'missing'`).toEqual([{ n: 3 }]);
     expect(await albumsOf(s.oldIds)).toEqual([s.oldAlbum]);              // all three old tracks stay on the old album
     expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.oldAlbum}`).toEqual([{ n: 3 }]);
     expect(await albumsOf(freshIds)).toEqual([freshAlbum]);
@@ -184,7 +184,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination c
     expect(await filesIn(rootB, 'Artist/Album Two')).toEqual(s.oldIds);
     expect(await sql`select audio_file_id::text as f from local_tracks where local_album_id = ${s.oldAlbum} order by 1`)
       .toEqual([...s.oldIds].sort().map((f) => ({ f })));
-    expect(await sql`select 1 from audio_files where id = any(${freshIds}::uuid[])`).toHaveLength(0);
+    expect(await sql`select 1 from files where id = any(${freshIds}::uuid[])`).toHaveLength(0);
     await expectHistory(s);
     expect(await albumCount()).toBe(albums);
   });
@@ -196,8 +196,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
   const sends: Array<{ name: string; data: any; opts: any }> = [];
   const A = () => ({ id: rootA, libraryId, path: path.join(base, 'a') });
   const B = () => ({ id: rootB, libraryId, path: path.join(base, 'b') });
-  const files = async () => sql`select id, scan_root_id, rel_path, status from audio_files where library_id = ${libraryId} order by rel_path`;
-  const idOf = async (relPath: string) => (await sql`select id from audio_files where library_id = ${libraryId} and rel_path = ${relPath}`)[0]?.id;
+  const files = async () => sql`select id, scan_root_id, rel_path, status from files where library_id = ${libraryId} order by rel_path`;
+  const idOf = async (relPath: string) => (await sql`select id from files where library_id = ${libraryId} and rel_path = ${relPath}`)[0]?.id;
 
   beforeAll(async () => {
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
@@ -334,7 +334,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
       const r = await walkRoot(ctx, A(), { mode: 'full' });
       expect(r).toMatchObject({ merged: 1, missing: 0, added: 1, failedDirs: ['Locked'], reconcileSkipped: null });
       expect(await idOf('top-renamed.flac')).toBe(id);
-      expect((await sql`select status from audio_files where id = ${lockedId}`)[0].status).toBe('present');
+      expect((await sql`select status from files where id = ${lockedId}`)[0].status).toBe('present');
       expect(await idOf('Other/l.flac')).not.toBe(lockedId);
       expect(finishNotes(r)).toMatch(/could not read Locked/);
       expect(finishNotes(r)).not.toMatch(/not matched/);
@@ -363,8 +363,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     await walkRoot(ctx, A(), { mode: 'full' });
     const olds = [await idOf('Ed/Std/s1.flac'), await idOf('Ed/Std/s2.flac')];
     // a row in the destination, first seen after the standard files: the walk below cannot stat it
-    await sql`insert into audio_files (library_id, scan_root_id, rel_path, size_bytes, mtime, status)
-              values (${libraryId}, ${rootA}, 'Ed/Deluxe/bonus.flac', 424242, 1, 'present')`;
+    await sql`insert into files (library_id, scan_root_id, rel_path, size_bytes, mtime, status, handler)
+              values (${libraryId}, ${rootA}, 'Ed/Deluxe/bonus.flac', 424242, 1, 'present', 'audio')`;
     const bonus = await idOf('Ed/Deluxe/bonus.flac');
     await rename(path.join(base, 'a', 'Ed', 'Std'), path.join(base, 'a', 'Ed', 'Deluxe'));
     const w = await walkTree(ctx, A(), { mode: 'full' });
@@ -373,7 +373,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     expect(f.merged).toBe(0);
     expect(f.possibleMoves).toBeGreaterThan(0);
     expect(await idOf('Ed/Deluxe/s1.flac')).not.toBe(olds[0]);
-    expect((await sql`select status from audio_files where id = ${bonus}`)[0].status).toBe('present');
+    expect((await sql`select status from files where id = ${bonus}`)[0].status).toBe('present');
   });
 
   it('the lock is released and its connection returned when fn throws', async () => {
@@ -394,10 +394,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     const rootC = randomUUID();
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootC}, ${libraryId}, ${path.join(base, 'c')}, 'c', 'ok')`;
     const paths = ['X/a.flac', 'X/Y/b.flac', 'X0/c.flac', 'X-/d.flac', 'X /e.flac', 'Xa/f.flac', 'x/g.flac', 'top.flac', '\u00c9/h.flac', 'X/Y/Z/i.flac', 'X%/j.flac', 'X_/k.flac'];
-    for (const p of paths) await sql`insert into audio_files (library_id, scan_root_id, rel_path, status) values (${libraryId}, ${rootC}, ${p}, 'missing')`;
+    for (const p of paths) await sql`insert into files (library_id, scan_root_id, rel_path, status, handler) values (${libraryId}, ${rootC}, ${p}, 'missing', 'audio')`;
     const dirs = ['X', 'X/Y', '', '\u00c9', 'X%', 'Nope'].map((dirPath) => ({ scanRootId: rootC, dirPath }));
     const got = (await rowsInDirs(ctx, libraryId, dirs, sql`true`)).map((f) => f.relPath).sort();
-    const want = (await sql`select rel_path from audio_files af where af.scan_root_id = ${rootC}
+    const want = (await sql`select rel_path from files af where af.scan_root_id = ${rootC}
                               and ${sql.unsafe(sqlDirname('af'))} = any(${dirs.map((d) => d.dirPath)}::text[])`).map((r: any) => r.rel_path).sort();
     expect(got).toEqual(want);
     expect(got).toEqual(['X%/j.flac', 'X/Y/b.flac', 'X/a.flac', 'top.flac', '\u00c9/h.flac'].sort());

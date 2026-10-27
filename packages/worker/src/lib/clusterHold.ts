@@ -12,11 +12,16 @@
  * folder that is ready keeps its holds (nothing is clustered) and scan.sweep
  * tries again within ten minutes (releaseParsedHolds); at the cap the hold is
  * released all the same and the rows fall through to clustering unpaired.
+ *
+ * Holds and their release are about files of any handler; only the cluster.dir
+ * sends are music's, so a released folder is clustered only when its held rows
+ * include a file the music app groups (musicFiles.ts).
  */
 import type { WorkerContext } from './context.js';
 import { clusterSingletonKey, relDirname } from './helpers.js';
 import { describeMoves, emptyReconcile, reconcileTier2, sqlDirname, type DirRef } from './reconcile.js';
 import { errorMessage } from './dbErrors.js';
+import { clusteredByMusic, MUSIC_HANDLERS } from './musicFiles.js';
 
 export const CLUSTER_HOLD_CAP_MS = 3_600_000;
 const CAP_SECONDS = CLUSTER_HOLD_CAP_MS / 1000;
@@ -42,20 +47,20 @@ export async function sendReleasedCluster(ctx: Pick<WorkerContext, 'boss'>, d: R
 }
 
 /**
- * Holds the fresh rows that have a size-equal missing row last seen before
- * they were first seen. Strictly before, as Tier 1 and Tier 2 pair: equal
- * times mean both paths were seen in one walk batch, so the two files
- * coexisted and the new one cannot be the old one moved.
+ * Holds the fresh rows that have a size-equal missing row of the same handler
+ * last seen before they were first seen. Strictly before, as Tier 1 and Tier 2
+ * pair: equal times mean both paths were seen in one walk batch, so the two
+ * files coexisted and the new one cannot be the old one moved.
  */
 export async function placeHolds(ctx: Pick<WorkerContext, 'sql'>, freshIds: string[]): Promise<string[]> {
   const held: string[] = [];
   for (let i = 0; i < freshIds.length; i += UPDATE_BATCH) {
     const rows = await ctx.sql`
-      update audio_files f set reconcile_hold_at = now()
+      update files f set reconcile_hold_at = now()
        where f.id = any(${freshIds.slice(i, i + UPDATE_BATCH)}::uuid[]) and f.status in ('present', 'error')
-         and exists (select 1 from audio_files o
+         and exists (select 1 from files o
                       where o.library_id = f.library_id and o.status = 'missing' and o.id <> f.id
-                        and o.size_bytes = f.size_bytes and o.last_seen_at < f.first_seen_at)
+                        and o.size_bytes = f.size_bytes and o.handler = f.handler and o.last_seen_at < f.first_seen_at)
       returning f.id`;
     for (const r of rows) held.push(r['id'] as string);
   }
@@ -68,7 +73,7 @@ export async function scopeHoldState(ctx: Pick<WorkerContext, 'sql'>, fileIds: s
   const [r] = await ctx.sql`
     select count(*) filter (where reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second')::int as live,
            count(*) filter (where reconcile_hold_at is not null)::int as any
-      from audio_files where id = any(${fileIds}::uuid[])`;
+      from files where id = any(${fileIds}::uuid[])`;
   if ((r!['live'] as number) > 0) return 'held';
   return (r!['any'] as number) > 0 ? 'expired' : 'none';
 }
@@ -80,15 +85,15 @@ export async function scopeHoldState(ctx: Pick<WorkerContext, 'sql'>, fileIds: s
  */
 export async function heldRows(
   ctx: Pick<WorkerContext, 'sql'>, scanRootId: string, dirs?: string[],
-): Promise<Array<{ id: string; dir: string; parsed: boolean; heldAt: Date }>> {
+): Promise<Array<{ id: string; dir: string; parsed: boolean; heldAt: Date; handler: string }>> {
   const rows = await ctx.sql`
-    select af.id, af.rel_path, (af.tags_read_at is not null or af.status = 'error') as parsed, af.reconcile_hold_at
-      from audio_files af where af.scan_root_id = ${scanRootId} and af.reconcile_hold_at is not null
+    select af.id, af.rel_path, (af.tags_read_at is not null or af.status = 'error') as parsed, af.reconcile_hold_at, af.handler
+      from files af where af.scan_root_id = ${scanRootId} and af.reconcile_hold_at is not null
        ${dirs ? ctx.sql`and ${ctx.sql.unsafe(sqlDirname('af'))} = any(${dirs}::text[])` : ctx.sql``}`;
   // The shared client reads timestamptz as text.
   return rows.map((r) => ({
     id: r['id'] as string, dir: relDirname(r['rel_path'] as string), parsed: r['parsed'] as boolean,
-    heldAt: new Date(r['reconcile_hold_at'] as string | Date),
+    heldAt: new Date(r['reconcile_hold_at'] as string | Date), handler: r['handler'] as string,
   }));
 }
 
@@ -134,7 +139,7 @@ export async function releaseDirHolds(
   let released = 0;
   for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
     const out = await ctx.sql`
-      update audio_files set reconcile_hold_at = null
+      update files set reconcile_hold_at = null
        where id = any(${ids.slice(i, i + UPDATE_BATCH)}::uuid[]) and reconcile_hold_at is not null
       returning id`;
     released += out.length;
@@ -154,9 +159,10 @@ export async function releaseDirHolds(
 /**
  * scan.parse: releases the touched folders whose held rows are now all parsed
  * or failed. Returns every folder to cluster because of a release: the
- * released folders themselves plus the folders Tier 2 took files from. A
- * folder deferred on a busy library lock is not returned (it stays held).
- * The caller sends these with sendReleasedCluster, not its throttled send.
+ * released folders whose held rows include a file the music app groups, plus
+ * the folders Tier 2 took music files from. A folder deferred on a busy
+ * library lock is not returned (it stays held). The caller sends these with
+ * sendReleasedCluster, not its throttled send.
  */
 export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ libraryId: string; scanRootId: string; dirPath: string }>): Promise<ReleasedDir[]> {
   const out: ReleasedDir[] = [];
@@ -168,15 +174,17 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
   }
   for (const [scanRootId, { libraryId, dirs }] of byRoot) {
     const pending = new Map<string, boolean>(); // dir -> every held row parsed
+    const music = new Set<string>(); // dirs with a held row the music app groups
     for (const h of await heldRows(ctx, scanRootId, [...dirs])) {
       if (!dirs.has(h.dir)) continue;
       pending.set(h.dir, (pending.get(h.dir) ?? true) && h.parsed);
+      if (clusteredByMusic(h.handler)) music.add(h.dir);
     }
     const ready = [...pending].filter(([, allParsed]) => allParsed).map(([d]) => d);
     if (ready.length === 0) continue;
     const res = await releaseDirHolds(ctx, libraryId, scanRootId, ready);
     if (res.deferred) continue;
-    for (const dirPath of ready) out.push({ libraryId, scanRootId, dirPath });
+    for (const dirPath of ready) if (music.has(dirPath)) out.push({ libraryId, scanRootId, dirPath });
     for (const d of res.reclusterDirs) out.push({ libraryId, ...d });
   }
   return out;
@@ -186,25 +194,27 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
 export interface HoldScope { libraryId: string }
 
 /**
- * scan.sweep: holds past the cap are released and their folders clustered.
- * Tier 2 still runs for their parsed rows, but neither a busy library lock nor
+ * scan.sweep: holds past the cap are released and their folders clustered
+ * (those whose held rows include a file the music app groups). Tier 2 still runs for their parsed rows, but neither a busy library lock nor
  * a Tier 2 error keeps the hold, and one folder's error never stops the rest.
  * Returns the number of folders released.
  */
 export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
-    select distinct af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
-      from audio_files af
+    select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir,
+           bool_or(af.handler = any(${MUSIC_HANDLERS as string[]}::text[])) as music
+      from files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at <= now() - ${CAP_SECONDS}::int * interval '1 second'
-       ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}`;
+       ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}
+     group by 1, 2, 3`;
   let folders = 0;
   for (const r of rows) {
     const libraryId = r['library_id'] as string; const scanRootId = r['scan_root_id'] as string; const dirPath = r['dir'] as string;
     try {
       const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath], { atCap: true });
       if (res.released > 0) folders += 1;
-      await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
+      if (r['music'] === true) await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
       for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
     } catch (err) {
       ctx.logger.warn({ scanRootId, dirPath, err: errorMessage(err) }, 'cluster hold release at the cap failed for a folder');
@@ -225,7 +235,7 @@ export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope)
 export async function releaseParsedHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir
-      from audio_files af
+      from files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at > now() - ${CAP_SECONDS}::int * interval '1 second'
        ${scope ? ctx.sql`and af.library_id = ${scope.libraryId}` : ctx.sql``}

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import {
-  albumMatches, audioFiles, autoAcceptRules, jobRuns, libraries, localAlbums, localTracks, matchCandidates,
+  albumMatches, files, autoAcceptRules, jobRuns, libraries, localAlbums, localTracks, matchCandidates,
   releaseGroups, releases, scanRoots, users, makeDb,
 } from '@tagave/db';
 import { AUTO_ACCEPT_REASON_PREFIX } from '@tagave/shared';
@@ -41,7 +41,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     await db.insert(localAlbums).values({ id, libraryId, clusterKey: `k-${id}`, dirPaths: [`x/${id}`], titleGuess: 'Kosmonument', artistGuess: 'Oranssi Pazuzu', yearGuess: 2011, state, trackCount: 3 });
     for (let i = 1; i <= 3; i++) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/${i}.flac`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
+      await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/${i}.flac`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
       await db.insert(localTracks).values({ localAlbumId: id, audioFileId: fileId, trackNo: i, titleGuess: `Track ${i}`, durationMs: 200_000 });
     }
     for (const c of cands) {

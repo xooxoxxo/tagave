@@ -18,6 +18,7 @@ import { mergeFilePair, mergeFilePairs, type MergeDone, type MergeOutcome, type 
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import { queueArtAfterRepointFailure, refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import { cancelQueuedIdentify } from './cancelIdentify.js';
+import { clusteredByMusic } from './musicFiles.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
@@ -26,7 +27,10 @@ export interface DirRef { scanRootId: string; dirPath: string }
 export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: string; toDir: string; files: number }
 export interface ReconcileResult {
   merged: number; moves: MoveRecord[]; possibleMoves: number;
-  mergedFreshIds: string[]; reparseIds: string[]; reclusterDirs: DirRef[]; outcomes: MergeDone[];
+  mergedFreshIds: string[]; reparseIds: string[];
+  /** The old and new folders of the merged files the music app groups: cluster.dir for each. */
+  reclusterDirs: DirRef[];
+  outcomes: MergeDone[];
   /** The moved folders' sidecar covers could not be re-pointed: the caller must not drop stale sidecars this run. */
   sidecarRepointFailed: boolean;
 }
@@ -100,13 +104,13 @@ type Fragment = postgres.PendingQuery<postgres.Row[]>;
 
 /** The client reads timestamptz as text, so times come back as epoch milliseconds. */
 export async function loadMatchFiles(ctx: Pick<WorkerContext, 'sql'>, where: Fragment): Promise<MatchFile[]> {
-  return matchRows(ctx, ctx.sql`audio_files af where ${where}`);
+  return matchRows(ctx, ctx.sql`files af where ${where}`);
 }
 
-/** `source` is everything after FROM; it must expose the audio_files row as `af`. */
+/** `source` is everything after FROM; it must expose the files row as `af`. */
 async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Promise<MatchFile[]> {
   const rows = (await ctx.sql`
-    select af.id, af.scan_root_id, af.rel_path, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
+    select af.id, af.scan_root_id, af.rel_path, af.handler, af.size_bytes::float8 as size_bytes, af.mtime::float8 as mtime, af.inode,
            af.duration_ms, af.core_tags_digest, af.audio_hash,
            case when af.tags_raw->'common'->'track'->>'no' ~ '^[0-9]+$' then (af.tags_raw->'common'->'track'->>'no')::int end as track_no,
            case when af.tags_raw->'common'->'disk'->>'no' ~ '^[0-9]+$' then (af.tags_raw->'common'->'disk'->>'no')::int end as disc_no,
@@ -114,7 +118,7 @@ async function matchRows(ctx: Pick<WorkerContext, 'sql'>, source: Fragment): Pro
            (extract(epoch from af.last_seen_at) * 1000)::float8 as last_seen_ms
       from ${source}`) as unknown as Array<Record<string, any>>;
   return rows.map((r) => ({
-    id: r['id'], scanRootId: r['scan_root_id'], relPath: r['rel_path'], sizeBytes: r['size_bytes'], mtime: r['mtime'],
+    id: r['id'], scanRootId: r['scan_root_id'], relPath: r['rel_path'], handler: r['handler'], sizeBytes: r['size_bytes'], mtime: r['mtime'],
     inode: r['inode'], durationMs: r['duration_ms'], coreTagsDigest: r['core_tags_digest'], audioHash: r['audio_hash'],
     trackNo: r['track_no'], discNo: r['disc_no'],
     firstSeenAt: new Date(r['first_seen_ms']), lastSeenAt: new Date(r['last_seen_ms']),
@@ -130,11 +134,11 @@ const dirsOf = (fs: MatchFile[]) => {
 /**
  * Every row of these folders matching `cond` (the 80% denominator, the edition
  * guard's extras). Same grouping as sqlDirname, but written so each folder is
- * one range scan of idx_audio_files_relpath_prefix (scan_root_id, rel_path
+ * one range scan of idx_files_relpath_prefix (scan_root_id, rel_path
  * text_pattern_ops): `dir/` <= rel_path < `dir0` ('0' follows '/'), then no
  * further '/'. `offset 0` fences the lateral so the outer filters are not
  * pushed in: with them the planner (estimating a run-time prefix generically)
- * walked the whole root on idx_audio_files_scan_root, 23 ms against 0.06 ms
+ * walked the whole root on idx_files_scan_root, 23 ms against 0.06 ms
  * per folder at 200k rows. Top-level folders ('') have no prefix: one pass over each such
  * root's rows by scan_root_id, keeping paths without a '/'.
  */
@@ -148,7 +152,7 @@ export async function rowsInDirs(ctx: Pick<WorkerContext, 'sql'>, libraryId: str
     appendAll(out, await matchRows(ctx, sql`
       unnest(${chunk.map((d) => d.scanRootId)}::uuid[], ${chunk.map((d) => d.dirPath)}::text[]) as d(root_id, dir)
       cross join lateral (
-        select * from audio_files x
+        select * from files x
          where x.scan_root_id = d.root_id
            and x.rel_path ~>=~ (d.dir || '/') and x.rel_path ~<~ (d.dir || '0')
            and strpos(substr(x.rel_path, length(d.dir) + 2), '/') = 0
@@ -271,8 +275,11 @@ export async function runMerges(
     const m = moves.get(k) ?? { fromRootId: res.from.scanRootId, fromDir, toRootId: res.to.scanRootId, toDir, files: 0 };
     m.files += 1;
     moves.set(k, m);
-    dirs.set(`${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir });
-    dirs.set(`${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir });
+    // Both rows of a pair have one handler (signatureMatches); only music's files are re-clustered.
+    if (clusteredByMusic(oldById.get(p.oldId)?.handler)) {
+      dirs.set(`${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir });
+      dirs.set(`${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir });
+    }
   }
   out.moves = [...moves.values()].sort((a, b) => b.files - a.files);
   out.reclusterDirs = [...dirs.values()];
@@ -335,7 +342,7 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
     and (af.id, af.rel_path) in (select * from unnest(${unseen.map((u) => u.id)}::uuid[], ${unseen.map((u) => u.relPath)}::text[]))`) : [];
   const missingOlds = walk.insertedIds.length ? await loadMatchFiles(ctx, sql`
     af.library_id = ${root.libraryId} and af.status = 'missing'
-    and af.size_bytes in (select i.size_bytes from audio_files i where i.id = any(${walk.insertedIds}::uuid[]))`) : [];
+    and af.size_bytes in (select i.size_bytes from files i where i.id = any(${walk.insertedIds}::uuid[]))`) : [];
   let olds = uniqById([...unseenOlds, ...missingOlds]);
   if (olds.length === 0) return emptyReconcile();
   const unseenIds = unseenOlds.map((o) => o.id);
@@ -386,7 +393,7 @@ export async function reconcileTier2(ctx: WorkerContext, libraryId: string, fres
     let latestMs = -Infinity;
     for (const f of parsed) { const t = f.firstSeenAt.getTime(); if (t > latestMs) latestMs = t; }
     const latest = new Date(latestMs).toISOString();
-    // Two queries, not one OR: the size lookup alone can use idx_audio_files_library_size.
+    // Two queries, not one OR: the size lookup alone can use idx_files_library_size.
     const missingBefore = sql`af.library_id = ${libraryId} and af.status = 'missing' and af.last_seen_at <= ${latest}::timestamptz`;
     let olds = sizes.length ? await loadMatchFiles(ctx, sql`${missingBefore} and af.size_bytes = any(${sizes}::bigint[])`) : [];
     if (hashes.length) olds = uniqById([...olds, ...await loadMatchFiles(ctx, sql`${missingBefore} and af.audio_hash = any(${hashes}::text[])`)]);

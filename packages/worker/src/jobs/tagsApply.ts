@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import {
   tagPlans,
   tagPlanItems,
-  audioFiles,
+  files,
   scanRoots,
   libraries,
   gaps,
@@ -23,9 +23,9 @@ import { parseFile } from 'music-metadata';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { TagDiffEntry } from '@tagave/shared';
-import { tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { audioHandler, tagSnapshotOf } from '@tagave/core/files';
 import { localTracks } from '@tagave/db';
-import { clusterSingletonKey, coreTagsDigest, relDirname, tagsDigest } from '../lib/helpers.js';
+import { clusterSingletonKey, relDirname, tagsDigest } from '../lib/helpers.js';
 import { requestPlayerRescan } from '../lib/playerScan.js';
 
 export interface TagsApplyJobData {
@@ -168,8 +168,8 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
   const fileIds = pendingItems.map((item) => item.audioFileId);
   const filesInPlan = await db
     .select()
-    .from(audioFiles)
-    .where(inArray(audioFiles.id, fileIds));
+    .from(files)
+    .where(inArray(files.id, fileIds));
 
   // Create a map: audioFileId -> (audioFile, scanRoot)
   const fileInfoMap = new Map<string, { audioFile: typeof filesInPlan[0]; scanRoot: typeof roots[0] }>();
@@ -381,11 +381,11 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
             })
             .where(eq(tagPlanItems.id, item.id));
 
-          // Update audio_files in the walk's units, with fresh digests
+          // Update files in the walk's units, with fresh digests
           await db
-            .update(audioFiles)
+            .update(files)
             .set(fileStateAfterWrite({ size: stats.size, mtimeMs: Number(stats.mtimeMs), dev: stats.dev, ino: stats.ino }, rawTags, hashBefore))
-            .where(eq(audioFiles.id, item.audioFileId));
+            .where(eq(files.id, item.audioFileId));
 
           logger.info({ itemId: item.id, audioFileId: item.audioFileId }, 'Tag apply: success');
           return { success: true };
@@ -495,7 +495,7 @@ async function applyPlan(ctx: WorkerContext, data: TagsApplyJobData) {
 }
 
 /**
- * The audio_files columns after tagave wrote a file, in the walk's units:
+ * The files columns after tagave wrote an audio file, in the walk's units:
  * mtime in whole seconds (it was milliseconds, so the next walk saw every
  * written file as changed and re-parsed it), dev:ino, and both digests (the
  * old tags_digest stayed stale; core_tags_digest feeds move detection).
@@ -511,7 +511,7 @@ export function fileStateAfterWrite(
     inode: `${stats.dev}:${stats.ino}`,
     tagsRaw: rawTags,
     tagsDigest: tagsDigest(rawTags),
-    coreTagsDigest: coreTagsDigest(rawTags),
+    coreTagsDigest: audioHandler.identityDigest(rawTags),
     tagsReadAt: new Date(),
     audioHash,
   };
@@ -528,10 +528,10 @@ export function fileStateAfterWrite(
  */
 export async function reclusterWrittenDirs(ctx: Pick<WorkerContext, 'db' | 'boss' | 'logger'>, planId: string): Promise<number> {
   const rows = await ctx.db
-    .selectDistinct({ libraryId: audioFiles.libraryId, scanRootId: audioFiles.scanRootId, relPath: audioFiles.relPath, fileId: audioFiles.id, scanRootPath: scanRoots.path })
+    .selectDistinct({ libraryId: files.libraryId, scanRootId: files.scanRootId, relPath: files.relPath, fileId: files.id, scanRootPath: scanRoots.path })
     .from(tagPlanItems)
-    .innerJoin(audioFiles, eq(audioFiles.id, tagPlanItems.audioFileId))
-    .innerJoin(scanRoots, eq(scanRoots.id, audioFiles.scanRootId))
+    .innerJoin(files, eq(files.id, tagPlanItems.audioFileId))
+    .innerJoin(scanRoots, eq(scanRoots.id, files.scanRootId))
     .where(and(eq(tagPlanItems.tagPlanId, planId), eq(tagPlanItems.status, 'applied')));
   const dirs = new Map<string, { libraryId: string; scanRootId: string; dirPath: string }>();
   for (const r of rows) {

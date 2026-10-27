@@ -3,7 +3,7 @@ import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
-import { albumKeyLock, audioFiles, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
+import { albumKeyLock, files, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -163,20 +163,20 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   // with sibling folders, the same two levels under each sibling.
   const prefix = scope === '' ? '' : scope + '/';
   const pathFilter = siblingDirs
-    ? or(...siblingDirs.map((d) => like(audioFiles.relPath, likeEscape(d + '/') + '%')))
-    : prefix === '' ? undefined : like(audioFiles.relPath, likeEscape(prefix) + '%');
+    ? or(...siblingDirs.map((d) => like(files.relPath, likeEscape(d + '/') + '%')))
+    : prefix === '' ? undefined : like(files.relPath, likeEscape(prefix) + '%');
   const candidates = await ctx.db
     .select({
-      id: audioFiles.id,
-      relPath: audioFiles.relPath,
-      durationMs: audioFiles.durationMs,
-      tagsRaw: audioFiles.tagsRaw,
-      status: audioFiles.status,
+      id: files.id,
+      relPath: files.relPath,
+      durationMs: files.durationMs,
+      tagsRaw: files.tagsRaw,
+      status: files.status,
     })
-    .from(audioFiles)
+    .from(files)
     .where(and(
-      eq(audioFiles.scanRootId, data.scanRootId),
-      or(eq(audioFiles.status, 'present'), eq(audioFiles.status, 'error')),
+      eq(files.scanRootId, data.scanRootId),
+      or(eq(files.status, 'present'), eq(files.status, 'error')),
       pathFilter,
     ));
 
@@ -603,7 +603,7 @@ export async function carryOverRekeyedAlbum(
            count(distinct lt.audio_file_id) filter (where af.status in ('present', 'error'))::int as total
       from local_albums la
       join local_tracks lt on lt.local_album_id = la.id
-      join audio_files af on af.id = lt.audio_file_id
+      join files af on af.id = lt.audio_file_id
      where la.library_id = ${libraryId}
        and la.cluster_key not like 'split:%'
        and la.cluster_key not like 'merge:%'
@@ -667,7 +667,7 @@ export async function refreshAlbumCounters(ctx: Pick<WorkerContext, 'sql'>, albu
              coalesce(array_agg(distinct lower(regexp_replace(af.rel_path, '^.*\.', ''))) filter (where af.rel_path like '%.%'), '{}') as formats,
              count(distinct coalesce(lt.disc_no, 1))::int as discs,
              array_agg(distinct case when strpos(af.rel_path, '/') = 0 then '' else regexp_replace(af.rel_path, '/[^/]*$', '') end) as dirs
-        from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+        from local_tracks lt join files af on af.id = lt.audio_file_id
        where lt.local_album_id = any(${albumIds}::uuid[])
        group by lt.local_album_id
     ) s
@@ -705,7 +705,7 @@ export async function refreshPinnedAlbumNames(ctx: Pick<WorkerContext, 'sql'>, a
   const rows = (await ctx.sql`
     select lt.local_album_id as id, af.tags_raw, la.title_guess, la.artist_guess, la.year_guess
       from local_tracks lt
-      join audio_files af on af.id = lt.audio_file_id
+      join files af on af.id = lt.audio_file_id
       join local_albums la on la.id = lt.local_album_id
      where lt.local_album_id = any(${albumIds}::uuid[])`) as unknown as Array<{
     id: string; tags_raw: unknown; title_guess: string | null; artist_guess: string | null; year_guess: number | null;
@@ -745,7 +745,7 @@ async function subdirsOf(ctx: WorkerContext, scanRootId: string, parent: string)
   const rows = (await ctx.sql`
     select distinct case when strpos(rel_path, '/') = 0 then ''
                          else regexp_replace(rel_path, '/[^/]*$', '') end as dir
-    from audio_files
+    from files
     where scan_root_id = ${scanRootId}
       and status in ('present', 'error')
       and rel_path like ${likeEscape(prefix) + '%'}`) as unknown as Array<{ dir: string }>;

@@ -70,8 +70,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player per person', () => {
     await sql`insert into releases (id, release_group_id, mbid, title) values (${releaseId}, ${rgId}, ${releaseMbid}, 'People Album')`;
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state, release_id, release_group_id)
               values (${albumId}, ${libraryId}, ${`ck-${albumId}`}, 'People Album', 'The Band', 'matched', ${releaseId}, ${rgId})`;
-    const file = (id: string, rel: string) => sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-      values (${id}, ${libraryId}, ${rootId}, ${rel}, 'flac', 'FLAC', true, 200000, 'present')`;
+    const file = (id: string, rel: string) => sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+      values (${id}, ${libraryId}, ${rootId}, ${rel}, 'flac', 'FLAC', true, 200000, 'present', 'audio')`;
     await file(f.one, 'The Band/People Album/01 First.flac');
     await file(f.two, 'The Band/People Album/02 Second.flac');
     await file(f.three, 'The Band/People Album/03 Third.flac');

@@ -3,7 +3,7 @@ import { access, mkdir, writeFile } from 'node:fs/promises';
 import { parseFile } from 'music-metadata';
 import { and, eq, inArray, isNotNull, isNull, sql as dsql } from 'drizzle-orm';
 import {
-  audioFiles, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles,
+  files, images, imageSources, localAlbums, localTracks, releases, scanRoots, sidecarFiles,
 } from '@tagave/db';
 import { storeThumb, toThumb } from '../lib/coverThumbs.js';
 import { defaultCacheDir } from '@tagave/core';
@@ -98,13 +98,13 @@ export async function artFetchJob(ctx: WorkerContext, data: ArtFetchJobData): Pr
   if (tracks.length === 0) return;
   const fileRows = await ctx.db
     .select({
-      id: audioFiles.id,
-      relPath: audioFiles.relPath,
-      scanRootId: audioFiles.scanRootId,
-      hasArt: audioFiles.hasEmbeddedArt,
+      id: files.id,
+      relPath: files.relPath,
+      scanRootId: files.scanRootId,
+      hasArt: files.hasEmbeddedArt,
     })
-    .from(audioFiles)
-    .where(inArray(audioFiles.id, tracks.map((t) => t.audioFileId)));
+    .from(files)
+    .where(inArray(files.id, tracks.map((t) => t.audioFileId)));
   const rootIds = [...new Set(fileRows.map((f) => f.scanRootId))];
   const roots = await ctx.db
     .select({ id: scanRoots.id, path: scanRoots.path })

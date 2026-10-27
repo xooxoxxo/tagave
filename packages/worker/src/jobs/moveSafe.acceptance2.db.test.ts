@@ -11,7 +11,7 @@ import path from 'node:path';
 import { parseFile } from 'music-metadata';
 import { makeLab, expectKept, expectedFiles, bumpDir, type Lab, type Snapshot } from '../testkit/moveLab.js';
 import { writeFlac } from '../testkit/flac.js';
-import { tagSnapshotOf } from '../lib/tagSnapshot.js';
+import { tagSnapshotOf } from '@tagave/core/files';
 import { walkTree } from '../lib/walk.js';
 import { finishWalk, missingHold, UNMOUNTED_SKIP } from '../lib/scanFinish.js';
 import { releaseExpiredHolds } from '../lib/clusterHold.js';
@@ -39,13 +39,13 @@ async function oneAlbum(n = 3) {
 }
 const abs = (l: Lab, rel: string) => path.join(l.roots[0]!.path, rel);
 const statusCounts = async (l: Lab) => Object.fromEntries((await l.sql`
-  select status, count(*)::int as n from audio_files where library_id = ${l.libraryId} group by status`).map((r: any) => [r.status, r.n]));
+  select status, count(*)::int as n from files where library_id = ${l.libraryId} group by status`).map((r: any) => [r.status, r.n]));
 const lastScan = async (l: Lab) => (await l.sql`
   select status, stats from scans where scan_root_id = ${l.roots[0]!.id} order by started_at desc limit 1`)[0];
 const lastScanJob = async (l: Lab) => (await l.sql`
   select state, progress, error from job_runs where library_id = ${l.libraryId} and type = 'scan.root' order by created_at desc limit 1`)[0];
 const tracksOf = async (l: Lab, relPath: string) => l.sql`
-  select lt.id from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+  select lt.id from local_tracks lt join files af on af.id = lt.audio_file_id
    where af.rel_path = ${relPath} and af.library_id = ${l.libraryId}`;
 const moveDir = (from: string, to: string) => [{ from: [0, from] as [number, string], to: [0, to] as [number, string] }];
 type Image = { local_album_id: string; origin: string; sidecar_beside: string | null };
@@ -56,10 +56,10 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     const l = await oneAlbum();
     const f = 'Artist/Album One/01 - Song 1.flac';
     await writeFlac(abs(l, f), { title: 'Song 1 (Remaster)', artist: 'Artist', albumartist: 'Artist', album: 'Album One', track: 1, seconds: 61, padding: 30 });
-    const [{ id }] = await l.sql`select id from audio_files where library_id = ${l.libraryId} and rel_path = ${f}`;
+    const [{ id }] = await l.sql`select id from files where library_id = ${l.libraryId} and rel_path = ${f}`;
     // what tags.apply records after its write
     const after = fileStateAfterWrite(await stat(abs(l, f)), tagSnapshotOf(await parseFile(abs(l, f))), 'h');
-    await l.sql`update audio_files set size_bytes = ${after.sizeBytes}, mtime = ${after.mtime}, inode = ${after.inode},
+    await l.sql`update files set size_bytes = ${after.sizeBytes}, mtime = ${after.mtime}, inode = ${after.inode},
                   tags_raw = ${JSON.stringify(after.tagsRaw)}::jsonb, tags_digest = ${after.tagsDigest},
                   core_tags_digest = ${after.coreTagsDigest}, tags_read_at = ${after.tagsReadAt.toISOString()}::timestamptz,
                   audio_hash = ${after.audioHash}
@@ -191,7 +191,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     expect(ranEarly).toContain('Artist/Album One (2001)');
     expect(await l.albumIdOf(0, 'Artist/Album One (2001)/01 - Song 1.flac')).toBe(albumId);
     expect(await l.albumIdOf(0, 'Artist/Album One (2001)/02 - Song 2.flac')).toBe(albumId);
-    expect((await l.sql`select status from audio_files where library_id = ${l.libraryId} and rel_path = 'Artist/Album One/03 - Song 3.flac'`)[0].status).toBe('missing');
+    expect((await l.sql`select status from files where library_id = ${l.libraryId} and rel_path = 'Artist/Album One/03 - Song 3.flac'`)[0].status).toBe('missing');
   });
 
   it('scan.dir during scan.root: the row scan.dir re-pointed is never marked missing by the root scan', async () => {
@@ -311,13 +311,13 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     await utimes(abs(lab, 'New/x.flac'), st.mtimeMs / 1000 + 900, st.mtimeMs / 1000 + 900);
     await rm(abs(lab, 'Old'), { recursive: true });
     await scanRootJob(lab.ctx, { scanRootId: lab.roots[0]!.id, mode: 'full' });
-    const [h] = await lab.sql`select reconcile_hold_at from audio_files where library_id = ${lab.libraryId} and rel_path = 'New/x.flac'`;
+    const [h] = await lab.sql`select reconcile_hold_at from files where library_id = ${lab.libraryId} and rel_path = 'New/x.flac'`;
     expect(h.reconcile_hold_at).not.toBeNull();                   // held: it may be Old's file
     await clusterDirJob(lab.ctx, { libraryId: lab.libraryId, scanRootId: lab.roots[0]!.id, dirPath: 'New' });
     expect(await tracksOf(lab, 'New/x.flac')).toHaveLength(0);    // a held folder is not clustered
     lab.sent.splice(0, lab.sent.length, ...lab.sent.filter((j) => j.name === 'scan.parse'));
     await lab.drain({ only: ['scan.parse'] });                    // parse fails, hold released
-    const [r] = await lab.sql`select status, reconcile_hold_at from audio_files where library_id = ${lab.libraryId} and rel_path = 'New/x.flac'`;
+    const [r] = await lab.sql`select status, reconcile_hold_at from files where library_id = ${lab.libraryId} and rel_path = 'New/x.flac'`;
     expect(r).toMatchObject({ status: 'error', reconcile_hold_at: null });
     expect(lab.sent.filter((j) => j.name === 'cluster.dir').map((j) => j.data.dirPath)).toContain('New');
     await lab.drain();
@@ -334,15 +334,15 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     await rm(abs(lab, 'Old'), { recursive: true });
     await scanRootJob(lab.ctx, { scanRootId: lab.roots[0]!.id, mode: 'full' });
     lab.sent.length = 0;                                          // the parse job is lost
-    const held = await lab.sql`select id from audio_files where library_id = ${lab.libraryId} and reconcile_hold_at is not null`;
+    const held = await lab.sql`select id from files where library_id = ${lab.libraryId} and reconcile_hold_at is not null`;
     expect(held).toHaveLength(1);
     // before the cap nothing is released
     expect(await releaseExpiredHolds(lab.ctx, { libraryId: lab.libraryId })).toBe(0);
     expect(lab.sent).toEqual([]);
-    await lab.sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where library_id = ${lab.libraryId} and reconcile_hold_at is not null`;
+    await lab.sql`update files set reconcile_hold_at = now() - interval '61 minutes' where library_id = ${lab.libraryId} and reconcile_hold_at is not null`;
     expect(await releaseExpiredHolds(lab.ctx, { libraryId: lab.libraryId })).toBe(1);
     expect(lab.sent.map((s) => [s.name, s.data.dirPath])).toEqual([['cluster.dir', 'New']]);
-    expect(await lab.sql`select 1 from audio_files where library_id = ${lab.libraryId} and reconcile_hold_at is not null`).toHaveLength(0);
+    expect(await lab.sql`select 1 from files where library_id = ${lab.libraryId} and reconcile_hold_at is not null`).toHaveLength(0);
     await lab.drain();
     expect(await tracksOf(lab, 'New/01 - Song 1.flac')).toHaveLength(1);
   });
@@ -378,7 +378,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     const after = await l.snapshot();
     expect(after.counts.tracks).toBe(3);
     expect(after.tracks).toEqual(before.tracks);
-    expect((await l.sql`select count(*)::int as n from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+    expect((await l.sql`select count(*)::int as n from local_tracks lt join files af on af.id = lt.audio_file_id
                          where af.library_id = ${l.libraryId} and lt.cue_start_ms is null`)[0].n).toBe(3);
     // the key itself: a second row for the same plain file (cue_start_ms null) is refused
     const t = before.tracks[0]!;

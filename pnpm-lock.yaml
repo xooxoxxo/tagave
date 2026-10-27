@@ -145,6 +145,9 @@ importers:
       music-connections:
         specifier: workspace:*
         version: link:../music-connections
+      music-metadata:
+        specifier: ^12.1.0
+        version: 12.1.0
       zod:
         specifier: ^4.6.5
         version: 4.6.5

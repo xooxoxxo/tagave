@@ -11,7 +11,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import type { CanonicalRelease } from '@tagave/core';
 import {
-  albumMatches, audioFiles, autoAcceptRules, libraries, localAlbums, localTracks, matchCandidates,
+  albumMatches, files, autoAcceptRules, libraries, localAlbums, localTracks, matchCandidates,
   releases, scanRoots, users, makeDb,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
@@ -87,7 +87,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     await db.insert(localAlbums).values({ id, libraryId, clusterKey: `k-${id}`, dirPaths: [`h/${id}`], titleGuess: 'Hook Album', artistGuess: 'Hook Artist', yearGuess: 2011, state, trackCount: TITLES.length });
     for (const [i, title] of TITLES.entries()) {
       const fileId = randomUUID();
-      await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/${i}.flac`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
+      await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: `${id}/${i}.flac`, sizeBytes: 1, mtime: 1, status: 'present', tagsRaw: {} });
       await db.insert(localTracks).values({ localAlbumId: id, audioFileId: fileId, trackNo: i + 1, titleGuess: title, durationMs: 200_000 });
     }
     return id;

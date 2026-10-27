@@ -70,8 +70,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state, release_id, release_group_id)
               values (${albumId}, ${libraryId}, ${`ck-${albumId}`}, 'Test Album', 'Test Artist', 'matched', ${releaseId}, ${rgId})`;
     const file = (id: string, rel: string, container = 'flac') =>
-      sql`insert into audio_files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status)
-          values (${id}, ${libraryId}, ${rootId}, ${rel}, ${container}, 'FLAC', true, 200000, 'present')`;
+      sql`insert into files (id, library_id, scan_root_id, rel_path, container, codec, lossless, duration_ms, status, handler)
+          values (${id}, ${libraryId}, ${rootId}, ${rel}, ${container}, 'FLAC', true, 200000, 'present', 'audio')`;
     await file(files.one, 'Test Artist/Test Album/01 One.flac');
     await file(files.two, 'Test Artist/Test Album/02 Two.flac');
     await file(files.three, 'Test Artist/Test Album/03 Three.flac');

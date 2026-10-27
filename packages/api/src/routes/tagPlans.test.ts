@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import { randomUUID } from 'node:crypto';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { eq, inArray } from 'drizzle-orm';
-import { audioFiles, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
+import { files, libraries, localAlbums, localTracks, scanRoots, tagPlanItems, tagPlans, users } from '@tagave/db';
 
 const sent = vi.hoisted(() => [] as Array<{ name: string; data: any; opts: any }>);
 vi.mock('../boss.js', () => ({
@@ -85,7 +85,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tag plan add-items (route)', ()
       { id: foreignAlbum, libraryId: otherLibraryId, clusterKey: `f-${foreignAlbum}`, dirPaths: ['F'], state: 'matched' },
     ]);
     await db.insert(scanRoots).values({ id: rootId, libraryId, path: '/tmp/plans-root', displayName: 'plans', writable: true, validationStatus: 'ok' });
-    await db.insert(audioFiles).values({ id: fileId, libraryId, scanRootId: rootId, relPath: 'A/1/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
+    await db.insert(files).values({ handler: 'audio', id: fileId, libraryId, scanRootId: rootId, relPath: 'A/1/01.flac', sizeBytes: 1, mtime: 1, status: 'present' });
 
     const { errorHandler } = await import('../middleware/errorHandler.js');
     const { createTagPlansRoutes } = await import('./tagPlans.js');

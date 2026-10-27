@@ -17,13 +17,13 @@ describe('files.backfillDigest (stubbed)', () => {
     let updates = 0; let updatedRows = 0;
     const sql = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = strings.join('?');
-      if (text.includes('select id, tags_raw')) {
+      if (text.includes('select id, handler, tags_raw')) {
         const after = values[0] as string; const limit = values[1] as number;
         selects.push({ after, limit, text });
         const start = after === '00000000-0000-0000-0000-000000000000' ? 0 : Number(after.slice(-12));
         const rows = [];
         for (let i = start; i < Math.min(total, start + limit); i++) {
-          rows.push({ id: id(i), tags_raw: i % 10 === 0 ? untagged : tagged, tags_digest: 'td' });
+          rows.push({ id: id(i), handler: 'audio', tags_raw: i % 10 === 0 ? untagged : tagged, tags_digest: 'td' });
         }
         return rows;
       }

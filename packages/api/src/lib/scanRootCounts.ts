@@ -10,20 +10,20 @@ type Counts = Map<string, { albumsFound: number; tracksFound: number }>;
  * Tracks and albums are counted apart: one count(distinct) over the joined
  * rows sorted ~240k rows per request and spilled to disk under load (audit
  * 2026-10-10). Both halves read the narrow indexes from migration 0035
- * (idx_audio_files_present_root, idx_local_tracks_file_album) instead of
- * the audio_files heap; the album half de-duplicates with a hash.
+ * (idx_files_present_root, idx_local_tracks_file_album) instead of
+ * the files heap; the album half de-duplicates with a hash.
  */
 export async function scanRootCounts(db: any, libraryId: string): Promise<Counts> {
   const rows = (await db.execute(sql`
     with tracks as (
       select af.scan_root_id, count(*)::int as tracks
-        from audio_files af
+        from files af
        where af.library_id = ${libraryId} and af.status = 'present'
        group by af.scan_root_id
     ), albums as (
       select scan_root_id, count(*)::int as albums
         from (select distinct af.scan_root_id, lt.local_album_id
-                from audio_files af
+                from files af
                 join local_tracks lt on lt.audio_file_id = af.id
                where af.library_id = ${libraryId} and af.status = 'present'
                  and lt.local_album_id is not null) d

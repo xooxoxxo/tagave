@@ -22,11 +22,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     const id = randomUUID();
     // The shared client binds neither Date nor JSON objects: times go in as ISO text, tags as jsonb text.
     const { tags_raw: tags, ...cols } = over;
-    await sql`insert into audio_files ${sql({ id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 500, status: 'present', ...cols })}`;
-    if (tags !== undefined) await sql`update audio_files set tags_raw = ${JSON.stringify(tags)}::text::jsonb where id = ${id}`;
+    await sql`insert into files ${sql({ handler: 'audio', id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 500, status: 'present', ...cols })}`;
+    if (tags !== undefined) await sql`update files set tags_raw = ${JSON.stringify(tags)}::text::jsonb where id = ${id}`;
     return id;
   };
-  const holdOf = async (id: string) => (await sql`select reconcile_hold_at from audio_files where id = ${id}`)[0].reconcile_hold_at;
+  const holdOf = async (id: string) => (await sql`select reconcile_hold_at from files where id = ${id}`)[0].reconcile_hold_at;
 
   beforeAll(async () => {
     const made = await makeDb(process.env.TEST_DATABASE_URL!);
@@ -36,7 +36,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'CH', ${userId}, '{}')`;
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/nonexistent-ch', 'ch')`;
   });
-  beforeEach(async () => { sent.length = 0; await sql`delete from audio_files where library_id = ${libraryId}`; });
+  beforeEach(async () => { sent.length = 0; await sql`delete from files where library_id = ${libraryId}`; });
 
   afterAll(async () => {
     await sql`delete from local_albums where library_id = ${libraryId}`;
@@ -87,10 +87,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     const a = await file('New/1.flac');
     const b = await file('New/2.flac', { size_bytes: 600 });
     await placeHolds(ctx, [a, b]);
-    await sql`update audio_files set tags_read_at = now() where id = ${a}`;
+    await sql`update files set tags_read_at = now() where id = ${a}`;
     await releaseReadyHolds(ctx, [{ libraryId, scanRootId: rootId, dirPath: 'New' }]);
     expect(await holdOf(a)).not.toBeNull();                            // b not parsed yet
-    await sql`update audio_files set status = 'error', parse_error = 'bad' where id = ${b}`;
+    await sql`update files set status = 'error', parse_error = 'bad' where id = ${b}`;
     await releaseReadyHolds(ctx, [{ libraryId, scanRootId: rootId, dirPath: 'New' }]);
     expect(await holdOf(a)).toBeNull();
     expect(await holdOf(b)).toBeNull();
@@ -109,7 +109,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     await file('Old/1.flac', { status: 'missing', last_seen_at: new Date(Date.now() - 86_400_000).toISOString() });
     const twin = await file('New/1.flac', { tags_raw: { common: { album: 'A', artist: 'X', title: 't' } } });
     await placeHolds(ctx, [twin]);
-    await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
+    await sql`update files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
     expect(await scopeHoldState(ctx, [twin])).toBe('expired');
     expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
     expect(await holdOf(twin)).toBeNull();
@@ -128,7 +128,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds with a real pg-bo
   const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID();
   const file = async (relPath: string, over: Record<string, unknown> = {}) => {
     const id = randomUUID();
-    await sql`insert into audio_files ${sql({ id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 700, status: 'present', ...over })}`;
+    await sql`insert into files ${sql({ handler: 'audio', id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 700, status: 'present', ...over })}`;
     return id;
   };
   const key = clusterSingletonKey(rootId, 'New');
@@ -155,7 +155,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds with a real pg-bo
     await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/nonexistent-chb', 'chb')`;
   }, 30_000);
   beforeEach(async () => {
-    await sql`delete from audio_files where library_id = ${libraryId}`;
+    await sql`delete from files where library_id = ${libraryId}`;
     await sql.unsafe(`delete from ${schema}.job where name = 'cluster.dir'`);
   });
 
@@ -174,7 +174,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds with a real pg-bo
     await placeHolds(ctx, [twin]);
     await earlyReturn();
     await scanParseJob(ctx, { audioFileIds: [twin] });   // unreachable → errored → released
-    expect((await sql`select reconcile_hold_at from audio_files where id = ${twin}`)[0].reconcile_hold_at).toBeNull();
+    expect((await sql`select reconcile_hold_at from files where id = ${twin}`)[0].reconcile_hold_at).toBeNull();
     expect(await queued()).toBe(1);
   }, 30_000);
 
@@ -182,7 +182,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds with a real pg-bo
     await file('Old/1.flac', { status: 'missing', last_seen_at: new Date(Date.now() - 86_400_000).toISOString() });
     const twin = await file('New/1.flac');
     await placeHolds(ctx, [twin]);
-    await sql`update audio_files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
+    await sql`update files set reconcile_hold_at = now() - interval '61 minutes' where id = ${twin}`;
     await earlyReturn();
     expect(await releaseExpiredHolds(ctx, { libraryId })).toBe(1);
     expect(await queued()).toBe(1);
