@@ -142,7 +142,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
     expect((await sql`select count(*)::int as n from local_tracks where audio_file_id = ${freshId}`)[0].n).toBe(1);
   });
 
-  it('keeps an unparseable (error) row as error when nothing changed and nothing was parsed (F13)', async () => {
+  it('keeps an unparseable (error) row as error when nothing changed and nothing was parsed', async () => {
     const oldId = await file(rootA, 'X/10.flac');
     await sql`update audio_files set status = 'error', last_seen_at = now() - interval '1 hour' where id = ${oldId}`;
     const freshId = await file(rootA, 'P/10.flac');
@@ -157,7 +157,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
     expect(out).toEqual({ kind: 'skipped', reason: 'fresh_gone' });
     expect((await row(oldId)).status).toBe('missing');
   });
-  describe('fix round 1', () => {
+  describe('parse state, failed parses and locks', () => {
     const merge = (oldId: string, freshId: string, relPath: string) =>
       mergeFilePair(ctx(), { oldId, freshId, oldAt: { scanRootId: rootA, relPath }, walkStart: null, allowAbsorb: false });
 
@@ -282,7 +282,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       await sql`insert into user_reviews (library_id, user_id, release_group_id, favorite_track_ids) values (${libraryId}, ${userId}, ${rg}, ${[s.freshTrack]}::uuid[])`;
     }],
     ['album state as_is', async (s: any) => sql`update local_albums set state = 'as_is' where id = ${s.freshAlbum}`],
-    // Ruling 12 and owner-set flags beyond the spec list
+    // owner-set flags beyond the spec list
     ['album state ignored', async (s: any) => sql`update local_albums set state = 'ignored' where id = ${s.freshAlbum}`],
     ['an owner merge (merged_from)', async (s: any) => sql`update local_albums set merged_from = '{"albums":[]}'::jsonb where id = ${s.freshAlbum}`],
     ['the owner preferring it among duplicates', async (s: any) => sql`update local_albums set preferred = true where id = ${s.freshAlbum}`],
@@ -298,7 +298,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
       await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel.id}, 0.1, 'rejected', 'user')`;
     }],
-    // review round 1: gap decisions and excluded candidates
+    // gap decisions and excluded candidates are owner decisions too
     ['a gap the owner turned into a task', async (s: any) => sql`insert into gaps (library_id, kind, subject_type, subject_id, state, accepted_at)
                                                                    values (${libraryId}, 'incomplete_album', 'local_album', ${s.freshAlbum}, 'todo', now())`],
     ['a dismissed gap', async (s: any) => sql`insert into gaps (library_id, kind, subject_type, subject_id, state, dismiss_reason, decided_at)
@@ -335,7 +335,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       const [newSide] = await sql`insert into sidecar_files (library_id, scan_root_id, rel_path, kind) values (${libraryId}, ${rootB}, 'X/folder.jpg', 'image') returning id`;
       const [oldCover] = await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
                                    values (${libraryId}, 'local_album', ${s.oldAlbum}, ${s.oldAlbum}, 'front', 'sidecar', ${oldSide.id}, 'x') returning id`;
-      // The fresh album: an automatic match and a cover from the same sidecar the old one moved next to (Task 13).
+      // The fresh album: an automatic match and a cover from the same sidecar the old one moved next to (the cover re-point).
       const [rel2] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R2') returning id`;
       await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel2.id}, 0.2, 'auto', 'system')`;
       await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
@@ -490,7 +490,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       expect(await sql`select player_listen_id, local_album_id from player_plays where id = ${play.id}`).toEqual([{ player_listen_id: listens[1], local_album_id: s.oldAlbum }]);
     });
 
-    it('falls back when the old row has no album: the fresh album and its listens would go (F6)', async () => {
+    it('falls back when the old row has no album: the fresh album and its listens would have nowhere to go', async () => {
       const s = await setup();
       await sql`delete from local_tracks where id = ${s.oldTrack}`;
       await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)

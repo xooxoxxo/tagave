@@ -66,7 +66,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
         .update(audioFiles)
         .set({ status: 'error', parseError: 'file not reachable under any normalization form' })
         .where(eq(audioFiles.id, row.id));
-      // F8: an unreachable file errored too, so its folder's hold may be ready.
+      // An unreachable file errored too (it counts as parsed), so its folder's hold may be ready.
       dirsTouched.set(`${row.scanRootId}\n${relDirname(row.relPath)}`, { libraryId: row.libraryId, scanRootId: row.scanRootId });
       continue;
     }
@@ -115,7 +115,7 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   }
 
   // Folders whose held rows are now all parsed: release them (Tier 2 runs
-  // there, Task 11) before their cluster.dir is sent below. Their sends skip
+  // there) before their cluster.dir is sent below. Their sends skip
   // the 30 s throttle slot (see sendReleasedCluster).
   const touched = [...dirsTouched].map(([key, info]) => ({ ...info, dirPath: key.split('\n')[1] ?? '' }));
   const released = await releaseReadyHolds(ctx, touched);

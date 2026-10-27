@@ -101,7 +101,7 @@ describe('runMerges', () => {
   });
 
   it('pairs whose fresh rows share a fresh album merge as one unit; the rest one by one', async () => {
-    freshAlbums = [{ file: 'new-a', album: 'F1' }, { file: 'new-c', album: 'F1' }, { file: 'new-d', album: 'F2' }];
+    freshAlbums = [{ file: 'new-a', album: 'fresh-1' }, { file: 'new-c', album: 'fresh-1' }, { file: 'new-d', album: 'fresh-2' }];
     mergeFilePair.mockImplementation(async (_ctx: unknown, req: { oldId: string }) => done(req.oldId));
     mergeFilePairs.mockImplementation(async (_ctx: unknown, reqs: Array<{ oldId: string }>) =>
       reqs.map((r) => ({ kind: 'skipped', reason: 'fresh_touched', oldId: r.oldId })));

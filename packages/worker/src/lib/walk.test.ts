@@ -175,7 +175,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
   it('sidecar rows keep their ids across walks, and a removed sidecar takes its image row with it', async () => {
     const { images } = await import('@tagave/db');
     // put back the file the subtree test removed: a stale image sidecar stays while its
-    // folder has missing rows (Ruling 9), and this test is about the plain drop
+    // folder has missing rows, and this test is about the plain drop
     await writeFile(path.join(rootPath, 'A', '02 - Two.mp3'), 'a22');
     await writeFile(path.join(rootPath, 'A', 'back.jpg'), 'img2');
     await bump(path.join(rootPath, 'A'));

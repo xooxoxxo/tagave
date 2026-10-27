@@ -65,7 +65,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('carry-over with a missing track
 });
 
 /**
- * Spec acceptance (Task 12): after a rescan, a moved album keeps its id, its
+ * Spec acceptance: after a rescan, a moved album keeps its id, its
  * match and its album locks, and local_albums does not grow. Real FLAC files,
  * real scan.root; the queued scan.parse and cluster.dir jobs are run by a
  * small pump (one per singletonKey per round, cluster.dir jobs of one round

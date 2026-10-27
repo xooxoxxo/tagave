@@ -66,7 +66,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 1', () => {
     await lab.album(0, 'Artist/Box/CD1', 3, { album: 'Box' });
     await lab.album(0, 'Artist/Box/CD2', 3, { album: 'Box', firstTrack: 4 });
     const { writeFile } = await import('node:fs/promises');
-    await writeFile(path.join(lab.roots[0]!.path, 'Artist', 'Box', 'folder.jpg'), 'jpg:Box'); // the box's cover above CD1/CD2 (Task 13 layout)
+    await writeFile(path.join(lab.roots[0]!.path, 'Artist', 'Box', 'folder.jpg'), 'jpg:Box'); // the box's cover above CD1/CD2 (the multi-disc layout)
     await lab.scan(0);
     await lab.ownerData((await lab.albumIdOf(0, 'Artist/Box/CD1/01 - Song 1.flac'))!);
     await expectCovers(lab, 1);

@@ -140,7 +140,7 @@ interface SidecarRow { id: string; scan_root_id: string; rel_path: string }
  * relative path under the new folder, so the stale old sidecar can later drop
  * without its cover (the 0052 cascade). Relative paths compare by normKey;
  * two candidates on either side for one name re-point nothing (the image
- * stays on the old sidecar, which Ruling 9 keeps beside missing rows).
+ * stays on the old sidecar, which is kept while missing rows lie near it).
  * `goneIds` are the run's old rows (runMerges passes them): rows known gone
  * from the old folders, so they do not count as audio still there. Runs inside
  * runMerges, so Tier 1 (finishWalk, before stale sidecars drop) and Tier 2
@@ -240,7 +240,7 @@ function playerFolderPairs(merges: MergeDone[]): BasePair[] {
 }
 
 /**
- * Ruling 10. The worker never holds the player's address, so "the module is
+ * The player after a move. The worker never holds the player's address, so "the module is
  * on" is read from the module's own table: tracks the player mapped. Those
  * map rows name songs at the old path; they are dropped (the app re-matches
  * on the next play, so play never hits a dead song id) and the player is

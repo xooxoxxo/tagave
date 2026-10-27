@@ -72,7 +72,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('sidecar covers follow moves (db
     const img = (await sql`select id from images where library_id = ${libraryId}`)[0].id;
     await rename(path.join(base, 'a', 'Album (2001)'), path.join(base, 'b', 'Album (2001)'));
     await walkRoot(ctx, A(), { mode: 'full' });
-    expect(await sidecarOf(img)).toEqual({ scan_root_id: rootA, rel_path: 'Album (2001)/folder.jpg' }); // kept (Ruling 9)
+    expect(await sidecarOf(img)).toEqual({ scan_root_id: rootA, rel_path: 'Album (2001)/folder.jpg' }); // kept: missing audio beside it
     await walkRoot(ctx, B(), { mode: 'full' });
     expect(await sidecarOf(img)).toEqual({ scan_root_id: rootB, rel_path: 'Album (2001)/folder.jpg' });
     // the next scan of A drops the old sidecar row: nothing points at it, nothing is missing there
@@ -301,7 +301,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('covers outside the audio folder
       const l = await lab(layout);
       await rename(path.join(l.base, 'a', 'Album'), path.join(l.base, 'b', 'Album'));
       await walkRoot(ctx, l.A, { mode: 'full' });
-      expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootA, rel_path: `Album/${l.cover}` }); // kept (Ruling 9, widened)
+      expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootA, rel_path: `Album/${l.cover}` }); // kept: missing audio below it
       await walkRoot(ctx, l.B, { mode: 'full' });
       expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootB, rel_path: `Album/${l.cover}` });
       await walkRoot(ctx, l.A, { mode: 'full' });

@@ -9,7 +9,7 @@ describe('missingHold', () => {
   it('holds above 500 when 20% is higher', () => {
     expect(missingHold(501, 100_000)).toEqual({ held: true, threshold: 500 });
   });
-  it('never holds 10 files or fewer (Ruling 5)', () => {
+  it('never holds 10 files or fewer', () => {
     expect(missingHold(10, 12)).toEqual({ held: false, threshold: 10 });
     expect(missingHold(11, 30)).toEqual({ held: true, threshold: 10 });
   });

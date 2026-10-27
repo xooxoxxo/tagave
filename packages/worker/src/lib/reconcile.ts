@@ -202,7 +202,7 @@ async function mergeOnce(ctx: Pick<WorkerContext, 'sql' | 'logger'>, reqs: Merge
 
 /**
  * The plan's pairs in merge units: pairs whose fresh rows share a fresh
- * album form one unit (absorbed together or not at all, review round 1);
+ * album form one unit (absorbed together or not at all, so no old album is left without tracks);
  * every other pair is a unit of its own. Read without locks: mergeFilePairs
  * checks the albums again under its locks and falls back when they changed.
  */
@@ -277,7 +277,7 @@ export async function runMerges(
   out.moves = [...moves.values()].sort((a, b) => b.files - a.files);
   out.reclusterDirs = [...dirs.values()];
   // Sidecar covers follow the merged folders before any stale sidecar is dropped
-  // (Tier 1: finishWalk drops after this; Tier 2: the old sidecar waited, Ruling 9).
+  // (Tier 1: finishWalk drops after this; Tier 2: the old sidecar was kept beside its missing rows).
   // The old rows are known gone from their folders (unseen or missing), so they do
   // not make a folder look still occupied.
   // Each effect runs on its own: the merges are committed, so one failing must not skip the other.
@@ -289,7 +289,7 @@ export async function runMerges(
       ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not re-point sidecar covers after moves');
     }
   }
-  // The player's song ids of moved files are stale (new path); only when it mapped them (Ruling 10).
+  // The player's song ids of moved files are stale (new path); only when it mapped them.
   try {
     await refreshPlayerAfterMoves(ctx, out.outcomes);
   } catch (error) {
@@ -307,7 +307,7 @@ export async function runMerges(
 /**
  * Tier 1: this walk's vanished rows (and the library's missing rows of the
  * sizes this walk added) against this walk's new rows (and any row of the
- * library, any root, first seen after them; Ruling 17). A row on the old side
+ * library, any root, first seen after them: the destination root may have been scanned first). A row on the old side
  * is never a candidate on the new side: it is the one that vanished. Rows
  * under the walk's failed paths never pair: the walk could not read them, so
  * they are neither known gone nor a known new copy (finishWalk keeps them out
@@ -342,7 +342,7 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
                                                            and af.first_seen_at >= ${earliest}::timestamptz
                                                            and not (af.id = any(${unseenIds}::uuid[]))`) : []),
   ];
-  // Whole folders on both sides (Ruling 2; edition guard extras).
+  // Whole folders on both sides (the folder-pair share counts the old folder's vanished rows; the edition guard counts extras).
   olds = uniqById([...olds, ...await rowsInDirs(ctx, root.libraryId, dirsOf(olds), sql`af.status = 'missing'`)]);
   const oldIds = new Set(olds.map((o) => o.id));
   freshs = uniqById([...freshs, ...await rowsInDirs(ctx, root.libraryId, dirsOf(freshs),

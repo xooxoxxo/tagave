@@ -104,7 +104,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     const { images: imgBefore, ...ownerBefore } = before.owner;
     const { images: imgAfter, ...ownerAfter } = after.owner;
     expect(ownerAfter).toEqual(ownerBefore);                      // locks, match, listens, plan items, player map untouched
-    // both covers stay on the ghost; its sidecar row is kept beside its missing files (Ruling 9)
+    // both covers stay on the ghost; its sidecar row is kept beside its missing files (a later move may still claim it)
     expect((imgAfter as Image[]).map((i) => ({ ...i, sidecar_beside: i.origin === 'sidecar' ? 'missing' : i.sidecar_beside })))
       .toEqual((imgBefore as Image[]).map((i) => ({ ...i, sidecar_beside: i.origin === 'sidecar' ? 'missing' : i.sidecar_beside })));
     expect(sidecarImages(after).map((i) => i.sidecar_beside)).toEqual(['missing']);
@@ -186,7 +186,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
 
   it.skipIf(process.getuid?.() === 0)('a walk with a failed directory marks nothing under it missing; reconcile still runs elsewhere', async () => {
     const l = await oneAlbum();
-    await l.album(0, 'Keep/Other', 1);                            // F3: the root yields files, so it does not look unmounted
+    await l.album(0, 'Keep/Other', 1);                            // the root yields files, so it does not look unmounted
     await l.scan(0);
     const before = await l.snapshot();
     await rename(abs(l, 'Keep/Other'), abs(l, 'Keep/Other (2020)')); // a move outside the failed folder, in the same scan
@@ -357,7 +357,7 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
   });
 
   /*
-   * The player map, Ruling 10 boundary. The worker never holds the player's
+   * The player map, where the worker's part ends. The worker never holds the player's
    * address or credentials: re-matching a song id happens in the app
    * (packages/api, on the next play, for tracks without a map row) and the
    * folder rescan is worked by the app from player_scan_requests. So this

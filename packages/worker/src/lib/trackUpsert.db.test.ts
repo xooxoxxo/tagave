@@ -91,7 +91,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('tracks update in place (db)', (
     const [again] = await tracksOf();
     expect(again.id).toBe(first.id);
     expect(again.title_guess).toBe('Renamed');
-    // Ruling 11: same album, so the link survives the retitle
+    // same album, so the link survives the retitle
     expect(await linkOf(first.id)).toEqual({ canonical_track_id: canonicalId, recording_id: recordingId, match_distance: 0.125, state: 'matched' });
     const [a] = await sql`select tracks_linked_at from local_albums where id = ${first.local_album_id}`;
     expect(a.tracks_linked_at).toBeNull();

@@ -1,7 +1,7 @@
 /**
  * What runs after a walk (move-safe scanning §1, §3), under the library's
  * reconcile lock: Tier 1 reconciliation, missing-marking with its guards,
- * cluster holds (Task 10), stale sidecars.
+ * cluster holds, stale sidecars.
  * Missing-marking only touches a row that is still where the walk's snapshot
  * saw it and was last seen before the walk began, by the database's clock: a
  * row a concurrent scan.dir re-pointed is never marked missing (R7).
@@ -25,9 +25,9 @@ export interface FinishOptions {
 }
 export interface FinishResult {
   missing: number; dirsWithMissing: string[];
-  failedDirs: string[]; heldMissing: { count: number; threshold: number } | null; reconcileSkipped: string | null; // Task 5
-  merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Task 8
-  held: number;                                                                                                       // Task 10
+  failedDirs: string[]; heldMissing: { count: number; threshold: number } | null; reconcileSkipped: string | null; // guards
+  merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Tier 1
+  held: number;                                                                                                       // cluster holds
   /** rows marked missing because an earlier held scan, 24 h or more before, already found them gone */
   confirmedAfterHold: number;
 }
@@ -56,10 +56,10 @@ export async function markMissing(
 /**
  * Sidecars in scope the walk did not see: their images first (cascade since 0052), then the rows.
  * Sidecars under a failed path were not seen because they could not be read, not because they
- * left, so they stay (F5: dropping one would cascade its cover away). The candidates are
+ * left, so they stay (dropping one would cascade its cover away). The candidates are
  * filtered in JS with one set lookup per path level, then deleted by id (the last_seen guard
  * is re-checked, so a row a concurrent walk just saw stays).
- * Ruling 9 (widened in Task 13's review): a stale sidecar an image points at
+ * A stale sidecar an image points at
  * stays while a missing audio row lies in its folder, in a folder under it
  * (Album/folder.jpg over CD1/, CD2/) or in a folder above it up to the root
  * (Album/Scans/folder.jpg). A cross-root move scanned source-first, or a Tier 2
@@ -247,7 +247,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0, confirmedAfterHold: 0,
   };
   const failedDirs = walk.failedPaths;
-  // F3: an unmounted-looking root marks nothing, but still names what it could not read.
+  // An unmounted-looking root marks nothing, but still names what it could not read.
   if (walk.looksUnmounted) return { ...empty, failedDirs, reconcileSkipped: UNMOUNTED_SKIP };
   return withLibraryLock(ctx, root.libraryId, async () => {
     // Doubt: an unreadable folder or file is not evidence that anything left.

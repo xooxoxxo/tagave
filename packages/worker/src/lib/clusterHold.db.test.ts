@@ -96,7 +96,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     expect(await holdOf(b)).toBeNull();
   });
 
-  it('scan.parse releases a folder whose held file cannot be reached (F8) and clusters it', async () => {
+  it('scan.parse releases a folder whose held file cannot be reached and clusters it', async () => {
     await file('Old/1.flac', { status: 'missing', last_seen_at: new Date(Date.now() - 86_400_000).toISOString() });
     const twin = await file('New/1.flac');
     await placeHolds(ctx, [twin]);

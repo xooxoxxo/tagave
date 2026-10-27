@@ -4,7 +4,7 @@
  * only Tier 2, after parsing, can tell. Until then cluster.dir leaves its
  * folder alone, or it would build a new pending album first. A hold ends when
  * every held row of the folder is parsed or failed to parse, and in any case
- * after an hour (Ruling 7: scan.sweep releases it, every 10 minutes).
+ * after an hour (scan.sweep releases it, every 10 minutes).
  *
  * A release runs Tier 2 for the folder's parsed held rows first. It runs
  * inside scan.parse and scan.sweep, which must not wait behind a full scan, so
@@ -102,7 +102,7 @@ export interface DirRelease {
 
 /**
  * Runs Tier 2 for the parsed held rows of these folders, then clears their
- * holds. Rows still unparsed lose Tier 2 (Ruling 7). On a busy library lock
+ * holds. Rows still unparsed lose Tier 2 (the hold is never longer than the hour). On a busy library lock
  * the holds stay and nothing changes (`deferred`), unless `atCap`: a hold
  * never outlives the hour, so then the holds go and the rows stay unpaired.
  */

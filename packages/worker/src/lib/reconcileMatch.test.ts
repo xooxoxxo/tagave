@@ -54,7 +54,7 @@ describe('planPairs', () => {
     expect(p.pairs).toEqual([]);
   });
 
-  it('never pairs with a row first seen in the statement the old one was last seen (one walk batch: they coexisted, F1)', () => {
+  it('never pairs with a row first seen in the statement the old one was last seen (one walk batch: they coexisted)', () => {
     const a = old('A/1.flac');
     const p = planPairs(1, [a], [moved(a, 'B/1.flac', { firstSeenAt: a.lastSeenAt })]);
     expect(p.pairs).toEqual([]);
@@ -116,7 +116,7 @@ describe('planPairs', () => {
     expect(p.pairs).toHaveLength(2);
   });
 
-  it('a resident first seen in the same statement the old rows were last seen is not an extra (F1)', () => {
+  it('a resident first seen in the same statement the old rows were last seen is not an extra', () => {
     const a = old('A/Old/1.flac'); const b = old('A/Old/2.flac');
     const resident = old('A/New/0.flac', { sizeBytes: 5 }); // firstSeenAt === lastSeenAt of a, b (T0)
     const p = planPairs(1, [a, b], [moved(a, 'A/New/1.flac'), moved(b, 'A/New/2.flac'), resident]);
@@ -215,7 +215,7 @@ function tier2SettleScenario(): Scenario {
 
 function relBase(p: string) { return p.slice(p.lastIndexOf('/') + 1); }
 
-describe('planPairs, fix round 1', () => {
+describe('planPairs, settling and the edition guard', () => {
   it('one old row matching two fresh rows through different Tier 1 kinds pairs neither', () => {
     const o = old('A/x.flac', { inode: '1:2' });
     const byInode = moved(o, 'B/y.flac');
@@ -239,7 +239,7 @@ describe('planPairs, fix round 1', () => {
     const s = flattenScenario();
     const p = planPairs(1, s.olds, s.freshs);
     expect(p.pairs.find((x) => x.freshId === 'f-silence')).toBeUndefined();
-    // Al/ keeps an unpaired new file, so no pair into it stands (Ruling 3 + guard after settling).
+    // Al/ keeps an unpaired new file, so no pair into it stands (the edition guard, after settling).
     expect(p.pairs).toEqual([]);
     expect(p.possibleMoves.filter((m) => m.reason === 'edition').map((m) => m.oldIds)).toEqual(
       [s.d1.map((o) => o.id).sort(), s.d2.map((o) => o.id).sort()].sort((a, b) => (a[0]! < b[0]! ? -1 : 1)),

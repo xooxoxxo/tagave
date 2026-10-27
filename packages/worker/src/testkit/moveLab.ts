@@ -199,7 +199,7 @@ export async function makeLab(rootCount = 1) {
       const owner: Record<string, unknown> = {
         matches: await sql`select local_album_id, release_id, status, decided_by from album_matches where library_id = ${libraryId} order by 1, 2`,
         locks: await sql`select scope, scope_id, field from field_locks where library_id = ${libraryId} order by 1, 2, 3`,
-        // pre-flight F9: the sidecar cover counts. Its sidecar row is re-pointed to the new folder's, so the
+        // the sidecar cover counts. Its sidecar row is re-pointed to the new folder's, so the
         // id may change; what must hold is where it sits: 'present' when it is in the folder (or the parent
         // folder, for disc sets) of a present file of the image's album, else 'missing' when only missing
         // files of the album are there (a kept ghost), else null (a lost or misplaced cover).
@@ -242,7 +242,7 @@ export type Lab = Awaited<ReturnType<typeof makeLab>>;
 /**
  * The spec's invariant: same ids everywhere, each file where `moves` puts
  * it, no row count grows. With
- * mapRebuilt the moved tracks' player map rows were dropped (stale, Ruling 10;
+ * mapRebuilt the moved tracks' player map rows were dropped (stale;
  * the app rebuilds them on the next play): what is left is a strict subset.
  */
 export function expectKept(before: Snapshot, after: Snapshot, opts: { mapRebuilt?: boolean; moves?: PathMove[] } = {}): void {

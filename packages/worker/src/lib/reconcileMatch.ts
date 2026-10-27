@@ -95,7 +95,7 @@ export function planPairs(tier: Tier, olds: MatchFile[], freshs: MatchFile[]): P
     for (const f of list) {
       if (f.id === o.id) continue;
       // Strictly after: rows inserted in one walk batch share one now(), so a new row
-      // first seen when the old one was last seen coexisted with it (F1, as isOlderResident).
+      // first seen when the old one was last seen coexisted with it (as isOlderResident).
       if (f.firstSeenAt.getTime() <= o.lastSeenAt.getTime()) continue;
       if (!signatureMatches(tier, o, f)) continue;
       push(cand, o.id, f);
@@ -210,7 +210,7 @@ export function planPairs(tier: Tier, olds: MatchFile[], freshs: MatchFile[]): P
 /**
  * A file that was already in the new folder before the old files being paired
  * into it vanished is not an extra. `<=`: rows inserted in one walk batch share
- * one now(), so equal timestamps mean the files coexisted (pre-flight F1).
+ * one now(), so equal timestamps mean the files coexisted.
  */
 function isOlderResident(f: MatchFile, earliestGone: number): boolean {
   return f.firstSeenAt.getTime() <= earliestGone;

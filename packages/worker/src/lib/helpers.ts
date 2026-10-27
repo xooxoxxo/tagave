@@ -296,7 +296,7 @@ function coreText(v: unknown): string {
 
 const YEAR4 = /(?<!\d)([12]\d{3})(?!\d)/;
 
-/** One year rule for `year` and `date` (Ruling 13): a 4-digit year 1000-2999. */
+/** One year rule for `year` and `date`, so both spellings give one digest: a 4-digit year 1000-2999. */
 function yearOf(v: unknown): number | null {
   if (typeof v === 'number') return Number.isInteger(v) && v >= 1000 && v <= 2999 ? v : null;
   if (typeof v !== 'string') return null;
@@ -308,7 +308,7 @@ function yearOf(v: unknown): number | null {
  * Tier 2's tag signature (move-safe scanning §1, R13): a hash of the fields a
  * move never changes, normalized so a tag-library upgrade (spacing, case,
  * Unicode form, a full date instead of a year) does not hide a pair. Null for
- * a file with none of them: untagged files would all look alike (Ruling 13).
+ * a file with none of them: untagged files would all look alike.
  */
 export function coreTagsDigest(tagsRaw: unknown): string | null {
   const common = (tagsRaw as { common?: Record<string, unknown> } | null)?.common;
@@ -352,7 +352,7 @@ export function relBasename(relPath: string): string {
 
 /**
  * dirname of `<alias>.rel_path` as SQL text, '' for a file at the top of the
- * root. The one copy of this expression (pre-flight F10): it equals
+ * root. The one copy of this expression, so SQL and JS never disagree: it equals
  * relDirname() and reconcileMatch's dir key exactly, with no case or NFC
  * folding. Use it through `sql.unsafe(sqlDirname('af'))`.
  */

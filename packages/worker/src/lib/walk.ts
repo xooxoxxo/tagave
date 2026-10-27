@@ -452,6 +452,6 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
 export async function walkRoot(ctx: WorkerContext, root: WalkRoot, opts: WalkOptions & FinishOptions): Promise<WalkResult & FinishResult & { walkStart: Date }> {
   const walk = await walkTree(ctx, root, opts);
   const finish = await finishWalk(ctx, root, walk, opts);
-  // finishWalk drops merged fresh rows from insertedIds: a moved file is not an addition (P15).
+  // finishWalk drops merged fresh rows from insertedIds: a moved file is not an addition.
   return { ...walk, ...finish, added: walk.insertedIds.length };
 }

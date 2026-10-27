@@ -10,7 +10,7 @@
  * Rows the files no longer produce are deleted. An album whose tracks changed
  * in anything the link reads (album membership, disc, track, title, artist,
  * duration, rows added or removed) gets tracks_linked_at cleared. A row that
- * moves to another album loses its old release link (Ruling 11).
+ * moves to another album loses its old release link (the link belongs to the old album's release).
  */
 import type postgres from 'postgres';
 import type { WorkerContext } from './context.js';

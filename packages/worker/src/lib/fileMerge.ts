@@ -60,9 +60,9 @@ const PARSE_COLUMNS = [
 
 /**
  * Owner-set data on the fresh side (spec §1: no confirmed match, locks,
- * overrides, ratings by local id, tag plans; Ruling 12 adds as_is/ignored,
- * owner merges and owner covers; review round 1 adds gap decisions, excluded
- * candidates and owner identify requests; an album the owner marked preferred
+ * overrides, ratings by local id, tag plans; as_is/ignored, owner merges and
+ * owner covers, gap decisions, excluded candidates and owner identify
+ * requests count too; an album the owner marked preferred
  * among duplicates counts too). Album-level checks cover the albums the fresh
  * rows' tracks sit on, except `exceptAlbumId`: the old row's own album, which a
  * same-path move to another root clusters the copy onto (its owner data is the
@@ -168,7 +168,7 @@ export async function mergeFilePair(ctx: Pick<WorkerContext, 'sql'>, req: MergeR
  * fresh rows were clustered (destination clustered first) are absorbed
  * together or not at all: a fresh album is folded into the old one only when
  * every one of its tracks belongs to a fresh row of these pairs and none of
- * them is touched by the owner (review round 1). A fresh album absorbed only
+ * them is touched by the owner. A fresh album absorbed only
  * in part would keep its cluster key, the next cluster.dir would fill it with
  * the old rows, and the old album would keep its history with no tracks.
  * The requests must share one walkStart (one walk's plan).
@@ -257,7 +257,7 @@ async function repoint(tx: postgres.TransactionSql, old: FileRow, fresh: FileRow
     await tx.unsafe(`update audio_files o set (${cols}) = (select ${cols} from audio_files f where f.id = $1) where o.id = $2`, [fresh.id, old.id]);
   }
   // Parsed: status came with the parse. Unparsed: present, except an
-  // unparseable (error) old row with no re-parse due keeps 'error' (pre-flight F13).
+  // unparseable (error) old row with no re-parse due keeps 'error' (it is still unreadable).
   const status = parsed ? null : old.status === 'error' && !reparse ? 'error' : 'present';
   // Track-scope locks key on the audio file id without a FK: move the fresh
   // row's locks over, except where the old row already locks that field.
@@ -305,7 +305,7 @@ async function repoint(tx: postgres.TransactionSql, old: FileRow, fresh: FileRow
  *   - the fresh side holds owner data (freshTouchedReason);
  *   - a fresh album has tracks of files outside these pairs (it would survive
  *     with its key and take the old rows back on the next cluster.dir);
- *   - there is a fresh album but no old album (pre-flight F6: its listens
+ *   - there is a fresh album but no old album (its listens
  *     would have nowhere to go), or the old rows sit on more than one album.
  * Listening history is never deleted: every re-point runs before any delete.
  */
@@ -343,7 +343,7 @@ async function absorbPairs(tx: postgres.TransactionSql, pairs: LivePair[], heldA
         await tx`delete from local_tracks where id = ${ft.id}`;                 // player_track_map cascades
       } else if (ft.local_album_id && fresh.has(ft.local_album_id)) {
         // No twin: the row moves onto the old file and album; its link was to
-        // the fresh album's release, so it starts over (Ruling 11).
+        // the fresh album's release, so it starts over (a link belongs to its album).
         await tx`
           update local_tracks set audio_file_id = ${p.old.id}, local_album_id = ${oldAlbumId},
                  canonical_track_id = null, recording_id = null, match_distance = null, state = 'unmatched'
@@ -394,7 +394,7 @@ async function absorbPairs(tx: postgres.TransactionSql, pairs: LivePair[], heldA
     // One cover per kind: the old album keeps its own; a kind it lacks comes
     // from a fresh album (the rest go with it). A fresh album's sidecar cover
     // may be the very sidecar the old cover is re-pointed to after the merges
-    // (Task 13), so keeping both would show the same image twice.
+    // (sidecar re-point), so keeping both would show the same image twice.
     await tx`
       update images i set local_album_id = ${oldAlbumId},
              entity_id = case when i.entity_type = 'local_album' then ${oldAlbumId}::uuid else i.entity_id end

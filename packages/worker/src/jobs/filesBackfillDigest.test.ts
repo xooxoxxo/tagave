@@ -5,7 +5,7 @@ import { filesBackfillDigestJob } from './filesBackfillDigest.js';
 /**
  * A library-sized run against a stubbed client: the select pages by id
  * (keyset, no OFFSET) and every update binds whole arrays, never one
- * parameter per row (65,535 bind limit; Task 14 rule).
+ * parameter per row (Postgres allows 65,535 bind parameters).
  */
 describe('files.backfillDigest (stubbed)', () => {
   it('pages a 240k-row library by id and binds one array per column', async () => {

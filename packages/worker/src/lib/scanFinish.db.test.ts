@@ -99,7 +99,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('finishWalk (db)', () => {
     expect((await byPath()).get('B/03.mp3')!.status).toBe('present');
   });
 
-  it('a new file the size of a missing one is held for Tier 2; others are not (Task 10)', async () => {
+  it('a new file the size of a missing one is held for Tier 2; others are not', async () => {
     // A/02.mp3 (3 bytes) is missing since the test above; a different name and an
     // old mtime keep Tier 1 from pairing the newcomer
     await mkdir(path.join(rootPath, 'C'));
@@ -182,7 +182,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
     expect(f.missing).toBe(0);
     expect(f.reconcileSkipped).toBeNull();
     expect(await statusOf('Locked/1.mp3')).toBe('present');
-    // F5: its cover sidecar (and through the 0052 cascade, its image) stays
+    // its cover sidecar (and through the 0052 cascade, its image) stays
     expect(await sidecarKept('Locked/cover.jpg')).toBe(true);
     await chmod(path.join(rootPath, 'Locked'), 0o755);
   });
@@ -220,7 +220,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL || process.getuid?.() === 0)('fin
     expect(f.heldMissing).toEqual({ count: 12, threshold: 10 });
     expect(f.missing).toBe(0);
     expect(await statusOf('Many/00.mp3')).toBe('present');
-    // F5: a held scan drops no sidecars either
+    // a held scan drops no sidecars either
     expect(await sidecarKept('Many/cover.jpg')).toBe(true);
   });
 
