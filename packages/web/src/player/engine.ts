@@ -13,12 +13,13 @@
  * The queue holds tracks from any albums: the album or playlist that was
  * started ("context") and what the person added by hand with Play next or
  * Add to queue ("queued"), which plays first. It is kept on the server per
- * person (PUT /me/player/queue), so it follows them to another device; the
- * device that wrote it last plays, and another one that sees a newer write
- * pauses and takes the queue over where it stopped.
+ * person (PUT /me/player/queue), so it follows them to another device. Any
+ * device may change it; the device that plays picks the change up and plays
+ * on. Only a play action (Play, Play from here, a skip) on another device
+ * moves playback there, and this one pauses.
  */
 import { create } from 'zustand';
-import type { PlayEventKind, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
+import type { PlayEventKind, PlayerQueueView, PlayerScanStatus, QueueContext, QueueOrigin, QueueStampView, QueueStateView, QueueTrack, StreamFormat } from '@tagave/shared';
 import { api, type ApiError } from '../services/api';
 import {
   FAILURE_TEXT, chooseFormat, classifyFailure, clearQueued, handoffDelayMs, heardDelta, insertQueued, moveUpcoming, nextPlayable, nothingPlayableMessage, queueOrder,
@@ -203,7 +204,7 @@ function onPlaying(a: HTMLAudioElement) {
     sendEvent('now_playing');
   }
   // this device plays now: say so at once, so another one pauses
-  if (!claimed) { claimed = true; persistNow({ claim: true }); }
+  if (!claimed) { claimed = true; persistNow({ mode: 'play' }); }
   setPlaybackState('playing');
 }
 
@@ -580,7 +581,7 @@ export async function enqueue(source: QueueSource, where: 'next' | 'end'): Promi
     begin(added, startIndex(added, null), null, { scanRequested: false, scan: null }, () => nothingPlayableMessage({ tracks: added, scanRequested: false }));
     return added.length;
   }
-  setTracks(insertQueued(s.queue.tracks, s.index, added, where));
+  editQueue((tracks, index) => insertQueued(tracks, index, added, where));
   return added.length;
 }
 
@@ -697,16 +698,12 @@ export function playAt(index: number) {
   loadTrack(index);
 }
 
-function setTracks(tracks: readonly QueueEntry[]) {
+/** Puts these tracks in the queue here, the playing one at `index`; what waits preloaded is dropped when it is no longer next. */
+function replaceTracks(tracks: readonly QueueEntry[], index = get().index) {
   const s = get();
-  if (!s.queue || tracks === s.queue.tracks) return;
-  set({ queue: { ...s.queue, tracks: [...tracks] } });
-  // the person changed the queue here: this is the device in use now
-  claimed = true;
-  claimNext = true;
-  persistSoon();
-  // what waits in the other element may no longer be next
-  const next = nextPlayable(tracks, s.index);
+  if (!s.queue) return;
+  set({ queue: { ...s.queue, tracks: [...tracks] }, index });
+  const next = nextPlayable(tracks, index);
   if (preloaded && preloaded.trackId !== tracks[next]?.localTrackId) {
     clearHandoff();
     release(standby());
@@ -714,22 +711,57 @@ function setTracks(tracks: readonly QueueEntry[]) {
   }
 }
 
+type QueueEdit = (tracks: readonly QueueEntry[], index: number) => readonly QueueEntry[];
+
+/**
+ * A change to the queue (Play next, Add to queue, reorder, remove, clear).
+ * It is the person's queue, whichever device they change it on: the device
+ * that plays keeps playing and picks the change up; this device takes
+ * nothing over. Made from an older copy (the queue moved on elsewhere), it
+ * is made again on the latest one.
+ */
+function editQueue(edit: QueueEdit) {
+  const s = get();
+  if (!s.queue) return;
+  const tracks = edit(s.queue.tracks, s.index);
+  if (tracks === s.queue.tracks) return;
+  replaceTracks(tracks);
+  void sendEdit(edit, 2);
+}
+
+async function sendEdit(edit: QueueEdit, retries: number): Promise<void> {
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+  const body = snapshot();
+  if (!body || typeof fetch === 'undefined') return;
+  try {
+    const r = await api.put<{ updatedAt: string; revision: number }>('/me/player/queue', { ...body, mode: claimed ? 'save' : 'edit', revision });
+    if (r?.revision) revision = r.revision;
+  } catch (err) {
+    if ((err as ApiError)?.status !== 409 || retries <= 0) return;
+    // the queue changed elsewhere (or another device plays now): follow it, then make the change again
+    await syncQueue();
+    const s = get();
+    if (!s.queue) return;
+    const tracks = edit(s.queue.tracks, s.index);
+    if (tracks !== s.queue.tracks) replaceTracks(tracks);
+    await sendEdit(edit, retries - 1);
+  }
+}
+
 /** Moves an upcoming track to another upcoming place. */
 export function moveInQueue(from: number, to: number) {
-  const s = get();
-  if (s.queue) setTracks(moveUpcoming(s.queue.tracks, s.index, from, to));
+  editQueue((tracks, index) => moveUpcoming(tracks, index, from, to));
 }
 
 /** Takes an upcoming track out of the queue. */
 export function removeFromQueue(at: number) {
-  const s = get();
-  if (s.queue) setTracks(removeUpcoming(s.queue.tracks, s.index, at));
+  editQueue((tracks, index) => removeUpcoming(tracks, index, at));
 }
 
 /** Clear: the upcoming tracks added by hand go. */
 export function clearQueue() {
-  const s = get();
-  if (s.queue) setTracks(clearQueued(s.queue.tracks, s.index));
+  editQueue((tracks, index) => clearQueued(tracks, index));
 }
 
 /**
@@ -749,7 +781,7 @@ export function stop(opts: { forget?: boolean } = {}) {
   persistTimer = null;
   claimed = false;
   if (opts.forget) {
-    seenStamp = null;
+    revision = 0;
     void api.delete('/me/player/queue').catch(() => undefined);
   }
   set({ ...initial, volume: get().volume });
@@ -759,18 +791,16 @@ export function stop(opts: { forget?: boolean } = {}) {
   }
 }
 
-// ---- the queue on the server: it follows the person; the device that wrote last plays ----
+// ---- the queue on the server: it follows the person; a play action moves playback ----
 
 const DEVICE_KEY = 'tagave-player-device';
 const POSITION_SAVE_MS = 10_000;
 let lastPositionSave = 0;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
-/** this device has played since it last took the queue over (only then does it write) */
+/** this device plays the queue (it pressed play since it last followed another device) */
 let claimed = false;
-/** the newest server write this device knows of (its own, or the one it took over) */
-let seenStamp: string | null = null;
-/** the next write claims the queue (an edit made here) */
-let claimNext = false;
+/** the server revision this device's copy is (0: none) */
+let revision = 0;
 let deviceIdCache: string | null = null;
 
 /** A random id for this browser, kept across visits. */
@@ -788,7 +818,7 @@ export function deviceId(): string {
 
 function snapshot() {
   const s = get();
-  if (!s.queue) return null;
+  if (!s.queue || s.queue.tracks.length === 0) return null;
   return {
     items: s.queue.tracks.map((t) => ({ id: t.localTrackId, origin: t.origin })),
     context: s.queue.context,
@@ -798,29 +828,31 @@ function snapshot() {
   };
 }
 
-/** Writes the queue now (fire and forget). `claim`: this device becomes the one in use. */
-function persistNow(opts: { keepalive?: boolean; claim?: boolean } = {}) {
+/**
+ * The device that plays writes its place and track (mode save), or takes
+ * playback (mode play: it just started playing). Fire and forget; refused
+ * (409), it follows the server: another device plays now (it pauses), or the
+ * queue changed elsewhere (it takes the change and plays on).
+ */
+function persistNow(opts: { keepalive?: boolean; mode?: 'play' | 'save' } = {}) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
   const snap = snapshot();
-  if (!snap || snap.items.length === 0 || typeof fetch === 'undefined') return;
-  const claim = opts.claim || claimNext;
-  claimNext = false;
-  const body = { ...snap, ...(claim ? { claim: true } : {}) };
+  if (!snap || typeof fetch === 'undefined') return;
+  const body = { ...snap, mode: opts.mode ?? 'save', ...(revision ? { revision } : {}) };
   if (opts.keepalive) {
     try {
       void fetch('/api/v1/me/player/queue', { method: 'PUT', body: JSON.stringify(body), keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' } }).catch(() => undefined);
     } catch { /* dropped */ }
     return;
   }
-  void api.put<{ updatedAt: string }>('/me/player/queue', body).then(
-    (r) => { if (r?.updatedAt) seenStamp = r.updatedAt; },
-    // another device took the queue over: pause here and follow it
-    (err: ApiError) => { if (err?.status === 409) void checkHandover(); },
+  void api.put<{ updatedAt: string; revision: number }>('/me/player/queue', body).then(
+    (r) => { if (r?.revision) revision = r.revision; },
+    (err: ApiError) => { if (err?.status === 409) void syncQueue(); },
   );
 }
 
-/** Writes the queue a moment after the last change (edits come in bursts). A device that only took the queue over writes nothing until it plays. */
+/** The device that plays writes its place a moment after a change (they come in bursts). Other devices write only edits. */
 function persistSoon() {
   if (!get().queue || !claimed) return;
   if (persistTimer) clearTimeout(persistTimer);
@@ -832,15 +864,31 @@ export function persistOnLeave() {
   if (get().queue && claimed) persistNow({ keepalive: true });
 }
 
+/** Drops the audio loaded here (another device plays the queue now). */
+function unload() {
+  clearHandoff();
+  leaveCurrent();
+  generation++;
+  release(el());
+  release(standby());
+  preloaded = null;
+  if (persistTimer) clearTimeout(persistTimer);
+  persistTimer = null;
+}
+
+/** The server's queue, paused where it is: a device that does not play. */
 function adopt(view: QueueStateView) {
-  seenStamp = view.updatedAt;
+  revision = view.revision;
   const tracks = view.items.map((t) => entry(t, t.origin));
-  if (tracks.length === 0) return;
+  if (tracks.length === 0) {
+    set({ ...initial, volume: get().volume });
+    return;
+  }
   const index = Math.min(Math.max(view.index, 0), tracks.length - 1);
   const t = tracks[index]!;
   set({
     queue: { context: view.context, tracks, scanRequested: false, scan: null },
-    queueId: randomId(),
+    queueId: get().queueId ?? randomId(),
     index,
     status: 'paused',
     message: null,
@@ -851,6 +899,28 @@ function adopt(view: QueueStateView) {
   });
   updateMetadata(t);
   setPlaybackState('paused');
+}
+
+/**
+ * The device that plays takes a change made on another device: the new
+ * tracks around the one playing, which plays on. When the playing track is
+ * not in it any more, this device's own queue stays (its next save wins).
+ */
+function merge(view: QueueStateView) {
+  revision = view.revision;
+  const cur = currentTrack();
+  const tracks = view.items.map((t) => entry(t, t.origin));
+  if (!cur) { adopt(view); return; }
+  let index = view.index;
+  if (tracks[index]?.localTrackId !== cur.localTrackId) {
+    const near = tracks.map((t, i) => (t.localTrackId === cur.localTrackId ? i : -1)).filter((i) => i >= 0)
+      .sort((a, b) => Math.abs(a - view.index) - Math.abs(b - view.index));
+    index = near[0] ?? -1;
+  }
+  if (index < 0) return;
+  const s = get();
+  set({ queue: { ...(s.queue ?? { scanRequested: false, scan: null }), context: view.context, tracks } });
+  replaceTracks(tracks, index);
 }
 
 /** On opening tagave: the person's queue as they left it, paused where it stopped. Nothing when this device already has one. */
@@ -864,31 +934,39 @@ export async function restoreQueue(): Promise<void> {
 }
 
 /**
- * Another device played since this one last wrote: pause here and take the
- * queue over where it is now. Called on focus and every so often.
+ * Follows changes made on the person's other devices (on focus, every so
+ * often, and after a refused write):
+ *   another device pressed play      this one pauses and shows the queue there
+ *   another device changed the queue the one that plays plays on with the change;
+ *                                    one that does not play shows it
+ * Resolves to what happened.
  */
-export async function checkHandover(): Promise<boolean> {
-  let stamp: { deviceId: string | null; updatedAt: string | null };
-  try { stamp = await api.get('/me/player/queue/stamp'); } catch { return false; }
-  if (!stamp?.updatedAt || !stamp.deviceId || stamp.deviceId === deviceId()) return false;
-  if (seenStamp && Date.parse(stamp.updatedAt) <= Date.parse(seenStamp)) return false;
+export async function syncQueue(): Promise<'none' | 'taken' | 'merged' | 'adopted'> {
+  let stamp: QueueStampView;
+  try { stamp = await api.get<QueueStampView>('/me/player/queue/stamp'); } catch { return 'none'; }
+  if (!stamp || stamp.revision <= revision) return 'none';
   let view: QueueStateView;
-  try { view = await api.get<QueueStateView>('/me/player/queue'); } catch { return false; }
-  // the other device's queue replaces what is loaded here, paused
-  clearHandoff();
-  leaveCurrent();
-  generation++;
-  release(el());
-  release(standby());
-  preloaded = null;
-  claimed = false;
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = null;
-  if (view.items.length === 0) {
-    seenStamp = view.updatedAt;
-    set({ ...initial, volume: get().volume });
-    return true;
+  try { view = await api.get<QueueStateView>('/me/player/queue'); } catch { return 'none'; }
+  if (view.revision <= revision) return 'none';
+  const mine = view.deviceId === deviceId();
+  if (claimed && !mine) {
+    // another device plays now: stop here, show the queue as it is there
+    claimed = false;
+    unload();
+    adopt(view);
+    return 'taken';
   }
+  if (claimed) {
+    merge(view);
+    return 'merged';
+  }
+  const s = get().status;
+  if (s === 'playing' || s === 'buffering' || s === 'loading') {
+    // playing here without having said so yet: the change joins what plays
+    merge(view);
+    return 'merged';
+  }
+  unload();
   adopt(view);
-  return true;
+  return 'adopted';
 }

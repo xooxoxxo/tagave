@@ -16,7 +16,7 @@ import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIc
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
-  checkHandover, clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, toggle,
+  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
   usePlayerStore, type PlayerStatus,
 } from '../player/engine';
 import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
@@ -173,7 +173,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
  * and pause (outside fields and buttons), and it tells the page how tall it
  * is (--player-bar-h on <html>) so toasts and the floating Maintenance pill
  * sit above it. It brings back the person's queue from the server when
- * tagave opens, and hands over to the device that played last.
+ * tagave opens, follows changes made on the person's other devices, and
+ * pauses when another device starts playing.
  */
 export function PlayerBar() {
   const s = usePlayerStore();
@@ -200,8 +201,8 @@ export function PlayerBar() {
   useEffect(() => {
     if (!installed) return;
     void restoreQueue();
-    const look = () => { if (document.visibilityState === 'visible') void checkHandover(); };
-    const timer = setInterval(look, 15_000);
+    const look = () => { if (document.visibilityState === 'visible') void syncQueue(); };
+    const timer = setInterval(look, 10_000);
     document.addEventListener('visibilitychange', look);
     window.addEventListener('focus', look);
     window.addEventListener('pagehide', persistOnLeave);

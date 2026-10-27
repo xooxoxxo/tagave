@@ -103,46 +103,57 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the play queue per person', () 
   });
 
   it('starts empty', async () => {
-    expect((await get(anna, '/api/v1/me/player/queue')).json()).toEqual({ items: [], context: null, index: -1, positionMs: 0, deviceId: null, updatedAt: null });
-    expect((await get(anna, '/api/v1/me/player/queue/stamp')).json()).toEqual({ deviceId: null, updatedAt: null });
+    expect((await get(anna, '/api/v1/me/player/queue')).json()).toEqual({ items: [], context: null, index: -1, positionMs: 0, deviceId: null, revision: 0, updatedAt: null });
+    expect((await get(anna, '/api/v1/me/player/queue/stamp')).json()).toEqual({ deviceId: null, revision: 0, updatedAt: null });
   });
 
-  it('follows the person to another device; the device that wrote last is the one that plays', async () => {
+  it('follows the person to another device; only a play action moves playback, an edit from another device does not', async () => {
     const laptop = 'laptop-1234567';
     const phone = 'phone-12345678';
-    const first = await put(anna, {
-      items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }],
-      context: { kind: 'album', id: albums.a, name: 'First Album' }, index: 0, positionMs: 42_000, deviceId: laptop,
-    });
-    expect(first.statusCode, first.body).toBe(200);
-    // the phone opens tagave: the same queue, at the same place, written by the laptop
-    const seen = (await get(anna, '/api/v1/me/player/queue')).json();
-    expect(seen).toMatchObject({ index: 0, positionMs: 42_000, deviceId: laptop, context: { kind: 'album', name: 'First Album' } });
-    expect(seen.items.map((i: any) => [i.title, i.origin, i.album])).toEqual([['One', 'context', 'First Album'], ['Three', 'queued', 'Second Album'], ['Two', 'context', 'First Album']]);
-    // the phone plays: it claims the queue, and the laptop's next look says so
     const items = [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }];
-    expect((await put(anna, { items, context: null, index: 1, positionMs: 0, deviceId: phone })).statusCode).toBe(409);
-    const second = await put(anna, { items, context: null, index: 1, positionMs: 0, deviceId: phone, claim: true });
-    expect(second.statusCode).toBe(200);
-    // the laptop, still playing, saves its place: refused, it is not the device in use any more
-    expect((await put(anna, { items, context: null, index: 0, positionMs: 50_000, deviceId: laptop })).statusCode).toBe(409);
-    // the phone saves its place without claiming: it is the device in use
-    expect((await put(anna, { items, context: null, index: 1, positionMs: 5000, deviceId: phone })).statusCode).toBe(200);
+    const first = await put(anna, { items, context: { kind: 'album', id: albums.a, name: 'First Album' }, index: 0, positionMs: 42_000, deviceId: laptop, mode: 'play' });
+    expect(first.statusCode, first.body).toBe(200);
+    const r1 = first.json().revision;
+    // the phone opens tagave: the same queue, at the same place, played by the laptop
+    const seen = (await get(anna, '/api/v1/me/player/queue')).json();
+    expect(seen).toMatchObject({ index: 0, positionMs: 42_000, deviceId: laptop, revision: r1, context: { kind: 'album', name: 'First Album' } });
+    expect(seen.items.map((i: any) => [i.title, i.origin, i.album])).toEqual([['One', 'context', 'First Album'], ['Three', 'queued', 'Second Album'], ['Two', 'context', 'First Album']]);
+
+    // the phone adds a track (Add to queue): the queue changes, the laptop still plays, at its place
+    const added = [...items.slice(0, 2), { id: t.b2, origin: 'queued' }, items[2]!];
+    const edit = await put(anna, { items: added, context: seen.context, index: 0, positionMs: 0, deviceId: phone, mode: 'edit', revision: r1 });
+    expect(edit.statusCode, edit.body).toBe(200);
+    const afterEdit = (await get(anna, '/api/v1/me/player/queue')).json();
+    expect(afterEdit).toMatchObject({ deviceId: laptop, positionMs: 42_000, revision: r1 + 1 });
+    expect(afterEdit.items.map((i: any) => i.title)).toEqual(['One', 'Three', 'Four', 'Two']);
+    // an edit from an older copy does not undo it
+    expect((await put(anna, { items, context: null, index: 0, positionMs: 0, deviceId: phone, mode: 'edit', revision: r1 })).statusCode).toBe(409);
+    // the laptop saves its place from its older copy: refused; read again, it saves on top of the edit
+    expect((await put(anna, { items, context: null, index: 0, positionMs: 50_000, deviceId: laptop, mode: 'save', revision: r1 })).statusCode).toBe(409);
+    expect((await put(anna, { items: added, context: null, index: 0, positionMs: 50_000, deviceId: laptop, mode: 'save', revision: r1 + 1 })).statusCode).toBe(200);
+    // the phone, not playing, cannot save a place
+    const stamp1 = (await get(anna, '/api/v1/me/player/queue/stamp')).json();
+    expect(stamp1).toMatchObject({ deviceId: laptop, revision: r1 + 2 });
+    expect((await put(anna, { items: added, context: null, index: 1, positionMs: 0, deviceId: phone, mode: 'save', revision: r1 + 2 })).statusCode).toBe(409);
+
+    // the phone presses Play: now it plays, and the laptop's next save is refused (it pauses)
+    const play = await put(anna, { items: added, context: null, index: 1, positionMs: 0, deviceId: phone, mode: 'play' });
+    expect(play.statusCode).toBe(200);
+    expect((await put(anna, { items: added, context: null, index: 0, positionMs: 60_000, deviceId: laptop, mode: 'save', revision: play.json().revision })).statusCode).toBe(409);
     const stamp = (await get(anna, '/api/v1/me/player/queue/stamp')).json();
-    expect(stamp.deviceId).toBe(phone);
-    expect(Date.parse(stamp.updatedAt)).toBeGreaterThanOrEqual(Date.parse(second.json().updatedAt));
+    expect(stamp).toMatchObject({ deviceId: phone, revision: play.json().revision });
     expect(Date.parse(stamp.updatedAt)).toBeGreaterThan(Date.parse(first.json().updatedAt));
   });
 
   it('each person has their own queue', async () => {
     expect((await get(ben, '/api/v1/me/player/queue')).json().items).toEqual([]);
     await put(ben, { items: [{ id: t.b2, origin: 'context' }], context: null, index: 0, positionMs: 0, deviceId: 'ben-device-1' });
-    expect((await get(anna, '/api/v1/me/player/queue')).json().items).toHaveLength(3);
+    expect((await get(anna, '/api/v1/me/player/queue')).json().items).toHaveLength(4);
     expect((await get(ben, '/api/v1/me/player/queue')).json().items.map((i: any) => i.title)).toEqual(['Four']);
   });
 
   it('a track that left the library drops out, and the next one takes the playing place', async () => {
-    await put(anna, { items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }], context: null, index: 1, positionMs: 9000, deviceId: 'laptop-1234567', claim: true });
+    await put(anna, { items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }], context: null, index: 1, positionMs: 9000, deviceId: 'laptop-1234567', mode: 'play' });
     await sql`update player_queue_state set items = ${JSON.stringify([{ id: t.a1, origin: 'context' }, { id: randomUUID(), origin: 'queued' }, { id: t.a2, origin: 'context' }])}::text::jsonb where user_id = ${anna}`;
     const q = (await get(anna, '/api/v1/me/player/queue')).json();
     expect(q.items.map((i: any) => i.title)).toEqual(['One', 'Two']);

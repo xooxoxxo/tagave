@@ -1903,6 +1903,7 @@ export const playerQueueState = pgTable('player_queue_state', {
   idx: integer().notNull().default(-1),
   positionMs: integer('position_ms').notNull().default(0),
   deviceId: text('device_id').notNull(),
+  revision: bigint({ mode: 'number' }).notNull().default(1),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
 

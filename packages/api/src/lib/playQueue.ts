@@ -41,14 +41,15 @@ interface StateRow {
   idx: number;
   position_ms: number;
   device_id: string;
+  revision: number | string;
   updated_at: Date;
 }
 
-const EMPTY: QueueStateView = { items: [], context: null, index: -1, positionMs: 0, deviceId: null, updatedAt: null };
+const EMPTY: QueueStateView = { items: [], context: null, index: -1, positionMs: 0, deviceId: null, revision: 0, updatedAt: null };
 
 /** The person's queue with each track resolved; a track gone from the library drops out (the index follows). */
 export async function readQueue(deps: { sql: Sql; boss: Pick<PgBoss, 'send'> | null }, userId: string): Promise<QueueStateView> {
-  const [row] = await deps.sql<StateRow[]>`select items, context, idx, position_ms, device_id, updated_at from player_queue_state where user_id = ${userId}`;
+  const [row] = await deps.sql<StateRow[]>`select items, context, idx, position_ms, device_id, revision, updated_at from player_queue_state where user_id = ${userId}`;
   if (!row) return EMPTY;
   const items = Array.isArray(row.items) ? row.items : [];
   const tracks = new Map((await queueTracks(deps, items.map((i) => i.id))).map((t) => [t.localTrackId, t]));
@@ -66,19 +67,35 @@ export async function readQueue(deps: { sql: Sql; boss: Pick<PgBoss, 'send'> | n
     index = Math.min(out.length - 1, items.slice(0, row.idx).filter((it) => tracks.has(it.id)).length);
     positionMs = 0;
   }
-  return { items: out, context: row.context, index, positionMs, deviceId: row.device_id, updatedAt: new Date(row.updated_at).toISOString() };
+  return { items: out, context: row.context, index, positionMs, deviceId: row.device_id, revision: Number(row.revision), updatedAt: new Date(row.updated_at).toISOString() };
 }
 
-export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): Promise<{ updatedAt: string } | null> {
+export type WriteOutcome =
+  | { ok: true; updatedAt: string; revision: number }
+  | { ok: false; reason: 'taken' | 'stale' };
+
+/**
+ * Writes the queue. play: this device plays from now on. save: only the
+ * device that plays, from the latest revision. edit: any device, from the
+ * latest revision; the device that plays and its place are kept.
+ */
+export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): Promise<WriteOutcome> {
   const index = s.items.length === 0 ? -1 : Math.min(s.index, s.items.length - 1);
-  const claim = s.claim === true;
-  const rows = await sql<Array<{ updated_at: Date }>>`
-    insert into player_queue_state (user_id, items, context, idx, position_ms, device_id, updated_at)
-    values (${userId}, ${JSON.stringify(s.items)}::text::jsonb, ${s.context ? JSON.stringify(s.context) : null}::text::jsonb, ${index}, ${s.positionMs}, ${s.deviceId}, clock_timestamp())
+  const mode = s.mode ?? 'save';
+  const base = s.revision ?? null;
+  const rows = await sql<Array<{ updated_at: Date; revision: number | string }>>`
+    insert into player_queue_state (user_id, items, context, idx, position_ms, device_id, revision, updated_at)
+    values (${userId}, ${JSON.stringify(s.items)}::text::jsonb, ${s.context ? JSON.stringify(s.context) : null}::text::jsonb, ${index}, ${s.positionMs}, ${s.deviceId}, 1, clock_timestamp())
     on conflict (user_id) do update set items = excluded.items, context = excluded.context, idx = excluded.idx,
-      position_ms = excluded.position_ms, device_id = excluded.device_id, updated_at = excluded.updated_at
-      where ${claim} or player_queue_state.device_id = excluded.device_id
-    returning updated_at`;
-  // another device took the queue over since: this one is not in use any more
-  return rows[0] ? { updatedAt: new Date(rows[0].updated_at).toISOString() } : null;
+      position_ms = case when ${mode} = 'edit' then player_queue_state.position_ms else excluded.position_ms end,
+      device_id = case when ${mode} = 'edit' then player_queue_state.device_id else excluded.device_id end,
+      revision = player_queue_state.revision + 1,
+      updated_at = excluded.updated_at
+      where ${mode} = 'play'
+         or (${mode} = 'save' and player_queue_state.device_id = excluded.device_id and player_queue_state.revision = coalesce(${base}::bigint, player_queue_state.revision))
+         or (${mode} = 'edit' and player_queue_state.revision = coalesce(${base}::bigint, player_queue_state.revision))
+    returning updated_at, revision`;
+  if (rows[0]) return { ok: true, updatedAt: new Date(rows[0].updated_at).toISOString(), revision: Number(rows[0].revision) };
+  const [now] = await sql<Array<{ device_id: string }>>`select device_id from player_queue_state where user_id = ${userId}`;
+  return { ok: false, reason: mode === 'save' && now && now.device_id !== s.deviceId ? 'taken' : 'stale' };
 }

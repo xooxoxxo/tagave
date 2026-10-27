@@ -4,9 +4,11 @@
  *
  *   POST   /api/v1/player/tracks              tracks by id, as the queue plays them (Play next, Add to queue, a playlist)
  *   GET    /api/v1/me/player/queue            the queue, each track resolved, and which device wrote it last
- *   GET    /api/v1/me/player/queue/stamp      only who wrote it last and when (a device checks this to hand over)
- *   PUT    /api/v1/me/player/queue            the device in use writes the queue and where it is (claim: it starts
- *                                              playing or the queue changed there; otherwise 409 once another device took over)
+ *   GET    /api/v1/me/player/queue/stamp      which device plays and the revision (a device checks this to follow changes)
+ *   PUT    /api/v1/me/player/queue            mode play (this device plays now), save (the device that plays: its place,
+ *                                              its track, its own edits) or edit (another device changes the queue; the
+ *                                              device that plays and its place stay). save and edit are refused (409)
+ *                                              when the queue changed since their revision, save also once another device plays
  *   DELETE /api/v1/me/player/queue            stop: forget the queue
  *   GET    /api/v1/me/player/history          the person's plays, newest first
  *
@@ -14,7 +16,7 @@
  * from a different device pauses and takes the queue over (the web player).
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { queueStateSchema, queueTracksRequestSchema, type PlayHistoryEntry, type QueueStateView, type QueueTrack } from '@tagave/shared';
+import { queueStateSchema, queueTracksRequestSchema, type PlayHistoryEntry, type QueueStampView, type QueueStateView, type QueueTrack } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getSql } from '../db.js';
 import { getBoss } from '../boss.js';
@@ -54,19 +56,19 @@ export async function createPlayerQueueRoutes(fastify: FastifyInstance) {
     return guarded(async () => readQueue({ sql, boss: await boss() }, user.id));
   });
 
-  fastify.get('/me/player/queue/stamp', permission('player.use'), async (request: FastifyRequest): Promise<{ deviceId: string | null; updatedAt: string | null }> => {
+  fastify.get('/me/player/queue/stamp', permission('player.use'), async (request: FastifyRequest): Promise<QueueStampView> => {
     const user = requirePlayer(request);
-    const [row] = await getSql()<Array<{ device_id: string; updated_at: Date }>>`select device_id, updated_at from player_queue_state where user_id = ${user.id}`;
-    return { deviceId: row?.device_id ?? null, updatedAt: row ? new Date(row.updated_at).toISOString() : null };
+    const [row] = await getSql()<Array<{ device_id: string; revision: number | string; updated_at: Date }>>`select device_id, revision, updated_at from player_queue_state where user_id = ${user.id}`;
+    return { deviceId: row?.device_id ?? null, revision: row ? Number(row.revision) : 0, updatedAt: row ? new Date(row.updated_at).toISOString() : null };
   });
 
-  fastify.put('/me/player/queue', permission('player.use'), async (request: FastifyRequest): Promise<{ updatedAt: string }> => {
+  fastify.put('/me/player/queue', permission('player.use'), async (request: FastifyRequest): Promise<{ updatedAt: string; revision: number }> => {
     const user = requirePlayer(request);
     const parsed = queueStateSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Not a queue');
     const saved = await writeQueue(getSql(), user.id, parsed.data);
-    if (!saved) throw new ApiError(409, 'Conflict', 'Another device is playing this queue now.');
-    return saved;
+    if (!saved.ok) throw new ApiError(409, 'Conflict', saved.reason === 'taken' ? 'Another device is playing this queue now.' : 'The queue changed on another device.');
+    return { updatedAt: saved.updatedAt, revision: saved.revision };
   });
 
   fastify.delete('/me/player/queue', permission('player.use'), async (request: FastifyRequest) => {

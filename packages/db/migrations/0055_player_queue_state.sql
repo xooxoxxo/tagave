@@ -1,8 +1,11 @@
 -- The play queue, per person, on the server (the player module): what is
 -- playing, what comes next and where it stopped, so the queue follows the
--- person from one device to another. Only the device that wrote it last
--- plays (device_id); another device that sees a newer write pauses and
--- takes the queue over. History is not kept here: it is player_plays.
+-- person from one device to another. device_id is the device that plays:
+-- only a play action on another device takes it over (that one pauses).
+-- Any device may change the queue (Play next, reorder, ...) without taking
+-- playback; revision, bumped on every write, keeps a write made from an
+-- older copy from undoing a newer one. History is not kept here: it is
+-- player_plays.
 --
 -- items: [{ "id": "<local_tracks.id>", "origin": "queued" | "context" }],
 -- in play order. "queued" are the tracks the person added with Play next or
@@ -19,5 +22,6 @@ create table if not exists player_queue_state (
   idx integer not null default -1,
   position_ms integer not null default 0 check (position_ms >= 0),
   device_id text not null,
+  revision bigint not null default 1,
   updated_at timestamptz not null default now()
 );

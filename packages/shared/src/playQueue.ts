@@ -26,14 +26,18 @@ export const queueStateSchema = z.object({
   /** the playing entry, -1 for none */
   index: z.number().int().min(-1),
   positionMs: z.number().int().min(0).max(24 * 3600_000),
-  /** a random id per browser: the device that wrote last is the one that plays */
+  /** a random id per browser */
   deviceId: z.string().min(8).max(64),
   /**
-   * This device starts playing, or the person changed the queue here: it
-   * becomes the device in use. Without it (a position saved while playing)
-   * the write only lands while this device is still the one in use; else 409.
+   *   play  this device starts playing: it becomes the device that plays
+   *   save  the device that plays saves its place, its track or its own edit
+   *         (refused with 409 once another device plays, or the queue changed since `revision`)
+   *   edit  another device changes the queue (Play next, reorder, ...): the
+   *         device that plays and its place stay (409 when the queue changed since `revision`)
    */
-  claim: z.boolean().optional(),
+  mode: z.enum(['play', 'save', 'edit']).default('save'),
+  /** the revision this write starts from (what the device last read or wrote) */
+  revision: z.number().int().min(0).optional(),
 }).strict();
 export type QueueStateInput = z.infer<typeof queueStateSchema>;
 
@@ -55,6 +59,15 @@ export interface QueueStateView {
   index: number;
   positionMs: number;
   deviceId: string | null;
+  /** bumped on every write; 0 when there is no queue */
+  revision: number;
+  updatedAt: string | null;
+}
+
+/** GET /api/v1/me/player/queue/stamp: who plays and which revision, to follow changes made elsewhere. */
+export interface QueueStampView {
+  deviceId: string | null;
+  revision: number;
   updatedAt: string | null;
 }
 
