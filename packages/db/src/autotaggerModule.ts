@@ -107,6 +107,21 @@ export async function setAutotaggerConfig(
 }
 
 /**
+ * Record that `userId` saw the library's request payload preview, now, and
+ * return the settings. Not part of the owner's patch: only the server says
+ * when the preview was seen. The rest of the settings stay.
+ */
+export async function markPayloadSeen(sql: Sql | Tx, libraryId: string, userId: string): Promise<AutotaggerConfig> {
+  const seen = { payloadSeenAt: new Date().toISOString(), payloadSeenBy: userId };
+  const [row] = await sql<Array<{ config: unknown }>>`
+    insert into decider_library_settings (library_id, config) values (${libraryId}, ${JSON.stringify(seen)}::text::jsonb)
+    on conflict (library_id) do update
+      set config = decider_library_settings.config || excluded.config, updated_at = now()
+    returning config`;
+  return withDefaults(asObject(row?.config));
+}
+
+/**
  * The API key is stored sealed (with the app secret, as the other provider
  * keys are) and never plain. The caller seals it: this package depends on no
  * other tagave package, so it checks the sealed form's prefix, and the

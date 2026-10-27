@@ -107,6 +107,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'evidence.backfill': 'stately',
   // one run per batch (singletonKey on the batch id) queued behind a running one
   'decider.accept': 'stately',
+  // one run per library (singletonKey decider.run:<library id>) queued behind a running one
+  'decider.run': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -131,6 +133,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'evidence.backfill': { expireInSeconds: 3600, retryLimit: 0 },
   // a batch of thousands of albums, one transaction each; a retry resumes at the first pending item
   'decider.accept': { expireInSeconds: DECIDER_ACCEPT_EXPIRE_SECONDS, retryLimit: 2 },
+  // a run over a whole library, paid call by call; a retry skips the calls it already paid for
+  'decider.run': { expireInSeconds: 6 * 3600, retryLimit: 3 },
 };
 
 /**

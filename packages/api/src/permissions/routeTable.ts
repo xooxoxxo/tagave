@@ -162,6 +162,8 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PATCH /api/v1/libraries/:libraryId/artists/:artistId/follow-rules': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/follow-rules/reset': 'library.edit',
   'POST /api/v1/libraries/:libraryId/artists/:artistId/refresh': 'library.edit',
+  // The autotagger module, one library (routes/autotagger.ts): the owner changes it (system.manage below); an editor reads it without the key's hint.
+  'GET /api/v1/libraries/:libraryId/autotagger': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',
@@ -242,6 +244,14 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/listen-links': 'system.manage',
   'PUT /api/v1/settings/listen-links': 'system.manage',
   'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
+  // Settings › Modules, the Autotagger row (routes/autotagger.ts): owner; switching, deleting its data and setting a library's key need a fresh step-up.
+  'GET /api/v1/settings/autotagger': 'system.manage',
+  'PUT /api/v1/settings/autotagger': 'system.manage',
+  'POST /api/v1/settings/autotagger/remove-data': 'system.manage',
+  'PUT /api/v1/settings/autotagger/prices': 'system.manage',
+  'DELETE /api/v1/settings/autotagger/prices/:model': 'system.manage',
+  'PATCH /api/v1/libraries/:libraryId/autotagger/config': 'system.manage',
+  'PUT /api/v1/libraries/:libraryId/autotagger/key': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
   'GET /api/v1/settings/playlists': 'system.manage',
   'PUT /api/v1/settings/playlists': 'system.manage',

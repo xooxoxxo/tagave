@@ -52,6 +52,9 @@ async function startBoss(): Promise<PgBoss> {
   ]) {
     await boss.createQueue(q, q === 'scan.root' ? undefined : QUEUE_RETRY_DEFAULTS);
   }
+  // the autotagger's runs: stately from the first send, so the per-library
+  // singletonKey holds before a worker has set the queue's other options
+  await boss.createQueue('decider.run', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   // the player module's debounced scans (worked by the API itself, see lib/player.ts)
   await boss.createQueue('player.scan', { policy: 'stately', ...QUEUE_RETRY_DEFAULTS });
   return boss;

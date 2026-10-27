@@ -46,6 +46,7 @@ import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
+import { createAutotaggerRoutes } from './routes/autotagger.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -190,6 +191,8 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
     // Playlists: each person's own lists, export and import, the module row
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
+    // The autotagger module: its switch, prices, and each library's settings and key
+    instance.register(createAutotaggerRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
   });

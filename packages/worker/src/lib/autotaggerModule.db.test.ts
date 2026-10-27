@@ -12,7 +12,7 @@ import postgres from 'postgres';
 import {
   AUTOTAGGER_TABLES, AutotaggerStillOnError, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
   deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
-  clearTypesafeKey, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, typesafeKeyHintOf, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
+  clearTypesafeKey, markPayloadSeen, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules, typesafeKeyHint, typesafeKeyHintOf, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
 } from '@tagave/db';
 import {
   DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, deciderPriceSchema, type AutotaggerConfig, type AutotaggerConfigPatch,
@@ -131,6 +131,27 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (shared db: i
     await clearTypesafeKey(client, randomUUID());
     expect(await autotaggerConfig(client, libraryId)).toEqual({ ...DEFAULT_AUTOTAGGER_CONFIG, model: 'jev-2026-09-15', currency: 'EUR' });
     await setAutotaggerConfig(client, libraryId, { currency: 'USD' }, parse);
+  });
+
+  it('seeing the payload preview is recorded server-side, merged into the settings; the patch cannot set it', async () => {
+    const lib = randomUUID();
+    await client`insert into libraries (id, owner_user_id, name) values (${lib}, ${userId}, 'Seen')`;
+    try {
+      await expect(setAutotaggerConfig(client, lib, { payloadSeenAt: new Date().toISOString() }, parse)).rejects.toThrow();
+      await setAutotaggerConfig(client, lib, { monthlyCap: 5 }, parse);
+      const before = Date.now();
+      const seen = await markPayloadSeen(client, lib, userId);
+      expect(seen).toEqual({ ...DEFAULT_AUTOTAGGER_CONFIG, monthlyCap: 5, payloadSeenBy: userId, payloadSeenAt: expect.any(String) });
+      expect(Date.parse(seen.payloadSeenAt!)).toBeGreaterThanOrEqual(before - 1000);
+      expect(await autotaggerConfig(client, lib)).toEqual(seen);
+      // a later patch keeps it
+      expect(await setAutotaggerConfig(client, lib, { currency: 'EUR' }, parse)).toMatchObject({ payloadSeenBy: userId, payloadSeenAt: seen.payloadSeenAt, currency: 'EUR' });
+      // a library with no settings row yet gets one
+      expect((await markPayloadSeen(client, otherLibrary, userId)).payloadSeenBy).toBe(userId);
+      await client`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${otherLibrary}`;
+    } finally {
+      await client`delete from libraries where id = ${lib}`;
+    }
   });
 
   it('deleting a library deletes its settings row', async () => {

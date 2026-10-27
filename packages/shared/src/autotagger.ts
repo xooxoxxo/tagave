@@ -62,3 +62,35 @@ export type DeciderPrice = z.infer<typeof deciderPriceSchema>;
 /** Which albums a run decides (decider_runs.population). */
 export type Population = 'needs_review' | 'weak' | 'backtest' | 'measure';
 export const POPULATIONS: readonly Population[] = ['needs_review', 'weak', 'backtest', 'measure'];
+
+/** Settings › Modules › Autotagger. */
+export interface AutotaggerModuleView {
+  enabled: boolean;
+  runs: number;
+  decisions: number;
+  prices: DeciderPrice[];
+}
+
+/**
+ * One library's autotagger settings. `keyHint` (the last four characters of
+ * the API key) is for the owner only; everyone else gets null.
+ */
+export interface AutotaggerLibraryView {
+  enabled: boolean;
+  keySet: boolean;
+  keyHint: string | null;
+  config: AutotaggerConfig;
+  /** what this calendar month's calls cost (UTC) */
+  spentThisMonth: number;
+  currency: string;
+}
+
+export const autotaggerModuleSchema = z.object({ enabled: z.boolean() }).strict();
+
+/** The API key, or null to forget it. */
+export const autotaggerKeySchema = z
+  .object({ key: z.string().min(16).max(512).regex(/^\S+$/).nullable() })
+  .strict();
+
+/** The decider the module runs (decider_prices.decider_id, decider_runs.decider_id). */
+export const AUTOTAGGER_DECIDER_ID = 'jev';
