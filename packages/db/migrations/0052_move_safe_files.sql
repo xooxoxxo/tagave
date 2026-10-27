@@ -15,6 +15,10 @@ alter table audio_files add column if not exists reconcile_hold_at timestamptz;
 create index if not exists idx_audio_files_library_size on audio_files (library_id, size_bytes);
 -- Held rows are few; cluster.dir and scan.parse look them up per root.
 create index if not exists idx_audio_files_reconcile_hold on audio_files (scan_root_id) where reconcile_hold_at is not null;
+-- files.backfillDigest runs at every boot; after the first run only untagged
+-- rows match, so its keyset select reads this small index, not the table.
+-- The predicate must stay identical to the job's.
+create index if not exists idx_audio_files_digest_backfill on audio_files (id) where core_tags_digest is null and tags_raw is not null;
 
 -- tags.apply stored mtime in milliseconds while the walk stores seconds, so
 -- every tag write looked like a change to the next walk. 1e11 seconds is the

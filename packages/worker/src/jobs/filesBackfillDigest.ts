@@ -20,6 +20,7 @@ export async function filesBackfillDigestJob(ctx: Pick<WorkerContext, 'sql' | 'l
   let after = '00000000-0000-0000-0000-000000000000';
   let updated = 0;
   for (;;) {
+    // the where clause is idx_audio_files_digest_backfill's predicate (0052): keep them identical
     const rows = (await ctx.sql`
       select id, tags_raw, tags_digest from audio_files
        where core_tags_digest is null and tags_raw is not null and id > ${after}::uuid
@@ -40,7 +41,7 @@ export async function filesBackfillDigestJob(ctx: Pick<WorkerContext, 'sql' | 'l
           from unnest(${ids}::uuid[], ${digests}::text[], ${seenAs}::text[]) as u(id, d, td)
          where af.id = u.id and af.core_tags_digest is null
            and af.tags_digest is not distinct from u.td`;
-      updated += (res as unknown as { count?: number }).count ?? ids.length;
+      updated += (res as unknown as { count?: number }).count ?? 0;
     }
     if (rows.length < batch) break;
   }

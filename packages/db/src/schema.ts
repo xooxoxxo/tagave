@@ -344,6 +344,7 @@ export const audioFiles = pgTable(
     statusIdx: index('idx_audio_files_status').on(table.status),
     librarySizeIdx: index('idx_audio_files_library_size').on(table.libraryId, table.sizeBytes),
     reconcileHoldIdx: index('idx_audio_files_reconcile_hold').on(table.scanRootId).where(sql`reconcile_hold_at is not null`),
+    digestBackfillIdx: index('idx_audio_files_digest_backfill').on(table.id).where(sql`core_tags_digest is null and tags_raw is not null`),
   })
 );
 

@@ -259,4 +259,13 @@ describe('fileStateAfterWrite', () => {
     expect(s).toMatchObject({ sizeBytes: 1234, mtime: 1_760_000_000, inode: '3:44', tagsDigest: tagsDigest(raw), coreTagsDigest: coreTagsDigest(raw), audioHash: 'h' });
     expect(s.tagsReadAt).toBeInstanceOf(Date);
   });
+
+  it('keeps 64-bit dev and ino exact (bigint stat, as the walk)', () => {
+    const dev = 2n ** 60n + 1n; const ino = 2n ** 63n - 1n;
+    const s = fileStateAfterWrite({ size: 99n, mtimeMs: 1_760_000_000_999, dev, ino }, { common: {} }, 'h');
+    expect(s.inode).toBe('1152921504606846977:9223372036854775807');
+    expect(s.sizeBytes).toBe(99);
+    expect(s.mtime).toBe(1_760_000_000);
+    expect(s.coreTagsDigest).toBeNull();
+  });
 });

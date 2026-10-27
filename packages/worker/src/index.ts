@@ -77,7 +77,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'scan.sweep': 'stately',
   // Sibling disc folders resolve to one scope; two jobs on it must not interleave.
   'cluster.dir': 'stately',
-  // enqueued at every boot; one run at a time, one queued behind it
+  // enqueued at every boot: at most one queued behind a running one; two runs
+  // at once would still be safe (null check and tags_digest guard in the update)
   'files.backfillDigest': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
@@ -109,6 +110,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   // checks every cover without a thumbnail (27,000 after a restore); the
   // next scheduled or requested sweep picks up whatever a failed one left
   'art.thumbSweep': { expireInSeconds: 2 * 3600, retryLimit: 0 },
+  // a first run over a whole library; the next boot resumes where it stopped
+  'files.backfillDigest': { expireInSeconds: 3600, retryLimit: 0 },
 };
 
 /**

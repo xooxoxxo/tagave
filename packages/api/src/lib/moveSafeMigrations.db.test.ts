@@ -52,10 +52,15 @@ describe.skipIf(!url)('0052 move-safe files migration (integration)', () => {
     expect(rows.map((r) => r['mtime'])).toEqual([1760000000, 1760000000]);
   });
 
-  it('creates the library-size and reconcile-hold indexes', async () => {
+  it('creates the library-size, reconcile-hold and digest-backfill indexes', async () => {
     const rows = await sql`select indexname from pg_indexes
-                           where indexname in ('idx_audio_files_library_size', 'idx_audio_files_reconcile_hold') order by 1`;
-    expect(rows.map((r) => r['indexname'])).toEqual(['idx_audio_files_library_size', 'idx_audio_files_reconcile_hold']);
+                           where indexname in ('idx_audio_files_library_size', 'idx_audio_files_reconcile_hold', 'idx_audio_files_digest_backfill') order by 1`;
+    expect(rows.map((r) => r['indexname'])).toEqual(['idx_audio_files_digest_backfill', 'idx_audio_files_library_size', 'idx_audio_files_reconcile_hold']);
+  });
+
+  it('the digest-backfill index is partial on the job\'s predicate', async () => {
+    const [row] = await sql`select indexdef from pg_indexes where indexname = 'idx_audio_files_digest_backfill'`;
+    expect(row!['indexdef']).toMatch(/\(id\) WHERE \(\(core_tags_digest IS NULL\) AND \(tags_raw IS NOT NULL\)\)/);
   });
 
   it('deleting a file row deletes its embedded cover row instead of failing the origin check', async () => {
