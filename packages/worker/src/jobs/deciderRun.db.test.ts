@@ -634,4 +634,69 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(await populationAlbumIds(client, lib, 'measure', { sample: 2, largest: 1, seed: 7 })).toEqual(m);
     expect(await populationAlbumIds(client, lib, 'measure', { sample: 100, largest: 1 })).toHaveLength(all.length);
   });
+
+  /**
+   * A fake whose request is always 1000 bytes: with tokensPerByte 1 every estimate is 1000 tokens
+   * (0.002 at 2 per million), whatever the album, so the spend limits below are deterministic.
+   */
+  const fixedSize = () => {
+    const d = fakeDecider(() => ({ A: 0.99 }));
+    return Object.assign(d, { build: ((...a: Parameters<typeof jevPayloadFor>) => ({ ...jevPayloadFor(...a), bytes: 1000 })) as typeof jevPayloadFor });
+  };
+  const measureDeps = (d: Decider, over: Record<string, unknown> = {}) => ({
+    decider: d, apiKey: 'k', tokensPerByte: 1, price: { perMillionInput: 2, currency: 'USD' }, payloadApproved: true, ...over,
+  });
+
+  it('a measurement uses the given price, stops at its own spend limit and writes no match', async () => {
+    await setAutotaggerEnabled(client, false); // a restored copy has the module off
+    const run = await newRun('measure');
+    const s = await deciderRunJob(ctx, { runId: run }, measureDeps(fixedSize(), { maxSpend: 0.0035 }));
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'cap_reached' });
+    expect(s.billed).toBe(1); // 0.002 billed; the next estimate would pass 0.0035
+    const [{ c }] = await client`select sum(cost)::float as c from decider_calls where run_id = ${run}`;
+    expect(c).toBeCloseTo(0.002, 6);
+    expect(await client`select 1 from album_matches where batch_id is not null or decided_kind = 'model'`).toHaveLength(0);
+    expect(await client`select 1 from decider_batches`).toHaveLength(0);
+  });
+
+  it('a measurement counts a possibly billed call of its own run towards its limit, and in its own currency', async () => {
+    const run = await newRun('measure');
+    const album = albumA;
+    await client`insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version,
+                                            request_bytes, input_tokens, cost, currency, answers, possibly_billed)
+                 values (${lib}, ${album}, ${run}, 'x', ${jevSpecHash()}, 'jev', 'jev-2026-09-15', 1000, 1000, 0.002, 'EUR', null, true)`;
+    // 0.002 already spent + a 0.002 estimate is over 0.0035: nothing is asked
+    const d = fixedSize();
+    const s = await deciderRunJob(ctx, { runId: run }, measureDeps(d, { maxSpend: 0.0035, price: { perMillionInput: 2, currency: 'EUR' } }));
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'cap_reached', billed: 0 });
+    expect(d.calls).toHaveLength(0);
+  });
+
+  it('a measurement on a copy that never showed the payload pauses unless the owner approved it', async () => {
+    await client`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${lib}`;
+    const blocked = fixedSize();
+    const run = await newRun('measure');
+    expect(await deciderRunJob(ctx, { runId: run }, measureDeps(blocked, { payloadApproved: undefined, maxSpend: 0.0035 })))
+      .toMatchObject({ state: 'paused', pauseReason: 'payload_not_seen' });
+    expect(blocked.calls).toHaveLength(0);
+    const allowed = fixedSize();
+    const s = await deciderRunJob(ctx, { runId: run }, measureDeps(allowed, { maxSpend: 0.0035 }));
+    expect(s).toMatchObject({ state: 'paused', pauseReason: 'cap_reached', billed: 1 });
+    expect(allowed.calls).toHaveLength(1);
+  });
+
+  it('a run of another population ignores a given price, spend limit and payload approval', async () => {
+    await client`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${lib}`;
+    const run = await newRun('needs_review');
+    const d = fixedSize();
+    expect(await deciderRunJob(ctx, { runId: run }, measureDeps(d, { maxSpend: 0.0001 }))).toMatchObject({ pauseReason: 'payload_not_seen' });
+    await markPayloadSeen(client, lib, owner);
+    await setAutotaggerEnabled(client, false);
+    expect(await deciderRunJob(ctx, { runId: run }, measureDeps(d, { maxSpend: 0.0001 }))).toMatchObject({ pauseReason: 'module_off' });
+    await setAutotaggerEnabled(client, true);
+    const s = await deciderRunJob(ctx, { runId: run }, measureDeps(d, { maxSpend: 0.0001, price: { perMillionInput: 1000, currency: 'USD' } }));
+    expect(s.state).toBe('done'); // the limit of 0.0001 and the price of 1000 were not used
+    const [{ c }] = await client`select max(cost)::float as c from decider_calls where run_id = ${run}`;
+    expect(c).toBeCloseTo(0.001, 6); // the table price (1 per million) priced the 1000 tokens
+  });
 });

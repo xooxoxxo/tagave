@@ -17,6 +17,10 @@
  * answer after a server error or a timeout may still have been billed: it is
  * kept as possibly billed, at its estimate, so the cap counts it.
  *
+ * A measure run (a measurement on a copy of the library) skips the module
+ * switch and the monthly cap and answers to its own price and spend limit
+ * instead; it writes decisions and calls only, never matches or batches.
+ *
  * One loop per run at a time: the job holds a session advisory lock on the
  * run for the whole loop, on a connection of its own, and a second job for
  * the same run (a pg-boss retry after an expiry that did not stop the
@@ -77,6 +81,25 @@ export interface RunDeps {
   checkEvery?: number;
   /** overrides tokensPerByte() for the cost estimate before each call */
   tokensPerByte?: number;
+  /**
+   * A measure run only: the price of a call, used instead of the price table.
+   * Its currency may differ from the library's: the measurement's own limit
+   * (maxSpend) is in this price's currency, and the library's cap and
+   * currency are not consulted. Any other population ignores it.
+   */
+  price?: Price;
+  /**
+   * A measure run only: the run pauses (cap_reached) before a call that would
+   * take this run's own cost, possibly billed calls included, over it.
+   * Any other population ignores it.
+   */
+  maxSpend?: number;
+  /**
+   * A measure run only: the owner has confirmed the payload preview, so the
+   * run may go on when the library has no record of the owner seeing it (a
+   * restored copy). Any other population still needs that record.
+   */
+  payloadApproved?: boolean;
   /** the measure population's mix (sample and largest albums) */
   population?: { sample: number; largest: number };
   /** no retry follows if this run fails (default true: a direct call has none) */
@@ -185,14 +208,17 @@ async function runLocked(ctx: WorkerContext, data: DeciderRunJobData, deps: RunD
   };
 
   if (run.spec_hash !== jevSpecHash()) return pause('spec_changed', 'question changed');
-  if (!(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
+  // a measurement runs on a copy of the library and answers to its own limits, not the module switch
+  const measuring = run.population === 'measure';
+  if (!measuring && !(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
   const apiKey = deps.apiKey ?? (await libraryTypesafeKey(ctx, run.library_id));
   if (!apiKey) return pause('no_key', 'no TypeSafe key');
   const config = await autotaggerConfig(ctx.sql, run.library_id);
   // nothing goes out before the owner has seen what goes out (the api checks it too)
-  if (!config.payloadSeenAt) return pause('payload_not_seen', 'payload not seen');
+  // (a measurement the owner confirmed from the preview may go on without that record)
+  if (!config.payloadSeenAt && !(measuring && deps.payloadApproved === true)) return pause('payload_not_seen', 'payload not seen');
   // the measurement enforces its own spend limit; every other run needs the owner's cap
-  if (config.monthlyCap === null && run.population !== 'measure') return pause('no_cap', 'no monthly cap');
+  if (config.monthlyCap === null && !measuring) return pause('no_cap', 'no monthly cap');
   const decider = deps.decider ?? jevDecider({ apiKey, baseUrl: typesafeBaseUrl(), maxRetries: RUN_MAX_RETRIES });
   const rules = rulesFromStored(await fetchAutoAcceptRulesRow(ctx.db, run.library_id));
   const started = await ctx.sql`
@@ -252,6 +278,11 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
   const doneBefore = ids.length - todo.length;
   prog.done = doneBefore;
   prog.total = ids.length;
+  const measuring = run.population === 'measure';
+  // this run's own cost so far, possibly billed calls included, in millionths (a resumed run counts what it spent before)
+  let runSpent = measuring
+    ? Math.round(Number((await ctx.sql<Array<{ c: string }>>`select coalesce(sum(cost), 0)::text as c from decider_calls where run_id = ${run.id}`)[0]?.c ?? 0) * 1e6)
+    : 0;
   const tpb = deps.tokensPerByte ?? (await tokensPerByte(ctx.sql, run.library_id));
   const checkEvery = Math.max(1, deps.checkEvery ?? CHECK_EVERY);
   const count = (o: string) => { summary.decided[o] = (summary.decided[o] ?? 0) + 1; };
@@ -283,7 +314,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     if (i > 0 && i % checkEvery === 0) {
       const stopped = await stoppedMeanwhile();
       if (stopped) return stopped;
-      if (!(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
+      if (!measuring && !(await autotaggerEnabled(ctx.sql))) return pause('module_off', 'autotagger off');
       await progress('running');
     }
 
@@ -351,20 +382,29 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       summary.reused += 1;
       call = { id: found.id, answers: answersOf(found.answers) };
     } else {
-      const price = await priceFor(ctx.sql, decider.id, model);
+      // a measurement's price is its own, whatever currency the library counts in
+      const price = measuring ? (deps.price ?? (await priceFor(ctx.sql, decider.id, model))) : await priceFor(ctx.sql, decider.id, model);
       const estTokens = Math.ceil(bytes * tpb);
       // cancelled or paused meanwhile: nothing more is paid for
       const stopped = await stoppedMeanwhile();
       if (stopped) return stopped;
       const estimate = price ? costOf(estTokens, price) : 0;
-      const verdict = await checkBudget(ctx.sql, {
-        libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price, estimate,
-      });
-      if (!verdict.ok && run.population !== 'measure') {
-        if (verdict.reason === 'no_price') return pause('no_price', `no price: ${model}`);
-        if (verdict.reason === 'no_cap') return pause('no_cap', 'no monthly cap');
-        if (verdict.reason === 'currency_mismatch') return pause('currency_mismatch', `price ${price!.currency}, cap ${config.currency}`);
-        return pause('cap_reached', `spent ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
+      if (measuring) {
+        // the measurement's own limit, in the price's currency; no monthly cap
+        if (!price) return pause('no_price', `no price: ${model}`);
+        if (deps.maxSpend !== undefined && runSpent + Math.round(estimate * 1e6) > Math.round(deps.maxSpend * 1e6)) {
+          return pause('cap_reached', `Measurement spent ${(runSpent / 1e6).toFixed(4)} of ${deps.maxSpend} ${price.currency}.`);
+        }
+      } else {
+        const verdict = await checkBudget(ctx.sql, {
+          libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price, estimate,
+        });
+        if (!verdict.ok) {
+          if (verdict.reason === 'no_price') return pause('no_price', `no price: ${model}`);
+          if (verdict.reason === 'no_cap') return pause('no_cap', 'no monthly cap');
+          if (verdict.reason === 'currency_mismatch') return pause('currency_mismatch', `price ${price!.currency}, cap ${config.currency}`);
+          return pause('cap_reached', `spent ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
+        }
       }
       try {
         answer = await decider.ask({ album: ev.album, groups: sent, payload }, { model });
@@ -391,7 +431,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
         }
         throw err; // pg-boss retries; the run resumes after the albums already decided
       }
-      callPrice = (await priceFor(ctx.sql, decider.id, answer.model)) ?? price;
+      callPrice = measuring ? price : ((await priceFor(ctx.sql, decider.id, answer.model)) ?? price);
     }
 
     if (!answer) {
@@ -420,10 +460,11 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       await decide(tx, { id: row!.id, answers: answersOf(row!.answers) }, groups, labels, cands, rules, record);
     });
     summary.billed += 1;
+    if (measuring) runSpent += Math.round(costOf(a.inputTokens, p) * 1e6);
     if (changed) return pause('model_changed', `model changed: ${a.model}`);
     if (!version) version = a.model;
     // the answering model's price is in a currency the cap does not count: stop before spending more of it
-    if (p.currency !== config.currency) return pause('currency_mismatch', `price ${p.currency}, cap ${config.currency}`);
+    if (!measuring && p.currency !== config.currency) return pause('currency_mismatch', `price ${p.currency}, cap ${config.currency}`);
   }
 
   const finished = await ctx.sql`update decider_runs set state = 'done', finished_at = now() where id = ${run.id} and state = 'running'`;
