@@ -38,6 +38,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
   const owner = randomUUID();
   const lib = randomUUID();
   const rgId = randomUUID();
+  const rg2 = randomUUID();
   const rootId = randomUUID();
   const madeReleases: string[] = [];
   const madeSources: string[] = [];
@@ -47,11 +48,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
   let otherRelease: string;
   let a1: string, a2: string, a3: string, a4: string, a5: string, a6: string, a7: string, a8: string;
 
-  async function release(): Promise<string> {
+  async function release(group: string = rgId): Promise<string> {
     const id = randomUUID();
     madeReleases.push(id);
     await client`insert into releases (id, release_group_id, mbid, title, status, track_count, source_of_truth)
-                 values (${id}, ${rgId}, ${randomUUID()}, 'Undo Album', 'Official', 2, 'musicbrainz')`;
+                 values (${id}, ${group}, ${randomUUID()}, 'Undo Album', 'Official', 2, 'musicbrainz')`;
     return id;
   }
 
@@ -129,6 +130,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
     await db.insert(users).values({ id: owner, email: `du-${owner}@test.com`, passwordHash: 'x' });
     await db.insert(libraries).values({ id: lib, name: 'DeciderUndo', ownerUserId: owner, settings: {} });
     await db.insert(releaseGroups).values({ id: rgId, mbid: randomUUID(), title: 'Undo Album', artistCredit: ['Undo Artist'] });
+    await db.insert(releaseGroups).values({ id: rg2, mbid: randomUUID(), title: 'Undo Album (other)', artistCredit: ['Undo Artist'] });
     await client`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootId}, ${lib}, '/nonexistent-du', 'du', 'ok')`;
   });
 
@@ -146,6 +148,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
     if (madeSources.length) await client`delete from image_sources where id = any(${madeSources}::uuid[])`;
     await client`delete from releases where id = any(${madeReleases}::uuid[])`;
     await db.delete(releaseGroups).where(eq(releaseGroups.id, rgId));
+    await db.delete(releaseGroups).where(eq(releaseGroups.id, rg2));
     await db.delete(users).where(eq(users.id, owner));
     await client.end({ timeout: 5 });
   });
@@ -235,6 +238,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.accept undo (db)', () =
     expect(r).toMatchObject({ undone: 1, left: { locks: 1 } });
     const [al] = await client`select state from local_albums where id = ${a4}`;
     expect(al.state).toBe('needs_review');
+  });
+
+  it('a lock on one of the album\'s tracks (by the local track) leaves the album', async () => {
+    const b = await acceptedBatch([a3]);
+    const [t] = await client`select id from local_tracks where local_album_id = ${a3} limit 1`;
+    await client`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${lib}, 'track', ${t.id}, 'title', ${owner})`;
+    expect((await runUndoBatch(ctx, b)).left).toEqual({ locks: 1 });
+  });
+
+  it('a change of the album\'s release group alone leaves the album', async () => {
+    const b = await acceptedBatch([a3]);
+    await client`update local_albums set release_group_id = ${rg2} where id = ${a3}`;
+    expect((await runUndoBatch(ctx, b)).left).toEqual({ state_changed: 1 });
+    const [al] = await client`select state, release_group_id from local_albums where id = ${a3}`;
+    expect(al).toMatchObject({ state: 'matched', release_group_id: rg2 });
+  });
+
+  it('the replaced match moved to another release by a relink: the album follows the restored match', async () => {
+    const b = await acceptedBatch([a1]);
+    const [prior] = await client`select release_id from album_matches where id = ${priorLiveMatchIdOf[a1]!}`;
+    // as a relink does: the matches move to the new release, the old one is deleted
+    const moved = await release(rg2);
+    await client`update local_albums set release_id = ${moved}, release_group_id = ${rg2} where release_id = ${prior.release_id}`;
+    await client`update album_matches set release_id = ${moved} where release_id = ${prior.release_id}`;
+    await client`delete from releases where id = ${prior.release_id}`;
+    expect((await runUndoBatch(ctx, b)).undone).toBe(1);
+    const [al] = await client`select state, release_id, release_group_id from local_albums where id = ${a1}`;
+    expect(al).toMatchObject({ state: 'needs_review', release_id: moved, release_group_id: rg2 });
+    const live = await client`select id, release_id from album_matches where local_album_id = ${a1} and status in ('auto', 'confirmed')`;
+    expect(live.map((x: any) => [x.id, x.release_id])).toEqual([[priorLiveMatchIdOf[a1], moved]]);
   });
 
   it('the owner endorsing the batch\'s own match (any edition) leaves the album', async () => {

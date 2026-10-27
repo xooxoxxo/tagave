@@ -14,6 +14,12 @@
  * stored source) for albums whose cover came from a provider, one queue
  * notice per chunk, and one gaps recompute at the end. Restartable: items
  * keep their status, so a retry carries on with what is still accepted.
+ *
+ * The cover look-ups and queue notices are sent after the chunk commits and
+ * are not durable, as with the accept: a crash between the commit and the
+ * send loses the cover look-up for those albums, and nothing asks for it
+ * again later (a retry finds them undone already). The gaps recompute is
+ * sent before the batch is marked undone, so a retry still sends it.
  */
 import type postgres from 'postgres';
 import { batchCounts, getBatch, itemsWithStatus, transitionBatch, type BatchItemRow, type LeftReason } from '@tagave/db';
@@ -26,10 +32,12 @@ type Outcome = { status: 'undone'; providerCover: boolean } | { status: 'left'; 
 
 /** Why the album is left as it is, or null when nobody touched it since the accept. */
 async function touchedSince(
-  tx: postgres.TransactionSql<any>, item: BatchItemRow, album: { state: string; release_id: string | null } | undefined,
+  tx: postgres.TransactionSql<any>, item: BatchItemRow, album: { state: string; release_id: string | null; release_group_id: string | null; accepted_group: string | null } | undefined,
 ): Promise<LeftReason | null> {
   if (!album) return 'gone';
   if (album.state !== 'matched' || album.release_id !== item.releaseId) return 'state_changed';
+  // the album's group changed on its own: it is no longer the accepted release's (the accept set it from that release)
+  if (album.release_group_id !== album.accepted_group) return 'state_changed';
   // the accept's own time, read from the item row, so no precision is lost on the way
   const since = tx`(select accepted_at from decider_batch_items where id = ${item.id})`;
   // A person's decision always wins over an undo: a newer decision row, or
@@ -67,9 +75,12 @@ async function undoItem(ctx: WorkerContext, libraryId: string, item: BatchItemRo
     // The item first: a second run of the same batch waits here and then finds it handled.
     const [own] = await tx<Array<{ status: string }>>`select status from decider_batch_items where id = ${item.id} for update`;
     if (!own || own.status !== 'accepted') return { status: 'done' } as Outcome;
-    const [album] = await tx<Array<{ state: string; release_id: string | null }>>`
-      select state, release_id from local_albums
-       where id = ${item.localAlbumId} and library_id = ${libraryId} for no key update`;
+    const [album] = await tx<Array<{ state: string; release_id: string | null; release_group_id: string | null; accepted_group: string | null }>>`
+      select la.state, la.release_id, la.release_group_id,
+             -- the accepted release's group as it stands; the album's own when that release is gone
+             coalesce((select r.release_group_id from releases r where r.id = ${item.releaseId}), la.release_group_id) as accepted_group
+        from local_albums la
+       where la.id = ${item.localAlbumId} and la.library_id = ${libraryId} for no key update of la`;
     const reason = await touchedSince(tx, item, album);
     if (reason) {
       await tx`update decider_batch_items set status = 'left', skip_reason = ${reason} where id = ${item.id}`;
@@ -82,20 +93,32 @@ async function undoItem(ctx: WorkerContext, libraryId: string, item: BatchItemRo
               where local_album_id = ${item.localAlbumId} and status in ('auto', 'confirmed')`;
     // The match the accept replaced comes back live as it was: who decided
     // it, its probability and its reason stay its own. Gone with its
-    // release, nothing comes back.
+    // release, nothing comes back. A relink may have moved it to another
+    // release since: the album then follows the match, not the snapshot.
+    let restored: { release_id: string; release_group_id: string | null } | null = null;
     if (item.priorMatchId && item.priorMatchStatus) {
-      await tx`update album_matches set status = ${item.priorMatchStatus}, reason = coalesce(${item.priorMatchReason}::text, reason)
-                where id = ${item.priorMatchId} and status = 'rejected'`;
+      const [m] = await tx<Array<{ release_id: string }>>`
+        update album_matches set status = ${item.priorMatchStatus}, reason = coalesce(${item.priorMatchReason}::text, reason)
+         where id = ${item.priorMatchId} and status = 'rejected'
+        returning release_id`;
+      if (m) {
+        // as acceptInTx does: the release cannot be deleted under the album pointing at it
+        const [rel] = await tx<Array<{ release_group_id: string | null }>>`
+          select release_group_id from releases where id = ${m.release_id} for key share`;
+        restored = { release_id: m.release_id, release_group_id: rel?.release_group_id ?? null };
+      }
+    }
+    // Without a restored match, the snapshot's release, unless it was deleted since.
+    if (!restored && item.priorReleaseId) {
+      const [rel] = await tx<Array<{ id: string }>>`select id from releases where id = ${item.priorReleaseId} for key share`;
+      if (rel) restored = { release_id: rel.id, release_group_id: item.priorReleaseGroupId };
     }
     // The state change makes Music Connections log the album's identity, for
-    // the accepted release group and for the restored one. A prior release
-    // deleted since is not pointed at again.
+    // the accepted release group and for the restored one.
     await tx`
       update local_albums
          set state = ${item.priorState ?? 'needs_review'}, identify_reason = ${item.priorIdentifyReason},
-             release_id = (select id from releases where id = ${item.priorReleaseId}::uuid),
-             release_group_id = case when exists (select 1 from releases where id = ${item.priorReleaseId}::uuid)
-                                     then ${item.priorReleaseGroupId}::uuid end,
+             release_id = ${restored?.release_id ?? null}::uuid, release_group_id = ${restored?.release_group_id ?? null}::uuid,
              identified_at = ${item.priorIdentifiedAt ? item.priorIdentifiedAt.toISOString() : null}::timestamptz,
              tracks_linked_at = null, updated_at = now()
        where id = ${item.localAlbumId}`;
