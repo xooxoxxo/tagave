@@ -28,6 +28,12 @@ export const queueStateSchema = z.object({
   positionMs: z.number().int().min(0).max(24 * 3600_000),
   /** a random id per browser: the device that wrote last is the one that plays */
   deviceId: z.string().min(8).max(64),
+  /**
+   * This device starts playing, or the person changed the queue here: it
+   * becomes the device in use. Without it (a position saved while playing)
+   * the write only lands while this device is still the one in use; else 409.
+   */
+  claim: z.boolean().optional(),
 }).strict();
 export type QueueStateInput = z.infer<typeof queueStateSchema>;
 

@@ -52,6 +52,8 @@ export interface TrackActionsProps {
   defaultOpen?: boolean | undefined;
   /** open on Add to playlist's list (stories) */
   defaultStep?: 'actions' | 'playlists' | undefined;
+  /** what this person can do here, when the caller knows (stories); else read from the player and the modules */
+  abilities?: { queue: boolean; playlists: boolean } | undefined;
 }
 
 interface Row extends DrawerRow { sub?: boolean; separated?: boolean }
@@ -70,8 +72,10 @@ export async function enqueueWithToast(source: QueueSource, where: 'next' | 'end
 
 function useRows(p: TrackActionsProps, close: () => void, openPlaylists: () => void): Row[] {
   const navigate = useNavigate();
-  const player = useCapabilities().data?.player?.installed === true;
-  const lists = usePlaylistsOn();
+  const installed = useCapabilities().data?.player?.installed === true;
+  const listsOn = usePlaylistsOn();
+  const player = p.abilities?.queue ?? installed;
+  const lists = p.abilities?.playlists ?? listsOn;
   const rows: Row[] = [];
   const tile = (key: string) => TILES.has(key);
   if (player) {

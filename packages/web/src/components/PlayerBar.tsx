@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from '@tanstack/react-router';
 import type { PlayHistoryEntry } from '@tagave/shared';
 import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, showToast } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
@@ -191,6 +192,9 @@ export function PlayerBar() {
   const [historyWanted, setHistoryWanted] = useState(false);
   const history = usePlayHistory(installed && nowOpen && historyWanted);
   useEffect(() => { if (!hasQueue) setNowOpen(false); }, [hasQueue]);
+  // another page: Now Playing gives way to it
+  const { pathname } = useLocation();
+  useEffect(() => { setNowOpen(false); }, [pathname]);
 
   // the queue as the person left it (on this or another device), and the hand-over
   useEffect(() => {

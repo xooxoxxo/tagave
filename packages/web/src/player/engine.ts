@@ -203,7 +203,7 @@ function onPlaying(a: HTMLAudioElement) {
     sendEvent('now_playing');
   }
   // this device plays now: say so at once, so another one pauses
-  if (!claimed) { claimed = true; persistNow(); }
+  if (!claimed) { claimed = true; persistNow({ claim: true }); }
   setPlaybackState('playing');
 }
 
@@ -701,6 +701,9 @@ function setTracks(tracks: readonly QueueEntry[]) {
   const s = get();
   if (!s.queue || tracks === s.queue.tracks) return;
   set({ queue: { ...s.queue, tracks: [...tracks] } });
+  // the person changed the queue here: this is the device in use now
+  claimed = true;
+  claimNext = true;
   persistSoon();
   // what waits in the other element may no longer be next
   const next = nextPlayable(tracks, s.index);
@@ -766,6 +769,8 @@ let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let claimed = false;
 /** the newest server write this device knows of (its own, or the one it took over) */
 let seenStamp: string | null = null;
+/** the next write claims the queue (an edit made here) */
+let claimNext = false;
 let deviceIdCache: string | null = null;
 
 /** A random id for this browser, kept across visits. */
@@ -793,19 +798,26 @@ function snapshot() {
   };
 }
 
-/** Writes the queue now (fire and forget). */
-function persistNow(opts: { keepalive?: boolean } = {}) {
+/** Writes the queue now (fire and forget). `claim`: this device becomes the one in use. */
+function persistNow(opts: { keepalive?: boolean; claim?: boolean } = {}) {
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;
-  const body = snapshot();
-  if (!body || body.items.length === 0 || typeof fetch === 'undefined') return;
+  const snap = snapshot();
+  if (!snap || snap.items.length === 0 || typeof fetch === 'undefined') return;
+  const claim = opts.claim || claimNext;
+  claimNext = false;
+  const body = { ...snap, ...(claim ? { claim: true } : {}) };
   if (opts.keepalive) {
     try {
       void fetch('/api/v1/me/player/queue', { method: 'PUT', body: JSON.stringify(body), keepalive: true, credentials: 'include', headers: { 'Content-Type': 'application/json' } }).catch(() => undefined);
     } catch { /* dropped */ }
     return;
   }
-  void api.put<{ updatedAt: string }>('/me/player/queue', body).then((r) => { if (r?.updatedAt) seenStamp = r.updatedAt; }, () => undefined);
+  void api.put<{ updatedAt: string }>('/me/player/queue', body).then(
+    (r) => { if (r?.updatedAt) seenStamp = r.updatedAt; },
+    // another device took the queue over: pause here and follow it
+    (err: ApiError) => { if (err?.status === 409) void checkHandover(); },
+  );
 }
 
 /** Writes the queue a moment after the last change (edits come in bursts). A device that only took the queue over writes nothing until it plays. */

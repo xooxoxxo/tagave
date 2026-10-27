@@ -5,7 +5,8 @@
  *   POST   /api/v1/player/tracks              tracks by id, as the queue plays them (Play next, Add to queue, a playlist)
  *   GET    /api/v1/me/player/queue            the queue, each track resolved, and which device wrote it last
  *   GET    /api/v1/me/player/queue/stamp      only who wrote it last and when (a device checks this to hand over)
- *   PUT    /api/v1/me/player/queue            the device playing writes the queue and where it is
+ *   PUT    /api/v1/me/player/queue            the device in use writes the queue and where it is (claim: it starts
+ *                                              playing or the queue changed there; otherwise 409 once another device took over)
  *   DELETE /api/v1/me/player/queue            stop: forget the queue
  *   GET    /api/v1/me/player/history          the person's plays, newest first
  *
@@ -63,7 +64,9 @@ export async function createPlayerQueueRoutes(fastify: FastifyInstance) {
     const user = requirePlayer(request);
     const parsed = queueStateSchema.safeParse(request.body ?? {});
     if (!parsed.success) throw new ApiError(400, 'Bad Request', parsed.error.issues[0]?.message ?? 'Not a queue');
-    return writeQueue(getSql(), user.id, parsed.data);
+    const saved = await writeQueue(getSql(), user.id, parsed.data);
+    if (!saved) throw new ApiError(409, 'Conflict', 'Another device is playing this queue now.');
+    return saved;
   });
 
   fastify.delete('/me/player/queue', permission('player.use'), async (request: FastifyRequest) => {

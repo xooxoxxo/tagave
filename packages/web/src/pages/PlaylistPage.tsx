@@ -83,7 +83,7 @@ export function PlaylistPageView(p: PlaylistPageViewProps) {
           <PlaylistCover covers={p.playlist.covers} name={p.playlist.name} className={styles.cover} />
           <div className={styles.heroText}>
             <span className={styles.kicker}>Playlist</span>
-            <div className={styles.name}><InlineRename value={p.playlist.name} label="Rename playlist" onSave={p.onRename} /></div>
+            <h1 className={styles.name}><InlineRename value={p.playlist.name} label="Rename playlist" onSave={p.onRename} /></h1>
             <span className={styles.meta}>{tracksLabel(p.playlist.tracks)}{p.playlist.durationMs > 0 ? ` · ${playlistLength(p.playlist.durationMs)}` : ''}</span>
             <div className={styles.actions} role="group" aria-label="Playlist actions">
               {p.canPlay && <EmbossIconButton label="Shuffle" disabled={!playable} onClick={p.onShuffle}><ShuffleIcon /></EmbossIconButton>}

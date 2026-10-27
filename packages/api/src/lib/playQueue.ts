@@ -69,13 +69,16 @@ export async function readQueue(deps: { sql: Sql; boss: Pick<PgBoss, 'send'> | n
   return { items: out, context: row.context, index, positionMs, deviceId: row.device_id, updatedAt: new Date(row.updated_at).toISOString() };
 }
 
-export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): Promise<{ updatedAt: string }> {
+export async function writeQueue(sql: Sql, userId: string, s: QueueStateInput): Promise<{ updatedAt: string } | null> {
   const index = s.items.length === 0 ? -1 : Math.min(s.index, s.items.length - 1);
-  const [row] = await sql<Array<{ updated_at: Date }>>`
+  const claim = s.claim === true;
+  const rows = await sql<Array<{ updated_at: Date }>>`
     insert into player_queue_state (user_id, items, context, idx, position_ms, device_id, updated_at)
     values (${userId}, ${JSON.stringify(s.items)}::text::jsonb, ${s.context ? JSON.stringify(s.context) : null}::text::jsonb, ${index}, ${s.positionMs}, ${s.deviceId}, clock_timestamp())
     on conflict (user_id) do update set items = excluded.items, context = excluded.context, idx = excluded.idx,
       position_ms = excluded.position_ms, device_id = excluded.device_id, updated_at = excluded.updated_at
+      where ${claim} or player_queue_state.device_id = excluded.device_id
     returning updated_at`;
-  return { updatedAt: new Date(row!.updated_at).toISOString() };
+  // another device took the queue over since: this one is not in use any more
+  return rows[0] ? { updatedAt: new Date(rows[0].updated_at).toISOString() } : null;
 }

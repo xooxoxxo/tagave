@@ -119,11 +119,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the play queue per person', () 
     const seen = (await get(anna, '/api/v1/me/player/queue')).json();
     expect(seen).toMatchObject({ index: 0, positionMs: 42_000, deviceId: laptop, context: { kind: 'album', name: 'First Album' } });
     expect(seen.items.map((i: any) => [i.title, i.origin, i.album])).toEqual([['One', 'context', 'First Album'], ['Three', 'queued', 'Second Album'], ['Two', 'context', 'First Album']]);
-    // the phone plays: it writes, and the laptop's next look says so
-    const second = await put(anna, { items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }], context: null, index: 1, positionMs: 0, deviceId: phone });
+    // the phone plays: it claims the queue, and the laptop's next look says so
+    const items = [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }];
+    expect((await put(anna, { items, context: null, index: 1, positionMs: 0, deviceId: phone })).statusCode).toBe(409);
+    const second = await put(anna, { items, context: null, index: 1, positionMs: 0, deviceId: phone, claim: true });
+    expect(second.statusCode).toBe(200);
+    // the laptop, still playing, saves its place: refused, it is not the device in use any more
+    expect((await put(anna, { items, context: null, index: 0, positionMs: 50_000, deviceId: laptop })).statusCode).toBe(409);
+    // the phone saves its place without claiming: it is the device in use
+    expect((await put(anna, { items, context: null, index: 1, positionMs: 5000, deviceId: phone })).statusCode).toBe(200);
     const stamp = (await get(anna, '/api/v1/me/player/queue/stamp')).json();
     expect(stamp.deviceId).toBe(phone);
-    expect(stamp.updatedAt).toBe(second.json().updatedAt);
+    expect(Date.parse(stamp.updatedAt)).toBeGreaterThanOrEqual(Date.parse(second.json().updatedAt));
     expect(Date.parse(stamp.updatedAt)).toBeGreaterThan(Date.parse(first.json().updatedAt));
   });
 
@@ -135,7 +142,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the play queue per person', () 
   });
 
   it('a track that left the library drops out, and the next one takes the playing place', async () => {
-    await put(anna, { items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }], context: null, index: 1, positionMs: 9000, deviceId: 'laptop-1234567' });
+    await put(anna, { items: [{ id: t.a1, origin: 'context' }, { id: t.b1, origin: 'queued' }, { id: t.a2, origin: 'context' }], context: null, index: 1, positionMs: 9000, deviceId: 'laptop-1234567', claim: true });
     await sql`update player_queue_state set items = ${JSON.stringify([{ id: t.a1, origin: 'context' }, { id: randomUUID(), origin: 'queued' }, { id: t.a2, origin: 'context' }])}::text::jsonb where user_id = ${anna}`;
     const q = (await get(anna, '/api/v1/me/player/queue')).json();
     expect(q.items.map((i: any) => i.title)).toEqual(['One', 'Two']);

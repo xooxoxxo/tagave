@@ -1,10 +1,9 @@
 /* One playlist (PlaylistPage.tsx): the album page's hero and track rhythm. */
-.hero { display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: end; gap: 28px; padding: var(--page-top) 0 8px; }
+.hero { flex: 1 1 auto; width: 100%; display: grid; grid-template-columns: 220px minmax(0, 1fr); align-items: end; gap: 28px; padding: var(--page-top) 0 8px; }
 .cover { width: 220px; }
 .heroText { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .kicker { font: var(--type-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
-.name { min-width: 0; }
-.name h1, .name :global(h1) { margin: 0; }
+.name { min-width: 0; margin: 0; font: var(--type-headline); color: var(--ink); }
 .meta { font: 400 15px / 1.4 var(--font-body); color: var(--ink-2); }
 .actions { display: flex; align-items: center; gap: 16px; margin-top: 10px; }
 .play { width: 64px; height: 64px; border-radius: 16px; color: var(--dew); }
