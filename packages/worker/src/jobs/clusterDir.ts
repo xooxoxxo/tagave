@@ -407,6 +407,8 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     });
   }
 
+  /** an album this run inserted (not one that already existed) */
+  let created = false;
   for (const g of groups.values()) {
     const dirPaths = [...g.dirs].sort();
     const ckey = clusterKey(data.libraryId, dirPaths, g.albumKey, g.artistKey);
@@ -485,8 +487,9 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       const [row] = await tx`
         insert into local_albums ${tx({ library_id: data.libraryId, cluster_key: ckey, state: 'pending', ...columns })}
         on conflict (library_id, cluster_key) do update set ${tx(columns)}, updated_at = now()
-        returning id::text as id`;
+        returning id::text as id, (xmax = 0) as inserted`;
       if (!row) throw new Error('local_albums upsert returned no row');
+      if (row['inserted'] === true) created = true;
       await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
     }));
   }
@@ -525,14 +528,38 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     }
   }
 
+  // A new album is identified soon after the scan that found it, not at the
+  // next five-minute sweep. One identify.sweep top-up per library, throttled
+  // to a 30 s slot (singletonNextSlot keeps one more for the next slot, so
+  // an album made just after a sweep started is not missed): the sweep picks
+  // the pending albums itself and stops at its low-water mark, so a first
+  // scan of tens of thousands of folders sends a sweep every 30 s at most,
+  // never one identify job per album past the queue's cap. Best effort: the
+  // scheduled sweep still covers a send that fails.
+  if (created) {
+    try {
+      await ctx.boss.send('identify.sweep', { libraryId: data.libraryId, topUp: true }, {
+        singletonKey: identifySweepKey(data.libraryId),
+        singletonSeconds: 30,
+        singletonNextSlot: true,
+        startAfter: 15,
+      });
+    } catch (err) {
+      ctx.logger.warn({ scope, err: (err as Error).message }, 'could not queue identification of the new albums');
+    }
+  }
+
   ctx.logger.debug(
-    { scope, siblingDirs, groups: groups.size, untagged: untagged.length, loose: loose.length, pinned: pinned.size },
+    { scope, siblingDirs, groups: groups.size, untagged: untagged.length, loose: loose.length, pinned: pinned.size, created },
     'clustered directory',
   );
 }
 
 /** The artist key of a folder's files without album tags (see clusterDirJob). */
 const UNTAGGED_ARTIST_KEY = '\u0000untagged';
+
+/** Same key the Jobs page uses to retry the sweep (api › lib/jobView.ts). */
+export const identifySweepKey = (libraryId: string): string => `identify.sweep:${libraryId}`;
 
 /**
  * An album title from a folder name: "bjork_homogenic" reads "bjork

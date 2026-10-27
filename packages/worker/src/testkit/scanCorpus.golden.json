@@ -2979,7 +2979,18 @@
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
-   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}"
   ]
  },
  "B after moves": {
@@ -6297,7 +6308,8 @@
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist A/Album One (2001):08d02f3a60497db24fe5aea2b22158df408e9ff2\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Artist B/Second:9910007b1ac597157eea3b6288eb5875cb29c336\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
    "{\"name\":\"gaps.recompute\",\"data\":{\"albumIds\":[\"album:Embedded:789b7ddbaca84d981d66bdc4e01f666914b912ee\"],\"libraryId\":\"<library>\"},\"opts\":{}}",
-   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}"
+   "{\"name\":\"gaps.recompute\",\"data\":{\"libraryId\":\"<library>\"},\"opts\":{\"singletonKey\":\"gaps:5ca1ab1e-0058-4000-8000-000000000001\",\"startAfter\":900}}",
+   "{\"name\":\"identify.sweep\",\"data\":{\"libraryId\":\"<library>\",\"topUp\":true},\"opts\":{\"singletonKey\":\"identify.sweep:5ca1ab1e-0058-4000-8000-000000000001\",\"singletonNextSlot\":true,\"singletonSeconds\":30,\"startAfter\":15}}"
   ]
  }
 }
