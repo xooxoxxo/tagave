@@ -29,11 +29,11 @@ const LOSSY_TRACKS = (albumId: SQLWrapper) =>
 
 /** Match provenance: how the live match was decided (owner audits auto-accepts here). */
 const DECIDED_CLAUSES: Record<string, ReturnType<typeof sql>> = {
-  auto_strong: sql`am.decided_by = 'system' and am.reason like 'auto-accept:%'`,
-  chip_rule: sql`am.decided_by = 'system' and am.reason like 'chip-rule%'`,
-  first_candidate: sql`am.decided_by = 'system' and am.reason like 'first-candidate%'`,
+  auto_strong: sql`am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'auto-accept:%'`,
+  chip_rule: sql`am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'chip-rule%'`,
+  first_candidate: sql`am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'first-candidate%'`,
   by_me: sql`am.decided_by = 'user' and am.reason not like 'manual MBID%'`,
-  manual_mbid: sql`am.reason like 'manual MBID%'`,
+  manual_mbid: sql`am.decided_kind <> 'model' and am.reason like 'manual MBID%'`,
   // a decision model's accept: automatic, and never the owner's
   model: sql`am.decided_kind = 'model'`,
 };

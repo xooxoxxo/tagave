@@ -47,7 +47,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
       insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind,
                                  decider_id, decider_version, probability, reason)
       values (${lib}, ${modelAlbum}, ${modelRelease}, 0.0500, 'auto', 'system', 'model',
-              'jev', 'jev-2026-09-15', 0.9940, 'model accept: jev-2026-09-15, probability 0.9940')`;
+              'jev', 'jev-2026-09-15', 0.9940, 'auto-accept: jev-2026-09-15, probability 0.9940')`; // a reason another bucket's prefix matches: decided_kind alone must keep it model
     await client`
       insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind, reason)
       values (${lib}, ${ruleAlbum}, ${ruleRelease}, 0.0300, 'auto', 'system', 'system', 'chip-rule auto-accept: 5 green')`;
@@ -89,6 +89,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('albums list: model match kind (
     expect(countOf(facets, 'model')).toBe(1);
     expect(countOf(facets, 'auto_strong')).toBe(0);
     expect(countOf(facets, 'chip_rule')).toBe(1);
+    for (const k of ['first_candidate', 'by_me', 'manual_mbid']) expect(countOf(facets, k), k).toBe(0);
   });
 
   it('counts a model match from the facet summary too', async () => {

@@ -74,7 +74,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('refreshLibraryFacets staleness 
       insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by, decided_kind,
                                  decider_id, decider_version, probability, reason)
       values (${libraryId}, ${albumId}, ${releaseId}, 0.0500, 'auto', 'system', 'model',
-              'jev', 'jev-2026-09-15', 0.9940, 'model accept: jev-2026-09-15, probability 0.9940')`;
+              'jev', 'jev-2026-09-15', 0.9940, 'auto-accept: jev-2026-09-15, probability 0.9940')`; // a reason another bucket's prefix matches: decided_kind alone must keep it model
 
     await refreshLibraryFacets(ctx, libraryId, true);
 

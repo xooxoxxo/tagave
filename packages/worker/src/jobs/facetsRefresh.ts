@@ -76,15 +76,15 @@ export async function refreshLibraryFacets(
                        and (ci.release_group_id = la.release_group_id or ci.local_album_id = la.id)),
              array_remove(array[
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
-                                   and am.decided_by = 'system' and am.reason like 'auto-accept:%') then 'auto_strong' end,
+                                   and am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'auto-accept:%') then 'auto_strong' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
-                                   and am.decided_by = 'system' and am.reason like 'chip-rule%') then 'chip_rule' end,
+                                   and am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'chip-rule%') then 'chip_rule' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
-                                   and am.decided_by = 'system' and am.reason like 'first-candidate%') then 'first_candidate' end,
+                                   and am.decided_by = 'system' and am.decided_kind <> 'model' and am.reason like 'first-candidate%') then 'first_candidate' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
                                    and am.decided_by = 'user' and am.reason not like 'manual MBID%') then 'by_me' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
-                                   and am.reason like 'manual MBID%') then 'manual_mbid' end,
+                                   and am.decided_kind <> 'model' and am.reason like 'manual MBID%') then 'manual_mbid' end,
                case when exists (select 1 from album_matches am where am.local_album_id = la.id and am.status in ('auto', 'confirmed')
                                    and am.decided_kind = 'model') then 'model' end
              ]::text[], null)
