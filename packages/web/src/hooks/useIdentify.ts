@@ -187,7 +187,8 @@ export function useJobs(
 interface QueueChangedEvent {
   type: string;
   libraryId: string;
-  localAlbumId: string;
+  /** null: a batch of decisions */
+  localAlbumId: string | null;
   state: string;
 }
 

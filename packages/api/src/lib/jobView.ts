@@ -93,6 +93,8 @@ export function jobLabel(type: string, subjectName?: string | null): string {
     case 'collection.sync': return 'Sync Discogs collection';
     case 'gaps.recompute': return 'Check for gaps and duplicates';
     case 'queue.autoaccept': return 'Accept confident matches';
+    case 'decider.accept': return 'Accept batch';
+    case 'decider.run': return 'Decider run';
     case 'artists.resolve': return 'Link artists';
     case 'tags.preview': return 'Preview a tag plan';
     default: return 'Background task';

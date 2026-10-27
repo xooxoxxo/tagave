@@ -6,7 +6,7 @@
  */
 export const WORKER_QUEUES = [
   'scan.root', 'scan.dir', 'scan.sweep', 'roots.validate', 'scan.parse', 'cluster.dir', 'cluster.repairDiscs', 'cluster.backfillLoose', 'files.backfillDigest',
-  'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add', 'evidence.backfill',
+  'identify.album', 'identify.acoustid', 'identify.sweep', 'edition.add', 'evidence.backfill', 'decider.accept',
   'enrich.release', 'enrich.sweep', 'editions.fetch', 'art.fetch', 'art.sweep', 'art.thumb', 'art.thumbSweep', 'gaps.recompute', 'queue.autoaccept',
   'collection.sync', 'collection.push', 'collection.remove', 'reviews.fetch',
   'artists.resolve', 'artists.enrich', 'artists.refresh', 'artist.refresh',
@@ -39,6 +39,8 @@ export const QUEUES_RIDING_WITH: Readonly<Record<string, string>> = {
   // matching evidence for albums identified before it was kept: database-only,
   // but it queues re-identifications, so it lives where identify does
   'evidence.backfill': 'identify.album',
+  // accept batches: database-only, paced so the sweeps do the provider work afterwards
+  'decider.accept': 'identify.album',
   // cover thumbnails rebuilt from the originals art.fetch keeps on its cache volume
   'art.thumb': 'art.fetch',
   'art.thumbSweep': 'art.fetch',

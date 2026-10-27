@@ -34,6 +34,7 @@ import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLo
 import { queueAutoAcceptJob, type QueueAutoAcceptJobData } from './jobs/queueAutoAccept.js';
 import { addEditionJob, type AddEditionJobData } from './jobs/addEdition.js';
 import { evidenceBackfillJob, type EvidenceBackfillJobData } from './jobs/evidenceBackfill.js';
+import { deciderAcceptJob, type DeciderAcceptJobData } from './jobs/deciderAccept.js';
 import { collectionSyncJob, collectionPushJob, collectionRemoveJob, type CollectionSyncJobData, type CollectionPushJobData, type CollectionRemoveJobData } from './jobs/collectionSync.js';
 import { reviewsFetchJob, type ReviewsFetchJobData } from './jobs/reviewsFetch.js';
 import { artistsResolveJob, type ArtistsResolveJobData } from './jobs/artistsResolve.js';
@@ -104,6 +105,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'listenLinks.resolve': 'stately',
   // enqueued at every boot and by itself pass after pass: one queued behind a running one
   'evidence.backfill': 'stately',
+  // one run per batch (singletonKey on the batch id) queued behind a running one
+  'decider.accept': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -126,6 +129,8 @@ const LONG_JOB_QUEUES: Record<string, { expireInSeconds: number; retryLimit: num
   'cluster.backfillLoose': { expireInSeconds: 3600, retryLimit: 0 },
   // 200 albums per pass, each pass sending the next; the next boot starts over
   'evidence.backfill': { expireInSeconds: 3600, retryLimit: 0 },
+  // a batch of thousands of albums, one transaction each; a retry resumes at the first pending item
+  'decider.accept': { expireInSeconds: 6 * 3600, retryLimit: 2 },
 };
 
 /**
@@ -327,6 +332,13 @@ async function main() {
       return results.length === 1 ? results[0] : results;
     });
     await boss.send('evidence.backfill', {}, { singletonKey: 'evidence.backfill' });
+  }
+  // Accept batches (the owner's rules, a decider run) and their undo: rides
+  // with identify.album, database-only, one batch at a time.
+  if (wants('identify.album')) {
+    await boss.work<DeciderAcceptJobData>('decider.accept', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await deciderAcceptJob(ctx, job.data);
+    });
   }
   // Music Connections pulls from linked apps (Settings › Connections), on the
   // identify worker (spec §4). The tick every 15 minutes queues each due link;
