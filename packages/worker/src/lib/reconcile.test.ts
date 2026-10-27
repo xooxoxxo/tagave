@@ -84,7 +84,7 @@ describe('runMerges', () => {
     warn.mockReset(); refreshPlayerAfterMoves.mockReset(); refreshPlayerAfterMoves.mockImplementation(async () => false);
     repointSidecarImages.mockImplementation(async () => { throw new Error('sidecar update failed'); });
     const r2 = await runMerges(ctx, 1, olds, freshs, t1, false);
-    expect(r2).toEqual(clean);
+    expect(r2).toEqual({ ...clean, sidecarRepointFailed: true });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0].error).toContain('sidecar update failed');
     expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);

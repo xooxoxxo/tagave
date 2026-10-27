@@ -26,10 +26,12 @@ export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: str
 export interface ReconcileResult {
   merged: number; moves: MoveRecord[]; possibleMoves: number;
   mergedFreshIds: string[]; reparseIds: string[]; reclusterDirs: DirRef[]; outcomes: MergeDone[];
+  /** The moved folders' sidecar covers could not be re-pointed: the caller must not drop stale sidecars this run. */
+  sidecarRepointFailed: boolean;
 }
 
 export function emptyReconcile(): ReconcileResult {
-  return { merged: 0, moves: [], possibleMoves: 0, mergedFreshIds: [], reparseIds: [], reclusterDirs: [], outcomes: [] };
+  return { merged: 0, moves: [], possibleMoves: 0, mergedFreshIds: [], reparseIds: [], reclusterDirs: [], outcomes: [], sidecarRepointFailed: false };
 }
 
 /**
@@ -238,6 +240,7 @@ export async function runMerges(
     try {
       await repointSidecarImages(ctx, out.moves, olds.map((o) => o.id));
     } catch (error) {
+      out.sidecarRepointFailed = true;
       ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not re-point sidecar covers after moves');
     }
   }

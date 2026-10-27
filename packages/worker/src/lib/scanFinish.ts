@@ -208,7 +208,10 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     // scan that gets here reconciled. Holds go on before the caller sends
     // scan.parse and cluster.dir for these rows.
     const heldIds = await placeHolds(ctx, walk.insertedIds);
-    await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
+    // A failed cover re-point leaves the images on the old sidecars: dropping those
+    // now would take the covers with them (the 0052 cascade).
+    if (rec.sidecarRepointFailed) ctx.logger.warn({ rootId: root.id }, 'scan.finish: stale sidecars kept, the cover re-point failed');
+    else await dropStaleSidecars(ctx, root, walk.subtree, walk.walkStart, failedSet);
     return {
       ...empty, ...reconciled, failedDirs,
       held: heldIds.length,
