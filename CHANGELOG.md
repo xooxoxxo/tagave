@@ -2,7 +2,45 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.14.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.14.1)
+## [v0.15.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.15.0)
+
+**Minor release (0.14 → 0.15).** Moving or renaming music no longer loses anything, colour themes, a player bar that stays on the desktop, and the groundwork for apps beyond music.
+
+### Before you update
+
+- **Split installs** (a files worker on another machine): update that worker right after the app. Until it is updated its scan writes fail for up to 30 seconds, and filter counts and the artist list rebuild only once it runs the new version.
+- **Going back to 0.14 means a restore.** This update changes the database (migrations 0052, 0053, 0057, 0058, 0059, 0065, 0066, 0067). The updater takes a backup first and restores it on its own if the update fails; see [Going back](https://github.com/xooxoxxo/tagave/blob/v0.15.0/docs/operations.md).
+
+### New
+
+- **Move-safe scanning.** Moving or renaming music keeps albums, matches, locks, covers, collection links, listens and player links. A scan that would suddenly lose more than 500 files or 20% of a music folder is held, and files are marked missing only if they are still gone 24 hours later. ([7213ee9](https://github.com/xooxoxxo/tagave/commit/7213ee9), [befe103](https://github.com/xooxoxxo/tagave/commit/befe103), [44603db](https://github.com/xooxoxxo/tagave/commit/44603db))
+- **Themes** (Settings › Appearance › Theme). Adaptive, Classic, Moody, Mono and Custom, with a colour, hue and second accent of your own. Your theme follows you to every device. The old "Adaptive colours" switch is now the Adaptive theme; browsers that had it off start on Classic. ([620eac9](https://github.com/xooxoxxo/tagave/commit/620eac9), [8ffa270](https://github.com/xooxoxxo/tagave/commit/8ffa270))
+- **The player bar stays on the desktop**, lined up with your account; before anything plays its keys are off. ([74180a3](https://github.com/xooxoxxo/tagave/commit/74180a3))
+- **Equalizer glow** (off by default, Settings › Appearance) is now an aurora along the foot of the window: three colours from the cover drift slowly and breathe with the music. ([f7957f0](https://github.com/xooxoxxo/tagave/commit/f7957f0))
+- **On your phone.** tagave installs to the home screen (over HTTPS) and keeps playing with the phone locked or in the background; the next track starts on its own, and the lock screen and car keys skip tracks. For CarPlay and Android Auto, see [On your phone](https://github.com/xooxoxxo/tagave/blob/v0.15.0/docs/install.md). ([0baabbf](https://github.com/xooxoxxo/tagave/commit/0baabbf), [91e4e5f](https://github.com/xooxoxxo/tagave/commit/91e4e5f))
+- **Files without album tags appear.** Each folder's untagged files form an album named after the folder, listed in Library care as "No album tags"; existing libraries are filled in at the next start. ([c93a4a5](https://github.com/xooxoxxo/tagave/commit/c93a4a5), [d6cc39a](https://github.com/xooxoxxo/tagave/commit/d6cc39a))
+
+### Improved
+
+- **New albums are identified right after a scan**, instead of waiting for the next sweep. ([63cf32a](https://github.com/xooxoxxo/tagave/commit/63cf32a))
+- **Updates take the whole page**, the glyph edge to edge. ([075d443](https://github.com/xooxoxxo/tagave/commit/075d443))
+- **Filter counts** fall back to live numbers if their rebuilds ever stop. ([032b544](https://github.com/xooxoxxo/tagave/commit/032b544))
+
+### Fixed
+
+- Re-scans no longer drop track links after tag writes. ([9d7a1f8](https://github.com/xooxoxxo/tagave/commit/9d7a1f8))
+- Music Connections feeds no longer skip a change for a moment while Postgres tidies up. ([0825794](https://github.com/xooxoxxo/tagave/commit/0825794))
+- A file whose tags contain stray NUL bytes no longer stops the rest of its folder from being read. ([b6eb76b](https://github.com/xooxoxxo/tagave/commit/b6eb76b))
+- If moving a folder's cover image fails, a box cover above CD1/CD2 may be replaced by a fetched cover.
+
+### For self-hosters
+
+- **Migrations:** 0052–0053 and 0057 move-safe files; 0058 `audio_files` becomes `files` (a read-only `audio_files` view stays for this release only); 0059 per-person preferences; 0065 module ledger `installed_modules`; 0066 migrations recorded per module; 0067 filter-count tables renamed `album_filter_counts` and `filter_rail_state`.
+- **Modules:** Music Connections, Listen elsewhere and Playlists keep their on/off state, now in `installed_modules`.
+
+**All changes:** [v0.14.1...v0.15.0](https://github.com/xooxoxxo/tagave/compare/v0.14.1...v0.15.0)
+
+## [v0.14.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.14.1) (2026-10-27)
 
 **Minor release (0.13 → 0.14.1); the 0.14.0 build stopped on a slow test and was never published.** A real queue and playlists, Now Playing, colours that follow the cover, "Listen elsewhere" links, cleaner buttons, and the fixes from a full sweep of the app.
 
