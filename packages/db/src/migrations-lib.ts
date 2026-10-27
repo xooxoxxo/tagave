@@ -14,13 +14,79 @@ export const MIGRATIONS_DIR = path.join(__dirname, '../migrations');
  */
 export const MIGRATION_LOCK_KEY = 7_302_026_093;
 
-/** The migration files this build carries, sorted (the order they apply in). */
+/** The core chain's files this build carries, sorted (the order they apply in). */
 export async function listMigrationFiles(dir: string = MIGRATIONS_DIR): Promise<string[]> {
   try {
     return (await fs.readdir(dir)).filter((f) => f.endsWith('.sql')).sort();
   } catch {
     return [];
   }
+}
+
+/** The ledger's module for the core chain (every row from before 0066 is one). */
+export const CORE_MIGRATIONS = 'core';
+
+/**
+ * Where an app's or a module's own chain lives, under the core folder:
+ * apps/<id>/ apply first, then modules/<id>/ (a module migration may
+ * reference the core and its own app, nothing else, so no module waits on
+ * another). Ids are the module ledger's, shared by apps and modules.
+ */
+export const CHAIN_FOLDERS = ['apps', 'modules'] as const;
+const CHAIN_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+
+/**
+ * Split a ledger entry: a core file ('0065_x.sql') or a module's
+ * ('autotagger/0001_x.sql').
+ */
+export function parseMigrationEntry(entry: string): { module: string; name: string } {
+  const i = entry.indexOf('/');
+  return i < 0 ? { module: CORE_MIGRATIONS, name: entry } : { module: entry.slice(0, i), name: entry.slice(i + 1) };
+}
+
+/** A ledger row as an entry: core rows by name alone, a module's as <module>/<name>. */
+export function migrationEntry(module: string, name: string): string {
+  return module === CORE_MIGRATIONS ? name : `${module}/${name}`;
+}
+
+async function chainDirs(dir: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const folder of CHAIN_FOLDERS) {
+    let ids: string[];
+    try {
+      ids = (await fs.readdir(path.join(dir, folder), { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+    } catch {
+      continue;
+    }
+    for (const id of ids) {
+      if (!CHAIN_ID_RE.test(id) || id === CORE_MIGRATIONS) throw new Error(`migrations/${folder}/${id}: not a module id`);
+      if (out.has(id)) throw new Error(`migrations: ${id} has two folders (apps/ and modules/)`);
+      out.set(id, path.join(dir, folder, id));
+    }
+  }
+  return out;
+}
+
+/**
+ * Every migration this build carries, in the order they apply: the core
+ * chain, then each app's own chain, then each module's
+ * (migrations/{apps,modules}/<id>/*.sql, as '<id>/<file>').
+ */
+export async function listMigrationChain(dir: string = MIGRATIONS_DIR): Promise<string[]> {
+  const out = await listMigrationFiles(dir);
+  for (const [id, d] of await chainDirs(dir)) {
+    for (const f of await listMigrationFiles(d)) out.push(migrationEntry(id, f));
+  }
+  return out;
+}
+
+/** The file behind an entry of listMigrationChain. */
+async function migrationPath(dir: string, entry: string): Promise<string> {
+  const { module, name } = parseMigrationEntry(entry);
+  if (module === CORE_MIGRATIONS) return path.join(dir, name);
+  const d = (await chainDirs(dir)).get(module);
+  if (!d) throw new Error(`no migrations folder for ${module}`);
+  return path.join(d, name);
 }
 
 /**
@@ -60,19 +126,24 @@ export function compareVersions(a: string | null | undefined, b: string | null |
   return 0;
 }
 
+/**
+ * The ledger against the files of this build. Entries are core file names
+ * ('0065_x.sql') or a module chain's '<module>/<file>' (listMigrationChain).
+ */
 export interface SchemaState {
-  /** Files this build carries. */
+  /** Files this build carries, in the order they apply. */
   files: string[];
-  /** Ledger rows, sorted. */
+  /** Ledger rows: the core chain's sorted, then each module's. */
   applied: string[];
   /** Files this build carries that the ledger does not have yet. */
   pending: string[];
   /** Ledger rows this build does not carry. */
   unknown: string[];
   /**
-   * Unknown rows that sort after this build's last file: the database was
-   * migrated by a newer build. Unknown rows that sort earlier are usually a
-   * file renumbered or dropped before a release and are only reported.
+   * Unknown rows that sort after this build's last file of the same chain:
+   * the database was migrated by a newer build. Unknown rows that sort
+   * earlier are usually a file renumbered or dropped before a release and
+   * are only reported, as are the rows of a chain this build does not carry.
    */
   newer: string[];
   /** Highest app version that has migrated this database (null before the stamp existed). */
@@ -88,12 +159,35 @@ async function tableExists(sql: Queryable, name: string): Promise<boolean> {
   return Boolean(r[0]?.['t']);
 }
 
+/** The ledger has 0066's module column. */
+async function ledgerHasModules(sql: Queryable): Promise<boolean> {
+  const r = await sql`
+    select 1 from pg_attribute
+     where attrelid = to_regclass('public._migrations') and attname = 'module' and not attisdropped`;
+  return r.length > 0;
+}
+
+/**
+ * The ledger's rows as entries, in either shape: (module, name) since 0066,
+ * or name alone before it (every row the core's). to_jsonb reads `module`
+ * when the column is there and null when it is not.
+ */
+export async function readLedger(sql: Queryable): Promise<string[]> {
+  const rows = await sql`
+    select coalesce(to_jsonb(m)->>'module', ${CORE_MIGRATIONS}) as module, name from _migrations m`;
+  const entries = rows.map((r) => ({ module: r['module'] as string, name: r['name'] as string }));
+  entries.sort((a, b) => {
+    const ca = a.module === CORE_MIGRATIONS ? 0 : 1;
+    const cb = b.module === CORE_MIGRATIONS ? 0 : 1;
+    return ca - cb || (a.module < b.module ? -1 : a.module > b.module ? 1 : 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  });
+  return entries.map((e) => migrationEntry(e.module, e.name));
+}
+
 /** Read the ledger and the schema stamp. Works on a database that has neither table yet. */
 export async function readSchemaState(sql: Queryable, files: string[]): Promise<SchemaState> {
   const hasLedger = await tableExists(sql, '_migrations');
-  const applied = hasLedger
-    ? (await sql`select name from _migrations order by name`).map((r) => r['name'] as string)
-    : [];
+  const applied = hasLedger ? await readLedger(sql) : [];
   let schemaAppVersion: string | null = null;
   if (await tableExists(sql, '_schema_info')) {
     const r = await sql`select value from _schema_info where key = 'app_version'`;
@@ -105,8 +199,18 @@ export async function readSchemaState(sql: Queryable, files: string[]): Promise<
   const fileSet = new Set(files);
   const pending = files.filter((f) => !appliedSet.has(f));
   const unknown = applied.filter((a) => !fileSet.has(a));
-  const last = files[files.length - 1];
-  const newer = last === undefined ? [] : unknown.filter((u) => u > last);
+  // the last file of each chain this build carries
+  const lastOf = new Map<string, string>();
+  for (const f of files) {
+    const { module, name } = parseMigrationEntry(f);
+    const prev = lastOf.get(module);
+    if (prev === undefined || name > prev) lastOf.set(module, name);
+  }
+  const newer = unknown.filter((u) => {
+    const { module, name } = parseMigrationEntry(u);
+    const last = lastOf.get(module);
+    return last !== undefined && name > last;
+  });
   const fresh = appliedSet.size === 0;
   return { files, applied, pending, unknown, newer, schemaAppVersion, fresh };
 }
@@ -227,10 +331,16 @@ export interface RunMigrationsResult {
   state: SchemaState;
 }
 
+// A new database's ledger starts in its 0066 shape (columns in the order
+// 0066 leaves an older one); an older one keeps _migrations(name) until
+// 0066 changes it. Core rows are written with `name` alone either way
+// (module defaults to 'core').
 const BOOTSTRAP_SQL = `
   create table if not exists _migrations (
-    name text primary key,
-    applied_at timestamptz not null default now()
+    name text not null,
+    applied_at timestamptz not null default now(),
+    module text not null default '${CORE_MIGRATIONS}',
+    constraint _migrations_pkey primary key (module, name)
   );
   create table if not exists _schema_info (
     key text primary key,
@@ -284,7 +394,8 @@ export async function runMigrations(
     locked = true;
 
     await conn.unsafe(BOOTSTRAP_SQL);
-    const files = await listMigrationFiles(opts.migrationsDir);
+    const dir = opts.migrationsDir ?? MIGRATIONS_DIR;
+    const files = await listMigrationChain(dir);
     let state = await readSchemaState(conn, files);
 
     // Baseline: a database whose 0000 was applied before the ledger existed.
@@ -334,14 +445,21 @@ export async function runMigrations(
 
     const applied: string[] = [];
     for (const file of state.pending) {
-      const body = await fs.readFile(path.join(opts.migrationsDir ?? MIGRATIONS_DIR, file), 'utf-8');
+      const { module, name } = parseMigrationEntry(file);
+      // A module's row names its module: the ledger needs 0066's column by now
+      // (the core chain, 0066 included, applies before any module's).
+      if (module !== CORE_MIGRATIONS && !(await ledgerHasModules(conn))) {
+        throw new Error(`cannot record ${file}: the migration ledger has no module column (core migration 0066 has not run)`);
+      }
+      const body = await fs.readFile(await migrationPath(dir, file), 'utf-8');
       log(`applying ${file}...`);
       // One transaction per file, on the connection that holds the lock
       // (a reserved connection has no .begin()).
       await conn`begin`;
       try {
         await conn.unsafe(body);
-        await conn`insert into _migrations (name) values (${file})`;
+        if (module === CORE_MIGRATIONS) await conn`insert into _migrations (name) values (${name})`;
+        else await conn`insert into _migrations (module, name) values (${module}, ${name})`;
         await conn`commit`;
       } catch (err) {
         await conn`rollback`.catch(() => undefined);

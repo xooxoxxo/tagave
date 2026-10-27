@@ -788,7 +788,8 @@ export class Update {
     const image = ref.code === 0 ? ref.stdout.split('\n').map((l) => l.trim()).find(Boolean) : undefined;
     if (!image) return undefined;
     const files = await this.docker(['run', '--rm', '--pull', 'never', '--network', 'none', '--entrypoint', 'ls', image, IMAGE_MIGRATIONS_DIR], { quiet: true, timeoutMs: 60_000 });
-    const applied = await this.psql('select name from _migrations');
+    // The core chain's rows, in either ledger shape (_migrations gained module in 0066).
+    const applied = await this.psql("select name from _migrations m where coalesce(to_jsonb(m)->>'module', 'core') = 'core'");
     if (files.code !== 0 || applied === null) {
       this.log('info', 'space: could not compare the migrations of the new version with the database; the new app checks the room its migrations need before it applies them');
       return undefined;

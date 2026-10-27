@@ -1,6 +1,6 @@
 import { PgBoss } from 'pg-boss';
 import pino from 'pino';
-import { listMigrationFiles, makeDb } from '@tagave/db';
+import { listMigrationChain, makeDb } from '@tagave/db';
 import { readBuildInfo, WORKER_QUEUES } from '@tagave/core';
 import { setCooldownObserver } from './lib/pacer.js';
 import { startWatchdog, tracked, withTimeout, JobTimeoutError } from './lib/watchdog.js';
@@ -143,7 +143,7 @@ async function main() {
   // Version skew (split installs update hosts separately): wait for the app
   // to apply migrations this worker needs; refuse a database a newer app
   // migrated. Before pg-boss starts, so nothing is claimed meanwhile.
-  const migrationFiles = await listMigrationFiles();
+  const migrationFiles = await listMigrationChain();
   const allowSkew = /^(1|true|yes|on)$/i.test(tagaveEnv('ALLOW_SCHEMA_SKEW') ?? '');
   await waitForCompatibleSchema(client, {
     version: build.version,
