@@ -53,9 +53,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
     expect((await itemsWithStatus(client, id, 'pending', 2)).map((i) => i.localAlbumId)).toEqual([a, b]);
   });
 
-  it('keeps a larger batch in insertion order', async () => {
+  it('keeps a larger batch in insertion order, by position', async () => {
     const albums = Array.from({ length: 120 }, () => randomUUID());
     const id = await createBatch(client, { ...base, decidedKind: 'rule', deciderId: 'rules', deciderVersion: null, items: albums.map((x) => item(x)) });
+    const stored = await client`select local_album_id, position from decider_batch_items where batch_id = ${id} order by position`;
+    expect(stored.map((r: any) => r.local_album_id)).toEqual(albums);
+    expect(stored.map((r: any) => r.position)).toEqual(albums.map((_, i) => i + 1));
     expect((await itemsWithStatus(client, id, 'pending', 500)).map((i) => i.localAlbumId)).toEqual(albums);
   });
 
@@ -121,7 +124,24 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
   });
 
   it('refuses a probability outside 0..1', async () => {
-    await expect(createBatch(client, { ...base, items: [item(randomUUID(), { probability: 1.5 })] })).rejects.toThrow();
+    await expect(createBatch(client, { ...base, items: [item(randomUUID(), { probability: 1.5 })] })).rejects.toThrow(/decider_batch_items_probability_check/);
+  });
+
+  it('a skipped or left item must say why, and only those may', async () => {
+    const a = randomUUID(); const b = randomUUID();
+    const id = await createBatch(client, { ...base, items: [item(a), item(b)] });
+    await expect(client`update decider_batch_items set status = 'skipped' where batch_id = ${id} and local_album_id = ${a}`).rejects.toThrow(/decider_batch_items_skip_reason_set/);
+    await expect(client`update decider_batch_items set status = 'left' where batch_id = ${id} and local_album_id = ${a}`).rejects.toThrow(/decider_batch_items_skip_reason_set/);
+    await expect(client`update decider_batch_items set skip_reason = 'gone' where batch_id = ${id} and local_album_id = ${a}`).rejects.toThrow(/decider_batch_items_skip_reason_set/);
+    await client`update decider_batch_items set status = 'skipped', skip_reason = 'evidence_changed' where batch_id = ${id} and local_album_id = ${a}`;
+    await client`update decider_batch_items set status = 'left', skip_reason = 'tag_plan' where batch_id = ${id} and local_album_id = ${b}`;
+    expect(await batchCounts(client, id)).toMatchObject({ skipped: 1, left: 1, skipped_by: { evidence_changed: 1 }, left_by: { tag_plan: 1 } });
+  });
+
+  it('refuses a skip reason outside the known ones', async () => {
+    const a = randomUUID();
+    const id = await createBatch(client, { ...base, items: [item(a)] });
+    await expect(client`update decider_batch_items set status = 'skipped', skip_reason = 'bored' where batch_id = ${id} and local_album_id = ${a}`).rejects.toThrow(/decider_batch_items_skip_reason_check/);
   });
 
   it('the drizzle schema has every column 0071 made', async () => {

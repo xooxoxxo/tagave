@@ -54,9 +54,8 @@ const toText = (v: number | string | null): string | null => (v == null ? null :
 
 /**
  * Creates a queued batch and its items in one transaction (a savepoint when
- * the caller is in one). Items go in with one set-based insert, in input
- * order: each item's created_at is the statement's time plus its position in
- * microseconds, so reading by (created_at, id) gives them back in that order.
+ * the caller is in one). Items go in with one set-based insert; each item's
+ * position is its place in the input, which is the order readers get.
  * The same album twice in one batch is refused (unique), and nothing is kept.
  */
 export async function createBatch(sql: Sql, input: CreateBatchInput): Promise<string> {
@@ -79,9 +78,8 @@ export async function createBatch(sql: Sql, input: CreateBatchInput): Promise<st
     const reasons = items.map((i) => i.reason);
     await tx`
       insert into decider_batch_items (batch_id, local_album_id, release_id, distance, source, probability,
-                                       evidence_hash, expect_last_identify_at, reason, created_at)
-      select ${batchId}, u.album, u.rel, u.dist, u.src, u.prob, u.hash, u.expect, u.reason,
-             now() + u.ord * interval '1 microsecond'
+                                       evidence_hash, expect_last_identify_at, reason, position)
+      select ${batchId}, u.album, u.rel, u.dist, u.src, u.prob, u.hash, u.expect, u.reason, u.ord
         from unnest(${albums}::text[]::uuid[], ${rels}::text[]::uuid[], ${dists}::text[]::numeric[],
                     ${sources}::text[], ${probs}::text[]::numeric[], ${hashes}::text[],
                     ${expects}::text[]::timestamptz[], ${reasons}::text[])
@@ -137,7 +135,7 @@ export async function itemsWithStatus(sql: Sql, batchId: string, status: ItemSta
            prior_match_reason, accepted_at, undone_at
       from decider_batch_items
      where batch_id = ${batchId} and status = ${status}
-     order by created_at, id
+     order by position
      limit ${limit}`;
   return rows.map((r) => ({
     id: r['id'] as string,
@@ -166,7 +164,11 @@ export async function itemsWithStatus(sql: Sql, batchId: string, status: ItemSta
   }));
 }
 
-/** Items per status, and the skipped and left items per reason. */
+/**
+ * Items per status, and the skipped and left items per reason. The table
+ * requires a reason on every skipped and left item, so every one is counted
+ * under its reason.
+ */
 export async function batchCounts(
   sql: Sql, batchId: string,
 ): Promise<Record<ItemStatus, number> & { skipped_by: Record<string, number>; left_by: Record<string, number> }> {
@@ -183,7 +185,7 @@ export async function batchCounts(
     const status = r.status as ItemStatus;
     out[status] += r.n;
     const by = status === 'skipped' ? out.skipped_by : status === 'left' ? out.left_by : null;
-    if (by) { const key = r.skip_reason ?? 'unknown'; by[key] = (by[key] ?? 0) + r.n; }
+    if (by && r.skip_reason) by[r.skip_reason] = (by[r.skip_reason] ?? 0) + r.n;
   }
   return out;
 }

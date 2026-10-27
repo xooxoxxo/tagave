@@ -28,10 +28,15 @@ create table if not exists decider_batches (
   undone_at timestamptz
 );
 create index if not exists idx_decider_batches_library on decider_batches (library_id, created_at desc);
+-- is a batch running in this library
+create index if not exists idx_decider_batches_active on decider_batches (library_id)
+  where state in ('queued', 'accepting', 'undoing');
 
 create table if not exists decider_batch_items (
   id uuid primary key default gen_random_uuid(),
   batch_id uuid not null references decider_batches(id) on delete cascade,
+  -- the item's place in its batch, in the order the batch was given
+  position int not null,
   local_album_id uuid not null,
   release_id uuid not null,
   distance numeric(5,4) not null,
@@ -41,7 +46,10 @@ create table if not exists decider_batch_items (
   expect_last_identify_at timestamptz,
   reason text not null,
   status varchar(10) not null default 'pending' check (status in ('pending', 'accepted', 'skipped', 'undone', 'left')),
-  skip_reason varchar(24),
+  -- why an item was skipped (accept) or left (undo); set exactly then
+  skip_reason varchar(24)
+    check (skip_reason is null or skip_reason in ('gone', 'state', 'reidentified', 'release_gone', 'evidence_changed',
+                                                  'state_changed', 'newer_decision', 'locks', 'tag_plan')),
   match_id uuid,
   prior_state varchar(20),
   prior_identify_reason varchar(40),
@@ -54,7 +62,8 @@ create table if not exists decider_batch_items (
   accepted_at timestamptz,
   undone_at timestamptz,
   created_at timestamptz not null default now(),
-  unique (batch_id, local_album_id)
+  unique (batch_id, local_album_id),
+  constraint decider_batch_items_skip_reason_set check ((status in ('skipped', 'left')) = (skip_reason is not null))
 );
 create index if not exists idx_decider_batch_items_album on decider_batch_items (local_album_id);
-create index if not exists idx_decider_batch_items_status on decider_batch_items (batch_id, status);
+create index if not exists idx_decider_batch_items_status on decider_batch_items (batch_id, status, position);

@@ -1009,6 +1009,7 @@ export const deciderBatches = pgTable(
   },
   (table) => ({
     libraryIdx: index('idx_decider_batches_library').on(table.libraryId, table.createdAt.desc()),
+    activeIdx: index('idx_decider_batches_active').on(table.libraryId).where(sql`state in ('queued', 'accepting', 'undoing')`),
     kindCheck: check('decider_batches_decided_kind_check', sql`decided_kind in ('rule', 'model')`),
     stateCheck: check('decider_batches_state_check', sql`state in ('queued', 'accepting', 'accepted', 'undoing', 'undone', 'failed')`),
   })
@@ -1026,6 +1027,8 @@ export const deciderBatchItems = pgTable(
     batchId: uuid('batch_id')
       .notNull()
       .references(() => deciderBatches.id, { onDelete: 'cascade' }),
+    /** the item's place in its batch, in input order */
+    position: integer().notNull(),
     localAlbumId: uuid('local_album_id').notNull(),
     releaseId: uuid('release_id').notNull(),
     distance: numeric({ precision: 5, scale: 4 }).notNull(),
@@ -1054,9 +1057,11 @@ export const deciderBatchItems = pgTable(
   (table) => ({
     batchAlbumUnique: unique('decider_batch_items_batch_id_local_album_id_key').on(table.batchId, table.localAlbumId),
     albumIdx: index('idx_decider_batch_items_album').on(table.localAlbumId),
-    statusIdx: index('idx_decider_batch_items_status').on(table.batchId, table.status),
+    statusIdx: index('idx_decider_batch_items_status').on(table.batchId, table.status, table.position),
     probabilityCheck: check('decider_batch_items_probability_check', sql`probability is null or (probability >= 0 and probability <= 1)`),
     statusCheck: check('decider_batch_items_status_check', sql`status in ('pending', 'accepted', 'skipped', 'undone', 'left')`),
+    skipReasonCheck: check('decider_batch_items_skip_reason_check', sql`skip_reason is null or skip_reason in ('gone', 'state', 'reidentified', 'release_gone', 'evidence_changed', 'state_changed', 'newer_decision', 'locks', 'tag_plan')`),
+    skipReasonSet: check('decider_batch_items_skip_reason_set', sql`(status in ('skipped', 'left')) = (skip_reason is not null)`),
   })
 );
 
