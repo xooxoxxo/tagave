@@ -3,8 +3,12 @@
  * and (on a desktop) the volume, along the foot of the content column. It is
  * mounted once in Layout, so moving between pages never stops the music; it
  * takes its own row under the page (the page scrolls above it, nothing is
- * covered). The queue key opens Now Playing (player/NowPlaying.tsx) over
- * the page; on a phone the mini bar stands in for the bar.
+ * covered). On a desktop with a player it is always there, as in Spotify,
+ * Qobuz or Tidal: before anything was played (or once the queue was cleared)
+ * its keys, seek bar and queue key are there but disabled and the track slot
+ * is empty, so the sidebar's account row always has the bar beside it. The
+ * queue key opens Now Playing (player/NowPlaying.tsx) over the page; on a
+ * phone the mini bar stands in for the bar, only while there is a queue.
  * PlayerBarView is the bar alone, driven by props (stories, tests);
  * PlayerBar connects it to the engine (player/engine.ts).
  */
@@ -12,7 +16,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import type { PlayHistoryEntry } from '@tagave/shared';
-import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, showToast } from './ui';
+import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, VolumeIcon, QueueIcon, showToast } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
@@ -53,7 +57,8 @@ export interface PlayerBarViewProps {
   onSeek: (sec: number) => void;
   onVolume: (volume: number) => void;
   onRetry: () => void;
-  onClose: () => void;
+  /** nothing to play yet (or the queue was cleared): the keys, the seek bar and the queue key disabled, the track slot empty */
+  empty?: boolean;
   /** the queue panel is open (the queue key shows pressed) */
   queueOpen?: boolean;
   /** opens and closes the queue; without it there is no queue key */
@@ -63,7 +68,7 @@ export interface PlayerBarViewProps {
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, empty = false, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -78,8 +83,8 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
   const subtitle = artist && album ? `${artist} · ${album}` : artist || album;
 
   return (
-    <section className={styles.bar} aria-label="Player" data-status={status}>
-      <div className={styles.now}>
+    <section className={styles.bar} aria-label="Player" data-status={status} data-empty={empty ? '' : undefined}>
+      {empty ? <div className={styles.now} /> : <div className={styles.now}>
         <CoverArt src={coverUrl} title={album || title} compact className={styles.cover} />
         <div className={styles.names}>
           <span className={styles.title} title={title} dir="auto">{title}</span>
@@ -91,10 +96,10 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
             </span>
           )}
         </div>
-      </div>
+      </div>}
 
       <div className={styles.keys}>
-        <IconButton label="Previous track" variant="quiet" size="sm" className={styles.key} onClick={onPrevious} disabled={!canPrevious}>
+        <IconButton label="Previous track" variant="quiet" size="sm" className={styles.key} onClick={onPrevious} disabled={empty || !canPrevious}>
           <PreviousIcon />
         </IconButton>
         <IconButton
@@ -102,10 +107,11 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
           variant="secondary"
           className={styles.playKey}
           onClick={onToggle}
+          disabled={empty}
         >
           {busy ? <span className={styles.spinner} aria-hidden="true" /> : playing ? <PauseIcon /> : <PlayIcon />}
         </IconButton>
-        <IconButton label="Next track" variant="quiet" size="sm" className={styles.key} onClick={onNext} disabled={!canNext}>
+        <IconButton label="Next track" variant="quiet" size="sm" className={styles.key} onClick={onNext} disabled={empty || !canNext}>
           <NextIcon />
         </IconButton>
       </div>
@@ -117,7 +123,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
         </div>
       ) : (
         <div className={styles.seek}>
-          <span className={styles.time} aria-hidden="true">{clock(shown)}</span>
+          <span className={styles.time} aria-hidden="true">{empty ? '-:--' : clock(shown)}</span>
           <span className={styles.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
             {glow}
             <input
@@ -127,7 +133,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
               max={total ?? 0}
               step={1}
               value={Math.floor(total ? shown : 0)}
-              disabled={!total}
+              disabled={empty || !total}
               aria-label="Seek"
               aria-valuetext={`${clock(shown)} of ${clock(total)}`}
               onChange={(e) => setScrub(Number(e.currentTarget.value))}
@@ -136,7 +142,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
               onBlur={() => setScrub(null)}
             />
           </span>
-          <span className={styles.time} aria-hidden="true">{clock(total)}</span>
+          <span className={styles.time} aria-hidden="true">{empty ? '-:--' : clock(total)}</span>
         </div>
       )}
 
@@ -158,13 +164,10 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 
       <div className={styles.ends}>
         {onQueue && (
-          <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue}>
+          <IconButton label="Queue" variant="quiet" size="sm" className={styles.key} aria-pressed={queueOpen} aria-expanded={queueOpen} data-queue-key="" onClick={onQueue} disabled={empty}>
             <QueueIcon />
           </IconButton>
         )}
-        <IconButton label="Close the player" variant="quiet" size="sm" className={styles.key} onClick={onClose}>
-          <CloseIcon />
-        </IconButton>
       </div>
 
       <span className={styles.srOnly} role="status" aria-live="polite">{busy ? 'Loading' : ''}</span>
@@ -173,9 +176,10 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 }
 
 /**
- * The connected player: shown while a queue exists. On a desktop the bar,
- * whose queue key (and cover) opens Now Playing over the page; on a phone
- * the mini bar, which opens the full Now Playing screen. Space toggles play
+ * The connected player. On a desktop with a player the bar, always (empty
+ * until something is queued), whose queue key opens Now Playing over the
+ * page; on a phone the mini bar while a queue exists, which opens the full
+ * Now Playing screen. Space toggles play
  * and pause (outside fields and buttons), and it tells the page how tall it
  * is (--player-bar-h on <html>) so toasts and the floating Maintenance pill
  * sit above it. It brings back the person's queue from the server when
@@ -195,6 +199,8 @@ export function PlayerBar() {
   useEffect(() => { if (uninstalled) stop(); }, [uninstalled]);
   const installed = player?.installed === true;
   const hasQueue = !!s.queue && s.queue.tracks.length > 0 && !uninstalled;
+  // a desktop with a player keeps the bar, empty, when nothing is queued
+  const shown = hasQueue || (!phone && installed);
   const ref = useRef<HTMLDivElement>(null);
   const [nowOpen, setNowOpen] = useState(false);
   const [historyWanted, setHistoryWanted] = useState(false);
@@ -235,7 +241,7 @@ export function PlayerBar() {
   useEffect(() => {
     const root = globalThis.document?.documentElement;
     const node = ref.current;
-    if (!root || !node || !hasQueue) return;
+    if (!root || !node || !shown) return;
     root.dataset['playerBar'] = '';
     // unrounded: the sidebar's account row takes this height and must share
     // the bar's top edge to the sub-pixel
@@ -248,9 +254,21 @@ export function PlayerBar() {
       delete root.dataset['playerBar'];
       root.style.removeProperty('--player-bar-h');
     };
-  }, [hasQueue, phone]);
+  }, [shown, phone]);
 
-  if (!s.queue || !hasQueue) return null;
+  if (!shown) return null;
+  if (!s.queue || !hasQueue) {
+    return (
+      <div ref={ref} className={styles.dock} data-player-bar="" data-empty="">
+        <PlayerBarView
+          title="" artist="" album="" coverUrl={null} status="idle" position={0} duration={null} volume={s.volume}
+          canPrevious={false} canNext={false} empty
+          onToggle={toggle} onPrevious={previous} onNext={next} onSeek={seek} onVolume={setVolume} onRetry={retry}
+          onQueue={() => undefined}
+        />
+      </div>
+    );
+  }
   const tracks = s.queue.tracks;
   const track = currentTrack(s) ?? tracks[0]!;
   const close = () => {
@@ -348,7 +366,6 @@ export function PlayerBar() {
             onSeek={seek}
             onVolume={setVolume}
             onRetry={retry}
-            onClose={() => stop({ forget: true })}
             queueOpen={nowOpen}
             onQueue={() => setNowOpen((o) => !o)}
             glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
