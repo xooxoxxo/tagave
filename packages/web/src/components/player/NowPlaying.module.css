@@ -10,7 +10,10 @@
   background-size: cover;
   background-position: center;
   filter: blur(64px) saturate(1.2);
-  opacity: 0.3;
+  /* the opacity is the cover's own (adaptive/wash.ts useWashOpacity): as
+     strong as its darkest and lightest pixel let the text over it read */
+  opacity: 0;
+  transition: opacity 600ms ease;
   pointer-events: none;
 }
 .view > :not(.wash), .screen > :not(.wash) { position: relative; }
@@ -125,15 +128,6 @@
 .peekValue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px / 1.3 var(--font-body); }
 .peekSpace { height: 52px; }
 
-/* Adaptive colour (styles/adaptive.css): the canvas under Now Playing is
-   already the cover's; the blurred cover over it shows as strongly as the
-   cover's own darkest and lightest pixel let the inks and the accent still
-   read (adaptive/scheme.ts washOpacity, at most 0.45). */
-:global(html[data-adaptive]) .wash {
-  opacity: var(--ad-wash-opacity, 0.3);
-  transition: opacity 600ms ease;
-}
-
 /* ---- phone: the mini bar ---- */
 .mini {
   position: relative;
@@ -218,7 +212,7 @@
   backdrop-filter: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  :global(html[data-adaptive]) .wash { transition: none; }
+  .wash { transition: none; }
 }
 @media (forced-colors: active) {
   :global(html[data-adaptive]) .mini { background: Canvas; }

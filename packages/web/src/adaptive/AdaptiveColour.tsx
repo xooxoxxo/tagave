@@ -11,6 +11,7 @@ import { useDisplayPrefs } from '../displayPrefs';
 import { useThemePreference } from '../theme';
 import { currentTrack, usePlayerStore } from '../player/engine';
 import { BRAND_TOKENS } from './brand';
+import { sampleCover } from './wash';
 
 type SchemeModule = typeof import('./scheme');
 let schemeModule: SchemeModule | null = null;
@@ -20,44 +21,25 @@ function loadScheme(): Promise<SchemeModule> {
   return loading;
 }
 
-/** Side of the canvas a cover is drawn into before its pixels are read. */
-const SAMPLE = 64;
-type Colours = import('./scheme').CoverColours;
-const sources = new Map<string, Promise<Colours | null>>();
+const sources = new Map<string, Promise<number | null>>();
 
 /**
- * The colours of a cover URL, or null (the cover did not load). Covers are
- * same-origin (/api/v1/images/album/:id), so the canvas can be read. Cached
- * per URL for the page's life.
+ * The source colour of a cover URL, or null (no usable colour, or the cover
+ * did not load). Cached per URL for the page's life.
  */
-export function coverSource(url: string): Promise<Colours | null> {
+export function coverSource(url: string): Promise<number | null> {
   let hit = sources.get(url);
   if (!hit) {
-    hit = Promise.all([loadScheme(), loadImage(url)]).then(([mod, img]) => {
+    hit = Promise.all([loadScheme(), sampleCover(url)]).then(([mod, px]) => {
+      if (!px) return null;
       performance.mark('adaptive-extract-start');
-      const canvas = document.createElement('canvas');
-      canvas.width = SAMPLE;
-      canvas.height = SAMPLE;
-      const g = canvas.getContext('2d', { willReadFrequently: true });
-      if (!g) return null;
-      g.drawImage(img, 0, 0, SAMPLE, SAMPLE);
-      const colours = mod.coverColours(g.getImageData(0, 0, SAMPLE, SAMPLE).data);
+      const source = mod.sourceColour(px);
       performance.measure('adaptive-extract', 'adaptive-extract-start');
-      return colours;
+      return source;
     }).catch(() => null);
     sources.set(url, hit);
   }
   return hit;
-}
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.decoding = 'async';
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('cover did not load'));
-    img.src = url;
-  });
 }
 
 const darkQuery = '(prefers-color-scheme: dark)';
@@ -122,23 +104,23 @@ export function AdaptiveColour() {
   // the playing track's cover: a playlist's tracks each bring their own album's
   const cover = usePlayerStore((s) => (currentTrack(s) ?? s.queue?.tracks[0])?.coverUrl ?? null);
   const dark = useResolvedDark();
-  const [source, setSource] = useState<{ url: string; colours: Colours | null } | null>(null);
+  const [source, setSource] = useState<{ url: string; argb: number | null } | null>(null);
   const on = prefs.adaptiveColour && !!cover;
 
   useEffect(() => {
     if (!on || !cover) return;
     let live = true;
-    void coverSource(cover).then((colours) => { if (live) setSource({ url: cover, colours }); });
+    void coverSource(cover).then((argb) => { if (live) setSource({ url: cover, argb }); });
     return () => { live = false; };
   }, [on, cover]);
 
-  const colours = on && source?.url === cover ? source.colours : null;
+  const argb = on && source?.url === cover ? source.argb : null;
   // while a new cover is being read, the current colours stay
   const pending = on && source?.url !== cover;
   useEffect(() => {
     if (pending) return;
-    applyAdaptive(colours?.source != null && schemeModule ? schemeModule.adaptiveTokens(colours.source, dark, colours) : null, dark);
-  }, [colours, dark, pending]);
+    applyAdaptive(argb !== null && schemeModule ? schemeModule.adaptiveTokens(argb, dark) : null, dark);
+  }, [argb, dark, pending]);
 
   useEffect(() => () => applyAdaptive(null, dark), []); // eslint-disable-line react-hooks/exhaustive-deps
   return null;

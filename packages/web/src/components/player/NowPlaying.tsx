@@ -14,8 +14,9 @@
  *
  * All three are driven by props (stories, tests); PlayerBar connects them.
  * Colours come from the tokens; with Adaptive colours on they are the
- * playing cover's (styles/adaptive.css), and the blurred cover behind shows
- * as strongly as its own colours let the text still read.
+ * playing cover's (styles/adaptive.css). The blurred cover behind shows as
+ * strongly as its own darkest and lightest pixel let the text still read,
+ * adaptive colours on or off (adaptive/wash.ts).
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { PlayHistoryEntry, QueueContext } from '@tagave/shared';
@@ -24,6 +25,7 @@ import { clock } from '../../player/logic';
 import type { PlayerStatus, QueueEntry } from '../../player/engine';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset } from '../NowPlayingLinks';
 import { QueuePanel, type QueueTab } from './QueuePanel';
+import { useWashOpacity } from '../../adaptive/wash';
 import bar from '../PlayerBar.module.css';
 import styles from './NowPlaying.module.css';
 
@@ -171,10 +173,11 @@ export interface NowPlayingViewProps extends NowPlayingQueueProps {
 export function NowPlayingView(p: NowPlayingViewProps) {
   const [tab, setTab] = useState<QueueTab>(p.initialTab ?? 'next');
   const focus = useDialogFocus(p.onClose);
+  const wash = useWashOpacity(p.track.coverUrl);
   const from = p.context;
   return (
     <div ref={focus.ref} className={styles.view} role="dialog" aria-modal="false" aria-label="Now playing" tabIndex={-1} onKeyDown={focus.onKeyDown}>
-      <div className={styles.wash} style={p.track.coverUrl ? { backgroundImage: `url("${p.track.coverUrl}")` } : undefined} aria-hidden="true" />
+      <div className={styles.wash} style={p.track.coverUrl ? { backgroundImage: `url("${p.track.coverUrl}")`, opacity: wash } : undefined} aria-hidden="true" />
       <header className={styles.viewHead}>
         <EmbossIconButton label="Close Now playing" place="header" onClick={p.onClose}><ChevronDownIcon /></EmbossIconButton>
         {from && <span className={styles.from}><span className={styles.fromLabel}>{from.kind === 'album' ? 'Playing from album' : 'Playing from playlist'}</span><span className={styles.fromValue} dir="auto">{from.name}</span></span>}
@@ -211,10 +214,11 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
   const [segment, setSegment] = useState<'playing' | 'queue'>(p.initialSegment ?? 'playing');
   const [tab, setTab] = useState<QueueTab>(p.initialTab ?? 'next');
   const focus = useDialogFocus(p.onClose);
+  const wash = useWashOpacity(p.track.coverUrl);
   const next = p.tracks[p.index + 1];
   return (
     <div ref={focus.ref} className={styles.screen} role="dialog" aria-modal="true" aria-label="Now playing" tabIndex={-1} onKeyDown={focus.onKeyDown}>
-      <div className={styles.wash} style={p.track.coverUrl ? { backgroundImage: `url("${p.track.coverUrl}")` } : undefined} aria-hidden="true" />
+      <div className={styles.wash} style={p.track.coverUrl ? { backgroundImage: `url("${p.track.coverUrl}")`, opacity: wash } : undefined} aria-hidden="true" />
       <header className={styles.screenHead}>
         <EmbossIconButton label="Close Now playing" place="header" onClick={p.onClose}><ChevronDownIcon /></EmbossIconButton>
         <div className={styles.segment}>

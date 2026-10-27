@@ -25,9 +25,9 @@ function WithCover({ cover, children }: { cover: CoverKey; children: ReactNode }
   const [ready, setReady] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    void coverSource(COVERS[cover].src).then((colours) => {
+    void coverSource(COVERS[cover].src).then((argb) => {
       if (!live) return;
-      applyAdaptive(colours?.source == null ? null : adaptiveTokens(colours.source, dark, colours), dark);
+      applyAdaptive(argb === null ? null : adaptiveTokens(argb, dark), dark);
       setReady(`${cover}-${dark}`);
     });
     return () => { live = false; };
