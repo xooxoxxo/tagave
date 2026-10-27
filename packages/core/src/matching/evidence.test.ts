@@ -95,6 +95,18 @@ describe('evidence and score agree', () => {
   });
 });
 
+describe('candidate evidence guards', () => {
+  const r = remote(3);
+  const s = () => scoreRelease({ artist: 'x', title: 'y', tracks: tracks(3) }, scorable(r));
+  it('throws when an aligned index is outside either tracklist', () => {
+    expect(() => buildCandidateEvidence(r, s(), 2)).toThrow(/local track index 2/);
+    expect(() => buildCandidateEvidence({ ...r, tracks: r.tracks.slice(0, 2) }, s(), 3)).toThrow(/remote track index 2/);
+  });
+  it('throws when a capped candidate comes with an alignment', () => {
+    expect(() => buildCandidateEvidence(r, s(), MAX_ALIGN_TRACKS + 1)).toThrow(/cap/);
+  });
+});
+
 describe('evidenceHash', () => {
   const album = buildAlbumEvidence({ artist: 'a', title: 't', year: null, yearSource: null, discsKnown: false, discCount: null, tracks: [] });
   const c = (id: string, d: number): EvidenceCandidate => ({ releaseId: id, distance: d, acoustidCoverage: null, evidence: null });
@@ -113,12 +125,31 @@ describe('evidenceHash', () => {
     const row = { ...c('a', 0.1 + 1e-9), id: 'candidate-row-1', createdAt: '2026-01-01T00:00:00Z', excluded: false };
     expect(evidenceHash({ ...album, id: 'album-row' } as typeof album, [row])).toBe(h);
   });
-  it('does not depend on key order inside the album or the evidence', () => {
+  it('stableJson sorts keys at every depth', () => {
+    expect(stableJson({ z: { y: { b: [{ d: 1, c: 2 }], a: null } }, x: 1 }))
+      .toBe(stableJson({ x: 1, z: { y: { a: null, b: [{ c: 2, d: 1 }] } } }));
+    expect(stableJson({ z: { y: { b: 1, a: 2 } } })).toBe('{"z":{"y":{"a":2,"b":1}}}');
+  });
+  it('a nullable key missing hashes the same as the key set to null', () => {
     const r = remote(2);
     const ev = buildCandidateEvidence(r, scoreRelease({ artist: 'x', title: 'y', tracks: tracks(2) }, scorable(r)), 2);
-    const reversed = <T extends object>(o: T): T => Object.fromEntries(Object.entries(o).reverse()) as T;
-    const cand = (e: typeof ev): EvidenceCandidate => ({ releaseId: 'a', distance: 0.1, acoustidCoverage: 0.5, evidence: e });
-    expect(evidenceHash(reversed(album), [cand({ ...reversed(ev), remote: reversed(ev.remote) })])).toBe(evidenceHash(album, [cand(ev)]));
+    const cand = (e: typeof ev): EvidenceCandidate => ({ releaseId: 'a', distance: 0.1, acoustidCoverage: null, evidence: e });
+    const { label: _label, ...remoteWithoutLabel } = ev.remote;
+    const { titleSource: _ts, ...albumWithoutSource } = album;
+    expect(ev.remote.label).toBeNull();
+    expect(evidenceHash(albumWithoutSource as typeof album, [cand({ ...ev, remote: remoteWithoutLabel as typeof ev.remote })]))
+      .toBe(evidenceHash(album, [cand(ev)]));
+  });
+  it('two entries for the same release hash the same in either order', () => {
+    expect(evidenceHash(album, [c('a', 0.1), c('a', 0.3)])).toBe(evidenceHash(album, [c('a', 0.3), c('a', 0.1)]));
+  });
+  it('throws on a number that is not finite instead of hashing it as null', () => {
+    expect(() => evidenceHash(album, [c('a', Number.NaN)])).toThrow(RangeError);
+    expect(() => evidenceHash(album, [{ ...c('a', 0.1), acoustidCoverage: Number.POSITIVE_INFINITY }])).toThrow(RangeError);
+    const r = remote(2);
+    const ev = buildCandidateEvidence(r, scoreRelease({ artist: 'x', title: 'y', tracks: tracks(2) }, scorable(r)), 2);
+    const bad = { ...ev, align: ev.align.map((t): typeof t => [t[0], t[1], Number.NaN]) };
+    expect(() => evidenceHash(album, [{ ...c('a', 0.1), evidence: bad }])).toThrow(RangeError);
   });
   it('changes when a source, a remote fact or the coverage changes', () => {
     const h = evidenceHash(album, [c('a', 0.1)]);

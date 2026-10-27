@@ -75,11 +75,27 @@ export function buildAlbumEvidence(input: AlbumEvidenceInput): AlbumEvidence {
  * own cap: over it, the scorer aligns nothing and neither does the evidence.
  */
 export function buildCandidateEvidence(remote: RemoteInput, score: Pick<ReleaseScore, 'alignment' | 'missingRemote'>, localTrackCount: number): CandidateEvidence {
+  const remoteCount = remote.tracks.length;
+  const capped = Math.max(localTrackCount, remoteCount) > MAX_ALIGN_TRACKS;
   const align: AlignTriple[] = [];
   const unmatchedLocal: number[] = [];
   for (const a of score.alignment) {
-    if (a.canonicalIndex === null) unmatchedLocal.push(a.localIndex);
-    else align.push([a.localIndex, a.canonicalIndex, round4(a.distance)]);
+    if (a.canonicalIndex === null) {
+      unmatchedLocal.push(a.localIndex);
+      continue;
+    }
+    if (!(Number.isInteger(a.localIndex) && a.localIndex >= 0 && a.localIndex < localTrackCount)) {
+      throw new RangeError(`evidence: local track index ${a.localIndex} outside 0..${localTrackCount - 1}`);
+    }
+    if (!(Number.isInteger(a.canonicalIndex) && a.canonicalIndex >= 0 && a.canonicalIndex < remoteCount)) {
+      throw new RangeError(`evidence: remote track index ${a.canonicalIndex} outside 0..${remoteCount - 1}`);
+    }
+    align.push([a.localIndex, a.canonicalIndex, round4(a.distance)]);
+  }
+  // Over the cap the scorer aligns nothing; an alignment here means the track
+  // count given does not match what was scored.
+  if (capped && align.length > 0) {
+    throw new RangeError(`evidence: ${align.length} aligned tracks on a candidate over the ${MAX_ALIGN_TRACKS}-track cap`);
   }
   return {
     v: EVIDENCE_VERSION,
@@ -93,7 +109,7 @@ export function buildCandidateEvidence(remote: RemoteInput, score: Pick<ReleaseS
     align,
     unmatchedLocal,
     missingRemote: [...score.missingRemote],
-    capped: Math.max(localTrackCount, remote.tracks.length) > MAX_ALIGN_TRACKS,
+    capped,
   };
 }
 
@@ -107,11 +123,25 @@ export function stableJson(value: unknown): string {
 
 // The hash reads the typed fields one by one, so extra properties a caller's
 // object happens to carry (a candidate row id, timestamps, flags) never reach it.
+// A nullable field read back without its key (jsonb written by another
+// version) hashes as null. Any number that is not finite throws: JSON would
+// write it as null, so NaN and null would collide, and a NaN distance is a
+// scorer bug that must not be stored as a decision fact.
+function finite(x: number, what: string): number {
+  if (!Number.isFinite(x)) throw new RangeError(`evidence hash: ${what} is not a finite number (${x})`);
+  return x;
+}
+function finiteOrNull(x: number | null | undefined, what: string): number | null {
+  return x === null || x === undefined ? null : finite(x, what);
+}
+
 function albumHashView(a: AlbumEvidence) {
   return {
-    v: a.v, artist: a.artist, title: a.title, titleSource: a.titleSource,
-    year: a.year, yearSource: a.yearSource, discsKnown: a.discsKnown, discCount: a.discCount,
-    tracks: a.tracks.map((t) => [t.i, t.disc, t.title, t.titleSource, t.durS]),
+    v: a.v, artist: a.artist, title: a.title, titleSource: a.titleSource ?? null,
+    year: finiteOrNull(a.year, 'album year'), yearSource: a.yearSource ?? null,
+    discsKnown: a.discsKnown, discCount: finiteOrNull(a.discCount, 'disc count'),
+    tracks: a.tracks.map((t) => [finite(t.i, 'local track index'), finiteOrNull(t.disc, 'local disc'), t.title,
+      t.titleSource ?? null, finiteOrNull(t.durS, 'local duration')]),
   };
 }
 
@@ -120,13 +150,17 @@ function candidateEvidenceHashView(e: CandidateEvidence) {
   return {
     v: e.v,
     remote: {
-      provider: r.provider, title: r.title, artists: r.artists, year: r.year, country: r.country,
-      label: r.label, catalogNumber: r.catalogNumber, barcode: r.barcode, media: r.media,
-      mediumCount: r.mediumCount, status: r.status,
+      provider: r.provider, title: r.title, artists: r.artists, year: finiteOrNull(r.year, 'remote year'),
+      country: r.country ?? null, label: r.label ?? null, catalogNumber: r.catalogNumber ?? null,
+      barcode: r.barcode ?? null, media: r.media ?? null,
+      mediumCount: finiteOrNull(r.mediumCount, 'medium count'), status: r.status ?? null,
     },
-    tracks: e.tracks.map((t) => [t[0], t[1], t[2]]),
-    align: e.align.map((t) => [t[0], t[1], round4(t[2])]),
-    unmatchedLocal: e.unmatchedLocal, missingRemote: e.missingRemote, capped: e.capped,
+    tracks: e.tracks.map((t) => [finiteOrNull(t[0], 'remote medium'), t[1], finiteOrNull(t[2], 'remote duration')]),
+    align: e.align.map((t) => [finite(t[0], 'aligned local index'), finite(t[1], 'aligned remote index'),
+      round4(finite(t[2], 'track distance'))]),
+    unmatchedLocal: e.unmatchedLocal.map((i) => finite(i, 'unmatched local index')),
+    missingRemote: e.missingRemote.map((i) => finite(i, 'missing remote index')),
+    capped: e.capped,
   };
 }
 
@@ -135,14 +169,24 @@ function candidateEvidenceHashView(e: CandidateEvidence) {
  * release, order-free). Covers every field of AlbumEvidence (sources too: they
  * decide what the decider is sent), and per candidate its release id, distance
  * and AcoustID coverage (both to 4 decimals) and every field of its evidence.
- * Nothing else: no candidate row id, no timestamps, no property outside these
+ * A nullable key that is missing counts as null; a number that is not finite
+ * throws. Nothing else: no candidate row id, no timestamps, no property outside these
  * types, and object key order and candidate order do not matter.
  */
 export function evidenceHash(album: AlbumEvidence, candidates: EvidenceCandidate[]): string {
-  const sorted = [...candidates].sort((a, b) => (a.releaseId < b.releaseId ? -1 : a.releaseId > b.releaseId ? 1 : 0))
-    .map((c) => ({
-      r: c.releaseId, d: round4(c.distance), a: round4OrNull(c.acoustidCoverage),
-      e: c.evidence === null ? null : candidateEvidenceHashView(c.evidence),
-    }));
+  // Sorted by release id, then by the entry's own text, so two entries for
+  // the same release (two providers' copies) hash the same in any order.
+  const cmp = (x: string, y: string): number => (x < y ? -1 : x > y ? 1 : 0);
+  const sorted = candidates
+    .map((c) => {
+      const entry = {
+        r: c.releaseId, d: round4(finite(c.distance, 'candidate distance')),
+        a: round4OrNull(finiteOrNull(c.acoustidCoverage, 'AcoustID coverage')),
+        e: c.evidence === null || c.evidence === undefined ? null : candidateEvidenceHashView(c.evidence),
+      };
+      return { entry, text: stableJson(entry) };
+    })
+    .sort((x, y) => cmp(x.entry.r, y.entry.r) || cmp(x.text, y.text))
+    .map((x) => x.entry);
   return createHash('sha256').update(stableJson({ album: albumHashView(album), candidates: sorted })).digest('hex');
 }
