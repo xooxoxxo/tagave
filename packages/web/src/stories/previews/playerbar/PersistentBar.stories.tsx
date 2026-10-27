@@ -26,7 +26,7 @@ function Albums() {
         {[...COVER_KEYS, ...COVER_KEYS].map((k, i) => (
           <div key={i} className={s.album}>
             <CoverArt src={COVERS[k].src} title={COVERS[k].album} loading="eager" />
-            <span>{COVERS[k].album}</span>
+            <a href="#" onClick={(e) => e.preventDefault()}>{COVERS[k].album}</a>
             <span>{COVERS[k].artist}</span>
           </div>
         ))}

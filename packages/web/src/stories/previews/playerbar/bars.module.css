@@ -39,4 +39,5 @@
 /* the page above the bar: a few albums */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: var(--space-lg); }
 .album { display: flex; flex-direction: column; gap: var(--space-xs); min-width: 0; font-size: .875rem; }
+.album a { color: var(--ink); }
 .album span:last-child { color: var(--ink-2); }

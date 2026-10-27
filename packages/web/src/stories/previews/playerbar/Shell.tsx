@@ -64,7 +64,7 @@ export function Shell({ children, dock, compartmentOpen = false }: { children: R
         </div>
       </aside>
       <div className={layout.contentArea}>
-        <main className={layout.main}>
+        <main id="main-content" tabIndex={-1} className={layout.main}>
           <div className={layout.page}>{children}</div>
         </main>
         <div ref={ref} className={bar.dock} data-player-bar="">{dock}</div>
