@@ -224,9 +224,10 @@ export {
   GROUPING_DEFAULTS, groupTracklists, fits, hasWildcards, countsKey, groupLabel,
   JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition,
   buildJevRequest, requestBytes, questionName, NotSendableError,
+  requestForAlbum, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES,
 } from './decider/index.js';
 export type {
   GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
   Decider, DeciderInput, DeciderAnswer,
-  JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack,
+  JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack, NotSendableReason, AlbumRequest, RequestOptions,
 } from './decider/index.js';

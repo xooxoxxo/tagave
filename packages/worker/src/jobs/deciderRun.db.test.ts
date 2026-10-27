@@ -17,11 +17,11 @@ import pino from 'pino';
 import {
   DEFAULT_TOKENS_PER_BYTE, makeDb, monthSpend, pauseStaleRuns, runMigrations, setAutotaggerConfig as setConfig, setAutotaggerEnabled, setTypesafeKey, syncInstalledModules,
 } from '@tagave/db';
-import { buildAlbumEvidence, buildCandidateEvidence, jevSpecHash, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
+import { buildAlbumEvidence, buildCandidateEvidence, jevSpecHash, requestForAlbum, sealSecret, type Decider, type DeciderInput } from '@tagave/core';
 import { ledgerEntries } from '@tagave/core/facets';
 import { autotaggerConfigPatchSchema, type Population } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
-import { currentEvidenceHash, upsertAlbumEvidence } from '../lib/evidenceStore.js';
+import { currentEvidenceHash, loadEvidence, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { JevKeyRefused, JevRejected, JevUnavailable } from '../lib/jevClient.js';
 import { populationAlbumIds } from '../lib/deciderPopulation.js';
 import { DECIDER_RUN_LOCK_NAMESPACE, RUN_MAX_RETRIES, deciderRunJob } from './deciderRun.js';
@@ -557,6 +557,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(s.state).toBe('cancelled');
     expect(d.calls).toHaveLength(1);
     expect((await client`select state from decider_runs where id = ${run}`)[0].state).toBe('cancelled');
+  });
+
+  it('a cancel stops the run before its next paid call, between checks too', async () => {
+    const run = await newRun();
+    const d = fakeDecider(async () => { await client`update decider_runs set state = 'cancelled' where id = ${run}`; return { A: 0.99 }; });
+    const s = await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k', checkEvery: 1000 });
+    expect(s.state).toBe('cancelled');
+    expect(d.calls).toHaveLength(1);
+    expect((await client`select count(*)::int as n from decider_calls where run_id = ${run}`)[0].n).toBe(1);
+  });
+
+  it('sends exactly the request the payload preview shows for the album and model', async () => {
+    const d = fakeDecider(() => ({ A: 0.995, B: 0.1 }));
+    const run = await newRun();
+    await deciderRunJob(ctx, { runId: run }, { decider: d, apiKey: 'k' });
+    // the first call asks for the configured model; the rest, the dated model it pinned
+    expect(d.calls[0]!.request.model).toBe('jev-latest');
+    const sent = d.calls.find((c) => c.album.title === 'Kuunvalo')!;
+    const ev = (await loadEvidence(client, albumA))!;
+    const shown = requestForAlbum(ev.album, ev.candidates, { model: sent.request.model, partial: ev.partial, maxRequestBytes: null });
+    expect(sent.request).toEqual(shown.request);
+    expect(JSON.stringify(sent.request)).toBe(JSON.stringify(shown.request));
+    expect((await client`select request_bytes from decider_decisions where run_id = ${run} and local_album_id = ${albumA}`)[0].request_bytes).toBe(shown.bytes);
   });
 
   it('a run whose question spec changed is paused, asking nothing', async () => {

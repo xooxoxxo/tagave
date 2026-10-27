@@ -4,7 +4,9 @@ export type { GroupingCandidate, GroupingOptions, TracklistGroup } from './group
 export { JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities } from './jevSpec.js';
 export type { JevSpec, BandId, JevDecision } from './jevSpec.js';
 export { buildJevRequest, requestBytes, questionName, NotSendableError } from './jevPayload.js';
-export type { JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack } from './jevPayload.js';
+export type { NotSendableReason, JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack } from './jevPayload.js';
 export { pickEdition } from './pickEdition.js';
 export type { EditionChoice } from './pickEdition.js';
 export type { Decider, DeciderInput, DeciderAnswer } from './types.js';
+export { requestForAlbum, hashOf, MAX_GROUPS, MAX_EDITIONS_PER_GROUP, WEAK_TOP_CANDIDATES } from './preview.js';
+export type { AlbumRequest, RequestOptions } from './preview.js';

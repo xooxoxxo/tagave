@@ -74,6 +74,39 @@ export async function monthSpend(sql: Sql, libraryId: string, currency: string, 
   return (await monthSpendByCurrency(sql, libraryId, now)).find((s) => s.currency === currency)?.amount ?? 0;
 }
 
+/**
+ * What each run's calls cost, per currency, ordered by currency (possibly
+ * billed calls at their estimate, as the month's spend counts them). A run
+ * with no call has no entry.
+ */
+export async function runSpendByCurrency(sql: Sql, runIds: string[]): Promise<Map<string, Array<{ currency: string; amount: number }>>> {
+  const out = new Map<string, Array<{ currency: string; amount: number }>>();
+  if (runIds.length === 0) return out;
+  const rows = await orMissing(async (): Promise<Array<{ run_id: string; currency: string; amount: string }>> => sql<Array<{ run_id: string; currency: string; amount: string }>>`
+    select run_id, currency, sum(cost)::text as amount from decider_calls
+     where run_id = any(${runIds}::uuid[])
+     group by run_id, currency order by run_id, currency`, []);
+  for (const r of rows) {
+    const list = out.get(r.run_id) ?? [];
+    list.push({ currency: r.currency, amount: Number(r.amount) });
+    out.set(r.run_id, list);
+  }
+  return out;
+}
+
+/**
+ * The mean cost of one answered call of the library in `currency` (possibly
+ * billed calls are estimates and left out); null before any.
+ */
+export async function meanCallCost(sql: Sql, libraryId: string, currency: string): Promise<number | null> {
+  return orMissing(async () => {
+    const [row] = await sql<Array<{ mean: string | null }>>`
+      select avg(cost)::text as mean from decider_calls
+       where library_id = ${libraryId} and currency = ${currency} and not possibly_billed`;
+    return row?.mean === null || row?.mean === undefined ? null : Number(row.mean);
+  }, null);
+}
+
 /** Input tokens per request byte assumed before a library has any call to learn from. */
 export const DEFAULT_TOKENS_PER_BYTE = 0.3;
 const TOKENS_PER_BYTE_WINDOW = 200;

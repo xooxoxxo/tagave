@@ -11,7 +11,26 @@
  *   PATCH  /api/v1/libraries/:libraryId/autotagger/config   system.manage: the settings patch
  *   PUT    /api/v1/libraries/:libraryId/autotagger/key      system.manage + fresh step-up: { key } or { key: null }
  *
- * Off: every /libraries/:libraryId/autotagger route but the GET answers 409.
+ * Runs (Library care › Review › Decide with Jev):
+ *
+ *   GET    /api/v1/libraries/:libraryId/autotagger/preview[?albumId=]   system.manage: the exact request one album's run sends
+ *   POST   /api/v1/libraries/:libraryId/autotagger/preview/seen        system.manage: the owner saw it (needed before any run)
+ *   POST   /api/v1/libraries/:libraryId/autotagger/runs                system.manage: { population } → 202, the run queued
+ *   GET    /api/v1/libraries/:libraryId/autotagger/runs                library.edit: the 20 newest
+ *   GET    /api/v1/libraries/:libraryId/autotagger/runs/:runId         library.edit
+ *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/resume  system.manage: a paused or failed run, where it stopped
+ *   POST   /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel  system.manage
+ *
+ * Off: every /libraries/:libraryId/autotagger route but the GETs of the
+ * settings and the runs, and cancel, answers 409.
+ *
+ * The preview and the run make an album's request with the same function
+ * (requestForAlbum, @tagave/core), from the same evidence and population
+ * rules, so the owner sees byte for byte what is sent for that album and
+ * model. Runs are only ever started here, by the owner: nothing schedules
+ * one. A start or resume is refused with what is missing (the payload not
+ * seen, no key, cap or price, a price in another currency than the cap) by
+ * the checks the run itself makes, so the route and the run never disagree.
  * The API key is sealed with the app secret before it is stored, and only
  * its last four characters are ever shown; it is never logged, returned or
  * put in an error or the audit log.
@@ -19,14 +38,20 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type postgres from 'postgres';
 import {
-  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, autotaggerConfig, autotaggerEnabled, clearTypesafeKey, monthSpendByCurrency, removeAutotaggerData, setAutotaggerConfig,
-  setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint, typesafeKeyHintOf,
+  AUTOTAGGER_MODULE_ID, AUTOTAGGER_TABLES, AutotaggerStillOnError, UnknownModuleError, albumPopulation, autotaggerConfig, autotaggerEnabled, checkBudget,
+  clearTypesafeKey, deciderRunSingletonKey, loadEvidence, loadEvidenceMany, markPayloadSeen, meanCallCost, monthSpendByCurrency, populationAlbumIds, priceFor,
+  queuedDeciderRun, removeAutotaggerData, runSpendByCurrency, sendDeciderRun, setAutotaggerConfig, setAutotaggerEnabled, setTypesafeKey, typesafeKeyHint,
+  typesafeKeyHintOf, type AutotaggerConfig, type LoadedEvidence,
 } from '@tagave/db';
-import { sealSecret } from '@tagave/core';
 import {
-  AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderPriceSchema,
-  type AutotaggerLibraryView, type AutotaggerModuleView, type DeciderPrice,
+  NotSendableError, jevSpecHash, requestForAlbum, sealSecret, type AlbumEvidence, type AlbumRequest, type CandidateEvidence,
+} from '@tagave/core';
+import {
+  AUTOTAGGER_DECIDER_ID, DEFAULT_AUTOTAGGER_CONFIG, autotaggerConfigPatchSchema, autotaggerKeySchema, autotaggerModuleSchema, deciderLabel, deciderPriceSchema,
+  startRunSchema,
+  type AutotaggerLibraryView, type AutotaggerModuleView, type DeciderPrice, type PayloadPreview, type Population, type RunView,
 } from '@tagave/shared';
+import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
 import { getAuthHandle } from '../middleware/auth.js';
 import { callerCan } from '../permissions/guard.js';
@@ -122,6 +147,195 @@ async function libraryView(request: FastifyRequest, libraryId: string): Promise<
     spentOther: spent.filter((s) => s.currency !== config.currency),
     currency: config.currency,
   };
+}
+
+// ---- runs and the payload preview ----
+
+/** Runs listed per library, newest first. */
+const RUN_LIST_LIMIT = 20;
+/** Albums the preview looks through for one with two or more groups, in loads of PREVIEW_CHUNK. */
+const PREVIEW_SCAN_LIMIT = 1000;
+const PREVIEW_CHUNK = 100;
+/** A run that can still go on (one per library at a time). */
+const ACTIVE_STATES = ['queued', 'running', 'paused'];
+/** A run that resume picks up where it stopped. */
+const RESUMABLE_STATES = ['paused', 'failed'];
+
+type Loaded = LoadedEvidence<AlbumEvidence, CandidateEvidence>;
+type Tx = postgres.TransactionSql;
+
+/** One album's request, exactly as its run would make it (same builder, same options). */
+function requestFor(ev: Loaded, config: AutotaggerConfig, population: Population): AlbumRequest {
+  return requestForAlbum(ev.album, ev.candidates, {
+    model: config.model, weak: population === 'weak', partial: ev.partial, maxRequestBytes: config.maxRequestBytes,
+  });
+}
+
+function previewOf(ev: Loaded, built: AlbumRequest): PayloadPreview {
+  return { albumId: ev.albumId, title: ev.album.title, artist: ev.album.artist, bytes: built.bytes, groups: built.sent.length, request: built.request };
+}
+
+/** Why an album is not sent, as a label (never the album's data). */
+function notSendable(err: unknown): ApiError {
+  const reason = err instanceof NotSendableError ? err.reason : 'invalid_evidence';
+  return new ApiError(409, 'Conflict', `Not sendable: ${reason}`);
+}
+
+/** The album asked for: in the library and in a run's population, built as that run builds it. */
+async function previewOfAlbum(libraryId: string, albumId: string, config: AutotaggerConfig): Promise<PayloadPreview> {
+  if (!UUID.test(albumId)) throw new ApiError(404, 'Not Found', 'Album not found');
+  const [album] = await sql()`select 1 as x from local_albums where id = ${albumId} and library_id = ${libraryId}`;
+  if (!album) throw new ApiError(404, 'Not Found', 'Album not found');
+  const population = await albumPopulation(sql(), libraryId, albumId);
+  if (!population) throw new ApiError(409, 'Conflict', 'Not sendable: population');
+  // one snapshot, as the run loads it
+  const ev = await sql().begin('isolation level repeatable read read only', (tx) => loadEvidence<AlbumEvidence, CandidateEvidence>(tx, albumId));
+  if (!ev) throw new ApiError(409, 'Conflict', 'Not sendable: no_evidence');
+  try {
+    return previewOf(ev, requestFor(ev, config, population));
+  } catch (err) {
+    throw notSendable(err);
+  }
+}
+
+/**
+ * The first album in review (by id) whose request has two or more groups,
+ * else the first with one; looked for among the first PREVIEW_SCAN_LIMIT.
+ * Null when there is none.
+ */
+async function firstPreview(libraryId: string, config: AutotaggerConfig): Promise<PayloadPreview | null> {
+  const ids = (await populationAlbumIds(sql(), libraryId, 'needs_review')).slice(0, PREVIEW_SCAN_LIMIT);
+  let single: PayloadPreview | null = null;
+  for (let i = 0; i < ids.length; i += PREVIEW_CHUNK) {
+    const chunk = ids.slice(i, i + PREVIEW_CHUNK);
+    const loaded = await sql().begin('isolation level repeatable read read only', (tx) => loadEvidenceMany<AlbumEvidence, CandidateEvidence>(tx, chunk));
+    for (const id of chunk) {
+      const ev = loaded.get(id);
+      if (!ev) continue;
+      let built: AlbumRequest;
+      try {
+        built = requestFor(ev, config, 'needs_review');
+      } catch {
+        continue; // not sent by a run either
+      }
+      if (built.sent.length >= 2) return previewOf(ev, built);
+      single ??= previewOf(ev, built);
+    }
+  }
+  return single;
+}
+
+interface RunRow {
+  id: string; population: Population; state: string; pause_reason: string | null; message: string | null; decider_version: string | null;
+  model_requested: string; seed: number; created_at: string | Date; started_by: string | null;
+}
+
+async function runRows(libraryId: string, runId?: string): Promise<RunRow[]> {
+  const one = runId ?? null;
+  return orMissing(() => sql()<RunRow[]>`
+    select r.id, r.population, r.state, r.pause_reason, r.message, r.decider_version, r.model_requested, r.seed, r.created_at,
+           u.display_name as started_by
+      from decider_runs r
+      left join users u on u.id = r.started_by_user_id
+     where r.library_id = ${libraryId} and (${one}::uuid is null or r.id = ${one}::uuid)
+     order by r.created_at desc, r.id desc
+     limit ${RUN_LIST_LIMIT}`, [] as RunRow[]);
+}
+
+async function runViews(libraryId: string, rows: RunRow[]): Promise<RunView[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map((r) => r.id);
+  const counts = await sql()<Array<{ run_id: string; outcome: string; n: number }>>`
+    select run_id, outcome, count(*)::int as n from decider_decisions where run_id = any(${ids}::uuid[]) group by run_id, outcome`;
+  const outcomes = new Map<string, Record<string, number>>();
+  for (const c of counts) outcomes.set(c.run_id, { ...(outcomes.get(c.run_id) ?? {}), [c.outcome]: c.n });
+  const config = await autotaggerConfig(sql(), libraryId);
+  const spend = await runSpendByCurrency(sql(), ids);
+  const mean = await meanCallCost(sql(), libraryId, config.currency);
+  const views: RunView[] = [];
+  for (const r of rows) {
+    const o = outcomes.get(r.id) ?? {};
+    // a run that can go on covers its population as it is now; one that ended, the albums it decided
+    const albums = ACTIVE_STATES.includes(r.state)
+      ? (await populationAlbumIds(sql(), libraryId, r.population, { seed: r.seed })).length
+      : Object.values(o).reduce((a, b) => a + b, 0);
+    views.push({
+      id: r.id,
+      population: r.population,
+      state: r.state,
+      pauseReason: r.pause_reason,
+      message: r.message,
+      modelLabel: deciderLabel(AUTOTAGGER_DECIDER_ID, r.decider_version ?? r.model_requested),
+      createdAt: new Date(r.created_at).toISOString(),
+      startedBy: r.started_by,
+      albums,
+      outcomes: o,
+      // only the settings' currency: amounts in different currencies are never added
+      spent: spend.get(r.id)?.find((s) => s.currency === config.currency)?.amount ?? 0,
+      currency: config.currency,
+      projected: mean === null ? null : Math.round(albums * mean * 1e6) / 1e6,
+    });
+  }
+  return views;
+}
+
+async function runView(libraryId: string, runId: string): Promise<RunView> {
+  if (!UUID.test(runId)) throw new ApiError(404, 'Not Found', 'Run not found');
+  const [view] = await runViews(libraryId, await runRows(libraryId, runId));
+  if (!view) throw new ApiError(404, 'Not Found', 'Run not found');
+  return view;
+}
+
+/**
+ * What a run needs before it may go: the API key, the payload seen, and
+ * (except the measurement, which keeps its own limit) a cap and a price
+ * for `model` in the cap's currency, checked as the run checks them before
+ * each call; and no other run of the library that can still go on. 409
+ * naming what is missing.
+ */
+async function refuseUnlessReady(tx: Tx, libraryId: string, population: Population, model: string, exceptRun: string | null): Promise<void> {
+  if ((await typesafeKeyHint(tx, libraryId)) === null) throw new ApiError(409, 'Conflict', 'No TypeSafe key');
+  const config = await autotaggerConfig(tx, libraryId);
+  if (!config.payloadSeenAt) throw new ApiError(409, 'Conflict', 'See the payload first');
+  if (population !== 'measure') {
+    const price = await priceFor(tx, AUTOTAGGER_DECIDER_ID, model);
+    const verdict = await checkBudget(tx, { libraryId, cap: config.monthlyCap, currency: config.currency, price, estimate: 0 });
+    if (!verdict.ok) {
+      if (verdict.reason === 'no_cap') throw new ApiError(409, 'Conflict', 'No monthly cap');
+      if (verdict.reason === 'no_price') throw new ApiError(409, 'Conflict', `No price: ${model}`);
+      if (verdict.reason === 'currency_mismatch') throw new ApiError(409, 'Conflict', `Price ${price!.currency}, cap ${config.currency}`);
+      throw new ApiError(409, 'Conflict', `Cap reached: ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
+    }
+  }
+  const [active] = await tx<Array<{ id: string }>>`
+    select id from decider_runs
+     where library_id = ${libraryId} and state = any(${ACTIVE_STATES}::text[]) and (${exceptRun}::uuid is null or id <> ${exceptRun}::uuid)
+     limit 1`;
+  if (active) throw new ApiError(409, 'Conflict', 'A run is active');
+}
+
+/** One start or resume of the library's runs at a time (until the transaction ends). */
+async function lockLibraryRuns(tx: Tx, libraryId: string): Promise<void> {
+  await tx`select pg_advisory_xact_lock(hashtext(${deciderRunSingletonKey(libraryId)}))`;
+}
+
+/**
+ * Queue the run's job. pg-boss keeps one waiting job per library: when it
+ * keeps another instead of this one, that is fine only if the waiting job
+ * is this run's; otherwise nothing would ever work the run, so `undo` puts
+ * it back and the caller gets a 503.
+ */
+async function queueRun(libraryId: string, runId: string, undo: () => Promise<unknown>, log: FastifyRequest['log']): Promise<void> {
+  let job: string | null = null;
+  try {
+    job = await sendDeciderRun(await getBoss(), libraryId, runId);
+  } catch (err) {
+    log.error({ err, event: 'autotagger.run_not_queued', libraryId, runId }, 'decider run not queued');
+  }
+  if (job) return;
+  if ((await queuedDeciderRun(sql(), libraryId)) === runId) return;
+  await undo();
+  throw new ApiError(503, 'Service Unavailable', 'Run not queued; retry');
 }
 
 export async function createAutotaggerRoutes(fastify: FastifyInstance) {
@@ -242,5 +456,116 @@ export async function createAutotaggerRoutes(fastify: FastifyInstance) {
     });
     request.log.info({ event: action, libraryId, userId: actor }, plain === null ? 'autotagger key cleared' : 'autotagger key set');
     return libraryView(request, libraryId);
+  });
+
+  // ---- runs and the payload preview ----
+
+  fastify.get('/libraries/:libraryId/autotagger/preview', async (request): Promise<PayloadPreview> => {
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    await on();
+    const { albumId } = (request.query ?? {}) as { albumId?: string };
+    const config = await autotaggerConfig(sql(), libraryId);
+    if (albumId !== undefined) return previewOfAlbum(libraryId, albumId, config);
+    const preview = await firstPreview(libraryId, config);
+    if (!preview) throw new ApiError(404, 'Not Found', 'No album to show');
+    return preview;
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/preview/seen', async (request): Promise<AutotaggerLibraryView> => {
+    sameSite(request);
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    await on();
+    const actor = request.user?.id;
+    if (!actor) throw new ApiError(401, 'Unauthorized', 'Authentication required');
+    // the audit row names the library and who; never the payload
+    await whileOn(async (tx) => {
+      await markPayloadSeen(tx, libraryId, actor);
+      await tx`insert into audit_log (library_id, actor_user_id, action, subject_type, subject_id)
+               values (${libraryId}, ${actor}, 'autotagger.payload_seen', 'library', ${libraryId})`;
+    });
+    request.log.info({ event: 'autotagger.payload_seen', libraryId, userId: actor }, 'autotagger payload seen');
+    return libraryView(request, libraryId);
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/runs', async (request, reply): Promise<RunView> => {
+    sameSite(request);
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    const parsed = startRunSchema.safeParse(request.body ?? {});
+    if (!parsed.success) throw new ApiError(400, 'Bad Request', 'population: needs_review, weak or backtest');
+    await on();
+    const { population } = parsed.data;
+    const actor = request.user?.id ?? null;
+    const runId = await whileOn(async (tx) => {
+      await lockLibraryRuns(tx, libraryId);
+      const config = await autotaggerConfig(tx, libraryId);
+      await refuseUnlessReady(tx, libraryId, population, config.model, null);
+      const [row] = await tx<Array<{ id: string }>>`
+        insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population, started_by_user_id)
+        values (${libraryId}, ${AUTOTAGGER_DECIDER_ID}, ${jevSpecHash()}, ${config.model}, ${population}, ${actor})
+        returning id`;
+      return row!.id;
+    });
+    await queueRun(libraryId, runId, () => sql()`
+      update decider_runs set state = 'failed', message = 'not queued', finished_at = now() where id = ${runId} and state = 'queued'`, request.log);
+    request.log.info({ event: 'autotagger.run_started', libraryId, runId, population, userId: actor }, 'decider run queued');
+    reply.status(202);
+    return runView(libraryId, runId);
+  });
+
+  fastify.get('/libraries/:libraryId/autotagger/runs', async (request): Promise<{ items: RunView[] }> => {
+    const { libraryId } = request.params as { libraryId: string };
+    await assertLibrary(libraryId);
+    return { items: await runViews(libraryId, await runRows(libraryId)) };
+  });
+
+  fastify.get('/libraries/:libraryId/autotagger/runs/:runId', async (request): Promise<RunView> => {
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    return runView(libraryId, runId);
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/runs/:runId/resume', async (request, reply): Promise<RunView> => {
+    sameSite(request);
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    await runView(libraryId, runId);
+    await on();
+    const prior = await whileOn(async (tx) => {
+      await lockLibraryRuns(tx, libraryId);
+      const [run] = await tx<Array<{ state: string; population: Population; spec_hash: string; model: string; pause_reason: string | null; message: string | null }>>`
+        select state, population, spec_hash, coalesce(decider_version, model_requested) as model, pause_reason, message
+          from decider_runs where id = ${runId} and library_id = ${libraryId} for update`;
+      if (!run) throw new ApiError(404, 'Not Found', 'Run not found');
+      if (!RESUMABLE_STATES.includes(run.state)) throw new ApiError(409, 'Conflict', `Run is ${run.state}`);
+      // the run asks the question it started with; a new run asks the new one
+      if (run.spec_hash !== jevSpecHash()) throw new ApiError(409, 'Conflict', 'Question changed');
+      await refuseUnlessReady(tx, libraryId, run.population, run.model, runId);
+      await tx`update decider_runs set state = 'queued', pause_reason = null, message = null, finished_at = null where id = ${runId}`;
+      return run;
+    });
+    // not queued: back as it was, a failed run paused so it can be resumed again
+    await queueRun(libraryId, runId, () => sql()`
+      update decider_runs set state = 'paused', pause_reason = ${prior.pause_reason ?? 'stopped'}, message = ${prior.pause_reason ? prior.message : 'stopped: not queued again'}
+       where id = ${runId} and state = 'queued'`, request.log);
+    request.log.info({ event: 'autotagger.run_resumed', libraryId, runId, userId: request.user?.id ?? null }, 'decider run queued again');
+    reply.status(202);
+    return runView(libraryId, runId);
+  });
+
+  fastify.post('/libraries/:libraryId/autotagger/runs/:runId/cancel', async (request): Promise<RunView> => {
+    sameSite(request);
+    const { libraryId, runId } = request.params as { libraryId: string; runId: string };
+    await assertLibrary(libraryId);
+    const before = await runView(libraryId, runId);
+    // the run's job sees it before its next paid call and stops; off or not, a run can be cancelled
+    const moved = await sql()`
+      update decider_runs set state = 'cancelled', finished_at = now()
+       where id = ${runId} and library_id = ${libraryId} and state = any(${ACTIVE_STATES}::text[])`;
+    if (moved.count === 0) throw new ApiError(409, 'Conflict', `Run is ${before.state}`);
+    request.log.info({ event: 'autotagger.run_cancelled', libraryId, runId, userId: request.user?.id ?? null }, 'decider run cancelled');
+    return runView(libraryId, runId);
   });
 }

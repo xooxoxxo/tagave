@@ -34,9 +34,8 @@
  * either way the run carries on.
  */
 import {
-  JEV_SPEC, NotSendableError, buildJevRequest, decideFromProbabilities, evidenceHash, groupTracklists, jevSpecHash, pickEdition,
-  requestBytes, rulesFromStored,
-  type Decider, type DeciderAnswer, type EvidenceCandidate, type GroupingCandidate, type JevRequest, type TracklistGroup,
+  JEV_SPEC, NotSendableError, decideFromProbabilities, evidenceHash, hashOf, jevSpecHash, pickEdition, requestForAlbum, rulesFromStored,
+  type AlbumRequest, type Decider, type DeciderAnswer, type EvidenceCandidate, type TracklistGroup,
 } from '@tagave/core';
 import {
   autotaggerConfig, autotaggerEnabled, checkBudget, costOf, deciderRunSingletonKey, fetchAutoAcceptRulesRow, pauseStaleRuns, priceFor,
@@ -46,27 +45,14 @@ import type { Population } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
 import { failureReason } from '../lib/batchFailure.js';
 import { loadEvidence, type LoadedEvidence } from '../lib/evidenceStore.js';
-import { populationAlbumIds, WEAK_TOP_CANDIDATES } from '../lib/deciderPopulation.js';
+import { populationAlbumIds } from '../lib/deciderPopulation.js';
 import { libraryTypesafeKey } from '../lib/providers.js';
 import { jevDecider } from '../lib/jevDecider.js';
 import { JevKeyRefused, JevRejected, JevUnavailable, typesafeBaseUrl } from '../lib/jevClient.js';
 import { reportProgress } from './progress.js';
 
-/**
- * At most this many tracklist groups go into one request: the best eight by
- * distance (labels A to H). Each group adds its whole tracklist to the
- * shared state, so the request grows with groups × tracks; groups past the
- * eighth are the scorer's far-off candidates, and leaving one out can only
- * turn a pick into "none" (the decider answers each group on its own).
- */
-export const MAX_GROUPS = 8;
-/**
- * At most this many editions of one group are shown. Editions of a group
- * share its tracklist, so they only add label, country and catalogue lines;
- * the edition accepted is still chosen by the owner's rules from every
- * member of the group, shown or not.
- */
-export const MAX_EDITIONS_PER_GROUP = 5;
+/** The groups and editions shown per request (requestForAlbum, @tagave/core). */
+export { MAX_EDITIONS_PER_GROUP, MAX_GROUPS } from '@tagave/core';
 /**
  * Client retries per call for a run. Every retry after a 5xx or a timeout
  * may be billed without an answer to show for it, so a run allows one.
@@ -126,17 +112,6 @@ type ProgressState = 'running' | 'completed' | 'cancelled' | 'failed';
 
 const f4 = (x: number | null | undefined): string | null => (x === null || x === undefined ? null : x.toFixed(4));
 const emptySummary = (): RunSummary => ({ state: 'done', pauseReason: null, decided: {}, reused: 0, billed: 0 });
-
-/** One album's sendable candidates, once per release (the best distance), in distance order. */
-function uniqueByRelease(cands: LoadedEvidence['candidates']): LoadedEvidence['candidates'] {
-  const seen = new Set<string>();
-  return cands.filter((c) => (seen.has(c.releaseId) ? false : (seen.add(c.releaseId), true)));
-}
-
-/** What is shown to the decider: the first groups, the first editions of each. */
-function sentGroups(groups: TracklistGroup[]): TracklistGroup[] {
-  return groups.slice(0, MAX_GROUPS).map((g) => ({ ...g, members: g.members.slice(0, MAX_EDITIONS_PER_GROUP) }));
-}
 
 /**
  * A JevUnavailable after which the call may have been billed: the server
@@ -303,13 +278,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
 
     // the album's evidence, its identify time and whether any sendable
     // candidate lacks evidence, all from one snapshot
-    const { ev, partial } = await ctx.sql.begin('isolation level repeatable read read only', async (tx) => {
-      const loaded = await loadEvidence(tx, albumId);
-      const [p] = await tx<Array<{ partial: boolean }>>`
-        select exists (select 1 from match_candidates where local_album_id = ${albumId}
-                          and excluded is not true and source not like 'mc:%' and evidence is null) as partial`;
-      return { ev: loaded, partial: p?.partial === true };
-    });
+    const ev = await ctx.sql.begin('isolation level repeatable read read only', (tx) => loadEvidence(tx, albumId));
     let hash: string | null = null;
     let bytes: number | null = null;
     const record = async (sql: Sql | TxSql, d: DecisionFields) => {
@@ -324,24 +293,20 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     };
 
     if (!ev) { await record(ctx.sql, { outcome: 'no_candidates', reason: 'no_evidence' }); continue; }
-    if (partial) { await record(ctx.sql, { outcome: 'no_candidates', reason: 'partial_evidence' }); continue; }
-    let cands = uniqueByRelease(ev.candidates);
-    if (run.population === 'weak') cands = cands.slice(0, WEAK_TOP_CANDIDATES);
-    if (cands.length === 0) { await record(ctx.sql, { outcome: 'no_candidates', reason: 'no_candidates' }); continue; }
     const model = version ?? run.model_requested;
-    let groups: TracklistGroup[];
-    let sent: TracklistGroup[];
-    let req: JevRequest;
+    // the request, made exactly as the payload preview makes it
+    let built: AlbumRequest & { candidates: LoadedEvidence['candidates'] };
     try {
-      hash = evidenceHash(ev.album, ev.candidates);
-      groups = groupTracklists(
-        cands.map((c): GroupingCandidate => ({ releaseId: c.releaseId, distance: c.distance, evidence: c.evidence! })),
-        { discsKnown: ev.album.discsKnown }, JEV_SPEC.grouping);
-      sent = sentGroups(groups);
-      req = buildJevRequest(ev.album, sent, model);
+      hash = hashOf(ev);
+      built = requestForAlbum(ev.album, ev.candidates, {
+        model, weak: run.population === 'weak', partial: ev.partial, maxRequestBytes: config.maxRequestBytes,
+      });
     } catch (err) {
       if (err instanceof NotSendableError) {
-        await record(ctx.sql, err.reason === 'capped' ? { outcome: 'too_large', reason: 'capped' } : { outcome: 'no_candidates', reason: 'album_title' });
+        // the set is not whole, or there is nothing to send: no hash to pin
+        if (err.reason === 'partial_evidence' || err.reason === 'no_candidates') hash = null;
+        if (err.reason === 'too_large') bytes = err.bytes;
+        await record(ctx.sql, notSent(err));
         continue;
       }
       // Stored evidence that does not hold together (an index outside its
@@ -353,12 +318,8 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       await record(ctx.sql, { outcome: 'error', reason: 'invalid_evidence' });
       continue;
     }
-    const labels = sent.map((g) => g.label);
-    bytes = requestBytes(req);
-    if (config.maxRequestBytes !== null && bytes > config.maxRequestBytes) {
-      await record(ctx.sql, { outcome: 'too_large', reason: `${bytes} bytes` });
-      continue;
-    }
+    const { groups, sent, labels, candidates: cands, request } = built;
+    bytes = built.bytes;
 
     // A stored call is keyed on exactly what was sent (the shown candidates),
     // so the same evidence asked as another population is never mixed up.
@@ -383,6 +344,12 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
     } else {
       const price = await priceFor(ctx.sql, decider.id, model);
       const estTokens = Math.ceil(bytes * tpb);
+      // cancelled (or paused) meanwhile: nothing more is paid for
+      const [now] = await ctx.sql<Array<{ state: string }>>`select state from decider_runs where id = ${run.id}`;
+      if (now?.state !== 'running') {
+        await progress('cancelled');
+        return { ...summary, state: 'cancelled' };
+      }
       const estimate = price ? costOf(estTokens, price) : 0;
       const verdict = await checkBudget(ctx.sql, {
         libraryId: run.library_id, cap: config.monthlyCap, currency: config.currency, price, estimate,
@@ -394,7 +361,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
         return pause('cap_reached', `spent ${verdict.spent.toFixed(4)} of ${verdict.cap} ${config.currency}`);
       }
       try {
-        answer = await decider.ask({ album: ev.album, groups: sent }, { model });
+        answer = await decider.ask({ album: ev.album, groups: sent, request }, { model });
       } catch (err) {
         if (err instanceof JevKeyRefused) return pause('key_refused', `key refused${err.status ? ` (HTTP ${err.status})` : ''}`);
         if (err instanceof JevRejected) {
@@ -458,6 +425,15 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
   prog.done = ids.length;
   await progress('completed', Object.entries(summary.decided).map(([k, v]) => `${k} ${v}`).join(', '));
   return summary;
+}
+
+/** The decision recorded for an album that is not sent. */
+function notSent(err: NotSendableError): DecisionFields {
+  switch (err.reason) {
+    case 'capped': return { outcome: 'too_large', reason: 'capped' };
+    case 'too_large': return { outcome: 'too_large', reason: `${err.bytes} bytes` };
+    default: return { outcome: 'no_candidates', reason: err.reason };
+  }
 }
 
 const answersOf = (a: Record<string, number> | string): Record<string, number> => (typeof a === 'string' ? JSON.parse(a) : a);

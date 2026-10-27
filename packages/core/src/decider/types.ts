@@ -10,8 +10,14 @@
  */
 import type { AlbumEvidence } from '../matching/evidence.js';
 import type { TracklistGroup } from './grouping.js';
+import type { JevRequest } from './jevPayload.js';
 
-export interface DeciderInput { album: AlbumEvidence; groups: TracklistGroup[] }
+/**
+ * One album to decide: its evidence, the groups shown and the request made
+ * from them by requestForAlbum, the same request the owner's payload
+ * preview shows. A decider that sends the request sends it as it is.
+ */
+export interface DeciderInput { album: AlbumEvidence; groups: TracklistGroup[]; request: JevRequest }
 export interface DeciderAnswer {
   /** group label → probability; validated by decideFromProbabilities, not trusted */
   probabilities: Record<string, number>;

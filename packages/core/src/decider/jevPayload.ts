@@ -23,13 +23,26 @@ export interface JevState { task: string; local: { artist: string; album: string
 export interface JevQuestion { type: 'noul'; instructions: string; criteria: { true: string; false: string } }
 export interface JevRequest { model: string; state: JevState; questions: Record<string, JevQuestion> }
 
-/** The album cannot be sent without a value that did not come from its tags. */
+/**
+ * Why an album is not sent:
+ *   album_title       its title did not come from its tags
+ *   capped            a tracklist is over the alignment cap, so no pairing exists to send
+ *   no_candidates     no candidate may be sent
+ *   partial_evidence  a candidate that may be sent has no evidence yet
+ *   too_large         the request is over the library's byte limit (`bytes`)
+ */
+export type NotSendableReason = 'album_title' | 'capped' | 'no_candidates' | 'partial_evidence' | 'too_large';
+
+/** The album cannot be sent as it is. */
 export class NotSendableError extends Error {
-  readonly reason: 'album_title' | 'capped';
-  constructor(reason: 'album_title' | 'capped') {
-    super(`album not sendable: ${reason === 'album_title' ? 'its title did not come from its tags' : 'a tracklist is over the alignment cap, so no pairing exists to send'}`);
+  readonly reason: NotSendableReason;
+  /** the request's size, for too_large */
+  readonly bytes: number | null;
+  constructor(reason: NotSendableReason, bytes: number | null = null) {
+    super(`album not sendable: ${reason}`);
     this.name = 'NotSendableError';
     this.reason = reason;
+    this.bytes = bytes;
   }
 }
 

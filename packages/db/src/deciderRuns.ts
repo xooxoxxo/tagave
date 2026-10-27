@@ -16,6 +16,36 @@ export function deciderRunSingletonKey(libraryId: string): string {
   return `decider.run:${libraryId}`;
 }
 
+/** What sends a job: pg-boss, or a stand-in in tests. */
+export interface DeciderRunSender { send(name: string, data: object, opts: { singletonKey: string }): Promise<string | null> }
+
+/**
+ * Queue `runId`'s job with the library's singleton key, never a key of its
+ * own: one run per library at a time. Null when pg-boss kept a job already
+ * queued for the library instead (see queuedDeciderRun).
+ */
+export async function sendDeciderRun(boss: DeciderRunSender, libraryId: string, runId: string): Promise<string | null> {
+  return boss.send('decider.run', { runId }, { singletonKey: deciderRunSingletonKey(libraryId) });
+}
+
+/**
+ * The run whose decider.run job is queued (waiting or to retry) for the
+ * library, or null when none is. A send that pg-boss swallowed is fine only
+ * when this is the run it was for.
+ */
+export async function queuedDeciderRun(sql: Sql, libraryId: string): Promise<string | null> {
+  try {
+    const [row] = await sql<Array<{ run_id: string | null }>>`
+      select data->>'runId' as run_id from pgboss.job
+       where name = 'decider.run' and singleton_key = ${deciderRunSingletonKey(libraryId)} and state::text in ('created', 'retry')
+       limit 1`;
+    return row?.run_id ?? null;
+  } catch (err) {
+    if ((err as { code?: string }).code === '42P01') return null;
+    throw err;
+  }
+}
+
 /**
  * Pause every run still 'running' with no decider.run job created, waiting
  * to retry or active for its library, and nothing done (started, a call, a

@@ -164,6 +164,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/libraries/:libraryId/artists/:artistId/refresh': 'library.edit',
   // The autotagger module, one library (routes/autotagger.ts): the owner changes it (system.manage below); an editor reads it without the key's hint.
   'GET /api/v1/libraries/:libraryId/autotagger': 'library.edit',
+  // Its runs (routes/autotagger.ts): editors see them; starting, resuming and cancelling one is the owner's (system.manage below).
+  'GET /api/v1/libraries/:libraryId/autotagger/runs': 'library.edit',
+  'GET /api/v1/libraries/:libraryId/autotagger/runs/:runId': 'library.edit',
   'GET /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'PUT /api/v1/libraries/:libraryId/auto-accept': 'library.edit',
   'POST /api/v1/libraries/:libraryId/auto-accept/preview': 'library.edit',
@@ -252,6 +255,12 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'DELETE /api/v1/settings/autotagger/prices/:model': 'system.manage',
   'PATCH /api/v1/libraries/:libraryId/autotagger/config': 'system.manage',
   'PUT /api/v1/libraries/:libraryId/autotagger/key': 'system.manage',
+  // The payload preview holds the owner's tags, and only the owner may say it was seen; runs spend the owner's money.
+  'GET /api/v1/libraries/:libraryId/autotagger/preview': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/preview/seen': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/resume': 'system.manage',
+  'POST /api/v1/libraries/:libraryId/autotagger/runs/:runId/cancel': 'system.manage',
   // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
   'GET /api/v1/settings/playlists': 'system.manage',
   'PUT /api/v1/settings/playlists': 'system.manage',

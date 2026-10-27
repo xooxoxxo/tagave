@@ -101,3 +101,53 @@ export const autotaggerKeySchema = z
 
 /** The decider the module runs (decider_prices.decider_id, decider_runs.decider_id). */
 export const AUTOTAGGER_DECIDER_ID = 'jev';
+
+/** The populations a run can be started with from the api (the measurement runs from the command line). */
+export const startRunSchema = z
+  .object({ population: z.enum(['needs_review', 'weak', 'backtest']) })
+  .strict();
+
+export type StartRun = z.infer<typeof startRunSchema>;
+
+/**
+ * The Jev request as the payload preview shows it (@tagave/core JevRequest,
+ * which the api checks fits this shape).
+ */
+export interface JevRequestView {
+  model: string;
+  state: { task: string; local: Record<string, unknown>; tracklists: Record<string, unknown> };
+  questions: Record<string, { type: string; instructions: string; criteria: { true: string; false: string } }>;
+}
+
+/** The exact request one album's run would send, for the owner to see before the first run. */
+export interface PayloadPreview {
+  albumId: string;
+  title: string | null;
+  artist: string | null;
+  /** UTF-8 bytes of the request's JSON */
+  bytes: number;
+  /** tracklist groups shown */
+  groups: number;
+  request: JevRequestView;
+}
+
+/** One decider run (Library care › Review › Decide with Jev). */
+export interface RunView {
+  id: string;
+  population: Population;
+  state: string;
+  pauseReason: string | null;
+  message: string | null;
+  modelLabel: string;
+  createdAt: string;
+  startedBy: string | null;
+  /** albums in the run: its population while it can go on, the albums it decided once it ended */
+  albums: number;
+  /** albums decided so far, per outcome */
+  outcomes: Record<string, number>;
+  /** what the run's calls cost, in `currency` (the library settings' currency) */
+  spent: number;
+  currency: string;
+  /** albums × the library's mean cost per answered call in `currency`; null before any call */
+  projected: number | null;
+}

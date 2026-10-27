@@ -49,3 +49,5 @@ export * from './modules.js';
 export * from './autotaggerModule.js';
 export * from './deciderBudget.js';
 export * from './deciderRuns.js';
+export * from './evidenceStore.js';
+export * from './deciderPopulation.js';
