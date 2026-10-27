@@ -12,6 +12,7 @@ import pino from 'pino';
 import type { WorkerContext } from '../lib/context.js';
 import { clusterDirJob } from './clusterDir.js';
 import { clusterRepairDiscsJob } from './clusterRepairDiscs.js';
+import { ensureFakeBossJob, releaseFakeBossJob } from '../testkit/fakeBossJob.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', () => {
   let ctx: WorkerContext;
@@ -21,6 +22,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
   let libraryId: string;
   let rootId: string;
   const sent: Array<{ name: string; data: any; opts: any }> = [];
+  /** this suite's pgboss.job rows: the table is shared with other suites */
+  const jobIds: string[] = [];
+  let createdBossJob = false;
 
   const addFile = async (relPath: string, common: Record<string, unknown>) => {
     await db.insert(audioFiles).values({
@@ -42,11 +46,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
 
     // The identify phase raises an already-queued identify.album in place;
     // pg-boss never runs in tests, so stand in a table with the columns it reads.
-    await client`do $$ begin
-      if not exists (select 1 from pg_namespace where nspname = 'pgboss') then create schema pgboss; end if;
-    end $$`;
-    await client`create table if not exists pgboss.job (
-      id uuid, name text, state text, priority int, singleton_key text, data jsonb)`;
+    createdBossJob = await ensureFakeBossJob(client);
 
     userId = randomUUID();
     await db.insert(users).values({ id: userId, email: `repair-${userId}@test.com`, passwordHash: 'x' });
@@ -63,7 +63,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     sent.length = 0;
     await db.delete(audioFiles).where(eq(audioFiles.scanRootId, rootId));
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
-    await client`delete from pgboss.job`;
+    await client`delete from pgboss.job where id = any(${jobIds}::uuid[])`;
+    jobIds.length = 0;
   });
 
   afterAll(async () => {
@@ -71,7 +72,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     await db.delete(scanRoots).where(eq(scanRoots.id, rootId));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
-    await client`drop table if exists pgboss.job`;
+    await releaseFakeBossJob(client, createdBossJob, jobIds);
     await client.end({ timeout: 5 });
   });
 
@@ -229,8 +230,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
       libraryId, clusterKey: `retry-${randomUUID()}`, dirPaths: ['X/W'], state: 'unidentified',
     }).returning({ id: localAlbums.id });
     for (const [id, state] of [[queued.id, 'created'], [retrying.id, 'retry']] as const) {
+      const jobId = randomUUID();
+      jobIds.push(jobId);
       await client`insert into pgboss.job (id, name, state, priority, singleton_key, data)
-                   values (${randomUUID()}, 'identify.album', ${state}, 0, ${'identify:' + id}, '{}'::jsonb)`;
+                   values (${jobId}, 'identify.album', ${state}, 0, ${'identify:' + id}, '{}'::jsonb)`;
     }
     const since = new Date(Date.now() - 60_000).toISOString();
 
@@ -242,7 +245,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('clusterRepairDiscsJob (db)', ()
     expect(ids).toEqual([fresh.id]);
     // Both the waiting job and the retrying one were raised in place. 'retry'
     // used to be missed, so a second job was sent and pg-boss dropped it.
-    const rows = (await client`select singleton_key, priority from pgboss.job order by singleton_key`) as Array<{ singleton_key: string; priority: number }>;
+    const rows = (await client`select singleton_key, priority from pgboss.job where id = any(${jobIds}::uuid[]) order by singleton_key`) as Array<{ singleton_key: string; priority: number }>;
     expect(rows.every((r) => r.priority === 50)).toBe(true);
     expect(rows).toHaveLength(2);
   });

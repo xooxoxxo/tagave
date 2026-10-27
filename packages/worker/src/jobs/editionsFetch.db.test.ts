@@ -83,12 +83,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('editionsFetchJob (db)', () => {
     await db.insert(libraries).values({ id: libraryId, name: 'Editions Library', ownerUserId: userId, settings: {} });
   });
 
+  const rgMbids: string[] = [];
   beforeEach(async () => {
     fetchPage.mockReset();
     // One release group with the single release identify already knew (the owned edition),
     // carrying stale descriptive columns the fetch must refresh in place.
     rgId = randomUUID();
     rgMbid = randomUUID();
+    rgMbids.push(rgMbid);
     rgMeta.mbid = rgMbid;
     ownedMbid = randomUUID();
     await db.insert(releaseGroups).values({ id: rgId, mbid: rgMbid, title: 'Juggernaut: Omega', artistCredit: ['Periphery'] });
@@ -100,7 +102,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('editionsFetchJob (db)', () => {
   });
 
   afterAll(async () => {
-    await client`delete from provider_cache where provider = 'musicbrainz' and cache_key like 'v2:rg-releases:%'`;
+    // only this suite's cache rows: the table is shared with other suites
+    for (const mbid of rgMbids) await client`delete from provider_cache where provider = 'musicbrainz' and cache_key like ${`v2:rg-releases:${mbid}:%`}`;
     await db.delete(releaseGroups).where(eq(releaseGroups.title, 'Juggernaut: Omega'));
     await db.delete(libraries).where(eq(libraries.id, libraryId));
     await db.delete(users).where(eq(users.id, userId));
