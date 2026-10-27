@@ -20,6 +20,7 @@ import { SettingsStorageContent } from './SettingsStoragePage';
 import { SettingsSecurityPage } from './SettingsSecurityPage';
 import { SettingsListeningContent } from './SettingsListeningPage';
 import { ConnectionsOff, SettingsConnectionsContent } from './SettingsConnectionsPage';
+import { ListenElsewhereOff, SettingsListenElsewhereContent } from './SettingsListenElsewherePage';
 import { JobsPage } from './JobsPage';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { SystemStatus } from './Settings/SystemStatus';
@@ -61,20 +62,30 @@ const sections: Section[] = [
   { value: 'appearance', label: 'Appearance', group: 'Account' },
   { value: 'security', label: 'Security', group: 'Account' },
   { value: 'listening', label: 'Listening', group: 'Account' },
+  // Listen elsewhere: the streaming platforms each person's Listen control offers
+  { value: 'listen-elsewhere', label: 'Listen elsewhere', group: 'Account' },
   // Music Connections: each person links tagave to other music apps for themselves
   { value: 'connections', label: 'Connections', group: 'Account' },
 ];
 
-/** The sections the nav lists for a role. */
-export function settingsNav(role: Parameters<typeof can>[0]): Section[] {
-  return sections.filter((item) => !item.unlisted && (!item.permission || can(role, item.permission)));
+/**
+ * The sections the nav lists for a role. A module that is off hides its
+ * section: Listen elsewhere for everyone, Connections for all but the owner
+ * (who is told where to turn it on). Null or undefined while the modules load.
+ */
+export function settingsNav(role: Parameters<typeof can>[0], modules: { mcOn?: boolean | null | undefined; listenOn?: boolean | null | undefined } = {}): Section[] {
+  return sections.filter((item) => !item.unlisted && (!item.permission || can(role, item.permission))
+    && (item.value !== 'listen-elsewhere' || modules.listenOn !== false)
+    && (item.value !== 'connections' || modules.mcOn !== false || can(role, 'system.manage')));
 }
 
 export function SettingsPage() {
   const role = useRole();
   // Music Connections off (Settings › Modules, off by default): Connections says so
   const mcOn = useModuleOn('mc');
-  const visible = settingsNav(role);
+  const listenOn = useModuleOn('listen-links');
+  // Listen elsewhere is listed only while its module is on (a direct link says it is off)
+  const visible = settingsNav(role, { mcOn, listenOn }).filter((item) => item.value !== 'listen-elsewhere' || listenOn === true);
   const raw = useLocation().pathname.split('/')[2] || visible[0]?.value || 'appearance';
   const known = sections.find((item) => item.value === raw);
   const section = known ? raw : visible[0]?.value ?? 'appearance';
@@ -112,6 +123,7 @@ export function SettingsPage() {
         {section === 'listening' && <SettingsListeningContent />}
         {section === 'connections' && (mcOn === false ? <ConnectionsOff modules={can(role, 'system.manage') ? <Link to="/settings/$section" params={{ section: 'modules' }}>Settings › Modules</Link> : null} /> : <SettingsConnectionsContent />)}
         {section === 'security' && <><h2>Security</h2><SettingsSecurityPage /></>}
+        {section === 'listen-elsewhere' && (listenOn === false ? <ListenElsewhereOff owner={can(role, 'system.manage')} /> : listenOn ? <SettingsListenElsewhereContent /> : null)}
         </>}
       </div>
     </div>
@@ -173,5 +185,11 @@ function DisplaySettings() {
     <h2 className={styles.modeSetting}>Artist page</h2>
     
     <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
+    <h2 className={styles.modeSetting}>Adaptive colours</h2>
+    
+    <SegmentedControl label="Adaptive colours" value={prefs.adaptiveColour ? 'on' : 'off'} onChange={(v) => setPrefs({ adaptiveColour: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+    <h2 className={styles.modeSetting}>Equalizer glow</h2>
+    
+    <SegmentedControl label="Equalizer glow" value={prefs.eqGlow ? 'on' : 'off'} onChange={(v) => setPrefs({ eqGlow: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
   </>;
 }

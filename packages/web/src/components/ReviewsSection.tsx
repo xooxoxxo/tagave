@@ -428,7 +428,7 @@ function AddSheet({ kind, onKind, onClose, libraryId, releaseGroupId, editions }
       <form className={styles.sheetPanel} onSubmit={(e) => { e.preventDefault(); if (kind === 'listen') saveListen(); else saveClipping(); }}>
         <div className={styles.sheetHead}>
           <h2 id={titleId} className={styles.sheetTitle}>Add to this album</h2>
-          <IconButton variant="quiet" label="Close" onClick={onClose}><span aria-hidden="true">✕</span></IconButton>
+          <IconButton variant="quiet" label="Close" onClick={onClose}><CloseIcon /></IconButton>
         </div>
         <SegmentedControl label="What to add" value={kind} onChange={onKind} options={[{ value: 'listen', label: 'A listen' }, { value: 'clipping', label: 'A clipping' }]} />
 

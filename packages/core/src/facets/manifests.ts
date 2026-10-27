@@ -52,7 +52,7 @@ export const PLAYER_MODULE = defineModule({
   jobs: ['player.scan'],
   prefix: 'player_',
   tables: [
-    'player_links', 'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_rating_sync',
+    'player_links', 'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync',
     'player_retired_accounts', 'player_scan_requests', 'player_scrobbles', 'player_song_counts', 'player_track_map', 'player_users',
     'scrobble_accounts',
   ],
@@ -85,4 +85,36 @@ export const MC_MODULE = defineModule({
   enabled: (ctx) => ctx.settings.mcEnabled,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE];
+/**
+ * Listen elsewhere (vault "tagave - External Players Scoping", phase 1):
+ * links from albums to the streaming platforms each person picks. Off: the
+ * resolve job skips and the Listen control hides; the data stays until
+ * "Delete its data" (api › routes/listenLinks.ts).
+ */
+export const LISTEN_LINKS_MODULE = defineModule({
+  id: 'listen-links',
+  version: '1.0.0',
+  provides: [],
+  consumes: [],
+  jobs: ['listenLinks.resolve'],
+  prefix: 'listen_',
+  tables: ['listen_links', 'listen_artist_links', 'listen_album_checks', 'listen_artist_checks', 'listen_prefs'],
+  enabled: (ctx) => ctx.settings.listenLinksEnabled === true,
+});
+
+/**
+ * Playlists: each person's private lists of tracks (0056). Off: the
+ * Playlists page and "Add to playlist" hide; the data stays until "Delete
+ * its data" (api › routes/playlists.ts). Absent from the settings is on.
+ */
+export const PLAYLISTS_MODULE = defineModule({
+  id: 'playlists',
+  version: '1.0.0',
+  provides: [],
+  consumes: [],
+  prefix: 'playlist',
+  tables: ['playlists', 'playlist_items'],
+  enabled: (ctx) => ctx.settings.playlistsEnabled !== false,
+});
+
+export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE];

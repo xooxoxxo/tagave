@@ -30,6 +30,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
   const rgId = randomUUID();
   const releaseId = randomUUID();
   const releaseMbid = randomUUID();
+  const artistId = randomUUID();
   const recMbid2 = randomUUID();
   const tracks = { one: randomUUID(), two: randomUUID(), three: randomUUID(), cue: randomUUID() };
   const files = { one: randomUUID(), two: randomUUID(), three: randomUUID(), cue: randomUUID() };
@@ -62,6 +63,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values (${rootId}, ${libraryId}, '/mnt/music', 'Music', 'ok')`;
     await sql`insert into release_groups (id, mbid, title) values (${rgId}, ${randomUUID()}, 'Test Album')`;
     await sql`insert into releases (id, release_group_id, mbid, title) values (${releaseId}, ${rgId}, ${releaseMbid}, 'Test Album')`;
+    await sql`insert into artists (id, name) values (${artistId}, 'Artist, Test')`;
+    await sql`insert into release_group_artists (release_group_id, artist_id, position, credited_name) values (${rgId}, ${artistId}, 0, 'Test Artist')`;
     const ct2 = randomUUID();
     await sql`insert into canonical_tracks (id, release_id, medium_no, position, title, recording_mbid) values (${ct2}, ${releaseId}, 1, 2, 'Two', ${recMbid2})`;
     await sql`insert into local_albums (id, library_id, cluster_key, title_guess, artist_guess, state, release_id, release_group_id)
@@ -118,6 +121,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
       await sql`delete from libraries where id = ${libraryId}`;
       await sql`delete from releases where id = ${releaseId}`;
       await sql`delete from release_groups where id = ${rgId}`;
+      await sql`delete from artists where id = ${artistId}`;
       await sql`delete from player_users where user_id in (${ownerId}, ${strangerId})`;
       await sql`delete from users where id in (${ownerId}, ${strangerId})`;
       await sql.end({ timeout: 5 });
@@ -158,10 +162,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(viewer.statusCode).toBe(403);
     const ok = await app.inject({ method: 'PUT', url: `/api/v1/libraries/${libraryId}/player/server`, headers: as(ownerId), payload: { url: `${base}/`, username: 'admin', password: PASSWORD } });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ bundled: false, external: { url: base, username: 'admin', passwordHint: 't-pw' }, capability: { installed: true, managed: 'external', reachable: true } });
+    expect(ok.json()).toMatchObject({ bundled: false, external: { url: base, username: 'admin', passwordSaved: true }, capability: { installed: true, managed: 'external', reachable: true } });
+    // QA 2026-10-26 Q-36: no part of the password ever leaves the server ("Saved …t-pw")
+    expect(ok.json().external).not.toHaveProperty('passwordHint');
+    expect(ok.body).not.toContain(PASSWORD.slice(-4));
+    const read = await app.inject({ method: 'GET', url: `/api/v1/libraries/${libraryId}/player`, headers: as(ownerId) });
+    expect(read.json().external).toMatchObject({ passwordSaved: true });
+    expect(read.body).not.toContain(PASSWORD.slice(-4));
     const [row] = await sql`select settings from libraries where id = ${libraryId}`;
     expect(row.settings.playerPassword).toMatch(/^enc:v1:/);
     expect(JSON.stringify(row.settings)).not.toContain(PASSWORD);
+    expect(row.settings).not.toHaveProperty('playerPasswordHint');
     // a new address alone keeps the saved password
     const again = await app.inject({ method: 'PUT', url: `/api/v1/libraries/${libraryId}/player/server`, headers: as(ownerId), payload: { url: base, username: 'admin' } });
     expect(again.statusCode).toBe(200);
@@ -180,6 +191,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('player routes', () => {
     expect(res.statusCode).toBe(200);
     const q = res.json();
     expect(q).toMatchObject({ albumId, album: 'Test Album', albumArtist: 'Test Artist', coverUrl: null, scanRequested: true });
+    // the credited artists carry their ids, for the player's links
+    expect(q.artists).toEqual([{ id: artistId, name: 'Test Artist' }]);
     expect(q.tracks.map((t: any) => [t.title, t.available, t.reason])).toEqual([
       ['One', true, null], ['Two', true, null], ['Three', false, 'not_scanned'], ['Cue piece', false, 'cue'],
     ]);

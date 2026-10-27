@@ -26,6 +26,7 @@ import { facetsRefreshJob, type FacetsRefreshJobData } from './jobs/facetsRefres
 import { cachePurgeJob, type CachePurgeJobData } from './jobs/cachePurge.js';
 import { mcPurgeJob, type McPurgeJobData } from './jobs/mcPurge.js';
 import { connectionsPullJob, type ConnectionsPullJobData } from './jobs/connectionsPull.js';
+import { listenLinksResolveJob, type ListenLinksResolveJobData } from './jobs/listenLinksResolve.js';
 import { fingerprintAlbumJob, type FingerprintAlbumJobData } from './jobs/fingerprintAlbum.js';
 import { fingerprintSweepJob, type FingerprintSweepJobData } from './jobs/fingerprintSweep.js';
 import { acoustidLookupJob, type AcoustidLookupJobData } from './jobs/acoustidLookup.js';
@@ -67,6 +68,7 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'enrich.release': 'stately',
   'enrich.sweep': 'stately',
   'art.fetch': 'stately',
+  'art.sweep': 'stately',
   'art.thumb': 'stately',
   'art.thumbSweep': 'stately',
   'identify.album': 'stately',
@@ -94,6 +96,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'tracks.link': 'stately',
   // one queued per link (singletonKey connections.pull:<link id>) behind the running one
   'connections.pull': 'stately',
+  // one queued per album or artist (singletonKey listen:rg:<id> / listen:artist:<id>)
+  'listenLinks.resolve': 'stately',
 };
 
 const M1_PLACEHOLDER_QUEUES: string[] = [];
@@ -303,6 +307,16 @@ async function main() {
     });
     await boss.schedule('connections.pull', '*/15 * * * *', {}, { singletonKey: 'connections.pull:tick' });
   }
+  // Listen elsewhere's link lookups (the listen-links module), on the identify
+  // worker: MusicBrainz shares identify's pacer. Pages send one album's or
+  // artist's job when opened; a nightly sweep looks up a few followed
+  // artists' missing albums. Off (Settings › Modules), every run skips.
+  if (wants('identify.album')) {
+    await boss.work<ListenLinksResolveJobData>('listenLinks.resolve', { batchSize: 1, pollingIntervalSeconds: 5 }, async (jobs) => {
+      for (const job of jobs) await listenLinksResolveJob(ctx, job.data);
+    });
+    await boss.schedule('listenLinks.resolve', '40 3 * * *', { sweep: true }, { singletonKey: 'listen:sweep' });
+  }
   if (wants('identify.acoustid')) for (let w = 0; w < ACOUSTID_IDENTIFY_WORKERS; w++) {
     await boss.work<IdentifyAlbumJobData>('identify.acoustid', { batchSize: 1, pollingIntervalSeconds: 1 }, identifyHandler('identify.acoustid'));
   }
@@ -383,9 +397,18 @@ async function main() {
     await boss.schedule('art.thumbSweep', '30 4 * * *', {}, { singletonKey: 'art.thumbSweep' });
   }
 
-  if (wants('art.sweep')) await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
-    for (const job of jobs) await artSweepJob(ctx, job.data);
-  });
+  if (wants('art.sweep')) {
+    // Albums without a cover get one lookup each (embedded art, the folder's
+    // cover.jpg, then online art), so a scan's local covers show within
+    // minutes. Nothing else queues art.fetch for a newly scanned album.
+    const artLibrary = pinnedLibraryId();
+    await boss.work<ArtSweepJobData>('art.sweep', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) {
+        await artSweepJob(ctx, { ...(artLibrary ? { libraryId: artLibrary } : {}), ...(job.data ?? {}) });
+      }
+    });
+    await boss.schedule('art.sweep', '*/5 * * * *', {}, { singletonKey: 'art.sweep' });
+  }
 
   if (wants('queue.autoaccept')) await boss.work<QueueAutoAcceptJobData>('queue.autoaccept', { batchSize: 1 }, async (jobs) => {
     for (const job of jobs) await queueAutoAcceptJob(ctx, job.data);

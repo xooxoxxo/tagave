@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
@@ -46,6 +47,11 @@ export default defineConfig(({ command }) => ({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: true,
+  },
+  // Material Color Utilities' ESM imports a few paths without an extension:
+  // Vite resolves them, Node's loader does not, so Vitest bundles it in
+  test: {
+    server: { deps: { inline: ['@material/material-color-utilities'] } },
   },
   resolve: {
     alias: {

@@ -33,6 +33,7 @@ export interface ExternalPlayerSettings {
   playerUser?: unknown;
   /** sealed (enc:v1:…) */
   playerPassword?: unknown;
+  /** before 0.13.2: the password's last four characters; dropped on the next save */
   playerPasswordHint?: unknown;
 }
 

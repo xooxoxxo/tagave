@@ -12,7 +12,7 @@
  * the file facts). The track playing now is marked in dew. Without it the
  * list renders exactly as before.
  */
-import { useRef, useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { Collapse, IconButton, MoreIcon, PlayIcon } from '../components/ui';
 import type { DetailTrack } from './albumDetailTypes';
 import { dur, fileLine, qualityLine, trackArtistIfDifferent } from './albumFormat';
@@ -57,9 +57,11 @@ export interface AlbumTracksProps {
   maintenance: boolean;
   /** the player module, when one is installed and answering; null hides every play affordance */
   player?: { currentTrackId: string | null; onPlay: (trackId: string) => void } | null;
+  /** a track's ⋮ (Play next, Add to queue, Add to playlist), outside Maintenance */
+  trackMenu?: ((track: DetailTrack) => ReactNode) | null | undefined;
 }
 
-export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null }: AlbumTracksProps) {
+export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, artistNames, maintenance, player = null, trackMenu = null }: AlbumTracksProps) {
   const [openFile, setOpenFile] = useState<string | null>(null);
   const press = useRef<{ id: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   // touch: a tap on the title plays from there, unless that touch was a long press
@@ -158,6 +160,7 @@ export function AlbumTracks({ tracks, missingTracks, discCount, albumArtists, ar
                       {!maintenance && file && !uniform && <span className={styles.srOnly}>, {qualityLine(t)}</span>}
                     </span>
                     <span className={styles.len}>{dur(t.durationMs)}</span>
+                    {!maintenance && trackMenu && <span className={styles.rowMenu}>{trackMenu(t)}</span>}
                     {maintenance && (
                       <IconButton
                         label={open ? `Hide file details for ${t.title ?? 'this track'}` : `File details for ${t.title ?? 'this track'}`}

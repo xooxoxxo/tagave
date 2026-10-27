@@ -38,14 +38,15 @@ import { IdentifyRequestPanel, requestSummary } from '../components/IdentifyRequ
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
 import { PageBackActionContext } from '../components/ui/PageShell';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { uniqueGenres } from '../utils/albumPresentation';
 import { describeQualityFlag, type QualityIssue } from '../utils/qualityFlags';
 import { GAP_KIND_LABEL, doneLabel, gapLine, qualityFlagOf, taskText, wrongFix, type WrongFix } from '../utils/gapTasks';
 import { attentionItems, issuesTargetRow, requestKeyOf, trackDiscrepancies, type AlbumSearch, type AlbumTab, type AttentionItem } from '../utils/albumAttention';
 import { GapChoices, ReopenGapButton } from '../components/GapChoices';
-import { Button, Chip, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
+import { Button, Chip, CloseIcon, Collapse, CoverArt, LinkButton, PageShell, Tabs, tabIdFor, confirmDialog, showToast, updateToast, dismissToast } from '../components/ui';
 import { AlbumFolders } from './AlbumFolders';
-import { AlbumFacts } from './AlbumFacts';
+import { AlbumFacts, showsDiscogsData } from './AlbumFacts';
 import type { AlbumDetail, Gap } from './albumDetailTypes';
 import { AlbumTracks } from './AlbumTracks';
 import { AlbumAttention } from './AlbumAttention';
@@ -61,9 +62,14 @@ import { albumActionContext, albumMenu, type AlbumMenuAction, type AlbumPlayStat
 import { AlbumFiller } from './AlbumFiller';
 import { aboutExcerpt, albumLines, caretPath, countryName, formatLine, formatReleased, shortFormat, wantsFiller } from './albumFlow';
 import { useAlbumFlow } from './useAlbumFlow';
+import { useAlbumListenLinks } from '../hooks/useListenLinks';
 import { useReviews } from '../hooks/useReviews';
 import { albumAvailabilityKey, playbackAvailable, useAlbumPlayability, useCapabilities } from '../hooks/usePlayer';
 import { currentTrack, playAlbum, shuffleAlbum, toggle as togglePlayback, usePlayerStore } from '../player/engine';
+import { TrackActions, enqueueWithToast } from '../components/player/TrackActions';
+import { usePlaylistsOn } from '../hooks/usePlaylists';
+
+const AddToPlaylistSheet = lazy(() => import('../components/player/TrackDrawer').then((m) => ({ default: m.AddToPlaylistSheet })));
 import { scanWaitLine } from '../player/logic';
 import styles from './AlbumDetailPage.module.css';
 
@@ -117,9 +123,10 @@ export function AlbumDetailPage() {
   const canPlay = playbackAvailable(player);
   const playerInstalled = !!player?.installed;
   const playability = useAlbumPlayability(albumId, canPlay);
-  const playingHere = usePlayerStore((s) => s.queue?.albumId === albumId && s.index >= 0);
+  const playingHere = usePlayerStore((s) => currentTrack(s)?.albumId === albumId);
+  const playlistsOn = usePlaylistsOn();
   const playStatus = usePlayerStore((s) => s.status);
-  const playingTrackId = usePlayerStore((s) => (s.queue?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
+  const playingTrackId = usePlayerStore((s) => (currentTrack(s)?.albumId === albumId ? currentTrack(s)?.localTrackId ?? null : null));
   const queueLoading = usePlayerStore((s) => s.loadingAlbumId === albumId);
   // the sections switcher is a Maintenance tool: without it, the page is the tracks
   const sections = maintenance;
@@ -159,7 +166,7 @@ export function AlbumDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['albums'] });
     }, delayMs);
 
-  const { data: album, isLoading, isError, refetch } = useQuery({
+  const { data: album, isLoading, isError, error: albumError, refetch } = useQuery({
     queryKey: ['album', albumId],
     queryFn: () => api.get<AlbumDetail>(`/libraries/${libraryId}/albums/${albumId}`),
     enabled: !!libraryId && !!albumId,
@@ -268,7 +275,7 @@ export function AlbumDetailPage() {
   // ⋮: a bottom drawer on a phone or tablet, a dropdown on a desktop; the album info
   // is a drawer too (a side sheet on a desktop). Focus goes back to what opened it.
   const drawer = useAlbumDrawer();
-  const [sheet, setSheet] = useState<'actions' | 'info' | null>(null);
+  const [sheet, setSheet] = useState<'actions' | 'info' | 'playlist' | null>(null);
   const [infoTab, setInfoTab] = useState<string>('about');
   // the drawers' code loads on the first open and stays (so they can animate closed)
   const [sheetsWanted, setSheetsWanted] = useState(false);
@@ -276,6 +283,8 @@ export function AlbumDetailPage() {
   const opener = useRef<HTMLElement | null>(null);
   // the excerpt under the names: the album's Wikipedia text or a review, when one is stored
   const reviews = useReviews(libraryId, album?.releaseGroupId ?? null);
+  // Listen elsewhere (the listen-links module): the person's platforms, in the ⋮
+  const listenLinks = useAlbumListenLinks(libraryId, album?.releaseGroupId ?? null);
   // a section opened from elsewhere on the page (or a ?tab link) is brought into view;
   // the sections live in Maintenance, so opening one turns it on
   const openSection = (next: AlbumTab) => {
@@ -294,7 +303,7 @@ export function AlbumDetailPage() {
     if (search.tab && search.tab !== 'tracks') requestAnimationFrame(() => flow.toElement(footRef.current));
   }, [album]); // eslint-disable-line react-hooks/exhaustive-deps
   // a Play that found nothing to play may have asked the server to scan: look again
-  const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.albumId === albumId);
+  const playFailedHere = usePlayerStore((s) => s.status === 'error' && s.queue?.context?.kind === 'album' && s.queue.context.id === albumId);
   useEffect(() => {
     if (playFailedHere) void queryClient.invalidateQueries({ queryKey: albumAvailabilityKey(albumId) });
   }, [playFailedHere, albumId, queryClient]);
@@ -347,6 +356,7 @@ export function AlbumDetailPage() {
   const errorDetail = (m: { error: unknown }): string | null =>
     (m.error as { detail?: string } | null)?.detail ?? (m.error as Error | null)?.message ?? null;
 
+  if (isError && isNotFound(albumError)) return <NotFoundPage title="Album not found" to="/albums" label="Back to albums" />;
   if (isError) return <PageShell back title="Couldn’t load this album" barTitle={null}><div className={styles.container} role="alert"><p>Try again, or return to your library.</p><Button onClick={() => void refetch()}>Try again</Button><Link to="/albums">Back to albums</Link></div></PageShell>;
   if (isLoading || !album) return <PageShell back title={<span className={styles.muted}>Loading album…</span>} barTitle={null}>{null}</PageShell>;
 
@@ -864,6 +874,12 @@ export function AlbumDetailPage() {
     onInfo: () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; openInfo('about'); },
     tools,
     onToggleMaintenance: () => setMaintenance(!maintenance),
+    listen: listenLinks.data?.available ? listenLinks.data.links : [],
+    queue: playState && !playState.disabled ? {
+      next: () => void enqueueWithToast({ albumId }, 'next'),
+      end: () => void enqueueWithToast({ albumId }, 'end'),
+    } : null,
+    addToPlaylist: playlistsOn ? () => { if (!drawer) opener.current = document.activeElement as HTMLElement | null; setSheet('playlist'); } : null,
   });
   const openActions = (button: HTMLElement) => { opener.current = button; setSheet('actions'); };
   // the one ⋮ (owner, 2026-10-17: "only single ... is enough"): in the header
@@ -880,7 +896,7 @@ export function AlbumDetailPage() {
   // "Your CD": the owner's physical copy, for library care (a listener's page is the music)
   const showOwnChip = ownsPhysical && canCare;
   // Discogs' terms: its attribution wherever its data shows (the About tab's last line)
-  const usesDiscogs = !!(album.release?.discogsReleaseId || album.release?.discogsMasterId || album.candidates.some((c) => c.discogsReleaseId));
+  const usesDiscogs = showsDiscogsData(album.release);
   const infoTabs: AlbumInfoTab[] = [
     {
       value: 'about',
@@ -998,7 +1014,7 @@ export function AlbumDetailPage() {
                   {statusNote.live && <span className={styles.statusSpinner} aria-hidden="true" />}
                   <span>{statusNote.text}</span>
                   {!statusNote.live && (
-                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss">✕</button>
+                    <button type="button" className={styles.statusDismiss} onClick={dismissNote} aria-label="Dismiss"><CloseIcon /></button>
                   )}
                 </p>
               )}
@@ -1046,6 +1062,14 @@ export function AlbumDetailPage() {
             artistNames={album.artists?.map((a) => a.name) ?? []}
             maintenance={maintenance}
             player={canPlay && !playDisabled ? { currentTrackId: playingTrackId, onPlay: (trackId) => void playAlbum(albumRef, trackId) } : null}
+            trackMenu={(canPlay && !playDisabled) || playlistsOn ? (t) => (
+              <TrackActions
+                label={`More for ${t.title ?? 'this track'}`}
+                summary={{ title: t.title ?? 'Untitled', subtitle: [t.artist || artistLine, title].filter(Boolean).join(' · '), coverUrl: album.coverUrl }}
+                source={{ trackIds: [t.id] }}
+                artist={album.artists?.[0] ? { id: album.artists[0].id, name: album.artists[0].name } : null}
+              />
+            ) : null}
           />
         </div>
         {/* short albums: a generative piece under the tracklist, seeded by the title */}
@@ -1194,7 +1218,7 @@ export function AlbumDetailPage() {
                 <dt>Candidates</dt>
                 <dd>{album.candidates.length} kept{excludedCount ? `, ${excludedCount} excluded` : ''} — compare them under Editions.</dd>
                 <dt>Cover art</dt>
-                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the Manage menu queues a lookup'}</dd>
+                <dd>{album.coverUrl ? `present (${album.coverOrigin ?? 'unknown origin'})` : 'none yet — Fetch cover art in the ⋮ menu'}</dd>
                 <dt>Editions</dt>
                 <dd>{editions ? (editions.fetchedAt ? `fetched ${new Date(editions.fetchedAt).toLocaleString()}` : editions.fetching ? 'fetching now' : 'not fetched') : 'open the Editions tab to see or fetch them'}</dd>
                 <dt>Reviews</dt>
@@ -1232,6 +1256,16 @@ export function AlbumDetailPage() {
                 returnFocus={opener}
                 summary={sheetSummary}
                 model={menuModel}
+              />
+            )}
+            {/* Add to playlist… from the album's ⋮ */}
+            {playlistsOn && (
+              <AddToPlaylistSheet
+                open={sheet === 'playlist'}
+                onOpenChange={(open) => setSheet(open ? 'playlist' : null)}
+                returnFocus={opener}
+                source={{ albumId }}
+                side={drawer ? 'bottom' : 'right'}
               />
             )}
             {/* Album info (About, Reviews): from "Album info" in ⋮ and from More */}

@@ -1,6 +1,7 @@
 # Third-party notices
 
-The worker image ships the following third-party software.
+The worker image ships the following third-party software. The web app's bundle
+also includes the library listed at the end.
 
 ## mutagen — GPL-2.0-or-later
 
@@ -18,3 +19,9 @@ a separate process. Source: https://ffmpeg.org
 
 Used to compute acoustic fingerprints, invoked as a separate process.
 Source: https://github.com/acoustid/chromaprint
+
+## Material Color Utilities — Apache-2.0
+
+The web app's adaptive colours (`@material/material-color-utilities`, Copyright
+Google LLC) are bundled into the app's JavaScript and loaded on demand.
+Source and licence: https://github.com/material-foundation/material-color-utilities

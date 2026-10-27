@@ -35,7 +35,8 @@ export interface IdentifyAlbumJobData {
   /** IDN-6 manual entry: Discogs release or master (master → its main
    * release), same semantics as pinnedMbid */
   pinnedDiscogs?: { kind: 'release' | 'master'; id: number };
-  /** XO-379 sweep tier: ask Discogs first, MusicBrainz only when Discogs found nothing acceptable */
+  /** Retired (QA 2026-10-26): the Discogs-only first pass. A job queued
+   * with it before the upgrade runs MusicBrainz first like every other. */
   discogsFirst?: boolean;
   /** IDN-5: release MBIDs the AcoustID lookup ranked for this album; fetched
    * and scored beside the search candidates, never trusted blindly */
@@ -337,8 +338,11 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   };
   let fastPathWeak = false;
 
-  // IDN-1c / XO-379: Discogs candidates. Discogs errors never fail the job.
+  // IDN-1c: Discogs candidates. Discogs errors never fail the job, and the
+  // search needs a token: without one Discogs is not asked (and not counted
+  // as tried) — it would answer 401 and spend the shared Discogs slot.
   const discogsPass = async () => {
+    if (!p.discogs.authenticated) return;
     try {
       const hits = await discogsSearch(ctx, p, {
         albumTitle: album.titleGuess as string,
@@ -368,19 +372,11 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   const acceptedByFingerprint = (r: { id: string; tracks?: unknown[] }): boolean =>
     (data.acoustidCoverage?.[r.id] ?? 0) >= ACOUSTID_ACCEPT_COVERAGE
     && Math.abs((r.tracks?.length ?? 0) - local.tracks.length) <= 1;
-  // Sweep tier (owner, 2026-09-09: "first sweep with discogs and do
-  // musicbrainz later"): the first pass over an album asks Discogs only —
-  // 55/min against MusicBrainz's shared 1 req/s slot — and an album Discogs
-  // could not settle waits for its second pass, which runs MB first as before.
-  // Manual and triage tiers keep MB first; the embedded-MBID fast path is one
-  // MB call and stays.
-  const discogsFirst = !!data.discogsFirst && !pinned && !embedded.albumMbid;
-  let discogsDone = false;
+  // MusicBrainz is the primary identifier on every pass, the first one
+  // included (QA 2026-10-26 Q-01). The Discogs-only first pass (XO-379) left
+  // a fresh install without a Discogs token identifying nothing for six
+  // hours: no token → nothing found → MusicBrainz waited for the next pass.
   try {
-    if (discogsFirst) {
-      await discogsPass();
-      discogsDone = true;
-    }
     // AcoustID candidates, best coverage first: one MusicBrainz fetch at a time
     // and stop as soon as one would be accepted — every MB call queues on the
     // shared 1 req/s slot, and fetching all three cost ~2 min per album.
@@ -450,9 +446,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       }
     }
 
-    // MusicBrainz cascade: when nothing was found or the fast path was weak —
-    // never on a Discogs-only first pass (MB gets that album on its next pass).
-    const needMb = !discogsDone && (fetched.length === 0 || fastPathWeak);
+    // MusicBrainz cascade: when nothing was found or the fast path was weak.
+    const needMb = fetched.length === 0 || fastPathWeak;
     if (!pinned && needMb) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
@@ -492,26 +487,14 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     throw err; // pg-boss retry with backoff
   }
 
-  // IDN-1c (MB-first tiers): Discogs when MB found nothing or nothing strong;
-  // MB candidates are still decided below.
-  if (!pinned && !discogsDone) {
+  // IDN-1c: Discogs when MB found nothing or nothing strong; MB candidates
+  // are still decided below.
+  if (!pinned) {
     const mbBest = fetched.length ? scoreCandidates(local, fetched.map(toScorable))[0] : undefined;
     if (!mbBest || mbBest.distance > MATCHING_THRESHOLDS.strong) await discogsPass();
   }
 
-  // A Discogs-only pass that settled nothing leaves the album pending for its
-  // MusicBrainz pass (identify_attempts ≥ 1 → the sweep sends it MB-first);
-  // whatever Discogs found stays as candidates for the album page.
-  const discogsLater = async (scoredCount: number, best: number | undefined): Promise<IdentifyOutcome> => {
-    await ctx.db.update(localAlbums)
-      .set({ identifyReason: 'discogs_pass', updatedAt: new Date() })
-      .where(eq(localAlbums.id, album.id));
-    ctx.logger.info({ album: album.titleGuess, candidates: scoredCount, best }, 'identify: discogs pass, MusicBrainz later');
-    return { outcome: 'unidentified', message: 'Discogs found nothing certain; MusicBrainz is asked on the next pass.' };
-  };
-
   if (fetched.length === 0) {
-    if (discogsDone) return discogsLater(0, undefined);
     if (pinned) return { outcome: 'failed', message: 'That release could not be compared with your files (its tracklist is too large).' };
     return giveUp('no_candidates');
   }
@@ -575,12 +558,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       })
       .where(eq(localAlbums.id, album.id));
     await notifyQueueChanged(ctx, album.libraryId, album.id, 'matched');
-    // ENR-1: bridge + enrich the release of record — except a Discogs match
-    // from the Discogs-only first pass: its MusicBrainz bridge is the nightly
-    // enrich.sweep (XO-379 pass 2), not a MB call now.
-    if (!(discogsFirst && source === 'discogs_search')) {
-      await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
-    }
+    // ENR-1: bridge + enrich the release of record
+    await ctx.boss.send('enrich.release', { releaseId: releaseDb }, { singletonKey: `enrich:${releaseDb}` });
     // 0026: link local tracks to canonical tracks
     try {
       await linkAlbumTracks(ctx, album.id, { releaseId: releaseDb });
@@ -618,11 +597,6 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     return goLive(viaFingerprintDb, 'auto', 'system', viaFingerprint.distance,
       `acoustid auto-accept: ${cov}% of tracks fingerprint-matched, ${viaFingerprint.tracks?.length ?? 0} vs ${local.tracks.length} tracks (distance ${viaFingerprint.distance.toFixed(4)})`,
       'acoustid');
-  }
-
-  // Discogs-only first pass: settle only what the decision would accept.
-  if (discogsDone && !bestIsAcceptable()) {
-    return discogsLater(scored.length, scored[0]?.distance);
   }
 
   // Decide (IDN-3).

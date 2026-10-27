@@ -137,7 +137,12 @@ export async function gapsRecomputeJob(ctx: WorkerContext, data: GapsRecomputeJo
              'mixedLossless', case when losslessness.kinds = 2 then true else null end,
              'lowBitrate', nullif(lowbr.n, 0)
            )) as audio_flags,
-           i.id is not null as has_embedded_art
+           -- the files' own pictures (scan.parse), not the stored front cover:
+           -- an album with art in its files but no cover fetched yet is not
+           -- "No embedded art" (QA 2026-10-26 Q-19)
+           exists (
+             select 1 from local_tracks lt join audio_files af on af.id = lt.audio_file_id
+              where lt.local_album_id = la.id and af.has_embedded_art) as has_embedded_art
     from local_albums la
     left join images i on i.local_album_id = la.id and i.kind = 'front'
     join lateral (

@@ -3,22 +3,39 @@
  * and (on a desktop) the volume, along the foot of the content column. It is
  * mounted once in Layout, so moving between pages never stops the music; it
  * takes its own row under the page (the page scrolls above it, nothing is
- * covered). The queue key opens the queue (PlayerQueue.tsx) above it.
+ * covered). The queue key opens Now Playing (player/NowPlaying.tsx) over
+ * the page; on a phone the mini bar stands in for the bar.
  * PlayerBarView is the bar alone, driven by props (stories, tests);
  * PlayerBar connects it to the engine (player/engine.ts).
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon } from './ui';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from '@tanstack/react-router';
+import type { PlayHistoryEntry } from '@tagave/shared';
+import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIcon, CloseIcon, VolumeIcon, QueueIcon, showToast } from './ui';
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
-import { currentTrack, moveInQueue, next, playAt, previous, removeFromQueue, retry, seek, setVolume, stop, toggle, usePlayerStore, type PlayerStatus } from '../player/engine';
-import { PlayerQueueView } from './PlayerQueue';
+import {
+  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
+  usePlayerStore, type PlayerStatus,
+} from '../player/engine';
+import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
+import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } from '../hooks/usePlaylists';
+import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
+import { TrackActions } from './player/TrackActions';
+import { SeekGlow } from './SeekGlow';
+import { useDisplayPrefs } from '../displayPrefs';
+import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
 
 export interface PlayerBarViewProps {
   title: string;
   artist: string;
   album: string;
+  /** the artists `artist` stands for, with ids: each becomes a link to their page */
+  artists?: readonly CreditedArtist[] | null | undefined;
+  /** the album's id: its name becomes a link to its page */
+  albumId?: string | null | undefined;
   coverUrl: string | null;
   status: PlayerStatus;
   /** the plain sentence of the error state */
@@ -41,10 +58,12 @@ export interface PlayerBarViewProps {
   queueOpen?: boolean;
   /** opens and closes the queue; without it there is no queue key */
   onQueue?: () => void;
+  /** the equalizer glow, laid under the seek bar (SeekGlow) */
+  glow?: ReactNode;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -64,7 +83,13 @@ export function PlayerBarView({ title, artist, album, coverUrl, status, message,
         <CoverArt src={coverUrl} title={album || title} compact className={styles.cover} />
         <div className={styles.names}>
           <span className={styles.title} title={title} dir="auto">{title}</span>
-          {subtitle && <span className={styles.artist} title={subtitle} dir="auto">{subtitle}</span>}
+          {subtitle && (
+            <span className={styles.artist} title={subtitle} dir="auto" {...lineReset}>
+              {artists && artists.length > 0 ? <ArtistLinks artists={artists} /> : artist}
+              {artist && album && ' · '}
+              {album && (albumId ? <AlbumLink albumId={albumId}>{album}</AlbumLink> : album)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -93,22 +118,24 @@ export function PlayerBarView({ title, artist, album, coverUrl, status, message,
       ) : (
         <div className={styles.seek}>
           <span className={styles.time} aria-hidden="true">{clock(shown)}</span>
-          <input
-            type="range"
-            className={styles.range}
-            style={{ '--fill': `${fill}%` } as CSSProperties}
-            min={0}
-            max={total ?? 0}
-            step={1}
-            value={Math.floor(total ? shown : 0)}
-            disabled={!total}
-            aria-label="Seek"
-            aria-valuetext={`${clock(shown)} of ${clock(total)}`}
-            onChange={(e) => setScrub(Number(e.currentTarget.value))}
-            onPointerUp={commit}
-            onKeyUp={commit}
-            onBlur={() => setScrub(null)}
-          />
+          <span className={styles.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
+            {glow}
+            <input
+              type="range"
+              className={styles.range}
+              min={0}
+              max={total ?? 0}
+              step={1}
+              value={Math.floor(total ? shown : 0)}
+              disabled={!total}
+              aria-label="Seek"
+              aria-valuetext={`${clock(shown)} of ${clock(total)}`}
+              onChange={(e) => setScrub(Number(e.currentTarget.value))}
+              onPointerUp={commit}
+              onKeyUp={commit}
+              onBlur={() => setScrub(null)}
+            />
+          </span>
           <span className={styles.time} aria-hidden="true">{clock(total)}</span>
         </div>
       )}
@@ -146,32 +173,53 @@ export function PlayerBarView({ title, artist, album, coverUrl, status, message,
 }
 
 /**
- * The connected bar: shown while a queue exists, Space toggles play and
- * pause (outside fields and buttons), and it tells the page how tall it is
- * (--player-bar-h on <html>) so toasts and the floating Maintenance pill sit
- * above it.
+ * The connected player: shown while a queue exists. On a desktop the bar,
+ * whose queue key (and cover) opens Now Playing over the page; on a phone
+ * the mini bar, which opens the full Now Playing screen. Space toggles play
+ * and pause (outside fields and buttons), and it tells the page how tall it
+ * is (--player-bar-h on <html>) so toasts and the floating Maintenance pill
+ * sit above it. It brings back the person's queue from the server when
+ * tagave opens, follows changes made on the person's other devices, and
+ * pauses when another device starts playing.
  */
 export function PlayerBar() {
   const s = usePlayerStore();
+  const [prefs] = useDisplayPrefs();
   const player = useCapabilities().data?.player;
+  const phone = useMediaQuery(PHONE_QUERY);
+  const playlistsOn = usePlaylistsOn();
+  const createPlaylist = useCreatePlaylist();
+  const client = useQueryClient();
   // the module was removed (or the library has none): nothing to play through
   const uninstalled = !!player && !player.installed;
   useEffect(() => { if (uninstalled) stop(); }, [uninstalled]);
-  const hasQueue = !!s.queue && !uninstalled;
+  const installed = player?.installed === true;
+  const hasQueue = !!s.queue && s.queue.tracks.length > 0 && !uninstalled;
   const ref = useRef<HTMLDivElement>(null);
-  const [queueOpen, setQueueOpen] = useState(false);
-  useEffect(() => { if (!hasQueue) setQueueOpen(false); }, [hasQueue]);
-  // a press outside the bar and the queue closes the queue
+  const [nowOpen, setNowOpen] = useState(false);
+  const [historyWanted, setHistoryWanted] = useState(false);
+  const history = usePlayHistory(installed && nowOpen && historyWanted);
+  useEffect(() => { if (!hasQueue) setNowOpen(false); }, [hasQueue]);
+  // another page: Now Playing gives way to it
+  const { pathname } = useLocation();
+  useEffect(() => { setNowOpen(false); }, [pathname]);
+
+  // the queue as the person left it (on this or another device), and the hand-over
   useEffect(() => {
-    if (!queueOpen) return;
-    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setQueueOpen(false); };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [queueOpen]);
-  const closeQueue = () => {
-    setQueueOpen(false);
-    (ref.current?.querySelector('[data-queue-key]') as HTMLElement | null)?.focus();
-  };
+    if (!installed) return;
+    void restoreQueue();
+    const look = () => { if (document.visibilityState === 'visible') void syncQueue(); };
+    const timer = setInterval(look, 10_000);
+    document.addEventListener('visibilitychange', look);
+    window.addEventListener('focus', look);
+    window.addEventListener('pagehide', persistOnLeave);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', look);
+      window.removeEventListener('focus', look);
+      window.removeEventListener('pagehide', persistOnLeave);
+    };
+  }, [installed]);
 
   useEffect(() => {
     if (!hasQueue) return;
@@ -200,47 +248,113 @@ export function PlayerBar() {
       delete root.dataset['playerBar'];
       root.style.removeProperty('--player-bar-h');
     };
-  }, [hasQueue]);
+  }, [hasQueue, phone]);
 
   if (!s.queue || !hasQueue) return null;
-  const track = currentTrack(s);
   const tracks = s.queue.tracks;
+  const track = currentTrack(s) ?? tracks[0]!;
+  const close = () => {
+    setNowOpen(false);
+    (ref.current?.querySelector('[data-queue-key], [data-mini-open]') as HTMLElement | null)?.focus();
+  };
+  const canNext = s.index >= 0 && nextPlayable(tracks, s.index) >= 0;
+  const queueProps = {
+    tracks,
+    index: s.index,
+    context: s.queue.context,
+    onPlay: playAt,
+    onMove: moveInQueue,
+    onRemove: removeFromQueue,
+    onClear: clearQueue,
+    history: history.data ?? (historyWanted ? null : []),
+    onHistoryOpen: () => { setHistoryWanted(true); void client.invalidateQueries({ queryKey: playHistoryKey }); },
+    onPlayHistory: (h: PlayHistoryEntry) => {
+      if (!h.localTrackId) return;
+      void enqueue({ trackIds: [h.localTrackId] }, 'next').then((n) => { if (n > 0) next(); });
+    },
+    onSave: playlistsOn ? async (name: string) => {
+      await createPlaylist.mutateAsync({ name, trackIds: tracks.map((t) => t.localTrackId) });
+      showToast({ message: `Saved as ${name}` });
+    } : undefined,
+  };
+  const actions = (
+    <TrackActions
+      label={`More for ${track.title}`}
+      place="header"
+      summary={{ title: track.title, subtitle: `${track.artist} · ${track.album}`, coverUrl: track.coverUrl }}
+      source={{ trackIds: [track.localTrackId] }}
+      albumId={track.albumId}
+      artist={linkedArtists(track.artist, track.albumArtist, track.artists)?.[0] ?? null}
+    />
+  );
+  const barArtist = track.artist || track.albumArtist;
   return (
     <div ref={ref} className={styles.dock} data-player-bar="">
-      {queueOpen && (
-        <PlayerQueueView
-          album={s.queue.album}
-          tracks={tracks}
-          index={s.index}
-          onPlay={playAt}
-          onMove={moveInQueue}
-          onRemove={removeFromQueue}
-          onClose={closeQueue}
-        />
+      {phone ? (
+        <>
+          <MiniPlayer
+            track={track}
+            status={s.status}
+            message={s.message}
+            position={s.position}
+            duration={s.duration}
+            canNext={canNext}
+            onOpen={() => setNowOpen(true)}
+            onToggle={toggle}
+            onNext={next}
+            onRetry={retry}
+          />
+          {nowOpen && (
+            <NowPlayingScreen
+              {...queueProps}
+              track={track}
+              status={s.status}
+              position={s.position}
+              duration={s.duration}
+              canPrevious={s.index >= 0}
+              canNext={canNext}
+              onToggle={toggle}
+              onPrevious={previous}
+              onNext={next}
+              onSeek={seek}
+              onClose={close}
+              onNavigate={() => setNowOpen(false)}
+              actions={actions}
+              glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
+            />
+          )}
+        </>
+      ) : (
+        <>
+          {nowOpen && <NowPlayingView {...queueProps} track={track} onClose={close} onNavigate={() => setNowOpen(false)} actions={actions} />}
+          <PlayerBarView
+            title={track.title}
+            artist={barArtist}
+            album={track.album}
+            artists={linkedArtists(barArtist, track.albumArtist, track.artists)}
+            albumId={track.albumId}
+            coverUrl={track.coverUrl}
+            status={s.status}
+            message={s.message}
+            position={s.position}
+            duration={s.duration}
+            volume={s.volume}
+            // Previous always has somewhere to go once a track is loaded: it restarts the first one
+            canPrevious={s.index >= 0}
+            canNext={canNext}
+            onToggle={toggle}
+            onPrevious={previous}
+            onNext={next}
+            onSeek={seek}
+            onVolume={setVolume}
+            onRetry={retry}
+            onClose={() => stop({ forget: true })}
+            queueOpen={nowOpen}
+            onQueue={() => setNowOpen((o) => !o)}
+            glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
+          />
+        </>
       )}
-      <PlayerBarView
-        title={track?.title ?? s.queue.album}
-        artist={track?.artist || s.queue.albumArtist}
-        album={track ? s.queue.album : ''}
-        coverUrl={s.queue.coverUrl}
-        status={s.status}
-        message={s.message}
-        position={s.position}
-        duration={s.duration}
-        volume={s.volume}
-        // Previous always has somewhere to go once a track is loaded: it restarts the first one
-        canPrevious={s.index >= 0}
-        canNext={s.index >= 0 && nextPlayable(tracks, s.index) >= 0}
-        onToggle={toggle}
-        onPrevious={previous}
-        onNext={next}
-        onSeek={seek}
-        onVolume={setVolume}
-        onRetry={retry}
-        onClose={stop}
-        queueOpen={queueOpen}
-        onQueue={() => setQueueOpen((o) => !o)}
-      />
     </div>
   );
 }

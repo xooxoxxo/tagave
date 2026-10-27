@@ -45,8 +45,8 @@ export interface PlayerSettingsView {
   external: {
     url: string;
     username: string;
-    /** last four characters of the saved password, for recognition */
-    passwordHint: string | null;
+    /** a password is saved; no part of it is ever sent back */
+    passwordSaved: boolean;
   } | null;
   /** the last scan tagave asked the server for, and how it went */
   lastScan: { requestedAt: string; state: 'requested' | 'failed'; error: string | null } | null;
@@ -96,8 +96,12 @@ export interface PlayerQueueView {
   albumId: string;
   album: string;
   albumArtist: string;
+  /** the album's credited artists with their tagave ids, in credit order, for links to their pages (absent from an older API; empty before the album is identified) */
+  artists?: Array<{ id: string; name: string }>;
   /** tagave's own cover art, the same URL the album page uses */
   coverUrl: string | null;
+  /** the release year, when known (absent from an older API) */
+  year?: number | null;
   /** disc, then track order; unavailable tracks are included (the UI skips them) */
   tracks: PlayerQueueTrack[];
   /** some files were not on the server yet, so tagave asked it to scan */

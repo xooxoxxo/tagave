@@ -22,6 +22,7 @@
 }
 
 .button {
+  --b-hover-wash: rgba(255, 255, 255, 0.1);
   --b-top: var(--dew-hi);
   --b-mid: var(--dew);
   --b-bot: var(--dew-lo);
@@ -101,33 +102,40 @@
   align-items: center;
   gap: var(--space-sm);
   min-width: 0;
-  /* the release: the content springs back up with a small overshoot */
-  transition: transform var(--dur-pop) var(--ease-pop);
+  /* the release: the content comes straight back up, no overshoot (the
+     springy pop read as a wobble, 2026-10-26) */
+  transition: transform 140ms var(--ease-out);
 }
 
+/* an icon is a block: no inline baseline gap under it, so the flex centre
+   is the glyph's centre */
 .label svg,
 .button > svg {
+  display: block;
   width: 18px;
   height: 18px;
   flex-shrink: 0;
 }
 
 /* Hover: the surface answers, the capsule stays put. The sheen brightens, the
-   rim picks up a thin inner glint and the depth inside deepens a touch. The
-   outer shadow is the resting one: nothing lifts, nothing grows. */
+   rim picks up a thin inner glint and a faint wash (--b-hover-wash) lightens
+   the body, the same step on every variant, so the hover is seen without
+   anything moving. The outer shadow is the resting one: nothing lifts,
+   nothing grows. */
 .button:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
   --b-sheen-boost: 0.14;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.75),
     inset 0 0 0 1px rgba(255, 255, 255, 0.14),
     inset 0 -4px 10px rgba(0, 0, 0, 0.22),
+    inset 0 0 0 999px var(--b-hover-wash),
     0 1px 1px rgba(var(--shadow-tint), 0.18),
     0 10px 22px -10px color-mix(in srgb, var(--b-glow) 70%, transparent);
 }
 
 /* Press: an inset. The inner shadow deepens, the sheen dims and the content
    sinks 1px inside the capsule (80ms). Letting go runs the label's base
-   transition, which springs back past its place and settles: the pop. */
+   transition back up. */
 .button:active:not(:disabled, [aria-disabled="true"], [aria-busy="true"]) {
   --b-sheen-boost: 0;
   transition-duration: var(--dur-fast);
@@ -169,6 +177,8 @@
 
 /* ---- Secondary: clear frosted bubble ---- */
 .secondary {
+  /* the clear bubble darkens a touch in light (white on white shows nothing) */
+  --b-hover-wash: color-mix(in srgb, var(--ink) 5%, transparent);
   --b-ink: var(--ink);
   --b-glow: var(--ink-3);
   --b-sheen: var(--clear-sheen);
@@ -176,7 +186,11 @@
   background:
     radial-gradient(120% 90% at 50% 120%, color-mix(in srgb, var(--dew-tint) 90%, transparent) 0, transparent 65%) padding-box,
     linear-gradient(180deg, color-mix(in srgb, var(--surface) 92%, transparent), color-mix(in srgb, var(--mist) 90%, transparent)) padding-box,
-    linear-gradient(180deg, var(--rim-a), var(--glass-edge)) border-box;
+    var(--b-rim) border-box;
+  /* The rim is a hairline all the way round, lighter at the top. It used to
+     run from --rim-a (near-white) to --glass-edge: on a light surface the
+     top half vanished and the bubble read as missing its top (2026-10-26). */
+  --b-rim: linear-gradient(180deg, color-mix(in srgb, var(--line-strong) 70%, var(--rim-a)), var(--line-strong));
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
   box-shadow: var(--clear-shadow);
@@ -188,6 +202,7 @@
     inset 0 1px 0 var(--clear-hi),
     inset 0 0 0 1px color-mix(in srgb, var(--clear-hi) 45%, transparent),
     inset 0 -4px 10px rgba(var(--shadow-tint), 0.1),
+    inset 0 0 0 999px var(--b-hover-wash),
     0 1px 1px rgba(var(--shadow-tint), 0.1),
     0 10px 22px -14px rgba(var(--shadow-tint), 0.45);
 }
@@ -204,7 +219,7 @@
   .secondary {
     background:
       linear-gradient(180deg, var(--surface), var(--mist)) padding-box,
-      linear-gradient(180deg, var(--rim-a), var(--glass-edge)) border-box;
+      var(--b-rim) border-box;
   }
 }
 
@@ -233,8 +248,13 @@
 
 .quiet::before,
 .ghost::before,
-.quiet-danger::before {
-  opacity: 0;
+.quiet-danger::before,
+.quiet:active::before,
+.ghost:active::before,
+.quiet-danger:active::before {
+  /* no sheen, pressed included: the press used to bring back a band of
+     sheen across the top of a quiet circle */
+  display: none;
 }
 
 .quiet:hover:not(:disabled, [aria-disabled="true"], [aria-busy="true"]),
@@ -287,14 +307,41 @@
   padding: 0 12px;
 }
 
-/* ---- Icon-only: a circle ---- */
-.button.icon {
+/* ---- Icon-only: a circle ----
+   A square box, no padding, the glyph a block in the flex centre. The size
+   classes are named in the selector so the padding of a quiet small button
+   (0 12px, three classes) can never win: it pushed every small quiet icon
+   4px right of centre (player keys, queue rows, rename, 2026-10-26). */
+.button.icon,
+.button.icon.size-md,
+.button.icon.size-sm {
   width: var(--h-control);
   padding: 0;
 }
 
 .button.icon.size-sm {
   width: var(--h-control-sm);
+}
+
+.button.icon > .label {
+  display: grid;
+  place-items: center;
+}
+
+/* On a circle the sheen is a soft cap that follows the curve: the straight
+   band of a pill cut a flat chord across the top of the circle. */
+.button.icon::before {
+  inset: 1px;
+  height: auto;
+  border-radius: 50%;
+  -webkit-mask-image: none;
+  mask-image: none;
+  background: radial-gradient(
+    80% 55% at 50% 0%,
+    rgba(255, 255, 255, calc((var(--b-sheen) + var(--b-sheen-boost)) * 0.9)) 0%,
+    rgba(255, 255, 255, calc((var(--b-sheen) + var(--b-sheen-boost)) * 0.3)) 45%,
+    rgba(255, 255, 255, 0) 70%
+  );
 }
 
 .button.icon svg {

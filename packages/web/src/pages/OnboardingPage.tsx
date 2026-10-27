@@ -26,6 +26,7 @@ import { api } from '../services/api';
 import { Banner, Button, Card, Input, TextField } from '../components/ui';
 import { SetupSteps } from '../components/SetupSteps';
 import { firstScanState, folderAdvice, folderCheckerLive, workerLive, validateContact } from './setupWizard';
+import { actionProblem, identifyNowNote } from './identifyNow';
 import styles from './OnboardingPage.module.css';
 
 const LIVE_MS = 5000;
@@ -157,7 +158,7 @@ export function OnboardingPage() {
   const job = scanJob.data;
   const found = stats.data?.total ?? 0;
   const matched = stats.data?.states.matched ?? 0;
-  const scanState = firstScanState({ scanStatus: job?.status, albumsFound: found, grouping: stats.data?.grouping, statsLoaded: !!stats.data });
+  const scanState = firstScanState({ scanStatus: job?.status, albumsFound: found, grouping: stats.data?.grouping, statsLoaded: !!stats.data, pending: stats.data?.states.pending });
 
   return (
     <div className={styles.container}>
@@ -325,12 +326,19 @@ export function OnboardingPage() {
                 <Banner tone="warning">
                   No albums found. Check the folder above.
                 </Banner>
+              ) : scanState === 'decided' ? (
+                <Banner tone="warning">
+                  No album was identified.{' '}
+                  <Link to="/work" search={{ tab: stats.data?.states.needsReview ? 'review' : 'identify' }}>Open Library care</Link>
+                </Banner>
               ) : scanState === 'found' ? (
                 <Banner tone="info">
                   Identifying albums…{' '}
                   <Button variant="secondary" size="sm" loading={kickSweep.isPending} onClick={() => kickSweep.mutate()}>
                     Identify now
                   </Button>
+                  {kickSweep.isSuccess && identifyNowNote(kickSweep.data) && <> {identifyNowNote(kickSweep.data)}</>}
+                  {kickSweep.isError && <> {actionProblem(kickSweep.error, 'Could not queue the albums.')}</>}
                 </Banner>
               ) : (
                 <Banner tone="info">Scanning…</Banner>

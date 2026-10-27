@@ -37,6 +37,15 @@
 
 :global(html[data-player-bar]) .row { height: var(--player-bar-h, 72px); }
 
+/* adaptive colour: the strip takes the player bar's surface (PlayerBar.module.css) */
+:global(html[data-adaptive][data-player-bar]) .row {
+  --strip: var(--ad-bar);
+  --ink: var(--ad-bar-ink);
+  --ink-2: var(--ad-bar-ink-2);
+  --ink-3: var(--ad-bar-ink-2);
+  color: var(--ad-bar-ink-2);
+}
+
 /* the global button baseline paints a fill and a press: neither here */
 .row:hover:not(:disabled),
 .row:active:not(:disabled) {

@@ -11,6 +11,9 @@
 .brandRow { display: contents; }
 .brandRowBeside { display: flex; align-items: center; gap: .5rem; min-width: 0; }
 .brandRowBeside .brand { flex: none; }
+/* the mark beside the search pill is the pill's height (2.75rem), so the
+   two sit as one row of equal controls (2026-10-26) */
+.brandRowBeside .brandMark { width: 2.75rem; height: 2.75rem; }
 .brandRowBeside .tools { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
 @media (min-width: 901px) {
   /* Beside the wordmark the pill has little room: it drops the shortcut,
@@ -74,6 +77,10 @@ between browsing and upkeep: the hairline cut into the
    making the page scroll (AlbumDetailPage.module.css .flow and .filler). */
 .page:has([data-album-flow]) { display: flex; flex-direction: column; }
 .page:has([data-album-flow]) > div { flex: 1 0 auto; }
+/* What sits above the page in the pane (the disk-space notice) comes out of
+   that height, so the album never scrolls by the notice's height. */
+.main:has([data-album-flow]) { display: flex; flex-direction: column; }
+.page:has([data-album-flow]) { flex: 1 0 auto; min-height: 0; }
 /* Home's kiosk view: exactly the pane's height on a desktop (DashboardPage) */
 /* The footer shares the pane with Home instead of sitting below a full-height
    page, so the whole view (Discogs notice included) fits without scrolling. */
@@ -88,7 +95,7 @@ between browsing and upkeep: the hairline cut into the
   .container { flex-direction: column; }
   .nav { position: relative; z-index: var(--z-sticky); flex: 0 0 auto; width: 100%; padding: .85rem 1.25rem; display: grid; grid-template-columns: 1fr auto; gap: .65rem 1rem; overflow: visible; }
   .brand { font-size: 1.5rem; padding: 0; }
-  .brandMark { width: 1.6rem; height: 1.6rem; }
+  .brandMark, .brandRowBeside .brandMark { width: 1.6rem; height: 1.6rem; }
   .brandRowBeside { display: contents; }
   /* Wrap rather than scroll. A scrolling strip put a permanent scrollbar under
      the primary navigation and cut the last item ("Settings") in half; seven
@@ -115,7 +122,8 @@ between browsing and upkeep: the hairline cut into the
   .brand { grid-column: 1; grid-row: 1; font-size: 1.3rem; gap: .5rem; }
   .wordmark { display: none; }
   .pageTitle { display: block; grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 var(--font-size-lg) / 1.2 var(--font-body); color: var(--ink); }
-  .brandMark { width: 1.5rem; height: 1.5rem; }
+  /* the same height as the search and menu circles beside it */
+  .brandMark, .brandRowBeside .brandMark { width: 2.75rem; height: 2.75rem; }
   /* The bar names the page, so the page's own heading is left to screen
      readers, and a header that held only the heading keeps just the page's
      top margin (tabs and toolbars would otherwise touch the bar). */
@@ -256,4 +264,10 @@ between browsing and upkeep: the hairline cut into the
   .navDetail .brand, .navDetail .pageTitle { display: none; }
   .phoneBar { display: flex; grid-column: 1 / 3; grid-row: 1; }
   .appBar { display: none; }
+}
+
+/* Playlists: a link in the sidebar and the tablet bar; on a phone the menu
+   sheet lists the playlists themselves (MenuPlaylists) */
+@media (max-width: 720px) {
+  .wideOnly { display: none; }
 }

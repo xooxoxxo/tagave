@@ -1863,3 +1863,100 @@ export const mcPending = pgTable(
     createdIdx: index('idx_mc_pending_created').on(table.createdAt),
   })
 );
+
+// Listen elsewhere, the listen-links module (0054): links from albums and
+// artists to streaming platforms, when each was last looked up, and each
+// person's platforms. Its own tables; no core table references them.
+// Written by worker › jobs/listenLinksResolve.ts and api › routes/listenLinks.ts.
+export const listenLinks = pgTable(
+  'listen_links',
+  {
+    releaseGroupId: uuid('release_group_id').notNull().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+    platform: text().notNull(),
+    url: text().notNull(),
+    source: text().notNull(),
+    resolvedAt: tstz('resolved_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.releaseGroupId, table.platform] }) })
+);
+
+export const listenArtistLinks = pgTable(
+  'listen_artist_links',
+  {
+    artistId: uuid('artist_id').notNull().references(() => artists.id, { onDelete: 'cascade' }),
+    platform: text().notNull(),
+    url: text().notNull(),
+    source: text().notNull(),
+    resolvedAt: tstz('resolved_at').notNull().defaultNow(),
+  },
+  (table) => ({ pk: primaryKey({ columns: [table.artistId, table.platform] }) })
+);
+
+export const listenAlbumChecks = pgTable('listen_album_checks', {
+  releaseGroupId: uuid('release_group_id').primaryKey().references(() => releaseGroups.id, { onDelete: 'cascade' }),
+  checkedAt: tstz('checked_at').notNull().defaultNow(),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+});
+
+export const listenArtistChecks = pgTable('listen_artist_checks', {
+  artistId: uuid('artist_id').primaryKey().references(() => artists.id, { onDelete: 'cascade' }),
+  checkedAt: tstz('checked_at').notNull().defaultNow(),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  found: integer().notNull().default(0),
+});
+
+export const listenPrefs = pgTable('listen_prefs', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  platforms: text().array().notNull().default(sql`'{}'`),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
+// The play queue per person, the player module (0055): what plays, what
+// comes next and where it stopped, so it follows the person across devices.
+// Written by api › routes/playerQueue.ts.
+export const playerQueueState = pgTable('player_queue_state', {
+  userId: uuid('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  items: jsonb().notNull().default(sql`'[]'::jsonb`),
+  context: jsonb(),
+  idx: integer().notNull().default(-1),
+  positionMs: integer('position_ms').notNull().default(0),
+  deviceId: text('device_id').notNull(),
+  revision: bigint({ mode: 'number' }).notNull().default(1),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
+// Playlists, the playlists module (0056): each person's private lists. Its own
+// tables; no core table references them. api › routes/playlists.ts.
+export const playlists = pgTable(
+  'playlists',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    name: text().notNull(),
+    source: text().notNull().default('tagave'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({ userIdx: index('idx_playlists_user').on(table.userId, table.updatedAt) })
+);
+
+export const playlistItems = pgTable(
+  'playlist_items',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    playlistId: uuid('playlist_id').notNull().references(() => playlists.id, { onDelete: 'cascade' }),
+    position: integer().notNull(),
+    localTrackId: uuid('local_track_id').references(() => localTracks.id, { onDelete: 'set null' }),
+    recordingMbid: varchar('recording_mbid', { length: 36 }),
+    releaseMbid: varchar('release_mbid', { length: 36 }),
+    discNo: integer('disc_no'),
+    trackNo: integer('track_no'),
+    title: text().notNull(),
+    artist: text(),
+    album: text(),
+    durationMs: integer('duration_ms'),
+    addedAt: tstz('added_at').notNull().defaultNow(),
+  },
+  (table) => ({ orderIdx: index('idx_playlist_items_order').on(table.playlistId, table.position) })
+);

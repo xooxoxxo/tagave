@@ -4,12 +4,17 @@
  * When nothing is pending the page says so plainly: no rate, no ETA, no
  * sweep button — the sweep runs by itself every five minutes.
  */
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useId } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { useCurrentLibrary, useIdentifyStats, useIdentifyTriage, useRetryIdentify, useKickSweep, useIdentifyRequests, useCancelIdentifyRequest } from '../hooks';
-import { formatEta, formatRelativeTime } from '../utils/time';
+import { formatRelativeTime } from '../utils/time';
 import { docsUrl } from '../utils/docs';
-import { Button } from '../components/ui';
+import { Banner, Button } from '../components/ui';
+import { useSystemChecks } from '../hooks/useSystem';
+import { workerLive } from './setupWizard';
+import { actionProblem, identifyNowNote, identifyProgressLine } from './identifyNow';
+import { reasonChipCount } from './identifyCounts';
+import { plural } from './planOutcome';
 import styles from './IdentifyPage.module.css';
 
 const REASON_LABEL: Record<string, string> = {
@@ -39,6 +44,7 @@ export function IdentifyPanel() {
   const [debouncedQ, setDebouncedQ] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
+  const selectAllId = useId();
 
   // 300 ms trailing debounce so typing does not fire a request per key
   useEffect(() => {
@@ -55,6 +61,8 @@ export function IdentifyPanel() {
   });
   const retry = useRetryIdentify(libraryId);
   const kickSweep = useKickSweep(libraryId);
+  const system = useSystemChecks();
+  const kickNote = kickSweep.isSuccess ? identifyNowNote(kickSweep.data) : null;
   const { data: requests } = useIdentifyRequests(libraryId);
   const cancelRequest = useCancelIdentifyRequest(libraryId);
   const REQUEST_KIND: Record<string, string> = { mbid: 'MusicBrainz release', release_group: 'MusicBrainz release group', discogs: 'Discogs', reidentify: 'Re-identify', sweep: 'Sweep' };
@@ -114,11 +122,7 @@ export function IdentifyPanel() {
   const settled = waiting === 0;
   // Rate and ETA only mean something while albums wait; the rate counts
   // albums decided in the last 15 minutes.
-  const progressLine = perMin > 0 && stats.etaSeconds
-    ? `${perMin.toLocaleString()}/min · ${formatEta(stats.etaSeconds)} left`
-    : queue.active > 0
-      ? 'Working'
-      : 'Waiting for the worker';
+  const progressLine = identifyProgressLine({ perMin, etaSeconds: stats.etaSeconds, queue, workerLive: workerLive(system.data?.checks) });
   const scrollToUnmatched = () => document.getElementById('could-not-match')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Provenance of the live matches + the embedded-MBID fast path (XO-309).
@@ -179,6 +183,8 @@ export function IdentifyPanel() {
               <div className={styles.statusNote}>
                 {progressLine}{queue.queued > 0 ? ` · ${queue.queued.toLocaleString()} queued` : ''}{queue.active > 0 ? ` · ${queue.active.toLocaleString()} running` : ''}{queue.retry > 0 ? ` · ${queue.retry.toLocaleString()} retrying` : ''}
               </div>
+              {kickNote && <div className={styles.statusNote}>{kickNote}</div>}
+              {kickSweep.isError && <div className={styles.statusNote} role="alert">{actionProblem(kickSweep.error, 'Could not queue the albums.')}</div>}
             </div>
             <Button variant="secondary" size="sm" onClick={() => kickSweep.mutate()} loading={kickSweep.isPending} title="Queue the waiting albums now instead of at the next five-minute sweep">
               Identify now
@@ -265,7 +271,7 @@ export function IdentifyPanel() {
               setSelectedIds(new Set());
             }}
           >
-            {r.label} {reasonCounts[r.key as keyof typeof reasonCounts] ?? 0}
+            {r.label} {reasonChipCount(r.key, stats)}
           </button>
         ))}
       </div>
@@ -285,6 +291,8 @@ export function IdentifyPanel() {
         />
       </div>
 
+      {retry.isError && <Banner tone="danger">{actionProblem(retry.error, 'Could not queue the albums.')}</Banner>}
+
       {/* Triage list */}
       {triageLoading && <div className={styles.loading}>Loading items...</div>}
       {triage && triage.items.length === 0 && (
@@ -295,14 +303,15 @@ export function IdentifyPanel() {
           {/* Checkbox row */}
           <div className={styles.checkboxRow}>
             <input
+              id={selectAllId}
               type="checkbox"
               className={styles.checkboxInput}
               checked={selectedIds.size === triage.items.length && triage.items.length > 0}
               onChange={(e) => handleToggleAll(e.target.checked)}
             />
-            <span className={styles.checkboxLabel}>
+            <label htmlFor={selectAllId} className={styles.checkboxLabel}>
               {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select all'}
-            </span>
+            </label>
             {selectedIds.size > 0 && (
               <Button
                 variant="secondary"
@@ -346,7 +355,7 @@ export function IdentifyPanel() {
                     {item.artist ? `${item.artist} — ` : ''}{item.title ?? '(untitled)'}{item.year ? ` (${item.year})` : ''}
                   </div>
                   <div className={styles.itemSecondary}>
-                    {item.trackCount} tracks · {item.formats.join(', ')}{item.dirPath ? ` · ${item.dirPath}` : ''}
+                    {plural(item.trackCount, 'track')} · {item.formats.join(', ')}{item.dirPath ? ` · ${item.dirPath}` : ''}
                   </div>
                 </div>
 
@@ -354,7 +363,7 @@ export function IdentifyPanel() {
                   <div className={styles.itemReason}>{REASON_LABEL[item.reason] ?? item.reason}</div>
                   {item.best && (
                     <div className={styles.itemBest}>
-                      best: {item.best.title} ({item.best.distance.toFixed(2)}, {item.best.source})
+                      Closest: {item.best.title}{item.best.year ? ` (${item.best.year})` : ''}
                     </div>
                   )}
                   {item.error && (

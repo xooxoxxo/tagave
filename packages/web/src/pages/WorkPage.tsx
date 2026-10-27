@@ -13,6 +13,7 @@ import { ReviewPanel } from './QueuePage';
 import { IdentifyPanel } from './IdentifyPage';
 import { AttentionPanel } from './AttentionPage';
 import { TasksPanel } from './TasksPage';
+import { identifyTodoCount } from './identifyCounts';
 
 interface QueueData {
   items: unknown[];
@@ -41,7 +42,7 @@ export function WorkPage() {
   const taskCount = gapsData?.tasks?.todo ?? 0;
 
   const queueCount = queueData?.total ?? 0;
-  const needsReviewCount = stats?.states.needsReview ?? 0;
+  const identifyCount = identifyTodoCount(stats) ?? 0;
   const attentionTotal = useMemo(() => {
     const c = gapsData?.counts;
     if (!c) return 0;
@@ -58,7 +59,7 @@ export function WorkPage() {
       {
         label: 'Identify albums',
         value: 'identify',
-        ...(needsReviewCount > 0 && { count: needsReviewCount }),
+        ...(identifyCount > 0 && { count: identifyCount }),
       },
       {
         label: 'Resolve gaps',
@@ -71,7 +72,7 @@ export function WorkPage() {
         ...(taskCount > 0 && { count: taskCount }),
       },
     ],
-    [queueCount, needsReviewCount, attentionTotal, taskCount],
+    [queueCount, identifyCount, attentionTotal, taskCount],
   );
 
   const handleTabChange = (newTab: string) => {

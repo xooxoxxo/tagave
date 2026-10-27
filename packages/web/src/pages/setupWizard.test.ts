@@ -74,6 +74,11 @@ describe('system checks before the account exists', () => {
     expect(infrastructureChecks(checks).map((c) => c.id)).toEqual(['database', 'migrations', 'workerHeartbeat']);
   });
 
+  it('keeps the disk check /health reports (QA Q-11: "All good", then a disk banner)', () => {
+    const disk: SystemCheck = { id: 'disk', title: 'Disk space', status: 'warn' };
+    expect(infrastructureChecks([...checks, disk]).map((c) => c.id)).toContain('disk');
+  });
+
   it('blocks the account only on the database or its schema', () => {
     expect(setupBlocked(checks)).toBe(false);
     expect(setupBlocked([{ id: 'migrations', title: 'Migrations', status: 'fail' }])).toBe(true);
@@ -157,6 +162,14 @@ describe('folderCheckerLive', () => {
 
 describe('firstScanState', () => {
   const base = { scanStatus: 'done', albumsFound: 0, grouping: 0, statsLoaded: true };
+  it('finishes once every album found has been decided (QA Q-01: it said "Identifying albums…" for good)', () => {
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 7 })).toBe('found');
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 0 })).toBe('decided');
+    // an older API without the count keeps the old behaviour
+    expect(firstScanState({ ...base, albumsFound: 7 })).toBe('found');
+    // files still being grouped can add albums
+    expect(firstScanState({ ...base, albumsFound: 7, pending: 0, grouping: 3 })).toBe('found');
+  });
   it('waits for queued grouping jobs before calling a finished scan empty', () => {
     expect(firstScanState({ ...base, grouping: 14 })).toBe('grouping');
     expect(firstScanState(base)).toBe('empty');

@@ -96,3 +96,57 @@ describe.skipIf(!url || !existsSync(cli))('purge-module (integration)', () => {
     }
   }, 20_000);
 });
+
+describe.skipIf(!url || !existsSync(cli))('purge-module listen-links (integration)', () => {
+  let sql: ReturnType<typeof postgres>;
+  const user = randomUUID();
+  const libraryId = randomUUID();
+  const rg = randomUUID();
+  const artist = randomUUID();
+  const setOn = (on: boolean) => sql`update libraries set settings = jsonb_build_object('modules', jsonb_build_object('listen-links', jsonb_build_object('enabled', ${on}::boolean))) where id = ${libraryId}`;
+
+  beforeAll(async () => {
+    sql = postgres(url!, { max: 1, onnotice: () => undefined });
+    // the install's first library holds the switch
+    await sql`insert into users (id, email, password_hash) values (${user}, ${`purge-ll-${user}@t.com`}, 'x')`;
+    await sql`insert into libraries (id, owner_user_id, name, created_at) values (${libraryId}, ${user}, 'Purge listen', '1970-01-01')`;
+    await sql`insert into release_groups (id, mbid, title) values (${rg}, ${randomUUID()}, 'Linked')`;
+    await sql`insert into artists (id, mbid, name) values (${artist}, ${randomUUID()}, 'Linked artist')`;
+    await sql`insert into listen_links (release_group_id, platform, url, source) values (${rg}, 'qobuz', 'https://play.qobuz.com/album/x1', 'mb-release')`;
+    await sql`insert into listen_artist_links (artist_id, platform, url, source) values (${artist}, 'qobuz', 'https://play.qobuz.com/artist/1', 'mb-artist')`;
+    await sql`insert into listen_album_checks (release_group_id, platforms, found) values (${rg}, '{qobuz}', 1)`;
+    await sql`insert into listen_artist_checks (artist_id, platforms, found) values (${artist}, '{qobuz}', 1)`;
+    await sql`insert into listen_prefs (user_id, platforms) values (${user}, '{qobuz}')`;
+  });
+
+  afterAll(async () => {
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from release_groups where id = ${rg}`;
+    await sql`delete from artists where id = ${artist}`;
+    await sql`delete from users where id = ${user}`;
+    await sql.end({ timeout: 2 });
+  });
+
+  it('refuses while it is on; off, deletes exactly its rows, once', async () => {
+    await setOn(true);
+    const on = await run(['purge-module', 'listen-links', '--json']);
+    expect(on.code).toBe(3);
+    expect(JSON.parse(on.stdout.trim()).refused).toBe(true);
+    expect(await sql`select 1 from listen_prefs where user_id = ${user}`).toHaveLength(1);
+
+    await setOn(false);
+    const off = await run(['purge-module', 'listen-links', '--json']);
+    expect(off.code).toBe(0);
+    const { purged } = JSON.parse(off.stdout.trim().split('\n').pop()!);
+    expect(Object.keys(purged.deleted)).toEqual([...MODULE_DATA['listen-links']!.tables]);
+    expect(purged.history).toBeNull();
+    for (const t of MODULE_DATA['listen-links']!.tables) expect(await sql`select 1 from ${sql(t)}`, t).toHaveLength(0);
+    // the core rows stay
+    expect(await sql`select title from release_groups where id = ${rg}`).toEqual([{ title: 'Linked' }]);
+    expect(await sql`select name from artists where id = ${artist}`).toEqual([{ name: 'Linked artist' }]);
+    expect(await sql`select 1 from users where id = ${user}`).toHaveLength(1);
+
+    const again = JSON.parse((await run(['purge-module', 'listen-links', '--json'])).stdout.trim()).purged;
+    expect(Object.values(again.deleted).every((n) => n === 0)).toBe(true);
+  }, 20_000); // three CLI spawns
+});

@@ -8,9 +8,10 @@
  */
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from '@tanstack/react-router';
-import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
+import { STREAM_BITRATES, saveLastfmAppSchema, savePlayerServerSchema, type ModulesView, type PlayerCapability, type PlayerQuality, type PlayerSettingsView, type SaveLastfmApp, type ScrobblingSettingsView } from '@tagave/shared';
 import { Badge, Banner, Button, Collapse, SegmentedControl, Select, TextField, confirmDialog, type BadgeTone } from '../components/ui';
 import { useCurrentLibrary, useMe } from '../hooks';
+import { useModules } from '../hooks/useModules';
 import { useCapabilities, usePlayerQuality, usePlayerSettings, useRemovePlayerServer, useSavePlayerServer, useScanPlayer } from '../hooks/usePlayer';
 import { useConnectLastfm, useListening, useRemoveLastfmApp, useSaveLastfmApp, useScrobblingSettings } from '../hooks/useListening';
 import type { ApiError } from '../services/api';
@@ -32,6 +33,12 @@ export function playerStatus(cap: PlayerCapability | null | undefined): { tone: 
   return { tone: 'success', label: 'Connected', detail: `${backendName(cap.backend)}${cap.version ? ` ${cap.version}` : ''}, ${where}` };
 }
 
+/** Settings › Modules can turn the player on (a button, or the command without the updater). */
+export function modulesOffersPlayer(view: ModulesView | undefined): boolean {
+  if (!view || !view.verified || view.mode === 'unreachable') return false;
+  return view.modules.some((m) => m.id === 'player' && m.available);
+}
+
 const problem = (err: unknown, fallback: string) => {
   const e = err as Partial<ApiError> | null;
   return e?.detail || e?.title || fallback;
@@ -48,6 +55,7 @@ export function SettingsPlaybackContent() {
   const cap = settings.data?.capability ?? caps.data?.player;
   const status = playerStatus(cap);
   const scan = useScanPlayer(libraryId);
+  const modules = useModules(owner && !!cap && !cap.installed);
 
   return (
     <>
@@ -58,7 +66,7 @@ export function SettingsPlaybackContent() {
         {status.detail && <span className={styles.statusDetail}>{status.detail}</span>}
       </div>
 
-      {owner && cap && !cap.installed && (
+      {owner && cap && !cap.installed && modulesOffersPlayer(modules.data) && (
         <p className={styles.hint}><Link to="/settings/$section" params={{ section: 'modules' }}>Turn on in Modules</Link></p>
       )}
 
@@ -125,7 +133,8 @@ function OwnServerForm({ libraryId, settings }: { libraryId: string | undefined;
     if (ok) remove.mutate(undefined, { onSuccess: () => { setUrl(''); setUsername(''); setPassword(''); } });
   };
 
-  const hint = saved?.passwordHint ? `Saved …${saved.passwordHint}` : saved ? 'Saved' : undefined;
+  // never any characters of the password (QA 2026-10-26 Q-36)
+  const hint = saved ? 'Saved' : undefined;
 
   return (
     <form className={styles.form} onSubmit={onSubmit} noValidate>

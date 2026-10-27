@@ -366,11 +366,8 @@ export function SetupChecklistContent() {
           </span>
         </div>
 
-        {step5Done ? (
-          <div className={styles.control}>
-            <span className={styles.configured}>Scanning…</span>
-          </div>
-        ) : (
+        {/* done: the pill says so; a "Scanning…" beside it outlived the scan (QA Q-12) */}
+        {!step5Done && (
           <Button
             onClick={handleStartFirstScan}
             disabled={!step5Enabled || startScan.isPending}

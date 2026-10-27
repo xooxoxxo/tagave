@@ -9,8 +9,8 @@
  * The drawers themselves (AlbumSheets.tsx) load when one first opens.
  */
 import { useSyncExternalStore, type ReactNode } from 'react';
-import { CoverArt, DiscIcon, EmbossIconButton, InfoIcon, KebabIcon, Menu, PersonIcon, ShuffleIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
-import { albumMenuItems, type AlbumMenuAction, type AlbumMenuIcon, type AlbumMenuModel } from './albumActions';
+import { AddQueueIcon, CoverArt, DiscIcon, PlayNextIcon, PlaylistIcon, EmbossIconButton, InfoIcon, KebabIcon, ListenIcon, Menu, PersonIcon, ShuffleIcon, WrenchIcon, embossClassName, type EmbossPlace } from '../components/ui';
+import { albumMenuItems, listenKindLabel, type AlbumMenuAction, type AlbumMenuIcon, type AlbumMenuModel } from './albumActions';
 import styles from './AlbumMenu.module.css';
 
 /** The drawer's width: phones and tablets; wider screens get the dropdown. */
@@ -33,6 +33,9 @@ const ICONS: Record<AlbumMenuIcon, () => ReactNode> = {
   info: InfoIcon,
   tool: WrenchIcon,
   maintenance: WrenchIcon,
+  next: PlayNextIcon,
+  queue: AddQueueIcon,
+  playlist: PlaylistIcon,
 };
 const Icon = ({ name }: { name: AlbumMenuIcon }) => { const C = ICONS[name]; return <>{C()}</>; };
 
@@ -124,6 +127,27 @@ export function AlbumActionsBody({ summary, model, onClose }: { summary: AlbumSu
           </ul>
         )}
         <ul className={styles.rows}>{model.rows.map(row)}</ul>
+        {model.listen && model.listen.length > 0 && (
+          <section className={styles.group} aria-labelledby="album-listen-heading">
+            <h2 id="album-listen-heading" className={styles.groupTitle}>Listen</h2>
+            <ul className={styles.rows}>
+              {model.listen.map((l) => {
+                const kind = listenKindLabel(l);
+                return (
+                  <li key={l.platform}>
+                    <a className={styles.row} href={l.url} target="_blank" rel="noopener noreferrer" onClick={onClose} data-menu-row={`listen-${l.platform}`} data-listen={l.kind}>
+                      <span className={styles.rowIcon} aria-hidden="true"><ListenIcon /></span>
+                      <span className={styles.rowText}>
+                        <span className={styles.rowLabel}>{l.name}</span>
+                        {kind && <span className={styles.rowHint}>{kind}</span>}
+                      </span>
+                    </a>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
         {model.tools.length > 0 && (
           <section className={styles.group} aria-labelledby="album-tools-heading">
             <h2 id="album-tools-heading" className={styles.groupTitle}>Maintenance tools</h2>

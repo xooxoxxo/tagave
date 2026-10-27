@@ -2,7 +2,146 @@
 
 Every release of tagave, newest first. Assembled from [`release-notes/`](release-notes/) by `node scripts/release-notes.mjs --changelog`; edit the notes there, not here.
 
-## [v0.12.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.12.0)
+## [v0.14.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.14.1)
+
+**Minor release (0.13 → 0.14.1); the 0.14.0 build stopped on a slow test and was never published.** A real queue and playlists, Now Playing, colours that follow the cover, "Listen elsewhere" links, cleaner buttons, and the fixes from a full sweep of the app.
+
+### Before you update
+
+- **Nothing to do.**
+- **Going back to 0.13 means a restore.** This update changes the database (migrations 0054–0056). The updater takes a backup first and restores it on its own if the update fails; see [Going back](https://github.com/xooxoxxo/tagave/blob/v0.14.1/docs/operations.md).
+
+### New
+
+- **Queue.** Play next and Add to queue from any album or track, drag to reorder, Clear. The queue is kept on the server and follows you between devices; editing it on one device doesn't move playback, pressing Play does. ([c1518dc](https://github.com/xooxoxxo/tagave/commit/c1518dc), [6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6), [9922a3c](https://github.com/xooxoxxo/tagave/commit/9922a3c))
+- **Now Playing.** On desktop a full view with the cover, credits, Up next and History; on phones a mini bar that opens a full screen with Playing and Queue. Artist and album names link to their pages. ([6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6), [7964b84](https://github.com/xooxoxxo/tagave/commit/7964b84))
+- **Playlists** (module, on by default). Add tracks or albums from ⋮, a Playlists page with cover mosaics, rename, reorder, delete. Export and import `.tagave-playlist.json` (no file paths), and import `.m3u8` and `.xspf`; tracks that don't match stay as Missing. Turning the module off with "Delete its data" removes only its own tables and offers an export first. ([c1518dc](https://github.com/xooxoxxo/tagave/commit/c1518dc), [6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6))
+- **Adaptive colours** (on by default, Settings › Appearance). The accent and a faint page tint follow the playing cover; the player bar takes one quiet colour from it. Contrast is checked for every cover. **Equalizer glow** (off by default) lights the track bar with the music; on iPhone and iPad it breathes gently instead. ([a5095a6](https://github.com/xooxoxxo/tagave/commit/a5095a6), [9badc74](https://github.com/xooxoxxo/tagave/commit/9badc74))
+- **Listen elsewhere** (module, off by default). Albums you don't own get a Listen control with links to Qobuz, Spotify, Apple Music, YouTube Music, Tidal, Bandcamp, Amazon or Deezer — exact album links where known, otherwise the artist page or a search. Each person picks their services. ([d54d339](https://github.com/xooxoxxo/tagave/commit/d54d339), [4c021c4](https://github.com/xooxoxxo/tagave/commit/4c021c4))
+
+### Improved
+
+- **Buttons.** Icons are centred, circles are whole, and every button has the same hover and press. ([05ba9f7](https://github.com/xooxoxxo/tagave/commit/05ba9f7))
+- **Cover art.** Art inside the files and folder images (cover.jpg, folder.jpg) is picked up after a scan, before online art; accepting a match fetches its cover right away. ([10da8e3](https://github.com/xooxoxxo/tagave/commit/10da8e3), [1fa495a](https://github.com/xooxoxxo/tagave/commit/1fa495a))
+- **Short albums.** The artwork under the tracklist also shows for 4- and 5-track albums when there is room. ([52ba850](https://github.com/xooxoxxo/tagave/commit/52ba850))
+- **Search** ignores accents both ways: "bjork" finds Björk. ([6b16ffa](https://github.com/xooxoxxo/tagave/commit/6b16ffa))
+
+### Fixed
+
+- On a new install without a Discogs token, identification found nothing for hours; MusicBrainz now runs on the first pass and setup finishes. ([429afc8](https://github.com/xooxoxxo/tagave/commit/429afc8))
+- "Identify now" queues the waiting albums and says what it did; "Retry selected" no longer fails. ([ad02f49](https://github.com/xooxoxxo/tagave/commit/ad02f49), [acf601c](https://github.com/xooxoxxo/tagave/commit/acf601c))
+- Unknown pages and missing albums, artists or plans show "Not found" with a way back. ([e80d11f](https://github.com/xooxoxxo/tagave/commit/e80d11f))
+- Sign-in no longer offers "Create owner account" once the owner exists; Playback never shows part of the player password. ([26efcc4](https://github.com/xooxoxxo/tagave/commit/26efcc4), [83bb880](https://github.com/xooxoxxo/tagave/commit/83bb880))
+- Settings › Modules on installs without the updater lists the player as not available instead of an empty command. ([3f63757](https://github.com/xooxoxxo/tagave/commit/3f63757))
+- Many smaller fixes to counts, plurals, labels and dates across Library care, Albums, Settings and Updates.
+
+### For self-hosters
+
+- **Migrations:** 0054 listen links, 0055 player queue state, 0056 playlists.
+- **Modules:** `tagave-doctor purge-module listen-links` and `purge-module playlists` remove exactly their data, and refuse while the module is on.
+
+**All changes:** [v0.13.1...v0.14.1](https://github.com/xooxoxxo/tagave/compare/v0.13.1...v0.14.1)
+
+## [v0.14.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.14.0) (2026-10-27)
+
+**Minor release (0.13 → 0.14).** A real queue and playlists, Now Playing, colours that follow the cover, "Listen elsewhere" links, cleaner buttons, and the fixes from a full sweep of the app.
+
+### Before you update
+
+- **Nothing to do.**
+- **Going back to 0.13 means a restore.** This update changes the database (migrations 0054–0056). The updater takes a backup first and restores it on its own if the update fails; see [Going back](https://github.com/xooxoxxo/tagave/blob/v0.14.0/docs/operations.md).
+
+### New
+
+- **Queue.** Play next and Add to queue from any album or track, drag to reorder, Clear. The queue is kept on the server and follows you between devices; editing it on one device doesn't move playback, pressing Play does. ([c1518dc](https://github.com/xooxoxxo/tagave/commit/c1518dc), [6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6), [9922a3c](https://github.com/xooxoxxo/tagave/commit/9922a3c))
+- **Now Playing.** On desktop a full view with the cover, credits, Up next and History; on phones a mini bar that opens a full screen with Playing and Queue. Artist and album names link to their pages. ([6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6), [7964b84](https://github.com/xooxoxxo/tagave/commit/7964b84))
+- **Playlists** (module, on by default). Add tracks or albums from ⋮, a Playlists page with cover mosaics, rename, reorder, delete. Export and import `.tagave-playlist.json` (no file paths), and import `.m3u8` and `.xspf`; tracks that don't match stay as Missing. Turning the module off with "Delete its data" removes only its own tables and offers an export first. ([c1518dc](https://github.com/xooxoxxo/tagave/commit/c1518dc), [6b2a1f6](https://github.com/xooxoxxo/tagave/commit/6b2a1f6))
+- **Adaptive colours** (on by default, Settings › Appearance). The accent and a faint page tint follow the playing cover; the player bar takes one quiet colour from it. Contrast is checked for every cover. **Equalizer glow** (off by default) lights the track bar with the music; on iPhone and iPad it breathes gently instead. ([a5095a6](https://github.com/xooxoxxo/tagave/commit/a5095a6), [9badc74](https://github.com/xooxoxxo/tagave/commit/9badc74))
+- **Listen elsewhere** (module, off by default). Albums you don't own get a Listen control with links to Qobuz, Spotify, Apple Music, YouTube Music, Tidal, Bandcamp, Amazon or Deezer — exact album links where known, otherwise the artist page or a search. Each person picks their services. ([d54d339](https://github.com/xooxoxxo/tagave/commit/d54d339), [4c021c4](https://github.com/xooxoxxo/tagave/commit/4c021c4))
+
+### Improved
+
+- **Buttons.** Icons are centred, circles are whole, and every button has the same hover and press. ([05ba9f7](https://github.com/xooxoxxo/tagave/commit/05ba9f7))
+- **Cover art.** Art inside the files and folder images (cover.jpg, folder.jpg) is picked up after a scan, before online art; accepting a match fetches its cover right away. ([10da8e3](https://github.com/xooxoxxo/tagave/commit/10da8e3), [1fa495a](https://github.com/xooxoxxo/tagave/commit/1fa495a))
+- **Short albums.** The artwork under the tracklist also shows for 4- and 5-track albums when there is room. ([52ba850](https://github.com/xooxoxxo/tagave/commit/52ba850))
+- **Search** ignores accents both ways: "bjork" finds Björk. ([6b16ffa](https://github.com/xooxoxxo/tagave/commit/6b16ffa))
+
+### Fixed
+
+- On a new install without a Discogs token, identification found nothing for hours; MusicBrainz now runs on the first pass and setup finishes. ([429afc8](https://github.com/xooxoxxo/tagave/commit/429afc8))
+- "Identify now" queues the waiting albums and says what it did; "Retry selected" no longer fails. ([ad02f49](https://github.com/xooxoxxo/tagave/commit/ad02f49), [acf601c](https://github.com/xooxoxxo/tagave/commit/acf601c))
+- Unknown pages and missing albums, artists or plans show "Not found" with a way back. ([e80d11f](https://github.com/xooxoxxo/tagave/commit/e80d11f))
+- Sign-in no longer offers "Create owner account" once the owner exists; Playback never shows part of the player password. ([26efcc4](https://github.com/xooxoxxo/tagave/commit/26efcc4), [83bb880](https://github.com/xooxoxxo/tagave/commit/83bb880))
+- Settings › Modules on installs without the updater lists the player as not available instead of an empty command. ([3f63757](https://github.com/xooxoxxo/tagave/commit/3f63757))
+- Many smaller fixes to counts, plurals, labels and dates across Library care, Albums, Settings and Updates.
+
+### For self-hosters
+
+- **Migrations:** 0054 listen links, 0055 player queue state, 0056 playlists.
+- **Modules:** `tagave-doctor purge-module listen-links` and `purge-module playlists` remove exactly their data, and refuse while the module is on.
+
+**All changes:** [v0.13.1...v0.14.0](https://github.com/xooxoxxo/tagave/compare/v0.13.1...v0.14.0)
+
+## [v0.13.1](https://github.com/xooxoxxo/tagave/releases/tag/v0.13.1) (2026-10-20)
+
+**Patch release (0.13.0 → 0.13.1); the same changes as 0.13.0, which was published without its signed files and cannot be installed.** Updates you can watch, a tidier sidebar foot, short albums that fit the window, and docs at tagave.app/docs.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+- **This update still shows the old progress view:** the updater that is running draws it. The new update view appears from the next update on.
+
+### New
+
+- **The update takes over Settings › Updates.** A slow lava-lamp glyph, drawn from the target version, grows with progress above the steps; it settles on success and tints on failure. Other people only see a calm "Updating" screen while the app restarts, and their page switches to the new version when nothing is playing. ([71d7380](https://github.com/xooxoxxo/tagave/commit/71d7380), [acd25ff](https://github.com/xooxoxxo/tagave/commit/acd25ff))
+- **Steps roll in as they start,** each with one live line: what is downloading and how much, the backup's size, the migration being applied, how many parts run the new version. ([0e4d4e8](https://github.com/xooxoxxo/tagave/commit/0e4d4e8), [1e2592f](https://github.com/xooxoxxo/tagave/commit/1e2592f))
+- **Account at the sidebar's foot.** One row, level with the player bar; it opens a compartment above it with Account, Listening, the theme and Sign out. ([3de534b](https://github.com/xooxoxxo/tagave/commit/3de534b), [93c8da6](https://github.com/xooxoxxo/tagave/commit/93c8da6))
+- **Docs at tagave.app/docs.** Every guide and the changelog; help links in the app open there. ([0e2b4ca](https://github.com/xooxoxxo/tagave/commit/0e2b4ca), [79a302e](https://github.com/xooxoxxo/tagave/commit/79a302e))
+
+### Improved
+
+- **Short albums fit the window.** The artwork under a one-to-three-track album fills only the space left, so the page no longer scrolls. ([28198c4](https://github.com/xooxoxxo/tagave/commit/28198c4))
+- **Album pages end with the music.** The Discogs credit moved to Album info › About. ([3de534b](https://github.com/xooxoxxo/tagave/commit/3de534b))
+
+### Fixed
+
+- Releases are published only once their signed files are attached (0.13.0 went out without them).
+- The disk check counted every pinned image as 1 GB and the download line could only count layers; image sizes are read correctly now. ([cfd3448](https://github.com/xooxoxxo/tagave/commit/cfd3448))
+- The update log no longer repeats the step line, and the backup-size check runs one at a time and ignores leftovers of a crashed backup. ([5396432](https://github.com/xooxoxxo/tagave/commit/5396432), [3da7911](https://github.com/xooxoxxo/tagave/commit/3da7911))
+- On phones, the menu sheet no longer runs under the player bar. ([93c8da6](https://github.com/xooxoxxo/tagave/commit/93c8da6))
+
+**All changes:** [v0.12.0...v0.13.1](https://github.com/xooxoxxo/tagave/compare/v0.12.0...v0.13.1)
+
+## [v0.13.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.13.0) (2026-10-20)
+
+**Minor release (0.12 → 0.13).** Updates you can watch, a tidier sidebar foot, short albums that fit the window, and docs at tagave.app/docs.
+
+### Before you update
+
+- **Nothing to do.** No database change in this release.
+- **This update still shows the old progress view:** the updater that is running draws it. The new update view appears from the next update on.
+
+### New
+
+- **The update takes over Settings › Updates.** A slow lava-lamp glyph, drawn from the target version, grows with progress above the steps; it settles on success and tints on failure. Other people only see a calm "Updating" screen while the app restarts, and their page switches to the new version when nothing is playing. ([71d7380](https://github.com/xooxoxxo/tagave/commit/71d7380), [acd25ff](https://github.com/xooxoxxo/tagave/commit/acd25ff))
+- **Steps roll in as they start,** each with one live line: what is downloading and how much, the backup's size, the migration being applied, how many parts run the new version. ([0e4d4e8](https://github.com/xooxoxxo/tagave/commit/0e4d4e8), [1e2592f](https://github.com/xooxoxxo/tagave/commit/1e2592f))
+- **Account at the sidebar's foot.** One row, level with the player bar; it opens a compartment above it with Account, Listening, the theme and Sign out. ([3de534b](https://github.com/xooxoxxo/tagave/commit/3de534b), [93c8da6](https://github.com/xooxoxxo/tagave/commit/93c8da6))
+- **Docs at tagave.app/docs.** Every guide and the changelog; help links in the app open there. ([0e2b4ca](https://github.com/xooxoxxo/tagave/commit/0e2b4ca), [79a302e](https://github.com/xooxoxxo/tagave/commit/79a302e))
+
+### Improved
+
+- **Short albums fit the window.** The artwork under a one-to-three-track album fills only the space left, so the page no longer scrolls. ([28198c4](https://github.com/xooxoxxo/tagave/commit/28198c4))
+- **Album pages end with the music.** The Discogs credit moved to Album info › About. ([3de534b](https://github.com/xooxoxxo/tagave/commit/3de534b))
+
+### Fixed
+
+- The disk check counted every pinned image as 1 GB and the download line could only count layers; image sizes are read correctly now. ([cfd3448](https://github.com/xooxoxxo/tagave/commit/cfd3448))
+- The update log no longer repeats the step line, and the backup-size check runs one at a time and ignores leftovers of a crashed backup. ([5396432](https://github.com/xooxoxxo/tagave/commit/5396432), [3da7911](https://github.com/xooxoxxo/tagave/commit/3da7911))
+- On phones, the menu sheet no longer runs under the player bar. ([93c8da6](https://github.com/xooxoxxo/tagave/commit/93c8da6))
+
+**All changes:** [v0.12.0...v0.13.0](https://github.com/xooxoxxo/tagave/compare/v0.12.0...v0.13.0)
+
+## [v0.12.0](https://github.com/xooxoxxo/tagave/releases/tag/v0.12.0) (2026-10-20)
 
 **Minor release (0.11 → 0.12).** A cleaner Backups page with the version of every backup, reverse proxies that work without setup, a per-account sign-in limit, and critic scores as one list.
 

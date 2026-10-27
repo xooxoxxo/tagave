@@ -99,8 +99,11 @@ export function caretPath(k: number, w = CARET_W): string {
 
 /* ---------------- short albums: the generative filler ---------------- */
 
-/** Albums with this many tracks or fewer get the generative piece under the tracklist. */
-export const FILLER_MAX_TRACKS = 3;
+/** Albums with this many tracks or fewer get the generative piece under the tracklist (when the pane has room left). */
+export const FILLER_MAX_TRACKS = 5;
+
+/** Below this height (CSS px) the room left is a sliver: the piece shows nothing rather than a strip. */
+export const FILLER_MIN_HEIGHT = 120;
 
 export const wantsFiller = (trackCount: number) => trackCount <= FILLER_MAX_TRACKS;
 

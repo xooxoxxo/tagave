@@ -17,19 +17,12 @@ import { useUpdater } from '../hooks/useUpdater';
 import { InAppUpdate, RunView, useShownRun } from '../components/InAppUpdate';
 import { Banner, Button } from '../components/ui';
 import { attentionReleases, guideOrder, rollbackGuide, updateGuide, type RollbackGuide } from '../utils/updateGuide';
+import { shortDate } from '../utils/time';
 import styles from './SettingsUpdatesPage.module.css';
 
-/** "Oct 11, 7:29 PM" in the reader's locale; the year only when it is not this one. */
+/** "11 Oct, 19:29", the app's date format; the year only when it is not this one. */
 function when(iso: string | null | undefined): string {
-  if (!iso) return '–';
-  const d = new Date(iso);
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return iso ? shortDate(iso) : '–';
 }
 /** "now" under a minute, then "2 min ago", "3 h ago". */
 function ago(iso: string, now = Date.now()): string {

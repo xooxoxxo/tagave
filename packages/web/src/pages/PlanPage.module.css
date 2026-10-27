@@ -62,10 +62,12 @@
 }
 .fieldPickedLabel { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fieldClear {
+  display: inline-grid; place-items: center;
   flex-shrink: 0; width: 26px; height: 26px; min-height: 0; padding: 0;
   border: 0; border-radius: 50%; background: none;
   color: var(--chip-on-ink); font: inherit; font-size: var(--font-size-base); line-height: 1; cursor: pointer;
 }
+.fieldClear svg { display: block; width: 14px; height: 14px; }
 .fieldClear:hover:not(:disabled) { background: color-mix(in srgb, var(--dew) 16%, transparent); color: var(--chip-on-ink); }
 .fieldClear:active:not(:disabled) { transform: none; }
 .fieldClear:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }

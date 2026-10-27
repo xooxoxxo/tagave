@@ -1,16 +1,17 @@
 /**
- * Short albums (≤ 3 tracks): a generative piece under the tracklist, ripple
+ * Short albums (≤ 5 tracks): a generative piece under the tracklist, ripple
  * contours in the accent colour seeded by the album title (same title, same
  * piece), fading in from the tracklist. Decoration only: no text, hidden
  * from assistive technology. Redrawn when its size or the theme changes, and
  * only then: a render that leaves both alone keeps the piece on the canvas.
+ * Shorter than FILLER_MIN_HEIGHT it shows and paints nothing (no sliver).
  *
  * Painted in a worker (fillerWorker.ts) where the browser can hand the canvas
  * over; a full-screen piece took up to a second of main thread per paint.
  * Elsewhere it paints on the page as before.
  */
 import { useEffect, useRef } from 'react';
-import { drawFiller, fillerDpr } from './albumFlow';
+import { drawFiller, fillerDpr, FILLER_MIN_HEIGHT } from './albumFlow';
 import type { FillerJob } from './fillerWorker';
 import styles from './AlbumDetailPage.module.css';
 
@@ -47,6 +48,10 @@ export function attachFiller(cv: HTMLCanvasElement, title: string, painted: { cu
   const paint = () => {
     const ink = getComputedStyle(cv).getPropertyValue('--dew').trim() || '#276a82';
     const w = cv.clientWidth, h = cv.clientHeight, dpr = fillerDpr(globalThis.devicePixelRatio);
+    // too little room for the piece: keep the room, show nothing (CSS: .filler[data-thin])
+    const thin = h < FILLER_MIN_HEIGHT;
+    cv.toggleAttribute?.('data-thin', thin);
+    if (thin) return;
     const key = `${w}x${h}@${dpr} ${ink} ${title}`;
     if (key === painted.current) return;
     painted.current = key;

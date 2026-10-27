@@ -28,7 +28,7 @@ describe('button motion', () => {
     expect(rule(css, /\n\.button:active:not\([^)]*\)/)).toMatch(outer);
   });
 
-  it('presses as an inset: the element stays put, the label sinks and springs back', () => {
+  it('presses as an inset: the element stays put, the label sinks and comes straight back', () => {
     const active = rule(css, /\n\.button:active:not\([^)]*\)/);
     expect(active).not.toMatch(/transform/);
     expect(active).toMatch(/inset 0 3px 7px/);
@@ -38,7 +38,22 @@ describe('button motion', () => {
       else expect(m[1]).not.toMatch(/transform|scale/);
     }
     expect(rule(css, /\n\.button/)).toMatch(/transform:\s*none/);
-    expect(rule(css, /\n\.label/)).toMatch(/transition:\s*transform var\(--dur-pop\) var\(--ease-pop\)/);
+    // a fast release with no overshoot: the springy pop read as a wobble
+    expect(rule(css, /\n\.label/)).toMatch(/transition:\s*transform 140ms var\(--ease-out\)/);
+    expect(css).not.toMatch(/--ease-pop/);
+  });
+
+  it('keeps an icon-only button unpadded at every size and variant, after the quiet small padding', () => {
+    // the quiet small padding (three classes) once beat .button.icon and pushed small quiet icons 4px right
+    const quietSm = css.indexOf('.button.quiet.size-sm');
+    const iconRule = css.search(/\n\.button\.icon,\s*\.button\.icon\.size-md,\s*\.button\.icon\.size-sm\s*\{[^}]*padding:\s*0;/);
+    expect(quietSm).toBeGreaterThan(0);
+    expect(iconRule).toBeGreaterThan(quietSm);
+    expect(rule(css, /\n\.label svg,\s*\.button > svg/)).toMatch(/display:\s*block/);
+  });
+
+  it('never shows the sheen on a quiet button, pressed included', () => {
+    expect(css).toMatch(/\.quiet:active::before[^{]*\{[^}]*display:\s*none/);
   });
 
   it('drops every transform under reduced motion', () => {

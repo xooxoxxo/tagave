@@ -11,6 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from '@tanstack/react-router';
 import type { TagDiffEntry, TagPlanItem } from '@tagave/shared';
 import { PageShell, Button, Badge, Banner, UndoIcon, confirmDialog, type ConfirmOptions } from '../components/ui';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { useCurrentLibrary } from '../hooks';
 import { useLibrarySettings, useScanRoots } from '../hooks/useLibrary';
 import {
@@ -37,7 +38,7 @@ import { explainPreview, plural, verb, type PreviewOutcome } from './planOutcome
 import { BulkTagEditor, type EditScopeOption } from '../components/BulkTagEditor';
 import { useIdentifyAlbums } from '../hooks/useCompilations';
 import { useIdentifyStatus, type IdentifyStatusItem } from '../hooks/useIdentifyStatus';
-import { identifyLines, planAlbumScope } from './planIdentifyStatus';
+import { identifyButtonLabel, identifyLines, planAlbumScope } from './planIdentifyStatus';
 import { InlineRename } from '../components/InlineRename';
 import { PlanResults, PlanReverted } from './PlanResults';
 import { KEPT_PLAN_NOTE, RESULT_STATUSES } from './planResultsText';
@@ -128,7 +129,7 @@ function PreviewOutcomeNotice({
             <span className={styles.reasonActions}>
               {stillToAsk.length > 0 && (
                 <Button variant="secondary" size="sm" loading={identifying} onClick={() => onIdentify(stillToAsk)}>
-                  Identify {stillToAsk.length === 1 ? 'the album' : `${stillToAsk.length.toLocaleString()} albums`}{lines.some((l) => l.kind === 'ended') ? ' again' : ''}
+                  {identifyButtonLabel(stillToAsk.length, lines.length > 0 ? lines.filter((l) => l.kind !== 'gone').length : toIdentify.length, lines.some((l) => l.kind === 'ended'))}
                 </Button>
               )}
               {anyMatchedNow && <Button variant="primary" size="sm" loading={previewing} onClick={onPreviewAgain}>Preview again</Button>}
@@ -542,6 +543,7 @@ export function PlanPage() {
   const toggleAll = () => { setAllOpen((v) => !v); setExpanded(new Set()); };
 
   if (!libraryId || planQ.isLoading) return <PageShell back title="Loading" barTitle={null}>Loading plan…</PageShell>;
+  if (planQ.isError && isNotFound(planQ.error)) return <NotFoundPage title="Plan not found" to="/plans" label="Back to Tag changes" />;
   if (planQ.isError || !p) {
     return (
       <PageShell back title="Plan not found" barTitle={null}>
@@ -826,13 +828,13 @@ export function PlanPage() {
         {previewed && !nothingToDo && (
           <>
             <div className={styles.tools}>
-              <Select aria-label="Filter by write status" className={styles.select} value={itemStatus} onChange={(e) => { setItemStatus(e.target.value); setOffset(0); }}>
+              <Select dense aria-label="Filter by write status" className={styles.select} value={itemStatus} onChange={(e) => { setItemStatus(e.target.value); setOffset(0); }}>
                 <option value="">all files</option>
                 {(['pending', 'applying', 'applied', 'failed', 'skipped'] as ItemStatus[]).filter((s) => (statusCounts[s] ?? 0) > 0).map((s) => (
                   <option key={s} value={s}>{s} · {(statusCounts[s] ?? 0).toLocaleString()}</option>
                 ))}
               </Select>
-              <Input className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
+              <Input dense className={styles.input} type="search" placeholder="Filter this page by path…" value={pathFilter} onChange={(e) => setPathFilter(e.target.value)} />
               <Button variant="ghost" size="sm" onClick={toggleAll}>{allOpen ? 'Collapse all' : 'Expand all'}</Button>
               <span className={styles.count}>
                 {items.isLoading ? 'Loading…' : total === 0 ? 'No files' : `${(offset + 1).toLocaleString()}–${pageEnd.toLocaleString()} of ${total.toLocaleString()} files`}

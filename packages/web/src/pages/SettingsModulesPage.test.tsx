@@ -53,6 +53,26 @@ describe('Settings › Modules', () => {
     expect(button(html, 'Turn on')).toBe('');
   });
 
+  it('without the updater and the catalogue (run from source): each module as it is, no empty command, no warning', () => {
+    const html = render({
+      ...BASE_VIEW, mode: 'command', verified: false, problem: null,
+      modules: [{ ...PLAYER, state: 'off', available: false, reason: 'Not available on this install.' }],
+    });
+    expect(html).toContain('Player');
+    expect(html).toContain('>Off<');
+    expect(html).toContain('Not available on this install.');
+    expect(html).not.toContain('Run in the install folder');
+    expect(html).not.toContain('install-tagave.sh');
+    expect(html).not.toContain('No module can be turned on');
+    expect(button(html, 'Turn on')).toBe('');
+  });
+
+  it('without the updater, the command line only above a command', () => {
+    const html = render({ ...BASE_VIEW, mode: 'command', verified: false, problem: 'https://example.test/v0.9.2/release-manifest.json did not answer', modules: [] });
+    expect(html).not.toContain('Run in the install folder');
+    expect(html).toContain('No module can be turned on');
+  });
+
   it('an unsigned or tampered catalogue: the reason, nothing to turn on', () => {
     const html = render({ ...BASE_VIEW, verified: false, problem: 'the release manifest does not match its signature', modules: [] });
     expect(html).toContain('No module can be turned on: The release manifest does not match its signature.');

@@ -81,6 +81,14 @@
   background-position: right 14px center, 0 0;
 }
 
+/* Touch: a small button grows to 44px (Button.module.css), so the dense
+   field beside it does too and the row keeps one height. */
+@media (pointer: coarse) {
+  .dense {
+    min-height: 44px;
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;

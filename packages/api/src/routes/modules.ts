@@ -39,16 +39,44 @@ async function bringRelease(base: string, view: UpdaterModules): Promise<Updater
   return res.ok ? res.body : res.error;
 }
 
+/**
+ * The player as this app knows it without a catalogue: an install with no
+ * release keys (run from source) can check no catalogue, so it lists the
+ * player with its real state, as not available here, and Settings ›
+ * Playback does not send the owner to Modules for it. Kept equal to its
+ * entry in deploy/modules.json by modulesSourceBuild.test.ts.
+ */
+export const PLAYER_WITHOUT_CATALOGUE: Omit<ModuleStatus, 'state' | 'available' | 'reason'> = {
+  id: 'player',
+  name: 'Player',
+  purpose: 'Plays your albums in tagave and serves phone apps, with a bundled Navidrome.',
+  estimate: { memoryMb: 512, diskMb: 260 },
+  keepsOnRemoval: "Navidrome's database (its plays, stars and users) in the player-data volume, the player's library, play counts and Last.fm and ListenBrainz connections in tagave, and its password and key in .env",
+  appData: {
+    removes: "Deletes Navidrome's database and, in tagave, the player's library, play counts and connected Last.fm and ListenBrainz accounts. A server of your own in Settings › Playback keeps its data and the accounts.",
+    keeps: 'Your listens stay.',
+    history: 'Also delete the listens the player recorded. Listens you added yourself stay.',
+  },
+  roles: ['all'],
+  downloadBytes: null,
+  lastError: null,
+};
+
 /** Without the updater: the catalogue of the running release, checked with the keys in the app image. */
-async function commandView(): Promise<ModulesView> {
+export async function commandView(releaseKeys: typeof appReleaseKeys = appReleaseKeys): Promise<ModulesView> {
   const version = readBuildInfo().version;
   const role = process.env['TAGAVE_ROLE'] || null;
   const base: ModulesView = { mode: 'command', error: null, version, verified: false, problem: null, modules: [], run: null, role };
+  const playerOn = !!process.env['TAGAVE_PLAYER_URL'];
+  const keys = await releaseKeys();
+  if (keys.length === 0) {
+    // run from source: no installer, so no command; nothing to download either
+    return { ...base, modules: [{ ...PLAYER_WITHOUT_CATALOGUE, state: playerOn ? 'on' : 'off', available: false, reason: 'Not available on this install.' }] };
+  }
   if (!version || !/^\d+\.\d+\.\d+/.test(version)) return { ...base, problem: `this server runs ${version || 'a development build'}, which has no signed release manifest` };
   try {
     const files = await fetchReleaseFiles(version);
-    const { manifest } = verifyRelease(files.manifest, files.signature, await appReleaseKeys(), { version });
-    const playerOn = !!process.env['TAGAVE_PLAYER_URL'];
+    const { manifest } = verifyRelease(files.manifest, files.signature, keys, { version });
     const modules: ModuleStatus[] = manifest.modules.map((m) => {
       const splitReason = role === 'files' ? 'This computer runs only the file worker.' : role && !m.roles.includes(role as 'all' | 'app') ? `${m.name} needs everything on one computer; this is the app computer of a split install.` : null;
       return {

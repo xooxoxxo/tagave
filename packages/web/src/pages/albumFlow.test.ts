@@ -94,7 +94,8 @@ describe('album flow: generative filler', () => {
   it('only albums with three tracks or fewer get it', () => {
     expect(wantsFiller(1)).toBe(true);
     expect(wantsFiller(3)).toBe(true);
-    expect(wantsFiller(4)).toBe(false);
+    expect(wantsFiller(5)).toBe(true);
+    expect(wantsFiller(6)).toBe(false);
   });
 
   it('takes only the room the pane has left under the tracks: the page never scrolls for it', () => {

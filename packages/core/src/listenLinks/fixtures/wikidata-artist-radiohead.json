@@ -1,0 +1,33 @@
+{
+  "head" : {
+    "vars" : [ "mbid", "P1902", "P2850", "P7071", "P4576", "P2722", "P3283", "P6276" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "mbid" : {
+        "type" : "literal",
+        "value" : "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+      },
+      "P1902" : {
+        "type" : "literal",
+        "value" : "4Z8W4fKeB5YxbusRsdQVPb"
+      },
+      "P2850" : {
+        "type" : "literal",
+        "value" : "657515"
+      },
+      "P7071" : {
+        "type" : "literal",
+        "value" : "radiohead"
+      },
+      "P2722" : {
+        "type" : "literal",
+        "value" : "399"
+      },
+      "P3283" : {
+        "type" : "literal",
+        "value" : "radiohead"
+      }
+    } ]
+  }
+}

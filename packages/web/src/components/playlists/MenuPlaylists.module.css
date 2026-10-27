@@ -1,0 +1,30 @@
+/* The playlists in the phone's menu sheet (MenuPlaylists.tsx). Only there:
+   wider screens have the sidebar's Playlists link. */
+.section { display: none; flex-direction: column; gap: 4px; margin-top: 1rem; }
+@media (max-width: 720px) {
+  .section { display: flex; }
+}
+.head { display: flex; align-items: center; justify-content: space-between; padding-left: 1rem; }
+.title { font: var(--type-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); text-decoration: none; }
+.title:hover { color: var(--ink); }
+.title:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; border-radius: var(--r-kbd); }
+.add { width: 40px; height: 40px; }
+.add svg { width: 20px; height: 20px; }
+.items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 12px 6px 8px;
+  border-radius: var(--r-inner);
+  color: var(--ink-2);
+  font: 500 15px / 1.2 var(--font-body);
+  text-decoration: none;
+}
+.item:hover { background: var(--mist); color: var(--ink); }
+.item:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
+.item[data-active] { background: var(--dew-tint); color: var(--chip-on-ink); font-weight: 600; }
+.cover { width: 36px; border-radius: var(--r-kbd); box-shadow: none; }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

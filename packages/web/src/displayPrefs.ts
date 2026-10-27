@@ -11,14 +11,18 @@ export interface DisplayPrefs {
   /** 'below': the search pill on its own line under the logo; 'beside': on the logo's row. */
   searchPlacement: 'below' | 'beside';
   showWordmark: boolean;
-  /** The ripple artwork under albums of three tracks or fewer. */
+  /** The ripple artwork under albums of five tracks or fewer, where the pane has room. */
   shortAlbumArt: boolean;
   /** The artist page: 'name' (the name first, notes in a column beside the albums) or 'albums' (laid out like an album page). */
   artistLayout: 'name' | 'albums';
+  /** While a cover plays, the accent, the canvas and the player bar take its colours. */
+  adaptiveColour: boolean;
+  /** A soft glow along the player's seek bar that moves with the music. */
+  eqGlow: boolean;
 }
 
 export const DISPLAY_STORAGE_KEY = 'tagave-display';
-export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, artistLayout: 'name' };
+export const DEFAULT_DISPLAY_PREFS: DisplayPrefs = { searchPlacement: 'below', showWordmark: true, shortAlbumArt: true, artistLayout: 'name', adaptiveColour: true, eqGlow: false };
 
 /** Reads what is stored, keeping only valid values; anything else falls back to the default. */
 export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs {
@@ -32,6 +36,8 @@ export function parseDisplayPrefs(raw: string | null | undefined): DisplayPrefs 
     showWordmark: typeof stored['showWordmark'] === 'boolean' ? stored['showWordmark'] : true,
     shortAlbumArt: typeof stored['shortAlbumArt'] === 'boolean' ? stored['shortAlbumArt'] : true,
     artistLayout: stored['artistLayout'] === 'albums' ? 'albums' : 'name',
+    adaptiveColour: typeof stored['adaptiveColour'] === 'boolean' ? stored['adaptiveColour'] : true,
+    eqGlow: stored['eqGlow'] === true,
   };
 }
 

@@ -1,0 +1,42 @@
+{
+  "head" : {
+    "vars" : [ "mbid", "P2205", "P2281", "P11770", "P4577", "P2723" ]
+  },
+  "results" : {
+    "bindings" : [ {
+      "mbid" : {
+        "type" : "literal",
+        "value" : "b1392450-e666-3926-a536-22c65f834433"
+      },
+      "P2205" : {
+        "type" : "literal",
+        "value" : "2fGCAYUMssLKiUAoNdxGLx"
+      },
+      "P2281" : {
+        "type" : "literal",
+        "value" : "1097861387"
+      },
+      "P11770" : {
+        "type" : "literal",
+        "value" : "0634904078164"
+      },
+      "P4577" : {
+        "type" : "literal",
+        "value" : "58990510"
+      },
+      "P2723" : {
+        "type" : "literal",
+        "value" : "14879699"
+      }
+    }, {
+      "mbid" : {
+        "type" : "literal",
+        "value" : "b1392450-e666-3926-a536-22c65f834433"
+      },
+      "P2205" : {
+        "type" : "literal",
+        "value" : "4ENxWWkPImVwAle9cpJ12I"
+      }
+    } ]
+  }
+}

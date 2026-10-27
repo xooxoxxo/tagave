@@ -76,7 +76,8 @@ describe.skipIf(!url)('libraries.settings stays a jsonb object (integration)', (
 
     it('unwraps a string into the object it holds, leaves objects and other strings', async () => {
       const objectBefore = await sql`select settings::text as s from libraries where id = ${ids.object}`;
-      expect(await migrateAll(dbUrl)).toContain(MIGRATION);
+      // 0051 first; later migrations (0054 listen-links) follow it
+      expect((await migrateAll(dbUrl))[0]).toBe(MIGRATION);
       const rows = await sql<{ id: string; t: string; c: string | null; s: unknown }[]>`
         select id, jsonb_typeof(settings) as t, settings->>'contactString' as c, settings as s from libraries`;
       const by = Object.fromEntries(rows.map((r) => [r.id, r]));

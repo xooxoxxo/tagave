@@ -37,6 +37,25 @@
   }
 }
 
+/* Adaptive colour (styles/adaptive.css): one quiet surface from the playing
+   cover's scheme, a step away from the canvas, its own inks and accent
+   (all guarded in adaptive/scheme.test.ts). No glass: it is opaque. */
+:global(html[data-adaptive]) .bar {
+  --ink: var(--ad-bar-ink);
+  --ink-2: var(--ad-bar-ink-2);
+  --ink-3: var(--ad-bar-ink-2);
+  --line-strong: var(--ad-bar-line);
+  --surface: var(--ad-bar);
+  --mist: color-mix(in srgb, var(--ad-bar-ink) 9%, var(--ad-bar));
+  --dew: var(--ad-bar-accent);
+  --accent: var(--ad-bar-accent);
+  --ring: var(--ad-bar-accent);
+  --danger: var(--ad-bar-danger);
+  background: var(--ad-bar);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 .now {
   grid-area: now;
   display: flex;
@@ -141,6 +160,78 @@
 
 .seek .time:first-child {
   text-align: right;
+}
+
+/* the range and, under it, the equalizer glow (SeekGlow) */
+.track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.track .range {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- the equalizer glow: light along the played part, a halo at the playhead ---- */
+.glow {
+  position: absolute;
+  inset: -16px 0;
+  pointer-events: none;
+  /* fades out before the track's ends, where the time labels are */
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 14px, black calc(100% - 14px), transparent);
+  mask-image: linear-gradient(90deg, transparent, black 14px, black calc(100% - 14px), transparent);
+}
+.glowLine {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: var(--fill, 0%);
+  height: 10px;
+  margin-top: -5px;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--seek-glow) 55%, transparent));
+  filter: blur(5px);
+  opacity: 0.5;
+  transition: opacity 400ms ease;
+}
+.glowHalo {
+  position: absolute;
+  left: var(--fill, 0%);
+  top: 50%;
+  width: 64px;
+  height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--seek-glow) 60%, transparent), transparent);
+  transform: translate(-50%, -50%) scale(0.85);
+  opacity: 0.6;
+  transition: opacity 400ms ease, transform 400ms ease;
+}
+.glow[data-mode="live"] .glowLine,
+.glow[data-mode="live"] .glowHalo {
+  transition: none;
+}
+.glow[data-mode="calm"] .glowHalo {
+  animation: haloBreathe 5.2s ease-in-out infinite;
+}
+.glow[data-mode="calm"] .glowLine {
+  animation: lineBreathe 5.2s ease-in-out infinite;
+  animation-delay: -1.6s;
+}
+.glow[data-playing="false"] .glowHalo,
+.glow[data-playing="false"] .glowLine {
+  animation: none;
+  opacity: 0.25;
+}
+/* opacity and transform only: the compositor runs it, no style pass per frame */
+@keyframes haloBreathe {
+  0%, 100% { opacity: 0.4; transform: translate(-50%, -50%) scale(0.75); }
+  50% { opacity: 0.85; transform: translate(-50%, -50%) scale(1.05); }
+}
+@keyframes lineBreathe {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.65; }
 }
 
 .problem {
@@ -326,6 +417,11 @@
   .bar {
     animation: none;
   }
+  .glowLine,
+  .glowHalo {
+    animation: none !important;
+    transition: none;
+  }
   /* a still ring: it still says "loading" without moving */
   .spinner {
     animation: none;
@@ -335,8 +431,12 @@
 }
 
 @media (forced-colors: active) {
+  .glow {
+    display: none;
+  }
   /* forced colours drop the glass: a system rule keeps the bar's edge */
-  .bar {
+  .bar,
+  :global(html[data-adaptive]) .bar {
     border-top: 1px solid CanvasText;
     background: Canvas;
   }

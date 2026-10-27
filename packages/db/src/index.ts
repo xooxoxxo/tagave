@@ -36,3 +36,5 @@ export * from './mcUnplug.js';
 export * from './identifyQueue.js';
 export * from './wantlist.js';
 export * from './albumLock.js';
+export * from './listenLinks.js';
+export * from './playlistsModule.js';

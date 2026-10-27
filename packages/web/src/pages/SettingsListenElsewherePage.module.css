@@ -1,0 +1,27 @@
+/* Settings › Listen elsewhere: one column of platforms to tick. */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  border: 0;
+  max-width: 22rem;
+}
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-xs);
+  color: var(--ink-3);
+  font-size: var(--font-size-sm);
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 44px;
+  color: var(--ink);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+}
+.option input { margin: 0; }
+.error { margin: var(--space-sm) 0 0; color: var(--danger); font-size: var(--font-size-sm); }

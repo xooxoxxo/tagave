@@ -18,8 +18,9 @@ import {
   useCan, useCurrentLibrary, useArtist, useEnrichArtist, useFollowArtist, useReopenGap, useFollowRules,
   usePatchArtistFollowRules, useResetArtistFollowRules,
 } from '../hooks';
-import { PageShell, Button, IconButton } from '../components/ui';
+import { PageShell, Button, CloseIcon, IconButton } from '../components/ui';
 import { PageBackActionContext } from '../components/ui/PageShell';
+import { isNotFound, NotFoundPage } from '../components/NotFound';
 import { artistLabel } from '@tagave/shared';
 import { useMaintenance } from '../maintenance';
 import { useDisplayPrefs } from '../displayPrefs';
@@ -28,6 +29,8 @@ import { ArtistNameFirst, ArtistNameFirstSkeleton } from './ArtistNameFirst';
 import { ArtistLikeAlbums, ArtistLikeAlbumsSkeleton } from './ArtistLikeAlbums';
 import { detailsState, kindLine, pageSections, shelves as shelvesOf } from './artistPageView';
 import { useArtistFlow } from './useArtistFlow';
+import { MissingListenLinks } from '../components/ListenControl';
+import { useArtistListenLinks } from '../hooks/useListenLinks';
 import styles from './ArtistPage.module.css';
 
 const NO_GLIDE = { x: 0, y: 0 };
@@ -56,7 +59,10 @@ export function ArtistPage() {
   );
   const flow = useArtistFlow(rootRef, nameRef, sections.map((s) => s.id), endRef, !!artist);
   const [showReleaseTypes, setShowReleaseTypes] = useState(false);
+  // Listen elsewhere: links for the albums a followed artist is missing
+  const listen = useArtistListenLinks(libraryId, artistId, shelves.missing.length > 0);
 
+  if (error && isNotFound(error)) return <NotFoundPage title="Artist not found" to="/artists" label="Back to artists" />;
   if (error) {
     return <PageShell back title="Couldn’t load this artist" barTitle={null}>{null}</PageShell>;
   }
@@ -92,9 +98,11 @@ export function ArtistPage() {
               reopening: reopenMutation.isPending,
               canFollow: canCare,
             };
-            return nameFirst
-              ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
-              : <ArtistLikeAlbums {...props} />;
+            return <MissingListenLinks.Provider value={listen.data?.available ? listen.data.albums : null}>
+              {nameFirst
+                ? <ArtistNameFirst {...props} sections={sections} active={flow.active} goTo={flow.goTo} />
+                : <ArtistLikeAlbums {...props} />}
+            </MissingListenLinks.Provider>;
           })()}
         {maintenance && showReleaseTypes && artist?.followed && (
           <ReleaseTypes libraryId={libraryId} artistId={artistId} onClose={() => setShowReleaseTypes(false)} />
@@ -132,7 +140,7 @@ function ReleaseTypes({ libraryId, artistId, onClose }: { libraryId: string | un
       <div className={styles.typesDialog} role="dialog" aria-modal="true" aria-labelledby="release-types-title">
         <div className={styles.typesHeader}>
           <h3 id="release-types-title" className={styles.typesTitle}>Release types</h3>
-          <IconButton variant="quiet" size="sm" label="Close" onClick={onClose}><span aria-hidden="true">✕</span></IconButton>
+          <IconButton variant="quiet" size="sm" label="Close" onClick={onClose}><CloseIcon /></IconButton>
         </div>
         <fieldset className={styles.typesGroup}>
           <legend className={styles.label}>Count as missing</legend>

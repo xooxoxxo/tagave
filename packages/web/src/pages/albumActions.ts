@@ -14,6 +14,7 @@
  *
  * Play never docks into the header.
  */
+import type { ListenLinkView } from '@tagave/shared';
 import type { MenuItem } from '../components/ui';
 
 export type AlbumActionId = 'shuffle' | 'play' | 'like' | 'playlist' | 'share' | 'radio';
@@ -92,7 +93,7 @@ export const playLabel = (mode: AlbumPlayState['mode']) => (mode === 'pause' ? '
 
 /* ---------------- the ⋮ menu ---------------- */
 
-export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance';
+export type AlbumMenuIcon = 'shuffle' | 'artist' | 'disc' | 'info' | 'tool' | 'maintenance' | 'next' | 'queue' | 'playlist';
 
 export interface AlbumMenuAction {
   key: string;
@@ -115,6 +116,8 @@ export interface AlbumMenuModel {
   tools: AlbumMenuAction[];
   /** the Maintenance switch, for library care only */
   maintenance: { on: boolean; onToggle: () => void } | null;
+  /** Listen elsewhere: the person's platforms for this album (only when there are any) */
+  listen?: ListenLinkView[];
 }
 
 export interface AlbumMenuInput {
@@ -130,6 +133,12 @@ export interface AlbumMenuInput {
   onInfo: () => void;
   tools?: readonly AlbumMenuAction[] | undefined;
   onToggleMaintenance: () => void;
+  /** Listen elsewhere (the listen-links module): links, in the person's order */
+  listen?: readonly ListenLinkView[] | undefined;
+  /** Play next / Add to queue (a player that can play the album now) */
+  queue?: { next: () => void; end: () => void } | null | undefined;
+  /** Add to playlist… (the playlists module) */
+  addToPlaylist?: (() => void) | null | undefined;
 }
 
 /**
@@ -149,6 +158,11 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
       : []),
   ];
   const rows: AlbumMenuAction[] = [
+    ...(i.queue ? [
+      { key: 'next', label: 'Play next', icon: 'next' as const, onSelect: i.queue.next },
+      { key: 'queue', label: 'Add to queue', icon: 'queue' as const, onSelect: i.queue.end },
+    ] : []),
+    ...(i.addToPlaylist ? [{ key: 'playlist', label: 'Add to playlist…', icon: 'playlist' as const, onSelect: i.addToPlaylist }] : []),
     { key: 'info', label: 'Album info', hint: 'Details and reviews', icon: 'info', onSelect: i.onInfo },
     ...(one ? [] : i.artists.map(artist)),
   ];
@@ -157,8 +171,12 @@ export function albumMenu(i: AlbumMenuInput): AlbumMenuModel {
     rows,
     tools: i.canCare && i.maintenance ? [...(i.tools ?? [])] : [],
     maintenance: i.canCare ? { on: i.maintenance, onToggle: i.onToggleMaintenance } : null,
+    ...(i.listen && i.listen.length > 0 ? { listen: [...i.listen] } : {}),
   };
 }
+
+/** "Artist page" or "Search" beside a link that is not the album itself. */
+export const listenKindLabel = (l: ListenLinkView): string | null => (l.kind === 'artist' ? 'Artist page' : l.kind === 'search' ? 'Search' : null);
 
 export const maintenanceLabel = (on: boolean) => (on ? 'Turn off Maintenance' : 'Turn on Maintenance');
 
@@ -169,9 +187,14 @@ export function albumMenuItems(m: AlbumMenuModel): MenuItem[] {
     ...(a.hint ? { hint: a.hint } : {}), ...(a.disabled ? { disabled: true } : {}), ...(a.separated ? { separated: true } : {}),
   });
   const tools = m.tools.map((t, n) => ({ ...item(t), separated: n === 0 || !!t.separated }));
+  const listen = (m.listen ?? []).map((l, n): MenuItem => {
+    const kind = listenKindLabel(l);
+    return { key: `listen-${l.platform}`, label: `Listen on ${l.name}`, href: l.url, ...(kind ? { hint: kind } : {}), ...(n === 0 ? { separated: true } : {}) };
+  });
   return [
     ...m.tiles.map(item),
     ...m.rows.map(item),
+    ...listen,
     ...tools,
     ...(m.maintenance ? [{
       key: 'mode', label: maintenanceLabel(m.maintenance.on), separated: true,

@@ -17,7 +17,8 @@
     "./modules": "./dist/src/modules.js",
     "./player": "./dist/src/player.js",
     "./listening": "./dist/src/listening.js",
-    "./env": "./dist/src/env.js"
+    "./env": "./dist/src/env.js",
+    "./listen-links": "./dist/src/listenLinks.js"
   },
   "scripts": {
     "build": "tsc -b",

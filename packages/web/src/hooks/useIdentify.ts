@@ -152,7 +152,8 @@ export function useRetryIdentify(libraryId: string | undefined) {
 export function useKickSweep(libraryId: string | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.post(`/libraries/${libraryId}/identify/sweep`, {}),
+    // { waiting, enqueued } (an older server answers { ok: true })
+    mutationFn: () => api.post<{ waiting?: number; enqueued?: number }>(`/libraries/${libraryId}/identify/sweep`, {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['identify-stats', libraryId] });
     },

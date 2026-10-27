@@ -62,6 +62,20 @@ describe('short-album artwork', () => {
     detach();
   });
 
+  it('shows and paints nothing in less room than the piece needs, and paints once there is room', async () => {
+    const { attachFiller } = await import('./AlbumFiller');
+    const thin = vi.fn();
+    const cv = canvas({ clientHeight: 119, toggleAttribute: thin });
+    const detach = attachFiller(cv, 'Shock Me', { current: '' });
+    expect(drawFiller).not.toHaveBeenCalled();
+    expect(thin).toHaveBeenLastCalledWith('data-thin', true);
+    (cv as unknown as { clientHeight: number }).clientHeight = 120;
+    resize.forEach((cb) => cb());
+    expect(drawFiller).toHaveBeenCalledTimes(1);
+    expect(thin).toHaveBeenLastCalledWith('data-thin', false);
+    detach();
+  });
+
   it('hands the canvas to a worker and never paints it on the page', async () => {
     vi.stubGlobal('Worker', FakeWorker);
     const { attachFiller } = await import('./AlbumFiller');

@@ -216,7 +216,8 @@ function checkMissingMbIds(tracks: RawTrackTags[]): number[] {
  */
 function checkTrackNumberIssues(tracks: RawTrackTags[]): string[] {
   const issues: string[] = [];
-  const seenNumbers = new Map<number, number[]>(); // track number => indices
+  // "disc:track" => indices: a two-disc album numbered 1-3 / 1-3 has no repeats
+  const seenNumbers = new Map<string, { num: number; indices: number[] }>();
 
   for (let i = 0; i < tracks.length; i++) {
     const track = tracks[i];
@@ -233,17 +234,20 @@ function checkTrackNumberIssues(tracks: RawTrackTags[]): string[] {
         const parts = tnStr.split('/');
         const parsed = parseInt(parts[0] ?? '0', 10);
         if (!isNaN(parsed) && parsed > 0) {
-          if (!seenNumbers.has(parsed)) {
-            seenNumbers.set(parsed, []);
+          const dn = track.discnumber;
+          const disc = parseInt((Array.isArray(dn) ? (dn[0] ?? '') : String(dn ?? '')).split('/')[0] ?? '', 10);
+          const key = `${Number.isNaN(disc) || disc < 1 ? 1 : disc}:${parsed}`;
+          if (!seenNumbers.has(key)) {
+            seenNumbers.set(key, { num: parsed, indices: [] });
           }
-          seenNumbers.get(parsed)!.push(i);
+          seenNumbers.get(key)!.indices.push(i);
         }
       }
     }
   }
 
   // Check for duplicates
-  for (const [num, indices] of seenNumbers) {
+  for (const { num, indices } of seenNumbers.values()) {
     if (indices.length > 1) {
       issues.push(`duplicate tracknumber ${num} at indices ${indices.join(', ')}`);
     }

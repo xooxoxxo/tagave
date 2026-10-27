@@ -16,7 +16,7 @@
  * plays to it nor reads plays from other apps for them.
  */
 import type postgres from 'postgres';
-import { computeHint, openSecret, sealSecret } from '@tagave/core';
+import { openSecret, sealSecret } from '@tagave/core';
 import {
   NavidromeError,
   createNavidromeUser,
@@ -221,10 +221,6 @@ export async function removeOwnAccount(sql: Sql, backend: PlayerBackend, userId:
   await sql`delete from player_users where user_id = ${userId} and server_key = ${backend.key}`;
   await sql`delete from player_song_counts where user_id = ${userId} and server_key = ${backend.key}`;
   await sql`delete from player_poll_state where user_id = ${userId} and server_key = ${backend.key}`;
-}
-
-export function passwordHint(row: PlayerUserRow): string | null {
-  try { return computeHint(openSecret(row.password_sealed, appSecret())); } catch { return null; }
 }
 
 /**

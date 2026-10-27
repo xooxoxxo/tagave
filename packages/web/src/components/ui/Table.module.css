@@ -1,5 +1,10 @@
 .tableWrapper {
   overflow-x: auto;
+  /* room for the focus ring (2px at a 3px offset) of a control at the
+     table's edge, which the scroller would otherwise cut; the negative
+     margin keeps the table exactly where it was */
+  padding: 6px;
+  margin: -6px;
 }
 
 /* Hairline rows, no zebra stripes, tabular numbers. */

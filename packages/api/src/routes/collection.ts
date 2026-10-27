@@ -9,6 +9,7 @@ import {
 import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { ApiError } from '../middleware/errorHandler.js';
+import { containsPattern, textMatches } from '../lib/textMatch.js';
 import { markFacetsDirty } from '../lib/facetSummary.js';
 import { parseMatchInput } from '../lib/matchInput.js';
 import {
@@ -221,9 +222,10 @@ export async function createCollectionRoutes(fastify: FastifyInstance) {
     if (viewWhere) conds.push(viewWhere);
     if (folder) conds.push(eq(collectionItems.folderId, parseInt(folder, 10)));
     if (q) {
+      const like = containsPattern(q);
       conds.push(sql`
-        (${collectionItems.basicInfo}->>'title' ilike ${'%' + q + '%'} or
-         exists (select 1 from jsonb_array_elements_text(${collectionItems.basicInfo}->'artists') as artist where artist ilike ${'%' + q + '%'}))
+        (${textMatches(sql`(${collectionItems.basicInfo}->>'title')`, like)} or
+         exists (select 1 from jsonb_array_elements_text(${collectionItems.basicInfo}->'artists') as artist where ${textMatches(sql`artist`, like)}))
       `);
     }
 

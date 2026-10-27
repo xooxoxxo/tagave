@@ -9,9 +9,10 @@ export function dur(ms: number | null | undefined): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
 
-/** "1 hr 12 min" / "38 min" for the album's total length. */
+/** "1 hr 12 min" / "38 min" for the album's total length; "0:18" when it would round to 0 min. */
 export function totalLength(ms: number | null | undefined): string | null {
   if (!ms) return null;
+  if (ms < 30000) return dur(ms);
   const min = Math.round(ms / 60000);
   if (min < 60) return `${min} min`;
   return `${Math.floor(min / 60)} hr ${min % 60} min`;

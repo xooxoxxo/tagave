@@ -8,6 +8,7 @@ import { api } from '../services/api';
 import { PageShell, Card, Button, LinkButton, CoverArt } from '../components/ui';
 import { SetupChecklistContent } from './SetupChecklistContent';
 import { showSetupChecklist } from './setupChecklist';
+import { identifyTodoCount } from './identifyCounts';
 import styles from './DashboardPage.module.css';
 
 export function DashboardPage() {
@@ -41,7 +42,7 @@ export function DashboardPage() {
   const attentionCount = gaps.data ? ['duplicate', 'incomplete_album', 'missing_album'].reduce((n, key) => n + (gaps.data.counts[key] ?? 0), 0) : undefined;
   const careItems = [
     { label: 'Review matches', tab: 'review' as const, count: queue.data?.total },
-    { label: 'Identify albums', tab: 'identify' as const, count: stats.data?.states.needsReview },
+    { label: 'Identify albums', tab: 'identify' as const, count: identifyTodoCount(stats.data) },
     { label: 'Resolve gaps', tab: 'attention' as const, count: attentionCount },
   ];
 

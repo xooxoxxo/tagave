@@ -28,7 +28,7 @@ vi.mock('../hooks/usePlanWizard', () => ({
   useOpenTagPlans: () => openPlans.current,
 }));
 
-import { PlanWizard, planIncludesAll, ShortcutsPopover, WIZARD_SHORTCUTS } from './PlanWizard';
+import { PlanWizard, albumPickMeta, defaultPresetOf, planIncludesAll, ShortcutsPopover, WIZARD_SHORTCUTS } from './PlanWizard';
 
 const plan = (over: Partial<TagPlan>): TagPlan => ({
   id: 'p1',
@@ -181,5 +181,18 @@ describe('PlanWizard help', () => {
       expect(html).toContain(`>${key}</kbd>`);
       expect(html).toContain(what);
     }
+  });
+});
+
+describe('PlanWizard small labels', () => {
+  it('an album in the picker: no dash for an unknown year, one track (QA Q-44)', () => {
+    expect(albumPickMeta({ year: null, trackCount: 1, formats: ['mp3'] })).toBe('1 track · mp3');
+    expect(albumPickMeta({ year: 1997, trackCount: 11, formats: ['flac', 'mp3'] })).toBe('1997 · 11 tracks · flac/mp3');
+  });
+
+  it('"(default)" marks the library\'s own default preset (QA Q-41)', () => {
+    expect(defaultPresetOf({ preset: 'fill_blanks_only' })).toBe('fill_blanks_only');
+    expect(defaultPresetOf({ preset: 'manual' })).toBe('canonical_ids_and_fill');
+    expect(defaultPresetOf(undefined)).toBe('canonical_ids_and_fill');
   });
 });

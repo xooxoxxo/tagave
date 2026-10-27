@@ -61,7 +61,7 @@ export interface SystemCheck {
  * and music-folder checks always fail on a fresh install; they are later
  * steps of the wizard, not problems.
  */
-const INFRASTRUCTURE = ['database', 'migrations', 'workerHeartbeat', 'versions', 'cacheDir', 'backups', 'appSecret'];
+const INFRASTRUCTURE = ['database', 'migrations', 'workerHeartbeat', 'versions', 'cacheDir', 'disk', 'backups', 'appSecret'];
 
 export function infrastructureChecks(checks: SystemCheck[]): SystemCheck[] {
   return checks.filter((c) => INFRASTRUCTURE.includes(c.id) && c.status !== 'skip');
@@ -87,7 +87,7 @@ export function folderCheckerLive(workers: Array<{ queues: string[] }> | undefin
  * leaves parse and cluster.dir jobs queued (cluster.dir waits 30 s), so no
  * albums yet means "empty" only when nothing is left to group.
  */
-export type FirstScanState = 'scanning' | 'grouping' | 'empty' | 'found';
+export type FirstScanState = 'scanning' | 'grouping' | 'empty' | 'found' | 'decided';
 
 export function firstScanState(input: {
   scanStatus: string | undefined;
@@ -95,8 +95,12 @@ export function firstScanState(input: {
   /** undefined while the stats are loading */
   grouping: number | undefined;
   statsLoaded: boolean;
+  /** albums still waiting to be identified (undefined on an older API) */
+  pending?: number | undefined;
 }): FirstScanState {
-  if (input.albumsFound > 0) return 'found';
+  // 'decided': identification is over for every album found and none was
+  // matched (the matched case shows the first album instead).
+  if (input.albumsFound > 0) return input.pending === 0 && !input.grouping ? 'decided' : 'found';
   if (input.scanStatus !== 'done' || !input.statsLoaded) return 'scanning';
   return (input.grouping ?? 0) > 0 ? 'grouping' : 'empty';
 }

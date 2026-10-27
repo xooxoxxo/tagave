@@ -3,11 +3,12 @@
  * follow button, the details note (fetching, failed), the biography and the
  * Maintenance tools.
  */
-import { useState } from 'react';
+import { useContext, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button, CoverArt, CoverChip, IconButton, UndoIcon, type CoverChipTone } from '../components/ui';
 import type { ArtistAlbum, ArtistAlbumOwnership, ArtistDetail } from '../hooks';
 import { paragraphs, shortDate, type DetailsState } from './artistPageView';
+import { ListenControl, MissingListenLinks } from '../components/ListenControl';
 import styles from './ArtistPage.module.css';
 
 const CHIP: Partial<Record<ArtistAlbumOwnership, [string, CoverChipTone]>> = {
@@ -24,6 +25,9 @@ export function AlbumCard({ album, onReopen, reopening }: {
 }) {
   const away = album.ownership === 'missing' || album.ownership === 'ignored';
   const chip = CHIP[album.ownership];
+  // Listen elsewhere: a missing album's links (the listen-links module)
+  const listen = useContext(MissingListenLinks);
+  const links = album.ownership === 'missing' && album.releaseGroupId ? listen?.[album.releaseGroupId] ?? [] : [];
   const cover = (
     <CoverArt src={album.coverUrl} title={album.title} dimmed={away ? (album.ownership as 'missing' | 'ignored') : undefined} interactive={!!album.localAlbumId}>
       {chip && <CoverChip tone={chip[1]}>{chip[0]}</CoverChip>}
@@ -49,7 +53,7 @@ export function AlbumCard({ album, onReopen, reopening }: {
       <Link to="/albums/$albumId" params={{ albumId: album.localAlbumId }} className={styles.cardLink}>{cover}{text}</Link>
     </li>;
   }
-  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}{text}</li>;
+  return <li className={`${styles.card} ${away ? styles.cardAway : ''}`}>{cover}{text}{links.length > 0 && <ListenControl links={links} className={styles.cardListen} />}</li>;
 }
 
 export function AlbumGrid({ albums, onReopen, reopening }: { albums: ArtistAlbum[]; onReopen?: ((gapId: string) => void) | undefined; reopening?: boolean }) {

@@ -116,6 +116,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
       request.user = typeof id === 'string' ? ({ id, email: `${id}@t.com`, role: request.headers['x-test-role'] } as any) : undefined;
     });
     await app.register(createPlayerRoutes, { prefix: '/api/v1' });
+    const { createPlayerQueueRoutes } = await import('./playerQueue.js');
+    await app.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
     await app.ready();
   });
 
@@ -153,6 +155,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     expect((await event(anna, 'completed', t.one, 199_000, q)).statusCode).toBeLessThan(300);
     expect((await event(anna, 'completed', t.two, 190_000, q)).statusCode).toBeLessThan(300);
     await sync.runPlayerFastSync({ sql });
+    // her queue, kept on the server so it follows her to another device (0055)
+    const queue = { items: [{ id: t.one, origin: 'context' }, { id: t.two, origin: 'context' }, { id: t.three, origin: 'queued' }], context: { kind: 'album', id: albumId, name: 'Unplug Album' }, index: 1, positionMs: 1000, deviceId: 'device-unplug-1' };
+    expect((await app.inject({ method: 'PUT', url: '/api/v1/me/player/queue', headers: as(anna), payload: queue })).statusCode).toBe(200);
     // Ben plays on his phone: counts, poll state, plays, a listen
     const deps = sync.playsDeps({ sql });
     await plays.pollPerson(deps, backend, ben);
@@ -345,7 +350,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('the player plugged in and out',
     const keptPlays = new Set(notBundled('player_plays').map((p: any) => p.id));
     expect(after['player_scrobbles']).toEqual((before['player_scrobbles'] as any[]).filter((s) => keptPlays.has(s.play_id)));
     // keyed by the library (which the own server serves) or by the person: as they were
-    for (const t of ['player_listens', 'scrobble_accounts', 'player_scan_requests']) expect(after[t], t).toEqual(before[t]);
+    for (const t of ['player_listens', 'scrobble_accounts', 'player_scan_requests', 'player_queue_state']) expect(after[t], t).toEqual(before[t]);
     expect(await core()).toEqual(coreBefore);
     const [lib] = await sql`select settings from libraries where id = ${libraryId}`;
     expect(lib.settings).toMatchObject({ ...ownSettings, discogsUser: 'kept' });

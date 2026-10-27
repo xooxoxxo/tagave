@@ -95,3 +95,23 @@ export const DesktopDropdownOwner: Story = {
     await expect(await within(document.body).findByRole('menu')).toBeVisible();
   },
 };
+
+/** Listen elsewhere: the person's platforms in the ⋮, the inexact ones marked. */
+const LISTEN: AlbumMenuInput['listen'] = [
+  { platform: 'qobuz', name: 'Qobuz', url: 'https://play.qobuz.com/album/0634904078164', kind: 'exact' },
+  { platform: 'spotify', name: 'Spotify', url: 'https://open.spotify.com/artist/4Z8W4fKeB5YxbusRsdQVPb', kind: 'artist' },
+  { platform: 'apple', name: 'Apple Music', url: 'https://music.apple.com/search?term=Y%26T%20Live%20at%20the%20Mystic', kind: 'search' },
+];
+export const DrawerListenerWithListen: Story = { tags: ['phone'], globals: { viewport: { value: 'phone' } }, render: () => <ActionsDrawer over={{ canCare: false, listen: LISTEN }} /> };
+export const DesktopDropdownWithListen: Story = {
+  tags: ['shot-viewport'],
+  render: () => (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: 16 }}>
+      <AlbumMoreButton place="header" drawer={false} model={albumMenu(input({ canCare: false, listen: LISTEN }))} onOpen={noop} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More for this album' }));
+    await expect(await within(document.body).findByRole('menuitem', { name: /Listen on Qobuz/ })).toBeVisible();
+  },
+};

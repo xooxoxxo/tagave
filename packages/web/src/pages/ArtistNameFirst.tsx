@@ -15,6 +15,7 @@ import { artistLabel } from '@tagave/shared';
 import { AlbumGrid, Bar, Biography, DetailsNote, FollowButton, ProviderLinks, SkeletonGrid, detailsWhen } from './ArtistParts';
 import { Button } from '../components/ui';
 import { kickerLine, ownedLine, SECTION_IDS, type ArtistShelves, type DetailsState, type PageSection } from './artistPageView';
+import { shownAliases } from './artistAliases';
 import styles from './ArtistPage.module.css';
 
 export interface ArtistLayoutProps {
@@ -86,7 +87,8 @@ export function ArtistNameFirst(p: NameFirstProps) {
   const kicker = fetching ? '' : kickerLine(artist);
   const sub: ReactNode[] = [];
   if (artist.disambiguation) sub.push(<span key="d">{artist.disambiguation}</span>);
-  if (artist.aliases.length) sub.push(<span key="a">Also known as <em>{artist.aliases.join(', ')}</em></span>);
+  const aliases = shownAliases(artist.name, artist.aliases);
+  if (aliases.length) sub.push(<span key="a">Also known as <em>{aliases.join(', ')}</em></span>);
   const facts: Array<[string, string, boolean?]> = [['Owned', ownedLine(artist.owned)]];
   if (details === 'done' && !artist.bio) facts.push(['Biography', 'None on Wikipedia', true]);
   const showNav = p.sections.length > 1;

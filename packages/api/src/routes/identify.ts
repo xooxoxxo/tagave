@@ -14,6 +14,7 @@ import { getDb } from '../db.js';
 import { getBoss } from '../boss.js';
 import { IDENTIFY_REQUESTED_BY_OWNER } from '@tagave/shared';
 import { ApiError } from '../middleware/errorHandler.js';
+import { containsPattern, textMatches } from '../lib/textMatch.js';
 import {
   IDENTIFY_PRIORITY, IDENTIFY_SINGLETON, listPendingIdentifyRequests, pendingIdentifyJob, cancelIdentifyJob,
   identifyRequestStates, recordCancelled,
@@ -30,6 +31,8 @@ export const IDENTIFY_REASONS = ['no_tags', 'no_candidates', 'weak_candidates', 
 export type IdentifyReason = (typeof IDENTIFY_REASONS)[number];
 
 const RETRY_CAP = 500;
+/** albums one "Identify now" queues directly; the sweep takes the rest */
+const IDENTIFY_NOW_CAP = 500;
 
 /** A failed identify job is history once a fresh job is waiting for the same
  * album (the sweep re-enqueues pending albums); only orphaned failures count. */
@@ -37,6 +40,12 @@ const NO_LIVE_JOB = sql`not exists (
   select 1 from pgboss.job q
    where q.name = 'identify.album' and q.state in ('created', 'retry', 'active')
      and q.data->>'localAlbumId' = j.data->>'localAlbumId')`;
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The distinct uuid strings of a request body field; anything else is dropped. */
+function uuidsOf(value: unknown): string[] {
+  return Array.isArray(value) ? [...new Set(value.filter((x): x is string => typeof x === 'string' && UUID.test(x)))] : [];
+}
 
 async function ownedLibrary(userId: string, libraryId: string) {
   const db = getDb();
@@ -211,7 +220,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const limit = Math.min(Math.max(parseInt(q.limit ?? '100', 10) || 100, 1), 500);
     const offset = Math.max(parseInt(q.offset ?? '0', 10) || 0, 0);
     const reason = q.reason && (IDENTIFY_REASONS as readonly string[]).includes(q.reason) ? q.reason as IdentifyReason : undefined;
-    const search = q.q?.trim() ? `%${q.q.trim()}%` : null;
+    const search = q.q?.trim() ? containsPattern(q.q.trim()) : null;
     const db = getDb();
 
     if (reason === 'job_failed') {
@@ -226,7 +235,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
                  order by j.data->>'localAlbumId', j.completed_on desc) f
           join local_albums la on la.id = f.album_id
          where la.library_id = ${libraryId} and la.state = 'pending'
-           ${search ? sql`and (la.title_guess ilike ${search} or la.artist_guess ilike ${search})` : sql``}
+           ${search ? sql`and (${textMatches(sql`la.title_guess`, search)} or ${textMatches(sql`la.artist_guess`, search)})` : sql``}
          order by f.failed_at desc
          limit ${limit} offset ${offset}`) as unknown as Array<Record<string, unknown>>;
       reply.send({
@@ -263,7 +272,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
         left join releases r on r.id = b.release_id
        where la.library_id = ${libraryId} and la.state = 'unidentified'
          ${reason ? sql`and la.identify_reason = ${reason}` : sql``}
-         ${search ? sql`and (la.title_guess ilike ${search} or la.artist_guess ilike ${search})` : sql``}
+         ${search ? sql`and (${textMatches(sql`la.title_guess`, search)} or ${textMatches(sql`la.artist_guess`, search)})` : sql``}
        order by la.last_identify_at desc nulls last, la.created_at
        limit ${limit} offset ${offset}`) as unknown as Array<Record<string, unknown>>;
     reply.send({
@@ -302,9 +311,12 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
 
     let ids: string[];
     if (Array.isArray(body.albumIds) && body.albumIds.length) {
+      // drizzle binds a JS array as a row ($1, $2, …), not as uuid[]: list them
+      const wanted = uuidsOf(body.albumIds).slice(0, RETRY_CAP);
+      if (wanted.length === 0) throw new ApiError(400, 'Bad Request', 'None of the selected albums exist');
       const rows = await db.execute(sql`
         select id from local_albums where library_id = ${libraryId}
-           and id = any(${body.albumIds.slice(0, RETRY_CAP)}::uuid[])`) as unknown as Array<{ id: string }>;
+           and id in (${sql.join(wanted.map((id) => sql`${id}::uuid`), sql`, `)})`) as unknown as Array<{ id: string }>;
       ids = rows.map((r) => r.id);
     } else if (body.reason === 'job_failed') {
       const rows = await db.execute(sql`
@@ -343,9 +355,34 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     if (!request.user) throw new ApiError(401, 'Unauthorized', 'Authentication required');
     const { libraryId } = request.params as { libraryId: string };
     await ownedLibrary(request.user.id, libraryId);
+    // "Identify now" is the owner asking: every waiting album is queued now,
+    // also the ones the five-minute sweep holds back because they were tried
+    // in the last hours (provider outages, a Discogs pass that found nothing).
+    const db = getDb();
+    const [{ waiting = 0 } = {}] = await db.execute(sql`
+      select count(*)::int as waiting from local_albums
+       where library_id = ${libraryId} and state = 'pending'`) as unknown as Array<{ waiting: number }>;
+    const rows = await db.execute(sql`
+      select id from local_albums
+       where library_id = ${libraryId} and state = 'pending'
+       order by identify_attempts, created_at
+       limit ${IDENTIFY_NOW_CAP}`) as unknown as Array<{ id: string }>;
     const boss = await getBoss();
-    await boss.send('identify.sweep', { libraryId, topUp: true }, { singletonKey: `identify.sweep:${libraryId}` });
-    reply.status(202).send({ ok: true });
+    let enqueued = 0;
+    for (const { id } of rows) {
+      const jobId = await boss.send('identify.album', { localAlbumId: id }, {
+        singletonKey: IDENTIFY_SINGLETON(id),
+        priority: IDENTIFY_PRIORITY.sweep,
+        retryLimit: 3,
+        retryDelay: 60,
+        retryBackoff: true,
+      });
+      if (jobId) enqueued++;
+    }
+    // the sweep keeps the progress row and queues the rest past the cap
+    if (rows.length) await boss.send('identify.sweep', { libraryId }, { singletonKey: `identify.sweep:${libraryId}` });
+    // waiting − enqueued albums already had a job in the queue
+    reply.status(202).send({ waiting, enqueued });
   });
 
   // Owner-initiated identification requests still waiting (pinned ids,
@@ -377,9 +414,7 @@ export async function createIdentifyRoutes(fastify: FastifyInstance) {
     const { libraryId } = request.params as { libraryId: string };
     await ownedLibrary(request.user.id, libraryId);
     const body = (request.body ?? {}) as { albumIds?: unknown };
-    const ids = Array.isArray(body.albumIds)
-      ? [...new Set(body.albumIds.filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x)))].slice(0, STATUS_CAP)
-      : [];
+    const ids = uuidsOf(body.albumIds).slice(0, STATUS_CAP);
     if (ids.length === 0) { reply.send({ items: [] }); return; }
     const rows = await getDb().execute(sql`
       select id, title_guess, artist_guess, state, identify_reason from local_albums
