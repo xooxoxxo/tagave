@@ -2,7 +2,7 @@
  * Facets and the Music Connections module (Facets and Connectors design §4,
  * §8; decision D5).
  *
- *   GET  /api/v1/facets                                 which facets are available, which modules are on (the app hides what is off)
+ *   GET  /api/v1/facets                                 which facets are available, which modules and apps are on (the app hides what is off)
  *   GET  /api/v1/settings/music-connections             the Settings › Modules row: on or off, what it holds
  *   PUT  /api/v1/settings/music-connections             owner + fresh step-up, { enabled }: turn it on or off (the data stays)
  *   POST /api/v1/settings/music-connections/remove-data owner + fresh step-up, { keepFills? }: revoke every link (at the remote too), delete its data, turn it off
@@ -14,7 +14,7 @@
  * "Keep" is ticked (then they are confirmed and stay).
  */
 import type { FastifyInstance } from 'fastify';
-import { moduleContext, registry } from '@tagave/core/facets';
+import { appAllowed, devAppIds, moduleContext, registry } from '@tagave/core/facets';
 import { openTokens, revokeAtRemote } from '@tagave/core/mc';
 import { mcEnabled, moduleSwitches, removeMcData, setMcEnabled } from '@tagave/db';
 import { mcModuleSchema, mcRemoveDataSchema, type FacetsView, type McModuleView } from '@tagave/shared';
@@ -37,7 +37,10 @@ export async function createFacetRoutes(fastify: FastifyInstance) {
   fastify.get('/facets', async (request): Promise<FacetsView> => {
     const { sql } = getAuthHandle();
     const ctx = await facetContext(sql, { userId: request.user?.id ?? null, libraryId: null });
-    return registry.state(ctx);
+    // the apps that are on: an app in development only with TAGAVE_DEV_APPS naming it
+    const dev = devAppIds();
+    const apps = [...registry.apps.values()].filter((a) => appAllowed(a, dev) && registry.appEnabled(a.id, ctx)).map((a) => a.id);
+    return { ...registry.state(ctx), apps };
   });
 
   fastify.get('/settings/music-connections', async (): Promise<McModuleView> => moduleView());

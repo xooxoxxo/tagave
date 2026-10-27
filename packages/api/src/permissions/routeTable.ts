@@ -69,6 +69,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'POST /api/v1/me/playlists/:id/items': 'catalog.read',
   'DELETE /api/v1/me/playlists/:id/items/:itemId': 'catalog.read',
   'GET /api/v1/me/playlists/:id/export': 'catalog.read',
+  // The books app (routes/books.ts, the spike; 404 without TAGAVE_DEV_APPS=books): the works and their covers.
+  'GET /api/v1/books': 'catalog.read',
+  'GET /api/v1/books/editions/:editionId/cover': 'catalog.read',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',
@@ -241,6 +244,9 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'PUT /api/v1/settings/playlists': 'system.manage',
   'GET /api/v1/settings/playlists/export': 'system.manage',
   'POST /api/v1/settings/playlists/remove-data': 'system.manage',
+  // Settings › Modules, the Books row (routes/books.ts, the spike): owner; switching needs a fresh step-up.
+  'GET /api/v1/settings/books': 'system.manage',
+  'PUT /api/v1/settings/books': 'system.manage',
   'GET /api/v1/storage': 'system.manage',
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',

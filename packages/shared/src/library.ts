@@ -73,6 +73,7 @@ export const librarySchema = z.object({
   ownerUserId: z.string().uuid(),
   name: z.string().describe('User-friendly library name'),
   settings: z.record(z.string(), z.any()).optional().describe('Settings stored as JSON (see spec Section 12.8)'),
+  app: z.string().optional().describe('The app the library is for (music, books); music when absent'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 }).strict();

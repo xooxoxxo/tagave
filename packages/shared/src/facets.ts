@@ -27,6 +27,12 @@ export interface ModuleStateView {
 export interface FacetsView {
   facets: FacetStateView[];
   modules: ModuleStateView[];
+  /**
+   * The apps that are on (music always; books only with TAGAVE_DEV_APPS and
+   * turned on): the app shows an app's pages only while it is listed.
+   * Absent from an older server: music alone.
+   */
+  apps?: string[];
 }
 
 /** Settings › Modules: the Music Connections row (a setting, not a container). */

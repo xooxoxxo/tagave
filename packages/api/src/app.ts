@@ -45,6 +45,7 @@ import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
 import { createPlayerQueueRoutes } from './routes/playerQueue.js';
 import { createPlaylistRoutes } from './routes/playlists.js';
+import { createBooksRoutes } from './routes/books.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -190,5 +191,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
     // Each person's own preferences that follow them between devices (the colour theme)
     instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
+    // The books app (the spike): the Books page and its Settings › Modules row; 404 without TAGAVE_DEV_APPS=books
+    instance.register(createBooksRoutes, { prefix: '/api/v1' });
   });
 }

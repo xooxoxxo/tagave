@@ -541,3 +541,6 @@ export * from './playlists.js';
 
 // Each person's own preferences that follow them between devices (the colour theme)
 export * from './userPrefs.js';
+
+// The books app (the spike, behind TAGAVE_DEV_APPS): the Books page and its Settings › Modules row
+export * from './books.js';

@@ -5,7 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { makeDb, syncInstalledModules } from '@tagave/db';
-import { ledgerEntries } from '@tagave/core/facets';
+import { APPS, ledgerEntries } from '@tagave/core/facets';
+import { turnOffDisallowedDevApps } from './lib/devApps.js';
 import { AuthConfigError, fastifyTrustProxy, parseTrustProxy, createAuth, ensureCredentialAccounts, passkeysCanWork, readAuthEnv } from '@tagave/auth';
 import { readBuildInfo } from '@tagave/core';
 import { createForwardedObserver, migrateOnBoot } from '@tagave/doctor';
@@ -149,6 +150,9 @@ try {
   try {
     const added = await syncInstalledModules(db.client, ledgerEntries());
     if (added.length > 0) logger.info({ modules: added }, 'Module ledger: new modules recorded');
+    // An app in development that TAGAVE_DEV_APPS no longer names is turned
+    // off (its data stays): the worker, which follows the ledger, stops too.
+    await turnOffDisallowedDevApps(db.client, APPS, (app) => logger.warn({ app }, 'Module ledger: an app in development is off without TAGAVE_DEV_APPS'));
   } catch (err) {
     logger.error({ err }, 'Module ledger sync failed (non-fatal)');
   }

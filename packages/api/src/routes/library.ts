@@ -518,6 +518,7 @@ export async function createLibraryRoutes(fastify: FastifyInstance) {
               : (lib.settings ?? {}),
             manages,
           ),
+          app: lib.app,
           createdAt: lib.createdAt.toISOString(),
           updatedAt: lib.createdAt.toISOString(),
         })
