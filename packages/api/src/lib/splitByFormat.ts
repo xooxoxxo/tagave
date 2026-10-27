@@ -10,7 +10,7 @@
  * re-clusters into one album again.
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
-import { audioFiles, clusterOverrides, localAlbums, localTracks } from '@tagave/db';
+import { albumKeyLock, audioFiles, clusterOverrides, localAlbums, localTracks } from '@tagave/db';
 import type { getDb } from '../db.js';
 
 type Db = ReturnType<typeof getDb>;
@@ -90,37 +90,45 @@ export async function splitAlbumByFormat(
   };
   const [movingTracks, stayingTracks] = await Promise.all([trackRowsOf(moving), trackRowsOf(staying)]);
 
-  const [created] = await db.insert(localAlbums).values({
-    libraryId: input.libraryId,
-    clusterKey: `${SPLIT_KEY_PREFIX}${album.id}:${input.keep === 'lossless' ? 'lossy' : 'lossless'}`,
-    dirPaths: album.dirPaths,
-    titleGuess: album.titleGuess,
-    artistGuess: album.artistGuess,
-    yearGuess: album.yearGuess,
-    discCount: album.discCount,
-    trackCount: movingTracks,
-    totalDurationMs: durationOf(moving),
-    formats: formatsOf(moving),
-    state: 'pending',
-  }).returning({ id: localAlbums.id });
-  if (!created) throw new SplitError(500, 'Could not create the split-off album');
+  // One transaction under the album key lock: the split-off album is never
+  // committed without its tracks, so the worker's zero-track sweep (which
+  // takes the same lock) cannot delete it before they move.
+  const clusterKey = `${SPLIT_KEY_PREFIX}${album.id}:${input.keep === 'lossless' ? 'lossy' : 'lossless'}`;
+  const created = await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(input.libraryId, clusterKey)}, 0))`);
+    const [row] = await tx.insert(localAlbums).values({
+      libraryId: input.libraryId,
+      clusterKey,
+      dirPaths: album.dirPaths,
+      titleGuess: album.titleGuess,
+      artistGuess: album.artistGuess,
+      yearGuess: album.yearGuess,
+      discCount: album.discCount,
+      trackCount: movingTracks,
+      totalDurationMs: durationOf(moving),
+      formats: formatsOf(moving),
+      state: 'pending',
+    }).returning({ id: localAlbums.id });
+    if (!row) throw new SplitError(500, 'Could not create the split-off album');
 
-  // Pin the moved files (replace any earlier pin), move their track rows now
-  // so the page updates immediately, and refresh the original's counters.
-  await db.delete(clusterOverrides).where(inArray(clusterOverrides.audioFileId, movingIds));
-  await db.insert(clusterOverrides).values(movingIds.map((audioFileId) => ({
-    libraryId: input.libraryId,
-    audioFileId,
-    localAlbumId: created.id,
-    createdBy: input.userId,
-  })));
-  await db.update(localTracks).set({ localAlbumId: created.id }).where(inArray(localTracks.audioFileId, movingIds));
-  await db.update(localAlbums).set({
-    trackCount: stayingTracks,
-    totalDurationMs: durationOf(staying),
-    formats: formatsOf(staying),
-    updatedAt: new Date(),
-  }).where(eq(localAlbums.id, album.id));
+    // Pin the moved files (replace any earlier pin), move their track rows now
+    // so the page updates immediately, and refresh the original's counters.
+    await tx.delete(clusterOverrides).where(inArray(clusterOverrides.audioFileId, movingIds));
+    await tx.insert(clusterOverrides).values(movingIds.map((audioFileId) => ({
+      libraryId: input.libraryId,
+      audioFileId,
+      localAlbumId: row.id,
+      createdBy: input.userId,
+    })));
+    await tx.update(localTracks).set({ localAlbumId: row.id }).where(inArray(localTracks.audioFileId, movingIds));
+    await tx.update(localAlbums).set({
+      trackCount: stayingTracks,
+      totalDurationMs: durationOf(staying),
+      formats: formatsOf(staying),
+      updatedAt: new Date(),
+    }).where(eq(localAlbums.id, album.id));
+    return row;
+  });
 
   return { newAlbumId: created.id, movedFileIds: movingIds, keptFileIds: staying.map((f) => f.id), dirs };
 }

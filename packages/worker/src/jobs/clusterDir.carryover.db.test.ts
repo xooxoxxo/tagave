@@ -84,6 +84,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     { dir: 'Box/Set CD1', album: 'Set', artist: 'Boxer', n: 2 },
     { dir: 'Box/Set CD2', album: 'Set', artist: 'Boxer', n: 2 },
     { dir: 'Travel/Away', album: 'Away', artist: 'Traveller', n: 2 },
+    { dir: 'Gap/Holey', album: 'Holey', artist: 'Gapper', n: 3 },
   ];
   const before = new Map<string, { id: string; fileIds: string[] }>();
   let albumCount = 0;
@@ -102,7 +103,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
   const albumOfFiles = async (fileIds: string[]) =>
     (await sql`select distinct local_album_id::text as id from local_tracks where audio_file_id = any(${fileIds}::uuid[])`).map((r: any) => r.id);
   /** id, match and album lock unchanged; the album lists the new folders */
-  const expectKept = async (album: string, dirPaths: string[]) => {
+  const expectKept = async (album: string, dirPaths: string[], missing: string[] = []) => {
     const b = before.get(album)!;
     expect(await albumOfFiles(b.fileIds)).toEqual([b.id]);
     const [a] = await sql`select state, dir_paths from local_albums where id = ${b.id}`;
@@ -111,7 +112,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     expect(locks.map((l: any) => l.field)).toEqual(['title']);
     const files = await sql`select id::text as id, status from audio_files where id = any(${b.fileIds}::uuid[])`;
     expect(files.length).toBe(b.fileIds.length);
-    expect(files.every((f: any) => f.status === 'present')).toBe(true);
+    for (const f of files) expect(f.status).toBe(missing.includes(f.id) ? 'missing' : 'present');
   };
 
   beforeAll(async () => {
@@ -145,7 +146,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
        where la.library_id = ${libraryId} group by la.id`;
     for (const r of rows) before.set(r.title, { id: r.id, fileIds: r.files });
     albumCount = await albumCountNow();
-    expect(albumCount).toBe(6); // the two Set discs are one album
+    expect(albumCount).toBe(7); // the two Set discs are one album
     expect(before.get('Set')!.fileIds.length).toBe(4);
     await sql`update local_albums set state = 'matched' where library_id = ${libraryId}`;
     for (const b of before.values()) {
@@ -185,6 +186,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('moves keep their album (db)', (
     for (const j of sends) expect(j.opts.singletonSeconds).toBeUndefined();
     await drain();
     await expectKept('Album One', ['Solo/Album One [2001]']);
+    expect(await albumCountNow()).toBe(albumCount);
+  });
+
+  it('folder rename of an album that already had a missing track (live files only)', async () => {
+    await rm(path.join(pathA, 'Gap/Holey/3.flac'));
+    await scanRootJob(ctx, { scanRootId: rootA, mode: 'full' });
+    await drain();
+    const [gone] = await sql`select id::text as id from audio_files where scan_root_id = ${rootA} and rel_path = 'Gap/Holey/3.flac' and status = 'missing'`;
+    expect(gone).toBeTruthy();
+    await expectKept('Holey', ['Gap/Holey'], [gone.id]);
+    await rename(path.join(pathA, 'Gap/Holey'), path.join(pathA, 'Gap/Holey (Remaster)'));
+    await scanRootJob(ctx, { scanRootId: rootA, mode: 'full' });
+    await drain();
+    await expectKept('Holey', ['Gap/Holey (Remaster)'], [gone.id]);
     expect(await albumCountNow()).toBe(albumCount);
   });
 
@@ -287,5 +302,90 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('zero-track sweep vs a concurren
     expect(await exists(pending)).toBe(false);
     expect(await exists(matched)).toBe(false);
     expect(await exists(outside)).toBe(true);
+  });
+});
+
+/**
+ * cluster.dir writes an album and its tracks under the album key lock, and
+ * two jobs whose files swapped albums do not deadlock on each other's album
+ * rows (the relink clears tracks_linked_at on the album a row leaves).
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster.dir transaction (db)', () => {
+  let ctx: WorkerContext; let sql: any;
+  const userId = randomUUID(); const libraryId = randomUUID(); const rootId = randomUUID();
+  const tags = (album: string, n: number) => ({ common: { album, albumartist: 'Swapper', artist: 'Swapper', title: `${album} ${n}`, track: { no: n } } });
+  const filesOf = new Map<string, string[]>();
+  const albumOfDir = async (dir: string) => (await sql`
+    select distinct local_album_id::text as id from local_tracks where audio_file_id = any(${filesOf.get(dir)!}::uuid[])`).map((r: any) => r.id);
+
+  beforeAll(async () => {
+    const made = await makeDb(process.env.TEST_DATABASE_URL!);
+    sql = made.client;
+    ctx = { db: made.db, sql: made.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`cdtx-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'CDTX', ${userId}, '{}')`;
+    await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootId}, ${libraryId}, '/nonexistent-cdtx', 'cdtx')`;
+    for (const [dir, album] of [['Swap/One', 'One'], ['Swap/Two', 'Two'], ['Lock/Alb', 'Alb']] as const) {
+      const ids: string[] = [];
+      for (let n = 1; n <= 3; n++) {
+        const [r] = await sql`insert into audio_files (library_id, scan_root_id, rel_path, status, duration_ms, tags_raw)
+          values (${libraryId}, ${rootId}, ${`${dir}/${n}.flac`}, 'present', 1000, ${JSON.stringify(tags(album, n))}::text::jsonb)
+          returning id::text as id`;
+        ids.push(r.id);
+      }
+      filesOf.set(dir, ids);
+      await clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: dir });
+    }
+  });
+
+  afterAll(async () => {
+    await sql`delete from local_albums where library_id = ${libraryId}`;
+    await sql`delete from scan_roots where id = ${rootId}`;
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from users where id = ${userId}`;
+    await sql.end({ timeout: 5 });
+  });
+
+  it('two jobs whose files swapped albums (A<->B) both finish, concurrently', async () => {
+    const [one] = await albumOfDir('Swap/One');
+    const [two] = await albumOfDir('Swap/Two');
+    expect(one).toBeTruthy(); expect(two).toBeTruthy(); expect(one).not.toBe(two);
+    for (let round = 0; round < 8; round++) {
+      await sql`update local_tracks set local_album_id = ${two} where audio_file_id = any(${filesOf.get('Swap/One')!}::uuid[])`;
+      await sql`update local_tracks set local_album_id = ${one} where audio_file_id = any(${filesOf.get('Swap/Two')!}::uuid[])`;
+      await sql`update local_albums set tracks_linked_at = now() where id in (${one}, ${two})`;
+      await Promise.all([
+        clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Swap/One' }),
+        clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Swap/Two' }),
+      ]);
+      expect(await albumOfDir('Swap/One')).toEqual([one]);
+      expect(await albumOfDir('Swap/Two')).toEqual([two]);
+    }
+  });
+
+  it('waits for the album key lock before it writes the album and its tracks', async () => {
+    const [albumId] = await albumOfDir('Lock/Alb');
+    const [a] = await sql`select cluster_key from local_albums where id = ${albumId}`;
+    await sql`update local_tracks set title_guess = 'stale' where audio_file_id = any(${filesOf.get('Lock/Alb')!}::uuid[])`;
+    let release!: () => void;
+    const released = new Promise<void>((r) => { release = r; });
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => { locked = r; });
+    const holder = sql.begin(async (tx: any) => {
+      await tx`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(libraryId, a.cluster_key)}, 0))`;
+      locked();
+      await released;
+    });
+    await isLocked;
+    let done = false;
+    const job = clusterDirJob(ctx, { libraryId, scanRootId: rootId, dirPath: 'Lock/Alb' }).then(() => { done = true; });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(done).toBe(false);
+    expect((await sql`select distinct title_guess from local_tracks where audio_file_id = any(${filesOf.get('Lock/Alb')!}::uuid[])`).map((r: any) => r.title_guess)).toEqual(['stale']);
+    release();
+    await holder;
+    await job;
+    expect(done).toBe(true);
+    expect((await sql`select title_guess from local_tracks where audio_file_id = any(${filesOf.get('Lock/Alb')!}::uuid[]) order by title_guess`).map((r: any) => r.title_guess)).toEqual(['Alb 1', 'Alb 2', 'Alb 3']);
   });
 });

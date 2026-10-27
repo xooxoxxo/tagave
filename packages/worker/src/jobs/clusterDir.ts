@@ -3,7 +3,7 @@ import { readFile, access } from 'node:fs/promises';
 import { and, eq, inArray, like, or } from 'drizzle-orm';
 import { cancelQueuedIdentify } from '../lib/cancelIdentify.js';
 import { scopeHoldState } from '../lib/clusterHold.js';
-import { audioFiles, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
+import { albumKeyLock, audioFiles, clusterOverrides, localTracks, scanRoots, sidecarFiles } from '@tagave/db';
 import { parseCueSheet, type VirtualTrack, type CueSheet } from '@tagave/core';
 import { VARIOUS_ARTISTS, stripTrackNumberPrefix } from '@tagave/shared';
 import type { WorkerContext } from '../lib/context.js';
@@ -30,6 +30,42 @@ interface FileTags {
   track: number | null;
   title: string | null;
   year: number | null;
+}
+
+/** What cluster.dir writes on a local album (besides key, state and updated_at). */
+interface AlbumValues {
+  titleGuess: string | null;
+  artistGuess: string | null;
+  yearGuess: number | null;
+  dirPaths: string[];
+  discCount: number;
+  trackCount: number;
+  totalDurationMs: number;
+  formats: string[];
+}
+
+/** The column of every AlbumValues field: a field without one fails to compile. */
+export const ALBUM_COLUMNS = {
+  titleGuess: 'title_guess',
+  artistGuess: 'artist_guess',
+  yearGuess: 'year_guess',
+  dirPaths: 'dir_paths',
+  discCount: 'disc_count',
+  trackCount: 'track_count',
+  totalDurationMs: 'total_duration_ms',
+  formats: 'formats',
+} as const satisfies Record<keyof AlbumValues, string>;
+
+/** Deadlock and serialization failures: the transaction is worth one more try. */
+const RETRYABLE = new Set(['40P01', '40001']);
+
+async function retryOnce<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!RETRYABLE.has((err as { code?: string }).code ?? '')) throw err;
+    return fn();
+  }
 }
 
 interface FileRow {
@@ -369,7 +405,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
       trackCount += f.virtual ? f.virtual.tracks.length : 1;
     }
 
-    const albumValues = {
+    const albumValues: AlbumValues = {
       titleGuess: sample.tags.album
         ? stripDiscToken(sample.tags.album)
         : sample.virtual?.sheet.title ?? null,
@@ -403,22 +439,32 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
     // lock: a new album is never visible without its tracks, and a concurrent
     // zero-track sweep (retireEmptyAlbums) waits for the lock instead of
     // deleting an album that is being filled.
-    await ctx.sql.begin(async (tx) => {
+    //
+    // Every album row the transaction writes is locked up front, in id order:
+    // the album of this key (when it exists) and the albums the files' track
+    // rows sit on now (the relink clears their tracks_linked_at). Two jobs
+    // whose files swapped albums then queue on the same order instead of
+    // each holding one album row and waiting for the other's. A deadlock or
+    // serialization failure that still happens is retried once.
+    const fileIds = g.files.map((f) => f.id);
+    const columns = Object.fromEntries(
+      (Object.keys(ALBUM_COLUMNS) as Array<keyof AlbumValues>).map((k) => [ALBUM_COLUMNS[k], albumValues[k]]),
+    );
+    await retryOnce(() => ctx.sql.begin(async (tx) => {
       await tx`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(data.libraryId, ckey)}, 0))`;
-      const v = albumValues;
+      await tx`
+        select id from local_albums
+         where id in (select local_album_id from local_tracks where audio_file_id = any(${fileIds}::uuid[]) and local_album_id is not null)
+            or (library_id = ${data.libraryId} and cluster_key = ${ckey})
+         order by id
+           for update`;
       const [row] = await tx`
-        insert into local_albums (library_id, cluster_key, state, title_guess, artist_guess, year_guess, dir_paths,
-                                  disc_count, track_count, total_duration_ms, formats, updated_at)
-        values (${data.libraryId}, ${ckey}, 'pending', ${v.titleGuess}, ${v.artistGuess}, ${v.yearGuess}, ${v.dirPaths}::text[],
-                ${v.discCount}, ${v.trackCount}, ${v.totalDurationMs}, ${v.formats}::text[], now())
-        on conflict (library_id, cluster_key) do update set
-          title_guess = excluded.title_guess, artist_guess = excluded.artist_guess, year_guess = excluded.year_guess,
-          dir_paths = excluded.dir_paths, disc_count = excluded.disc_count, track_count = excluded.track_count,
-          total_duration_ms = excluded.total_duration_ms, formats = excluded.formats, updated_at = excluded.updated_at
+        insert into local_albums ${tx({ library_id: data.libraryId, cluster_key: ckey, state: 'pending', ...columns })}
+        on conflict (library_id, cluster_key) do update set ${tx(columns)}, updated_at = now()
         returning id::text as id`;
       if (!row) throw new Error('local_albums upsert returned no row');
       await replaceTracks(ctx, row['id'] as string, g.files, discs, tx);
-    });
+    }));
   }
 
   // Loose tracks: local_tracks rows with no album (spec LIB-6).
@@ -461,15 +507,7 @@ export async function clusterDirJob(ctx: WorkerContext, data: ClusterDirJobData)
   );
 }
 
-/**
- * Advisory lock key for one album's cluster key. cluster.dir holds it (xact
- * lock) from the album upsert until its tracks commit; retireEmptyAlbums
- * takes it before it deletes a zero-track album of that key, so an album
- * being filled is never seen empty and removed.
- */
-export function albumKeyLock(libraryId: string, clusterKey: string): string {
-  return `album-key:${libraryId}\n${clusterKey}`;
-}
+export { albumKeyLock };
 
 /**
  * The zero-track albums one cluster.dir run removes.
