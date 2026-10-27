@@ -10,7 +10,7 @@ export {
   MAX_ALIGN_TRACKS,
 } from './scoring.js';
 
-export type { MediumCountSource } from './scoring.js';
+export type { MediumCountSource, ReleaseScore } from './scoring.js';
 
 export type {
   LocalTrack,

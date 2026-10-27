@@ -265,6 +265,16 @@ export function normalizeBarcode(raw: string | null | undefined): string {
   return digits.length === 12 ? `0${digits}` : digits;
 }
 
+export interface ReleaseScore {
+  distance: number;
+  breakdown: DistanceBreakdown;
+  recommendation: 'strong' | 'medium' | 'weak';
+  /** one per local track, in local order: exactly what the distance was computed from */
+  alignment: TrackAlignment[];
+  /** 0-based indexes of candidate tracks nothing local paired with */
+  missingRemote: number[];
+}
+
 /**
  * Score a candidate release against a local album.
  * Lower scores are better (0 = perfect match).
@@ -272,13 +282,13 @@ export function normalizeBarcode(raw: string | null | undefined): string {
  * @param local - local album cluster
  * @param candidate - candidate release to score
  * @param prefs - matching preferences
- * @returns { distance, breakdown, recommendation }
+ * @returns the distance, breakdown, recommendation and the track alignment it was computed from
  */
 export function scoreRelease(
   local: LocalAlbumView,
   candidate: CanonicalRelease,
   prefs: MatchingPreferences = {}
-): { distance: number; breakdown: DistanceBreakdown; recommendation: 'strong' | 'medium' | 'weak' } {
+): ReleaseScore {
   const weights = { ...DEFAULT_WEIGHTS, ...(prefs.weights || {}) };
   const breakdown: DistanceBreakdown = {};
 
@@ -320,7 +330,6 @@ export function scoreRelease(
 
   // 4. Track alignment and count comparison
   const alignments = alignTracks(local.tracks, candidate.tracks);
-  let missingCount = 0;
   let unmatchedCount = 0;
   let trackDistSum = 0;
 
@@ -331,12 +340,11 @@ export function scoreRelease(
     trackDistSum += alignment.distance;
   }
 
+  const missingRemote: number[] = [];
   for (const canTrack of candidate.tracks) {
-    const matched = alignments.some((a) => a.canonicalIndex === canTrack.index);
-    if (!matched) {
-      missingCount++;
-    }
+    if (!alignments.some((a) => a.canonicalIndex === canTrack.index)) missingRemote.push(canTrack.index);
   }
+  const missingCount = missingRemote.length;
 
   // Track count distance
   const trackCountDist =
@@ -483,6 +491,8 @@ export function scoreRelease(
     distance: normalizedDistance,
     breakdown,
     recommendation,
+    alignment: alignments,
+    missingRemote,
   };
 }
 
@@ -493,16 +503,8 @@ export function scoreCandidates(
   local: LocalAlbumView,
   candidates: CanonicalRelease[],
   prefs: MatchingPreferences = {}
-): Array<CanonicalRelease & { distance: number; breakdown: DistanceBreakdown; recommendation: 'strong' | 'medium' | 'weak' }> {
+): Array<CanonicalRelease & ReleaseScore> {
   return candidates
-    .map((candidate) => {
-      const { distance, breakdown, recommendation } = scoreRelease(local, candidate, prefs);
-      return {
-        ...candidate,
-        distance,
-        breakdown,
-        recommendation,
-      };
-    })
+    .map((candidate) => ({ ...candidate, ...scoreRelease(local, candidate, prefs) }))
     .sort((a, b) => a.distance - b.distance);
 }

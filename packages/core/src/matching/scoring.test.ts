@@ -3,7 +3,7 @@
  * the O(n³) Hungarian solver.
  */
 import { describe, it, expect } from 'vitest';
-import { alignTracks, scoreRelease, mediumCountOf, MAX_ALIGN_TRACKS } from './scoring.js';
+import { alignTracks, scoreRelease, scoreCandidates, mediumCountOf, MAX_ALIGN_TRACKS } from './scoring.js';
 import { chipCounts } from './chipRule.js';
 
 const local = (n: number) => Array.from({ length: n }, (_, i) => ({ title: `Song ${i + 1}`, duration: 200 + i, index: i }));
@@ -407,5 +407,51 @@ describe('barcode normalisation', () => {
   });
   it('two different codes still mismatch', () => {
     expect(run('5099902987422', '5099902987439').breakdown.albumId).toBe(0.3);
+  });
+});
+
+describe('scoreRelease alignment', () => {
+  const base = { artist: 'Ensemble Nord', title: 'Lichtung' };
+  const cand = (tracks: ReturnType<typeof canonical>) => ({ id: 'r', releaseGroupId: 'g', title: 'Lichtung', artists: ['Ensemble Nord'], tracks, source: 'musicbrainz' as const });
+
+  it('returns the alignment the distance was computed from', () => {
+    const r = scoreRelease({ ...base, tracks: local(6) }, cand(canonical(7)));
+    expect(r.alignment).toEqual(alignTracks(local(6), canonical(7)));
+    expect(r.missingRemote).toEqual([6]);
+  });
+
+  it('per-medium alignment is returned as the scorer used it', () => {
+    const tracks = [...discTracks(1, 3), ...discTracks(2, 2, 3)];
+    const media = [...mediumTracks(1, 3), ...mediumTracks(2, 2, 3)];
+    const r = scoreRelease({ ...base, tracks, discsKnown: true, discCount: 2 }, cand(media));
+    expect(r.alignment).toEqual(alignTracks(tracks, media));
+    expect(r.alignment.every((a) => a.canonicalIndex === a.localIndex)).toBe(true);
+  });
+
+  it('over the cap every local track is unaligned and every remote one missing', () => {
+    const r = scoreRelease({ ...base, tracks: local(3) }, cand(canonical(MAX_ALIGN_TRACKS + 1)));
+    expect(r.alignment.every((a) => a.canonicalIndex === null)).toBe(true);
+    expect(r.missingRemote).toHaveLength(MAX_ALIGN_TRACKS + 1);
+  });
+
+  it('scoreCandidates carries alignment and missingRemote', () => {
+    const [top] = scoreCandidates({ ...base, tracks: local(4) }, [cand(canonical(4))]);
+    expect(top!.alignment).toHaveLength(4);
+    expect(top!.missingRemote).toEqual([]);
+  });
+
+  it('distances, breakdowns and recommendations equal what the scorer returned before alignment was exposed', () => {
+    // Captured from the scorer before it returned the alignment.
+    const before = [
+      { distance: 0.03481392557022809, breakdown: { artist: 0, album: 0, tracks: 0.14285714285714285, trackTitle: 0, missingTracks: 0.14285714285714285 }, recommendation: 'medium' },
+      { distance: 0, breakdown: { artist: 0, album: 0, tracks: 0, trackTitle: 0 }, recommendation: 'strong' },
+      { distance: 0.06403940886699507, breakdown: { artist: 0, album: 0, tracks: 0.2857142857142857, trackTitle: 0, unmatchedTracks: 0.2857142857142857 }, recommendation: 'medium' },
+    ];
+    const after = [
+      scoreRelease({ ...base, tracks: local(6) }, cand(canonical(7))),
+      scoreRelease({ ...base, tracks: local(4) }, cand(canonical(4))),
+      scoreRelease({ ...base, tracks: local(7) }, cand(canonical(5))),
+    ].map(({ distance, breakdown, recommendation }) => ({ distance, breakdown, recommendation }));
+    expect(after).toStrictEqual(before);
   });
 });

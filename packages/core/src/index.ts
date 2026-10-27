@@ -43,6 +43,7 @@ export type {
   TrackAlignment,
   MatchingPreferences,
   MediumCountSource,
+  ReleaseScore,
   Assignment,
   RuleCandidate,
   AutoAcceptDecision,
