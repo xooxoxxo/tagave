@@ -52,6 +52,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storedReleases (db)', () => {
   it('a release with no stored tracks is incomplete', async () => {
     expect((await storedReleases({ sql: client }, [bare])).get(bare)!.complete).toBe(false);
   });
+
+  it('marks an incomplete release among complete ones so the caller can skip it', async () => {
+    const out = await storedReleases({ sql: client }, [mb, bare, dg]);
+    expect([...out.values()].filter((s) => !s.complete).map((s) => s.dbId)).toEqual([bare]);
+    expect(out.get(bare)!.release.tracks).toEqual([]);
+    expect(out.get(mb)!.release.tracks).toHaveLength(3);
+    expect(out.get(dg)!.release.tracks).toHaveLength(2);
+  });
 });
 
 // What identify scores is toScorable(provider release); what it stores is
@@ -101,6 +109,48 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('storedReleases round trip (db)'
     expect(r.complete).toBe(true);
     expect(r.status).toBe('Official');
     expect(toScorable(r.release)).toEqual(toScorable(mbRelease));
+  });
+
+  it('a two-medium Discogs release keeps its medium order and count', async () => {
+    const id = 900000000 + Math.floor(Math.random() * 99999999);
+    const two: CanonicalRelease = {
+      id: String(id), releaseGroupId: `release:${id}`, title: 'Kaarna II', artists: ['Kvartetti Itä'],
+      tracks: [
+        { title: 'A1', artists: ['Kvartetti Itä'], duration: 180000, position: 1, mediumNumber: 1 },
+        { title: 'A2', artists: ['Kvartetti Itä'], duration: 0, position: 2, mediumNumber: 1 },
+        { title: 'B1', artists: ['Kvartetti Itä'], duration: 210000, position: 1, mediumNumber: 2 },
+        { title: 'B2', artists: ['Kvartetti Itä'], duration: 190000, position: 2, mediumNumber: 2 },
+      ],
+      year: 2004, country: 'XE', mediaList: [{ position: 1, format: 'Vinyl', trackCount: 2 }],
+      source: 'discogs', sourceId: String(id),
+    };
+    const { releaseId, releaseGroupId } = await upsertCanonical(ctx, two);
+    groups.push(releaseGroupId);
+    const r = (await storedReleases(ctx, [releaseId])).get(releaseId)!;
+    const scorable = toScorable(r.release);
+    expect(scorable.mediumCount).toBe(2);
+    expect(scorable.tracks.map((t) => [t.medium, t.title])).toEqual([[1, 'A1'], [1, 'A2'], [2, 'B1'], [2, 'B2']]);
+    expect({ ...scorable, releaseGroupId: '' }).toEqual({ ...toScorable(two), releaseGroupId: '' });
+  });
+
+  it('keeps the first stored barcode and title when the source later changes them (tracks follow)', async () => {
+    const first: CanonicalRelease = {
+      id: randomUUID(), releaseGroupId: randomUUID(), title: 'Ensin', artists: ['Kvartetti Itä'],
+      tracks: [{ title: 'Yksi', artists: ['Kvartetti Itä'], duration: 100000, position: 1, mediumNumber: 1 }],
+      year: 2004, barcode: '6417138600123', source: 'musicbrainz',
+    };
+    const { releaseId, releaseGroupId } = await upsertCanonical(ctx, first);
+    groups.push(releaseGroupId);
+    const later: CanonicalRelease = {
+      ...first, title: 'Myöhemmin', barcode: '0724384960650',
+      tracks: [{ title: 'Yksi (uusi)', artists: ['Kvartetti Itä'], duration: 101000, position: 1, mediumNumber: 1 }],
+    };
+    expect((await upsertCanonical(ctx, later)).releaseId).toBe(releaseId);
+    const r = (await storedReleases(ctx, [releaseId])).get(releaseId)!;
+    // The release row is not refreshed by a later store, so a replay sees
+    // the first values; the tracks are rewritten every time.
+    expect(r.release).toMatchObject({ title: 'Ensin', barcode: '6417138600123' });
+    expect(r.release.tracks.map((t) => [t.title, t.duration])).toEqual([['Yksi (uusi)', 101000]]);
   });
 
   it('a stored Discogs release scores the same; only its group id is the local one', async () => {
