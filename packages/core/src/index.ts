@@ -220,7 +220,10 @@ export {
 } from './artistList.js';
 
 // Deciders: tracklist groups, the hashed Jev question spec, the decision and the edition pick
-export { GROUPING_DEFAULTS, JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition } from './decider/index.js';
+export {
+  GROUPING_DEFAULTS, groupTracklists, fits, hasWildcards, countsKey, groupLabel,
+  JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition,
+} from './decider/index.js';
 export type {
   GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
   Decider, DeciderInput, DeciderAnswer,
