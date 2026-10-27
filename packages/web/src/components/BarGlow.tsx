@@ -1,18 +1,21 @@
 /**
  * The equalizer glow (Settings › Appearance › Equalizer glow, off by
- * default): a neon horizon inside the player bar, behind its content and
- * clipped to it. Seven wide lobes rise from the bar's bottom edge, the lows
- * in the middle, the highs at the ends; loud peaks reach about half the
- * bar's height, quiet music stays a low line. On desktop and Android it
- * follows the music (adaptive/levels.ts), one rAF loop writing transform and
- * opacity on seven spans, nothing re-renders. On iOS, or where Web Audio
- * cannot start, it breathes slowly in CSS; reduced motion holds it still.
- * Paused, it settles to the low line. Its colour is --seek-glow (the cover's
- * --ad-glow, or the theme's), a tone chosen so the bar's text, keys and seek
- * line keep their contrast over it at its peak (adaptive/barGlow.ts).
+ * default): a row of soft columns rising from the bottom edge of the window's
+ * foot, the player bar and, on a desktop, the sidebar's account row beside
+ * it, edge to edge (each is a piece of one glow: the columns sit on one grid
+ * across the window, glowDriver.ts drives them all). Behind each piece's
+ * content and clipped to it. Fullest in the middle, short and faint towards
+ * both edges; a loud peak reaches half the bar, quiet music a low line; a
+ * paused track settles to it. On desktop and Android it follows the music
+ * (adaptive/levels.ts, compressed and smoothed), one rAF loop writing a
+ * transform per column, nothing re-renders. On iOS, or where Web Audio
+ * cannot start, it breathes slowly in CSS; reduced motion holds it still. Its
+ * colour is --seek-glow (the cover's --ad-glow, or the theme's), apart from
+ * the bar but kept off its text (adaptive/barGlow.ts).
  */
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
-import { BANDS, analyserAllowed, bandReader, playerAnalyser } from '../adaptive/levels';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
+import { analyserAllowed, playerAnalyser } from '../adaptive/levels';
+import { SPAN, envelope, setSource, subscribe } from './glowDriver';
 import styles from './BarGlow.module.css';
 
 const reduceQuery = '(prefers-reduced-motion: reduce)';
@@ -25,25 +28,29 @@ function useReducedMotion(): boolean {
   return useSyncExternalStore(subscribeReduce, () => !!globalThis.matchMedia?.(reduceQuery).matches, () => false);
 }
 
-export const LOBES = 7;
-/** The low line quiet music keeps, and the full height a loud peak reaches (the lobe is half the bar tall). */
+/** The columns' grid across the window (px): one every PITCH, COLUMN wide. */
+export const PITCH = 14;
+export const COLUMN = 10;
+/** The low line quiet music keeps, as a share of the column's full height. */
 const LOW = 0.14;
 
-/**
- * A lobe's level from the three bands: the middle lobe the lows, the next
- * ones the mids, the outer ones the highs, blended between.
- */
-export function lobeLevel(j: number, bands: ArrayLike<number>): number {
-  const d = Math.abs(j - (LOBES - 1) / 2) / ((LOBES - 1) / 2);
-  const [low = 0, mid = 0, high = 0] = Array.from(bands);
-  return d < 0.5 ? low + (mid - low) * d * 2 : mid + (high - mid) * (d - 0.5) * 2;
+interface Column { left: number; env: number; k: number }
+
+/** The columns of a piece of the strip from `left` to `right` (px in the window) in a window `width` wide. */
+export function columnsOf(left: number, right: number, width: number): Column[] {
+  const out: Column[] = [];
+  if (width <= 0 || right <= left) return out;
+  for (let i = Math.floor(left / PITCH); i * PITCH < right; i++) {
+    const centre = i * PITCH + PITCH / 2;
+    if (centre + COLUMN / 2 <= left || centre - COLUMN / 2 >= right) continue;
+    const x = centre / width;
+    out.push({ left: centre - COLUMN / 2 - left, env: envelope(x), k: Math.round(Math.min(1, Math.max(0, x)) * (SPAN - 1)) });
+  }
+  return out;
 }
 
-/** The lobe's transform and opacity for a level, 0 to 1. */
-export function lobeStyle(level: number): { transform: string; opacity: string } {
-  const e = Math.min(1, Math.max(0, level));
-  return { transform: `scaleY(${(LOW + (1 - LOW) * e).toFixed(3)})`, opacity: (0.55 + 0.45 * e).toFixed(3) };
-}
+/** A column's scale for a level, 0 to 1, under its envelope. */
+export const columnScale = (env: number, level: number) => env * Math.max(LOW, Math.min(1, level));
 
 export interface BarGlowProps {
   playing: boolean;
@@ -58,7 +65,9 @@ const isNode = (s: unknown): s is AnalyserNode => typeof AnalyserNode !== 'undef
 export function BarGlow({ playing, source = 'auto', level }: BarGlowProps) {
   const reduce = useReducedMotion();
   const [node, setNode] = useState<AnalyserNode | null>(isNode(source) ? source : null);
-  const lobes = useRef<Array<HTMLSpanElement | null>>([]);
+  const ref = useRef<HTMLSpanElement>(null);
+  const spans = useRef<Array<HTMLSpanElement | null>>([]);
+  const [columns, setColumns] = useState<Column[]>([]);
 
   // the analyser, first asked for once something plays (Play was a gesture, so the context may start)
   useEffect(() => {
@@ -69,49 +78,59 @@ export function BarGlow({ playing, source = 'auto', level }: BarGlowProps) {
     return () => { live = false; };
   }, [source, playing, node, reduce]);
 
-  const nodeReader = useMemo(() => (node ? bandReader(node) : null), [node]);
-  const reader = typeof source === 'function' ? source : nodeReader;
-  const live = level === undefined && !!reader && !reduce && source !== 'calm';
-  const readerRef = useRef(reader);
-  readerRef.current = reader;
+  // the columns this piece holds, on the window's grid
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      const next = columnsOf(r.left, r.right, document.documentElement.clientWidth || globalThis.innerWidth);
+      setColumns((prev) => (prev.length === next.length && prev.every((c, i) => c.left === next[i]!.left && c.env === next[i]!.env) ? prev : next));
+    };
+    measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    globalThis.addEventListener?.('resize', measure);
+    return () => { ro?.disconnect(); globalThis.removeEventListener?.('resize', measure); };
+  }, []);
+
+  const feed = typeof source === 'function' ? source : node;
+  const live = level === undefined && !!feed && !reduce && source !== 'calm';
   useEffect(() => {
-    if (!live || !playing) return;
-    const lv = new Float32Array(BANDS);
-    const held = new Float32Array(LOBES);
-    let raf = 0;
-    const tick = () => {
-      readerRef.current?.(lv);
-      for (let j = 0; j < LOBES; j++) {
-        const e = lobeLevel(j, lv);
-        // up with the beat, slower down: it breathes rather than flickers
-        held[j] = e > held[j]! ? e : held[j]! + (e - held[j]!) * 0.08;
-        const el = lobes.current[j];
-        if (!el) continue;
-        const st = lobeStyle(held[j]!);
-        el.style.transform = st.transform;
-        el.style.opacity = st.opacity;
+    if (!live || !playing || !feed) return;
+    setSource(feed);
+    const cols = columns;
+    const els = spans.current.slice(0, cols.length);
+    const shown = new Float32Array(cols.length).fill(-1);
+    const off = subscribe((levels) => {
+      for (let j = 0; j < cols.length; j++) {
+        const el = els[j];
+        const v = columnScale(cols[j]!.env, levels[cols[j]!.k]!);
+        // a column that has not moved visibly keeps its style: fewer writes, less style work
+        if (!el || Math.abs(v - shown[j]!) < 0.006) continue;
+        shown[j] = v;
+        el.style.transform = `scaleY(${v.toFixed(3)})`;
       }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    const els = [...lobes.current];
+    });
     return () => {
-      cancelAnimationFrame(raf);
-      for (const el of els) { el?.style.removeProperty('transform'); el?.style.removeProperty('opacity'); }
+      off();
+      for (const el of els) el?.style.removeProperty('transform');
     };
-  }, [live, playing]);
+  }, [live, playing, feed, columns]);
 
   return (
-    <span className={styles.glow} data-mode={level !== undefined ? 'still' : live ? 'live' : 'calm'} data-playing={playing} aria-hidden="true" data-bar-glow="">
-      {Array.from({ length: LOBES }, (_, j) => (
+    <span ref={ref} className={styles.glow} data-mode={level !== undefined ? 'still' : live ? 'live' : 'calm'} data-playing={playing} aria-hidden="true" data-bar-glow="">
+      {columns.map((c, j) => (
         <span
-          key={j}
-          ref={(el) => { lobes.current[j] = el; }}
-          className={styles.lobe}
+          key={`${c.left}-${j}`}
+          ref={(el) => { spans.current[j] = el; }}
+          className={styles.column}
           style={{
-            '--x': `${((j + 0.5) / LOBES) * 100}%`,
-            '--i': Math.abs(j - (LOBES - 1) / 2),
-            ...(level === undefined ? {} : lobeStyle(level * (1 - 0.25 * (Math.abs(j - (LOBES - 1) / 2) / ((LOBES - 1) / 2))))),
+            left: `${c.left}px`,
+            opacity: (0.35 + 0.65 * c.env).toFixed(3),
+            '--env': c.env.toFixed(3),
+            '--i': c.k % 16,
+            ...(level === undefined ? {} : { transform: `scaleY(${columnScale(c.env, level).toFixed(3)})` }),
           } as CSSProperties}
         />
       ))}

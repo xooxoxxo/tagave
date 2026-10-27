@@ -3,7 +3,7 @@ import { Hct, argbFromHex } from '@material/material-color-utilities';
 import { adaptiveTokens, sourceColour } from './scheme';
 import { THEME_INKS, WASH_MAX, argbOfHex, extremes, saturate, washOpacity, type Extremes } from './wash';
 import { BRAND_TOKENS } from './brand';
-import { glowHolds } from './barGlow';
+import { glowHolds, glowShows } from './barGlow';
 
 type RGB = [number, number, number];
 const parse = (h: string): RGB => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
@@ -41,6 +41,8 @@ function check(tokens: Record<string, string>, theme: 'light' | 'dark', label: s
     texts: [argbOfHex(tokens['--ad-bar-ink']!), argbOfHex(tokens['--ad-bar-ink-2']!)],
     marks: [argbOfHex(tokens['--ad-bar-accent']!)],
   }), `${label} ${theme}: the bar's inks over the glow at its peak`).toBe(true);
+  // and the glow stands apart from the bar: apparent at a glance
+  expect(glowShows(argbOfHex(tokens['--ad-glow']!), argbOfHex(tokens['--ad-bar']!)), `${label} ${theme}: the glow shows`).toBeGreaterThanOrEqual(1.5);
   const canvas = parse(tokens['--ad-canvas']!);
   // the bar is a clear step from the page it sits on
   expect(ratio(parse(tokens['--ad-bar']!), canvas), `${label} ${theme}: bar vs canvas`).toBeGreaterThanOrEqual(1.4);

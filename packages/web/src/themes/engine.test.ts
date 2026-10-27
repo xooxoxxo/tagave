@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { argbFromHex, hexFromArgb } from '@material/material-color-utilities';
 import { CUSTOM_START, STARTERS, generate, generatedSpec, hctOf, minRatios, withHue, type ThemeSpec } from './engine';
-import { glowHolds } from '../adaptive/barGlow';
+import { glowHolds, glowShows } from '../adaptive/barGlow';
 
 /** The theme's equalizer glow inside its bar keeps the bar's inks at their rules at the glow's peak. */
 function glowHoldsIn(spec: ThemeSpec, dark: boolean): boolean {
   const t = generate(spec, dark).tokens;
   const a = (k: string) => argbFromHex(t[k]!);
-  return glowHolds(a('--seek-glow'), a('--th-bar'), { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] });
+  return glowHolds(a('--seek-glow'), a('--th-bar'), { texts: [a('--th-bar-ink'), a('--th-bar-ink-2')], marks: [a('--th-bar-accent')] })
+    // and it stands apart from the bar: apparent at a glance
+    && glowShows(a('--seek-glow'), a('--th-bar')) >= 1.5;
 }
 
 /** a seeded random, so a failure names a seed that can be replayed */

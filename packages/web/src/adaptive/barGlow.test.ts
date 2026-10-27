@@ -1,13 +1,16 @@
 /**
- * The equalizer glow inside the player bar: the brand bar (glass over the
- * canvas, tokens.css) keeps its inks over the brand glow, the CSS draws the
- * lobes no stronger than the peak the contrast is held at, and the lobes
- * follow the bands (adaptive covers: scheme.test.ts; themes: engine.test.ts).
+ * The equalizer glow at the foot of the window: the brand bar (glass over
+ * the canvas, tokens.css) keeps its text and keys over the brand glow and
+ * the glow stands apart from it; the CSS draws the columns exactly as
+ * strong as the profile the contrast is held at; the columns follow the
+ * levels under the width's envelope. (Adaptive covers: scheme.test.ts;
+ * themes: engine.test.ts.)
  */
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { BAR_GLOW_PEAK, glowHolds } from './barGlow';
-import { LOBES, lobeLevel, lobeStyle } from '../components/BarGlow';
+import { GLOW_PEAK, GLOW_SHOWS, MARK_ALPHA, PROFILE, TEXT_ALPHA, alphaAt, glowHolds, glowShows } from './barGlow';
+import { COLUMN, PITCH, columnScale, columnsOf } from '../components/BarGlow';
+import { SPAN, compress, envelope, spread } from '../components/glowDriver';
 
 const tokens = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8');
 const glowCss = readFileSync(new URL('../components/BarGlow.module.css', import.meta.url), 'utf8');
@@ -32,35 +35,56 @@ function glassOver(theme: Map<string, string>): number {
 
 describe('the brand bar (glass over the canvas)', () => {
   for (const [name, theme] of [['light', light], ['dark', dark]] as const) {
-    it(`${name}: title and second line 4.5:1, seek fill and keys 3:1 over the glow at its peak`, () => {
-      expect(glowHolds(argb(theme.get('seek-glow')!), glassOver(theme), {
-        texts: [argb(theme.get('ink')!), argb(theme.get('ink-2')!)],
-        marks: [argb(theme.get('dew')!)],
-      })).toBe(true);
+    it(`${name}: title and second line 4.5:1, keys 3:1 over the glow; the glow stands ${GLOW_SHOWS}:1 apart`, () => {
+      const glow = argb(theme.get('seek-glow')!), bar = glassOver(theme);
+      expect(glowHolds(glow, bar, { texts: [argb(theme.get('ink')!), argb(theme.get('ink-2')!)], marks: [argb(theme.get('dew')!)] })).toBe(true);
+      expect(glowShows(glow, bar)).toBeGreaterThanOrEqual(GLOW_SHOWS);
     });
   }
 });
 
-describe('the lobes', () => {
-  it('are drawn no stronger than the peak the contrast holds at', () => {
-    const strengths = [...glowCss.matchAll(/var\(--seek-glow\) (\d+)%/g)].map((m) => Number(m[1]));
-    expect(strengths.length).toBeGreaterThan(0);
-    expect(Math.max(...strengths)).toBe(Math.round(BAR_GLOW_PEAK * 100));
+describe('the columns', () => {
+  it('are drawn as strong as the profile the contrast is held at', () => {
+    const stops = [...glowCss.matchAll(/var\(--seek-glow\) ([\d.]+)%, transparent\)(?: (\d+)%)?/g)].map((m) => [m[2] === undefined ? 0 : Number(m[2]) / 100, Number(m[1]) / 100]);
+    const profile = PROFILE.filter(([, s]) => s > 0).map(([at, s]) => [at, Math.round(GLOW_PEAK * s * 1000) / 1000]);
+    expect(stops).toEqual(profile);
+    expect(glowCss).toMatch(/\.column \{[^}]*width: 10px;[^}]*height: 50%;/);
+    expect(COLUMN).toBe(10);
   });
 
-  it('a loud peak reaches half the bar, quiet music a low line', () => {
-    expect(glowCss).toMatch(/\.lobe \{[^}]*height: 50%/);
-    expect(lobeStyle(1).transform).toBe('scaleY(1.000)');
-    expect(Number(lobeStyle(0).transform.match(/[\d.]+/)![0])).toBeLessThan(0.2);
-    expect(lobeStyle(2)).toEqual(lobeStyle(1));
+  it('give the text and the keys a fraction of the peak', () => {
+    expect(alphaAt(0)).toBe(GLOW_PEAK);
+    expect(alphaAt(1)).toBeCloseTo(0);
+    expect(TEXT_ALPHA).toBeLessThan(GLOW_PEAK * 0.15);
+    expect(MARK_ALPHA).toBeLessThan(TEXT_ALPHA);
   });
 
-  it('the lows in the middle, the highs at the ends', () => {
-    const bands = [0.9, 0.4, 0.1];
-    const mid = (LOBES - 1) / 2;
-    expect(lobeLevel(mid, bands)).toBeCloseTo(0.9);
-    expect(lobeLevel(0, bands)).toBeCloseTo(0.1);
-    expect(lobeLevel(LOBES - 1, bands)).toBeCloseTo(0.1);
-    expect(lobeLevel(mid - 1, bands)).toBeGreaterThan(lobeLevel(mid - 2, bands));
+  it('sit on one grid across the window, so the account row and the bar carry on', () => {
+    const row = columnsOf(0, 248, 1440), bar = columnsOf(248, 1440, 1440);
+    const centres = [...row.map((c) => c.left + COLUMN / 2), ...bar.map((c) => c.left + 248 + COLUMN / 2)];
+    // a column on the seam is in both pieces, each drawing its own side
+    const unique = [...new Set(centres)].sort((a, b) => a - b);
+    expect(unique.every((x, i) => i === 0 || x - unique[i - 1]! === PITCH)).toBe(true);
+    expect(unique[0]).toBe(PITCH / 2);
+  });
+
+  it('are fullest in the middle, short and faint towards both edges', () => {
+    expect(envelope(0.5)).toBeCloseTo(1);
+    expect(envelope(0)).toBeCloseTo(0.15);
+    expect(envelope(1)).toBeCloseTo(0.15);
+    expect(envelope(0.25)).toBeGreaterThan(envelope(0.05));
+    expect(columnScale(1, 1)).toBe(1);
+    expect(columnScale(0.5, 1)).toBe(0.5);
+    expect(columnScale(1, 0)).toBeGreaterThan(0.1);
+  });
+
+  it('even out in the middle: one loud band does not spike there', () => {
+    const lows = spread([1, 0.2, 0.2], 0), even = spread([0.47, 0.47, 0.47], 0);
+    const mid = Math.floor(SPAN / 2);
+    expect(lows[mid]!).toBeLessThan(0.8);
+    expect(Math.abs(lows[mid]! - even[mid]!)).toBeLessThan(0.35);
+    // compressed: a quiet band still lifts, a loud one never pins
+    expect(compress(0)).toBeGreaterThan(0.1);
+    expect(compress(1)).toBeLessThan(1);
   });
 });

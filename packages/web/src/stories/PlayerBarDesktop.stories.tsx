@@ -49,8 +49,9 @@ function Bar({ state, glow = false }: { state: BarState; glow?: boolean }) {
 }
 
 function InTheApp({ state, compartmentOpen = false, glow = false }: Args) {
+  const accountGlow = glow ? <BarGlow playing={state === 'playing'} source="calm" level={state === 'playing' ? 1 : undefined} /> : undefined;
   return (
-    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} />}>
+    <DesktopFrame empty={state === 'empty'} compartmentOpen={compartmentOpen} dock={<Bar state={state} glow={glow} />} accountGlow={accountGlow}>
       <Albums />
     </DesktopFrame>
   );

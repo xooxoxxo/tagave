@@ -176,6 +176,21 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
 }
 
 /**
+ * The equalizer glow's piece under the sidebar's account row, beside the
+ * bar, so the glow runs the whole foot of the window (a desktop only: on a
+ * tablet or a phone the row is not at the foot). Its own component, so the
+ * player's ticks re-render only it.
+ */
+export function AccountGlow() {
+  const [prefs] = useDisplayPrefs();
+  const narrow = useMediaQuery('(max-width: 900px)');
+  const status = usePlayerStore((p) => p.status);
+  const queued = usePlayerStore((p) => !!p.queue && p.queue.tracks.length > 0);
+  if (!prefs.eqGlow || narrow || !queued || status === 'error') return null;
+  return <BarGlow playing={status === 'playing'} />;
+}
+
+/**
  * The connected player. On a desktop with a player the bar, always (empty
  * until something is queued), whose queue key opens Now Playing over the
  * page; on a phone the mini bar while a queue exists, which opens the full

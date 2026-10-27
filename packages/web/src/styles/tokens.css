@@ -59,7 +59,7 @@
   --shadow-tint: 22, 52, 70;               /* rgb triplet for rgba() */
   --scrim: rgba(22, 32, 42, 0.32);         /* behind modals */
   --ring: #276a82;
-  --seek-glow: #00c5f7;       /* the equalizer glow in the bar: its inks and seek fill hold over it (adaptive/barGlow.ts) */
+  --seek-glow: #009dc5;       /* the equalizer glow in the bar: its inks and seek fill hold over it (adaptive/barGlow.ts) */
   /* drop and clear-bubble finish (theme-dependent parts of the button recipe) */
   --drop-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.9);
@@ -256,7 +256,7 @@
     --shadow-tint: 0, 0, 0;
     --scrim: rgba(0, 0, 0, 0.55);
     --ring: #8acbe0;
-    --seek-glow: #005c76;
+    --seek-glow: #00cbff;
     --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
     --clear-hi: rgba(255, 255, 255, 0.14);
     --clear-sheen: 0.16;
@@ -322,7 +322,7 @@
   --shadow-tint: 0, 0, 0;
   --scrim: rgba(0, 0, 0, 0.55);
   --ring: #8acbe0;
-  --seek-glow: #005c76;
+  --seek-glow: #00cbff;
   --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.14);
   --clear-sheen: 0.16;
