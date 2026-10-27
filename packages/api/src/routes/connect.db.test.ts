@@ -15,7 +15,8 @@ import { initAuth } from '../middleware/auth.js';
 import { TEST_PUBLIC_URL, createScratchDb, migrateAll, testAuth } from '../testkit/authApp.js';
 import { createTestUser, type TestUser } from '../testkit/users.js';
 import { turnMcOn } from '../testkit/mc.js';
-import { mcEnabled, setMcEnabled } from '@tagave/db';
+import { UnknownModuleError, mcEnabled, setMcEnabled, syncInstalledModules } from '@tagave/db';
+import { ledgerEntries } from '@tagave/core/facets';
 import { hashToken, knownGoodTokens, lookupAccessToken, pkceChallenge } from '../lib/mcOAuth.js';
 import { connectConfig, resetConnectRouteLimits } from './connect.js';
 
@@ -502,9 +503,12 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     });
 
     it('is off by default: an install that never set it offers nothing', async () => {
-      // no row in the module ledger: never turned on
+      // the row a boot makes for it (its manifest's default), as on an install that never turned it on
       await handle.sql`delete from installed_modules where id = 'mc'`;
       try {
+        expect(await mcEnabled(handle.sql)).toBe(false);
+        await expect(setMcEnabled(handle.sql, true)).rejects.toBeInstanceOf(UnknownModuleError);
+        expect(await syncInstalledModules(handle.sql, ledgerEntries())).toEqual(['mc']);
         expect(await mcEnabled(handle.sql)).toBe(false);
         expect((await app.inject({ method: 'GET', url: '/.well-known/music-connections' })).statusCode).toBe(404);
         expect((await register()).statusCode).toBe(404);

@@ -37,6 +37,13 @@ describe('music files gate', () => {
     expect(clusteredByMusic(DOC)).toBe(false);
     expect(clusteredByMusic(null)).toBe(false);
   });
+
+  it('walks the built-in apps’ handlers on a database from before the module ledger (schema skew allowed)', async () => {
+    const beforeLedger = (() => Promise.reject(Object.assign(new Error('relation "installed_modules" does not exist'), { code: '42P01' }))) as any;
+    expect([...(await walkedHandlers({ sql: beforeLedger }))]).toEqual(['audio']);
+    const broken = (() => Promise.reject(Object.assign(new Error('connection lost'), { code: '08006' }))) as any;
+    await expect(walkedHandlers({ sql: broken })).rejects.toThrow(/connection lost/);
+  });
 });
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster.dir only for files the music app groups (db)', () => {

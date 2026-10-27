@@ -17,18 +17,18 @@
  */
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  listInstalledModules, listenLinksEnabled, mcEnabled, moduleEnabled, moduleSwitches, playlistsEnabled,
-  readLedger, setModuleEnabled, syncInstalledModules,
+  UnknownModuleError, enabledAppIds, listInstalledModules, listenLinksEnabled, mcEnabled, moduleEnabled, moduleSettings, moduleSwitches,
+  playlistsEnabled, readLedger, setModuleEnabled, setModuleSettings, syncInstalledModules,
 } from '@tagave/db';
 import { LISTEN_LINKS_MODULE, ledgerEntries, moduleContext, registry } from '@tagave/core/facets';
 import { MODULE_DATA, PurgeRefused, pgDumpBin, pgRestoreBin, purgeModuleData, runBackup, runRestore } from '@tagave/doctor';
-import { createScratchDb, migrateAll, migrateUpTo } from '../testkit/authApp.js';
+import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../testkit/authApp.js';
 
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
@@ -62,6 +62,24 @@ async function newSwitches(sql: postgres.Sql): Promise<Record<string, boolean>> 
 /** The ledger rows without their clocks. */
 const ledgerRows = async (sql: postgres.Sql) =>
   (await sql`select id, kind, version, enabled, enabled_at is not null as stamped, schema_version, settings from installed_modules order by id`).map((r) => ({ ...r }));
+
+describe('migrateUpTo’s cut, with app and module chains', () => {
+  it('stops in the core chain before a core file, or in a chain before its entry', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'tagave-cut-'));
+    try {
+      for (const f of ['0001_a.sql', '0002_b.sql', 'apps/books/0001_x.sql', 'modules/decider/0001_d.sql', 'modules/decider/0002_e.sql', 'modules/zeta/0001_z.sql']) {
+        await mkdir(join(dir, f, '..'), { recursive: true });
+        await writeFile(join(dir, f), '');
+      }
+      expect(await migrationsBefore('0002', dir)).toEqual(['0001_a.sql']);
+      expect(await migrationsBefore('9999', dir)).toEqual(['0001_a.sql', '0002_b.sql']);
+      expect(await migrationsBefore('decider/0002', dir)).toEqual(['0001_a.sql', '0002_b.sql', 'books/0001_x.sql', 'decider/0001_d.sql']);
+      expect(await migrationsBefore('decider/9999', dir)).toEqual(['0001_a.sql', '0002_b.sql', 'books/0001_x.sql', 'decider/0001_d.sql', 'decider/0002_e.sql']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', () => {
   let admin: postgres.Sql;
@@ -174,12 +192,20 @@ describe.skipIf(!url)('step 2 upgrade: the defaults when no library holds a swit
   let admin: postgres.Sql;
   let db: { url: string; name: string };
   let sql: postgres.Sql;
+  let beforeLedger: unknown;
 
   beforeAll(async () => {
     admin = postgres(url!, { max: 1, onnotice: () => undefined });
     db = await oldInstall(admin);
-    await migrateAll(db.url);
     sql = postgres(db.url, { max: 1, onnotice: () => undefined });
+    // what a worker running on this database with TAGAVE_ALLOW_SCHEMA_SKEW reads
+    beforeLedger = {
+      mc: await moduleEnabled(sql, 'mc'),
+      switches: await moduleSwitches(sql),
+      apps: await enabledAppIds(sql),
+      settings: await moduleSettings(sql, 'mc'),
+    };
+    await migrateAll(db.url);
   }, 180_000);
 
   afterAll(async () => {
@@ -188,10 +214,18 @@ describe.skipIf(!url)('step 2 upgrade: the defaults when no library holds a swit
     await admin?.end({ timeout: 2 });
   });
 
+  it('before 0065 every module reads as off and no app as on (built-in apps are on regardless)', () => {
+    expect(beforeLedger).toEqual({ mc: false, switches: {}, apps: [], settings: {} });
+  });
+
   it('Music Connections and Listen elsewhere off, playlists on, music on: as the settings read when absent', async () => {
     expect(await newSwitches(sql)).toEqual({ mc: false, 'listen-links': false, playlists: true });
     expect(await moduleEnabled(sql, 'music')).toBe(true);
     expect(await moduleEnabled(sql, 'no-such-module')).toBe(false);
+    // a mistyped id is refused, and never becomes a row
+    await expect(setModuleEnabled(sql, 'no-such-module', true)).rejects.toBeInstanceOf(UnknownModuleError);
+    await expect(setModuleSettings(sql, 'no-such-module', { a: 1 })).rejects.toBeInstanceOf(UnknownModuleError);
+    expect(await sql`select 1 from installed_modules where id = 'no-such-module'`).toHaveLength(0);
   });
 });
 
@@ -375,12 +409,11 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
       await setModuleEnabled(sql, 'decider', true);
       expect((await sql`select enabled_at as at from installed_modules where id = 'decider'`)[0]!['at']).toEqual(at);
       // its own settings: merged, a null removes a key
-      const { moduleSettings, setModuleSettings } = await import('@tagave/db');
       expect(await setModuleSettings(sql, 'decider', { threshold: 0.8, mode: 'auto' })).toEqual({ threshold: 0.8, mode: 'auto' });
       expect(await setModuleSettings(sql, 'decider', { mode: null })).toEqual({ threshold: 0.8 });
       expect(await moduleSettings(sql, 'decider')).toEqual({ threshold: 0.8 });
       expect(await moduleSettings(sql, 'nobody')).toEqual({});
-      await expect(setModuleSettings(sql, 'nobody', { a: 1 })).rejects.toThrow(/no installed module/);
+      await expect(setModuleSettings(sql, 'nobody', { a: 1 })).rejects.toBeInstanceOf(UnknownModuleError);
     } finally {
       await sql`delete from installed_modules where id = 'decider'`;
       await sql`delete from _migrations where module = 'decider'`;

@@ -36,6 +36,9 @@ export function clusteredByMusic(handler: string | null | undefined): boolean {
  * nor missing): turning an app off loses its function, never its data.
  */
 export async function walkedHandlers(ctx: Pick<WorkerContext, 'sql'>): Promise<ReadonlySet<string>> {
+  // On a database from before the module ledger (0065), which this worker
+  // runs on only with TAGAVE_ALLOW_SCHEMA_SKEW, no app reads as on: the
+  // built-in apps' handlers are walked, as before the ledger.
   const on = new Set(await enabledAppIds(ctx.sql));
   return claimedHandlerIds((app) => on.has(app));
 }
