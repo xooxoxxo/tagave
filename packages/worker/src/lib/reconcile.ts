@@ -11,6 +11,8 @@ import type postgres from 'postgres';
 import type { WorkerContext } from './context.js';
 import { pgErrorCode, errorMessage } from './dbErrors.js';
 import { relDirname } from './helpers.js';
+
+export { sqlDirname } from './helpers.js';
 import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
@@ -90,16 +92,6 @@ async function runLocked<T>(
   }
 }
 
-/**
- * dirname of `<alias>.rel_path` as SQL text, '' for a file at the top of the
- * root. The one copy of this expression (pre-flight F10): it equals
- * relDirname() and reconcileMatch's dir key exactly, with no case or NFC
- * folding. Use it through `sql.unsafe(sqlDirname('af'))`.
- */
-export function sqlDirname(alias: string): string {
-  if (!/^[a-z_][a-z0-9_]*$/i.test(alias)) throw new Error(`sqlDirname: bad alias ${alias}`);
-  return `case when strpos(${alias}.rel_path, '/') = 0 then '' else regexp_replace(${alias}.rel_path, '/[^/]*$', '') end`;
-}
 
 type Fragment = postgres.PendingQuery<postgres.Row[]>;
 
@@ -239,7 +231,9 @@ export async function runMerges(
   out.reclusterDirs = [...dirs.values()];
   // Sidecar covers follow the merged folders before any stale sidecar is dropped
   // (Tier 1: finishWalk drops after this; Tier 2: the old sidecar waited, Ruling 9).
-  if (out.moves.length > 0) await repointSidecarImages(ctx, out.moves);
+  // The old rows are known gone from their folders (unseen or missing), so they do
+  // not make a folder look still occupied.
+  if (out.moves.length > 0) await repointSidecarImages(ctx, out.moves, olds.map((o) => o.id));
   return out;
 }
 

@@ -119,36 +119,57 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     await sql.end({ timeout: 5 });
   });
 
+  /** Old rows missing, fresh twins parsed and held, sidecars on both sides; then the hold is released. */
+  const tier2 = async (pairs: Array<[string, string]>, size: number) => {
+    const fresh: string[] = [];
+    for (const [k, [from, to]] of pairs.entries()) {
+      const common = { library_id: libraryId, scan_root_id: rootId, size_bytes: size + k, duration_ms: 31_000, core_tags_digest: `rp-${size}-${k}` };
+      await sql`insert into audio_files ${sql({ ...common, id: randomUUID(), rel_path: from, status: 'missing', last_seen_at: dayAgo() })}`;
+      const id = randomUUID();
+      await sql`insert into audio_files ${sql({ ...common, id, rel_path: to, status: 'present', tags_read_at: new Date().toISOString() })}`;
+      fresh.push(id);
+    }
+    expect(await placeHolds(ctx, fresh)).toHaveLength(fresh.length);
+    const dirs = [...new Set(pairs.map(([, to]) => to.slice(0, to.lastIndexOf('/'))))];
+    await releaseReadyHolds(ctx, dirs.map((dirPath) => ({ libraryId, scanRootId: rootId, dirPath })));
+  };
+
   it('Tier 2: a pair found on hold release carries the cover to the new folder', async () => {
     const oldSc = await sidecar('T2Old/folder.jpg');
     const newSc = await sidecar('T2New/folder.jpg');
     const img = await imageOn(oldSc);
-    const file = async (relPath: string, over: Record<string, unknown>) => {
-      const id = randomUUID();
-      await sql`insert into audio_files ${sql({ id, library_id: libraryId, scan_root_id: rootId, rel_path: relPath, size_bytes: 700, status: 'present',
-                                                duration_ms: 31_000, core_tags_digest: 'rp1', ...over })}`;
-      return id;
-    };
-    await file('T2Old/1.flac', { status: 'missing', last_seen_at: dayAgo() });
-    const fresh = await file('T2New/1.flac', { tags_read_at: new Date().toISOString() });
-    expect(await placeHolds(ctx, [fresh])).toEqual([fresh]);
-    await releaseReadyHolds(ctx, [{ libraryId, scanRootId: rootId, dirPath: 'T2New' }]);
+    await tier2([['T2Old/1.flac', 'T2New/1.flac']], 700);
     expect(await pointsAt(img)).toBe(newSc);
   });
 
-  it('matches names by normKey (case, NFC/NFD) and only directly in the folder', async () => {
-    const oldSc = await sidecar('Fold/Folder.JPG');
-    await sidecar('Fold2/Scans/folder.jpg'); // a subfolder's file is no second candidate
+  it('Tier 2: Album/Scans/folder.jpg follows the album', async () => {
+    const img = await imageOn(await sidecar('T2s/Album/Scans/folder.jpg'));
+    const newSc = await sidecar('T2s/Album (2001)/Scans/folder.jpg');
+    await tier2([['T2s/Album/1.flac', 'T2s/Album (2001)/1.flac']], 720);
+    expect(await pointsAt(img)).toBe(newSc);
+    // a second run with the same move finds nothing left to re-point
+    expect(await repointSidecarImages(ctx, [move('T2s/Album', 'T2s/Album (2001)')])).toBe(0);
+  });
+
+  it('Tier 2: Album/folder.jpg over CD1/CD2 follows the album', async () => {
+    const img = await imageOn(await sidecar('T2d/Album/folder.jpg'));
+    const newSc = await sidecar('T2d/Album (2001)/folder.jpg');
+    await tier2([['T2d/Album/CD1/1.flac', 'T2d/Album (2001)/CD1/1.flac'], ['T2d/Album/CD2/1.flac', 'T2d/Album (2001)/CD2/1.flac']], 740);
+    expect(await pointsAt(img)).toBe(newSc);
+    expect(await repointSidecarImages(ctx, [move('T2d/Album/CD1', 'T2d/Album (2001)/CD1'), move('T2d/Album/CD2', 'T2d/Album (2001)/CD2')])).toBe(0);
+  });
+
+  it('matches relative paths by normKey (case, NFC/NFD), at any depth under the moved folder', async () => {
+    const img = await imageOn(await sidecar('Fold/Folder.JPG'));
     const newSc = await sidecar('Fold2/folder.jpg');
-    const img = await imageOn(oldSc);
-    const nfdOld = await sidecar('Fold/Cove\u0301r.jpg');
-    const nfcNew = await sidecar('Fold2/cov\u00e9r.jpg');
-    const img2 = await imageOn(nfdOld);
-    const nestedOld = await imageOn(await sidecar('Fold/Scans/folder.jpg')); // not in Fold itself
-    expect(await repointSidecarImages(ctx, [move('Fold', 'Fold2')])).toBe(2);
+    const img2 = await imageOn(await sidecar('Fold/Covér.jpg'));
+    const nfcNew = await sidecar('Fold2/covér.jpg');
+    const img3 = await imageOn(await sidecar('Fold/Scans/folder.jpg'));
+    const nestedNew = await sidecar('Fold2/Scans/folder.jpg');
+    expect(await repointSidecarImages(ctx, [move('Fold', 'Fold2')])).toBe(3);
     expect(await pointsAt(img)).toBe(newSc);
     expect(await pointsAt(img2)).toBe(nfcNew);
-    expect(await pointsAt(nestedOld)).not.toBe(newSc);
+    expect(await pointsAt(img3)).toBe(nestedNew);
   });
 
   it('two candidates for one folded name: nothing is re-pointed', async () => {
@@ -167,4 +188,104 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('repointSidecarImages (db)', () 
     expect(await repointSidecarImages(ctx, [move('Lone', 'Lone2')])).toBe(0);
     expect(await pointsAt(img)).toBe(oldSc);
   });
+
+  it('a folder that still holds audio did not move as a whole: its cover stays', async () => {
+    const oldSc = await sidecar('Part/folder.jpg');
+    await sidecar('Part2/folder.jpg');
+    const img = await imageOn(oldSc);
+    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Part/2.flac', size_bytes: 1, status: 'present' })}`;
+    expect(await repointSidecarImages(ctx, [move('Part', 'Part2')])).toBe(0);
+    expect(await pointsAt(img)).toBe(oldSc);
+  });
+
+  it('the climb stops below a parent that still holds audio (mirrored trees)', async () => {
+    // Mir/Album/CD1 -> Mir2/Album/CD1 would strip to Mir -> Mir2, but Mir still has another album
+    const stays = await imageOn(await sidecar('Mir/Other/folder.jpg'));
+    await sidecar('Mir2/Other/folder.jpg');
+    const follows = await imageOn(await sidecar('Mir/Album/folder.jpg'));
+    const newSc = await sidecar('Mir2/Album/folder.jpg');
+    await sql`insert into audio_files ${sql({ id: randomUUID(), library_id: libraryId, scan_root_id: rootId, rel_path: 'Mir/Other/1.flac', size_bytes: 1, status: 'present' })}`;
+    expect(await repointSidecarImages(ctx, [move('Mir/Album/CD1', 'Mir2/Album/CD1')])).toBe(1);
+    expect(await pointsAt(follows)).toBe(newSc);
+    expect(await pointsAt(stays)).not.toBe(newSc);
+  });
+});
+
+/**
+ * Covers outside the audio folder, through real walks: Album/Scans/folder.jpg
+ * over audio in Album/, and Album/folder.jpg over audio in Album/CD1, CD2.
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('covers outside the audio folder follow (db)', () => {
+  let ctx: WorkerContext; let sql: any;
+  const made: Array<{ userId: string; libraryId: string; base: string }> = [];
+  const layouts = {
+    scans: { files: ['Album/1.flac', 'Album/2.flac', 'Album/Scans/folder.jpg'], cover: 'Scans/folder.jpg' },
+    discs: { files: ['Album/CD1/1.flac', 'Album/CD2/1.flac', 'Album/folder.jpg'], cover: 'folder.jpg' },
+  } as const;
+  const sidecarOf = async (imageId: string) => (await sql`
+    select s.scan_root_id, s.rel_path from images i join sidecar_files s on s.id = i.sidecar_file_id where i.id = ${imageId}`)[0];
+
+  beforeAll(async () => {
+    const m = await makeDb(process.env.TEST_DATABASE_URL!);
+    sql = m.client;
+    ctx = { db: m.db, sql: m.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
+  });
+
+  afterAll(async () => {
+    for (const m of made) {
+      await sql`delete from local_albums where library_id = ${m.libraryId}`;
+      await sql`delete from scan_roots where library_id = ${m.libraryId}`;
+      await sql`delete from libraries where id = ${m.libraryId}`;
+      await sql`delete from users where id = ${m.userId}`;
+      await rm(m.base, { recursive: true, force: true });
+    }
+    await sql.end({ timeout: 5 });
+  });
+
+  /** Root a with the layout and one more file (an empty root reads as unmounted), root b empty; a walked; a cover on the sidecar. */
+  const lab = async (layout: keyof typeof layouts) => {
+    const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
+    const base = await mkdtemp(path.join(tmpdir(), 'tagave-scl-'));
+    made.push({ userId, libraryId, base });
+    await mkdir(path.join(base, 'b'), { recursive: true });
+    for (const [i, f] of layouts[layout].files.entries()) {
+      await mkdir(path.dirname(path.join(base, 'a', f)), { recursive: true });
+      await writeFile(path.join(base, 'a', f), `${layout}-${i}-`.repeat(i + 1));
+    }
+    await writeFile(path.join(base, 'a', 'keep.flac'), 'keep-this-one');
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`scl-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'SCL', ${userId}, '{}')`;
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values
+              (${rootA}, ${libraryId}, ${path.join(base, 'a')}, 'a', 'ok'), (${rootB}, ${libraryId}, ${path.join(base, 'b')}, 'b', 'ok')`;
+    const A = { id: rootA, libraryId, path: path.join(base, 'a') };
+    const B = { id: rootB, libraryId, path: path.join(base, 'b') };
+    await walkRoot(ctx, A, { mode: 'full' });
+    const albumId = randomUUID();
+    await sql`insert into local_albums (id, library_id, cluster_key) values (${albumId}, ${libraryId}, ${`k:${albumId}`})`;
+    const [sc] = await sql`select id from sidecar_files where scan_root_id = ${rootA} and rel_path = ${`Album/${layouts[layout].cover}`}`;
+    const [img] = await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
+                            values (${libraryId}, 'local_album', ${albumId}, ${albumId}, 'front', 'sidecar', ${sc.id}, 't') returning id`;
+    return { A, B, base, img: img.id as string, rootA, rootB, cover: layouts[layout].cover };
+  };
+
+  for (const layout of ['scans', 'discs'] as const) {
+    it(`${layout}: same-root rename`, async () => {
+      const l = await lab(layout);
+      await rename(path.join(l.base, 'a', 'Album'), path.join(l.base, 'a', 'Album (2001)'));
+      await walkRoot(ctx, l.A, { mode: 'full' });
+      expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootA, rel_path: `Album (2001)/${l.cover}` });
+      expect(await sql`select 1 from sidecar_files where scan_root_id = ${l.rootA} and rel_path like 'Album/%'`).toHaveLength(0);
+    });
+
+    it(`${layout}: other root, source scanned first`, async () => {
+      const l = await lab(layout);
+      await rename(path.join(l.base, 'a', 'Album'), path.join(l.base, 'b', 'Album'));
+      await walkRoot(ctx, l.A, { mode: 'full' });
+      expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootA, rel_path: `Album/${l.cover}` }); // kept (Ruling 9, widened)
+      await walkRoot(ctx, l.B, { mode: 'full' });
+      expect(await sidecarOf(l.img)).toEqual({ scan_root_id: l.rootB, rel_path: `Album/${l.cover}` });
+      await walkRoot(ctx, l.A, { mode: 'full' });
+      expect(await sql`select 1 from sidecar_files where scan_root_id = ${l.rootA}`).toHaveLength(0);
+    });
+  }
 });

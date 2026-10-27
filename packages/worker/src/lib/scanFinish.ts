@@ -6,10 +6,10 @@
  * saw it and was last seen before the walk began, by the database's clock: a
  * row a concurrent scan.dir re-pointed is never marked missing (R7).
  */
-import { escapeLike, relDirname } from './helpers.js';
+import { escapeLike, relDirname, sqlDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
-import { reconcileTier1, sqlDirname, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
+import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
 import { placeHolds } from './clusterHold.js';
 
 export type { MoveRecord, DirRef } from './reconcile.js';
@@ -52,12 +52,14 @@ export async function markMissing(
  * left, so they stay (F5: dropping one would cascade its cover away). The candidates are
  * filtered in JS with one set lookup per path level, then deleted by id (the last_seen guard
  * is re-checked, so a row a concurrent walk just saw stays).
- * Ruling 9: a stale sidecar an image points at stays while its folder still has
- * missing audio rows. A cross-root move scanned source-first, or a Tier 2 move,
- * pairs after this walk; repointSidecarImages then moves the image to the new
- * folder's sidecar, and a later scan drops the old row once nothing points at
- * it or nothing there is missing. Runs after markMissing, so this walk's
- * missing rows count.
+ * Ruling 9 (widened in Task 13's review): a stale sidecar an image points at
+ * stays while a missing audio row lies in its folder, in a folder under it
+ * (Album/folder.jpg over CD1/, CD2/) or in a folder above it up to the root
+ * (Album/Scans/folder.jpg). A cross-root move scanned source-first, or a Tier 2
+ * move, pairs after this walk; repointSidecarImages then moves the image to the
+ * new folder's sidecar, and a later scan drops the old row once nothing points
+ * at it or nothing near it is missing. Runs after markMissing, so this walk's
+ * missing rows count. The root's missing folders are loaded once and matched in JS.
  */
 export async function dropStaleSidecars(
   ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, subtree: string, walkStart: Date,
@@ -68,14 +70,17 @@ export async function dropStaleSidecars(
   const prefix = subtree ? subtree + '/' : '';
   const since = walkStart.toISOString();
   const stale = (await ctx.sql`
-    select s.id, s.rel_path as "relPath" from sidecar_files s
+    select s.id, s.rel_path as "relPath",
+           s.id in (select i.sidecar_file_id from images i where i.sidecar_file_id is not null) as "hasImages"
+      from sidecar_files s
      where s.scan_root_id = ${root.id} and s.last_seen_at < ${since}::timestamptz
-       and (${prefix} = '' or s.rel_path like ${escapeLike(prefix) + '%'})
-       and not (exists (select 1 from images i where i.sidecar_file_id = s.id)
-                and exists (select 1 from audio_files a
-                             where a.scan_root_id = s.scan_root_id and a.status = 'missing'
-                               and ${ctx.sql.unsafe(sqlDirname('a'))} = ${ctx.sql.unsafe(sqlDirname('s'))}))`) as unknown as Array<{ id: string; relPath: string }>;
-  const ids = (failed.size ? stale.filter((r) => !isUnderFailedPath(r.relPath, failed)) : stale).map((r) => r.id);
+       and (${prefix} = '' or s.rel_path like ${escapeLike(prefix) + '%'})`) as unknown as Array<{ id: string; relPath: string; hasImages: boolean }>;
+  let candidates = failed.size ? stale.filter((r) => !isUnderFailedPath(r.relPath, failed)) : stale;
+  if (candidates.some((r) => r.hasImages)) {
+    const near = await nearMissing(ctx, root.id);
+    candidates = candidates.filter((r) => !(r.hasImages && near(relDirname(r.relPath))));
+  }
+  const ids = candidates.map((r) => r.id);
   let dropped = 0;
   for (let i = 0; i < ids.length; i += UPDATE_BATCH) {
     const gone = await ctx.sql`
@@ -85,6 +90,31 @@ export async function dropStaleSidecars(
     dropped += gone.length;
   }
   return dropped;
+}
+
+/**
+ * Whether a folder has a missing audio row in it, under it or above it (up to
+ * the root's top). One query for the root's distinct missing folders (by
+ * scan_root_id and status), then set lookups per path level.
+ */
+async function nearMissing(ctx: Pick<WorkerContext, 'sql'>, rootId: string): Promise<(dir: string) => boolean> {
+  const rows = (await ctx.sql`
+    select distinct ${ctx.sql.unsafe(sqlDirname('a'))} as dir from audio_files a
+     where a.scan_root_id = ${rootId} and a.status = 'missing'`) as unknown as Array<{ dir: string }>;
+  const missing = new Set<string>();
+  const missingOrAbove = new Set<string>(); // each missing folder and every folder above it
+  for (const r of rows) {
+    missing.add(r.dir);
+    for (let d = r.dir; !missingOrAbove.has(d); d = relDirname(d)) {
+      missingOrAbove.add(d);
+      if (d === '') break;
+    }
+  }
+  return (dir) => {
+    if (missingOrAbove.has(dir)) return true; // missing here or below
+    for (let d = dir; d !== '';) { d = relDirname(d); if (missing.has(d)) return true; }
+    return false;
+  };
 }
 
 /** Ruling 5: never hold a loss of this many files or fewer. */

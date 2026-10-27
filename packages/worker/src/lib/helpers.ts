@@ -349,3 +349,14 @@ export function relBasename(relPath: string): string {
   const i = relPath.lastIndexOf('/');
   return i < 0 ? relPath : relPath.slice(i + 1);
 }
+
+/**
+ * dirname of `<alias>.rel_path` as SQL text, '' for a file at the top of the
+ * root. The one copy of this expression (pre-flight F10): it equals
+ * relDirname() and reconcileMatch's dir key exactly, with no case or NFC
+ * folding. Use it through `sql.unsafe(sqlDirname('af'))`.
+ */
+export function sqlDirname(alias: string): string {
+  if (!/^[a-z_][a-z0-9_]*$/i.test(alias)) throw new Error(`sqlDirname: bad alias ${alias}`);
+  return `case when strpos(${alias}.rel_path, '/') = 0 then '' else regexp_replace(${alias}.rel_path, '/[^/]*$', '') end`;
+}

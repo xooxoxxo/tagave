@@ -3,62 +3,195 @@
  * task), the player's song map (Task 14).
  */
 import type { WorkerContext } from './context.js';
-import { escapeLike, normKey } from './helpers.js';
-import { sqlDirname, type MoveRecord } from './reconcile.js';
+import { normKey, relDirname } from './helpers.js';
+import type { MoveRecord } from './reconcile.js';
 
-interface SidecarRow { id: string; rel_path: string }
+/** A folder that moved as a whole: everything under fromBase now lies under toBase. */
+export interface BasePair { fromRootId: string; fromBase: string; toRootId: string; toBase: string }
 
-const childPrefix = (dir: string) => (dir === '' ? '' : dir + '/');
+const parts = (dir: string) => (dir === '' ? [] : dir.split('/'));
+const join = (base: string, rest: string) => (base === '' ? rest : `${base}/${rest}`);
+const dirKey = (rootId: string, dir: string) => `${rootId}\n${dir}`;
+const pairKey = (p: BasePair) => `${p.fromRootId}\n${p.fromBase}\n${p.toRootId}\n${p.toBase}`;
+/** True when relPath lies under dir (any depth); '' holds everything. */
+const isUnder = (relPath: string, dir: string) => dir === '' || relPath.startsWith(dir + '/');
 
-/** Sidecars directly in one folder (not in its subfolders); `withImages` keeps only those an image points at. */
-async function sidecarsIn(ctx: Pick<WorkerContext, 'sql'>, rootId: string, dir: string, withImages: boolean): Promise<SidecarRow[]> {
-  const prefix = childPrefix(dir);
-  return (await ctx.sql`
-    select s.id, s.rel_path from sidecar_files s
-     where s.scan_root_id = ${rootId}
-       and (${prefix} = '' or s.rel_path like ${escapeLike(prefix) + '%'})
-       and ${ctx.sql.unsafe(sqlDirname('s'))} = ${dir}
-       and (${!withImages} or exists (select 1 from images i where i.sidecar_file_id = s.id))`) as unknown as SidecarRow[];
+/**
+ * The base levels of one move, deepest first: level 0 is the two folders
+ * themselves, and each further level strips one equal (normKey) trailing
+ * component from both sides (Album/CD1 -> Album (2001)/CD1 gives
+ * Album -> Album (2001)). A move within one folder has no levels.
+ */
+export function moveBaseLevels(m: MoveRecord): BasePair[] {
+  if (m.fromRootId === m.toRootId && m.fromDir === m.toDir) return [];
+  const from = parts(m.fromDir); const to = parts(m.toDir);
+  const out: BasePair[] = [{ fromRootId: m.fromRootId, fromBase: m.fromDir, toRootId: m.toRootId, toBase: m.toDir }];
+  while (from.length > 0 && to.length > 0 && normKey(from[from.length - 1]!) === normKey(to[to.length - 1]!)) {
+    from.pop(); to.pop();
+    const fromBase = from.join('/'); const toBase = to.join('/');
+    if (m.fromRootId === m.toRootId && fromBase === toBase) break;
+    out.push({ fromRootId: m.fromRootId, fromBase, toRootId: m.toRootId, toBase });
+  }
+  return out;
 }
 
-/** Groups sidecars by normKey-folded file name (the archive mixes NFC/NFD and case). */
-function byName(rows: SidecarRow[], dir: string): Map<string, SidecarRow[]> {
-  const cut = childPrefix(dir).length;
-  const out = new Map<string, SidecarRow[]>();
-  for (const r of rows) {
-    const k = normKey(r.rel_path.slice(cut));
-    const list = out.get(k);
-    if (list) list.push(r); else out.set(k, [r]);
+/** Every equal trailing component stripped, one pair per distinct result (shared with the player rescan, Task 14). */
+export function moveBasePairs(moves: MoveRecord[]): BasePair[] {
+  const out = new Map<string, BasePair>();
+  for (const m of moves) {
+    const levels = moveBaseLevels(m);
+    const top = levels[levels.length - 1];
+    if (top) out.set(pairKey(top), top);
+  }
+  return [...out.values()];
+}
+
+const BATCH = 500;
+
+/**
+ * Old-side folders that still hold audio: a present or errored row under them
+ * that is not one of this run's old rows (those are known gone from there:
+ * Tier 1's unseen rows, or missing rows). One range scan of
+ * idx_audio_files_relpath_prefix per folder, stopping at the first row.
+ */
+async function occupiedDirs(ctx: Pick<WorkerContext, 'sql'>, dirs: Array<{ rootId: string; dir: string }>, goneIds: string[]): Promise<Set<string>> {
+  const sql = ctx.sql;
+  const out = new Set<string>();
+  const nested = dirs.filter((d) => d.dir !== '');
+  for (let i = 0; i < nested.length; i += BATCH) {
+    const chunk = nested.slice(i, i + BATCH);
+    const rows = (await sql`
+      select d.root_id, d.dir from unnest(${chunk.map((d) => d.rootId)}::uuid[], ${chunk.map((d) => d.dir)}::text[]) as d(root_id, dir)
+      cross join lateral (
+        select 1 from audio_files a
+         where a.scan_root_id = d.root_id
+           and a.rel_path ~>=~ (d.dir || '/') and a.rel_path ~<~ (d.dir || '0')
+           and a.status in ('present', 'error') and a.id <> all(${goneIds}::uuid[])
+         limit 1) x`) as unknown as Array<{ root_id: string; dir: string }>;
+    for (const r of rows) out.add(dirKey(r.root_id, r.dir));
+  }
+  const tops = [...new Set(dirs.filter((d) => d.dir === '').map((d) => d.rootId))];
+  if (tops.length) {
+    const rows = (await sql`
+      select r.root_id from unnest(${tops}::uuid[]) as r(root_id)
+      cross join lateral (
+        select 1 from audio_files a
+         where a.scan_root_id = r.root_id and a.status in ('present', 'error') and a.id <> all(${goneIds}::uuid[])
+         limit 1) x`) as unknown as Array<{ root_id: string }>;
+    for (const r of rows) out.add(dirKey(r.root_id, ''));
   }
   return out;
 }
 
 /**
- * Images of sidecars directly in each old folder move to the same-named
- * sidecar in the new folder (spec §1, R5/R6), so the stale old sidecar can
- * later be dropped without its cover (the 0052 cascade). Names compare by
- * normKey; when the fold is ambiguous on either side (two candidates), that
- * name is left alone: the image stays on the old sidecar, which Ruling 9 keeps
- * while its folder still has missing rows. Runs inside runMerges, so Tier 1
- * (finishWalk) and Tier 2 (hold release) both re-point before any drop.
- * Returns the number of images re-pointed.
+ * The base pair each move re-points through: the highest level whose old
+ * folders, from level 0 up, hold no audio any more. A folder that still holds
+ * audio did not move as a whole (one file moved out of an album, or two roots
+ * that mirror each other's tree), so its sidecars stay. One old base claimed
+ * by two different new bases (an album split in two) steps those moves down a
+ * level; below level 0 the move re-points nothing.
  */
-export async function repointSidecarImages(ctx: Pick<WorkerContext, 'sql'>, moves: MoveRecord[]): Promise<number> {
-  let moved = 0;
-  for (const m of moves) {
-    if (m.fromRootId === m.toRootId && m.fromDir === m.toDir) continue; // same folder: same sidecar rows
-    const olds = await sidecarsIn(ctx, m.fromRootId, m.fromDir, true);
-    if (olds.length === 0) continue;
-    const news = byName(await sidecarsIn(ctx, m.toRootId, m.toDir, false), m.toDir);
-    for (const [name, group] of byName(olds, m.fromDir)) {
-      const target = news.get(name);
-      if (group.length !== 1 || !target || target.length !== 1) continue;
-      const r = await ctx.sql`
-        update images set sidecar_file_id = ${target[0]!.id}
-         where sidecar_file_id = ${group[0]!.id}
-        returning id`;
-      moved += r.length;
+async function chooseBases(ctx: Pick<WorkerContext, 'sql'>, moves: MoveRecord[], goneIds: string[]): Promise<BasePair[]> {
+  const levels = moves.map(moveBaseLevels).filter((l) => l.length > 0);
+  if (levels.length === 0) return [];
+  const probe = new Map<string, { rootId: string; dir: string }>();
+  for (const ls of levels) for (const p of ls) probe.set(dirKey(p.fromRootId, p.fromBase), { rootId: p.fromRootId, dir: p.fromBase });
+  const occupied = await occupiedDirs(ctx, [...probe.values()], goneIds);
+  const chosen = levels.map((ls) => {
+    let k = -1;
+    while (k + 1 < ls.length && !occupied.has(dirKey(ls[k + 1]!.fromRootId, ls[k + 1]!.fromBase))) k += 1;
+    return k;
+  });
+  const fromOf = (i: number) => { const p = levels[i]![chosen[i]!]!; return dirKey(p.fromRootId, p.fromBase); };
+  const toOf = (i: number) => { const p = levels[i]![chosen[i]!]!; return dirKey(p.toRootId, p.toBase); };
+  for (let changed = true; changed;) {
+    changed = false;
+    const targets = new Map<string, Set<string>>();
+    for (let i = 0; i < levels.length; i++) {
+      if (chosen[i]! < 0) continue;
+      const set = targets.get(fromOf(i)) ?? new Set<string>();
+      set.add(toOf(i)); targets.set(fromOf(i), set);
     }
+    for (let i = 0; i < levels.length; i++) {
+      if (chosen[i]! >= 0 && targets.get(fromOf(i))!.size > 1) { chosen[i] = chosen[i]! - 1; changed = true; }
+    }
+  }
+  const out = new Map<string, BasePair>();
+  for (let i = 0; i < levels.length; i++) if (chosen[i]! >= 0) { const p = levels[i]![chosen[i]!]!; out.set(pairKey(p), p); }
+  return [...out.values()];
+}
+
+interface SidecarRow { id: string; scan_root_id: string; rel_path: string }
+
+/**
+ * Images of sidecars under each moved folder (any depth, so Album/Scans/ and
+ * Album/folder.jpg over CD1/CD2 come along) move to the sidecar at the same
+ * relative path under the new folder, so the stale old sidecar can later drop
+ * without its cover (the 0052 cascade). Relative paths compare by normKey;
+ * two candidates on either side for one name re-point nothing (the image
+ * stays on the old sidecar, which Ruling 9 keeps beside missing rows).
+ * `goneIds` are the run's old rows (runMerges passes them): rows known gone
+ * from the old folders, so they do not count as audio still there. Runs inside
+ * runMerges, so Tier 1 (finishWalk, before stale sidecars drop) and Tier 2
+ * (hold release) both re-point. Returns the number of images re-pointed; a
+ * second run with the same moves returns 0. Queries per run, not per move:
+ * one folder-occupancy probe, the image-bearing sidecars of the old roots,
+ * the candidate sidecars of the new roots, the update.
+ */
+export async function repointSidecarImages(ctx: Pick<WorkerContext, 'sql'>, moves: MoveRecord[], goneIds: string[] = []): Promise<number> {
+  const sql = ctx.sql;
+  const bases = await chooseBases(ctx, moves, goneIds);
+  if (bases.length === 0) return 0;
+  const byFrom = new Map(bases.map((p) => [dirKey(p.fromRootId, p.fromBase), p]));
+  const fromRoots = [...new Set(bases.map((p) => p.fromRootId))];
+  const olds = (await sql`
+    select s.id, s.scan_root_id, s.rel_path from sidecar_files s
+     where s.scan_root_id = any(${fromRoots}::uuid[])
+       and exists (select 1 from images i where i.sidecar_file_id = s.id)`) as unknown as SidecarRow[];
+  // each old sidecar goes through the deepest moved folder holding it
+  const groups = new Map<string, { pair: BasePair; target: string; olds: SidecarRow[] }>();
+  for (const o of olds) {
+    let pair: BasePair | undefined;
+    for (let d = relDirname(o.rel_path); ; d = relDirname(d)) {
+      pair = byFrom.get(dirKey(o.scan_root_id, d));
+      if (pair || d === '') break;
+    }
+    if (!pair) continue;
+    // moved into its own subfolder (Album -> Album/Disc): what is under the new folder is new-side
+    const intoSelf = pair.fromRootId === pair.toRootId && pair.toBase !== pair.fromBase && isUnder(pair.toBase, pair.fromBase);
+    if (intoSelf && isUnder(o.rel_path, pair.toBase)) continue;
+    const rest = pair.fromBase === '' ? o.rel_path : o.rel_path.slice(pair.fromBase.length + 1);
+    const k = `${pairKey(pair)}\n${normKey(rest)}`;
+    const g = groups.get(k) ?? { pair, target: join(pair.toBase, rest), olds: [] };
+    g.olds.push(o); groups.set(k, g);
+  }
+  if (groups.size === 0) return 0;
+  const toRoots = [...new Set([...groups.values()].map((g) => g.pair.toRootId))];
+  const folded = [...new Set([...groups.values()].map((g) => normKey(g.target)))];
+  // the database's fold narrows the rows; normKey below decides
+  const news = (await sql`
+    select s.id, s.scan_root_id, s.rel_path from sidecar_files s
+     where s.scan_root_id = any(${toRoots}::uuid[]) and lower(normalize(s.rel_path, NFC)) = any(${folded}::text[])`) as unknown as SidecarRow[];
+  const newByName = new Map<string, SidecarRow[]>();
+  for (const n of news) {
+    const k = dirKey(n.scan_root_id, normKey(n.rel_path));
+    const list = newByName.get(k);
+    if (list) list.push(n); else newByName.set(k, [n]);
+  }
+  const fromIds: string[] = []; const toIds: string[] = [];
+  for (const g of groups.values()) {
+    const cands = newByName.get(dirKey(g.pair.toRootId, normKey(g.target)));
+    if (g.olds.length !== 1 || !cands || cands.length !== 1 || cands[0]!.id === g.olds[0]!.id) continue;
+    fromIds.push(g.olds[0]!.id); toIds.push(cands[0]!.id);
+  }
+  let moved = 0;
+  for (let i = 0; i < fromIds.length; i += BATCH) {
+    const r = await sql`
+      update images i set sidecar_file_id = u.to_id
+        from unnest(${fromIds.slice(i, i + BATCH)}::uuid[], ${toIds.slice(i, i + BATCH)}::uuid[]) as u(from_id, to_id)
+       where i.sidecar_file_id = u.from_id
+      returning i.id`;
+    moved += r.length;
   }
   return moved;
 }
