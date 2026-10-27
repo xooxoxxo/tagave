@@ -10,7 +10,11 @@ import type { WorkerContext } from './context.js';
 import type { MatchFile } from './reconcileMatch.js';
 
 const mergeFilePair = vi.fn();
-vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
+const mergeFilePairs = vi.fn();
+vi.mock('./fileMerge.js', () => ({
+  mergeFilePair: (...args: unknown[]) => mergeFilePair(...args),
+  mergeFilePairs: (...args: unknown[]) => mergeFilePairs(...args),
+}));
 const repointSidecarImages = vi.fn(async () => 0);
 const refreshPlayerAfterMoves = vi.fn(async () => false);
 vi.mock('./moveEffects.js', () => ({
@@ -31,7 +35,10 @@ const pgError = (code: string) => Object.assign(new Error(`pg ${code}`), { code 
 
 describe('runMerges', () => {
   const warn = vi.fn();
-  const ctx = { sql: {} as any, db: {} as any, boss: {} as any, logger: Object.assign(pino({ level: 'silent' }), { warn }) } as unknown as WorkerContext;
+  /** fresh file -> album rows the unlocked grouping read returns */
+  let freshAlbums: Array<{ file: string; album: string }> = [];
+  const fakeSql = vi.fn(async () => freshAlbums);
+  const ctx = { sql: fakeSql as any, db: {} as any, boss: {} as any, logger: Object.assign(pino({ level: 'silent' }), { warn }) } as unknown as WorkerContext;
   const olds = ['a', 'b', 'c', 'd'].map((k, i) => file(`old-${k}`, `${k}/x.flac`, 10 + i, t0));
   const freshs = ['a', 'b', 'c', 'd'].map((k, i) => file(`new-${k}`, `${k}2/x.flac`, 10 + i, t1));
   const done = (oldId: string, reparse = false) => {
@@ -40,7 +47,7 @@ describe('runMerges', () => {
   };
 
   beforeEach(() => {
-    mergeFilePair.mockReset(); warn.mockReset();
+    mergeFilePair.mockReset(); mergeFilePairs.mockReset(); warn.mockReset(); freshAlbums = []; fakeSql.mockClear();
     repointSidecarImages.mockReset(); repointSidecarImages.mockImplementation(async () => 0);
     refreshPlayerAfterMoves.mockReset(); refreshPlayerAfterMoves.mockImplementation(async () => false);
     cancelQueuedIdentify.mockReset(); cancelQueuedIdentify.mockImplementation(async () => 0);
@@ -91,6 +98,32 @@ describe('runMerges', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0].error).toContain('sidecar update failed');
     expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);
+  });
+
+  it('pairs whose fresh rows share a fresh album merge as one unit; the rest one by one', async () => {
+    freshAlbums = [{ file: 'new-a', album: 'F1' }, { file: 'new-c', album: 'F1' }, { file: 'new-d', album: 'F2' }];
+    mergeFilePair.mockImplementation(async (_ctx: unknown, req: { oldId: string }) => done(req.oldId));
+    mergeFilePairs.mockImplementation(async (_ctx: unknown, reqs: Array<{ oldId: string }>) =>
+      reqs.map((r) => ({ kind: 'skipped', reason: 'fresh_touched', oldId: r.oldId })));
+    const r = await runMerges(ctx, 1, olds, freshs, t1, true);
+    expect(mergeFilePairs).toHaveBeenCalledTimes(1);
+    expect((mergeFilePairs.mock.calls[0]![1] as Array<{ oldId: string }>).map((q) => q.oldId)).toEqual(['old-a', 'old-c']);
+    expect(mergeFilePair.mock.calls.map((c) => (c[1] as { oldId: string }).oldId).sort()).toEqual(['old-b', 'old-d']);
+    expect(r).toMatchObject({ merged: 2, possibleMoves: 2 });           // the album's two pairs fell back together
+    expect(r.outcomes.map((o) => o.oldId).sort()).toEqual(['old-b', 'old-d']);
+
+    // a deadlock in the unit is retried once as a unit; a second one fails every pair of it
+    mergeFilePairs.mockReset();
+    mergeFilePairs.mockRejectedValue(pgError('40P01'));
+    const r2 = await runMerges(ctx, 1, olds, freshs, t1, true);
+    expect(mergeFilePairs).toHaveBeenCalledTimes(2);
+    expect(r2).toMatchObject({ merged: 2, possibleMoves: 2 });
+
+    // without absorb nothing is grouped (and nothing is read)
+    fakeSql.mockClear(); mergeFilePairs.mockReset();
+    await runMerges(ctx, 1, olds, freshs, t1, false);
+    expect(fakeSql).not.toHaveBeenCalled();
+    expect(mergeFilePairs).not.toHaveBeenCalled();
   });
 
   it('cancels the queued identify jobs of absorbed albums; a failure there only warns', async () => {

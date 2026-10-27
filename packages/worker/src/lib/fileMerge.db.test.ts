@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { albumKeyLock, makeDb } from '@tagave/db';
-import { mergeFilePair } from './fileMerge.js';
+import { mergeFilePair, mergeFilePairs, ownerIdentifyRequested } from './fileMerge.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
   let sql: any;
@@ -297,6 +297,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
       await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel.id}, 0.1, 'rejected', 'user')`;
     }],
+    // review round 1: gap decisions and excluded candidates
+    ['a gap the owner turned into a task', async (s: any) => sql`insert into gaps (library_id, kind, subject_type, subject_id, state, accepted_at)
+                                                                   values (${libraryId}, 'incomplete_album', 'local_album', ${s.freshAlbum}, 'todo', now())`],
+    ['a dismissed gap', async (s: any) => sql`insert into gaps (library_id, kind, subject_type, subject_id, state, dismiss_reason, decided_at)
+                                                values (${libraryId}, 'quality', 'local_album', ${s.freshAlbum}, 'dismissed', 'not_interested', now())`],
+    ['a gap with an owner note', async (s: any) => sql`insert into gaps (library_id, kind, subject_type, subject_id, state, note)
+                                                        values (${libraryId}, 'unidentified', 'local_album', ${s.freshAlbum}, 'open', 'check the vinyl')`],
+    ['an excluded match candidate', async (s: any) => {
+      const rg = await releaseGroup();
+      const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
+      await sql`insert into match_candidates (local_album_id, release_id, distance, source, excluded) values (${s.freshAlbum}, ${rel.id}, 0.3, 'mb', true)`;
+    }],
   ])('falls back (nothing changes) when the fresh side has %s', async (_label, touch) => {
     const s = await setup();
     await touch(s);
@@ -337,6 +349,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       const [source] = await sql`insert into collection_sources (library_id, provider) values (${libraryId}, 'discogs') returning id`;
       const [item] = await sql`insert into collection_items (library_id, collection_source_id, provider_item_id, local_album_id)
                                values (${libraryId}, ${source.id}, ${`i-${s.freshId}`}, ${s.freshAlbum}) returning id`;
+      // an automatic gap (no owner decision) does not block
+      await sql`insert into gaps (library_id, kind, subject_type, subject_id, state) values (${libraryId}, 'quality', 'local_album', ${s.freshAlbum}, 'open')`;
       const albumsBefore = await count('select count(*)::int as n from local_albums where library_id = $1');
 
       const out = await mergeFilePair(ctx(), req(s));
@@ -375,20 +389,104 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
         .toEqual([{ provider_item_id: 'a', local_album_id: s.oldAlbum }, { provider_item_id: 'b', local_album_id: s.oldAlbum }]);
     });
 
-    it('a fresh album with files still to come stays until its last file is absorbed', async () => {
-      const s = await setup();
-      const old2 = randomUUID(); const fresh2 = randomUUID();
+    /** A second old/fresh file pair on the same two albums. */
+    const addPair = async (s: Awaited<ReturnType<typeof setup>>, oldOver: { album?: string | null } = {}) => {
+      const o = randomUUID(); const f = randomUUID();
       await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status) values
-                (${old2}, ${libraryId}, ${rootA}, ${`X/${old2}.flac`}, 10, 'missing'), (${fresh2}, ${libraryId}, ${rootB}, ${`X/${fresh2}.flac`}, 10, 'present')`;
-      await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.oldAlbum}, ${old2}), (${s.freshAlbum}, ${fresh2})`;
+                (${o}, ${libraryId}, ${rootA}, ${`X/${o}.flac`}, 10, 'missing'), (${f}, ${libraryId}, ${rootB}, ${`X/${f}.flac`}, 10, 'present')`;
+      const oldAlbum = 'album' in oldOver ? oldOver.album : s.oldAlbum;
+      if (oldAlbum !== null) await sql`insert into local_tracks (local_album_id, audio_file_id) values (${oldAlbum ?? null}, ${o})`;
+      await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.freshAlbum}, ${f})`;
+      return { oldId: o, freshId: f, req: { oldId: o, freshId: f, oldAt: { scanRootId: rootA, relPath: `X/${o}.flac` }, walkStart: null, allowAbsorb: true } };
+    };
+
+    it('a fresh album is absorbed whole or not at all: one of its files alone falls back, all of them together merge', async () => {
+      const s = await setup();
+      const p2 = await addPair(s);
       const [listen] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
                                  values (${userId}, ${libraryId}, ${s.freshAlbum}, now() - interval '2 hours', now(), 2, 2) returning id`;
-      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [] });
-      expect(await sql`select local_album_id from player_listens where id = ${listen.id}`).toEqual([{ local_album_id: s.freshAlbum }]);
-      const second = await mergeFilePair(ctx(), { oldId: old2, freshId: fresh2, oldAt: { scanRootId: rootA, relPath: `X/${old2}.flac` }, walkStart: null, allowAbsorb: true });
-      expect(second).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await mergeFilePair(ctx(), req(s))).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
+      expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.freshAlbum}`).toEqual([{ n: 2 }]);
+      const outs = await mergeFilePairs(ctx(), [req(s), p2.req]);
+      expect(outs).toMatchObject([{ kind: 'absorbed', oldId: s.oldId, removedAlbumIds: [s.freshAlbum] }, { kind: 'absorbed', oldId: p2.oldId, removedAlbumIds: [] }]);
       expect(await sql`select local_album_id from player_listens where id = ${listen.id}`).toEqual([{ local_album_id: s.oldAlbum }]);
       expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.oldAlbum}`).toEqual([{ n: 2 }]);
+    });
+
+    it('pair 3 of 3 failing its check leaves the whole fresh album (and all three pairs) alone', async () => {
+      const s = await setup();
+      const p2 = await addPair(s); const p3 = await addPair(s);
+      await sql`update audio_files set rel_path = ${`Y/${p3.oldId}.flac`} where id = ${p3.oldId}`; // moved since the snapshot
+      const outs = await mergeFilePairs(ctx(), [req(s), p2.req, p3.req]);
+      expect(outs).toEqual([{ kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'old_moved' }]);
+      expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.freshAlbum}`).toEqual([{ n: 3 }]);
+      expect(await sql`select count(*)::int as n from audio_files where id = any(${[s.oldId, p2.oldId]}::uuid[]) and status = 'missing'`).toEqual([{ n: 2 }]);
+    });
+
+    it('a track lock on one file of the fresh album makes all its pairs fall back', async () => {
+      const s = await setup();
+      const p2 = await addPair(s);
+      await sql`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${libraryId}, 'track', ${p2.freshId}, 'title', ${userId})`;
+      expect(await mergeFilePairs(ctx(), [req(s), p2.req])).toEqual([{ kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'fresh_touched' }]);
+      expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1);
+    });
+
+    it('falls back when the old rows sit on two albums', async () => {
+      const s = await setup();
+      const other = randomUUID();
+      await sql`insert into local_albums (id, library_id, cluster_key) values (${other}, ${libraryId}, ${`o2:${other}`})`;
+      const p2 = await addPair(s, { album: other });
+      expect(await mergeFilePairs(ctx(), [req(s), p2.req])).toEqual([{ kind: 'skipped', reason: 'fresh_touched' }, { kind: 'skipped', reason: 'fresh_touched' }]);
+    });
+
+    it('a fresh track with no twin on its old row moves onto the old file and album, keeping its id and plays', async () => {
+      const s = await setup();
+      await sql`update local_tracks set cue_start_ms = 0 where id in (${s.oldTrack}, ${s.freshTrack})`;
+      const [extra] = await sql`insert into local_tracks (local_album_id, audio_file_id, cue_start_ms, canonical_track_id, state)
+                                values (${s.freshAlbum}, ${s.freshId}, 5000, null, 'matched') returning id`;
+      await sql`insert into player_plays (user_id, library_id, dedupe_key, source, local_track_id, local_album_id, title, started_at, heard, scrobbles)
+                values (${userId}, ${libraryId}, ${`nt-${s.freshId}`}, 'web', ${extra.id}, ${s.freshAlbum}, 'T', now(), true, false)`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await sql`select audio_file_id, local_album_id, state from local_tracks where id = ${extra.id}`)
+        .toEqual([{ audio_file_id: s.oldId, local_album_id: s.oldAlbum, state: 'unmatched' }]);
+      expect(await sql`select local_track_id, local_album_id from player_plays where dedupe_key = ${`nt-${s.freshId}`}`).toEqual([{ local_track_id: extra.id, local_album_id: s.oldAlbum }]);
+      expect(await sql`select count(*)::int as n from local_tracks where audio_file_id = ${s.oldId}`).toEqual([{ n: 2 }]);
+    });
+
+    it('same-path move to another root: the copy sits on the old album itself, whose owner data does not block', async () => {
+      const s = await setup();
+      // cluster.dir put the copy's track onto the old album (same key): no fresh album of its own
+      await sql`update local_tracks set local_album_id = ${s.oldAlbum} where id = ${s.freshTrack}`;
+      const rg = await releaseGroup();
+      const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.oldAlbum}, ${rel.id}, 0.1, 'confirmed', 'user')`;
+      await sql`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${libraryId}, 'album', ${s.oldAlbum}, 'title', ${userId})`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [] });
+      expect(await sql`select id from local_tracks where local_album_id = ${s.oldAlbum}`).toEqual([{ id: s.oldTrack }]);
+      expect(await sql`select status from album_matches where local_album_id = ${s.oldAlbum}`).toEqual([{ status: 'confirmed' }]);
+    });
+
+    it('two emptied fresh albums with the same listen keep one, on the old album; its plays follow the kept one', async () => {
+      const s = await setup();
+      const fresh2 = randomUUID();
+      await sql`insert into local_albums (id, library_id, cluster_key) values (${fresh2}, ${libraryId}, ${`f2:${fresh2}`})`;
+      const p2 = await addPair(s);
+      await sql`update local_tracks set local_album_id = ${fresh2} where audio_file_id = ${p2.freshId}`;
+      const at = new Date(Date.now() - 7_200_000).toISOString();
+      const listens: string[] = [];
+      for (const [album, heard] of [[s.freshAlbum, 1], [fresh2, 2]] as const) {
+        const [l] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                              values (${userId}, ${libraryId}, ${album}, ${at}::timestamptz, now(), ${heard}, 2) returning id`;
+        listens.push(l.id);
+      }
+      const [play] = await sql`insert into player_plays (user_id, library_id, dedupe_key, source, local_album_id, title, started_at, heard, scrobbles, player_listen_id)
+                               values (${userId}, ${libraryId}, ${`dl-${s.freshId}`}, 'web', ${s.freshAlbum}, 'T', now(), true, false, ${listens[0]}) returning id`;
+      const outs = await mergeFilePairs(ctx(), [req(s), p2.req]);
+      expect(outs.map((o) => o.kind)).toEqual(['absorbed', 'absorbed']);
+      expect((outs[0] as any).removedAlbumIds.sort()).toEqual([s.freshAlbum, fresh2].sort());
+      expect(await sql`select id, tracks_heard from player_listens where local_album_id = ${s.oldAlbum} and started_at = ${at}::timestamptz`)
+        .toEqual([{ id: listens[1], tracks_heard: 2 }]);
+      expect(await sql`select player_listen_id, local_album_id from player_plays where id = ${play.id}`).toEqual([{ player_listen_id: listens[1], local_album_id: s.oldAlbum }]);
     });
 
     it('falls back when the old row has no album: the fresh album and its listens would go (F6)', async () => {
@@ -401,15 +499,17 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       expect((await sql`select status from audio_files where id = ${s.oldId}`)[0].status).toBe('missing');
     });
 
-    it('falls back when a fresh listen would collide with the same listen on the old album', async () => {
+    it('a fresh listen that the old album already has is dropped as a duplicate, not a reason to fall back', async () => {
       const s = await setup();
       const at = new Date(Date.now() - 3_600_000).toISOString();
+      const ids: string[] = [];
       for (const album of [s.oldAlbum, s.freshAlbum]) {
-        await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
-                  values (${userId}, ${libraryId}, ${album}, ${at}::timestamptz, now(), 1, 1)`;
+        const [l] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                              values (${userId}, ${libraryId}, ${album}, ${at}::timestamptz, now(), 1, 1) returning id`;
+        ids.push(l.id);
       }
-      expect(await mergeFilePair(ctx(), req(s))).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
-      expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1);
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await sql`select id from player_listens where id = any(${ids}::uuid[])`).toEqual([{ id: ids[0] }]);
     });
 
     it('a loose fresh track (no album) is absorbed: its plays move to the old track, no album goes', async () => {
@@ -446,4 +546,43 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () 
       expect(await merge).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
     });
   });
+});
+
+/**
+ * Owner identify requests live in pg-boss's job table. Other suites fake or
+ * drop pgboss.job in the shared test database, so this runs in a scratch
+ * database with a stand-in table holding the columns the check reads.
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('ownerIdentifyRequested (db)', () => {
+  it('sees owner-requested or pinned identify jobs still waiting or running, nothing else; no pg-boss table means none', async () => {
+    const admin = (await makeDb(process.env.TEST_DATABASE_URL!)).client;
+    const name = `tagave_oir_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
+    await admin.unsafe(`create database ${name}`);
+    const u = new URL(process.env.TEST_DATABASE_URL!);
+    u.pathname = `/${name}`;
+    const sql = (await makeDb(u.toString())).client;
+    try {
+      const a = randomUUID();
+      const check = (ids: string[]) => sql.begin((tx: any) => ownerIdentifyRequested(tx, ids));
+      expect(await check([a])).toBe(false);                                   // no pgboss schema at all
+      await sql`create schema pgboss`;
+      expect(await check([a])).toBe(false);                                   // schema, no table
+      await sql`create table pgboss.job (id uuid default gen_random_uuid(), name text, state text, data jsonb)`;
+      const job = (n: string, state: string, data: object) => sql`insert into pgboss.job (name, state, data) values (${n}, ${state}, ${JSON.stringify(data)}::text::jsonb)`;
+      await job('identify.album', 'created', { localAlbumId: a });                          // automatic
+      await job('identify.album', 'completed', { localAlbumId: a, requestedBy: 'owner' }); // done
+      await job('scan.parse', 'created', { localAlbumId: a, requestedBy: 'owner' });       // other queue
+      expect(await check([a])).toBe(false);
+      await job('identify.album', 'active', { localAlbumId: a, pinnedMbid: randomUUID() });
+      expect(await check([a])).toBe(true);
+      const b = randomUUID();
+      await job('identify.acoustid', 'retry', { localAlbumId: b, requestedBy: 'owner' });
+      expect(await check([b])).toBe(true);
+      expect(await check([randomUUID()])).toBe(false);
+    } finally {
+      await sql.end({ timeout: 5 });
+      await admin.unsafe(`drop database if exists ${name} with (force)`);
+      await admin.end({ timeout: 5 });
+    }
+  }, 30_000);
 });

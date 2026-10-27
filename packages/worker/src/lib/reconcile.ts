@@ -14,7 +14,7 @@ import { relDirname } from './helpers.js';
 
 export { sqlDirname } from './helpers.js';
 import { isUnderFailedPath } from './scanFinish.js';
-import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
+import { mergeFilePair, mergeFilePairs, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import { refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import { cancelQueuedIdentify } from './cancelIdentify.js';
@@ -182,20 +182,53 @@ export function earliestLastSeen(fs: MatchFile[]): Date {
 const RETRYABLE = new Set(['40P01', '40001']);
 
 /**
- * One merge, retried once on a deadlock or serialization failure. Any error
- * that remains is logged and the pair left alone: one failed pair never
- * aborts the rest of the reconcile.
+ * One merge (or one fresh album's merges, in one transaction), retried once
+ * on a deadlock or serialization failure. Any error that remains is logged
+ * and the pairs left alone: one failed unit never aborts the rest of the
+ * reconcile.
  */
-async function mergeOnce(ctx: Pick<WorkerContext, 'sql' | 'logger'>, req: MergeRequest): Promise<MergeOutcome | { kind: 'failed'; reason: string }> {
+async function mergeOnce(ctx: Pick<WorkerContext, 'sql' | 'logger'>, reqs: MergeRequest[]): Promise<Array<MergeOutcome | { kind: 'failed'; reason: string }>> {
   for (let attempt = 1; ; attempt++) {
     try {
-      return await mergeFilePair(ctx, req);
+      return reqs.length === 1 ? [await mergeFilePair(ctx, reqs[0]!)] : await mergeFilePairs(ctx, reqs);
     } catch (err) {
       const code = pgErrorCode(err);
       if (attempt === 1 && code !== undefined && RETRYABLE.has(code)) continue;
-      return { kind: 'failed', reason: `${code ?? 'error'}: ${errorMessage(err)}` };
+      const failed = { kind: 'failed' as const, reason: `${code ?? 'error'}: ${errorMessage(err)}` };
+      return reqs.map(() => failed);
     }
   }
+}
+
+/**
+ * The plan's pairs in merge units: pairs whose fresh rows share a fresh
+ * album form one unit (absorbed together or not at all, review round 1);
+ * every other pair is a unit of its own. Read without locks: mergeFilePairs
+ * checks the albums again under its locks and falls back when they changed.
+ */
+async function mergeUnits<T extends { freshId: string }>(ctx: Pick<WorkerContext, 'sql'>, pairs: T[], allowAbsorb: boolean): Promise<T[][]> {
+  if (!allowAbsorb || pairs.length < 2) return pairs.map((p) => [p]);
+  const rows = (await ctx.sql`
+    select distinct audio_file_id::text as file, local_album_id::text as album from local_tracks
+     where audio_file_id = any(${pairs.map((p) => p.freshId)}::uuid[]) and local_album_id is not null`) as unknown as Array<{ file: string; album: string }>;
+  const parent = pairs.map((_, i) => i);
+  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]!]!; i = parent[i]!; } return i; };
+  const indexOf = new Map(pairs.map((p, i) => [p.freshId, i]));
+  const firstOfAlbum = new Map<string, number>();
+  for (const r of rows) {
+    const i = indexOf.get(r.file);
+    if (i === undefined) continue;
+    const j = firstOfAlbum.get(r.album);
+    if (j === undefined) firstOfAlbum.set(r.album, i);
+    else parent[find(i)] = find(j);
+  }
+  const units = new Map<number, T[]>();
+  pairs.forEach((p, i) => {
+    const root = find(i);
+    const u = units.get(root);
+    if (u) u.push(p); else units.set(root, [p]);
+  });
+  return [...units.values()];
 }
 
 /** Runs the plan's merges one transaction each and folds them into a result. */
@@ -208,9 +241,16 @@ export async function runMerges(
   const oldById = new Map(olds.map((o) => [o.id, o]));
   const moves = new Map<string, MoveRecord>();
   const dirs = new Map<string, DirRef>();
-  for (const p of plan.pairs) {
-    const o = oldById.get(p.oldId)!;
-    const res = await mergeOnce(ctx, { oldId: p.oldId, freshId: p.freshId, oldAt: { scanRootId: o.scanRootId, relPath: o.relPath }, walkStart, allowAbsorb });
+  const results: Array<{ p: (typeof plan.pairs)[number]; res: MergeOutcome | { kind: 'failed'; reason: string } }> = [];
+  for (const unit of await mergeUnits(ctx, plan.pairs, allowAbsorb)) {
+    const reqs = unit.map((p) => {
+      const o = oldById.get(p.oldId)!;
+      return { oldId: p.oldId, freshId: p.freshId, oldAt: { scanRootId: o.scanRootId, relPath: o.relPath }, walkStart, allowAbsorb };
+    });
+    const outs = await mergeOnce(ctx, reqs);
+    unit.forEach((p, i) => results.push({ p, res: outs[i]! }));
+  }
+  for (const { p, res } of results) {
     if (res.kind === 'skipped' || res.kind === 'failed') {
       const log = res.kind === 'failed' ? ctx.logger.warn.bind(ctx.logger) : ctx.logger.info.bind(ctx.logger);
       log({ tier, oldId: p.oldId, freshId: p.freshId, reason: res.reason }, 'files.reconcile: pair left alone');
