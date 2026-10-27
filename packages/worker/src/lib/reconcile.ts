@@ -374,8 +374,10 @@ export async function reconcileTier2(ctx: WorkerContext, libraryId: string, fres
     let latestMs = -Infinity;
     for (const f of parsed) { const t = f.firstSeenAt.getTime(); if (t > latestMs) latestMs = t; }
     const latest = new Date(latestMs).toISOString();
-    let olds = await loadMatchFiles(ctx, sql`af.library_id = ${libraryId} and af.status = 'missing' and af.last_seen_at <= ${latest}::timestamptz
-      and (af.size_bytes = any(${sizes}::bigint[]) or af.audio_hash = any(${hashes}::text[]))`);
+    // Two queries, not one OR: the size lookup alone can use idx_audio_files_library_size.
+    const missingBefore = sql`af.library_id = ${libraryId} and af.status = 'missing' and af.last_seen_at <= ${latest}::timestamptz`;
+    let olds = sizes.length ? await loadMatchFiles(ctx, sql`${missingBefore} and af.size_bytes = any(${sizes}::bigint[])`) : [];
+    if (hashes.length) olds = uniqById([...olds, ...await loadMatchFiles(ctx, sql`${missingBefore} and af.audio_hash = any(${hashes}::text[])`)]);
     if (olds.length === 0) return emptyReconcile();
     const earliest = earliestLastSeen(olds).toISOString();
     olds = uniqById([...olds, ...await rowsInDirs(ctx, libraryId, dirsOf(olds), sql`af.status = 'missing'`)]);
