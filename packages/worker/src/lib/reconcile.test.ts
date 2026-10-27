@@ -11,6 +11,8 @@ import type { MatchFile } from './reconcileMatch.js';
 
 const mergeFilePair = vi.fn();
 vi.mock('./fileMerge.js', () => ({ mergeFilePair: (...args: unknown[]) => mergeFilePair(...args) }));
+const repointSidecarImages = vi.fn(async () => 0);
+vi.mock('./moveEffects.js', () => ({ repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])) }));
 const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');
@@ -31,7 +33,7 @@ describe('runMerges', () => {
     return { kind: 'merged', oldId, libraryId: 'l', from: { scanRootId: 'r', relPath: `${k}/x.flac` }, to: { scanRootId: 'r', relPath: `${k}2/x.flac` }, reparse, removedAlbumIds: [] };
   };
 
-  beforeEach(() => { mergeFilePair.mockReset(); warn.mockReset(); });
+  beforeEach(() => { mergeFilePair.mockReset(); warn.mockReset(); repointSidecarImages.mockClear(); });
 
   it('retries a deadlock once, skips what keeps failing, merges the rest', async () => {
     const calls = new Map<string, number>();
@@ -52,6 +54,9 @@ describe('runMerges', () => {
     expect(r.possibleMoves).toBe(2);
     expect(warn).toHaveBeenCalledTimes(2);
     expect(warn.mock.calls.map((c) => c[0].reason).sort()).toEqual(['40001: pg 40001', 'error: connection reset']);
+    // the merged folders' sidecar covers follow, once, with this run's moves
+    expect(repointSidecarImages).toHaveBeenCalledTimes(1);
+    expect((repointSidecarImages.mock.calls[0] as unknown[])[1]).toEqual(r.moves);
   });
 });
 

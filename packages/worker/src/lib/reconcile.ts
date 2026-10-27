@@ -14,6 +14,7 @@ import { relDirname } from './helpers.js';
 import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
+import { repointSidecarImages } from './moveEffects.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
@@ -236,6 +237,9 @@ export async function runMerges(
   }
   out.moves = [...moves.values()].sort((a, b) => b.files - a.files);
   out.reclusterDirs = [...dirs.values()];
+  // Sidecar covers follow the merged folders before any stale sidecar is dropped
+  // (Tier 1: finishWalk drops after this; Tier 2: the old sidecar waited, Ruling 9).
+  if (out.moves.length > 0) await repointSidecarImages(ctx, out.moves);
   return out;
 }
 

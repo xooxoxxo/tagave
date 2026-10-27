@@ -174,9 +174,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('walkRoot', () => {
 
   it('sidecar rows keep their ids across walks, and a removed sidecar takes its image row with it', async () => {
     const { images } = await import('@tagave/db');
+    // put back the file the subtree test removed: a stale image sidecar stays while its
+    // folder has missing rows (Ruling 9), and this test is about the plain drop
+    await writeFile(path.join(rootPath, 'A', '02 - Two.mp3'), 'a22');
     await writeFile(path.join(rootPath, 'A', 'back.jpg'), 'img2');
     await bump(path.join(rootPath, 'A'));
     await walkRoot(ctx, root, { mode: 'full' });
+    expect((await byPath()).get('A/02 - Two.mp3')?.status).toBe('present');
     const before = await db.select().from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/cover.jpg')));
     expect(before).toHaveLength(1);
     const [albumRow] = await db.select({ id: sidecarFiles.id }).from(sidecarFiles).where(and(eq(sidecarFiles.scanRootId, rootId), eq(sidecarFiles.relPath, 'A/back.jpg')));
