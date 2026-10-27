@@ -8,6 +8,7 @@ import fastifySwagger from '@fastify/swagger';
 import fastifySwaggerUI from '@fastify/swagger-ui';
 import { createReviewRoutes } from './routes/reviews.js';
 import { createViewRoutes } from './routes/views.js';
+import { createUserPrefsRoutes } from './routes/userPrefs.js';
 import { createBulkRoutes } from './routes/bulk.js';
 import { createUpdateRoutes } from './routes/updates.js';
 import { createUpdaterInternalRoutes, createUpdaterRoutes } from './routes/updater.js';
@@ -187,5 +188,7 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
     // Playlists: each person's own lists, export and import, the module row
     instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
+    // Each person's own preferences that follow them between devices (the colour theme)
+    instance.register(createUserPrefsRoutes, { prefix: '/api/v1' });
   });
 }
