@@ -1,7 +1,7 @@
 /**
  * cluster.dir is music's grouping job: it is sent only for files whose
- * handler the music app claims (musicFiles.ts). Every sender that starts from
- * file rows is checked here with rows of a handler music does not claim
+ * handler the music app claims (the grouping gate, appFiles.ts). Every sender that starts from
+ * file rows is checked here with rows of a handler no app claims
  * ('test-doc', which this build does not carry either): scan.parse,
  * missing-marking, Tier 1/Tier 2 merges, hold releases and the sweep. Holds,
  * missing-marking and merges themselves still happen for those rows when the
@@ -21,7 +21,8 @@ import type { WorkerContext } from './context.js';
 import { placeHolds, releaseExpiredHolds, releaseReadyHolds } from './clusterHold.js';
 import { loadMatchFiles, runMerges } from './reconcile.js';
 import { walkRoot } from './walk.js';
-import { clusteredByMusic, MUSIC_HANDLERS, walkedHandlers } from './musicFiles.js';
+import { MUSIC_HANDLERS } from './musicFiles.js';
+import { groupingQueue, walkedHandlers } from './appFiles.js';
 import { clusterDirJob } from '../jobs/clusterDir.js';
 import { enumerateFilesForScope } from '../jobs/tagsPreview.js';
 import { scanParseJob } from '../jobs/scanParse.js';
@@ -31,11 +32,12 @@ import { writeFlac } from '../testkit/flac.js';
 const DOC = 'test-doc';
 
 describe('music files gate', () => {
-  it('claims the audio handler only, from the music app\u2019s manifest', () => {
+  it('claims the audio handler only, from the music app\u2019s manifest; the gate sends audio to cluster.dir, books to books.group', () => {
     expect(MUSIC_HANDLERS).toEqual(['audio']);
-    expect(clusteredByMusic('audio')).toBe(true);
-    expect(clusteredByMusic(DOC)).toBe(false);
-    expect(clusteredByMusic(null)).toBe(false);
+    expect(groupingQueue('audio')).toBe('cluster.dir');
+    expect(groupingQueue('epub')).toBe('books.group');
+    expect(groupingQueue(DOC)).toBeNull();
+    expect(groupingQueue(null)).toBeNull();
   });
 
   it('walks the built-in apps’ handlers on a database from before the module ledger (schema skew allowed)', async () => {

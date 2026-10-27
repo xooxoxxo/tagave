@@ -29,9 +29,15 @@
  * those too, and only those (listens logged by hand stay either way). The
  * owner's own settings in libraries.settings stay as well (a player server
  * of their own, the Last.fm API key); only the player's scan status goes.
+ *
+ * An app that is not built in (books, the spike): its own tables, then its
+ * libraries (libraries.app = <id>), and with them, by the core's ON DELETE
+ * CASCADE, everything core holds for them: their folders (scan_roots), files,
+ * scans, sidecars and job runs. One app per library, so no other app's row
+ * goes. Refused while the app is on.
  */
 import type postgres from 'postgres';
-import { MODULES, type ModuleManifest } from '@tagave/core/facets';
+import { APPS, MODULES, type AppManifest, type ModuleManifest } from '@tagave/core/facets';
 import { moduleEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
@@ -59,6 +65,11 @@ export interface ModuleData {
     libraries: string;
     where: Readonly<Record<string, string | null>>;
   };
+  /**
+   * An app's data: its libraries (libraries.app = this id) go after its
+   * tables, and the core rows that hang off them go with them (cascade).
+   */
+  appLibraries?: string;
 }
 
 /** The bundled Navidrome's server_key (playerServerKey in packages/core/src/player/config.ts). */
@@ -91,6 +102,25 @@ export function moduleDataOf(m: ModuleManifest): ModuleData {
 }
 
 /**
+ * An app's data, read from its manifest: its tables in the manifest's order,
+ * then its libraries (and, by cascade, their folders, files and scans).
+ * Refused while the app is on. Its ledger row is the owner's and stays.
+ */
+export function appDataOf(a: AppManifest): ModuleData {
+  return {
+    tables: [...a.tables],
+    librarySettingsKeys: [],
+    history: null,
+    onWhenEnv: [],
+    onWhenSettings: (sql) => moduleEnabled(sql, a.id),
+    appLibraries: a.id,
+  };
+}
+
+/** Apps that can be removed: every app that is not built in (books). */
+export const PURGEABLE_APPS: readonly AppManifest[] = APPS.filter((a) => !a.builtIn && a.tables.length > 0);
+
+/**
  * In-process modules whose data is exactly their tables. Left out: built-in
  * parts of the app, and a module that fills core gaps (Music Connections:
  * only its own removal, Settings › Modules, reverts the MBIDs it filled; a
@@ -109,6 +139,8 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
   // Listen elsewhere (0054), playlists (0056), and every in-process module
   // that comes later: from their manifests (packages/core/src/facets/manifests.ts).
   ...Object.fromEntries(PURGEABLE_BY_MANIFEST.map((m) => [m.id, moduleDataOf(m)])),
+  // Apps that are not built in (books): their tables and their libraries.
+  ...Object.fromEntries(PURGEABLE_APPS.map((a) => [a.id, appDataOf(a)])),
   // The player is a container module with its own rules: a server of the
   // owner's own may still use some of its rows.
   player: {
@@ -168,6 +200,8 @@ export interface PurgeResult {
   librariesCleared: number;
   /** Libraries another part still serves (a player server of the owner's own), whose rows were kept; 0 when none. */
   keptForLibraries: number;
+  /** An app's libraries removed with it (their folders, files and scans by cascade); 0 for a module. */
+  librariesRemoved: number;
 }
 
 export async function purgeModuleData(
@@ -223,7 +257,9 @@ export async function purgeModuleData(
         where settings ?| ${keys}::text[] and id <> all(${kept}::uuid[])`;
       librariesCleared = res.count;
     }
-    return { module: moduleId, deleted, history, librariesCleared, keptForLibraries: kept.length };
+    // an app's libraries last: their files, folders and scans go with them (cascade)
+    const librariesRemoved = data.appLibraries ? (await tx`delete from libraries where app = ${data.appLibraries}`).count : 0;
+    return { module: moduleId, deleted, history, librariesCleared, keptForLibraries: kept.length, librariesRemoved };
   });
 }
 
@@ -233,6 +269,7 @@ export function describePurge(r: PurgeResult): string {
   const parts = [rows.length ? `deleted ${rows.join(', ')}` : 'no rows of its own were left'];
   if (r.keptForLibraries) parts.push(`kept what a player server of your own uses in ${r.keptForLibraries} librar${r.keptForLibraries === 1 ? 'y' : 'ies'}, and the Last.fm and ListenBrainz connections`);
   if (r.librariesCleared) parts.push(`its scan status cleared in ${r.librariesCleared} librar${r.librariesCleared === 1 ? 'y' : 'ies'}`);
+  if (r.librariesRemoved) parts.push(`removed its ${r.librariesRemoved} librar${r.librariesRemoved === 1 ? 'y' : 'ies'} with their folders and files`);
   if (r.history) parts.push(`${r.history.action} the ${r.history.count} ${r.history.table} it recorded`);
   return parts.join('; ');
 }

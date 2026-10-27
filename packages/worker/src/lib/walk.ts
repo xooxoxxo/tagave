@@ -28,7 +28,7 @@ import { fileTypeHandler, handlerForName } from '@tagave/core/files';
 import type { WorkerContext } from './context.js';
 import { sidecarKind, storagePath, extOf, relDirname, escapeLike } from './helpers.js';
 import { finishWalk, type FinishOptions, type FinishResult } from './scanFinish.js';
-import { walkedHandlers } from './musicFiles.js';
+import { walkedHandlers } from './appFiles.js';
 
 export type WalkMode = 'full' | 'quick';
 
@@ -48,7 +48,7 @@ export interface WalkOptions {
   reparseErrors?: boolean;
   /** called every ~5000 files with the running count and the current directory */
   onProgress?: (filesSeen: number, dir: string) => void | Promise<void>;
-  /** handler ids to index (tests); default: those of the apps that are on (walkedHandlers) */
+  /** handler ids to index; default: those the library's app claims while it is on (walkedHandlers) */
   handlers?: ReadonlySet<string>;
 }
 
@@ -145,9 +145,11 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
   // The shared client returns timestamptz as text; ms truncation only rounds down.
   const [clock] = (await ctx.sql`select now() as now`) as unknown as Array<{ now: string | Date }>;
   const walkStart = new Date(clock!.now);
-  // What the apps that are on claim (installed_modules; music always). Rows of
-  // any other handler are not this walk's to judge: never seen, never missing.
-  const walked = opts.handlers ?? (await walkedHandlers(ctx));
+  // What the library's app claims while it is on (one app per library; music
+  // always): a music library walks audio and keeps a .pdf as a sidecar, a
+  // books library walks epub, pdf and cbz. Rows of any other handler are not
+  // this walk's to judge: never seen, never missing.
+  const walked = opts.handlers ?? (await walkedHandlers(ctx, root.libraryId));
   const [present] = (await ctx.sql`select count(*)::int as n from files
                                    where scan_root_id = ${root.id} and status in ('present', 'error')`) as unknown as Array<{ n: number }>;
 
@@ -333,7 +335,7 @@ export async function walkTree(ctx: WorkerContext, root: WalkRoot, opts: WalkOpt
       for (const name of files) {
         const absPath = path.join(dirAbs, name);
         const relPath = storagePath(path.relative(root.path, absPath));
-        // Only names a handler of an app that is on claims are indexed (today: audio).
+        // Only names a handler of the library's app claims are indexed (music: audio).
         const handler = handlerForName(name, walked);
         if (handler) {
           let st;

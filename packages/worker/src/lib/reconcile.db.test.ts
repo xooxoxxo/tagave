@@ -240,7 +240,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     const r = await walkRoot(ctx, A(), { mode: 'full' });
     expect(r).toMatchObject({ merged: 3, missing: 0 });
     expect(r.moves).toEqual([{ fromRootId: rootA, fromDir: 'Artist/Old', toRootId: rootA, toDir: 'Artist/New', files: 3 }]);
-    expect(r.reclusterDirs).toEqual(expect.arrayContaining([{ scanRootId: rootA, dirPath: 'Artist/Old' }, { scanRootId: rootA, dirPath: 'Artist/New' }]));
+    expect(r.reclusterDirs).toEqual(expect.arrayContaining([{ scanRootId: rootA, dirPath: 'Artist/Old', queue: 'cluster.dir' }, { scanRootId: rootA, dirPath: 'Artist/New', queue: 'cluster.dir' }]));
     // finishWalk itself queues both folders (no caller involved), without the throttle slot
     const queued = sends.filter((j) => j.name === 'cluster.dir' && j.data.dirPath.startsWith('Artist/'));
     expect(queued.map((j) => j.data.dirPath).sort()).toEqual(['Artist/New', 'Artist/Old']);
@@ -272,7 +272,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
     const r = await walkRoot(ctx, A(), { mode: 'full' });
     expect(r).toMatchObject({ merged: 1, missing: 0, added: 0 });
     expect(r.moves).toEqual([{ fromRootId: rootA, fromDir: 'Loose', toRootId: rootA, toDir: '', files: 1 }]);
-    expect(r.reclusterDirs).toEqual(expect.arrayContaining([{ scanRootId: rootA, dirPath: 'Loose' }, { scanRootId: rootA, dirPath: '' }]));
+    expect(r.reclusterDirs).toEqual(expect.arrayContaining([{ scanRootId: rootA, dirPath: 'Loose', queue: 'cluster.dir' }, { scanRootId: rootA, dirPath: '', queue: 'cluster.dir' }]));
     expect(await idOf('top.flac')).toBe(id);
   });
 

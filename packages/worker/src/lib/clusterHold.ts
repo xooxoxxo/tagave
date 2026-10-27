@@ -13,15 +13,15 @@
  * tries again within ten minutes (releaseParsedHolds); at the cap the hold is
  * released all the same and the rows fall through to clustering unpaired.
  *
- * Holds and their release are about files of any handler; only the cluster.dir
- * sends are music's, so a released folder is clustered only when its held rows
- * include a file the music app groups (musicFiles.ts).
+ * Holds and their release are about files of any handler; a released folder
+ * goes to the grouping job of each app whose files its held rows are
+ * (appFiles.ts groupingQueue: cluster.dir for music, books.group for books).
  */
 import type { WorkerContext } from './context.js';
-import { clusterSingletonKey, relDirname } from './helpers.js';
-import { describeMoves, emptyReconcile, reconcileTier2, sqlDirname, type DirRef } from './reconcile.js';
+import { relDirname } from './helpers.js';
+import { describeMoves, emptyReconcile, reconcileTier2, sqlDirname, type RegroupRef } from './reconcile.js';
 import { errorMessage } from './dbErrors.js';
-import { clusteredByMusic, MUSIC_HANDLERS } from './musicFiles.js';
+import { groupingQueue, sendGrouping } from './appFiles.js';
 
 export const CLUSTER_HOLD_CAP_MS = 3_600_000;
 const CAP_SECONDS = CLUSTER_HOLD_CAP_MS / 1000;
@@ -29,21 +29,20 @@ const UPDATE_BATCH = 2000;
 /** scan.parse batch size for Tier 2 merges whose bytes changed (scan.root and scan.dir use the same). */
 const PARSE_BATCH = 50;
 
-/** A folder to cluster after a release, with the library it belongs to. */
-export interface ReleasedDir extends DirRef { libraryId: string }
+/** A folder to group after a release, with the library it belongs to and its app's grouping queue. */
+export interface ReleasedDir extends RegroupRef { libraryId: string }
 
 /**
- * cluster.dir for a folder whose hold was just cleared. No singletonSeconds,
- * on purpose: a throttle slot is unique on (name, slot, key) for every state
- * but cancelled, so a cluster.dir that returned early on this hold and
- * completed in the same 30 s slot would silently swallow this send, and the
- * folder would never be clustered. The stately policy and the singletonKey
- * still drop a duplicate while one is queued, and that queued job runs after
- * the release, so it clusters the folder.
+ * The grouping job (cluster.dir for music) for a folder whose hold was just
+ * cleared. No singletonSeconds, on purpose: a throttle slot is unique on
+ * (name, slot, key) for every state but cancelled, so a cluster.dir that
+ * returned early on this hold and completed in the same 30 s slot would
+ * silently swallow this send, and the folder would never be clustered. The
+ * stately policy and the singletonKey still drop a duplicate while one is
+ * queued, and that queued job runs after the release, so it groups the folder.
  */
-export async function sendReleasedCluster(ctx: Pick<WorkerContext, 'boss'>, d: ReleasedDir, startAfter?: number): Promise<void> {
-  await ctx.boss.send('cluster.dir', { libraryId: d.libraryId, scanRootId: d.scanRootId, dirPath: d.dirPath },
-    { singletonKey: clusterSingletonKey(d.scanRootId, d.dirPath), ...(startAfter ? { startAfter } : {}) });
+export async function sendReleasedGrouping(ctx: Pick<WorkerContext, 'boss'>, d: ReleasedDir, startAfter?: number): Promise<void> {
+  await sendGrouping(ctx, d, startAfter ? { startAfter } : {});
 }
 
 /**
@@ -99,8 +98,8 @@ export async function heldRows(
 
 export interface DirRelease {
   released: number;
-  /** Folders Tier 2 took files from, other than the released ones (those the caller clusters anyway). */
-  reclusterDirs: DirRef[];
+  /** Folders Tier 2 took files from, other than the released ones (those the caller groups anyway). */
+  reclusterDirs: RegroupRef[];
   /** The library lock was busy, so Tier 2 did not run and the holds were kept (never at the cap). */
   deferred: boolean;
 }
@@ -158,11 +157,11 @@ export async function releaseDirHolds(
 
 /**
  * scan.parse: releases the touched folders whose held rows are now all parsed
- * or failed. Returns every folder to cluster because of a release: the
- * released folders whose held rows include a file the music app groups, plus
- * the folders Tier 2 took music files from. A folder deferred on a busy
- * library lock is not returned (it stays held). The caller sends these with
- * sendReleasedCluster, not its throttled send.
+ * or failed. Returns every folder to group because of a release: each
+ * released folder once per app whose files its held rows are (with that
+ * app's grouping queue), plus the folders Tier 2 took files from. A folder
+ * deferred on a busy library lock is not returned (it stays held). The
+ * caller sends these with sendReleasedGrouping, not its throttled send.
  */
 export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ libraryId: string; scanRootId: string; dirPath: string }>): Promise<ReleasedDir[]> {
   const out: ReleasedDir[] = [];
@@ -174,17 +173,18 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
   }
   for (const [scanRootId, { libraryId, dirs }] of byRoot) {
     const pending = new Map<string, boolean>(); // dir -> every held row parsed
-    const music = new Set<string>(); // dirs with a held row the music app groups
+    const queues = new Map<string, Set<string>>(); // dir -> the grouping queues of its held rows' apps
     for (const h of await heldRows(ctx, scanRootId, [...dirs])) {
       if (!dirs.has(h.dir)) continue;
       pending.set(h.dir, (pending.get(h.dir) ?? true) && h.parsed);
-      if (clusteredByMusic(h.handler)) music.add(h.dir);
+      const q = groupingQueue(h.handler);
+      if (q) queues.set(h.dir, (queues.get(h.dir) ?? new Set()).add(q));
     }
     const ready = [...pending].filter(([, allParsed]) => allParsed).map(([d]) => d);
     if (ready.length === 0) continue;
     const res = await releaseDirHolds(ctx, libraryId, scanRootId, ready);
     if (res.deferred) continue;
-    for (const dirPath of ready) if (music.has(dirPath)) out.push({ libraryId, scanRootId, dirPath });
+    for (const dirPath of ready) for (const queue of queues.get(dirPath) ?? []) out.push({ libraryId, scanRootId, dirPath, queue });
     for (const d of res.reclusterDirs) out.push({ libraryId, ...d });
   }
   return out;
@@ -194,15 +194,16 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
 export interface HoldScope { libraryId: string }
 
 /**
- * scan.sweep: holds past the cap are released and their folders clustered
- * (those whose held rows include a file the music app groups). Tier 2 still runs for their parsed rows, but neither a busy library lock nor
- * a Tier 2 error keeps the hold, and one folder's error never stops the rest.
+ * scan.sweep: holds past the cap are released and their folders grouped (by
+ * the grouping job of each app whose files the held rows are). Tier 2 still
+ * runs for their parsed rows, but neither a busy library lock nor a Tier 2
+ * error keeps the hold, and one folder's error never stops the rest.
  * Returns the number of folders released.
  */
 export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope): Promise<number> {
   const rows = await ctx.sql`
     select af.library_id, af.scan_root_id, ${ctx.sql.unsafe(sqlDirname('af'))} as dir,
-           bool_or(af.handler = any(${MUSIC_HANDLERS as string[]}::text[])) as music
+           array_agg(distinct af.handler) as handlers
       from files af
      where af.reconcile_hold_at is not null
        and af.reconcile_hold_at <= now() - ${CAP_SECONDS}::int * interval '1 second'
@@ -214,8 +215,9 @@ export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope)
     try {
       const res = await releaseDirHolds(ctx, libraryId, scanRootId, [dirPath], { atCap: true });
       if (res.released > 0) folders += 1;
-      if (r['music'] === true) await sendReleasedCluster(ctx, { libraryId, scanRootId, dirPath });
-      for (const d of res.reclusterDirs) await sendReleasedCluster(ctx, { libraryId, ...d });
+      const queues = new Set((r['handlers'] as string[]).map(groupingQueue).filter((q): q is string => q !== null));
+      for (const queue of queues) await sendReleasedGrouping(ctx, { libraryId, scanRootId, dirPath, queue });
+      for (const d of res.reclusterDirs) await sendReleasedGrouping(ctx, { libraryId, ...d });
     } catch (err) {
       ctx.logger.warn({ scanRootId, dirPath, err: errorMessage(err) }, 'cluster hold release at the cap failed for a folder');
     }
@@ -227,7 +229,7 @@ export async function releaseExpiredHolds(ctx: WorkerContext, scope?: HoldScope)
 /**
  * scan.sweep: folders whose held rows are all parsed but still held, because
  * Tier 2 found the library lock busy when scan.parse released them, get
- * another try (and their cluster.dir once released, plus the folders Tier 2
+ * another try (and their grouping job once released, plus the folders Tier 2
  * took files from). Still busy: they wait for the next sweep, and the cap
  * releases them in any case. Returns the number of folders released (the
  * same unit as releaseExpiredHolds; the extra Tier 2 folders do not count).
@@ -245,6 +247,7 @@ export async function releaseParsedHolds(ctx: WorkerContext, scope?: HoldScope):
   const touched = rows.map((r) => ({ libraryId: r['library_id'] as string, scanRootId: r['scan_root_id'] as string, dirPath: r['dir'] as string }));
   const wanted = new Set(touched.map((t) => `${t.scanRootId}\n${t.dirPath}`));
   const out = await releaseReadyHolds(ctx, touched);
-  for (const d of out) await sendReleasedCluster(ctx, d);
-  return out.filter((d) => wanted.has(`${d.scanRootId}\n${d.dirPath}`)).length;
+  for (const d of out) await sendReleasedGrouping(ctx, d);
+  // a folder counts once, however many apps' grouping jobs it went to
+  return new Set(out.map((d) => `${d.scanRootId}\n${d.dirPath}`).filter((k) => wanted.has(k))).size;
 }

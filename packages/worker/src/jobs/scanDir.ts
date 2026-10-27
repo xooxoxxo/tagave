@@ -6,14 +6,15 @@
  * Seconds, where a root scan is minutes to hours.
  */
 import { eq } from 'drizzle-orm';
-import { scanRoots } from '@tagave/db';
+import { APPS } from '@tagave/core/facets';
+import { libraryApp, scanRoots } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkResult } from '../lib/walk.js';
 import { finishNotes, type FinishResult } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
-import { enqueueReclusters } from './scanRoot.js';
+import { enqueueGrouping } from './scanRoot.js';
 
 export interface ScanDirJobData {
   scanRootId: string;
@@ -89,10 +90,13 @@ export async function scanDirJob(ctx: WorkerContext, data: ScanDirJobData): Prom
   for (let i = 0; i < walk.changedIds.length; i += PARSE_BATCH) {
     await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
   }
-  // The owner asked for this folder: re-cluster it right away even when
-  // nothing changed on disk, plus any directory that lost files.
+  // The owner asked for this folder: group it again right away (its library's
+  // app's job: cluster.dir for music) even when nothing changed on disk, plus
+  // any directory that lost files.
   const startAfter = walk.changedIds.length ? 20 : 0;
-  await enqueueReclusters(ctx, root, [dirPath, ...walk.dirsWithMissing], { startAfter });
+  const app = await libraryApp(ctx.sql, root.libraryId);
+  const own = APPS.find((a) => a.id === app)?.grouping?.queue;
+  await enqueueGrouping(ctx, root, [...(own ? [{ queue: own, dirPath }] : []), ...walk.missingGroups], { startAfter });
   // finishWalk already queued the old and new folders of every Tier 1 merge.
 
   const elapsedS = Math.round((Date.now() - started) / 1000);

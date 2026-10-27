@@ -382,7 +382,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
   it('every module purge-module knows lists a table before the tables it references (the order it empties them)', async () => {
     const refs = await sql<Array<{ t: string; ref: string }>>`
       select c.conrelid::regclass::text as t, c.confrelid::regclass::text as ref from pg_constraint c where c.contype = 'f'`;
-    expect(Object.keys(MODULE_DATA).sort()).toEqual(['listen-links', 'player', 'playlists']);
+    expect(Object.keys(MODULE_DATA).sort()).toEqual(['books', 'listen-links', 'player', 'playlists']);
     for (const [id, data] of Object.entries(MODULE_DATA)) {
       const at = new Map(data.tables.map((t, i) => [t, i]));
       for (const r of refs) {

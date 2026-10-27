@@ -4,9 +4,9 @@ import { eq, inArray } from 'drizzle-orm';
 import { files, scanRoots } from '@tagave/db';
 import { fileTypeHandler, noNul } from '@tagave/core/files';
 import type { WorkerContext } from '../lib/context.js';
-import { relDirname, tagsDigest, clusterSingletonKey } from '../lib/helpers.js';
-import { releaseReadyHolds, sendReleasedCluster } from '../lib/clusterHold.js';
-import { clusteredByMusic } from '../lib/musicFiles.js';
+import { relDirname, tagsDigest } from '../lib/helpers.js';
+import { releaseReadyHolds, sendReleasedGrouping } from '../lib/clusterHold.js';
+import { groupingQueue, sendGrouping } from '../lib/appFiles.js';
 
 export interface ScanParseJobData {
   /** files ids (the key keeps its old name: jobs queued before 0058 carry it) */
@@ -18,7 +18,7 @@ export interface ScanParseJobData {
  * NFC). Try the stored spelling, then both normalization forms — the same
  * discipline the archive-cleaning tooling needed (decisions doc gotcha #1).
  */
-async function openablePath(rootPath: string, relPath: string): Promise<string | null> {
+export async function openablePath(rootPath: string, relPath: string): Promise<string | null> {
   const candidates = [relPath, relPath.normalize('NFD'), relPath.normalize('NFC')];
   for (const cand of candidates) {
     const abs = path.join(rootPath, cand);
@@ -57,14 +57,17 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   const rootPathById = new Map(roots.map((r) => [r.id, r.path]));
 
   // Every folder a parsed (or failed) row is in may have a hold to release;
-  // only folders with a file the music app groups are re-clustered.
+  // each is sent to the grouping job of its files' app (the gate: music's
+  // folders to cluster.dir, books' to books.group, a handler no app groups
+  // nowhere).
   const dirsTouched = new Map<string, { libraryId: string; scanRootId: string }>();
-  const dirsToCluster = new Map<string, { libraryId: string; scanRootId: string }>();
+  const dirsToGroup = new Map<string, Map<string, { libraryId: string; scanRootId: string }>>(); // queue -> folders
   const touch = (row: (typeof rows)[number]) => {
     const key = `${row.scanRootId}\n${relDirname(row.relPath)}`;
     const info = { libraryId: row.libraryId, scanRootId: row.scanRootId };
     dirsTouched.set(key, info);
-    if (clusteredByMusic(row.handler)) dirsToCluster.set(key, info);
+    const queue = groupingQueue(row.handler);
+    if (queue) dirsToGroup.set(queue, (dirsToGroup.get(queue) ?? new Map()).set(key, info));
   };
   const failed = (id: string, parseError: string) =>
     ctx.db.update(files).set({ status: 'error', parseError }).where(eq(files.id, id));
@@ -110,26 +113,20 @@ export async function scanParseJob(ctx: WorkerContext, data: ScanParseJobData): 
   }
 
   // Folders whose held rows are now all parsed: release them (Tier 2 runs
-  // there) before their cluster.dir is sent below. Their sends skip
-  // the 30 s throttle slot (see sendReleasedCluster); a released folder is
-  // returned only when it holds files the music app groups.
+  // there) before their grouping job is sent below. Their sends skip the
+  // 30 s throttle slot (see sendReleasedGrouping); a released folder comes
+  // back once per app whose files it holds, with that app's queue.
   const touched = [...dirsTouched].map(([key, info]) => ({ ...info, dirPath: key.split('\n')[1] ?? '' }));
   const released = await releaseReadyHolds(ctx, touched);
-  for (const d of released) dirsToCluster.delete(`${d.scanRootId}\n${d.dirPath}`);
-  for (const d of released) await sendReleasedCluster(ctx, d, 30);
+  for (const d of released) dirsToGroup.get(d.queue)?.delete(`${d.scanRootId}\n${d.dirPath}`);
+  for (const d of released) await sendReleasedGrouping(ctx, d, 30);
 
-  // Debounced re-cluster of every touched directory (singleton per dir).
-  for (const [key, info] of dirsToCluster) {
-    const dirPath = key.split('\n')[1] ?? '';
-    await ctx.boss.send(
-      'cluster.dir',
-      { libraryId: info.libraryId, scanRootId: info.scanRootId, dirPath },
-      {
-        singletonKey: clusterSingletonKey(info.scanRootId, dirPath),
-        singletonSeconds: 30,
-        startAfter: 30,
-      },
-    );
+  // Debounced grouping of every touched directory (singleton per dir and queue).
+  for (const [queue, dirs] of dirsToGroup) {
+    for (const [key, info] of dirs) {
+      const dirPath = key.split('\n')[1] ?? '';
+      await sendGrouping(ctx, { ...info, dirPath, queue }, { singletonSeconds: 30, startAfter: 30 });
+    }
   }
 }
 

@@ -18,18 +18,20 @@ import { mergeFilePair, mergeFilePairs, type MergeDone, type MergeOutcome, type 
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import { queueArtAfterRepointFailure, refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import { cancelQueuedIdentify } from './cancelIdentify.js';
-import { clusteredByMusic } from './musicFiles.js';
+import { groupingQueue } from './appFiles.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
 
 export interface DirRef { scanRootId: string; dirPath: string }
+/** A folder to send to an app's grouping job (appFiles.ts groupingQueue). */
+export interface RegroupRef extends DirRef { queue: string }
 export interface MoveRecord { fromRootId: string; fromDir: string; toRootId: string; toDir: string; files: number }
 export interface ReconcileResult {
   merged: number; moves: MoveRecord[]; possibleMoves: number;
   mergedFreshIds: string[]; reparseIds: string[];
-  /** The old and new folders of the merged files the music app groups: cluster.dir for each. */
-  reclusterDirs: DirRef[];
+  /** The old and new folders of the merged files some app groups, each with its app's grouping queue. */
+  reclusterDirs: RegroupRef[];
   outcomes: MergeDone[];
   /** The moved folders' sidecar covers could not be re-pointed: the caller must not drop stale sidecars this run. */
   sidecarRepointFailed: boolean;
@@ -248,7 +250,7 @@ export async function runMerges(
   }
   const oldById = new Map(olds.map((o) => [o.id, o]));
   const moves = new Map<string, MoveRecord>();
-  const dirs = new Map<string, DirRef>();
+  const dirs = new Map<string, RegroupRef>();
   const results: Array<{ p: (typeof plan.pairs)[number]; res: MergeOutcome | { kind: 'failed'; reason: string } }> = [];
   for (const unit of await mergeUnits(ctx, plan.pairs, allowAbsorb)) {
     const reqs = unit.map((p) => {
@@ -275,10 +277,11 @@ export async function runMerges(
     const m = moves.get(k) ?? { fromRootId: res.from.scanRootId, fromDir, toRootId: res.to.scanRootId, toDir, files: 0 };
     m.files += 1;
     moves.set(k, m);
-    // Both rows of a pair have one handler (signatureMatches); only music's files are re-clustered.
-    if (clusteredByMusic(oldById.get(p.oldId)?.handler)) {
-      dirs.set(`${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir });
-      dirs.set(`${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir });
+    // Both rows of a pair have one handler (signatureMatches): its app's grouping job gets both folders.
+    const queue = groupingQueue(oldById.get(p.oldId)?.handler);
+    if (queue) {
+      dirs.set(`${queue}\n${res.from.scanRootId}\n${fromDir}`, { scanRootId: res.from.scanRootId, dirPath: fromDir, queue });
+      dirs.set(`${queue}\n${res.to.scanRootId}\n${toDir}`, { scanRootId: res.to.scanRootId, dirPath: toDir, queue });
     }
   }
   out.moves = [...moves.values()].sort((a, b) => b.files - a.files);

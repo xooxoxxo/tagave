@@ -9,11 +9,11 @@
 import { escapeLike, relDirname, sqlDirname } from './helpers.js';
 import type { WorkerContext } from './context.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
-import { reconcileTier1, withLibraryLock, type DirRef, type MoveRecord } from './reconcile.js';
-import { placeHolds, sendReleasedCluster } from './clusterHold.js';
-import { clusteredByMusic } from './musicFiles.js';
+import { reconcileTier1, withLibraryLock, type MoveRecord, type RegroupRef } from './reconcile.js';
+import { placeHolds, sendReleasedGrouping } from './clusterHold.js';
+import { groupingQueue } from './appFiles.js';
 
-export type { MoveRecord, DirRef } from './reconcile.js';
+export type { MoveRecord, DirRef, RegroupRef } from './reconcile.js';
 
 export interface FinishOptions {
   /** skip the partly-unmounted hold (release B's Missing list › Confirm missing) */
@@ -25,10 +25,13 @@ export interface FinishOptions {
   reclusterSoon?: boolean;
 }
 export interface FinishResult {
-  /** dirsWithMissing: folders that lost a file the music app groups (the caller re-clusters them) */
-  missing: number; dirsWithMissing: string[];
+  /**
+   * dirsWithMissing: folders that lost a file some app groups; missingGroups: each of them with that
+   * app's grouping queue (the caller sends those: cluster.dir for music, books.group for books)
+   */
+  missing: number; dirsWithMissing: string[]; missingGroups: Array<{ queue: string; dirPath: string }>;
   failedDirs: string[]; heldMissing: { count: number; threshold: number } | null; reconcileSkipped: string | null; // guards
-  merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: DirRef[];                              // Tier 1
+  merged: number; moves: MoveRecord[]; possibleMoves: number; reclusterDirs: RegroupRef[];                          // Tier 1
   held: number;                                                                                                       // cluster holds
   /** rows marked missing because an earlier held scan, 24 h or more before, already found them gone */
   confirmedAfterHold: number;
@@ -223,22 +226,34 @@ async function forgetDirMtimes(ctx: Pick<WorkerContext, 'sql'>, root: WalkRoot, 
 }
 
 /**
- * cluster.dir for the old and new folders of every merge of a file the music
- * app groups (runMerges lists only those), the old one possibly on another
- * root, sent as soon as the merges are in, not by the caller after
- * the scan, so a crash in between cannot leave a moved album on its old folder
- * and the new folder unclustered. No singletonSeconds (see sendReleasedCluster):
- * a cluster.dir for the same folder that completed in the current 30 s slot
- * would swallow the send.
+ * The grouping job (cluster.dir for music) for the old and new folders of
+ * every merge of a file some app groups (runMerges lists only those), the
+ * old one possibly on another root, sent as soon as the merges are in, not
+ * by the caller after the scan, so a crash in between cannot leave a moved
+ * album on its old folder and the new folder unclustered. No
+ * singletonSeconds (see sendReleasedGrouping): a cluster.dir for the same
+ * folder that completed in the current 30 s slot would swallow the send.
  */
-async function sendMergeReclusters(ctx: WorkerContext, libraryId: string, dirs: DirRef[], startAfter: number): Promise<void> {
+async function sendMergeReclusters(ctx: WorkerContext, libraryId: string, dirs: RegroupRef[], startAfter: number): Promise<void> {
   const seen = new Set<string>();
   for (const d of dirs) {
-    const k = `${d.scanRootId}\n${d.dirPath}`;
+    const k = `${d.queue}\n${d.scanRootId}\n${d.dirPath}`;
     if (seen.has(k)) continue;
     seen.add(k);
-    await sendReleasedCluster(ctx, { libraryId, ...d }, startAfter);
+    await sendReleasedGrouping(ctx, { libraryId, ...d }, startAfter);
   }
+}
+
+/** The folders that lost a file some app groups, with that app's grouping queue (appFiles.ts). */
+function missingFolders(marked: Array<{ relPath: string; handler: string }>): Pick<FinishResult, 'dirsWithMissing' | 'missingGroups'> {
+  const groups = new Map<string, { queue: string; dirPath: string }>();
+  for (const m of marked) {
+    const queue = groupingQueue(m.handler);
+    if (!queue) continue;
+    const dirPath = relDirname(m.relPath);
+    groups.set(`${queue}\n${dirPath}`, { queue, dirPath });
+  }
+  return { dirsWithMissing: [...new Set([...groups.values()].map((g) => g.dirPath))], missingGroups: [...groups.values()] };
 }
 
 /** The only reason Tier 1 is skipped: a root that looks unmounted marks and matches nothing. */
@@ -246,7 +261,7 @@ export const UNMOUNTED_SKIP = 'the root looks unmounted, so moved files are not 
 
 export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkTreeResult, opts: FinishOptions = {}): Promise<FinishResult> {
   const empty: FinishResult = {
-    missing: 0, dirsWithMissing: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
+    missing: 0, dirsWithMissing: [], missingGroups: [], failedDirs: [], heldMissing: null, reconcileSkipped: null,
     merged: 0, moves: [], possibleMoves: 0, reclusterDirs: [], held: 0, confirmedAfterHold: 0,
   };
   const failedDirs = walk.failedPaths;
@@ -317,7 +332,7 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
       ...empty, ...reconciled, failedDirs, heldMissing, confirmedAfterHold,
       held: heldIds.length,
       missing: marked.length,
-      dirsWithMissing: [...new Set(marked.filter((m) => clusteredByMusic(m.handler)).map((m) => relDirname(m.relPath)))],
+      ...missingFolders(marked),
     };
   });
 }

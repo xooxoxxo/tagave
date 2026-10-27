@@ -15,6 +15,7 @@ import { filesBackfillDigestJob, type FilesBackfillDigestJobData } from './jobs/
 import { clusterDirJob, type ClusterDirJobData } from './jobs/clusterDir.js';
 import { clusterRepairDiscsJob, type ClusterRepairDiscsJobData } from './jobs/clusterRepairDiscs.js';
 import { clusterBackfillLooseJob, type ClusterBackfillLooseJobData } from './jobs/clusterBackfillLoose.js';
+import { booksGroupJob, type BooksGroupJobData } from './jobs/booksGroup.js';
 import { identifyAlbumJob, type IdentifyAlbumJobData } from './jobs/identifyAlbum.js';
 import { identifySweepJob, type IdentifySweepJobData } from './jobs/identifySweep.js';
 import { enrichReleaseJob, type EnrichReleaseJobData } from './jobs/enrichRelease.js';
@@ -85,6 +86,8 @@ const QUEUE_POLICIES: Record<string, 'stately' | 'exclusive'> = {
   'files.backfillDigest': 'stately',
   // enqueued at every boot like files.backfillDigest: one queued behind a running one
   'cluster.backfillLoose': 'stately',
+  // the books app's grouping (the spike): one queued per folder behind the running one, as cluster.dir
+  'books.group': 'stately',
   'artists.resolve': 'stately',
   'artists.enrich': 'stately',
   'artists.refresh': 'stately',
@@ -254,6 +257,11 @@ async function main() {
       return results.length === 1 ? results[0] : results;
     });
     await boss.send('cluster.backfillLoose', {}, { singletonKey: 'cluster.backfillLoose' });
+    // the books app's grouping job (the spike, TAGAVE_DEV_APPS): it reads covers from the files, so it
+    // rides with cluster.dir on the file worker; it does nothing while the books app is off
+    await boss.work<BooksGroupJobData>('books.group', { batchSize: 1 }, async (jobs) => {
+      for (const job of jobs) await booksGroupJob(ctx, job.data);
+    });
   }
 
   // Run by hand after the disc-aware clustering ships: sweeps the library for

@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm';
-import { scanRoots, scans } from '@tagave/db';
+import { MUSIC_APP } from '@tagave/core/facets';
+import { libraryApp, scanRoots, scans } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 import { walkRoot, type WalkMode } from '../lib/walk.js';
 import { finishNotes } from '../lib/scanFinish.js';
 import { describeMoves } from '../lib/reconcile.js';
 import { reportProgress } from './progress.js';
 import { probeRoot } from './rootsValidate.js';
-import { clusterSingletonKey } from '../lib/helpers.js';
+import { sendGrouping, walkedHandlers } from '../lib/appFiles.js';
 
 export interface ScanRootJobData {
   scanRootId: string;
@@ -44,6 +45,13 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   if (!root) throw new Error(`scan root ${data.scanRootId} not found`);
   if (!root.enabled) {
     ctx.logger.info({ scanRootId: root.id }, 'scan root disabled, skipping');
+    return;
+  }
+  // The library's app is off (books turned off; music never is): its folders
+  // are not scanned at all, so nothing of it changes, not even a scans row.
+  const handlers = await walkedHandlers(ctx, root.libraryId);
+  if (handlers.size === 0) {
+    ctx.logger.info({ scanRootId: root.id, libraryId: root.libraryId }, 'the library\u2019s app is off, skipping');
     return;
   }
 
@@ -95,6 +103,7 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   try {
     walk = await walkRoot(ctx, root, {
       mode,
+      handlers,
       concurrency: WALK_CONCURRENCY,
       confirmMissing: data.confirmMissing === true,
       onProgress: async (filesSeen, dir) => {
@@ -116,18 +125,19 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
     return;
   }
 
-  // Hand changed files to the parser (which re-clusters their directories);
-  // directories that only lost files get re-clustered directly.
+  // Hand changed files to the parser (which sends their directories to their
+  // app's grouping job); directories that only lost files are sent directly.
   for (let i = 0; i < walk.changedIds.length; i += PARSE_BATCH) {
     await ctx.boss.send('scan.parse', { audioFileIds: walk.changedIds.slice(i, i + PARSE_BATCH) });
   }
-  await enqueueReclusters(ctx, root, walk.dirsWithMissing);
+  await enqueueGrouping(ctx, root, walk.missingGroups);
   // finishWalk already queued the old and new folders of every Tier 1 merge.
   // Files came or went: check the gaps again once parsing and clustering have
   // had time to settle, so a task like "find the 4 missing tracks" is crossed
   // out by the scan that saw the files arrive, not by the nightly run. One
-  // pending run per library (same key as a retry from the Jobs page).
-  if (walk.added + walk.changed + walk.missing > 0) {
+  // pending run per library (same key as a retry from the Jobs page). Gaps
+  // are music's: a books library sends none.
+  if (walk.added + walk.changed + walk.missing > 0 && (await libraryApp(ctx.sql, root.libraryId)) === MUSIC_APP.id) {
     await ctx.boss.send('gaps.recompute', { libraryId: root.libraryId }, {
       singletonKey: `gaps:${root.libraryId}`, startAfter: GAPS_AFTER_SCAN_S,
     });
@@ -161,18 +171,28 @@ export async function scanRootJob(ctx: WorkerContext, data: ScanRootJobData): Pr
   ctx.logger.info({ scanRootId: root.id, ...stats }, 'scan complete');
 }
 
-/** One debounced cluster.dir per directory, same key the parser uses. */
+/** One debounced send of each folder's grouping job (its app's queue), same key the parser uses. */
+export async function enqueueGrouping(
+  ctx: WorkerContext,
+  root: { id: string; libraryId: string },
+  groups: ReadonlyArray<{ queue: string; dirPath: string }>,
+  opts: { startAfter?: number } = {},
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const { queue, dirPath } of groups) {
+    const k = `${queue}\n${dirPath}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    await sendGrouping(ctx, { libraryId: root.libraryId, scanRootId: root.id, dirPath, queue }, { singletonSeconds: 30, startAfter: opts.startAfter ?? 30 });
+  }
+}
+
+/** One debounced cluster.dir per directory (music's folders), same key the parser uses. */
 export async function enqueueReclusters(
   ctx: WorkerContext,
   root: { id: string; libraryId: string },
   dirs: string[],
   opts: { startAfter?: number } = {},
 ): Promise<void> {
-  for (const dirPath of new Set(dirs)) {
-    await ctx.boss.send(
-      'cluster.dir',
-      { libraryId: root.libraryId, scanRootId: root.id, dirPath },
-      { singletonKey: clusterSingletonKey(root.id, dirPath), singletonSeconds: 30, startAfter: opts.startAfter ?? 30 },
-    );
-  }
+  await enqueueGrouping(ctx, root, dirs.map((dirPath) => ({ queue: MUSIC_APP.grouping!.queue, dirPath })), opts);
 }
