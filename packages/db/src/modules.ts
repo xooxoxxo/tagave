@@ -112,7 +112,7 @@ export async function setModuleSettings(sql: Q, id: string, patch: Record<string
   const set = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== null && v !== undefined));
   const rows = await sql<Array<{ settings: unknown }>>`
     update installed_modules
-       set settings = (settings || ${JSON.stringify(set)}::jsonb) - ${drop}::text[], updated_at = now()
+       set settings = (settings || ${JSON.stringify(set)}::text::jsonb) - ${drop}::text[], updated_at = now()
      where id = ${id}
     returning settings`;
   if (rows.length === 0) throw new Error(`no installed module ${id}`);
@@ -121,21 +121,25 @@ export async function setModuleSettings(sql: Q, id: string, patch: Record<string
 
 /**
  * Make the ledger match the manifests this build carries, at boot: a row for
- * every entry that has none (at its default switch), and each row's kind and
- * version brought up to date. Never changes a switch, never deletes a row (a
- * module a newer build dropped keeps its row and its data until purged).
- * Returns the ids it added.
+ * every entry that has none (at its default switch), and each row's kind,
+ * version and schema_version (the newest file of its own migration chain,
+ * from _migrations) brought up to date. Never changes a switch, never
+ * deletes a row (a module a newer build dropped keeps its row and its data
+ * until purged). Returns the ids it added.
  */
 export async function syncInstalledModules(sql: Q, entries: readonly ModuleLedgerEntry[]): Promise<string[]> {
   if (entries.length === 0) return [];
+  // Booleans travel as text: postgres.js binds a JS boolean[] as one boolean.
   const rows = await sql<Array<{ id: string; added: boolean }>>`
-    insert into installed_modules (id, kind, version, enabled, enabled_at)
-    select e.id, e.kind, e.version, e.on_, case when e.on_ then now() end
+    insert into installed_modules (id, kind, version, enabled, enabled_at, schema_version)
+    select e.id, e.kind, e.version, e.on_::boolean, case when e.on_::boolean then now() end,
+           (select max(m.name) from _migrations m where to_jsonb(m)->>'module' = e.id)
       from unnest(${entries.map((e) => e.id)}::text[], ${entries.map((e) => e.kind)}::text[],
-                  ${entries.map((e) => e.version)}::text[], ${entries.map((e) => e.defaultEnabled)}::boolean[])
+                  ${entries.map((e) => e.version)}::text[], ${entries.map((e) => String(e.defaultEnabled))}::text[])
            as e(id, kind, version, on_)
-    on conflict (id) do update set kind = excluded.kind, version = excluded.version, updated_at = now()
+    on conflict (id) do update set kind = excluded.kind, version = excluded.version, schema_version = excluded.schema_version, updated_at = now()
       where installed_modules.kind is distinct from excluded.kind or installed_modules.version is distinct from excluded.version
+         or installed_modules.schema_version is distinct from excluded.schema_version
     returning id, (xmax = 0) as added`;
   return rows.filter((r) => r.added).map((r) => r.id).sort();
 }
