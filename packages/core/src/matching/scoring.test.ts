@@ -338,3 +338,47 @@ describe('medium component gate and pairing (round 3)', () => {
     expect(out.map((a) => a.canonicalIndex)).toEqual([0, 1]);
   });
 });
+
+describe('barcode', () => {
+  // A perfect match on everything else: artist 3, album 3, tracks 2, trackTitle 3 → weight 11, score 0.
+  const local6 = { artist: 'Ensemble Nord', title: 'Lichtung', tracks: local(6) };
+  const cand = (over: Record<string, unknown> = {}) => ({
+    id: 'r-1', releaseGroupId: 'rg-1', title: 'Lichtung', artists: ['Ensemble Nord'],
+    tracks: canonical(6), source: 'musicbrainz' as const, ...over,
+  });
+
+  it('a mismatch adds 0.3 on the weight-5 albumId term, and the term counts', () => {
+    const r = scoreRelease({ ...local6, barcode: '0123456789012' }, cand({ barcode: '9999999999999' }));
+    expect(r.breakdown.albumId).toBe(0.3);
+    expect(r.distance).toBeCloseTo((0.3 * 5) / (11 + 5), 10);
+  });
+
+  it('a match is a green albumId chip that does not move the distance', () => {
+    const r = scoreRelease({ ...local6, barcode: '0123456789012' }, cand({ barcode: '0123456789012' }));
+    expect(r.breakdown.albumId).toBe(0);
+    expect(r.distance).toBe(0);
+  });
+
+  it('an embedded-id mismatch already at 1 stays 1 with a barcode mismatch', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'other', barcode: '1' }, cand({ barcode: '2' }));
+    expect(r.breakdown.albumId).toBe(1);
+    expect(r.distance).toBeCloseTo(5 / 16, 10);
+  });
+
+  it('an embedded-id match with a barcode mismatch costs the 0.3', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'r-1', barcode: '1' }, cand({ barcode: '2' }));
+    expect(r.breakdown.albumId).toBe(0.3);
+    expect(r.distance).toBeCloseTo(1.5 / 16, 10);
+  });
+
+  it('a barcode match no longer paints an embedded-id mismatch green', () => {
+    const r = scoreRelease({ ...local6, embeddedMbId: 'other', barcode: '1' }, cand({ barcode: '1' }));
+    expect(r.breakdown.albumId).toBe(1);
+    expect(r.distance).toBeCloseTo(5 / 16, 10);
+  });
+
+  it('one side without a barcode says nothing', () => {
+    expect(scoreRelease(local6, cand({ barcode: '2' })).breakdown.albumId).toBeUndefined();
+    expect(scoreRelease({ ...local6, barcode: '1' }, cand()).breakdown.albumId).toBeUndefined();
+  });
+});

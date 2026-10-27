@@ -424,13 +424,24 @@ export function scoreRelease(
     totalWeight += weights.catalogNum;
   }
 
-  // 9. Barcode comparison
+  // 9. Barcode comparison. A mismatch adds 0.3 to the albumId term and the
+  // term counts in the distance; an embedded-id mismatch already at 1 stays
+  // 1. A match marks the term green only when nothing else filled it, so a
+  // stale embedded id is not painted green by a matching barcode.
   if (local.barcode && candidate.barcode) {
+    const before = breakdown.albumId;
     if (local.barcode === candidate.barcode) {
-      breakdown.albumId = 0;
+      if (before === undefined) breakdown.albumId = 0;
     } else {
-      // Barcode mismatch is moderately important
-      breakdown.albumId = (breakdown.albumId || 0) + 0.3;
+      const after = Math.min(1, (before ?? 0) + 0.3);
+      breakdown.albumId = after;
+      if (before !== undefined && before > 0) {
+        // the embedded-id mismatch already added this term's weight
+        totalScore += (after - before) * weights.albumId;
+      } else {
+        totalScore += after * weights.albumId;
+        totalWeight += weights.albumId;
+      }
     }
   }
 
