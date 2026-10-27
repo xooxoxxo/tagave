@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { makeDb } from '@tagave/db';
+import { albumKeyLock, makeDb } from '@tagave/db';
 import { mergeFilePair } from './fileMerge.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
@@ -208,6 +208,242 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair (db)', () => {
       const sameFresh = await file(rootA, 'L/16.flac');
       expect(await merge(sameOld, sameFresh, 'X/16.flac')).toMatchObject({ kind: 'merged', reparse: false });
       expect(await read(sameOld)).toEqual({ audio_hash: 'h1', fingerprint: 'fp', fingerprint_duration: 120, no_hash_at: false, no_fp_at: false });
+    });
+  });
+});
+
+describe.skipIf(!process.env.TEST_DATABASE_URL)('mergeFilePair absorb (db)', () => {
+  let sql: any;
+  const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
+  const ctx = () => ({ sql });
+  const rgIds: string[] = [];
+
+  /** old album (matched, with a track) on root A; fresh album (pending) on root B built from the copy */
+  const setup = async () => {
+    const oldAlbum = randomUUID(); const freshAlbum = randomUUID();
+    const oldId = randomUUID(); const freshId = randomUUID();
+    await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status) values
+              (${oldId}, ${libraryId}, ${rootA}, ${`X/${oldId}.flac`}, 10, 'missing'),
+              (${freshId}, ${libraryId}, ${rootB}, ${`X/${freshId}.flac`}, 10, 'present')`;
+    await sql`insert into local_albums (id, library_id, cluster_key, state) values
+              (${oldAlbum}, ${libraryId}, ${`o:${oldAlbum}`}, 'matched'), (${freshAlbum}, ${libraryId}, ${`f:${freshAlbum}`}, 'pending')`;
+    const [ot] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${oldAlbum}, ${oldId}) returning id`;
+    const [ft] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${freshAlbum}, ${freshId}) returning id`;
+    return { oldAlbum, freshAlbum, oldId, freshId, oldTrack: ot.id as string, freshTrack: ft.id as string };
+  };
+  const req = (s: Awaited<ReturnType<typeof setup>>) => ({ oldId: s.oldId, freshId: s.freshId, oldAt: { scanRootId: rootA, relPath: `X/${s.oldId}.flac` }, walkStart: null, allowAbsorb: true });
+  const releaseGroup = async () => {
+    const [rg] = await sql`insert into release_groups (mbid, title) values (${randomUUID()}, 'RG') returning id`;
+    rgIds.push(rg.id);
+    return rg.id as string;
+  };
+
+  beforeAll(async () => {
+    sql = (await makeDb(process.env.TEST_DATABASE_URL!)).client;
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`ab-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'AB', ${userId}, '{}')`;
+    await sql`insert into scan_roots (id, library_id, path, display_name) values (${rootA}, ${libraryId}, '/a', 'a'), (${rootB}, ${libraryId}, '/b', 'b')`;
+  });
+
+  afterAll(async () => {
+    await sql`delete from tag_plans where library_id = ${libraryId}`;
+    await sql`delete from local_albums where library_id = ${libraryId}`;
+    await sql`delete from scan_roots where library_id = ${libraryId}`;
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from users where id = ${userId}`;
+    await sql`delete from releases where release_group_id = any(${rgIds}::uuid[])`;
+    await sql`delete from release_groups where id = any(${rgIds}::uuid[])`;
+    await sql.end({ timeout: 5 });
+  });
+
+  it('untouched fresh album: absorbed into the old row, the fresh album and its tracks go, plays move to the old track', async () => {
+    const s = await setup();
+    await sql`insert into player_plays (user_id, library_id, dedupe_key, source, local_track_id, local_album_id, title, started_at, heard, scrobbles)
+              values (${userId}, ${libraryId}, ${`p-${s.freshId}`}, 'web', ${s.freshTrack}, ${s.freshAlbum}, 'T', now(), true, false)`;
+    const out = await mergeFilePair(ctx(), req(s));
+    expect(out).toMatchObject({ kind: 'absorbed', oldId: s.oldId, removedAlbumIds: [s.freshAlbum] });
+    expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(0);
+    expect((await sql`select rel_path, scan_root_id, status from audio_files where id = ${s.oldId}`)[0]).toMatchObject({ scan_root_id: rootB, status: 'present' });
+    expect((await sql`select local_track_id, local_album_id from player_plays where dedupe_key = ${`p-${s.freshId}`}`)[0])
+      .toEqual({ local_track_id: s.oldTrack, local_album_id: s.oldAlbum });
+  });
+
+  it.each([
+    ['an owner lock on the fresh album', async (s: any) => sql`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${libraryId}, 'album', ${s.freshAlbum}, 'title', ${userId})`],
+    ['a confirmed match', async (s: any) => {
+      const rg = await releaseGroup();
+      const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel.id}, 0.1, 'confirmed', 'user')`;
+    }],
+    ['a cluster override', async (s: any) => sql`insert into cluster_overrides (library_id, audio_file_id, local_album_id, created_by) values (${libraryId}, ${s.freshId}, ${s.freshAlbum}, ${userId})`],
+    ['a favourite by local track id', async (s: any) => {
+      const rg = await releaseGroup();
+      await sql`insert into user_reviews (library_id, user_id, release_group_id, favorite_track_ids) values (${libraryId}, ${userId}, ${rg}, ${[s.freshTrack]}::uuid[])`;
+    }],
+    ['album state as_is', async (s: any) => sql`update local_albums set state = 'as_is' where id = ${s.freshAlbum}`],
+    // Ruling 12 and owner-set flags beyond the spec list
+    ['album state ignored', async (s: any) => sql`update local_albums set state = 'ignored' where id = ${s.freshAlbum}`],
+    ['an owner merge (merged_from)', async (s: any) => sql`update local_albums set merged_from = '{"albums":[]}'::jsonb where id = ${s.freshAlbum}`],
+    ['the owner preferring it among duplicates', async (s: any) => sql`update local_albums set preferred = true where id = ${s.freshAlbum}`],
+    ['an owner cover', async (s: any) => sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, license_note)
+                                              values (${libraryId}, 'local_album', ${s.freshAlbum}, ${s.freshAlbum}, 'front', 'owner', 'owner')`],
+    ['a track-scope lock on the fresh file', async (s: any) => sql`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${libraryId}, 'track', ${s.freshId}, 'title', ${userId})`],
+    ['a tag plan item', async (s: any) => {
+      const [plan] = await sql`insert into tag_plans (library_id, name, scope, policy, status, created_by) values (${libraryId}, 'p', '{}', '{}', 'draft', ${userId}) returning id`;
+      await sql`insert into tag_plan_items (tag_plan_id, audio_file_id, before, after, diff, status) values (${plan.id}, ${s.freshId}, '{}', '{}', '[]', 'pending')`;
+    }],
+    ['a rejected match (an owner decision, not a confirmation)', async (s: any) => {
+      const rg = await releaseGroup();
+      const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel.id}, 0.1, 'rejected', 'user')`;
+    }],
+  ])('falls back (nothing changes) when the fresh side has %s', async (_label, touch) => {
+    const s = await setup();
+    await touch(s);
+    const out = await mergeFilePair(ctx(), req(s));
+    expect(out).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
+    expect(await sql`select 1 from audio_files where id = ${s.freshId}`).toHaveLength(1);
+    expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1);
+  });
+
+  describe('destination clustered first, acceptance (spec §1)', () => {
+    const count = async (q: string) => (await sql.unsafe(q, [libraryId]))[0].n as number;
+
+    it('old id wins: match, locks and cover stay; listens, plays, events and the collection link move; no album is added', async () => {
+      const s = await setup();
+      // The old album's own history: a confirmed match, an owner lock, a sidecar cover.
+      const rg = await releaseGroup();
+      const [rel] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R') returning id`;
+      const [match] = await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by)
+                                values (${libraryId}, ${s.oldAlbum}, ${rel.id}, 0.05, 'confirmed', 'user') returning id`;
+      const [lock] = await sql`insert into field_locks (library_id, scope, scope_id, field, value, created_by)
+                               values (${libraryId}, 'album', ${s.oldAlbum}, 'year', '1999'::jsonb, ${userId}) returning id`;
+      const [oldSide] = await sql`insert into sidecar_files (library_id, scan_root_id, rel_path, kind) values (${libraryId}, ${rootA}, 'X/folder.jpg', 'image') returning id`;
+      const [newSide] = await sql`insert into sidecar_files (library_id, scan_root_id, rel_path, kind) values (${libraryId}, ${rootB}, 'X/folder.jpg', 'image') returning id`;
+      const [oldCover] = await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
+                                   values (${libraryId}, 'local_album', ${s.oldAlbum}, ${s.oldAlbum}, 'front', 'sidecar', ${oldSide.id}, 'x') returning id`;
+      // The fresh album: an automatic match and a cover from the same sidecar the old one moved next to (Task 13).
+      const [rel2] = await sql`insert into releases (release_group_id, mbid, title) values (${rg}, ${randomUUID()}, 'R2') returning id`;
+      await sql`insert into album_matches (library_id, local_album_id, release_id, distance, status, decided_by) values (${libraryId}, ${s.freshAlbum}, ${rel2.id}, 0.2, 'auto', 'system')`;
+      await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, sidecar_file_id, license_note)
+                values (${libraryId}, 'local_album', ${s.freshAlbum}, ${s.freshAlbum}, 'front', 'sidecar', ${newSide.id}, 'x')`;
+      // Listening history and a collection link on the fresh side.
+      const [listen] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                                 values (${userId}, ${libraryId}, ${s.freshAlbum}, now() - interval '1 hour', now(), 1, 1) returning id`;
+      const [play] = await sql`insert into player_plays (user_id, library_id, dedupe_key, source, local_track_id, local_album_id, title, started_at, heard, scrobbles, player_listen_id)
+                               values (${userId}, ${libraryId}, ${`pp-${s.freshId}`}, 'web', ${s.freshTrack}, ${s.freshAlbum}, 'T', now(), true, false, ${listen.id}) returning id`;
+      const [event] = await sql`insert into player_events (user_id, library_id, local_track_id, local_album_id, queue_id, kind, played_ms, position_ms, occurred_at)
+                                values (${userId}, ${libraryId}, ${s.freshTrack}, ${s.freshAlbum}, ${randomUUID()}, 'completed', 1000, 1000, now()) returning id`;
+      const [source] = await sql`insert into collection_sources (library_id, provider) values (${libraryId}, 'discogs') returning id`;
+      const [item] = await sql`insert into collection_items (library_id, collection_source_id, provider_item_id, local_album_id)
+                               values (${libraryId}, ${source.id}, ${`i-${s.freshId}`}, ${s.freshAlbum}) returning id`;
+      const albumsBefore = await count('select count(*)::int as n from local_albums where library_id = $1');
+
+      const out = await mergeFilePair(ctx(), req(s));
+
+      expect(out).toMatchObject({ kind: 'absorbed', oldId: s.oldId, removedAlbumIds: [s.freshAlbum] });
+      expect(await count('select count(*)::int as n from local_albums where library_id = $1')).toBe(albumsBefore - 1);
+      expect(await sql`select id from local_tracks where audio_file_id = ${s.oldId}`).toEqual([{ id: s.oldTrack }]);
+      expect(await sql`select id, status from album_matches where local_album_id = ${s.oldAlbum}`).toEqual([{ id: match.id, status: 'confirmed' }]);
+      expect(await sql`select id from field_locks where scope = 'album' and scope_id = ${s.oldAlbum}`).toEqual([{ id: lock.id }]);
+      // exactly one cover, the old album's own (the sidecar re-point after the merges moves it to the new folder)
+      expect(await sql`select id from images where local_album_id = ${s.oldAlbum}`).toEqual([{ id: oldCover.id }]);
+      expect(await sql`select count(*)::int as n from images where sidecar_file_id = ${newSide.id}`).toEqual([{ n: 0 }]);
+      expect(await sql`select local_album_id from player_listens where id = ${listen.id}`).toEqual([{ local_album_id: s.oldAlbum }]);
+      expect(await sql`select local_track_id, local_album_id, player_listen_id from player_plays where id = ${play.id}`)
+        .toEqual([{ local_track_id: s.oldTrack, local_album_id: s.oldAlbum, player_listen_id: listen.id }]);
+      expect(await sql`select local_track_id, local_album_id from player_events where id = ${event.id}`).toEqual([{ local_track_id: s.oldTrack, local_album_id: s.oldAlbum }]);
+      expect(await sql`select local_album_id from collection_items where id = ${item.id}`).toEqual([{ local_album_id: s.oldAlbum }]);
+    });
+
+    it('an old album without a cover takes the fresh album\'s embedded cover, now on the old file', async () => {
+      const s = await setup();
+      const [cover] = await sql`insert into images (library_id, entity_type, entity_id, local_album_id, kind, origin, audio_file_id, license_note)
+                                values (${libraryId}, 'local_album', ${s.freshAlbum}, ${s.freshAlbum}, 'front', 'embedded', ${s.freshId}, 'x') returning id`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await sql`select id, entity_id, audio_file_id from images where local_album_id = ${s.oldAlbum}`)
+        .toEqual([{ id: cover.id, entity_id: s.oldAlbum, audio_file_id: s.oldId }]);
+    });
+
+    it('a collection link moves even when the old album already has one', async () => {
+      const s = await setup();
+      const [source] = await sql`insert into collection_sources (library_id, provider) values (${libraryId}, 'discogs') returning id`;
+      await sql`insert into collection_items (library_id, collection_source_id, provider_item_id, local_album_id) values (${libraryId}, ${source.id}, 'a', ${s.oldAlbum})`;
+      await sql`insert into collection_items (library_id, collection_source_id, provider_item_id, local_album_id) values (${libraryId}, ${source.id}, 'b', ${s.freshAlbum})`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed' });
+      expect(await sql`select provider_item_id, local_album_id from collection_items where collection_source_id = ${source.id} order by 1`)
+        .toEqual([{ provider_item_id: 'a', local_album_id: s.oldAlbum }, { provider_item_id: 'b', local_album_id: s.oldAlbum }]);
+    });
+
+    it('a fresh album with files still to come stays until its last file is absorbed', async () => {
+      const s = await setup();
+      const old2 = randomUUID(); const fresh2 = randomUUID();
+      await sql`insert into audio_files (id, library_id, scan_root_id, rel_path, size_bytes, status) values
+                (${old2}, ${libraryId}, ${rootA}, ${`X/${old2}.flac`}, 10, 'missing'), (${fresh2}, ${libraryId}, ${rootB}, ${`X/${fresh2}.flac`}, 10, 'present')`;
+      await sql`insert into local_tracks (local_album_id, audio_file_id) values (${s.oldAlbum}, ${old2}), (${s.freshAlbum}, ${fresh2})`;
+      const [listen] = await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                                 values (${userId}, ${libraryId}, ${s.freshAlbum}, now() - interval '2 hours', now(), 2, 2) returning id`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [] });
+      expect(await sql`select local_album_id from player_listens where id = ${listen.id}`).toEqual([{ local_album_id: s.freshAlbum }]);
+      const second = await mergeFilePair(ctx(), { oldId: old2, freshId: fresh2, oldAt: { scanRootId: rootA, relPath: `X/${old2}.flac` }, walkStart: null, allowAbsorb: true });
+      expect(second).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
+      expect(await sql`select local_album_id from player_listens where id = ${listen.id}`).toEqual([{ local_album_id: s.oldAlbum }]);
+      expect(await sql`select count(*)::int as n from local_tracks where local_album_id = ${s.oldAlbum}`).toEqual([{ n: 2 }]);
+    });
+
+    it('falls back when the old row has no album: the fresh album and its listens would go (F6)', async () => {
+      const s = await setup();
+      await sql`delete from local_tracks where id = ${s.oldTrack}`;
+      await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                values (${userId}, ${libraryId}, ${s.freshAlbum}, now() - interval '1 hour', now(), 1, 1)`;
+      expect(await mergeFilePair(ctx(), req(s))).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
+      expect(await sql`select count(*)::int as n from player_listens where local_album_id = ${s.freshAlbum}`).toEqual([{ n: 1 }]);
+      expect((await sql`select status from audio_files where id = ${s.oldId}`)[0].status).toBe('missing');
+    });
+
+    it('falls back when a fresh listen would collide with the same listen on the old album', async () => {
+      const s = await setup();
+      const at = new Date(Date.now() - 3_600_000).toISOString();
+      for (const album of [s.oldAlbum, s.freshAlbum]) {
+        await sql`insert into player_listens (user_id, library_id, local_album_id, started_at, ended_at, tracks_heard, tracks_total)
+                  values (${userId}, ${libraryId}, ${album}, ${at}::timestamptz, now(), 1, 1)`;
+      }
+      expect(await mergeFilePair(ctx(), req(s))).toEqual({ kind: 'skipped', reason: 'fresh_touched' });
+      expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1);
+    });
+
+    it('a loose fresh track (no album) is absorbed: its plays move to the old track, no album goes', async () => {
+      const s = await setup();
+      await sql`update local_tracks set local_album_id = null where id = ${s.freshTrack}`;
+      await sql`insert into player_plays (user_id, library_id, dedupe_key, source, local_track_id, title, started_at, heard, scrobbles)
+                values (${userId}, ${libraryId}, ${`pl-${s.freshId}`}, 'web', ${s.freshTrack}, 'T', now(), true, false)`;
+      expect(await mergeFilePair(ctx(), req(s))).toMatchObject({ kind: 'absorbed', removedAlbumIds: [] });
+      expect(await sql`select local_track_id from player_plays where dedupe_key = ${`pl-${s.freshId}`}`).toEqual([{ local_track_id: s.oldTrack }]);
+      expect(await sql`select 1 from local_albums where id = ${s.freshAlbum}`).toHaveLength(1); // it never held this file's track
+    });
+
+    it('allowAbsorb false still leaves a clustered fresh row alone', async () => {
+      const s = await setup();
+      expect(await mergeFilePair(ctx(), { ...req(s), allowAbsorb: false })).toEqual({ kind: 'skipped', reason: 'fresh_has_data' });
+    });
+
+    it('waits for the fresh album\'s key lock (a cluster.dir filling it) before absorbing', async () => {
+      const s = await setup();
+      let locked!: () => void; const didLock = new Promise<void>((r) => { locked = r; });
+      let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+      const cluster = sql.begin(async (tx: any) => {
+        await tx`select pg_advisory_xact_lock(hashtextextended(${albumKeyLock(libraryId, `f:${s.freshAlbum}`)}, 0))`;
+        locked();
+        await gate;
+      });
+      await didLock;
+      let settled = false;
+      const merge = mergeFilePair(ctx(), req(s)).finally(() => { settled = true; });
+      await new Promise((r) => setTimeout(r, 300));
+      expect(settled).toBe(false);
+      release();
+      await cluster;
+      expect(await merge).toMatchObject({ kind: 'absorbed', removedAlbumIds: [s.freshAlbum] });
     });
   });
 });

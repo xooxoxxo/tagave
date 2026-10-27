@@ -17,6 +17,8 @@ vi.mock('./moveEffects.js', () => ({
   repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])),
   refreshPlayerAfterMoves: (...args: unknown[]) => refreshPlayerAfterMoves(...(args as [])),
 }));
+const cancelQueuedIdentify = vi.fn(async () => 0);
+vi.mock('./cancelIdentify.js', () => ({ cancelQueuedIdentify: (...args: unknown[]) => cancelQueuedIdentify(...(args as [])) }));
 const { runMerges, sqlDirname, earliestLastSeen, withLibraryLock, rowsInDirs } = await import('./reconcile.js');
 
 const t0 = new Date('2026-01-01T00:00:00Z');
@@ -41,6 +43,7 @@ describe('runMerges', () => {
     mergeFilePair.mockReset(); warn.mockReset();
     repointSidecarImages.mockReset(); repointSidecarImages.mockImplementation(async () => 0);
     refreshPlayerAfterMoves.mockReset(); refreshPlayerAfterMoves.mockImplementation(async () => false);
+    cancelQueuedIdentify.mockReset(); cancelQueuedIdentify.mockImplementation(async () => 0);
   });
 
   it('retries a deadlock once, skips what keeps failing, merges the rest', async () => {
@@ -88,6 +91,27 @@ describe('runMerges', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0].error).toContain('sidecar update failed');
     expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels the queued identify jobs of absorbed albums; a failure there only warns', async () => {
+    mergeFilePair.mockImplementation(async (_ctx: unknown, req: { oldId: string }) => done(req.oldId));
+    await runMerges(ctx, 1, olds, freshs, t1, true);
+    expect(cancelQueuedIdentify).not.toHaveBeenCalled();                    // nothing removed, nothing to cancel
+
+    mergeFilePair.mockImplementation(async (_ctx: unknown, req: { oldId: string }) => ({
+      ...done(req.oldId), kind: 'absorbed', removedAlbumIds: req.oldId === 'old-a' ? ['al-1', 'al-2'] : req.oldId === 'old-c' ? ['al-3'] : [],
+    }));
+    const r = await runMerges(ctx, 1, olds, freshs, t1, true);
+    expect(mergeFilePair.mock.calls.every((c) => (c[1] as { allowAbsorb: boolean }).allowAbsorb)).toBe(true);
+    expect(cancelQueuedIdentify).toHaveBeenCalledTimes(1);
+    expect((cancelQueuedIdentify.mock.calls[0] as unknown[])[1]).toEqual(['al-1', 'al-2', 'al-3']);
+    expect(r.merged).toBe(4);
+
+    cancelQueuedIdentify.mockImplementation(async () => { throw new Error('boss down'); });
+    const r2 = await runMerges(ctx, 1, olds, freshs, t1, true);
+    expect(r2).toEqual(r);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0].err).toBe('boss down');
   });
 });
 

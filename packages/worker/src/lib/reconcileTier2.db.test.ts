@@ -15,7 +15,7 @@ import { walkRoot } from './walk.js';
 import { writeFlac } from '../testkit/flac.js';
 import { scanParseJob } from '../jobs/scanParse.js';
 import { placeHolds, releaseReadyHolds, releaseExpiredHolds, releaseParsedHolds } from './clusterHold.js';
-import { RECONCILE_LOCK_PREFIX } from './reconcile.js';
+import { RECONCILE_LOCK_PREFIX, reconcileTier2 } from './reconcile.js';
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 (db)', () => {
   let ctx: WorkerContext; let sql: any; let rootPath: string;
@@ -122,6 +122,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Tier 2 on release (db)', () => 
     await sql`delete from libraries where id = ${libraryId}`;
     await sql`delete from users where id = ${userId}`;
     await sql.end({ timeout: 5 });
+  });
+
+  it('a copy clustered before Tier 2 ran (hold expired) is absorbed into the old album while untouched', async () => {
+    const { old, fresh } = await copied();
+    const oldAlbum = randomUUID(); const freshAlbum = randomUUID();
+    await sql`insert into local_albums (id, library_id, cluster_key, state) values
+              (${oldAlbum}, ${libraryId}, ${`o:${oldAlbum}`}, 'matched'), (${freshAlbum}, ${libraryId}, ${`f:${freshAlbum}`}, 'pending')`;
+    const [ot] = await sql`insert into local_tracks (local_album_id, audio_file_id) values (${oldAlbum}, ${old}) returning id`;
+    await sql`insert into local_tracks (local_album_id, audio_file_id) values (${freshAlbum}, ${fresh})`;
+    const r = await reconcileTier2(ctx, libraryId, [fresh]);
+    expect(r).toMatchObject({ merged: 1, possibleMoves: 0, lockBusy: false });
+    expect(r.outcomes).toMatchObject([{ kind: 'absorbed', oldId: old, removedAlbumIds: [freshAlbum] }]);
+    expect(await exists(fresh)).toBe(false);
+    expect(await sql`select id, local_album_id from local_tracks where audio_file_id = ${old}`).toEqual([{ id: ot.id, local_album_id: oldAlbum }]);
+    expect(await sql`select 1 from local_albums where id = ${freshAlbum}`).toHaveLength(0);
   });
 
   it('pairs on release and returns the old folder for clustering', async () => {

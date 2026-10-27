@@ -17,6 +17,7 @@ import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
 import { refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
+import { cancelQueuedIdentify } from './cancelIdentify.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
 export const RECONCILE_LOCK_PREFIX = 'files.reconcile:';
@@ -250,6 +251,12 @@ export async function runMerges(
   } catch (error) {
     ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not refresh the player after moves');
   }
+  // Albums absorbed into the old ones (destination clustered first): their queued
+  // identify jobs would only find them gone. Best effort, like cluster.dir's sweep.
+  const removed = out.outcomes.flatMap((o) => o.removedAlbumIds);
+  if (removed.length > 0) {
+    try { await cancelQueuedIdentify(ctx, removed); } catch (err) { ctx.logger.warn({ err: (err as Error).message }, 'files.reconcile: could not cancel identify jobs'); }
+  }
   return out;
 }
 
@@ -301,7 +308,7 @@ export async function reconcileTier1(ctx: WorkerContext, root: WalkRoot, walk: W
     // counts for the edition guard (as an extra or a resident, by first_seen_at).
     // Tier 1 pairs only on equal size, so a null size bars it from every pairing.
     .map((f) => f.scanRootId === root.id && isUnderFailedPath(f.relPath, failed) ? { ...f, sizeBytes: null, inode: null } : f);
-  return runMerges(ctx, 1, olds, freshs, walk.walkStart, false);
+  return runMerges(ctx, 1, olds, freshs, walk.walkStart, true);
 }
 
 /** Tier 2's result; `lockBusy` means it did not run because another session held the library lock. */
@@ -334,7 +341,7 @@ export async function reconcileTier2(ctx: WorkerContext, libraryId: string, fres
     olds = uniqById([...olds, ...await rowsInDirs(ctx, libraryId, dirsOf(olds), sql`af.status = 'missing'`)]);
     const freshs = uniqById([...parsed, ...await rowsInDirs(ctx, libraryId, dirsOf(parsed),
       sql`af.status in ('present', 'error') and af.first_seen_at >= ${earliest}::timestamptz`)]);
-    return runMerges(ctx, 2, olds, freshs, null, false);
+    return runMerges(ctx, 2, olds, freshs, null, true);
   });
   return out.locked ? { ...out.value, lockBusy: false } : { ...emptyReconcile(), lockBusy: true };
 }

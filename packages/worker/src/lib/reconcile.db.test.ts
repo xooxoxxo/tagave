@@ -30,6 +30,90 @@ describe('describeMoves', () => {
   });
 });
 
+/**
+ * Spec §1, destination scanned and clustered first: the copy on root B has an
+ * album before root A's walk notices the source gone. Untouched, it is merged
+ * into the old rows (old ids win); with owner data on it, it is left alone and
+ * counted as a possible move.
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1, destination clustered first (db)', () => {
+  let ctx: WorkerContext; let sql: any; let base: string;
+  const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
+  const A = () => ({ id: rootA, libraryId, path: path.join(base, 'a') });
+  const B = () => ({ id: rootB, libraryId, path: path.join(base, 'b') });
+  const rowsIn = async (root: string, dir: string) =>
+    (await sql`select id from audio_files where scan_root_id = ${root} and rel_path like ${`${dir}/%`} order by rel_path`).map((r: any) => r.id as string);
+  /** cluster.dir's result, by hand: one album over the given rows */
+  const album = async (fileIds: string[], state = 'pending') => {
+    const id = randomUUID();
+    await sql`insert into local_albums (id, library_id, cluster_key, state) values (${id}, ${libraryId}, ${`k:${id}`}, ${state})`;
+    for (const f of fileIds) await sql`insert into local_tracks (local_album_id, audio_file_id) values (${id}, ${f})`;
+    return id;
+  };
+  const albumCount = async () => (await sql`select count(*)::int as n from local_albums where library_id = ${libraryId}`)[0].n as number;
+  /** Album `name` (3 files) on root A, scanned and clustered; one more file keeps root A from looking unmounted. */
+  const seed = async (name: string) => {
+    await mkdir(path.join(base, 'a', name), { recursive: true });
+    for (const n of ['1', '2', '3']) await writeFile(path.join(base, 'a', name, `${n}.flac`), `${name}-${n}`.repeat(Number(n) + 1));
+    await walkRoot(ctx, A(), { mode: 'full' });
+    const oldIds = await rowsIn(rootA, name);
+    return { oldIds, oldAlbum: await album(oldIds, 'matched') };
+  };
+  /** Moves `name` to root B, scans B and clusters the copy there (the source is not rescanned yet). */
+  const moveAndClusterB = async (name: string) => {
+    await rename(path.join(base, 'a', name), path.join(base, 'b', name));
+    await walkRoot(ctx, B(), { mode: 'full' });
+    return album(await rowsIn(rootB, name));
+  };
+
+  beforeAll(async () => {
+    const made = await makeDb(process.env.TEST_DATABASE_URL!);
+    sql = made.client;
+    ctx = { db: made.db, sql: made.client, boss: { send: async () => randomUUID() } as any, logger: pino({ level: 'silent' }) };
+    await sql`insert into users (id, email, password_hash) values (${userId}, ${`rcd-${userId}@test.com`}, 'x')`;
+    await sql`insert into libraries (id, name, owner_user_id, settings) values (${libraryId}, 'RCD', ${userId}, '{}')`;
+    base = await mkdtemp(path.join(tmpdir(), 'tagave-rcd-'));
+    await mkdir(path.join(base, 'a', 'Keep'), { recursive: true });
+    await mkdir(path.join(base, 'b'), { recursive: true });
+    for (const n of ['1', '2', '3', '4']) await writeFile(path.join(base, 'a', 'Keep', `${n}.flac`), `keep-${n}`.repeat(Number(n) + 7));
+    await sql`insert into scan_roots (id, library_id, path, display_name, validation_status) values
+              (${rootA}, ${libraryId}, ${path.join(base, 'a')}, 'a', 'ok'), (${rootB}, ${libraryId}, ${path.join(base, 'b')}, 'b', 'ok')`;
+  });
+
+  afterAll(async () => {
+    await sql`delete from local_albums where library_id = ${libraryId}`;
+    await sql`delete from scan_roots where library_id = ${libraryId}`;
+    await sql`delete from libraries where id = ${libraryId}`;
+    await sql`delete from users where id = ${userId}`;
+    await sql.end({ timeout: 5 });
+    await rm(base, { recursive: true, force: true });
+  });
+
+  it('untouched: the copy is absorbed, the old rows and album take its place, no album is added', async () => {
+    const { oldIds, oldAlbum } = await seed('One');
+    const freshAlbum = await moveAndClusterB('One');
+    const albums = await albumCount();
+    const r = await walkRoot(ctx, A(), { mode: 'full' });
+    expect(r).toMatchObject({ merged: 3, missing: 0, possibleMoves: 0 });
+    expect(await rowsIn(rootB, 'One')).toEqual(oldIds);
+    expect(await sql`select distinct local_album_id from local_tracks where audio_file_id = any(${oldIds}::uuid[])`).toEqual([{ local_album_id: oldAlbum }]);
+    expect(await sql`select 1 from local_albums where id = ${freshAlbum}`).toHaveLength(0);
+    expect(await albumCount()).toBe(albums - 1);
+  });
+
+  it('the owner locked the copy\'s album: nothing merges, the pairs are possible moves', async () => {
+    const { oldIds } = await seed('Two');
+    const freshAlbum = await moveAndClusterB('Two');
+    await sql`insert into field_locks (library_id, scope, scope_id, field, created_by) values (${libraryId}, 'album', ${freshAlbum}, 'year', ${userId})`;
+    const freshIds = await rowsIn(rootB, 'Two');
+    const r = await walkRoot(ctx, A(), { mode: 'full' });
+    expect(r).toMatchObject({ merged: 0, missing: 3, possibleMoves: 3 });
+    expect(await rowsIn(rootB, 'Two')).toEqual(freshIds);
+    expect(await sql`select count(*)::int as n from audio_files where id = any(${oldIds}::uuid[]) and status = 'missing'`).toEqual([{ n: 3 }]);
+    expect(await sql`select 1 from local_albums where id = ${freshAlbum}`).toHaveLength(1);
+  });
+});
+
 describe.skipIf(!process.env.TEST_DATABASE_URL)('reconcile Tier 1 (db)', () => {
   let ctx: WorkerContext; let sql: any; let base: string;
   const userId = randomUUID(); const libraryId = randomUUID(); const rootA = randomUUID(); const rootB = randomUUID();
