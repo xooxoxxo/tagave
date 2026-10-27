@@ -32,6 +32,8 @@ export interface RulesInputAlbum {
   year: number | null;
   /** local tracks of the album (what the matcher compared) */
   trackCount: number;
+  /** when identification last started on it, read with the candidates (ISO, or null) */
+  lastIdentifyAt: string | null;
   candidates: RulesInputCandidate[];
 }
 
@@ -52,7 +54,7 @@ export async function fetchRulesInputs(db: Db, libraryId: string, albumIds?: str
   if (albumIds && albumIds.length === 0) return [];
   const only = albumIds ? sql`and la.id in (${sql.join(albumIds.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
   const albums = await db.execute(sql`
-    select la.id, la.title_guess, la.artist_guess, la.year_guess,
+    select la.id, la.title_guess, la.artist_guess, la.year_guess, la.last_identify_at,
            (select count(*)::int from local_tracks lt where lt.local_album_id = la.id) as track_count
       from local_albums la
      where la.library_id = ${libraryId} and la.state = 'needs_review' ${only}`) as Array<Record<string, unknown>>;
@@ -95,6 +97,7 @@ export async function fetchRulesInputs(db: Db, libraryId: string, albumIds?: str
     artist: (a['artist_guess'] as string | null) ?? null,
     year: a['year_guess'] == null ? null : Number(a['year_guess']),
     trackCount: Number(a['track_count'] ?? 0),
+    lastIdentifyAt: a['last_identify_at'] == null ? null : new Date(a['last_identify_at'] as string | Date).toISOString(),
     candidates: byAlbum.get(String(a['id'])) ?? [],
   }));
 }

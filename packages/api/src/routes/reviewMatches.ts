@@ -71,14 +71,14 @@ async function viewFor(libraryId: string): Promise<AutoAcceptView> {
       from album_matches am
       join local_albums la on la.id = am.local_album_id
      where am.library_id = ${libraryId} and am.decided_by = 'system'
-       and (am.decided_kind = 'rule' or am.reason like ${prefix})
+       and (am.decided_kind = 'rule' or (am.decided_kind is distinct from 'model' and am.reason like ${prefix}))
        and am.status in ('auto', 'confirmed')
      order by am.decided_at desc
      limit ${RECENT_LIMIT}`) as unknown as Array<Record<string, unknown>>;
   const [total] = await db.execute(sql`
     select count(*)::int as n from album_matches
      where library_id = ${libraryId} and decided_by = 'system'
-       and (decided_kind = 'rule' or reason like ${prefix})
+       and (decided_kind = 'rule' or (decided_kind is distinct from 'model' and reason like ${prefix}))
        and status in ('auto', 'confirmed')`) as unknown as [{ n: number }];
   return {
     rules: rulesFromStored(row),

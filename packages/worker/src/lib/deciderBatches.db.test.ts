@@ -141,6 +141,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider batches (db)', () => {
     await expect(setBatchState(client, id, 'bogus' as never)).rejects.toThrow(/check/);
   });
 
+  it('a starter who is no longer a user leaves the batch without one, and the batch is made', async () => {
+    const id = await createBatch(client, { ...base, startedByUserId: randomUUID(), items: [item(randomUUID())] });
+    expect((await getBatch(client, id))?.startedByUserId).toBeNull();
+  });
+
   it('getBatch returns null for an unknown batch', async () => {
     expect(await getBatch(client, randomUUID())).toBeNull();
   });

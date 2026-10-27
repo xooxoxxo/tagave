@@ -11,12 +11,14 @@ import { and, eq, inArray } from 'drizzle-orm';
 import pino from 'pino';
 import type { CanonicalRelease } from '@tagave/core';
 import {
-  albumMatches, files, autoAcceptRules, libraries, localAlbums, localTracks, matchCandidates,
+  createBatch, albumMatches, files, autoAcceptRules, libraries, localAlbums, localTracks, matchCandidates,
   releases, scanRoots, users, makeDb,
 } from '@tagave/db';
 import type { WorkerContext } from '../lib/context.js';
 
 const catalogue = new Map<string, CanonicalRelease>();
+/** runs inside an identification, after it started and before it replaces the candidates */
+let duringFetch: (() => Promise<void>) | null = null;
 const notFound = Object.assign(new Error('not found'), { status: 404 });
 const fakeProviders = {
   mb: {
@@ -24,6 +26,7 @@ const fakeProviders = {
     getRelease: async (id: string) => {
       const r = catalogue.get(id);
       if (!r) throw notFound;
+      if (duringFetch) { const f = duringFetch; duringFetch = null; await f(); }
       return r;
     },
   },
@@ -54,6 +57,7 @@ vi.mock('../lib/providerCache.js', async (importOriginal) => ({
 const { identifyAlbumJob } = await import('./identifyAlbum.js');
 const { addEditionJob } = await import('./addEdition.js');
 const { queueAutoAcceptJob } = await import('./queueAutoAccept.js');
+const { runAcceptBatch } = await import('./deciderAccept.js');
 
 const TITLES = ['Kiertää', 'Kuuhun', 'Tyhjä', 'Valo'];
 
@@ -110,6 +114,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
 
   beforeEach(async () => {
     catalogue.clear();
+    duringFetch = null;
+    await client`delete from decider_batches where library_id = ${libraryId}`;
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await db.delete(autoAcceptRules).where(eq(autoAcceptRules.libraryId, libraryId));
   });
@@ -181,6 +187,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('review matches through the work
     await queueAutoAcceptJob(ctx, { libraryId, mode: 'rules' });
     const taken = await db.select().from(albumMatches).where(eq(albumMatches.localAlbumId, id));
     expect(taken.filter((m: { releaseId: string }) => m.releaseId === rel.id)).toEqual([]);
+  });
+
+  it('a rules decision pinned while a re-identify was still searching is skipped as identified again', async () => {
+    heldForReview();
+    const id = await album();
+    await identifyAlbumJob(ctx, { localAlbumId: id });
+    expect((await stateOf(id)).state).toBe('needs_review');
+    const [cand] = await client`select release_id, distance from match_candidates where local_album_id = ${id}`;
+    let batchId: string | null = null;
+    // the rules read the album mid-run: the identify time is already the new
+    // run's, the candidates still the old ones
+    duringFetch = async () => {
+      const [a] = await client`select last_identify_at from local_albums where id = ${id}`;
+      batchId = await createBatch(client, {
+        libraryId, deciderId: 'rules', deciderVersion: 'rules@00000000', decidedKind: 'rule', startedByUserId: null,
+        items: [{ albumId: id, releaseId: cand.release_id, distance: Number(cand.distance), source: 'mb_search', probability: null,
+                  evidenceHash: null, expectLastIdentifyAt: new Date(a.last_identify_at).toISOString(), reason: 'auto-accept rules: test' }],
+      });
+    };
+    await identifyAlbumJob(ctx, { localAlbumId: id, force: true });
+    expect(batchId).not.toBeNull();
+    expect((await stateOf(id)).state).toBe('needs_review');
+    const run = await runAcceptBatch(ctx, batchId!);
+    expect(run).toMatchObject({ accepted: 0, skipped: { reidentified: 1 } });
+    expect((await stateOf(id)).state).toBe('needs_review');
   });
 
   it('edition.add scores a pasted release like a searched one and only adds it', async () => {

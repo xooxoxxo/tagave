@@ -22,7 +22,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
   let ctx: WorkerContext;
   let db: any;
   let client: any;
-  const send = vi.fn(async () => 'job-id');
+  const send = vi.fn(async (..._args: unknown[]) => 'job-id');
   const userId = randomUUID();
   const libraryId = randomUUID();
   const rootId = randomUUID();
@@ -178,6 +178,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     expect(m.every((x: any) => x.decided_kind === 'rule' && x.batch_id === batch.id && x.reason.startsWith(AUTO_ACCEPT_REASON_PREFIX))).toBe(true);
     await runUndoBatch(ctx, batch.id);
     expect((await stateOf(a)).state).toBe('needs_review');
+    expect((await stateOf(b)).state).toBe('needs_review');
+    const [after] = await client`select state from decider_batches where id = ${batch.id}`;
+    expect(after.state).toBe('undone');
+    expect(await client`select 1 from album_matches where local_album_id in (${a}, ${b}) and status in ('auto', 'confirmed')`).toHaveLength(0);
+  });
+
+  it('a rules batch that stops is left failed and the job ends, so a retry never makes a second batch', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    // the accept fails after taking the album, when it queues the gaps recompute
+    send.mockImplementation(async (queue: unknown) => {
+      if (queue === 'gaps.recompute') throw new Error('queue unavailable');
+      return 'job-id';
+    });
+    try {
+      await expect(queueAutoAcceptJob(ctx, { libraryId, mode: 'rules', requestedByUserId: userId })).resolves.toBeUndefined();
+    } finally {
+      send.mockImplementation(async () => 'job-id');
+    }
+    const batches = await client`select id, state, message from decider_batches where library_id = ${libraryId}`;
+    expect(batches).toHaveLength(1);
+    expect(batches[0].state).toBe('failed');
+    expect(batches[0].message).toMatch(/^Accept stopped/);
+    // what it took stays taken until the owner undoes it
+    expect((await stateOf(a)).state).toBe('matched');
+    const runs = await db.select().from(jobRuns).where(and(eq(jobRuns.libraryId, libraryId), eq(jobRuns.type, 'queue.autoaccept')));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({ state: 'failed' });
+    expect(runs[0].error).toMatch(/^Accept stopped/);
   });
 
   it('the identify-time hook accepts one album without a batch', async () => {

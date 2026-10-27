@@ -71,7 +71,9 @@ export async function createBatch(sql: Sql, input: CreateBatchInput): Promise<st
     const [b] = await tx<Array<{ id: string }>>`
       insert into decider_batches (library_id, decider_id, decider_version, decided_kind, run_id, band, accept_from, started_by_user_id)
       values (${input.libraryId}, ${input.deciderId}, ${input.deciderVersion}, ${input.decidedKind}, ${input.runId ?? null},
-              ${input.band ?? null}, ${input.acceptFrom ?? ['needs_review']}::text[], ${input.startedByUserId})
+              ${input.band ?? null}, ${input.acceptFrom ?? ['needs_review']}::text[],
+              -- a starter deleted since the click leaves the batch without one, never a failed insert
+              (select id from users where id = ${input.startedByUserId}::uuid))
       returning id`;
     const batchId = b!.id;
     if (items.length === 0) return batchId;

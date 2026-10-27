@@ -33,6 +33,14 @@ export async function loadRules(ctx: WorkerContext, libraryId: string): Promise<
   return rulesFromStored(await fetchAutoAcceptRulesRow(ctx.db, libraryId));
 }
 
+/** The rules' batch was made but its accept stopped; the batch says why. */
+export class RulesBatchFailed extends Error {
+  constructor(readonly batchId: string, readonly cause: unknown) {
+    super(`auto-accept rules: batch ${batchId} stopped: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = 'RulesBatchFailed';
+  }
+}
+
 /**
  * The version a rules batch is stamped with: a short hash of the rules that
  * decide. The master switch is left out, since it only says when the rules
@@ -69,22 +77,25 @@ export async function acceptByRules(
 
   if (opts.viaBatch) {
     if (picks.length === 0) return result;
-    // pinned to the identify run the rules looked at: an album identified
-    // again before its turn is skipped rather than accepted on stale facts
-    const lastIdentify = await ctx.sql<Array<{ id: string; at: string | Date | null }>>`
-      select id, last_identify_at as at from local_albums where id = any(${picks.map((p) => p.album.albumId)}::uuid[])`;
-    const at = new Map(lastIdentify.map((r) => [r.id, r.at == null ? null : new Date(r.at).toISOString()]));
     const batchId = await createBatch(ctx.sql, {
       libraryId, deciderId: 'rules', deciderVersion: rulesVersion(rules), decidedKind: 'rule',
       startedByUserId: opts.startedByUserId ?? null,
       items: picks.map(({ album, d, reason }) => ({
         albumId: album.albumId, releaseId: d.candidate.releaseId, distance: d.candidate.distance,
         source: d.candidate.source || null, probability: null, evidenceHash: null,
-        expectLastIdentifyAt: at.get(album.albumId) ?? null, reason,
+        // pinned to the identify run the rules looked at (read with the
+        // candidates): an album identified again before its turn is skipped
+        // rather than accepted on candidates it no longer has
+        expectLastIdentifyAt: album.lastIdentifyAt, reason,
       })),
     });
     result.batchId = batchId;
-    const run = await runAcceptBatch(ctx, batchId);
+    let run: Awaited<ReturnType<typeof runAcceptBatch>>;
+    try {
+      run = await runAcceptBatch(ctx, batchId);
+    } catch (err) {
+      throw new RulesBatchFailed(batchId, err);
+    }
     result.accepted = run.accepted;
     const taken = await ctx.sql<Array<{ local_album_id: string; release_id: string; reason: string }>>`
       select local_album_id, release_id, reason from decider_batch_items

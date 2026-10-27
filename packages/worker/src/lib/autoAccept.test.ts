@@ -22,5 +22,7 @@ describe('rulesVersion', () => {
     expect(rulesVersion({ ...DEFAULT_AUTO_ACCEPT_RULES, minMatch: 96 })).not.toBe(base);
     expect(rulesVersion({ ...DEFAULT_AUTO_ACCEPT_RULES, officialOnly: false })).not.toBe(base);
     expect(rulesVersion({ ...DEFAULT_AUTO_ACCEPT_RULES, preferSource: 'musicbrainz' })).not.toBe(base);
+    expect(rulesVersion({ ...DEFAULT_AUTO_ACCEPT_RULES, allChecksAgree: !DEFAULT_AUTO_ACCEPT_RULES.allChecksAgree })).not.toBe(base);
+    expect(rulesVersion({ ...DEFAULT_AUTO_ACCEPT_RULES, clearWinnerGap: DEFAULT_AUTO_ACCEPT_RULES.clearWinnerGap + 1 })).not.toBe(base);
   });
 });

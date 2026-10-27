@@ -586,6 +586,11 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   await ctx.sql.begin(async (tx) => {
     // the album's evidence lock: an evidence rebuild never interleaves with this
     await tx`select pg_advisory_xact_lock(hashtextextended(${albumEvidenceLock(album.id)}, 0))`;
+    // The identify time again, with the candidates it now stands for: a
+    // decision pinned to the time read while this run was still searching
+    // (from the old candidates) no longer matches and is skipped. The album
+    // row before the candidate rows, the order a release relink takes them in.
+    await tx`update local_albums set last_identify_at = now() where id = ${album.id}`;
     await tx`delete from match_candidates where local_album_id = ${album.id} and source not like 'mc:%'`;
     if (rows.length > 0) {
       await tx`
