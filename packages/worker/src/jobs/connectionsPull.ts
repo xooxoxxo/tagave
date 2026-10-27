@@ -64,8 +64,8 @@ import {
   sealTokens,
   type LinkTokens,
 } from '@tagave/core/mc';
-import { mcEnabled, mcLinkAudit, refreshLinkTokensLocked } from '@tagave/db';
-import { registry } from '@tagave/core/facets';
+import { mcLinkAudit, moduleSwitches, refreshLinkTokensLocked } from '@tagave/db';
+import { moduleContext, registry } from '@tagave/core/facets';
 import type { WorkerContext } from '../lib/context.js';
 import { attachParked, capParked, defaultLandingDeps, landingHandlers, type LandingDeps } from './mcLanding.js';
 
@@ -189,9 +189,9 @@ export function safeMessage(e: unknown): string {
   return 'sync failed';
 }
 
-/** Whether the Music Connections module is on (registry: the setting in Settings › Modules). */
+/** Whether the Music Connections module is on (registry: its switch in the module ledger, and the music app). */
 export async function mcIsOn(ctx: Pick<WorkerContext, 'sql'>): Promise<boolean> {
-  return registry.isEnabled('mc', { settings: { mcEnabled: await mcEnabled(ctx.sql) }, playerUrl: process.env['TAGAVE_PLAYER_URL'] || null });
+  return registry.isEnabled('mc', moduleContext(await moduleSwitches(ctx.sql), process.env['TAGAVE_PLAYER_URL'] || null));
 }
 
 export async function connectionsPullJob(ctx: WorkerContext, data: ConnectionsPullJobData = {}, opts: PullOptions = {}): Promise<unknown> {

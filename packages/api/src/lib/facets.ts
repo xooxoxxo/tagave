@@ -8,8 +8,8 @@
  *   album.wantlist-suggestion@1  mc: mc_wantlist_suggestions, the caller's own
  */
 import type postgres from 'postgres';
-import { createFacets, registry, relayOf, type FacetContext, type FacetReader, type FacetValue } from '@tagave/core/facets';
-import { listenLinksEnabled, mcEnabled, playlistsEnabled } from '@tagave/db';
+import { createFacets, moduleContext, registry, relayOf, type FacetContext, type FacetReader, type FacetValue, type ModuleContext } from '@tagave/core/facets';
+import { moduleSwitches } from '@tagave/db';
 import { httpOnly, type CriticScore } from '@tagave/shared';
 
 type Sql = postgres.Sql;
@@ -65,14 +65,14 @@ function readers(sql: Sql): Record<string, Partial<Record<string, FacetReader>>>
   };
 }
 
+/** The install's switches (the module ledger) and whether the player runs. */
+export async function installContext(sql: Sql): Promise<ModuleContext> {
+  return moduleContext(await moduleSwitches(sql), process.env['TAGAVE_PLAYER_URL'] || null);
+}
+
 /** The caller's view: the module switches, their library and person. */
 export async function facetContext(sql: Sql, who: { userId: string | null; libraryId: string | null }): Promise<FacetContext> {
-  return {
-    settings: { mcEnabled: await mcEnabled(sql), listenLinksEnabled: await listenLinksEnabled(sql), playlistsEnabled: await playlistsEnabled(sql) },
-    playerUrl: process.env['TAGAVE_PLAYER_URL'] || null,
-    libraryId: who.libraryId,
-    userId: who.userId,
-  };
+  return { ...(await installContext(sql)), libraryId: who.libraryId, userId: who.userId };
 }
 
 export function apiFacets(sql: Sql) {

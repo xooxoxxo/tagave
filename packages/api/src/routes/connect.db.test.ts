@@ -502,7 +502,8 @@ describe.skipIf(!adminUrl)('music connections OAuth provider (integration)', () 
     });
 
     it('is off by default: an install that never set it offers nothing', async () => {
-      await handle.sql`update libraries set settings = settings #- '{modules,mc}'`;
+      // no row in the module ledger: never turned on
+      await handle.sql`delete from installed_modules where id = 'mc'`;
       try {
         expect(await mcEnabled(handle.sql)).toBe(false);
         expect((await app.inject({ method: 'GET', url: '/.well-known/music-connections' })).statusCode).toBe(404);

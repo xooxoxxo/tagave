@@ -7,12 +7,12 @@
  *   delete its data   the module's five tables are emptied, nothing else
  *                     (core albums, artists and people stay as they are)
  *
- * The switch lives in the settings of the install's first library, as Music
- * Connections' does: settings.modules['listen-links'].enabled. Absent means
- * off: an install shows no links until the owner turns it on. Read per call,
- * so the switch needs no restart.
+ * The switch is the module ledger's row 'listen-links' (installed_modules,
+ * 0065), off until the owner turns it on: an install shows no links until
+ * then. Read per call, so the switch needs no restart.
  */
 import type postgres from 'postgres';
+import { moduleEnabled, setModuleEnabled } from './modules.js';
 
 type Sql = postgres.Sql<any>;
 type Tx = postgres.TransactionSql<any>;
@@ -23,16 +23,11 @@ export const LISTEN_LINKS_MODULE_ID = 'listen-links';
 export const LISTEN_LINKS_TABLES = ['listen_links', 'listen_artist_links', 'listen_album_checks', 'listen_artist_checks', 'listen_prefs'] as const;
 
 export async function listenLinksEnabled(sql: Sql | Tx): Promise<boolean> {
-  const [row] = await sql<Array<{ v: string | null }>>`
-    select settings->'modules'->'listen-links'->>'enabled' as v from libraries order by created_at, id limit 1`;
-  return row?.v === 'true';
+  return moduleEnabled(sql, LISTEN_LINKS_MODULE_ID);
 }
 
 export async function setListenLinksEnabled(sql: Sql | Tx, enabled: boolean): Promise<void> {
-  await sql`
-    update libraries set settings = jsonb_set(coalesce(settings, '{}'::jsonb), '{modules}',
-           coalesce(settings->'modules', '{}'::jsonb) || jsonb_build_object('listen-links', coalesce(settings->'modules'->'listen-links', '{}'::jsonb) || jsonb_build_object('enabled', ${enabled}::boolean)))
-     where id = (select id from libraries order by created_at, id limit 1)`;
+  await setModuleEnabled(sql, LISTEN_LINKS_MODULE_ID, enabled);
 }
 
 /** Delete the module's data: exactly its rows, in one transaction. Idempotent. */
