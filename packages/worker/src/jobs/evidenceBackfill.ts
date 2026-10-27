@@ -57,7 +57,7 @@ export class EvidenceRebuildConflict extends Error {
   }
 }
 
-interface PlannedRow { id: string; distance: string; breakdown: string; evidence: string; old: string | null }
+interface PlannedRow { id: string; releaseId: string; distance: string; breakdown: string; evidence: string; old: string | null }
 
 /** What a rebuild will write, built entirely before any write. */
 export type RebuildPlan =
@@ -120,6 +120,7 @@ export async function planAlbumRebuild(ctx: WorkerContext, albumId: string, opts
     const evidence = buildCandidateEvidence(remoteInputOf(s.release, s.status), sc, local.tracks.length);
     return {
       id: c.id,
+      releaseId: c.release_id,
       distance: sc.distance.toFixed(4),
       breakdown: JSON.stringify(sc.breakdown),
       evidence: JSON.stringify(evidence),
@@ -148,12 +149,14 @@ export async function writeAlbumRebuild(ctx: WorkerContext, plan: Extract<Rebuil
            set distance = t.distance, breakdown = t.breakdown::jsonb, evidence = t.evidence::jsonb
           from unnest(
             ${rows.map((r) => r.id)}::uuid[],
+            ${rows.map((r) => r.releaseId)}::uuid[],
             ${rows.map((r) => r.distance)}::numeric[],
             ${rows.map((r) => r.breakdown)}::text[],
             ${rows.map((r) => r.evidence)}::text[],
             ${rows.map((r) => r.old)}::text[]
-          ) as t(id, distance, breakdown, evidence, old)
-         where mc.id = t.id and mc.local_album_id = ${albumId} and mc.evidence is not distinct from t.old::jsonb`;
+          ) as t(id, release_id, distance, breakdown, evidence, old)
+         where mc.id = t.id and mc.local_album_id = ${albumId} and mc.release_id = t.release_id
+           and mc.evidence is not distinct from t.old::jsonb`;
       if (res.count !== rows.length) throw new EvidenceRebuildConflict(albumId, `${res.count} of ${rows.length} candidates`);
     }
     if (clear.length > 0) {
