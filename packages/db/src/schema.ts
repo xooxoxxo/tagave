@@ -396,6 +396,10 @@ export const localAlbums = pgTable(
     titleGuess: varchar('title_guess', { length: 255 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     yearGuess: integer('year_guess'),
+    // 0060: where year_guess came from: tag | folder; null = no year or not known
+    yearSource: varchar('year_source', { length: 10 }),
+    // 0060: where title_guess came from: tag | folder (no album tags); null = not known
+    titleSource: varchar('title_source', { length: 10 }),
     discCount: integer('disc_count'),
     trackCount: integer('track_count'),
     totalDurationMs: integer('total_duration_ms'),
@@ -416,6 +420,10 @@ export const localAlbums = pgTable(
     tracksLinkedAt: timestamp('tracks_linked_at', { withTimezone: true }),
     // 0029: set by "Treat as one album"; what "Split back" restores (see mergeAlbums.ts)
     mergedFrom: jsonb('merged_from'),
+    // 0022: when the album was last looked up on AcoustID, and the outcome
+    // (matched | no_candidates | no_fingerprints | error)
+    fingerprintedAt: timestamp('fingerprinted_at', { withTimezone: true }),
+    acoustidResult: varchar('acoustid_result', { length: 20 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -448,6 +456,8 @@ export const localTracks = pgTable(
     discNo: integer('disc_no'),
     trackNo: integer('track_no'),
     titleGuess: varchar('title_guess', { length: 255 }),
+    // 0060: where title_guess came from: tag | filename | none; null = not known
+    titleSource: varchar('title_source', { length: 10 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     durationMs: integer('duration_ms'),
     // 0026: FK reference to canonical_tracks; stable per (release, medium, position)
@@ -904,11 +914,23 @@ export const matchCandidates = pgTable(
     source: varchar({ length: 50 }).notNull(),
     excluded: boolean().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    // 0060: what the matcher compared (core/matching/evidence.ts); null before 0060
+    evidence: jsonb(),
+    // 0060: share of the album's fingerprints matched on this release; null = not looked up
+    acoustidCoverage: numeric('acoustid_coverage', { precision: 5, scale: 4 }),
   },
   (table) => ({
     albumIdx: index('idx_match_candidates_album').on(table.localAlbumId),
   })
 );
+
+/** 0060: the local side of the matching evidence, once per album. */
+export const albumEvidence = pgTable('album_evidence', {
+  localAlbumId: uuid('local_album_id').primaryKey().references(() => localAlbums.id, { onDelete: 'cascade' }),
+  v: smallint().notNull(),
+  evidence: jsonb().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
 
 export const albumMatches = pgTable(
   'album_matches',
