@@ -91,8 +91,8 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     before = {
       switches: await oldSwitches(sql),
       ledger: (await sql`select name from _migrations order by name`).map((r) => r['name'] as string),
-      counts: await sql`select * from album_facets order by album_id`,
-      state: await sql`select * from facet_state order by library_id`,
+      counts: [...(await sql`select * from album_facets order by album_id`)],
+      state: [...(await sql`select * from facet_state order by library_id`)],
     };
     applied = await migrateAll(db.url);
   }, 180_000);
@@ -342,6 +342,19 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
     expect(Object.values((await purgeModuleData(sql as never, 'listen-links', { env: {} })).deleted).every((n) => n === 0)).toBe(true);
   });
 
+  it('every module purge-module knows lists a table before the tables it references (the order it empties them)', async () => {
+    const refs = await sql<Array<{ t: string; ref: string }>>`
+      select c.conrelid::regclass::text as t, c.confrelid::regclass::text as ref from pg_constraint c where c.contype = 'f'`;
+    expect(Object.keys(MODULE_DATA).sort()).toEqual(['listen-links', 'player', 'playlists']);
+    for (const [id, data] of Object.entries(MODULE_DATA)) {
+      const at = new Map(data.tables.map((t, i) => [t, i]));
+      for (const r of refs) {
+        if (r.t === r.ref || !at.has(r.t) || !at.has(r.ref)) continue;
+        expect(at.get(r.t)!, `${id}: ${r.t} references ${r.ref}`).toBeLessThan(at.get(r.ref)!);
+      }
+    }
+  });
+
   it('Music Connections fills core gaps, so only its own removal deletes its data', async () => {
     await expect(purgeModuleData(sql as never, 'mc', { env: {} })).rejects.toThrow(/removes its own data/);
   });
@@ -358,7 +371,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
       expect((await listInstalledModules(sql)).find((m) => m.id === 'decider')).toMatchObject({ version: '1.1.0', enabled: false, enabledAt: null });
       // on stamps enabled_at once; on again keeps it
       await setModuleEnabled(sql, 'decider', true);
-      const [{ at }] = await sql`select enabled_at as at from installed_modules where id = 'decider'` as unknown as Array<{ at: Date }>;
+      const at = (await sql`select enabled_at as at from installed_modules where id = 'decider'`)[0]!['at'];
       await setModuleEnabled(sql, 'decider', true);
       expect((await sql`select enabled_at as at from installed_modules where id = 'decider'`)[0]!['at']).toEqual(at);
       // its own settings: merged, a null removes a key
