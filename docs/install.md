@@ -260,6 +260,17 @@ To check it for real after setting it up: play one album through to the end in t
 
 The one-click platform templates do not include the player yet. On those platforms, run Navidrome yourself and use Settings › Playback.
 
+### On your phone
+
+tagave can sit on your home screen like an app. Open it in the phone's browser and sign in, then:
+
+- **iPhone:** in Safari, **Share › Add to Home Screen**.
+- **Android:** in Chrome, **⋮ › Add to home screen › Install**. Chrome installs only from an https address (see [Behind a reverse proxy](#behind-a-reverse-proxy)); over plain http it adds a shortcut that opens in the browser.
+
+Music keeps playing with the screen locked or another app open. The lock screen, headphones and a car's Bluetooth keys play, pause and skip tracks. On iPhone, start playback with a tap in tagave; after a call or Siri, press play again.
+
+**In the car.** CarPlay and Android Auto show native apps only. Use a Subsonic app with tagave's Navidrome: Symfonium on Android (Android Auto), Amperfy or play:Sub on iPhone (CarPlay). **Phone apps**, above, says how to sign in.
+
 ## Manual install (build from source)
 
 The rest of this guide builds the images yourself with `docker-compose.prod.yml`, the way a development checkout runs.
