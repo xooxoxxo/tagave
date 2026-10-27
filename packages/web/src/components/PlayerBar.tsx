@@ -8,7 +8,7 @@
  * PlayerBarView is the bar alone, driven by props (stories, tests);
  * PlayerBar connects it to the engine (player/engine.ts).
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from '@tanstack/react-router';
 import type { PlayHistoryEntry } from '@tagave/shared';
@@ -23,6 +23,8 @@ import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
 import { playHistoryKey, useCreatePlaylist, usePlayHistory, usePlaylistsOn } from '../hooks/usePlaylists';
 import { MiniPlayer, NowPlayingScreen, NowPlayingView } from './player/NowPlaying';
 import { TrackActions } from './player/TrackActions';
+import { SeekGlow } from './SeekGlow';
+import { useDisplayPrefs } from '../displayPrefs';
 import { AlbumLink, ArtistLinks, linkedArtists, lineReset, type CreditedArtist } from './NowPlayingLinks';
 import styles from './PlayerBar.module.css';
 
@@ -56,10 +58,12 @@ export interface PlayerBarViewProps {
   queueOpen?: boolean;
   /** opens and closes the queue; without it there is no queue key */
   onQueue?: () => void;
+  /** the equalizer glow, laid under the seek bar (SeekGlow) */
+  glow?: ReactNode;
 }
 
 /** The bar alone. */
-export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue }: PlayerBarViewProps) {
+export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl, status, message, position, duration, volume, canPrevious, canNext, onToggle, onPrevious, onNext, onSeek, onVolume, onRetry, onClose, queueOpen = false, onQueue, glow }: PlayerBarViewProps) {
   // while the thumb is dragged, the bar shows where it is, not the audio
   const [scrub, setScrub] = useState<number | null>(null);
   const busy = status === 'loading' || status === 'buffering';
@@ -114,22 +118,24 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
       ) : (
         <div className={styles.seek}>
           <span className={styles.time} aria-hidden="true">{clock(shown)}</span>
-          <input
-            type="range"
-            className={styles.range}
-            style={{ '--fill': `${fill}%` } as CSSProperties}
-            min={0}
-            max={total ?? 0}
-            step={1}
-            value={Math.floor(total ? shown : 0)}
-            disabled={!total}
-            aria-label="Seek"
-            aria-valuetext={`${clock(shown)} of ${clock(total)}`}
-            onChange={(e) => setScrub(Number(e.currentTarget.value))}
-            onPointerUp={commit}
-            onKeyUp={commit}
-            onBlur={() => setScrub(null)}
-          />
+          <span className={styles.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
+            {glow}
+            <input
+              type="range"
+              className={styles.range}
+              min={0}
+              max={total ?? 0}
+              step={1}
+              value={Math.floor(total ? shown : 0)}
+              disabled={!total}
+              aria-label="Seek"
+              aria-valuetext={`${clock(shown)} of ${clock(total)}`}
+              onChange={(e) => setScrub(Number(e.currentTarget.value))}
+              onPointerUp={commit}
+              onKeyUp={commit}
+              onBlur={() => setScrub(null)}
+            />
+          </span>
           <span className={styles.time} aria-hidden="true">{clock(total)}</span>
         </div>
       )}
@@ -178,6 +184,7 @@ export function PlayerBarView({ title, artist, album, artists, albumId, coverUrl
  */
 export function PlayerBar() {
   const s = usePlayerStore();
+  const [prefs] = useDisplayPrefs();
   const player = useCapabilities().data?.player;
   const phone = useMediaQuery(PHONE_QUERY);
   const playlistsOn = usePlaylistsOn();
@@ -313,6 +320,7 @@ export function PlayerBar() {
               onClose={close}
               onNavigate={() => setNowOpen(false)}
               actions={actions}
+              glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
             />
           )}
         </>
@@ -343,6 +351,7 @@ export function PlayerBar() {
             onClose={() => stop({ forget: true })}
             queueOpen={nowOpen}
             onQueue={() => setNowOpen((o) => !o)}
+            glow={prefs.eqGlow ? <SeekGlow playing={s.status === 'playing'} /> : null}
           />
         </>
       )}

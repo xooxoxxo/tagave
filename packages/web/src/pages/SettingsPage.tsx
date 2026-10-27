@@ -185,5 +185,11 @@ function DisplaySettings() {
     <h2 className={styles.modeSetting}>Artist page</h2>
     
     <SegmentedControl label="Artist page" value={prefs.artistLayout} onChange={(v) => setPrefs({ artistLayout: v })} options={[{ value: 'name', label: 'Name first' }, { value: 'albums', label: 'Like albums' }]} />
+    <h2 className={styles.modeSetting}>Adaptive colours</h2>
+    
+    <SegmentedControl label="Adaptive colours" value={prefs.adaptiveColour ? 'on' : 'off'} onChange={(v) => setPrefs({ adaptiveColour: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
+    <h2 className={styles.modeSetting}>Equalizer glow</h2>
+    
+    <SegmentedControl label="Equalizer glow" value={prefs.eqGlow ? 'on' : 'off'} onChange={(v) => setPrefs({ eqGlow: v === 'on' })} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
   </>;
 }

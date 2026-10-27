@@ -1,6 +1,8 @@
 /**
  * The web player: two plain <audio> elements kept outside React (no Web
- * Audio graph: background audio in an iOS home-screen app breaks with one),
+ * Audio graph: background audio in an iOS home-screen app breaks with one;
+ * only the opt-in equalizer glow routes them through an analyser, and never
+ * on iOS: adaptive/levels.ts),
  * a small zustand store the bar and the album page read, the play events
  * and the Media Session. The rules it applies live in logic.ts.
  *
@@ -109,6 +111,11 @@ function clearHandoff() {
 }
 
 const el = () => elements?.[active] ?? null;
+
+/** The two elements once playback has created them, for the equalizer glow's analyser (adaptive/levels.ts). */
+export function mediaElements(): readonly HTMLAudioElement[] {
+  return elements ?? [];
+}
 const standby = () => elements?.[1 - active] ?? null;
 const canPlayOf = (a: HTMLAudioElement | null): CanPlay => (type) => {
   try { return a?.canPlayType(type) ?? ''; } catch { return ''; }

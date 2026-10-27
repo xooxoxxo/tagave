@@ -13,8 +13,9 @@
  *                     hairline along its top. Pressing it opens the screen.
  *
  * All three are driven by props (stories, tests); PlayerBar connects them.
- * Colours come from the tokens only (a later round may let the cover tint
- * the accent).
+ * Colours come from the tokens; with Adaptive colours on they are the
+ * playing cover's (styles/adaptive.css), and the blurred cover behind shows
+ * as strongly as its own colours let the text still read.
  */
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { PlayHistoryEntry, QueueContext } from '@tagave/shared';
@@ -97,7 +98,7 @@ function Credits({ track, onNavigate }: { track: QueueEntry; onNavigate?: (() =>
   );
 }
 
-function Seek({ t }: { t: NowPlayingTransport }) {
+function Seek({ t, glow }: { t: NowPlayingTransport; glow?: ReactNode }) {
   const [scrub, setScrub] = useState<number | null>(null);
   const total = t.duration && Number.isFinite(t.duration) && t.duration > 0 ? t.duration : null;
   const shown = Math.min(scrub ?? t.position, total ?? Number.POSITIVE_INFINITY);
@@ -105,22 +106,25 @@ function Seek({ t }: { t: NowPlayingTransport }) {
   const commit = () => { if (scrub != null) t.onSeek(scrub); setScrub(null); };
   return (
     <div className={styles.seek}>
-      <input
-        type="range"
-        className={bar.range}
-        style={{ '--fill': `${fill}%` } as CSSProperties}
-        min={0}
-        max={total ?? 0}
-        step={1}
-        value={Math.floor(total ? shown : 0)}
-        disabled={!total}
-        aria-label="Seek"
-        aria-valuetext={`${clock(shown)} of ${clock(total)}`}
-        onChange={(e) => setScrub(Number(e.currentTarget.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={() => setScrub(null)}
-      />
+      {/* the range and, under it, the equalizer glow (SeekGlow), as in the player bar */}
+      <span className={bar.track} style={{ '--fill': `${fill}%` } as CSSProperties}>
+        {glow}
+        <input
+          type="range"
+          className={bar.range}
+          min={0}
+          max={total ?? 0}
+          step={1}
+          value={Math.floor(total ? shown : 0)}
+          disabled={!total}
+          aria-label="Seek"
+          aria-valuetext={`${clock(shown)} of ${clock(total)}`}
+          onChange={(e) => setScrub(Number(e.currentTarget.value))}
+          onPointerUp={commit}
+          onKeyUp={commit}
+          onBlur={() => setScrub(null)}
+        />
+      </span>
       <span className={styles.times} aria-hidden="true"><span>{clock(shown)}</span><span>{total ? `-${clock(Math.max(0, total - shown))}` : clock(null)}</span></span>
     </div>
   );
@@ -198,6 +202,8 @@ export function NowPlayingView(p: NowPlayingViewProps) {
 
 export interface NowPlayingScreenProps extends NowPlayingViewProps, NowPlayingTransport {
   initialSegment?: 'playing' | 'queue';
+  /** the equalizer glow under the seek bar (SeekGlow) */
+  glow?: ReactNode;
 }
 
 /** Phone: the full screen, Playing | Queue. */
@@ -220,7 +226,7 @@ export function NowPlayingScreen(p: NowPlayingScreenProps) {
         <div className={styles.screenBody}>
           <CoverArt src={p.track.coverUrl} title={p.track.album} className={styles.screenCover} />
           <Names track={p.track} onNavigate={p.onNavigate} />
-          <Seek t={p} />
+          <Seek t={p} glow={p.glow} />
           <Keys t={p} />
           {next ? (
             <button type="button" className={styles.peek} onClick={() => { setTab('next'); setSegment('queue'); }}>

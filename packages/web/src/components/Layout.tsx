@@ -19,6 +19,7 @@ import { useAlbumsReturnSearch } from '../pages/albumSelection';
 import { PlayerBar } from './PlayerBar';
 import { MenuPlaylists } from './playlists/MenuPlaylists';
 import { usePlaylistsOn } from '../hooks/usePlaylists';
+import { AdaptiveColour } from '../adaptive/AdaptiveColour';
 import { AppDownHost } from './update/UpdateDownScreen';
 import { DiskSpaceNotice } from './DiskSpaceNotice';
 import { stop as stopPlayback } from '../player/engine';
@@ -219,6 +220,7 @@ export function Layout() {
         </main>
         {/* mounted once here, under the page: route changes never unmount the audio */}
         <PlayerBar />
+        <AdaptiveColour />
       </div>
       {/* while the app is down for an update: a screen over the page, under the player */}
       <AppDownHost />

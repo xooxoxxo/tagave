@@ -1,0 +1,74 @@
+/*
+ * Adaptive colour (Settings › Appearance › Adaptive colours). While a cover
+ * plays, AdaptiveColour.tsx writes the cover's scheme to the --ad-* properties
+ * on <html> and sets data-adaptive; the theme's accent, canvas and wash then
+ * resolve to them. The --ad-* are registered colours, so a new cover
+ * interpolates over 600 ms; reduced motion swaps at once. Every pair is
+ * guarded in src/adaptive/scheme.test.ts, the fade's midpoints included.
+ *
+ * The selector repeats the attribute to outrank the dark blocks of tokens.css
+ * (:root[data-theme="dark"] and :root:not([data-theme="light"])).
+ */
+@property --ad-accent { syntax: '<color>'; inherits: true; initial-value: #276a82; }
+@property --ad-accent-hi { syntax: '<color>'; inherits: true; initial-value: #5ba8c4; }
+@property --ad-accent-lo { syntax: '<color>'; inherits: true; initial-value: #1c556b; }
+@property --ad-accent-press { syntax: '<color>'; inherits: true; initial-value: #164556; }
+@property --ad-accent-hover { syntax: '<color>'; inherits: true; initial-value: #1c556b; }
+@property --ad-accent-ink { syntax: '<color>'; inherits: true; initial-value: #ffffff; }
+@property --ad-tint { syntax: '<color>'; inherits: true; initial-value: #e3f0f5; }
+@property --ad-chip { syntax: '<color>'; inherits: true; initial-value: #1c556b; }
+@property --ad-ring { syntax: '<color>'; inherits: true; initial-value: #276a82; }
+@property --ad-canvas { syntax: '<color>'; inherits: true; initial-value: #f6f8fa; }
+@property --ad-wash { syntax: '<color>'; inherits: true; initial-value: transparent; }
+@property --ad-bar { syntax: '<color>'; inherits: true; initial-value: #f8f9fa; }
+@property --ad-bar-ink { syntax: '<color>'; inherits: true; initial-value: #16202a; }
+@property --ad-bar-ink-2 { syntax: '<color>'; inherits: true; initial-value: #46525e; }
+@property --ad-bar-line { syntax: '<color>'; inherits: true; initial-value: #c3ccd5; }
+@property --ad-bar-accent { syntax: '<color>'; inherits: true; initial-value: #276a82; }
+@property --ad-bar-danger { syntax: '<color>'; inherits: true; initial-value: #a83a36; }
+@property --ad-glow { syntax: '<color>'; inherits: true; initial-value: #5ba8c4; }
+
+:root[data-adaptive][data-adaptive] {
+  --dew: var(--ad-accent);
+  --dew-hi: var(--ad-accent-hi);
+  --dew-lo: var(--ad-accent-lo);
+  --dew-press: var(--ad-accent-press);
+  --dew-ink: var(--ad-accent-ink);
+  --dew-tint: var(--ad-tint);
+  --chip-on-ink: var(--ad-chip);
+  --ring: var(--ad-ring);
+  --seek-glow: var(--ad-glow);
+  --canvas: var(--ad-canvas);
+  --wash: radial-gradient(1200px 600px at 80% -10%, var(--ad-wash), transparent 70%);
+  /* the legacy names, restated: on :root they resolved against the theme's own --dew */
+  --accent: var(--dew);
+  --accent-color: var(--dew);
+  --info: var(--dew);
+  --on-accent: var(--dew-ink);
+  --accent-hover: var(--ad-accent-hover);
+  --accent-active: var(--ad-accent-press);
+  --accent-color-hover: var(--accent-hover);
+  --surface-selected: var(--dew-tint);
+  --surface-info: var(--dew-tint);
+  --surface-accent: var(--dew-tint);
+  --text-selected: var(--chip-on-ink);
+  --focus-ring: 2px solid var(--ring);
+  --bg-primary: var(--canvas);
+  --bg-nav: var(--canvas);
+  transition-property: --ad-accent, --ad-accent-hi, --ad-accent-lo, --ad-accent-press, --ad-accent-hover, --ad-accent-ink, --ad-tint, --ad-chip, --ad-ring, --ad-canvas, --ad-wash, --ad-bar, --ad-bar-ink, --ad-bar-ink-2, --ad-bar-line, --ad-bar-accent, --ad-bar-danger, --ad-glow;
+  transition-duration: 600ms;
+  transition-timing-function: ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-adaptive][data-adaptive] {
+    transition-duration: 0s;
+  }
+}
+
+/* forced colours: the system palette, nothing from the cover */
+@media (forced-colors: active) {
+  :root[data-adaptive][data-adaptive] {
+    transition: none;
+  }
+}

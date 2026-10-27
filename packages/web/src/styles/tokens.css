@@ -59,6 +59,7 @@
   --shadow-tint: 22, 52, 70;               /* rgb triplet for rgba() */
   --scrim: rgba(22, 32, 42, 0.32);         /* behind modals */
   --ring: #276a82;
+  --seek-glow: #5ba8c4;       /* the equalizer glow; the seek fill reads 3:1 over it */
   /* drop and clear-bubble finish (theme-dependent parts of the button recipe) */
   --drop-text-shadow: 0 1px 0 rgba(0, 0, 0, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.9);
@@ -255,6 +256,7 @@
     --shadow-tint: 0, 0, 0;
     --scrim: rgba(0, 0, 0, 0.55);
     --ring: #8acbe0;
+    --seek-glow: #2f7f9c;
     --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
     --clear-hi: rgba(255, 255, 255, 0.14);
     --clear-sheen: 0.16;
@@ -320,6 +322,7 @@
   --shadow-tint: 0, 0, 0;
   --scrim: rgba(0, 0, 0, 0.55);
   --ring: #8acbe0;
+  --seek-glow: #2f7f9c;
   --drop-text-shadow: 0 1px 0 rgba(255, 255, 255, 0.18);
   --clear-hi: rgba(255, 255, 255, 0.14);
   --clear-sheen: 0.16;
