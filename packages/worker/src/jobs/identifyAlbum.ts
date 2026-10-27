@@ -18,6 +18,7 @@ import { upsertCanonical, upsertDiscogsSidecars } from '../lib/canonical.js';
 import { localTrackViews, linkAlbumTracks } from '../lib/trackLinks.js';
 import { resolvePinnedMb } from '../lib/pinnedMb.js';
 import { acceptByRules } from '../lib/autoAccept.js';
+import { identifyDecision } from '../lib/identifyDecision.js';
 import { isManualRequest, plainFailure, recordIdentifyOutcome, type IdentifyOutcome } from '../lib/identifyRuns.js';
 
 export interface IdentifyAlbumJobData {
@@ -599,64 +600,38 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
       'acoustid');
   }
 
-  // Decide (IDN-3).
-  const best = scored[0];
-  const second = scored[1];
-  const bestDb = best ? releaseDbIds.get(best.id) : undefined;
-  const gapDemoted = best && second && second.distance - best.distance < MATCHING_THRESHOLDS.recGapThresh
-    && second.distance <= MATCHING_THRESHOLDS.medium && best.distance > 0;
-  const trackParity = best ? (best.tracks?.length ?? 0) === local.tracks.length : false;
-
-  if (best && bestDb && best.distance <= MATCHING_THRESHOLDS.strong && trackParity && !gapDemoted) {
-    ctx.logger.info({ album: album.titleGuess, source: best.source, distance: best.distance }, 'identify: auto-accept');
-    return goLive(bestDb, 'auto', 'system', best.distance, `auto-accept: distance ${best.distance.toFixed(4)} (${best.source})`,
-      sourceOf.get(best.id) ?? null);
-  } else if (best && best.distance <= MATCHING_THRESHOLDS.medium) {
-    // Owner chip rule (2026-09-05): no reds + ≥3 greens auto-accepts even in
-    // the review band; fewest yellows wins. Mirrors hand-review outcomes.
-    const inBand = scored.filter((c) => c.distance <= MATCHING_THRESHOLDS.medium);
-    const pick = pickByChipRule(inBand.map((c) => ({ breakdown: c.breakdown, distance: c.distance })));
-    const chosen = pick >= 0 ? inBand[pick] : undefined;
-    const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
-    if (chosen && chosenDb) {
-      const cc = chipCounts(chosen.breakdown);
-      return goLive(chosenDb, 'auto', 'system', chosen.distance,
-        `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${chosen.distance.toFixed(4)})`,
-        sourceOf.get(chosen.id) ?? null);
-    }
-    // Owner policy (2026-09-05): the top candidate in the band is what the
-    // owner accepts by hand anyway — take it. Tightened 2026-09-09 (XO-379,
-    // after a one-CD folder auto-took a 2-CD edition at 0.2488 with 2 reds):
-    // nothing red, and no more media than the local cluster has discs.
-    if (best && bestDb) {
-      const cc2 = chipCounts(best.breakdown);
-      // Media guard (peer's discsKnown semantics): only when the local set
-      // carries disc numbers at all — 17,740 untagged albums must not block a
-      // correct two-medium candidate; mediumCountOf reads MB's per-track
-      // medium numbers and falls back to Discogs' media list.
-      const bestRelease = fetched.find((r) => r.id === best.id);
-      const mediaCount = bestRelease ? mediumCountOf(bestRelease) ?? 0 : 0;
-      const localDiscNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
-      const discsKnown = localDiscNos.length > 0;
-      const localDiscs = discsKnown ? new Set(localDiscNos).size : 0;
-      if (cc2.reds === 0 && (!discsKnown || mediaCount === 0 || mediaCount <= localDiscs)) {
-        return goLive(bestDb, 'auto', 'system', best.distance,
-          `first-candidate auto-accept: distance ${best.distance.toFixed(4)} (${cc2.greens} green, ${cc2.yellows} yellow, 0 red)`,
-          sourceOf.get(best.id) ?? null);
-      }
-      ctx.logger.info({ album: album.titleGuess, distance: best.distance, reds: cc2.reds, mediaCount, localDiscs }, 'identify: top candidate held for review');
-    }
-    const held = await giveUp('ambiguous');
-    // Review matches › Auto-accept: the owner's rules get the album the
-    // moment it lands in review (no-op while they are off).
-    const byRules = await acceptByRules(ctx, album.libraryId, { albumIds: [album.id], requireEnabled: true });
-    const took = byRules.acceptedAlbums[0];
-    if (took) {
-      const rel = fetched.find((r) => releaseDbIds.get(r.id) === took.releaseId);
-      const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
-      return { outcome: 'matched', message: label ? `Matched to ${label} by your auto-accept rules.` : 'Matched by your auto-accept rules.' };
-    }
-    return held;
+  // Decide: strong, chip rule, first candidate, held for review, or weak.
+  const localDiscNos = tracks.map((t) => t.discNo).filter((d): d is number => d != null);
+  const decision = identifyDecision(
+    scored.map((s) => {
+      const rel = fetched.find((r) => r.id === s.id);
+      return { id: s.id, distance: s.distance, breakdown: s.breakdown as Record<string, unknown>, trackCount: s.tracks?.length ?? 0, mediumCount: rel ? mediumCountOf(rel) ?? 0 : 0 };
+    }),
+    { trackCount: local.tracks.length, discsKnown: localDiscNos.length > 0, localDiscs: new Set(localDiscNos).size },
+  );
+  const chosen = 'id' in decision ? scored.find((s) => s.id === decision.id) : undefined;
+  const chosenDb = chosen ? releaseDbIds.get(chosen.id) : undefined;
+  if (chosen && chosenDb) {
+    const cc = chipCounts(chosen.breakdown);
+    const d = chosen.distance.toFixed(4);
+    const reason = decision.kind === 'strong' ? `auto-accept: distance ${d} (${chosen.source})`
+      : decision.kind === 'chip_rule' ? `chip-rule auto-accept: ${cc.greens} green, ${cc.yellows} yellow, 0 red (distance ${d})`
+      : `first-candidate auto-accept: distance ${d} (${cc.greens} green, ${cc.yellows} yellow, 0 red)`;
+    if (decision.kind === 'strong') ctx.logger.info({ album: album.titleGuess, source: chosen.source, distance: chosen.distance }, 'identify: auto-accept');
+    return goLive(chosenDb, 'auto', 'system', chosen.distance, reason, sourceOf.get(chosen.id) ?? null);
   }
-  return giveUp('weak_candidates');
+  if (decision.kind === 'weak' || decision.kind === 'none') return giveUp('weak_candidates');
+  // held, or a pick whose release was not persisted: the owner reviews it
+  ctx.logger.info({ album: album.titleGuess, distance: scored[0]?.distance }, 'identify: top candidate held for review');
+  const held = await giveUp('ambiguous');
+  // Review matches › Auto-accept: the owner's rules get the album the
+  // moment it lands in review (no-op while they are off).
+  const byRules = await acceptByRules(ctx, album.libraryId, { albumIds: [album.id], requireEnabled: true });
+  const took = byRules.acceptedAlbums[0];
+  if (took) {
+    const rel = fetched.find((r) => releaseDbIds.get(r.id) === took.releaseId);
+    const label = rel ? [rel.title, rel.year, rel.country].filter(Boolean).join(' · ') : null;
+    return { outcome: 'matched', message: label ? `Matched to ${label} by your auto-accept rules.` : 'Matched by your auto-accept rules.' };
+  }
+  return held;
 }
