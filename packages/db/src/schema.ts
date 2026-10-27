@@ -396,9 +396,9 @@ export const localAlbums = pgTable(
     titleGuess: varchar('title_guess', { length: 255 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     yearGuess: integer('year_guess'),
-    // 0060: where year_guess came from: tag | folder; null = no year or not known
+    // 0068: where year_guess came from: tag | folder; null = no year or not known
     yearSource: varchar('year_source', { length: 10 }),
-    // 0060: where title_guess came from: tag | folder (no album tags); null = not known
+    // 0068: where title_guess came from: tag | folder (no album tags); null = not known
     titleSource: varchar('title_source', { length: 10 }),
     discCount: integer('disc_count'),
     trackCount: integer('track_count'),
@@ -456,7 +456,7 @@ export const localTracks = pgTable(
     discNo: integer('disc_no'),
     trackNo: integer('track_no'),
     titleGuess: varchar('title_guess', { length: 255 }),
-    // 0060: where title_guess came from: tag | filename | none; null = not known
+    // 0068: where title_guess came from: tag | filename | none; null = not known
     titleSource: varchar('title_source', { length: 10 }),
     artistGuess: varchar('artist_guess', { length: 255 }),
     durationMs: integer('duration_ms'),
@@ -914,9 +914,9 @@ export const matchCandidates = pgTable(
     source: varchar({ length: 50 }).notNull(),
     excluded: boolean().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    // 0060: what the matcher compared (core/matching/evidence.ts); null before 0060
+    // 0068: what the matcher compared (core/matching/evidence.ts); null before 0068
     evidence: jsonb(),
-    // 0060: share of the album's fingerprints matched on this release; null = not looked up
+    // 0068: share of the album's fingerprints matched on this release; null = not looked up
     acoustidCoverage: numeric('acoustid_coverage', { precision: 5, scale: 4 }),
   },
   (table) => ({
@@ -924,7 +924,7 @@ export const matchCandidates = pgTable(
   })
 );
 
-/** 0060: the local side of the matching evidence, once per album. */
+/** 0068: the local side of the matching evidence, once per album. */
 export const albumEvidence = pgTable('album_evidence', {
   localAlbumId: uuid('local_album_id').primaryKey().references(() => localAlbums.id, { onDelete: 'cascade' }),
   v: smallint().notNull(),
