@@ -1,8 +1,9 @@
 /**
  * The web player: two plain <audio> elements kept outside React (no Web
  * Audio graph: background audio in an iOS home-screen app breaks with one;
- * only the opt-in equalizer glow routes them through an analyser, and never
- * on iOS: adaptive/levels.ts),
+ * only the opt-in equalizer glow reads them through an analyser, from a copy
+ * of the sound where the browser can make one, and never on iOS:
+ * adaptive/levels.ts),
  * a small zustand store the bar and the album page read, the play events
  * and the Media Session. The rules it applies live in logic.ts.
  *
@@ -10,7 +11,10 @@
  * current one is within 30 s of its end. In the last half second a timer
  * starts the next one just before the current one ends (near-gapless where
  * the browser allows; a background tab's slowed timers fall back to the
- * `ended` swap).
+ * `ended` swap). Nothing here waits on a frame or on the page being shown:
+ * with the phone locked, `ended` starts the next track, and where the
+ * browser will not start the waiting element without a tap (iOS), the next
+ * track loads into the element that just played.
  *
  * The queue holds tracks from any albums: the album or playlist that was
  * started ("context") and what the person added by hand with Play next or
@@ -28,6 +32,7 @@ import {
   previousAction, removeUpcoming, seekPlan, shouldPreload, shownDuration, shownPosition, shuffleTracks, startContext, startIndex, streamUrl, transcodeFormat, type CanPlay,
 } from './logic';
 import { getPlayerQuality } from './quality';
+import { isAppleMobile } from './platform';
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'error';
 
@@ -152,13 +157,16 @@ function release(a: HTMLAudioElement | null) {
   } catch { /* nothing to release */ }
 }
 
-function startPlayback(a: HTMLAudioElement) {
+/** `onRefused`: what to do instead when the browser will not start this element without a tap. */
+function startPlayback(a: HTMLAudioElement, onRefused?: () => void) {
   const p = a.play();
   if (p && typeof p.catch === 'function') {
     p.catch((err: unknown) => {
-      // autoplay refused (no gesture yet): wait for the listener's Play
-      if (a === el() && (err as { name?: string })?.name === 'NotAllowedError') set({ status: 'paused' });
+      if (a !== el() || (err as { name?: string })?.name !== 'NotAllowedError') return;
       // AbortError: a newer load replaced this one; a failed load arrives as `error`
+      if (onRefused) onRefused();
+      // autoplay refused (no gesture yet): wait for the listener's Play
+      else set({ status: 'paused' });
     });
   }
 }
@@ -223,7 +231,12 @@ function onPause(a: HTMLAudioElement) {
   if (status === 'playing' || status === 'buffering') set({ status: 'paused' });
   if (cur) cur.lastTime = null;
   setPlaybackState('paused');
-  if (claimed) persistSoon();
+  // paused from the lock screen or a car: the page may be frozen before a timer runs
+  if (claimed) { if (pageHidden()) persistNow(); else persistSoon(); }
+}
+
+function pageHidden(): boolean {
+  return globalThis.document?.visibilityState === 'hidden';
 }
 
 function onTime(a: HTMLAudioElement) {
@@ -304,7 +317,15 @@ function advance(early: boolean) {
     set({ index: next, status: 'loading', message: null, retry: null, position: 0, duration: shownDuration(p.format, track.durationMs, b.duration) });
     updateMetadata(track);
     persistSoon();
-    startPlayback(b);
+    startPlayback(b, () => {
+      // The preloaded element may not start without a tap (iOS allows play()
+      // only on an element a tap started once; with the screen locked there
+      // is no tap): the track loads into the element that just played.
+      if (el() !== b || cur?.trackId !== p.trackId) return;
+      release(b);
+      active = 1 - active;
+      loadTrack(get().index);
+    });
     if (early) {
       // the old track's last few milliseconds play out under the new one's start
       const src = old.getAttribute('src');
@@ -428,18 +449,26 @@ function session(): MediaSession | null {
   try { return typeof navigator !== 'undefined' && 'mediaSession' in navigator ? navigator.mediaSession : null; } catch { return null; }
 }
 
+/**
+ * The lock screen, the notification, headphones, a car's steering-wheel keys
+ * (Bluetooth AVRCP) and CarPlay/Android Auto's "now playing" all come here.
+ * On iPhone and iPad the ±10 s seek actions are left out: with them iOS
+ * shows skip-10-seconds buttons in place of previous/next track, and a car's
+ * next key may skip ten seconds instead of a track.
+ */
 function setupMediaSession() {
   const ms = session();
   if (!ms) return;
-  const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+  const apple = isAppleMobile();
+  const handlers: Array<[MediaSessionAction, MediaSessionActionHandler | null]> = [
     ['play', () => play()],
     ['pause', () => pause()],
     ['previoustrack', () => previous()],
     ['nexttrack', () => next()],
     ['stop', () => stop()],
     ['seekto', (d) => { if (d.seekTime != null) seek(d.seekTime); }],
-    ['seekbackward', (d) => seek(get().position - (d.seekOffset ?? 10))],
-    ['seekforward', (d) => seek(get().position + (d.seekOffset ?? 10))],
+    ['seekbackward', apple ? null : (d) => seek(get().position - (d.seekOffset ?? 10))],
+    ['seekforward', apple ? null : (d) => seek(get().position + (d.seekOffset ?? 10))],
   ];
   for (const [action, handler] of handlers) {
     try { ms.setActionHandler(action, handler); } catch { /* this browser does not know the action */ }
@@ -451,17 +480,30 @@ function artworkType(url: string): string | undefined {
   return ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : undefined;
 }
 
+/** The app icon, for a track without a cover: a lock screen or car display never shows a blank square. */
+const APP_ARTWORK: readonly MediaImage[] = [
+  { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+  { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+];
+
+/**
+ * A track's artwork for the Media Session, as absolute URLs. The cover
+ * endpoint (/api/v1/images/album/:id) sends one 300 px thumbnail, so it is
+ * listed at that size and the platform scales it.
+ */
+export function artworkFor(coverUrl: string | null | undefined, base: string | undefined = globalThis.location?.href): MediaImage[] {
+  const abs = (u: string) => new URL(u, base).href;
+  if (!coverUrl) return APP_ARTWORK.map((a) => ({ ...a, src: abs(a.src) }));
+  const src = abs(coverUrl);
+  const type = artworkType(src);
+  return [{ src, sizes: '300x300', ...(type ? { type } : {}) }];
+}
+
 function updateMetadata(track: QueueEntry) {
   const ms = session();
   if (!ms || typeof MediaMetadata === 'undefined') return;
   try {
-    const artwork: MediaImage[] = [];
-    if (track.coverUrl) {
-      const src = new URL(track.coverUrl, globalThis.location?.href).href;
-      const type = artworkType(src);
-      artwork.push({ src, sizes: '512x512', ...(type ? { type } : {}) });
-    }
-    ms.metadata = new MediaMetadata({ title: track.title, artist: track.artist || track.albumArtist, album: track.album, artwork });
+    ms.metadata = new MediaMetadata({ title: track.title, artist: track.artist || track.albumArtist, album: track.album, artwork: artworkFor(track.coverUrl) });
   } catch { /* metadata is a nicety */ }
 }
 
@@ -864,6 +906,16 @@ function persistSoon() {
   if (!get().queue || !claimed) return;
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => persistNow(), 800);
+}
+
+/**
+ * The page goes to the background (the phone locked, another app in front):
+ * the place is written now, as a phone may freeze or end a hidden page
+ * without a pagehide. While it plays hidden, timeupdate keeps saving it
+ * every POSITION_SAVE_MS.
+ */
+export function persistOnHide() {
+  if (get().queue && claimed) persistNow();
 }
 
 /** Leaving the page: the place it stopped is written while the page can still send. */

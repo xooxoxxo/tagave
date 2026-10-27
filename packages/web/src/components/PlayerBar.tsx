@@ -20,7 +20,7 @@ import { CoverArt, IconButton, Button, PlayIcon, PauseIcon, PreviousIcon, NextIc
 import { clock, nextPlayable, spaceTogglesPlayback } from '../player/logic';
 import { useCapabilities } from '../hooks/usePlayer';
 import {
-  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
+  clearQueue, currentTrack, enqueue, moveInQueue, next, persistOnHide, persistOnLeave, playAt, previous, removeFromQueue, restoreQueue, retry, seek, setVolume, stop, syncQueue, toggle,
   usePlayerStore, type PlayerStatus,
 } from '../player/engine';
 import { useMediaQuery, PHONE_QUERY } from '../hooks/useMediaQuery';
@@ -215,13 +215,14 @@ export function PlayerBar() {
     if (!installed) return;
     void restoreQueue();
     const look = () => { if (document.visibilityState === 'visible') void syncQueue(); };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') persistOnHide(); else look(); };
     const timer = setInterval(look, 10_000);
-    document.addEventListener('visibilitychange', look);
+    document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('focus', look);
     window.addEventListener('pagehide', persistOnLeave);
     return () => {
       clearInterval(timer);
-      document.removeEventListener('visibilitychange', look);
+      document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', look);
       window.removeEventListener('pagehide', persistOnLeave);
     };
