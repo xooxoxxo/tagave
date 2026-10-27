@@ -34,6 +34,11 @@ export {
   pickByChipRule,
   evaluateAutoAccept,
   rulesFromStored,
+  buildAlbumEvidence,
+  buildCandidateEvidence,
+  evidenceHash,
+  stableJson,
+  EVIDENCE_VERSION,
 } from './matching/index.js';
 
 export type {
@@ -47,6 +52,17 @@ export type {
   Assignment,
   RuleCandidate,
   AutoAcceptDecision,
+  TitleSource,
+  YearSource,
+  LocalTrackEvidence,
+  AlbumEvidence,
+  RemoteFacts,
+  RemoteTrack,
+  AlignTriple,
+  CandidateEvidence,
+  AlbumEvidenceInput,
+  RemoteInput,
+  EvidenceCandidate,
 } from './matching/index.js';
 
 // Matching types (re-exported for convenience)
