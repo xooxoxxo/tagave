@@ -68,11 +68,18 @@ export async function scopeHoldState(ctx: Pick<WorkerContext, 'sql'>, fileIds: s
   return (r!['any'] as number) > 0 ? 'expired' : 'none';
 }
 
-/** Every held row of a root; `parsed` means its tags were read or parsing failed. */
-export async function heldRows(ctx: Pick<WorkerContext, 'sql'>, scanRootId: string): Promise<Array<{ id: string; dir: string; parsed: boolean; heldAt: Date }>> {
+/**
+ * The held rows of a root, only those directly in `dirs` when given (a parse
+ * job touches a few folders; a root can hold thousands of rows elsewhere).
+ * `parsed` means its tags were read or parsing failed.
+ */
+export async function heldRows(
+  ctx: Pick<WorkerContext, 'sql'>, scanRootId: string, dirs?: string[],
+): Promise<Array<{ id: string; dir: string; parsed: boolean; heldAt: Date }>> {
   const rows = await ctx.sql`
-    select id, rel_path, (tags_read_at is not null or status = 'error') as parsed, reconcile_hold_at
-      from audio_files where scan_root_id = ${scanRootId} and reconcile_hold_at is not null`;
+    select af.id, af.rel_path, (af.tags_read_at is not null or af.status = 'error') as parsed, af.reconcile_hold_at
+      from audio_files af where af.scan_root_id = ${scanRootId} and af.reconcile_hold_at is not null
+       ${dirs ? ctx.sql`and ${ctx.sql.unsafe(sqlDirname('af'))} = any(${dirs}::text[])` : ctx.sql``}`;
   // The shared client reads timestamptz as text.
   return rows.map((r) => ({
     id: r['id'] as string, dir: relDirname(r['rel_path'] as string), parsed: r['parsed'] as boolean,
@@ -98,7 +105,7 @@ export async function releaseDirHolds(
   ctx: WorkerContext, libraryId: string, scanRootId: string, dirs: string[], opts: { atCap?: boolean } = {},
 ): Promise<DirRelease> {
   const wanted = new Set(dirs);
-  const held = (await heldRows(ctx, scanRootId)).filter((h) => wanted.has(h.dir));
+  const held = (await heldRows(ctx, scanRootId, dirs)).filter((h) => wanted.has(h.dir));
   if (held.length === 0) return { released: 0, reclusterDirs: [], deferred: false };
   const parsedIds = held.filter((h) => h.parsed).map((h) => h.id);
   let rec: Awaited<ReturnType<typeof reconcileTier2>>;
@@ -156,7 +163,7 @@ export async function releaseReadyHolds(ctx: WorkerContext, touched: Array<{ lib
   }
   for (const [scanRootId, { libraryId, dirs }] of byRoot) {
     const pending = new Map<string, boolean>(); // dir -> every held row parsed
-    for (const h of await heldRows(ctx, scanRootId)) {
+    for (const h of await heldRows(ctx, scanRootId, [...dirs])) {
       if (!dirs.has(h.dir)) continue;
       pending.set(h.dir, (pending.get(h.dir) ?? true) && h.parsed);
     }

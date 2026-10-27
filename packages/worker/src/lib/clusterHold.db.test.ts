@@ -9,7 +9,7 @@ import pino from 'pino';
 import { PgBoss } from 'pg-boss';
 import { makeDb } from '@tagave/db';
 import type { WorkerContext } from './context.js';
-import { placeHolds, scopeHoldState, releaseReadyHolds, releaseExpiredHolds } from './clusterHold.js';
+import { placeHolds, scopeHoldState, releaseReadyHolds, releaseExpiredHolds, heldRows } from './clusterHold.js';
 import { clusterDirJob } from '../jobs/clusterDir.js';
 import { scanParseJob } from '../jobs/scanParse.js';
 import { clusterSingletonKey } from './helpers.js';
@@ -52,6 +52,18 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('cluster holds (db)', () => {
     const other = await file('New/2.flac', { size_bytes: 501 });
     expect(await placeHolds(ctx, [twin, other])).toEqual([twin]);
     expect(await scopeHoldState(ctx, [twin, other])).toBe('held');
+  });
+
+  it('loads only the held rows of the folders asked for', async () => {
+    await file('Old/1.flac', { status: 'missing', last_seen_at: new Date(Date.now() - 86_400_000).toISOString() });
+    const inNew = await file('New/1.flac');
+    const inOther = await file('Other/1.flac');
+    const deeper = await file('New/Sub/1.flac');
+    const top = await file('1.flac');
+    await placeHolds(ctx, [inNew, inOther, deeper, top]);
+    expect((await heldRows(ctx, rootId, ['New'])).map((h) => h.id)).toEqual([inNew]);
+    expect((await heldRows(ctx, rootId, [''])).map((h) => h.id)).toEqual([top]);
+    expect((await heldRows(ctx, rootId)).map((h) => h.id).sort()).toEqual([inNew, inOther, deeper, top].sort());
   });
 
   it('cluster.dir leaves a held folder alone', async () => {
