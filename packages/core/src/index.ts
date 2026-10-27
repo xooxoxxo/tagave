@@ -219,12 +219,14 @@ export {
   type ArtistRow, type ArtistSort, type ArtistGroupCount, type OrderedArtists, type ArtistPositions,
 } from './artistList.js';
 
-// Deciders: tracklist groups, the hashed Jev question spec, the decision and the edition pick
+// Deciders: tracklist groups, the hashed Jev question spec, the Jev request, the decision and the edition pick
 export {
   GROUPING_DEFAULTS, groupTracklists, fits, hasWildcards, countsKey, groupLabel,
   JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities, pickEdition,
+  buildJevRequest, requestBytes, questionName, NotSendableError,
 } from './decider/index.js';
 export type {
   GroupingCandidate, GroupingOptions, TracklistGroup, JevSpec, BandId, JevDecision, EditionChoice,
   Decider, DeciderInput, DeciderAnswer,
+  JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack,
 } from './decider/index.js';

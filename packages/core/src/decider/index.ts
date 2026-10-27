@@ -3,6 +3,8 @@ export { GROUPING_DEFAULTS, groupTracklists, fits, hasWildcards, countsKey, grou
 export type { GroupingCandidate, GroupingOptions, TracklistGroup } from './grouping.js';
 export { JEV_SPEC, jevSpecHash, bandOf, decideFromProbabilities } from './jevSpec.js';
 export type { JevSpec, BandId, JevDecision } from './jevSpec.js';
+export { buildJevRequest, requestBytes, questionName, NotSendableError } from './jevPayload.js';
+export type { JevRequest, JevState, JevQuestion, JevTracklist, JevEdition, JevLocalTrack } from './jevPayload.js';
 export { pickEdition } from './pickEdition.js';
 export type { EditionChoice } from './pickEdition.js';
 export type { Decider, DeciderInput, DeciderAnswer } from './types.js';
