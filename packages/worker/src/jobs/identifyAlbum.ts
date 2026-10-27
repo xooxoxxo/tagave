@@ -299,7 +299,14 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
     await notifyQueueChanged(ctx, album.libraryId, album.id, state);
     return { outcome: state, message: GIVE_UP_MESSAGE[reason] };
   };
-  if (!pinned && (!album.titleGuess || !album.artistGuess)) {
+  // Without an artist the search runs on the title alone: an album of
+  // untagged files is titled after its folder, and a folder named for the
+  // album can still be found. Without a title there is nothing to search
+  // with, unless fingerprints already named releases. Either way a search
+  // that finds nothing gives up as no_tags, the reason the fingerprint
+  // sweep takes first.
+  const noTags = !album.titleGuess || !album.artistGuess;
+  if (!pinned && !album.titleGuess && !(data.acoustidMbids?.length)) {
     return giveUp('no_tags');
   }
 
@@ -342,7 +349,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   // search needs a token: without one Discogs is not asked (and not counted
   // as tried) — it would answer 401 and spend the shared Discogs slot.
   const discogsPass = async () => {
-    if (!p.discogs.authenticated) return;
+    if (!p.discogs.authenticated || !album.titleGuess || !album.artistGuess) return;
     try {
       const hits = await discogsSearch(ctx, p, {
         albumTitle: album.titleGuess as string,
@@ -448,14 +455,14 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
 
     // MusicBrainz cascade: when nothing was found or the fast path was weak.
     const needMb = fetched.length === 0 || fastPathWeak;
-    if (!pinned && needMb) {
+    if (!pinned && needMb && album.titleGuess) {
       // Cascade: exact artist phrase often misses (credit variations), so a
       // title-only pass follows and the scorer judges artist distance.
-      let found = await mbSearch(ctx, p, {
-        albumTitle: album.titleGuess as string,
-        artistName: album.artistGuess as string,
+      let found = album.artistGuess ? await mbSearch(ctx, p, {
+        albumTitle: album.titleGuess,
+        artistName: album.artistGuess,
         ...(embedded.barcode ? { barcode: embedded.barcode } : {}),
-      });
+      }) : [];
       if (found.length === 0) {
         found = await mbSearch(ctx, p, { albumTitle: album.titleGuess as string });
       }
@@ -496,7 +503,7 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
 
   if (fetched.length === 0) {
     if (pinned) return { outcome: 'failed', message: 'That release could not be compared with your files (its tracklist is too large).' };
-    return giveUp('no_candidates');
+    return giveUp(noTags ? 'no_tags' : 'no_candidates');
   }
 
   // Score (IDN-2).
