@@ -14,18 +14,24 @@ import type { EvidenceBackfillResult } from './evidenceBackfill.js';
 
 // A release titled BOOM makes the evidence builder throw, the way it does on
 // an alignment that does not fit the tracklists.
+// A release titled NOT_A_NUMBER scores a distance that is not a number.
 const BOOM = 'Boom Album';
+const NOT_A_NUMBER = 'NaN Album';
 vi.mock('@tagave/core', async (importOriginal) => {
   const core = await importOriginal<typeof import('@tagave/core')>();
   return {
     ...core,
+    scoreCandidates: (...args: Parameters<typeof core.scoreCandidates>) =>
+      core.scoreCandidates(...args).map((s) => (s.title === NOT_A_NUMBER ? { ...s, distance: Number.NaN } : s)),
     buildCandidateEvidence: (...args: Parameters<typeof core.buildCandidateEvidence>) => {
       if (args[0].title === BOOM) throw new RangeError('evidence: test failure');
       return core.buildCandidateEvidence(...args);
     },
   };
 });
-const { evidenceBackfillJob } = await import('./evidenceBackfill.js');
+const { evidenceBackfillJob, planAlbumRebuild, writeAlbumRebuild, EvidenceRebuildConflict } = await import('./evidenceBackfill.js');
+const { localViewOf } = await import('./identifyAlbum.js');
+const { upsertAlbumEvidence } = await import('../lib/evidenceStore.js');
 
 const TITLES = ['Ilta', 'Aamu'];
 const STALE = '0.9999';
@@ -61,11 +67,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('evidence.backfill (db)', () => 
     return id;
   }
   /** a stored release; `tracks: false` leaves out its tracklist (never stored) */
-  async function release(tracks = true): Promise<string> {
-    const [rg] = await client`insert into release_groups (mbid, title, artist_credit) values (${randomUUID()}, 'Backfill Album', '["Backfill Artist"]'::jsonb) returning id`;
+  async function release(tracks = true, title = 'Backfill Album'): Promise<string> {
+    const [rg] = await client`insert into release_groups (mbid, title, artist_credit) values (${randomUUID()}, ${title}, '["Backfill Artist"]'::jsonb) returning id`;
     groups.push(rg.id);
     const [rel] = await client`insert into releases (release_group_id, mbid, title, status, track_count, labels, source_of_truth)
-                               values (${rg.id}, ${randomUUID()}, 'Backfill Album', 'Official', 2, '[{"name":"Label Oy","catalogNumber":"LBL 1"}]'::jsonb, 'musicbrainz')
+                               values (${rg.id}, ${randomUUID()}, ${title}, 'Official', 2, '[{"name":"Label Oy","catalogNumber":"LBL 1"}]'::jsonb, 'musicbrainz')
                                returning id`;
     if (tracks) {
       for (const [i, title] of TITLES.entries()) {
@@ -225,5 +231,64 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('evidence.backfill (db)', () => 
     const [b] = await client`select evidence from match_candidates where local_album_id = ${bad}`;
     expect(b.evidence).toBeNull();
     expect(await client`select 1 from album_evidence where local_album_id = ${bad}`).toHaveLength(0);
+  });
+
+  /** the album evidence the album's current tracks give, stored as identification would have */
+  async function currentAlbumEvidence(albumId: string): Promise<void> {
+    const [a] = await db.select().from(localAlbums).where(eq(localAlbums.id, albumId));
+    const tracks = await db.select().from(localTracks).where(eq(localTracks.localAlbumId, albumId));
+    await upsertAlbumEvidence(client, albumId, (await localViewOf(ctx, a, tracks)).albumEvidence);
+  }
+
+  it('leaves a candidate that holds current evidence as it is and fills in the one without', async () => {
+    const albumG = await album('needs_review');
+    await currentAlbumEvidence(albumG);
+    const held = await release();
+    const bare = await release();
+    const marker = JSON.stringify({ v: 1, fromProvider: true });
+    await client`insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence)
+                 values (${albumG}, ${held}, 0.1234, '{}'::jsonb, 'user_mbid', ${marker}::text::jsonb)`;
+    await candidate(albumG, bare);
+    await evidenceBackfillJob(ctx, { libraryId: lib });
+    const [h] = await client`select evidence, distance::text from match_candidates where local_album_id = ${albumG} and release_id = ${held}`;
+    expect(h).toEqual({ evidence: { v: 1, fromProvider: true }, distance: '0.1234' });
+    const [b] = await client`select evidence, distance::text from match_candidates where local_album_id = ${albumG} and release_id = ${bare}`;
+    expect(b.evidence.v).toBe(1);
+    expect(b.distance).not.toBe(STALE);
+  });
+
+  it('a rebuild whose candidates were replaced after it read them writes nothing', async () => {
+    const albumH = await album('needs_review');
+    await candidate(albumH, await release());
+    const plan = await planAlbumRebuild(ctx, albumH);
+    expect(plan.kind).toBe('write');
+    // an identification replaces the candidates meanwhile (new rows, new ids)
+    await client`with gone as (delete from match_candidates where local_album_id = ${albumH} returning release_id, distance, breakdown, source)
+                 insert into match_candidates (local_album_id, release_id, distance, breakdown, source)
+                 select ${albumH}, release_id, distance, breakdown, source from gone`;
+    await expect(writeAlbumRebuild(ctx, plan as Extract<typeof plan, { kind: 'write' }>)).rejects.toBeInstanceOf(EvidenceRebuildConflict);
+    const rows = await client`select evidence, distance::text from match_candidates where local_album_id = ${albumH}`;
+    expect(rows).toEqual([{ evidence: null, distance: STALE }]);
+    expect(await client`select 1 from album_evidence where local_album_id = ${albumH}`).toHaveLength(0);
+  });
+
+  it('a rebuild whose album evidence changed after it read it writes nothing', async () => {
+    const albumI = await album('needs_review');
+    await candidate(albumI, await release());
+    const plan = await planAlbumRebuild(ctx, albumI);
+    await currentAlbumEvidence(albumI); // a pasted edition wrote the album evidence meanwhile
+    const [before] = await client`select updated_at::text from album_evidence where local_album_id = ${albumI}`;
+    await expect(writeAlbumRebuild(ctx, plan as Extract<typeof plan, { kind: 'write' }>)).rejects.toBeInstanceOf(EvidenceRebuildConflict);
+    expect((await client`select evidence from match_candidates where local_album_id = ${albumI}`)[0].evidence).toBeNull();
+    expect((await client`select updated_at::text from album_evidence where local_album_id = ${albumI}`)[0]).toEqual(before);
+  });
+
+  it('a distance that is not a number fails the album before anything is written', async () => {
+    const albumJ = await album('needs_review');
+    await candidate(albumJ, await release(true, NOT_A_NUMBER));
+    await expect(planAlbumRebuild(ctx, albumJ)).rejects.toThrow(RangeError);
+    const r = await evidenceBackfillJob(ctx, { libraryId: lib });
+    expect(r.failed).toBeGreaterThanOrEqual(1);
+    expect((await client`select evidence from match_candidates where local_album_id = ${albumJ}`)[0].evidence).toBeNull();
   });
 });

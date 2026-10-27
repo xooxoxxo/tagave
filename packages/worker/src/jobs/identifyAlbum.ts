@@ -1,6 +1,6 @@
 import { eq, inArray } from 'drizzle-orm';
 import {
-  albumMatches, files, localAlbums, localTracks, releases,
+  albumEvidenceLock, albumMatches, files, localAlbums, localTracks, releases,
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
@@ -582,6 +582,8 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
   // its own: a re-identification leaves them; revoking the link removes them.
   await ctx.sql.begin(async (tx) => {
+    // the album's evidence lock: an evidence rebuild never interleaves with this
+    await tx`select pg_advisory_xact_lock(hashtextextended(${albumEvidenceLock(album.id)}, 0))`;
     await tx`delete from match_candidates where local_album_id = ${album.id} and source not like 'mc:%'`;
     if (rows.length > 0) {
       await tx`

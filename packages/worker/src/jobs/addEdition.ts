@@ -9,7 +9,7 @@
  * screen: the new candidate's id, or a sentence saying why there is none.
  */
 import { eq } from 'drizzle-orm';
-import { localAlbums, localTracks } from '@tagave/db';
+import { albumEvidenceLock, localAlbums, localTracks } from '@tagave/db';
 import { scoreCandidates, buildCandidateEvidence, stableJson, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
@@ -90,6 +90,7 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   const source = t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs';
   // The candidate and the album evidence it was scored against change together.
   const written = await ctx.sql.begin(async (tx) => {
+    await tx`select pg_advisory_xact_lock(hashtextextended(${albumEvidenceLock(album.id)}, 0))`;
     // When the album's own side changed since its candidates were scored (its
     // tracks were re-read without a re-identification), their evidence
     // points at tracks the album no longer has: it is dropped here and
