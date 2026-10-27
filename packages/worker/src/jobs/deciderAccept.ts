@@ -158,7 +158,7 @@ export async function runAcceptBatch(ctx: WorkerContext, batchId: string, attemp
     return result;
   } catch (err) {
     if (!failureRecorded) {
-      const message = (err as Error).message;
+      const message = err instanceof Error ? err.message : String(err);
       // best effort: the error that stopped the run is the one to rethrow
       try {
         await reportProgress(ctx, runId, { ...progress, state: 'failed', done: done(), total, error: message });
