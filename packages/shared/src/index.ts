@@ -534,3 +534,7 @@ export {
   type ListenLinksModuleView,
   listenLinksModuleSchema,
 } from './listenLinks.js';
+
+// The play queue per person (player module) and playlists (their own module)
+export * from './playQueue.js';
+export * from './playlists.js';

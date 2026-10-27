@@ -42,6 +42,8 @@ import { createMcConnectionRoutes } from './routes/mcConnections.js';
 import { createMcWantlistRoutes } from './routes/mcWantlist.js';
 import { createFacetRoutes } from './routes/facets.js';
 import { createListenLinksRoutes } from './routes/listenLinks.js';
+import { createPlayerQueueRoutes } from './routes/playerQueue.js';
+import { createPlaylistRoutes } from './routes/playlists.js';
 import { applyBackupSchedule, type BackupService } from './lib/backupService.js';
 import { getBoss } from './boss.js';
 import { authMiddleware } from './middleware/auth.js';
@@ -181,5 +183,9 @@ export async function registerApiRoutes(app: FastifyInstance, deps: ApiRouteDeps
     instance.register(createFacetRoutes, { prefix: '/api/v1' });
     // Listen elsewhere: links to streaming platforms, each person's platforms, the module row
     instance.register(createListenLinksRoutes, { prefix: '/api/v1' });
+    // The play queue per person (follows them across devices) and their history
+    instance.register(createPlayerQueueRoutes, { prefix: '/api/v1' });
+    // Playlists: each person's own lists, export and import, the module row
+    instance.register(createPlaylistRoutes, { prefix: '/api/v1' });
   });
 }

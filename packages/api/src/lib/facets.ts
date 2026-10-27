@@ -9,7 +9,7 @@
  */
 import type postgres from 'postgres';
 import { createFacets, registry, relayOf, type FacetContext, type FacetReader, type FacetValue } from '@tagave/core/facets';
-import { listenLinksEnabled, mcEnabled } from '@tagave/db';
+import { listenLinksEnabled, mcEnabled, playlistsEnabled } from '@tagave/db';
 import { httpOnly, type CriticScore } from '@tagave/shared';
 
 type Sql = postgres.Sql;
@@ -68,7 +68,7 @@ function readers(sql: Sql): Record<string, Partial<Record<string, FacetReader>>>
 /** The caller's view: the module switches, their library and person. */
 export async function facetContext(sql: Sql, who: { userId: string | null; libraryId: string | null }): Promise<FacetContext> {
   return {
-    settings: { mcEnabled: await mcEnabled(sql), listenLinksEnabled: await listenLinksEnabled(sql) },
+    settings: { mcEnabled: await mcEnabled(sql), listenLinksEnabled: await listenLinksEnabled(sql), playlistsEnabled: await playlistsEnabled(sql) },
     playerUrl: process.env['TAGAVE_PLAYER_URL'] || null,
     libraryId: who.libraryId,
     userId: who.userId,

@@ -70,7 +70,7 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
       select column_name, data_type from information_schema.columns
        where table_name = 'users' order by column_name`;
 
-    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql', '0045_player_retired_accounts.sql', '0046_cover_thumbs.sql', '0047_music_connections_oauth.sql', '0048_mc_changes.sql', '0049_mc_links.sql', '0050_mc_landing.sql', '0051_library_settings_object.sql', '0054_listen_links.sql']);
+    expect(await migrateAll(db.url)).toEqual(['0035_perf_indexes_artist_list.sql', '0036_better_auth.sql', '0037_tag_plan_archive.sql', '0038_auto_accept_rules.sql', '0039_auth_step_up.sql', '0040_artist_tag_albums.sql', '0041_player.sql', '0042_tagave_names.sql', '0043_users_roles.sql', '0044_player_people.sql', '0045_player_retired_accounts.sql', '0046_cover_thumbs.sql', '0047_music_connections_oauth.sql', '0048_mc_changes.sql', '0049_mc_links.sql', '0050_mc_landing.sql', '0051_library_settings_object.sql', '0054_listen_links.sql', '0055_player_queue_state.sql', '0056_playlists.sql']);
     handle = testAuth(db.url);
     app = await buildAuthApp(handle);
   });
@@ -92,7 +92,8 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     // 0048: the facet change log; 0049: Music Connections links
     // and authorizations in flight, tagave as a client; 0050: who confirmed a
     // gap fill, and the person of each landed Music Connections row; 0054: each
-    // person's Listen elsewhere platforms).
+    // person's Listen elsewhere platforms; 0055: each person's play queue;
+    // 0056: each person's playlists).
     const fksAfter = await fkQuery();
     const key = (f: any) => `${f.table_name}.${f.conname}`;
     const before = new Set(fksBefore.map(key));
@@ -101,8 +102,8 @@ describe.skipIf(!url)('auth upgrade: zero lockout (integration)', () => {
     expect(fksAfter.find((f: any) => key(f) === restricted)?.def).toBe('FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE RESTRICT');
     expect(fksAfter.filter((f: any) => !before.has(key(f))).map((f: any) => f.table_name)).toEqual([
       'facet_changes', 'identity_fills', 'listen_prefs', 'mc_critic_scores', 'mc_identity', 'mc_links', 'mc_oauth_requests', 'mc_oauth_tokens', 'mc_pending', 'mc_wantlist_suggestions',
-      'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_rating_sync', 'player_song_counts', 'player_users',
-      'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites',
+      'player_events', 'player_listens', 'player_plays', 'player_poll_state', 'player_queue_state', 'player_rating_sync', 'player_song_counts', 'player_users',
+      'playlists', 'saved_views', 'scrobble_accounts', 'user_invites', 'user_invites',
     ]);
     const [owner] = await sql`select id, display_name, password_hash, role, created_at from users where id = ${ownerId}`;
     expect(owner).toMatchObject({ id: ownerId, display_name: 'Owner', password_hash: ownerHash, role: 'owner' });

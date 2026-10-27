@@ -14,7 +14,7 @@
  * deletes nothing (it is idempotent). It refuses while the module is still
  * configured in this process's environment.
  *
- * The player: its rows are the tables of migrations 0041, 0044 and 0045
+ * The player: its rows are the tables of migrations 0041, 0044, 0045 and 0055 (the queue)
  * (song ids on the server, play events, plays, album listens made from
  * plays, scrobbles, play counts, poll state, ratings pushed, accounts on the
  * server, retired accounts, scan requests) and scrobble_accounts. Last.fm
@@ -31,7 +31,7 @@
  * of their own, the Last.fm API key); only the player's scan status goes.
  */
 import type postgres from 'postgres';
-import { LISTEN_LINKS_TABLES, listenLinksEnabled } from '@tagave/db';
+import { LISTEN_LINKS_TABLES, PLAYLISTS_TABLES, listenLinksEnabled, playlistsEnabled } from '@tagave/db';
 
 type Sql = postgres.Sql;
 
@@ -83,6 +83,7 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
       'player_track_map',
       'player_song_counts',
       'player_poll_state',
+      'player_queue_state',
       'player_rating_sync',
       'player_users',
       'player_retired_accounts',
@@ -106,6 +107,8 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
         player_track_map: `server_key = ${BUNDLED}`,
         player_song_counts: `server_key = ${BUNDLED}`,
         player_poll_state: `server_key = ${BUNDLED}`,
+        // the queue is the person's, whichever server plays it: kept while one still does
+        player_queue_state: null,
         player_rating_sync: BUNDLED_OR_UNSERVED,
         player_users: `server_key = ${BUNDLED}`,
         player_retired_accounts: `server_key = ${BUNDLED}`,
@@ -125,6 +128,17 @@ export const MODULE_DATA: Readonly<Record<string, ModuleData>> = {
     history: null,
     onWhenEnv: [],
     onWhenSettings: (sql) => listenLinksEnabled(sql),
+  },
+  // Playlists (migration 0056): each person's lists and their tracks. No
+  // history in the core; its switch is the owner's setting and stays. The
+  // same tables as Settings › Modules' "Delete its data" (api ›
+  // routes/playlists.ts, @tagave/db removePlaylistsData).
+  playlists: {
+    tables: [...PLAYLISTS_TABLES],
+    librarySettingsKeys: [],
+    history: null,
+    onWhenEnv: [],
+    onWhenSettings: (sql) => playlistsEnabled(sql),
   },
 };
 

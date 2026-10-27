@@ -282,6 +282,8 @@ export interface AlbumRow {
   release_mbid: string | null;
   embedded_mbid: string | null;
   has_art: boolean;
+  /** the release's year, else the one read from the files */
+  year: number | null;
 }
 
 export async function albumById(sql: Sql, albumId: string): Promise<AlbumRow | null> {
@@ -289,7 +291,8 @@ export async function albumById(sql: Sql, albumId: string): Promise<AlbumRow | n
   const rows = await sql<AlbumRow[]>`
     select la.id, la.library_id, la.title_guess, la.artist_guess, la.release_id, la.release_group_id,
            r.title as release_title, r.mbid as release_mbid, la.embedded_mbid,
-           exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front') as has_art
+           exists (select 1 from images i where i.local_album_id = la.id and i.kind = 'front') as has_art,
+           coalesce(extract(year from r.date)::int, la.year_guess) as year
     from local_albums la
     left join releases r on r.id = la.release_id
     where la.id = ${albumId}`;
@@ -450,6 +453,7 @@ export async function albumQueue(deps: QueueDeps, backend: PlayerBackend, album:
     albumArtist,
     artists: artists.map((a) => ({ id: a.id, name: a.name })),
     coverUrl: album.has_art ? `/api/v1/images/album/${album.id}` : null,
+    year: album.year ?? null,
     tracks,
     scanRequested,
     scan,

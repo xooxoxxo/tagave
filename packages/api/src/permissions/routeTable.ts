@@ -55,6 +55,17 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   // Settings › Listen elsewhere (routes/listenLinks.ts): each person's own platforms.
   'GET /api/v1/me/listen-links': 'self',
   'PUT /api/v1/me/listen-links': 'self',
+  // Playlists (routes/playlists.ts): each person's own lists; every handler filters by request.user.id.
+  'GET /api/v1/me/playlists': 'catalog.read',
+  'POST /api/v1/me/playlists': 'catalog.read',
+  'GET /api/v1/me/playlists/export': 'catalog.read',
+  'POST /api/v1/me/playlists/import': 'catalog.read',
+  'GET /api/v1/me/playlists/:id': 'catalog.read',
+  'PATCH /api/v1/me/playlists/:id': 'catalog.read',
+  'DELETE /api/v1/me/playlists/:id': 'catalog.read',
+  'POST /api/v1/me/playlists/:id/items': 'catalog.read',
+  'DELETE /api/v1/me/playlists/:id/items/:itemId': 'catalog.read',
+  'GET /api/v1/me/playlists/:id/export': 'catalog.read',
   // catalog.read: Listener and up: the catalogue, and the caller's own reviews, listens, clippings and saved views (the handlers filter by request.user.id).
   'DELETE /api/v1/clippings/:clippingId': 'catalog.read',
   'GET /api/v1/images/album/:albumId': 'catalog.read',
@@ -96,6 +107,13 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/libraries/:libraryId/player/scan-status': 'player.use',
   'POST /api/v1/player/events': 'player.use',
   'GET /api/v1/player/stream/:localTrackId': 'player.use',
+  // The play queue per person and their history (routes/playerQueue.ts): the handlers filter by request.user.id.
+  'POST /api/v1/player/tracks': 'player.use',
+  'GET /api/v1/me/player/queue': 'player.use',
+  'GET /api/v1/me/player/queue/stamp': 'player.use',
+  'PUT /api/v1/me/player/queue': 'player.use',
+  'DELETE /api/v1/me/player/queue': 'player.use',
+  'GET /api/v1/me/player/history': 'player.use',
   // library.edit: Editor and up: library care, tag changes, identify and matching, scans, jobs, gaps, collection upkeep, follows.
   'POST /api/v1/albums/:albumId/as-is': 'library.edit',
   'POST /api/v1/albums/:albumId/editions': 'library.edit',
@@ -215,6 +233,11 @@ export const ROUTE_PERMISSIONS: Readonly<Record<string, RoutePermission>> = {
   'GET /api/v1/settings/listen-links': 'system.manage',
   'PUT /api/v1/settings/listen-links': 'system.manage',
   'POST /api/v1/settings/listen-links/remove-data': 'system.manage',
+  // Settings › Modules, the Playlists row (routes/playlists.ts): owner; switching and deleting need a fresh step-up.
+  'GET /api/v1/settings/playlists': 'system.manage',
+  'PUT /api/v1/settings/playlists': 'system.manage',
+  'GET /api/v1/settings/playlists/export': 'system.manage',
+  'POST /api/v1/settings/playlists/remove-data': 'system.manage',
   'GET /api/v1/storage': 'system.manage',
   'GET /api/v1/storage/tag-changes': 'system.manage',
   'POST /api/v1/storage/tag-changes/cleanup': 'system.manage',

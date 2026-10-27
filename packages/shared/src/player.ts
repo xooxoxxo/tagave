@@ -100,6 +100,8 @@ export interface PlayerQueueView {
   artists?: Array<{ id: string; name: string }>;
   /** tagave's own cover art, the same URL the album page uses */
   coverUrl: string | null;
+  /** the release year, when known (absent from an older API) */
+  year?: number | null;
   /** disc, then track order; unavailable tracks are included (the UI skips them) */
   tracks: PlayerQueueTrack[];
   /** some files were not on the server yet, so tagave asked it to scan */
