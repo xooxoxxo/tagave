@@ -33,7 +33,7 @@ import { createScratchDb, migrateAll, migrateUpTo, migrationsBefore } from '../t
 const url = process.env.TEST_DATABASE_URL;
 const STEP2 = ['0065_installed_modules.sql', '0066_migrations_by_module.sql', '0067_filter_counts_rename.sql'];
 /** What later steps add on top (step 3, the Books spike: libraries.app and the books app's own chain). */
-const AFTER_STEP2 = ['0068_libraries_app.sql', 'books/0001_books.sql'];
+const AFTER_STEP2 = ['0072_libraries_app.sql', 'books/0001_books.sql'];
 
 /** A database as 0.15 left it: the ledger in its old shape, migrated to 0059. */
 async function oldInstall(admin: postgres.Sql): Promise<{ url: string; name: string }> {
@@ -153,7 +153,7 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
 
   it('every ledger row is the core’s, keyed (module, name)', async () => {
     const rows = await sql`select module, name from _migrations where module = 'core' order by name`;
-    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...STEP2, '0068_libraries_app.sql']);
+    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...STEP2, '0072_libraries_app.sql']);
     // a later step's app chain records its own rows, (books, <file>)
     expect([...(await sql`select module, name from _migrations where module <> 'core'`)]).toEqual([{ module: 'books', name: '0001_books.sql' }]);
     expect(await readLedger(sql)).toEqual([...before.ledger, ...STEP2, ...AFTER_STEP2]);
