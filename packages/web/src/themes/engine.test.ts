@@ -38,7 +38,7 @@ describe('theme engine', () => {
         for (const p of generate(spec, dark).pairs) expect(p.ratio, `${JSON.stringify(spec)} ${dark ? 'dark' : 'light'} ${p.name}`).toBeGreaterThanOrEqual(p.min);
       }
     }
-  });
+  }, 30_000); // hundreds of seeds: CI runners are slower than a laptop
 
   it('reports the lowest ratios', () => {
     const m = minRatios(STARTERS.moody, true);
