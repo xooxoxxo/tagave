@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
-import { listenLinksEnabled, moduleEnabled, setListenLinksEnabled, setModuleEnabled, setModuleSettings, syncInstalledModules } from '@tagave/db';
+import { listenLinksEnabled, moduleEnabled, runMigrations, setListenLinksEnabled, setModuleEnabled, setModuleSettings, syncInstalledModules } from '@tagave/db';
 import { AUTOTAGGER_MODULE, ledgerEntries } from '@tagave/core/facets';
 import { MODULE_DATA, purgeModuleData } from './modulePurge.js';
 
@@ -156,29 +156,38 @@ describe.skipIf(!url || !existsSync(cli))('purge-module listen-links (integratio
   }, 20_000); // three CLI spawns
 });
 
-describe.skipIf(!url)('purge-module autotagger', () => {
+/**
+ * On a database of its own, migrated in full and synced as a boot does: the
+ * tests switch the module on and empty its whole tables, which on the shared
+ * test database would clash with other packages' suites running at the same
+ * time.
+ */
+describe.skipIf(!url)('purge-module autotagger (scratch db)', () => {
+  let admin: ReturnType<typeof postgres>;
   let sql: ReturnType<typeof postgres>;
+  const name = `tagave_purgeattest_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
   const user = randomUUID();
   const lib = randomUUID();
   const album = randomUUID();
-  let was = false;
 
   beforeAll(async () => {
-    sql = postgres(url!, { max: 1, onnotice: () => undefined });
-    // the row a boot makes for it (a database `pnpm migrate` made has 0065's rows only)
+    admin = postgres(url!, { max: 1, onnotice: () => undefined });
+    await admin.unsafe(`create database ${name}`);
+    const u = new URL(url!);
+    u.pathname = `/${name}`;
+    await runMigrations(u.toString(), { log: () => undefined });
+    sql = postgres(u.toString(), { max: 1, onnotice: () => undefined });
     await syncInstalledModules(sql, ledgerEntries());
-    was = await moduleEnabled(sql, 'autotagger');
+    expect(await moduleEnabled(sql, 'autotagger')).toBe(false);
     await sql`insert into users (id, email, password_hash) values (${user}, ${`purge-at-${user}@t.com`}, 'x')`;
     await sql`insert into libraries (id, owner_user_id, name) values (${lib}, ${user}, 'Purge autotagger')`;
     await sql`insert into local_albums (id, library_id, cluster_key, state) values (${album}, ${lib}, ${`k-purge-at-${album}`}, 'needs_review')`;
-  });
+  }, 120_000);
 
   afterAll(async () => {
-    await setModuleEnabled(sql, 'autotagger', was);
-    await sql`delete from decider_batches where library_id = ${lib}`;
-    await sql`delete from libraries where id = ${lib}`;
-    await sql`delete from users where id = ${user}`;
-    await sql.end({ timeout: 2 });
+    await sql?.end({ timeout: 2 });
+    await admin?.unsafe(`drop database if exists ${name} with (force)`).catch(() => undefined);
+    await admin?.end({ timeout: 2 });
   });
 
   it('is built from its manifest: its six tables, nothing in libraries.settings', () => {
@@ -193,6 +202,7 @@ describe.skipIf(!url)('purge-module autotagger', () => {
       expect(await sql`select 1 from decider_prices where decider_id = 'jev-refuse'`).toHaveLength(1);
     } finally {
       await setModuleEnabled(sql, 'autotagger', false);
+      await sql`delete from decider_prices where decider_id = 'jev-refuse'`;
     }
   });
 

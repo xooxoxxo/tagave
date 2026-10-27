@@ -106,9 +106,24 @@ export async function setAutotaggerConfig(
   return withDefaults(asObject(row?.config));
 }
 
-/** Delete the module's data: exactly its rows, in one transaction. Idempotent. */
+/** Deleting the module's data while it is on: refused, nothing deleted. */
+export class AutotaggerStillOnError extends Error {
+  constructor() {
+    super(`${AUTOTAGGER_MODULE_ID} is still on here (Settings › Modules); turn it off first`);
+    this.name = 'AutotaggerStillOnError';
+  }
+}
+
+/**
+ * Delete the module's data: exactly its rows, in one transaction. Idempotent.
+ * Refused while the module is on (AutotaggerStillOnError). The ledger row is
+ * locked for the check, so it cannot be turned on between the check and the
+ * deletes; a missing row reads off.
+ */
 export async function removeAutotaggerData(sql: Sql): Promise<Record<(typeof AUTOTAGGER_TABLES)[number], number>> {
   return sql.begin(async (tx) => {
+    const [row] = await tx<Array<{ enabled: boolean }>>`select enabled from installed_modules where id = ${AUTOTAGGER_MODULE_ID} for update`;
+    if (row?.enabled === true) throw new AutotaggerStillOnError();
     const out = {} as Record<(typeof AUTOTAGGER_TABLES)[number], number>;
     for (const t of AUTOTAGGER_TABLES) out[t] = (await tx`delete from ${tx(t)}`).count;
     return out;

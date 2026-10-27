@@ -8,9 +8,10 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { getTableColumns } from 'drizzle-orm';
+import postgres from 'postgres';
 import {
-  AUTOTAGGER_TABLES, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
-  deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData,
+  AUTOTAGGER_TABLES, AutotaggerStillOnError, DEFAULT_AUTOTAGGER_CONFIG as DB_DEFAULTS, UnknownModuleError, autotaggerConfig, autotaggerEnabled, deciderCalls,
+  deciderDecisions, deciderLibrarySettings, deciderPrices, deciderRuns, deciderSpotChecks, makeDb, removeAutotaggerData, runMigrations,
   setAutotaggerConfig, setAutotaggerEnabled, syncInstalledModules, type AutotaggerConfig as DbConfig, type AutotaggerConfigPatch as DbPatch,
 } from '@tagave/db';
 import {
@@ -19,7 +20,9 @@ import {
 import { AUTOTAGGER_MODULE, ledgerEntries } from '@tagave/core/facets';
 
 // The two copies of the config shape (db keeps its own: it depends on no
-// other tagave package) must stay the same, both ways.
+// other tagave package) must stay the same, both ways. tsc enforces it (the
+// worker's tsconfig includes its tests): a drift makes these two constants
+// fail to type-check. The runtime expect below only marks the check.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 const sameConfig: Same<DbConfig, AutotaggerConfig> = true;
 const samePatch: Same<Required<DbPatch>, Required<AutotaggerConfigPatch>> = true;
@@ -50,47 +53,22 @@ describe('autotagger config shape', () => {
   });
 });
 
-describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (db)', () => {
-  let db: any;
+describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (shared db: its own libraries only)', () => {
   let client: any;
   const userId = randomUUID();
   const libraryId = randomUUID();
   const otherLibrary = randomUUID();
-  let was = false;
 
   beforeAll(async () => {
-    const made = await makeDb(process.env.TEST_DATABASE_URL!);
-    db = made.db;
-    client = made.client;
-    // the row a boot makes for it (a database `pnpm migrate` made has 0065's rows only)
-    await syncInstalledModules(client, ledgerEntries());
-    was = await autotaggerEnabled(client);
+    client = (await makeDb(process.env.TEST_DATABASE_URL!)).client;
     await client`insert into users (id, email, password_hash) values (${userId}, ${`at-${userId}@test.com`}, 'x')`;
     for (const id of [libraryId, otherLibrary]) await client`insert into libraries (id, owner_user_id, name, settings) values (${id}, ${userId}, 'Autotagger', '{}'::jsonb)`;
   });
 
   afterAll(async () => {
-    await setAutotaggerEnabled(client, was);
     await client`delete from libraries where id = any(${[libraryId, otherLibrary]}::uuid[])`;
     await client`delete from users where id = ${userId}`;
     await client.end({ timeout: 5 });
-  });
-
-  it('the switch is the module ledger: off from the start, on and off again, and no row reads off', async () => {
-    const [row] = await client`select enabled, kind, schema_version from installed_modules where id = 'autotagger'`;
-    expect(row).toMatchObject({ kind: 'in-process', schema_version: '0001_autotagger.sql' });
-    await setAutotaggerEnabled(client, true);
-    expect(await autotaggerEnabled(client)).toBe(true);
-    await setAutotaggerEnabled(client, false);
-    expect(await autotaggerEnabled(client)).toBe(false);
-    // as on an install whose boot has not made the row yet (rolled back)
-    await expect(client.begin(async (tx: any) => {
-      await tx`delete from installed_modules where id = 'autotagger'`;
-      expect(await autotaggerEnabled(tx)).toBe(false);
-      await expect(setAutotaggerEnabled(tx, true)).rejects.toBeInstanceOf(UnknownModuleError);
-      throw new Rollback();
-    })).rejects.toBeInstanceOf(Rollback);
-    expect((await client`select 1 from installed_modules where id = 'autotagger'`).length).toBe(1);
   });
 
   it('settings: the defaults until set; a patch merges and keeps the rest; a bad patch writes nothing', async () => {
@@ -135,11 +113,73 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (db)', () => 
        where c.contype = 'f' and c.confrelid::regclass::text = any(${[...AUTOTAGGER_TABLES]}::text[])`;
     expect(refs.filter((r: any) => !(AUTOTAGGER_TABLES as readonly string[]).includes(r.t))).toEqual([]);
   });
+});
+
+/**
+ * A database of its own, migrated in full and synced as a boot does: the
+ * tests below switch the module on and empty its whole tables, which on the
+ * shared test database would clash with other packages' suites running at
+ * the same time.
+ */
+describe.skipIf(!process.env.TEST_DATABASE_URL)('autotagger module (scratch db: the switch, deleting its data)', () => {
+  let admin: postgres.Sql;
+  let client: any;
+  const name = `tagave_attest_${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const userId = randomUUID();
+  const libraryId = randomUUID();
+
+  beforeAll(async () => {
+    admin = postgres(process.env.TEST_DATABASE_URL!, { max: 1, onnotice: () => undefined });
+    await admin.unsafe(`create database ${name}`);
+    const u = new URL(process.env.TEST_DATABASE_URL!);
+    u.pathname = `/${name}`;
+    await runMigrations(u.toString(), { log: () => undefined });
+    client = (await makeDb(u.toString())).client;
+    await syncInstalledModules(client, ledgerEntries());
+    await client`insert into users (id, email, password_hash) values (${userId}, ${`at-${userId}@test.com`}, 'x')`;
+    await client`insert into libraries (id, owner_user_id, name, settings) values (${libraryId}, ${userId}, 'Autotagger', '{}'::jsonb)`;
+  }, 120_000);
+
+  afterAll(async () => {
+    await client?.end({ timeout: 5 });
+    await admin?.unsafe(`drop database if exists ${name} with (force)`).catch(() => undefined);
+    await admin?.end({ timeout: 2 });
+  });
+
+  it('the switch is the module ledger: off from the start, on and off again, and no row reads off', async () => {
+    const [row] = await client`select enabled, kind, schema_version from installed_modules where id = 'autotagger'`;
+    expect(row).toMatchObject({ enabled: false, kind: 'in-process', schema_version: '0001_autotagger.sql' });
+    expect(await autotaggerEnabled(client)).toBe(false);
+    await setAutotaggerEnabled(client, true);
+    expect(await autotaggerEnabled(client)).toBe(true);
+    await setAutotaggerEnabled(client, false);
+    expect(await autotaggerEnabled(client)).toBe(false);
+    // as on an install whose boot has not made the row yet (rolled back)
+    await expect(client.begin(async (tx: any) => {
+      await tx`delete from installed_modules where id = 'autotagger'`;
+      expect(await autotaggerEnabled(tx)).toBe(false);
+      await expect(setAutotaggerEnabled(tx, true)).rejects.toBeInstanceOf(UnknownModuleError);
+      throw new Rollback();
+    })).rejects.toBeInstanceOf(Rollback);
+    expect((await client`select 1 from installed_modules where id = 'autotagger'`).length).toBe(1);
+  });
+
+  it('removeAutotaggerData refuses while the module is on, and deletes nothing', async () => {
+    await client`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev-on', '*', 1.5, 'USD')`;
+    await setAutotaggerEnabled(client, true);
+    try {
+      await expect(removeAutotaggerData(client)).rejects.toBeInstanceOf(AutotaggerStillOnError);
+      expect(await client`select 1 from decider_prices where decider_id = 'jev-on'`).toHaveLength(1);
+    } finally {
+      await setAutotaggerEnabled(client, false);
+    }
+  });
 
   it('removeAutotaggerData empties exactly its tables and returns a count per table; accept batches stay', async () => {
     const album = randomUUID();
     await client`insert into local_albums (id, library_id, cluster_key, state) values (${album}, ${libraryId}, ${`k-at-${album}`}, 'needs_review')`;
-    await client`insert into decider_prices (decider_id, model, per_million_input, currency) values (${`t-${album.slice(0, 8)}`}, '*', 1.5, 'USD')`;
+    await setAutotaggerConfig(client, libraryId, { monthlyCap: 5 }, parse);
+    await client`insert into decider_prices (decider_id, model, per_million_input, currency) values ('jev', '*', 1.5, 'USD')`;
     const [run] = await client`insert into decider_runs (library_id, decider_id, spec_hash, model_requested, population) values (${libraryId}, 'jev', 'h', 'jev-latest', 'needs_review') returning id`;
     const [call] = await client`insert into decider_calls (library_id, local_album_id, run_id, evidence_hash, spec_hash, decider_id, decider_version, request_bytes, input_tokens, cost, currency, answers)
       values (${libraryId}, ${album}, ${run.id}, ${'e'.repeat(64)}, 'h', 'jev', 'jev-2026-09-15', 100, 10, 0.001, 'USD', '{}'::jsonb) returning id`;
