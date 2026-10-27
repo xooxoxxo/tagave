@@ -685,6 +685,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('decider.run (scratch db)', () =
     expect(allowed.calls).toHaveLength(1);
   });
 
+  it('a measurement without its own spend limit never calls', async () => {
+    const d = fixedSize();
+    const run = await newRun('measure');
+    expect(await deciderRunJob(ctx, { runId: run }, measureDeps(d, { maxSpend: undefined })))
+      .toMatchObject({ state: 'paused', pauseReason: 'no_cap' });
+    expect(d.calls).toHaveLength(0);
+  });
+
   it('a run of another population ignores a given price, spend limit and payload approval', async () => {
     await client`update decider_library_settings set config = config - 'payloadSeenAt' - 'payloadSeenBy' where library_id = ${lib}`;
     const run = await newRun('needs_review');

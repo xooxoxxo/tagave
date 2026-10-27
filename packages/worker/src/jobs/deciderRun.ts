@@ -219,6 +219,8 @@ async function runLocked(ctx: WorkerContext, data: DeciderRunJobData, deps: RunD
   if (!config.payloadSeenAt && !(measuring && deps.payloadApproved === true)) return pause('payload_not_seen', 'payload not seen');
   // the measurement enforces its own spend limit; every other run needs the owner's cap
   if (config.monthlyCap === null && !measuring) return pause('no_cap', 'no monthly cap');
+  // a measurement has its own limit instead of the monthly cap, and never runs without one
+  if (measuring && (deps.maxSpend === undefined || !Number.isFinite(deps.maxSpend) || deps.maxSpend < 0)) return pause('no_cap', 'no measurement limit');
   const decider = deps.decider ?? jevDecider({ apiKey, baseUrl: typesafeBaseUrl(), maxRetries: RUN_MAX_RETRIES });
   const rules = rulesFromStored(await fetchAutoAcceptRulesRow(ctx.db, run.library_id));
   const started = await ctx.sql`
@@ -392,7 +394,7 @@ async function decideAll(ctx: WorkerContext, run: RunRow, deps: RunDeps, l: Loop
       if (measuring) {
         // the measurement's own limit, in the price's currency; no monthly cap
         if (!price) return pause('no_price', `no price: ${model}`);
-        if (deps.maxSpend !== undefined && runSpent + Math.round(estimate * 1e6) > Math.round(deps.maxSpend * 1e6)) {
+        if (runSpent + Math.round(estimate * 1e6) > Math.round(deps.maxSpend! * 1e6)) {
           return pause('cap_reached', `Measurement spent ${(runSpent / 1e6).toFixed(4)} of ${deps.maxSpend} ${price.currency}.`);
         }
       } else {
