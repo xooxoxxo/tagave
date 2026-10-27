@@ -14,7 +14,8 @@
     "./mc": "./dist/mc/index.js",
     "./facets": "./dist/facets/index.js",
     "./listen-links": "./dist/listenLinks/index.js",
-    "./playlists": "./dist/playlists/index.js"
+    "./playlists": "./dist/playlists/index.js",
+    "./files": "./dist/files/index.js"
   },
   "files": [
     "dist"
@@ -28,6 +29,7 @@
   "dependencies": {
     "@tagave/shared": "workspace:*",
     "music-connections": "workspace:*",
+    "music-metadata": "^12.1.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
