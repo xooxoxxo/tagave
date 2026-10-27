@@ -37,14 +37,23 @@ export interface FacetChange {
   changed_at: string;
 }
 
-/** How far behind the clock the read horizon is (ms); a long transaction holds every reader back. */
+/**
+ * How far behind the clock the read horizon is (ms); a long transaction holds every reader back.
+ *
+ * Only client backends count: tagave's writers are all client connections,
+ * and an autovacuum worker's ANALYZE takes a transaction id only at its end,
+ * when it writes pg_statistic, while its xact_start is when it began. Counted,
+ * it would pull the horizon back behind rows already readable, and they would
+ * drop out of a feed for a moment.
+ */
 export async function facetLogHorizon(sql: Sql): Promise<{ t: string; lagMs: number }> {
   const [h] = await sql<Array<{ t: string; lag_ms: number }>>`
     select to_char(h at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as t,
            (extract(epoch from (clock_timestamp() - h)) * 1000)::float8 as lag_ms
       from (select least(clock_timestamp(),
                      (select min(xact_start) from pg_stat_activity
-                       where datname = current_database() and backend_xid is not null and pid <> pg_backend_pid())) as h) s`;
+                       where datname = current_database() and backend_type = 'client backend'
+                         and backend_xid is not null and pid <> pg_backend_pid())) as h) s`;
   return { t: h!.t, lagMs: h!.lag_ms };
 }
 
