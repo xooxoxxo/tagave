@@ -46,12 +46,16 @@ vi.mock('./providerCache.js', async (importOriginal) => ({
 }));
 
 // A candidate titled BOOM makes the evidence builder throw, the way it does
-// on an alignment that does not fit the tracklists.
+// on an alignment that does not fit the tracklists. An album titled
+// NO_SCORES gets no scored candidates at all.
 const BOOM = 'Boom Album';
+const NO_SCORES = 'Nothing Scores';
 vi.mock('@tagave/core', async (importOriginal) => {
   const core = await importOriginal<typeof import('@tagave/core')>();
   return {
     ...core,
+    scoreCandidates: (...args: Parameters<typeof core.scoreCandidates>) =>
+      (args[0].title === NO_SCORES ? [] : core.scoreCandidates(...args)),
     buildCandidateEvidence: (...args: Parameters<typeof core.buildCandidateEvidence>) => {
       if (args[0].title === BOOM) throw new RangeError('evidence: test failure');
       return core.buildCandidateEvidence(...args);
@@ -282,6 +286,53 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('match evidence store (db)', () 
       await expect(identifyAlbumJob(ctx, { localAlbumId: albumId, force: true, acoustidMbids: [r.id], acoustidCoverage: { [r.id]: Number.NaN } }))
         .rejects.toThrow(/AcoustID coverage/);
       await expectUnchanged(albumId, before, albumBefore);
+    });
+
+    it('a re-identification that scores no candidate removes the old ones, keeps the linked app\'s, and stores the album evidence', async () => {
+      const r = mbRelease();
+      catalogue.set(r.id, r);
+      const albumId = await album();
+      await identifyAlbumJob(ctx, { localAlbumId: albumId, acoustidMbids: [r.id] });
+      expect(await client`select 1 from match_candidates where local_album_id = ${albumId}`).toHaveLength(1);
+      const mcSource = `mc:${randomUUID()}`;
+      await client`insert into match_candidates (local_album_id, release_id, distance, source)
+                   select ${albumId}, release_id, 0.5, ${mcSource} from match_candidates where local_album_id = ${albumId}`;
+      await client`update local_albums set title_guess = ${NO_SCORES} where id = ${albumId}`;
+
+      await identifyAlbumJob(ctx, { localAlbumId: albumId, force: true, acoustidMbids: [r.id] });
+
+      const rows = await client`select source from match_candidates where local_album_id = ${albumId}`;
+      expect(rows.map((x: any) => x.source)).toEqual([mcSource]);
+      const [ae] = await client`select evidence from album_evidence where local_album_id = ${albumId}`;
+      expect(ae.evidence.title).toBe(NO_SCORES);
+    });
+
+    it('a pasted edition on an album whose tracks changed rebuilds every candidate against the new tracks', async () => {
+      const r = mbRelease();
+      catalogue.set(r.id, r);
+      const albumId = await album();
+      await identifyAlbumJob(ctx, { localAlbumId: albumId, acoustidMbids: [r.id] });
+      const [before] = await client`select id, distance::text, evidence from match_candidates where local_album_id = ${albumId}`;
+      expect(before.evidence.align.map((t: number[]) => [t[0], t[1]])).toEqual([[0, 0], [1, 1]]);
+
+      // the album loses its second track (a re-cluster without a re-identification)
+      await client`delete from local_tracks where local_album_id = ${albumId} and track_no = 2`;
+      const pasted = mbRelease({ title: 'Evidence Album (Deluxe)' });
+      catalogue.set(pasted.id, pasted);
+      const res = await addEditionJob(ctx, { localAlbumId: albumId, target: { source: 'musicbrainz', mbid: pasted.id } });
+      expect(res).toMatchObject({ ok: true, added: true });
+
+      const [ae] = await client`select evidence from album_evidence where local_album_id = ${albumId}`;
+      expect(ae.evidence.tracks).toHaveLength(1);
+      const rows = await client`select id, distance::text, evidence from match_candidates where local_album_id = ${albumId} order by id`;
+      expect(rows).toHaveLength(2);
+      for (const row of rows) {
+        expect(row.evidence.v).toBe(1);
+        expect(row.evidence.align.map((t: number[]) => [t[0], t[1]])).toEqual([[0, 0]]);
+        expect(row.evidence.missingRemote).toEqual([1]);
+      }
+      const old = rows.find((x: any) => x.id === before.id);
+      expect(old.distance).not.toBe(before.distance);
     });
 
     it('a pasted edition stores its evidence, and pasting it again refreshes it', async () => {

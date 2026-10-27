@@ -10,11 +10,12 @@
  */
 import { eq } from 'drizzle-orm';
 import { localAlbums, localTracks } from '@tagave/db';
-import { scoreCandidates, buildCandidateEvidence, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
+import { scoreCandidates, buildCandidateEvidence, stableJson, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
 import { remoteInputOf, upsertAlbumEvidence } from '../lib/evidenceStore.js';
 import { discogsMaster, discogsRelease, localViewOf, mbRelease, persistFetched, toScorable } from './identifyAlbum.js';
+import { rebuildAlbumEvidence } from './evidenceBackfill.js';
 
 export type EditionTarget =
   | { source: 'musicbrainz'; mbid: string }
@@ -89,22 +90,49 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   const source = t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs';
   // The candidate and the album evidence it was scored against change together.
   const written = await ctx.sql.begin(async (tx) => {
+    // When the album's own side changed since its candidates were scored (its
+    // tracks were re-read without a re-identification), their evidence
+    // points at tracks the album no longer has: it is dropped here and
+    // rebuilt below. Should the rebuild fail, the candidates are left without
+    // evidence, which the evidence backfill picks up, never with stale evidence.
+    const [prev] = await tx<Array<{ evidence: unknown }>>`select evidence from album_evidence where local_album_id = ${album.id}`;
+    const albumChanged = !prev || stableJson(prev.evidence) !== stableJson(albumEvidence);
     await upsertAlbumEvidence(tx, album.id, albumEvidence);
     const [existing] = await tx<Array<{ id: string }>>`
       select id from match_candidates
        where local_album_id = ${album.id} and release_id = ${releaseId} and source not like 'mc:%' limit 1`;
+    let id: string;
+    let added: boolean;
     if (existing) {
       await tx`update match_candidates
                   set distance = ${distance}::numeric, breakdown = ${breakdown}::text::jsonb, excluded = false, evidence = ${ev}::text::jsonb
                 where id = ${existing.id}`;
-      return { id: existing.id, added: false };
+      id = existing.id;
+      added = false;
+    } else {
+      const [inserted] = await tx<Array<{ id: string }>>`
+        insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
+        values (${album.id}, ${releaseId}, ${distance}::numeric, ${breakdown}::text::jsonb, ${source}, ${ev}::text::jsonb, null)
+        returning id`;
+      id = inserted!.id;
+      added = true;
     }
-    const [inserted] = await tx<Array<{ id: string }>>`
-      insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
-      values (${album.id}, ${releaseId}, ${distance}::numeric, ${breakdown}::text::jsonb, ${source}, ${ev}::text::jsonb, null)
-      returning id`;
-    return { id: inserted!.id, added: true };
+    if (albumChanged) {
+      await tx`update match_candidates set evidence = null
+                where local_album_id = ${album.id} and source not like 'mc:%' and id <> ${id} and evidence is not null`;
+    }
+    return { id, added, albumChanged };
   });
+  if (written.albumChanged) {
+    try {
+      // the other candidates, re-scored offline from their stored releases
+      await rebuildAlbumEvidence(ctx, album.id, { except: written.id, incomplete: 'clear' });
+    } catch (err) {
+      // The pasted edition is in; the owner's screen gets it. The others stay
+      // without evidence until the backfill rebuilds them.
+      ctx.logger.error({ localAlbumId: album.id, err: (err as Error).message }, 'edition added: rebuilding the other candidates\' evidence failed');
+    }
+  }
   if (!written.added) {
     return { ok: true, candidateId: written.id, releaseId, distance: scored.distance, added: false };
   }
