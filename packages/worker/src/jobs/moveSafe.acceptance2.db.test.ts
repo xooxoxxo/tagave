@@ -169,6 +169,31 @@ describe.skipIf(!DB)('move-safe acceptance, part 2', () => {
     expect(after.tracks.filter((t) => t.albumId === oldAlbum)).toEqual(before.tracks);
   });
 
+  it('scan.dir: two files moved and one deleted, the moved album keeps its id even when cluster.dir runs at once', async () => {
+    const l = await oneAlbum(3);
+    const albumId = (await l.albumIdOf(0, 'Artist/Album One/01 - Song 1.flac'))!;
+    await mkdir(abs(l, 'Artist/Album One (2001)'));
+    for (const n of [1, 2]) await rename(abs(l, `Artist/Album One/0${n} - Song ${n}.flac`), abs(l, `Artist/Album One (2001)/0${n} - Song ${n}.flac`));
+    await rm(abs(l, 'Artist/Album One/03 - Song 3.flac'));
+    // a worker that picks up a cluster.dir sent with no delay right away, while the scan is still finishing
+    const send = l.ctx.boss.send.bind(l.ctx.boss);
+    const ranEarly: string[] = [];
+    (l.ctx.boss as any).send = async (name: string, data: any, opts: any) => {
+      if (name === 'cluster.dir' && !opts?.startAfter) { ranEarly.push(data.dirPath); await clusterDirJob(l.ctx, data); return 'ran'; }
+      return send(name, data, opts);
+    };
+    try {
+      await scanDirJob(l.ctx, { scanRootId: l.roots[0]!.id, dirPath: 'Artist' });
+    } finally {
+      (l.ctx.boss as any).send = send;
+    }
+    await l.drain();
+    expect(ranEarly).toContain('Artist/Album One (2001)');
+    expect(await l.albumIdOf(0, 'Artist/Album One (2001)/01 - Song 1.flac')).toBe(albumId);
+    expect(await l.albumIdOf(0, 'Artist/Album One (2001)/02 - Song 2.flac')).toBe(albumId);
+    expect((await l.sql`select status from audio_files where library_id = ${l.libraryId} and rel_path = 'Artist/Album One/03 - Song 3.flac'`)[0].status).toBe('missing');
+  });
+
   it('scan.dir during scan.root: the row scan.dir re-pointed is never marked missing by the root scan', async () => {
     const l = await oneAlbum();
     const before = await l.snapshot();

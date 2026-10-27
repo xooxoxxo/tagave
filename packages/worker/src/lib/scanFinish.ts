@@ -265,7 +265,10 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     const mergedFresh = new Set(rec.mergedFreshIds);
     walk.changedIds = [...walk.changedIds.filter((id) => !mergedFresh.has(id)), ...rec.reparseIds];
     walk.insertedIds = walk.insertedIds.filter((id) => !mergedFresh.has(id));
-    await sendMergeReclusters(ctx, root.libraryId, rec.reclusterDirs,
+    // Sent only once the left-behind rows are marked missing and holds are on:
+    // scan.dir sends with no delay, and a cluster.dir that still counted a
+    // deleted file of the old album as live would build a new album.
+    const sendReclusters = () => sendMergeReclusters(ctx, root.libraryId, rec.reclusterDirs,
       opts.reclusterSoon ? (walk.changedIds.length ? 20 : 0) : 30);
     const reconciled = { merged: rec.merged, moves: rec.moves, possibleMoves: rec.possibleMoves, reclusterDirs: rec.reclusterDirs };
     const hold = missingHold(gone.length, walk.presentInRoot);
@@ -292,13 +295,17 @@ export async function finishWalk(ctx: WorkerContext, root: WalkRoot, walk: WalkT
     }
     await clearHeldStamps(ctx, root, walk.subtree, new Set(heldMissing ? gone.map((r) => r.id) : []), failedSet);
     // A held scan drops no sidecars (the 0052 cascade would take their covers).
-    if (heldMissing && toMark.length === 0) return { ...empty, ...reconciled, failedDirs, heldMissing };
+    if (heldMissing && toMark.length === 0) {
+      await sendReclusters();
+      return { ...empty, ...reconciled, failedDirs, heldMissing };
+    }
     const marked = await markMissing(ctx, root, toMark, walk.walkStart);
     // Only a scan that reconciled may hold: Tier 2 is reconciliation too. The
     // unmounted-looking root (the one reconcile skip) returned above, so every
     // scan that gets here reconciled. Holds go on before the caller sends
     // scan.parse and cluster.dir for these rows.
     const heldIds = await placeHolds(ctx, walk.insertedIds);
+    await sendReclusters();
     // A failed cover re-point leaves the images on the old sidecars: dropping those
     // now would take the covers with them (the 0052 cascade).
     if (rec.sidecarRepointFailed) ctx.logger.warn({ rootId: root.id }, 'scan.finish: stale sidecars kept, the cover re-point failed');
