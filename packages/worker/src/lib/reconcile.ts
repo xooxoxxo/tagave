@@ -16,7 +16,7 @@ export { sqlDirname } from './helpers.js';
 import { isUnderFailedPath } from './scanFinish.js';
 import { mergeFilePair, mergeFilePairs, type MergeDone, type MergeOutcome, type MergeRequest } from './fileMerge.js';
 import { planPairs, type MatchFile, type Tier } from './reconcileMatch.js';
-import { refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
+import { queueArtAfterRepointFailure, refreshPlayerAfterMoves, repointSidecarImages } from './moveEffects.js';
 import { cancelQueuedIdentify } from './cancelIdentify.js';
 import type { WalkRoot, WalkTreeResult } from './walk.js';
 
@@ -287,6 +287,14 @@ export async function runMerges(
     } catch (error) {
       out.sidecarRepointFailed = true;
       ctx.logger.warn({ tier, error: String(error) }, 'files.reconcile: could not re-point sidecar covers after moves');
+      // The covers come back from the new folders' sidecars through art.fetch.
+      // A crash between the merges and the re-point queues nothing: those
+      // covers stay a manual "Fetch art" (rare).
+      try {
+        await queueArtAfterRepointFailure(ctx, out.outcomes.map((o) => o.oldId));
+      } catch (err) {
+        ctx.logger.warn({ tier, error: String(err) }, 'files.reconcile: could not queue art.fetch after the failed re-point');
+      }
     }
   }
   // The player's song ids of moved files are stale (new path); only when it mapped them.

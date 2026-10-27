@@ -279,3 +279,35 @@ export async function refreshPlayerAfterMoves(ctx: Pick<WorkerContext, 'db' | 's
   await requestPlayerRescan(ctx, files);
   return true;
 }
+
+/**
+ * After a failed cover re-point: queue art.fetch for the albums of the moved
+ * files, so each cover comes back from the new folder's sidecar on its own.
+ * An album whose front cover still points at an old folder's sidecar (the
+ * failed re-point left it there, and that stale sidecar will drop later) gets
+ * a refresh, which rebuilds that same row from the album's current folders;
+ * a plain art.fetch would see a front cover and stop. An album with no front
+ * cover gets the album page's "Fetch art" job as it is. A crash between the
+ * merges and the re-point queues nothing: those covers stay a manual
+ * "Fetch art" (rare). Job keys match artFetch.ts (art:<id>, artRefreshKey).
+ */
+export async function queueArtAfterRepointFailure(
+  ctx: Pick<WorkerContext, 'sql' | 'boss'>, movedFileIds: string[],
+): Promise<string[]> {
+  if (movedFileIds.length === 0) return [];
+  const rows = (await ctx.sql`
+    select a.id, f.origin as "frontOrigin"
+      from (select distinct lt.local_album_id as id from local_tracks lt
+             where lt.audio_file_id = any(${movedFileIds}::uuid[]) and lt.local_album_id is not null) a
+      left join images f on f.local_album_id = a.id and f.kind = 'front'`) as unknown as Array<{ id: string; frontOrigin: string | null }>;
+  const queued: string[] = [];
+  for (const r of rows) {
+    if (r.frontOrigin === null) {
+      await ctx.boss.send('art.fetch', { localAlbumId: r.id }, { singletonKey: `art:${r.id}` });
+    } else if (r.frontOrigin === 'sidecar') {
+      await ctx.boss.send('art.fetch', { localAlbumId: r.id, refresh: true }, { singletonKey: `artRefresh:${r.id}` });
+    } else continue; // embedded, provider or the owner's: no sidecar to lose
+    queued.push(r.id);
+  }
+  return queued;
+}

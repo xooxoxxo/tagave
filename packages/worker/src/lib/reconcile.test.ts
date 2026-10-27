@@ -17,7 +17,9 @@ vi.mock('./fileMerge.js', () => ({
 }));
 const repointSidecarImages = vi.fn(async () => 0);
 const refreshPlayerAfterMoves = vi.fn(async () => false);
+const queueArtAfterRepointFailure = vi.fn(async () => [] as string[]);
 vi.mock('./moveEffects.js', () => ({
+  queueArtAfterRepointFailure: (...args: unknown[]) => queueArtAfterRepointFailure(...(args as [])),
   repointSidecarImages: (...args: unknown[]) => repointSidecarImages(...(args as [])),
   refreshPlayerAfterMoves: (...args: unknown[]) => refreshPlayerAfterMoves(...(args as [])),
 }));
@@ -95,6 +97,7 @@ describe('runMerges', () => {
     repointSidecarImages.mockImplementation(async () => { throw new Error('sidecar update failed'); });
     const r2 = await runMerges(ctx, 1, olds, freshs, t1, false);
     expect(r2).toEqual({ ...clean, sidecarRepointFailed: true });
+    expect(queueArtAfterRepointFailure).toHaveBeenCalledTimes(1);           // covers come back through art.fetch
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0].error).toContain('sidecar update failed');
     expect(refreshPlayerAfterMoves).toHaveBeenCalledTimes(1);
