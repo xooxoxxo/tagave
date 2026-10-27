@@ -14,9 +14,33 @@ import {
 } from '@tagave/db';
 import { AUTO_ACCEPT_REASON_PREFIX } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
-import { acceptByRules } from './autoAccept.js';
+import { acceptByRules, buildRulesBatch, loadRules } from './autoAccept.js';
+import { runAcceptBatch } from '../jobs/deciderAccept.js';
 import { queueAutoAcceptJob } from '../jobs/queueAutoAccept.js';
 import { runUndoBatch } from '../jobs/deciderUndo.js';
+
+/** set to make the queue.autoaccept Activity write fail */
+const progressFault = vi.hoisted(() => ({ on: false }));
+vi.mock('../jobs/progress.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('../jobs/progress.js')>();
+  return {
+    ...real,
+    reportProgress: (async (...args: Parameters<typeof real.reportProgress>) => {
+      if (progressFault.on && args[2]?.type === 'queue.autoaccept') throw new Error('activity unavailable');
+      return real.reportProgress(...args);
+    }) as typeof real.reportProgress,
+  };
+});
+
+const albumEvidence = (title: string) => ({
+  v: 1, artist: 'Oranssi Pazuzu', title, discsKnown: true, discCount: 1,
+  tracks: [1, 2, 3].map((n, i) => ({ i, disc: 1, title: `Track ${n}`, durS: 200 })),
+});
+const candidateEvidence = {
+  v: 1, remote: { provider: 'musicbrainz', title: 'Kosmonument', artists: ['Oranssi Pazuzu'], year: 2011 },
+  tracks: [[1, 'Track 1', 200], [1, 'Track 2', 200], [1, 'Track 3', 200]], align: [[0, 0, 0], [1, 1, 0], [2, 2, 0]],
+  unmatchedLocal: [], missingRemote: [], capped: false,
+};
 
 describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => {
   let ctx: WorkerContext;
@@ -71,8 +95,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     await db.insert(releaseGroups).values({ id: rgId, mbid: randomUUID(), title: 'Kosmonument', artistCredit: ['Oranssi Pazuzu'] });
   });
 
+  /** stored evidence for an album and its candidates, as identification writes it */
+  async function withEvidence(id: string) {
+    await client`insert into album_evidence (local_album_id, v, evidence) values (${id}, 1, ${JSON.stringify(albumEvidence('Kosmonument'))}::text::jsonb)`;
+    await client`update match_candidates set evidence = ${JSON.stringify(candidateEvidence)}::text::jsonb where local_album_id = ${id}`;
+  }
+
   beforeEach(async () => {
     send.mockClear();
+    progressFault.on = false;
     await db.delete(localAlbums).where(eq(localAlbums.libraryId, libraryId));
     await client`delete from decider_batches where library_id = ${libraryId}`;
     await db.delete(jobRuns).where(eq(jobRuns.libraryId, libraryId));
@@ -237,5 +268,38 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auto-accept rules (db)', () => 
     // who decided stays empty on the match: the run's starter is on the batch
     const [m] = await client`select decided_by_user_id from album_matches where local_album_id = ${a} and status = 'auto'`;
     expect(m.decided_by_user_id).toBeNull();
+  });
+
+  it('a rules batch pins the evidence: an album re-scored before its turn is skipped, the others accepted', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    const b = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    const bare = await album([{ releaseId: await release(), distance: '0.0200' }]); // no evidence yet
+    await withEvidence(a);
+    await withEvidence(b);
+    const built = await buildRulesBatch(ctx, libraryId, await loadRules(ctx, libraryId), {});
+    expect(built).toMatchObject({ considered: 3 });
+    const items = await client`select local_album_id, evidence_hash from decider_batch_items where batch_id = ${built.batchId}`;
+    const hashOf = new Map(items.map((i: any) => [i.local_album_id, i.evidence_hash]));
+    expect(hashOf.get(a)).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashOf.get(bare)).toBeNull();
+    // the evidence rebuild re-scored b meanwhile
+    await client`update match_candidates set distance = 0.0250 where local_album_id = ${b}`;
+    const run = await runAcceptBatch(ctx, built.batchId!);
+    expect(run).toMatchObject({ accepted: 2, skipped: { evidence_changed: 1 } });
+    expect((await stateOf(a)).state).toBe('matched');
+    expect((await stateOf(bare)).state).toBe('matched');
+    expect((await stateOf(b)).state).toBe('needs_review');
+  });
+
+  it('an Activity write that fails after the batch is accepted never fails the job (no second batch on retry)', async () => {
+    await setRules({});
+    const a = await album([{ releaseId: await release(), distance: '0.0200' }]);
+    progressFault.on = true;
+    await expect(queueAutoAcceptJob(ctx, { libraryId, mode: 'rules' })).resolves.toBeUndefined();
+    const batches = await client`select state from decider_batches where library_id = ${libraryId}`;
+    expect(batches).toHaveLength(1);
+    expect(batches[0].state).toBe('accepted');
+    expect((await stateOf(a)).state).toBe('matched');
   });
 });

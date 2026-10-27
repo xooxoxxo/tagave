@@ -3,10 +3,10 @@
  *
  * Each album in its own transaction with the album row locked: still in
  * review, not identified again since the decision (last_identify_at), the
- * release still stored, and, for a model's batch, the same evidence the
- * decision was made on. The accept writes what it replaced onto the item
- * (prior_*) in the same transaction, so the batch can be undone album by
- * album. Downstream work is left to the sweeps that already run (nightly
+ * release still stored, and the same evidence the decision was made on
+ * (always for a model's batch; for the rules' when the album had
+ * evidence). The accept writes what it replaced onto the item (prior_*) in
+ * the same transaction, so the batch can be undone album by album. Downstream work is left to the sweeps that already run (nightly
  * enrichment, the cover and track-link sweeps), so a large batch never
  * floods the shared provider budget; the queue page hears one notice per
  * chunk, after the chunk is written, and gaps are recomputed once at the
@@ -64,10 +64,14 @@ async function acceptItem(ctx: WorkerContext, batch: BatchRow, item: BatchItemRo
     let reason: string | null = null;
     if (!album) reason = 'gone';
     else if (!batch.acceptFrom.includes(album.state)) reason = 'state';
+    // an album never identified has no time to pin; a rules batch still pins
+    // its evidence, a model batch always has both
     else if (item.expectLastIdentifyAt && !album.same_identify) reason = 'reidentified';
     // compared here, in the accept's own transaction: taking the evidence lock
     // after the album row could deadlock against evidence writes
-    else if (batch.decidedKind === 'model' && item.evidenceHash
+    // any batch whose item carries a hash: a model's always does, the rules'
+    // when the album had evidence when they looked
+    else if (item.evidenceHash
              && (await currentEvidenceHash(tx, item.localAlbumId)) !== item.evidenceHash) reason = 'evidence_changed';
     if (reason === null) {
       const res = await acceptInTx(tx, acceptInput(batch, item));

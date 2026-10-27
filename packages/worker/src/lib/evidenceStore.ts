@@ -35,23 +35,34 @@ function isoOrNull(t: Date | string | null): string | null {
 }
 
 export async function loadEvidence(sql: Sql, albumId: string): Promise<LoadedEvidence | null> {
-  const [a] = await sql<Array<{ library_id: string; state: string; last_identify_at: Date | string | null; evidence: AlbumEvidence }>>`
-    select la.library_id, la.state, la.last_identify_at, ae.evidence
-      from local_albums la join album_evidence ae on ae.local_album_id = la.id where la.id = ${albumId}`;
-  if (!a) return null;
-  const rows = await sql<Array<{ id: string; release_id: string; distance: string; acoustid_coverage: string | null; evidence: CandidateEvidence; source: string; source_of_truth: string | null; status: string | null }>>`
-    select mc.id, mc.release_id, mc.distance::text as distance, mc.acoustid_coverage::text as acoustid_coverage,
+  return (await loadEvidenceMany(sql, [albumId])).get(albumId) ?? null;
+}
+
+/**
+ * loadEvidence for many albums with two set-based reads. An album without
+ * album evidence (or not stored) has no entry.
+ */
+export async function loadEvidenceMany(sql: Sql, albumIds: string[]): Promise<Map<string, LoadedEvidence>> {
+  const out = new Map<string, LoadedEvidence>();
+  if (albumIds.length === 0) return out;
+  const albums = await sql<Array<{ id: string; library_id: string; state: string; last_identify_at: Date | string | null; evidence: AlbumEvidence }>>`
+    select la.id, la.library_id, la.state, la.last_identify_at, ae.evidence
+      from local_albums la join album_evidence ae on ae.local_album_id = la.id where la.id = any(${albumIds}::uuid[])`;
+  if (albums.length === 0) return out;
+  const rows = await sql<Array<{ id: string; local_album_id: string; release_id: string; distance: string; acoustid_coverage: string | null; evidence: CandidateEvidence; source: string; source_of_truth: string | null; status: string | null }>>`
+    select mc.id, mc.local_album_id, mc.release_id, mc.distance::text as distance, mc.acoustid_coverage::text as acoustid_coverage,
            mc.evidence, mc.source, r.source_of_truth, r.status
       from match_candidates mc join releases r on r.id = mc.release_id
-     where mc.local_album_id = ${albumId} and mc.excluded is not true and mc.source not like 'mc:%' and mc.evidence is not null
-     order by mc.distance, mc.release_id`;
-  return {
-    albumId,
-    libraryId: a.library_id,
-    state: a.state,
-    lastIdentifyAt: isoOrNull(a.last_identify_at),
-    album: a.evidence,
-    candidates: rows.map((r) => ({
+     where mc.local_album_id = any(${albums.map((a) => a.id)}::uuid[])
+       and mc.excluded is not true and mc.source not like 'mc:%' and mc.evidence is not null
+     order by mc.local_album_id, mc.distance, mc.release_id`;
+  for (const a of albums) {
+    out.set(a.id, {
+      albumId: a.id, libraryId: a.library_id, state: a.state, lastIdentifyAt: isoOrNull(a.last_identify_at), album: a.evidence, candidates: [],
+    });
+  }
+  for (const r of rows) {
+    out.get(r.local_album_id)?.candidates.push({
       candidateId: r.id,
       releaseId: r.release_id,
       distance: Number(r.distance),
@@ -60,13 +71,23 @@ export async function loadEvidence(sql: Sql, albumId: string): Promise<LoadedEvi
       source: r.source,
       provider: r.source_of_truth === 'discogs' ? 'discogs' : 'musicbrainz',
       status: r.status,
-    })),
-  };
+    });
+  }
+  return out;
 }
 
 export async function currentEvidenceHash(sql: Sql, albumId: string): Promise<string | null> {
   const ev = await loadEvidence(sql, albumId);
   return ev ? evidenceHash(ev.album, ev.candidates) : null;
+}
+
+/** currentEvidenceHash for many albums at once; null for an album with no album evidence. */
+export async function currentEvidenceHashes(sql: Sql, albumIds: string[]): Promise<Map<string, string | null>> {
+  const loaded = await loadEvidenceMany(sql, albumIds);
+  return new Map(albumIds.map((id) => {
+    const ev = loaded.get(id);
+    return [id, ev ? evidenceHash(ev.album, ev.candidates) : null];
+  }));
 }
 
 /**

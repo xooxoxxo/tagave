@@ -13,12 +13,13 @@
  * dialog lists.
  */
 import { createHash } from 'node:crypto';
-import { acceptInTx, createBatch, fetchAutoAcceptRulesRow, fetchRulesInputs } from '@tagave/db';
+import { acceptInTx, createBatch, fetchAutoAcceptRulesRow, fetchRulesInputs, type RulesInputAlbum } from '@tagave/db';
 import { evaluateAutoAccept, rulesFromStored, stableJson } from '@tagave/core';
 import { AUTO_ACCEPT_REASON_PREFIX, type AutoAcceptRules } from '@tagave/shared';
 import type { WorkerContext } from './context.js';
 import { notifyQueueChanged } from '../jobs/progress.js';
 import { runAcceptBatch } from '../jobs/deciderAccept.js';
+import { currentEvidenceHashes } from './evidenceStore.js';
 import { linkAlbumTracks } from './trackLinks.js';
 
 export interface RulesRunResult {
@@ -51,14 +52,57 @@ export function rulesVersion(rules: AutoAcceptRules): string {
   return `rules@${createHash('sha256').update(stableJson(decisive)).digest('hex').slice(0, 8)}`;
 }
 
+/** the albums the rules take, each with the decision and its audit reason */
+function pick(rules: AutoAcceptRules, inputs: RulesInputAlbum[]) {
+  return inputs.flatMap((album) => {
+    const d = evaluateAutoAccept(rules, album, album.candidates);
+    return d.accept ? [{ album, d, reason: `${AUTO_ACCEPT_REASON_PREFIX}: ${d.reason}` }] : [];
+  });
+}
+
+/**
+ * The batch of what the rules take now, still queued (null when they take
+ * nothing), and how many albums they looked at.
+ *
+ * Each item is pinned to what the rules saw: the identify time and the
+ * evidence hash. Identification, a re-score, a pasted edition or a relink
+ * after that makes the accept skip the album instead of taking it on facts
+ * it no longer has. The hashes are read first and the picked albums are read
+ * again after, and the items come from that second read: a change before
+ * the hash read is in both, and any change after it no longer matches.
+ */
+export async function buildRulesBatch(
+  ctx: WorkerContext, libraryId: string, rules: AutoAcceptRules,
+  opts: { albumIds?: string[]; startedByUserId?: string | null },
+): Promise<{ considered: number; batchId: string | null }> {
+  const inputs = await fetchRulesInputs(ctx.db, libraryId, opts.albumIds);
+  const first = pick(rules, inputs);
+  if (first.length === 0) return { considered: inputs.length, batchId: null };
+  const hashes = await currentEvidenceHashes(ctx.sql, first.map((p) => p.album.albumId));
+  const picks = pick(rules, await fetchRulesInputs(ctx.db, libraryId, [...hashes.keys()]));
+  if (picks.length === 0) return { considered: inputs.length, batchId: null };
+  const batchId = await createBatch(ctx.sql, {
+    libraryId, deciderId: 'rules', deciderVersion: rulesVersion(rules), decidedKind: 'rule',
+    startedByUserId: opts.startedByUserId ?? null,
+    items: picks.map(({ album, d, reason }) => ({
+      albumId: album.albumId, releaseId: d.candidate.releaseId, distance: d.candidate.distance,
+      source: d.candidate.source || null, probability: null,
+      evidenceHash: hashes.get(album.albumId) ?? null,
+      expectLastIdentifyAt: album.lastIdentifyAt, reason,
+    })),
+  });
+  return { considered: inputs.length, batchId };
+}
+
 /**
  * Apply the rules to the library's needs_review albums (or only `albumIds`).
  * `requireEnabled`: do nothing unless the master switch is on (new matches);
  * the owner's explicit "Accept N now" runs the saved rules either way.
  * `viaBatch`: accept everything the rules take as one batch (decider
  * 'rules'), started by `startedByUserId`, which can be undone as a whole; no
- * batch is made when the rules take nothing. Without it each album is
- * accepted on its own, as the identify-time hook does.
+ * batch is made when the rules take nothing. Once the batch exists nothing
+ * here throws except the accept itself (as RulesBatchFailed). Without it
+ * each album is accepted on its own, as the identify-time hook does.
  */
 export async function acceptByRules(
   ctx: WorkerContext,
@@ -68,27 +112,12 @@ export async function acceptByRules(
   const result: RulesRunResult & { batchId: string | null } = { considered: 0, accepted: 0, acceptedAlbums: [], batchId: null };
   const rules = await loadRules(ctx, libraryId);
   if (opts.requireEnabled && !rules.enabled) return result;
-  const inputs = await fetchRulesInputs(ctx.db, libraryId, opts.albumIds);
-  result.considered = inputs.length;
-  const picks = inputs.flatMap((album) => {
-    const d = evaluateAutoAccept(rules, album, album.candidates);
-    return d.accept ? [{ album, d, reason: `${AUTO_ACCEPT_REASON_PREFIX}: ${d.reason}` }] : [];
-  });
 
   if (opts.viaBatch) {
-    if (picks.length === 0) return result;
-    const batchId = await createBatch(ctx.sql, {
-      libraryId, deciderId: 'rules', deciderVersion: rulesVersion(rules), decidedKind: 'rule',
-      startedByUserId: opts.startedByUserId ?? null,
-      items: picks.map(({ album, d, reason }) => ({
-        albumId: album.albumId, releaseId: d.candidate.releaseId, distance: d.candidate.distance,
-        source: d.candidate.source || null, probability: null, evidenceHash: null,
-        // pinned to the identify run the rules looked at (read with the
-        // candidates): an album identified again before its turn is skipped
-        // rather than accepted on candidates it no longer has
-        expectLastIdentifyAt: album.lastIdentifyAt, reason,
-      })),
-    });
+    const built = await buildRulesBatch(ctx, libraryId, rules, opts);
+    result.considered = built.considered;
+    if (!built.batchId) return result;
+    const batchId = built.batchId;
     result.batchId = batchId;
     let run: Awaited<ReturnType<typeof runAcceptBatch>>;
     try {
@@ -97,15 +126,21 @@ export async function acceptByRules(
       throw new RulesBatchFailed(batchId, err);
     }
     result.accepted = run.accepted;
-    const taken = await ctx.sql<Array<{ local_album_id: string; release_id: string; reason: string }>>`
-      select local_album_id, release_id, reason from decider_batch_items
-       where batch_id = ${batchId} and status = 'accepted' order by position`;
-    result.acceptedAlbums = taken.map((t) => ({ albumId: t.local_album_id, releaseId: t.release_id, reason: t.reason }));
+    try {
+      const taken = await ctx.sql<Array<{ local_album_id: string; release_id: string; reason: string }>>`
+        select local_album_id, release_id, reason from decider_batch_items
+         where batch_id = ${batchId} and status = 'accepted' order by position`;
+      result.acceptedAlbums = taken.map((t) => ({ albumId: t.local_album_id, releaseId: t.release_id, reason: t.reason }));
+    } catch (err) {
+      ctx.logger.warn({ libraryId, batchId, err: (err as Error).message }, 'auto-accept rules: could not list the accepted albums');
+    }
     ctx.logger.info({ libraryId, batchId, accepted: run.accepted, skipped: run.skipped }, 'auto-accept rules: batch accepted');
     return result;
   }
 
-  for (const { album, d, reason } of picks) {
+  const inputs = await fetchRulesInputs(ctx.db, libraryId, opts.albumIds);
+  result.considered = inputs.length;
+  for (const { album, d, reason } of pick(rules, inputs)) {
     const took = await acceptCandidate(ctx, {
       libraryId,
       albumId: album.albumId,

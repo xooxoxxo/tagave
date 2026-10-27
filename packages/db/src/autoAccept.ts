@@ -52,7 +52,8 @@ export function artistText(v: unknown): string | null {
 /** needs_review albums of a library (or just `albumIds` of them), each with its live candidates, best first. */
 export async function fetchRulesInputs(db: Db, libraryId: string, albumIds?: string[]): Promise<RulesInputAlbum[]> {
   if (albumIds && albumIds.length === 0) return [];
-  const only = albumIds ? sql`and la.id in (${sql.join(albumIds.map((id) => sql`${id}::uuid`), sql`, `)})` : sql``;
+  // one array parameter however many albums (a postgres array literal of the ids)
+  const only = albumIds ? sql`and la.id = any(${`{${albumIds.join(',')}}`}::uuid[])` : sql``;
   const albums = await db.execute(sql`
     select la.id, la.title_guess, la.artist_guess, la.year_guess, la.last_identify_at,
            (select count(*)::int from local_tracks lt where lt.local_album_id = la.id) as track_count
