@@ -1,6 +1,6 @@
-import { and, eq, inArray, notLike } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
-  albumMatches, files, localAlbums, localTracks, matchCandidates, releases,
+  albumMatches, files, localAlbums, localTracks, releases,
 } from '@tagave/db';
 import {
   scoreCandidates, MATCHING_THRESHOLDS, MAX_ALIGN_TRACKS, discogsIdsFromUrlRelations,
@@ -555,26 +555,50 @@ async function identifyAlbumRun(ctx: WorkerContext, data: IdentifyAlbumJobData):
   for (const r of fetched) {
     releaseDbIds.set(r.id, (await persistFetched(ctx, r)).releaseId);
   }
-  // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
-  // its own: a re-identification leaves them; revoking the link removes them.
-  await ctx.db.delete(matchCandidates).where(and(eq(matchCandidates.localAlbumId, album.id), notLike(matchCandidates.source, 'mc:%')));
+  // Every row is built, evidence included, before anything is written: a
+  // builder that throws (an alignment that does not fit the tracklists, a
+  // coverage that is not a number) leaves the old candidates and album
+  // evidence as they were.
   const fetchedRelease = new Map(fetched.map((r) => [r.id, r]));
-  for (const s of scored) {
+  const rows = scored.flatMap((s) => {
     const relDb = releaseDbIds.get(s.id);
-    if (!relDb) continue;
+    if (!relDb) return [];
     const source: CandidateSource = sourceOf.get(s.id) ?? (s.source === 'discogs' ? 'discogs_search' : 'mb_search');
     const coverage = data.acoustidCoverage?.[s.id];
-    await ctx.db.insert(matchCandidates).values({
-      localAlbumId: album.id,
+    if (coverage !== undefined && !Number.isFinite(coverage)) {
+      throw new RangeError(`identify: AcoustID coverage for ${s.id} is not a finite number (${coverage})`);
+    }
+    return [{
       releaseId: relDb,
       distance: s.distance.toFixed(4),
-      breakdown: s.breakdown,
+      breakdown: JSON.stringify(s.breakdown),
       source,
-      evidence: buildCandidateEvidence(remoteInputOf(fetchedRelease.get(s.id)!, null), s, local.tracks.length),
+      evidence: JSON.stringify(buildCandidateEvidence(remoteInputOf(fetchedRelease.get(s.id)!, null), s, local.tracks.length)),
       acoustidCoverage: coverage !== undefined ? coverage.toFixed(4) : null,
-    });
-  }
-  await upsertAlbumEvidence(ctx.sql, album.id, albumEvidence);
+    }];
+  });
+  // Replace the candidates and the album evidence together: a crash midway
+  // must not leave half a candidate list beside the old album evidence.
+  // A linked app's suggestions (source mc:<link>, worker › mcLanding.ts) are
+  // its own: a re-identification leaves them; revoking the link removes them.
+  await ctx.sql.begin(async (tx) => {
+    await tx`delete from match_candidates where local_album_id = ${album.id} and source not like 'mc:%'`;
+    if (rows.length > 0) {
+      await tx`
+        insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
+        select ${album.id}::uuid, t.release_id, t.distance, t.breakdown::jsonb, t.source, t.evidence::jsonb, t.coverage
+          from unnest(
+            ${rows.map((r) => r.releaseId)}::uuid[],
+            ${rows.map((r) => r.distance)}::numeric[],
+            ${rows.map((r) => r.breakdown)}::text[],
+            ${rows.map((r) => r.source)}::text[],
+            ${rows.map((r) => r.evidence)}::text[],
+            ${rows.map((r) => r.acoustidCoverage)}::numeric[]
+          ) with ordinality as t(release_id, distance, breakdown, source, evidence, coverage, n)
+         order by t.n`;
+    }
+    await upsertAlbumEvidence(tx, album.id, albumEvidence);
+  });
 
   const goLive = async (
     releaseDb: string, status: 'auto' | 'confirmed', decidedBy: 'system' | 'user',

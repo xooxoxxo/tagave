@@ -45,6 +45,20 @@ vi.mock('./providerCache.js', async (importOriginal) => ({
   cached: (_sql: unknown, _provider: unknown, _key: unknown, _ttl: unknown, fn: () => Promise<unknown>) => fn(),
 }));
 
+// A candidate titled BOOM makes the evidence builder throw, the way it does
+// on an alignment that does not fit the tracklists.
+const BOOM = 'Boom Album';
+vi.mock('@tagave/core', async (importOriginal) => {
+  const core = await importOriginal<typeof import('@tagave/core')>();
+  return {
+    ...core,
+    buildCandidateEvidence: (...args: Parameters<typeof core.buildCandidateEvidence>) => {
+      if (args[0].title === BOOM) throw new RangeError('evidence: test failure');
+      return core.buildCandidateEvidence(...args);
+    },
+  };
+});
+
 const { upsertAlbumEvidence, loadEvidence, currentEvidenceHash, remoteInputOf } = await import('./evidenceStore.js');
 const { identifyAlbumJob } = await import('../jobs/identifyAlbum.js');
 const { addEditionJob } = await import('../jobs/addEdition.js');
@@ -230,6 +244,44 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('match evidence store (db)', () 
       expect(c!.evidence!.remote).toMatchObject({ provider: 'musicbrainz', label: 'Label Oy', catalogNumber: 'LBL 1', status: 'Official' });
       expect(c!.evidence!.align.map((t) => [t[0], t[1]])).toEqual([[0, 0], [1, 1]]);
       expect(c!.evidence!.tracks).toEqual([[1, 'Ilta', 200], [1, 'Aamu', 200]]);
+    });
+
+    // A re-identification whose rows cannot all be built writes nothing:
+    // the old candidates and the old album evidence stay as they were.
+    async function identifiedOnce(): Promise<{ albumId: string; before: unknown[]; albumBefore: unknown }> {
+      const r = mbRelease();
+      catalogue.set(r.id, r);
+      const albumId = await album();
+      await identifyAlbumJob(ctx, { localAlbumId: albumId, acoustidMbids: [r.id], acoustidCoverage: { [r.id]: 0.5 } });
+      const before = await client`select id, release_id, distance::text, evidence, acoustid_coverage::text from match_candidates where local_album_id = ${albumId} order by id`;
+      expect(before).toHaveLength(1);
+      const [albumBefore] = await client`select evidence, updated_at::text from album_evidence where local_album_id = ${albumId}`;
+      // the album changes, so a write of new album evidence would show
+      await client`update local_albums set title_guess = 'Evidence Album (renamed)' where id = ${albumId}`;
+      return { albumId, before, albumBefore };
+    }
+    async function expectUnchanged(albumId: string, before: unknown[], albumBefore: unknown) {
+      expect(await client`select id, release_id, distance::text, evidence, acoustid_coverage::text from match_candidates where local_album_id = ${albumId} order by id`).toEqual(before);
+      expect((await client`select evidence, updated_at::text from album_evidence where local_album_id = ${albumId}`)[0]).toEqual(albumBefore);
+    }
+
+    it('evidence that cannot be built for one candidate leaves the old candidates and album evidence', async () => {
+      const { albumId, before, albumBefore } = await identifiedOnce();
+      const good = mbRelease();
+      const boom = mbRelease({ title: BOOM });
+      catalogue.set(good.id, good);
+      catalogue.set(boom.id, boom);
+      await expect(identifyAlbumJob(ctx, { localAlbumId: albumId, force: true, acoustidMbids: [boom.id, good.id] })).rejects.toThrow(RangeError);
+      await expectUnchanged(albumId, before, albumBefore);
+    });
+
+    it('an AcoustID coverage that is not a number is refused before anything is written', async () => {
+      const { albumId, before, albumBefore } = await identifiedOnce();
+      const r = mbRelease();
+      catalogue.set(r.id, r);
+      await expect(identifyAlbumJob(ctx, { localAlbumId: albumId, force: true, acoustidMbids: [r.id], acoustidCoverage: { [r.id]: Number.NaN } }))
+        .rejects.toThrow(/AcoustID coverage/);
+      await expectUnchanged(albumId, before, albumBefore);
     });
 
     it('a pasted edition stores its evidence, and pasting it again refreshes it', async () => {

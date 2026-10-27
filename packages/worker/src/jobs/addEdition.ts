@@ -8,8 +8,8 @@
  * The job's return value is its output (pg-boss), which the API hands to the
  * screen: the new candidate's id, or a sentence saying why there is none.
  */
-import { and, eq, notLike } from 'drizzle-orm';
-import { localAlbums, localTracks, matchCandidates } from '@tagave/db';
+import { eq } from 'drizzle-orm';
+import { localAlbums, localTracks } from '@tagave/db';
 import { scoreCandidates, buildCandidateEvidence, MAX_ALIGN_TRACKS, type CanonicalRelease } from '@tagave/core';
 import type { WorkerContext } from '../lib/context.js';
 import { libraryProviderSettings, getProviders } from '../lib/providers.js';
@@ -76,7 +76,6 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   // no AcoustID coverage, and a listed one keeps the coverage its
   // identification measured (the fingerprints did not change).
   const evidence = buildCandidateEvidence(remoteInputOf(release, null), scored, local.tracks.length);
-  await upsertAlbumEvidence(ctx.sql, album.id, albumEvidence);
 
   // One candidate per release: pasting a listed (or excluded) edition again
   // refreshes its score and brings it back instead of adding a twin. A
@@ -84,24 +83,31 @@ export async function addEditionJob(ctx: WorkerContext, data: AddEditionJobData)
   // that candidate: its breakdown (mc.key names it for the linked app's
   // retract and revoke) stays as the module wrote it, and the owner's
   // evidence goes in a candidate of its own beside it.
-  const existing = await ctx.db.select({ id: matchCandidates.id }).from(matchCandidates)
-    .where(and(eq(matchCandidates.localAlbumId, album.id), eq(matchCandidates.releaseId, releaseId), notLike(matchCandidates.source, 'mc:%'))).limit(1);
   const distance = scored.distance.toFixed(4);
-  if (existing[0]) {
-    await ctx.db.update(matchCandidates)
-      .set({ distance, breakdown: scored.breakdown, excluded: false, evidence })
-      .where(eq(matchCandidates.id, existing[0].id));
-    return { ok: true, candidateId: existing[0].id, releaseId, distance: scored.distance, added: false };
+  const ev = JSON.stringify(evidence);
+  const breakdown = JSON.stringify(scored.breakdown);
+  const source = t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs';
+  // The candidate and the album evidence it was scored against change together.
+  const written = await ctx.sql.begin(async (tx) => {
+    await upsertAlbumEvidence(tx, album.id, albumEvidence);
+    const [existing] = await tx<Array<{ id: string }>>`
+      select id from match_candidates
+       where local_album_id = ${album.id} and release_id = ${releaseId} and source not like 'mc:%' limit 1`;
+    if (existing) {
+      await tx`update match_candidates
+                  set distance = ${distance}::numeric, breakdown = ${breakdown}::text::jsonb, excluded = false, evidence = ${ev}::text::jsonb
+                where id = ${existing.id}`;
+      return { id: existing.id, added: false };
+    }
+    const [inserted] = await tx<Array<{ id: string }>>`
+      insert into match_candidates (local_album_id, release_id, distance, breakdown, source, evidence, acoustid_coverage)
+      values (${album.id}, ${releaseId}, ${distance}::numeric, ${breakdown}::text::jsonb, ${source}, ${ev}::text::jsonb, null)
+      returning id`;
+    return { id: inserted!.id, added: true };
+  });
+  if (!written.added) {
+    return { ok: true, candidateId: written.id, releaseId, distance: scored.distance, added: false };
   }
-  const inserted = await ctx.db.insert(matchCandidates).values({
-    localAlbumId: album.id,
-    releaseId,
-    distance,
-    breakdown: scored.breakdown,
-    source: t.source === 'musicbrainz' ? 'user_mbid' : 'user_discogs',
-    evidence,
-    acoustidCoverage: null,
-  }).returning({ id: matchCandidates.id });
   ctx.logger.info({ localAlbumId: album.id, releaseId, distance: scored.distance }, 'edition added by the owner');
-  return { ok: true, candidateId: inserted[0]!.id, releaseId, distance: scored.distance, added: true };
+  return { ok: true, candidateId: written.id, releaseId, distance: scored.distance, added: true };
 }
