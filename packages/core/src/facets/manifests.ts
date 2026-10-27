@@ -152,7 +152,31 @@ export const PLAYLISTS_MODULE = defineModule({
   defaultEnabled: true,
 });
 
-export const MODULES: readonly ModuleManifest[] = [LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE];
+/**
+ * Autotagger: a decision model judges which tracklist an album in review is,
+ * and the owner accepts whole bands of its decisions after spot checks. Off:
+ * no run starts and Library care › Review hides it; the data stays until
+ * "Delete its data". Its tables are its own migration chain
+ * (migrations/modules/autotagger/); accept batches and match provenance are
+ * core, so accepted batches stay undoable without it.
+ */
+export const AUTOTAGGER_MODULE = defineModule({
+  id: 'autotagger',
+  version: '1.0.0',
+  compatibleWith: MUSIC_1,
+  provides: [],
+  consumes: [],
+  jobs: ['decider.run'],
+  // a table before the ones it references (decider_calls → decider_runs)
+  tables: ['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings'],
+  migrations: 'modules/autotagger',
+  // off until the owner turns it on: it sends album evidence to an outside model, at a cost
+  defaultEnabled: false,
+});
+
+export const MODULES: readonly ModuleManifest[] = [
+  LIBRARY_MODULE, COLLECTION_MODULE, REVIEWS_MODULE, PLAYER_MODULE, MC_MODULE, LISTEN_LINKS_MODULE, PLAYLISTS_MODULE, AUTOTAGGER_MODULE,
+];
 
 /** A ledger row (installed_modules) for every app and in-process module: what a boot syncs. */
 export interface LedgerEntry {

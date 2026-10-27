@@ -46,3 +46,4 @@ export * from './albumLock.js';
 export * from './listenLinks.js';
 export * from './playlistsModule.js';
 export * from './modules.js';
+export * from './autotaggerModule.js';

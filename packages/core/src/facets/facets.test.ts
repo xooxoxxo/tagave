@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   createFacets, createRegistry, defineApp, defineCast, defineFacet, defineModule, ledgerEntries, moduleContext, registry, relayOf, scopeArgs, versionMeets,
-  APPS, MODULES, FACETS, ALBUM_CRITIC_SCORES, CORE_API, MUSIC_APP,
+  APPS, AUTOTAGGER_MODULE, MODULES, FACETS, ALBUM_CRITIC_SCORES, CORE_API, MUSIC_APP,
   type FacetContext, type FacetReader, type ModuleContext,
 } from './index.js';
 
@@ -228,6 +228,16 @@ describe('manifest v2: apps, compatibility, the module ledger', () => {
       { id: 'mc', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'listen-links', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
       { id: 'playlists', kind: 'in-process', version: '1.0.0', defaultEnabled: true },
+      { id: 'autotagger', kind: 'in-process', version: '1.0.0', defaultEnabled: false },
     ]);
+  });
+
+  it('the autotagger: its own migration chain, its tables in purge order, the core decider tables not among them', () => {
+    expect(AUTOTAGGER_MODULE).toMatchObject({ kind: 'in-process', builtIn: false, migrations: 'modules/autotagger', defaultEnabled: false, jobs: ['decider.run'], prefix: null, settingsKeys: [] });
+    expect(AUTOTAGGER_MODULE.tables).toEqual(['decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings']);
+    expect(AUTOTAGGER_MODULE.tables).not.toContain('decider_batches');
+    expect(AUTOTAGGER_MODULE.tables).not.toContain('decider_batch_items');
+    expect(AUTOTAGGER_MODULE.enabled(moduleContext({ autotagger: true }))).toBe(true);
+    expect(AUTOTAGGER_MODULE.enabled(moduleContext({}))).toBe(false);
   });
 });

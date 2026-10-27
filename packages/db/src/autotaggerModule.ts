@@ -1,0 +1,116 @@
+/**
+ * The autotagger module's switch, its per-library settings and its data
+ * (Module Composition Principle rule 2).
+ *
+ *   turn off          no run can start and Library care › Review hides the
+ *                     decider; every row stays
+ *   delete its data   its six tables are emptied, nothing else: accept
+ *                     batches and match provenance are core, so accepted
+ *                     batches stay undoable
+ *
+ * The switch is the module ledger's row 'autotagger' (installed_modules), off
+ * until the owner turns it on; a boot makes the row (syncInstalledModules).
+ * Its settings are per library, in its own table decider_library_settings
+ * (with the sealed API key and its hint), not in libraries.settings.
+ *
+ * The config shape and its defaults are kept here as well as in
+ * @tagave/shared (autotagger.ts), because this package depends on no other
+ * tagave package; a worker test checks that the two agree. The patch is
+ * validated by the caller's parser (autotaggerConfigPatchSchema.parse).
+ */
+import type postgres from 'postgres';
+import { moduleEnabled, setModuleEnabled } from './modules.js';
+
+type Sql = postgres.Sql<any>;
+type Tx = postgres.TransactionSql<any>;
+
+export const AUTOTAGGER_MODULE_ID = 'autotagger';
+
+/** Every table the module owns, a table before the ones it references. */
+export const AUTOTAGGER_TABLES = [
+  'decider_spot_checks', 'decider_decisions', 'decider_calls', 'decider_runs', 'decider_prices', 'decider_library_settings',
+] as const;
+
+/** The module's settings for one library (@tagave/shared AutotaggerConfig). */
+export interface AutotaggerConfig {
+  model: string;
+  monthlyCap: number | null;
+  currency: string;
+  maxErrorRate: number;
+  maxRequestBytes: number | null;
+  payloadSeenAt: string | null;
+  payloadSeenBy: string | null;
+}
+
+export const DEFAULT_AUTOTAGGER_CONFIG: Readonly<AutotaggerConfig> = Object.freeze({
+  model: 'jev-latest',
+  monthlyCap: null,
+  currency: 'USD',
+  maxErrorRate: 0.01,
+  maxRequestBytes: null,
+  payloadSeenAt: null,
+  payloadSeenBy: null,
+});
+
+/** What the owner may change (@tagave/shared AutotaggerConfigPatch). */
+export type AutotaggerConfigPatch = { [K in 'model' | 'monthlyCap' | 'currency' | 'maxErrorRate' | 'maxRequestBytes']?: AutotaggerConfig[K] | undefined };
+
+const CONFIG_KEYS = Object.keys(DEFAULT_AUTOTAGGER_CONFIG) as Array<keyof AutotaggerConfig>;
+
+export async function autotaggerEnabled(sql: Sql | Tx): Promise<boolean> {
+  return moduleEnabled(sql, AUTOTAGGER_MODULE_ID);
+}
+
+/** UnknownModuleError until a boot has made the module's ledger row. */
+export async function setAutotaggerEnabled(sql: Sql | Tx, enabled: boolean): Promise<void> {
+  await setModuleEnabled(sql, AUTOTAGGER_MODULE_ID, enabled);
+}
+
+const asObject = (v: unknown): Record<string, unknown> => {
+  const o = typeof v === 'string' ? JSON.parse(v) : v;
+  return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : {};
+};
+
+/** The stored keys it knows, over the defaults. */
+function withDefaults(stored: Record<string, unknown>): AutotaggerConfig {
+  const out: Record<string, unknown> = { ...DEFAULT_AUTOTAGGER_CONFIG };
+  for (const k of CONFIG_KEYS) if (k in stored) out[k] = stored[k];
+  return out as unknown as AutotaggerConfig;
+}
+
+/** The library's settings: the defaults, with what the owner set over them. */
+export async function autotaggerConfig(sql: Sql | Tx, libraryId: string): Promise<AutotaggerConfig> {
+  const [row] = await sql<Array<{ config: unknown }>>`select config from decider_library_settings where library_id = ${libraryId}`;
+  return withDefaults(asObject(row?.config));
+}
+
+/**
+ * Merge `patch` into the library's settings and return them. `parse` is the
+ * patch's validator (autotaggerConfigPatchSchema.parse from @tagave/shared);
+ * what it throws, nothing is written. A key set to null is stored as null
+ * (no cap, no limit).
+ */
+export async function setAutotaggerConfig(
+  sql: Sql | Tx,
+  libraryId: string,
+  patch: unknown,
+  parse: (raw: unknown) => AutotaggerConfigPatch,
+): Promise<AutotaggerConfig> {
+  const valid = parse(patch);
+  const set = Object.fromEntries(Object.entries(valid).filter(([, v]) => v !== undefined));
+  const [row] = await sql<Array<{ config: unknown }>>`
+    insert into decider_library_settings (library_id, config) values (${libraryId}, ${JSON.stringify(set)}::text::jsonb)
+    on conflict (library_id) do update
+      set config = decider_library_settings.config || excluded.config, updated_at = now()
+    returning config`;
+  return withDefaults(asObject(row?.config));
+}
+
+/** Delete the module's data: exactly its rows, in one transaction. Idempotent. */
+export async function removeAutotaggerData(sql: Sql): Promise<Record<(typeof AUTOTAGGER_TABLES)[number], number>> {
+  return sql.begin(async (tx) => {
+    const out = {} as Record<(typeof AUTOTAGGER_TABLES)[number], number>;
+    for (const t of AUTOTAGGER_TABLES) out[t] = (await tx`delete from ${tx(t)}`).count;
+    return out;
+  });
+}

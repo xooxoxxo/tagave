@@ -2114,3 +2114,141 @@ export const installedModules = pgTable('installed_modules', {
   settings: jsonb().notNull().default(sql`'{}'::jsonb`),
   updatedAt: tstz('updated_at').notNull().defaultNow(),
 });
+
+// The autotagger module (migrations/modules/autotagger/0001): its own tables,
+// emptied by "Delete its data"; no core table references them. Read and
+// written through autotaggerModule.ts (and the decider's own code).
+
+/** Per library: the sealed API key, its hint and the module's settings. */
+export const deciderLibrarySettings = pgTable('decider_library_settings', {
+  libraryId: uuid('library_id').primaryKey().references(() => libraries.id, { onDelete: 'cascade' }),
+  /** the API key, sealed with the app secret; never exported */
+  sealedKey: text('sealed_key'),
+  keyHint: varchar('key_hint', { length: 8 }),
+  config: jsonb().notNull().default(sql`'{}'::jsonb`),
+  updatedAt: tstz('updated_at').notNull().defaultNow(),
+});
+
+/** What a model costs per million input tokens; model '*' prices every model of the decider. */
+export const deciderPrices = pgTable(
+  'decider_prices',
+  {
+    deciderId: varchar('decider_id', { length: 40 }).notNull(),
+    model: varchar({ length: 80 }).notNull(),
+    perMillionInput: numeric('per_million_input', { precision: 12, scale: 6 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.deciderId, table.model] }),
+    priceCheck: check('decider_prices_per_million_input_check', sql`per_million_input >= 0`),
+  })
+);
+
+/** One owner-started run over a population. */
+export const deciderRuns = pgTable(
+  'decider_runs',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    deciderId: varchar('decider_id', { length: 40 }).notNull(),
+    specHash: varchar('spec_hash', { length: 80 }).notNull(),
+    modelRequested: varchar('model_requested', { length: 80 }).notNull(),
+    deciderVersion: varchar('decider_version', { length: 80 }),
+    /** needs_review | weak | backtest | measure */
+    population: varchar({ length: 16 }).notNull(),
+    /** queued | running | paused | done | cancelled | failed */
+    state: varchar({ length: 16 }).notNull().default('queued'),
+    pauseReason: varchar('pause_reason', { length: 24 }),
+    message: text(),
+    seed: integer().notNull().default(sql`floor(random() * 2147483647)::int`),
+    startedByUserId: uuid('started_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    startedAt: tstz('started_at'),
+    finishedAt: tstz('finished_at'),
+  },
+  (table) => ({
+    libraryIdx: index('idx_decider_runs_library').on(table.libraryId, table.createdAt.desc()),
+    populationCheck: check('decider_runs_population_check', sql`population in ('needs_review', 'weak', 'backtest', 'measure')`),
+    stateCheck: check('decider_runs_state_check', sql`state in ('queued', 'running', 'paused', 'done', 'cancelled', 'failed')`),
+  })
+);
+
+/** Every billed call, unique per album, evidence, question spec and dated model. */
+export const deciderCalls = pgTable(
+  'decider_calls',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    libraryId: uuid('library_id').notNull().references(() => libraries.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').notNull().references(() => localAlbums.id, { onDelete: 'cascade' }),
+    runId: uuid('run_id').references(() => deciderRuns.id, { onDelete: 'set null' }),
+    evidenceHash: char('evidence_hash', { length: 64 }).notNull(),
+    specHash: varchar('spec_hash', { length: 80 }).notNull(),
+    deciderId: varchar('decider_id', { length: 40 }).notNull(),
+    deciderVersion: varchar('decider_version', { length: 80 }).notNull(),
+    requestBytes: integer('request_bytes').notNull(),
+    inputTokens: integer('input_tokens').notNull(),
+    cost: numeric({ precision: 12, scale: 6 }).notNull(),
+    currency: char({ length: 3 }).notNull(),
+    answers: jsonb().notNull(),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    once: unique('decider_calls_local_album_id_evidence_hash_spec_hash_decider_version_key').on(
+      table.localAlbumId, table.evidenceHash, table.specHash, table.deciderVersion,
+    ),
+    monthIdx: index('idx_decider_calls_library_month').on(table.libraryId, table.createdAt),
+  })
+);
+
+/** What a run decided per album. */
+export const deciderDecisions = pgTable(
+  'decider_decisions',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    runId: uuid('run_id').notNull().references(() => deciderRuns.id, { onDelete: 'cascade' }),
+    localAlbumId: uuid('local_album_id').notNull().references(() => localAlbums.id, { onDelete: 'cascade' }),
+    callId: uuid('call_id').references(() => deciderCalls.id, { onDelete: 'set null' }),
+    evidenceHash: char('evidence_hash', { length: 64 }),
+    lastIdentifyAt: tstz('last_identify_at'),
+    /** pick | none | too_large | no_candidates | rejected | error */
+    outcome: varchar({ length: 16 }).notNull(),
+    groupLabel: varchar('group_label', { length: 4 }),
+    groupReleaseIds: uuid('group_release_ids').array().notNull().default(sql`'{}'`),
+    releaseId: uuid('release_id'),
+    distance: numeric({ precision: 5, scale: 4 }),
+    source: varchar({ length: 50 }),
+    probability: numeric({ precision: 5, scale: 4 }),
+    margin: numeric({ precision: 5, scale: 4 }),
+    band: varchar({ length: 10 }),
+    reason: text(),
+    requestBytes: integer('request_bytes'),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (table) => ({
+    once: unique('decider_decisions_run_id_local_album_id_key').on(table.runId, table.localAlbumId),
+    bandIdx: index('idx_decider_decisions_band').on(table.runId, table.band).where(sql`outcome = 'pick'`),
+    outcomeCheck: check('decider_decisions_outcome_check', sql`outcome in ('pick', 'none', 'too_large', 'no_candidates', 'rejected', 'error')`),
+    probabilityCheck: check('decider_decisions_probability_check', sql`probability is null or (probability >= 0 and probability <= 1)`),
+  })
+);
+
+/** The owner's verdict on random decisions per band. */
+export const deciderSpotChecks = pgTable(
+  'decider_spot_checks',
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    runId: uuid('run_id').notNull().references(() => deciderRuns.id, { onDelete: 'cascade' }),
+    decisionId: uuid('decision_id').notNull().unique().references(() => deciderDecisions.id, { onDelete: 'cascade' }),
+    band: varchar({ length: 10 }).notNull(),
+    /** pending | correct | wrong | unsure */
+    verdict: varchar({ length: 8 }).notNull().default('pending'),
+    checkedByUserId: uuid('checked_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    drawnAt: tstz('drawn_at').notNull().defaultNow(),
+    checkedAt: tstz('checked_at'),
+  },
+  (table) => ({
+    bandIdx: index('idx_decider_spot_checks_band').on(table.runId, table.band, table.verdict),
+    verdictCheck: check('decider_spot_checks_verdict_check', sql`verdict in ('pending', 'correct', 'wrong', 'unsure')`),
+  })
+);

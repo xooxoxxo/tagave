@@ -546,3 +546,6 @@ export * from './userPrefs.js';
 
 // Accept batches (Library care › Review › batches)
 export * from './batches.js';
+
+// The autotagger module: its per-library settings and price rows
+export * from './autotagger.js';

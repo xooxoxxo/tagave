@@ -138,7 +138,10 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     ]);
     const ctx = moduleContext(await moduleSwitches(sql));
     expect(['mc', 'listen-links', 'playlists'].map((id) => registry.isEnabled(id, ctx))).toEqual([true, true, false]);
-    // a boot's sync changes no switch
+    // a boot's sync adds the rows of the modules 0065 did not know (the
+    // autotagger, at its default: off) and changes no switch
+    expect(await syncInstalledModules(sql, ledgerEntries())).toEqual(['autotagger']);
+    expect(await moduleEnabled(sql, 'autotagger')).toBe(false);
     expect(await syncInstalledModules(sql, ledgerEntries())).toEqual([]);
     expect(await newSwitches(sql)).toEqual(before.switches);
   });
@@ -151,10 +154,12 @@ describe.skipIf(!url)('step 2 upgrade from 0059 with data (old ledger shape)', (
     ]);
   });
 
-  it('every ledger row is the core’s, keyed (module, name)', async () => {
-    const rows = await sql`select module, name from _migrations order by name`;
-    expect(rows.every((r) => r['module'] === 'core')).toBe(true);
-    expect(rows.map((r) => r['name'])).toEqual([...before.ledger, ...applied]);
+  it('every ledger row is keyed (module, name): the core chain’s, then a module’s own chain under its id', async () => {
+    const rows = await sql`select module, name from _migrations order by module = 'core' desc, module, name`;
+    const own = applied.filter((f) => f.includes('/'));
+    expect(own).toEqual(['autotagger/0001_autotagger.sql']);
+    expect(rows.filter((r) => r['module'] === 'core').map((r) => r['name'])).toEqual([...before.ledger, ...applied.filter((f) => !f.includes('/'))]);
+    expect(rows.filter((r) => r['module'] !== 'core').map((r) => `${r['module']}/${r['name']}`)).toEqual(own);
     expect(await readLedger(sql)).toEqual([...before.ledger, ...applied]);
     const [pk] = await sql`select pg_get_constraintdef(oid) as def from pg_constraint where conrelid = '_migrations'::regclass and contype = 'p'`;
     expect(pk!['def']).toBe('PRIMARY KEY (module, name)');
@@ -287,8 +292,9 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
   it('restores the pre-change dump (old ledger, switches in the settings), and the new app upgrades it to the same state', async () => {
     const dump = await runBackup({ databaseUrl: db.url, outDir: dir, kind: 'manual' });
     expect(dump.tocEntries).toBeGreaterThan(0);
-    // the update: step 2 applies
-    expect(await migrateAll(db.url)).toEqual(STEP2);
+    // the update: step 2 applies (later core migrations and module chains follow it)
+    const updated = await migrateAll(db.url);
+    expect(updated.slice(0, STEP2.length)).toEqual(STEP2);
     const upgraded = await state(db.url);
     expect(upgraded.switches).toEqual({ mc: true, 'listen-links': true, playlists: true });
 
@@ -306,7 +312,7 @@ describe.skipIf(!!toolsMissing)('a backup taken before step 2 restores and upgra
     }
 
     // and the new app upgrades the restored database again, to the same state
-    expect(await migrateAll(db.url)).toEqual(STEP2);
+    expect(await migrateAll(db.url)).toEqual(updated);
     expect(await state(db.url)).toEqual(upgraded);
   }, 180_000);
 });
@@ -331,6 +337,8 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
     db = await createScratchDb(url!, admin);
     await migrateAll(db.url);
     sql = postgres(db.url, { max: 2, onnotice: () => undefined });
+    // as a boot does: a row for every manifest 0065 did not make
+    await syncInstalledModules(sql, ledgerEntries());
     await sql`insert into users (id, email, password_hash) values (${ids.user}, ${`p-${ids.user}@test.com`}, 'x')`;
     await sql`insert into libraries (id, owner_user_id, name) values (${ids.lib}, ${ids.user}, 'Plug')`;
     await sql`insert into release_groups (id, mbid, title) values (${ids.rg}, ${randomUUID()}, 'Linked')`;
@@ -381,7 +389,7 @@ describe.skipIf(!url)('plug and unplug Listen elsewhere through the ledger: core
   it('every module purge-module knows lists a table before the tables it references (the order it empties them)', async () => {
     const refs = await sql<Array<{ t: string; ref: string }>>`
       select c.conrelid::regclass::text as t, c.confrelid::regclass::text as ref from pg_constraint c where c.contype = 'f'`;
-    expect(Object.keys(MODULE_DATA).sort()).toEqual(['listen-links', 'player', 'playlists']);
+    expect(Object.keys(MODULE_DATA).sort()).toEqual(['autotagger', 'listen-links', 'player', 'playlists']);
     for (const [id, data] of Object.entries(MODULE_DATA)) {
       const at = new Map(data.tables.map((t, i) => [t, i]));
       for (const r of refs) {
