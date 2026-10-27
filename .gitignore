@@ -21,6 +21,7 @@ packages/tagwriter-py/.venv/
 storybook-static/
 storybook-test-results/
 storybook-test-report/
+packages/web/pwa-test-results/
 packages/web/.storybook-docker/
 packages/*/.vitest/
 
